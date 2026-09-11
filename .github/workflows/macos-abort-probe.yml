@@ -1,0 +1,253 @@
+name: macOS abort probe
+
+# One experiment, not a suite. `pytest 3.12 on macos-latest (shard 1/10)` has been aborting for longer
+# than the 2026-09-08 review round -- 25 `Fatal Python error: Aborted` at 72b4db410, 13 at d29a0b627 --
+# always in the same three biz_val tests of the training core, and never on ubuntu or windows with the
+# same code. See audits/ci_review_2026-09-08/_TRACKER.md, X5.
+#
+# The documented cause of this signature in this repo is the numba hazard: entering a `parallel=True`
+# kernel concurrently from more than one thread aborts the process on macOS while Linux tolerates it.
+# The guard and the call-graph scanner added in that round report zero unguarded reachable paths, so
+# either the path is one the walker cannot see (a dispatch table, a joblib worker boundary) or the
+# signature has a different mechanism behind it.
+#
+# ROUND 1 (run 34297712463) asked: does the crash need concurrency at all? Answer: no.
+#   * serial leg -- `Fatal Python error: Segmentation fault`, exit 139, ZERO aborts, ZERO OpenMP errors.
+#     It dies immediately after `collected 5 items`, before the first test reports anything.
+#   * xdist leg  -- three segfaults PLUS `OMP: Error #179: Function pthread_mutex_init failed`, twice,
+#     which the serial leg never emits.
+# So there appear to be two failures, not one: a segfault that needs no concurrency, and an OpenMP
+# resource failure that only appears when several processes bring up their own runtimes. The
+# numba-parallel-guard hypothesis -- concurrent entry into a `parallel=True` kernel from separate xdist
+# workers -- does not explain the first, which is the one that matters.
+#
+# ROUND 2, `one-by-one`, narrows within that file: each test id in its own interpreter, `--collect-only`
+# first, so a crash names itself and a crash BEFORE any test runs is distinguishable from one inside it.
+#
+# ROUND 5, `lldb` and `env-mitigation`, exist because round 4's one-by-one leg named a concrete repro:
+# each of the three tests segfaults ALONE, no sibling process, always after `collected 1 item` (inside
+# the test body). All three call train_mlframe_models_suite(..., mlframe_models=["lgb"], ...) on a small
+# real LightGBM fit. A Python-level traceback (faulthandler's, already collected) stops at threading.py
+# frames -- it cannot see into a native crash. `lldb` runs the same pytest invocation under Xcode's
+# debugger (already on the runner) and asks for every thread's native backtrace on crash. `env-mitigation`
+# tests the duplicate-OpenMP-runtime hypothesis directly, on the real failing test rather than in
+# isolation: KMP_DUPLICATE_LIB_OK (Intel's own escape hatch for exactly this failure shape), OMP_NUM_THREADS=1,
+# and NUMBA_NUM_THREADS=1, each alone and combined.
+#
+# ROUND 3, `native-stack`, exists because rounds 1 and 2 were both scoped too narrowly. Checking the other
+# failing macOS shards in run 34297709357 showed the crash is not about these three tests at all:
+#   shard 1  aborts               tests/training/test_biz_val_training_core.py
+#   shard 2  2 segfaults          tests/feature_selection/biz_val/test_biz_val_weak_family_adversarial.py
+#   shard 8  3 aborts, 3 segfaults tests/training/composite/cache/test_composite_*.py
+# Unrelated modules, mixed signatures, one platform: `Image: macos-26-arm64` -- macos-latest is macOS 26 on
+# Apple Silicon, and the whole native stack (numba/llvmlite, catboost, lightgbm on libomp, sklearn's
+# OpenMP) runs there.
+#
+# So round 3 asks a question about the platform rather than about mlframe: which native library is
+# unstable on this runner? Each one is imported and exercised in ITS OWN process, with no mlframe code
+# involved, so a crash names the library. If every library survives alone but the combined import crashes,
+# the subject is their interaction -- the duplicate-OpenMP-runtime problem, which has a known shape and a
+# known set of remedies.
+#
+# ROUND 5b (dispatch 34319381472) found the actual fault: `lldb`'s corrected trace shows
+# `EXC_BAD_ACCESS` INSIDE `libomp.dylib`'s own `__kmp_suspend_initialize_thread`, reached through
+# LightGBM's `Dataset` construction (`LGBM_DatasetCreateFromMat -> ConstructFromSampleData ->
+# __kmpc_fork_call -> ... -> GreedyFindBin`, crashing in libomp's worker-thread-suspend bookkeeping, not
+# in LightGBM's own code). `env-mitigation`'s rewrite supports this from the other side: a bare LightGBM
+# fit at n_jobs=os.cpu_count(), 50 repeats, no mlframe, no numba -- 50/50 clean. The libomp installed
+# here and in ci.yml's real leg, both via unpinned `brew install libomp`, resolved to 23.1.0 -- Homebrew's
+# current stable, a very recent LLVM line.
+#
+# ROUND 6, `pinned-libomp`, tests the leading fix candidate: an older, longer-soaked libomp build.
+# Homebrew's formula API serves only the current version, so getting an older one means pointing
+# `brew install` at an old commit's formula file directly (it resolves and fetches that exact bottle by
+# the SHA256 baked into the file) rather than a plain `brew install libomp@<version>`, which does not
+# exist for this formula. Runs the exact same test set as `serial`, so libomp's version is the only
+# variable between the two legs. ROUND 8 (after two Homebrew-syntax fixes) found it installs cleanly but
+# does NOT avoid the crash -- ruled out as the fix.
+#
+# ROUND 9 shipped `n_jobs=1` for LightGBM on darwin (mlframe.training.lgb_shim.lgb_default_n_jobs) --
+# re-dispatching this SAME probe showed the crash reproduces identically even with n_jobs=1 confirmed
+# active. ROUND 10 shipped `OMP_NUM_THREADS=1` as a real OS env var, set at `import mlframe` time (before
+# any submodule, including lgb_shim, can even be reached) -- re-dispatching again showed the SAME crash,
+# and `lldb`'s backtrace caught TWO threads concurrently inside the identical
+# `__kmp_suspend_initialize_thread` frame, proving the OpenMP team was never actually constrained to 1 by
+# either lever. Something in the process sets a thread count above 1 before either lever's effect is
+# visible to LightGBM's Dataset-construction sampling phase.
+#
+# ROUND 11, `kmp-settings`, stops guessing at more levers and asks libomp directly what it resolved:
+# `KMP_SETTINGS=1` makes libomp's own runtime log every ICV (thread count, affinity, the works) to stderr
+# the first time ANY parallel region opens in the process -- this names whichever value actually won,
+# and (from the ordering of these lines relative to mlframe's own log output) roughly where in the import
+# chain it was decided, without needing an lldb breakpoint on omp_set_num_threads.
+#
+# workflow_dispatch only: it exists to be asked a question, and a scheduled probe nobody reads is the
+# thing this repo's own review criticised elsewhere.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to probe (defaults to the branch this is dispatched on)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-abort-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: ${{ matrix.mode }} on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      # The clone is the intended pyutilz source here, as in every other install site; only the lockfile
+      # job wants [tool.uv.sources]. See the note in ci.yml's test job.
+      UV_NO_SOURCES: "1"
+      PYTHONUNBUFFERED: "1"
+      MLFRAME_FAST: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        # Explicit combinations rather than a cross-product: only two legs need to run on both
+        # architectures, and the rest would double the spend for nothing.
+        #
+        # ROUND 4 is the `macos-15-intel` pair. `macos-latest` became macOS 26 on Apple Silicon, and every
+        # macOS shard that finishes is red while ubuntu and windows are clean on the same commit. If the
+        # same code passes on the Intel image, the subject is the architecture -- and the remedy is pinning
+        # a runner label, not changing mlframe. If Intel crashes too, the architecture is exonerated and
+        # something else about the macOS environment is at fault.
+        #
+        # serial is round 1's experiment and xdist its control; both are kept so a re-dispatch reproduces
+        # the earlier result rather than trusting this file's summary of it. one-by-one is round 2,
+        # native-stack round 3.
+        include:
+          - { mode: serial, runner: macos-latest }
+          - { mode: xdist, runner: macos-latest }
+          - { mode: one-by-one, runner: macos-latest }
+          - { mode: native-stack, runner: macos-latest }
+          - { mode: serial, runner: macos-15-intel }
+          - { mode: native-stack, runner: macos-15-intel }
+          - { mode: lldb, runner: macos-latest }
+          - { mode: env-mitigation, runner: macos-latest }
+          # ROUND 6: does an older, longer-soaked libomp avoid the crash? Runs the exact same test set as
+          # `serial` -- the leg that reproduced cleanly in every round so far -- so the only variable
+          # between this leg and `serial` above is which libomp got installed.
+          - { mode: pinned-libomp, runner: macos-latest }
+          # ROUND 11: instrument libomp itself rather than guess a third Python-side lever.
+          - { mode: kmp-settings, runner: macos-latest }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # LightGBM's macOS wheel links against libomp and will not import without it. Same step ci.yml runs
+      # -- except for the `pinned-libomp` leg, which tests round 5b's finding: the crash is a fault
+      # INSIDE libomp itself (EXC_BAD_ACCESS in __kmp_suspend_initialize_thread, reached through
+      # LightGBM's Dataset construction), and both this probe and ci.yml install libomp unpinned, which
+      # resolved to 23.1.0 -- Homebrew's current stable, a very recent LLVM line. Homebrew's formula API
+      # serves only the current version, so there is no `libomp@<version>` the way there is for
+      # `python@3.12`; installing an older release means pointing `brew install` at an old commit's
+      # formula file directly, which resolves and fetches that exact bottle by the SHA256 baked into it.
+      # 22.1.8 (2026-06-16) is three months more soaked than 23.1.0 (2026-08-29) as of this dispatch.
+      - name: Install the OpenMP runtime LightGBM needs
+        run: |
+          if [ "$MODE" = "pinned-libomp" ]; then
+            # Round 6 first attempt: `brew install <raw.githubusercontent.com URL>` -- rejected, newer
+            # Homebrew does not accept a formula URL as the install target.
+            # Round 7 attempt: download the .rb file locally, `brew install <local path>` -- also
+            # rejected: "Homebrew requires formulae to be in a tap." An untapped formula file, even
+            # local, is no longer installable at all -- it must live inside a tap directory.
+            # Fix: make a local tap (`brew tap-new`) and place the formula inside it, which is the
+            # documented way to install a formula version Homebrew's own API no longer serves.
+            brew tap-new local/libomp-pin
+            curl -fsSL -o "$(brew --repository local/libomp-pin)/Formula/libomp.rb" \
+              https://raw.githubusercontent.com/Homebrew/homebrew-core/ddbdc91ebe/Formula/lib/libomp.rb
+            brew install local/libomp-pin/libomp
+          else
+            brew install libomp
+          fi
+        env:
+          MODE: ${{ matrix.mode }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+        with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[all,dev]"
+          pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
+
+      - name: Report the architecture this leg is on
+        run: |
+          echo "runner label: ${{ matrix.runner }}"
+          uname -m
+          sysctl -n machdep.cpu.brand_string 2>/dev/null || true
+          python -c "import platform; print('python', platform.python_version(), platform.machine())"
+
+      - name: Run the three aborting tests
+        env:
+          # Read as $MODE rather than spliced into the script text: this repo passes every matrix value
+          # through the environment so zizmor's template-injection audit has nothing to flag.
+          MODE: ${{ matrix.mode }}
+        run: |
+          # -p no:randomly for a reproducible order; --timeout-method=thread because macOS is where signal
+          # is unsafe. Everything else matches the shard that aborts.
+          if [ "$MODE" = "kmp-settings" ]; then
+            bash scripts/macos_lgb_kmp_settings_probe.sh
+            exit 0
+          fi
+          if [ "$MODE" = "native-stack" ]; then
+            bash scripts/macos_native_stack_probe.sh
+            exit 0
+          fi
+          if [ "$MODE" = "lldb" ] || [ "$MODE" = "env-mitigation" ]; then
+            bash scripts/macos_lgb_crash_repro.sh "$MODE"
+            exit 0
+          fi
+          if [ "$MODE" = "one-by-one" ]; then
+            # Each id in its own interpreter. `|| true` per test on purpose: a segfault must not stop the
+            # loop, because the point is to learn which of the three crash, not just that one does.
+            # Collection alone runs first: if THAT segfaults, nothing about the tests themselves is
+            # implicated and the subject is import or session setup.
+            echo "=== collect-only ==="
+            pytest tests/training/test_biz_val_training_core.py --collect-only -q --no-cov -p no:randomly -p no:anyio || echo "EXIT=$? (collect-only)"
+            for t in test_biz_val_training_suite_classification_completes \
+                     test_biz_val_training_suite_regression_completes \
+                     "test_biz_val_training_suite_mlframe_models_subset[model_list0]"; do
+              echo "=== $t ==="
+              pytest "tests/training/test_biz_val_training_core.py::$t" \
+                --no-cov -p no:randomly -p no:anyio --timeout=900 --timeout-method=thread -s \
+                || echo "EXIT=$? for $t"
+            done
+            exit 0
+          fi
+          if [ "$MODE" = "serial" ] || [ "$MODE" = "pinned-libomp" ]; then
+            DIST=""
+          else
+            DIST="-n auto --dist=loadgroup"
+          fi
+          # shellcheck disable=SC2086
+          pytest tests/training/test_biz_val_training_core.py \
+            -m "not slow and not gpu and not multigpu" \
+            $DIST \
+            --no-cov \
+            -p no:randomly \
+            -p no:anyio \
+            --timeout=900 \
+            --timeout-method=thread \
+            --durations=200 \
+            -s

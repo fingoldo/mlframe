@@ -1,0 +1,88 @@
+name: local-only hooks
+
+# Nine pre-commit hooks had no CI counterpart at all, so they were enforced only on a machine with hooks
+# installed: `git commit --no-verify` skipped them, and a pull request from a fork never ran them in the
+# first place. For a public repository taking outside contributions that is not a gate, it is a
+# convention -- and `detect-secrets` in particular is the one where "convention" is the wrong word.
+#
+# The config's own header states the policy as "CI-blocking implies a local hook". The converse was never
+# checked, which is what this workflow fixes. It runs exactly the hooks with no CI counterpart; everything
+# else in .pre-commit-config.yaml is already covered by ci.yml or the py-ci-shared reusable workflows, and
+# duplicating those here would double the spend for no additional signal.
+#
+# Advisory for now, deliberately: several of these hooks are auto-fixers (end-of-file-fixer,
+# trailing-whitespace, mixed-line-ending) whose failure mode on a checkout is "I rewrote your files",
+# and nobody has measured how many files a fresh clone trips. Flip `continue-on-error` off once a run
+# reads clean -- and see audits/ci_review_2026-09-08/_TRACKER.md L1.5 for the reasoning.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-only-hooks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hooks:
+    name: hooks with no CI counterpart
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install pre-commit
+        run: python -m pip install --disable-pip-version-check "pre-commit>=3.3"
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-py3.12-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      # Named one per step rather than in a single invocation: a combined run reports one red X and the
+      # log has to be read to learn which check failed, which is the diagnosis problem the JUnit summary
+      # job exists to avoid elsewhere in this repo.
+      - name: detect-secrets
+        run: pre-commit run --all-files detect-secrets
+
+      - name: shellcheck
+        if: '!cancelled()'
+        run: pre-commit run --all-files shellcheck
+
+      - name: check-merge-conflict
+        if: '!cancelled()'
+        run: pre-commit run --all-files check-merge-conflict
+
+      - name: check-added-large-files
+        if: '!cancelled()'
+        run: pre-commit run --all-files check-added-large-files
+
+      - name: check-yaml / check-toml / check-json
+        if: '!cancelled()'
+        run: |
+          pre-commit run --all-files check-yaml
+          pre-commit run --all-files check-toml
+          pre-commit run --all-files check-json
+
+      # These three rewrite files rather than only reporting, so a failure here means "the checkout was
+      # not already normalised", not "someone broke something".
+      - name: whitespace and line-ending normalisers
+        if: '!cancelled()'
+        run: |
+          pre-commit run --all-files mixed-line-ending
+          pre-commit run --all-files end-of-file-fixer
+          pre-commit run --all-files trailing-whitespace

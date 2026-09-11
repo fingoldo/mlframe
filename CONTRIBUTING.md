@@ -12,8 +12,10 @@ cd mlframe
 git clone https://github.com/fingoldo/pyutilz.git ../pyutilz
 pip install -e ../pyutilz
 
-# Install mlframe with the extras you need + dev tooling:
-pip install -e ".[boosting,calibration,viz,dev]"
+# Install mlframe with the extras you need + dev tooling. The -r file carries py-ci-shared, which is a
+# git checkout and so cannot be declared in [dev] (a direct reference there would make the built
+# distribution unuploadable); tests/test_meta and several pre-commit hooks import it.
+pip install -e ".[boosting,calibration,viz,dev]" -r requirements-dev.txt
 
 # pyproject.toml's [tool.ruff] extends the shared base ruff config from
 # $PY_CI_SHARED_DIR/configs/ruff-base.toml -- ruff hard-fails with "environment

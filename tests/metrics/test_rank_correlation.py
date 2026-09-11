@@ -300,6 +300,8 @@ class TestSpearmanScalarKernel:
         compile, not silently skipped because an earlier test in this same process already compiled
         (and warned about) this exact signature.
         """
+        import os
+        import pathlib
         import subprocess
         import sys
         import textwrap
@@ -323,7 +325,17 @@ class TestSpearmanScalarKernel:
             print("OK")
             """
         )
-        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120)
+        # A subprocess does not inherit the parent's sys.path, so `python -c` imports whatever mlframe is
+        # installed rather than the one under test. In a git worktree those are different trees and the
+        # import fails outright; worse, where an installed copy does exist the test would silently assert
+        # against code the suite is not testing. Hand it the exact tree this process imported.
+        import mlframe
+
+        src_root = str(pathlib.Path(mlframe.__file__).resolve().parents[1])
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join([src_root, env["PYTHONPATH"]]) if env.get("PYTHONPATH") else src_root
+
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120, env=env)
         assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
         assert "OK" in result.stdout
 

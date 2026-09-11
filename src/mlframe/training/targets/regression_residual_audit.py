@@ -626,11 +626,11 @@ def format_residual_audit_report(audit: ResidualAudit, *, ndigits: int = 4) -> s
     sample_note = f" (sampled {audit.n:_}/{audit.n_total:_})" if audit.sampled else f" (n={audit.n:_})"
     lines = [
         f"residual_audit{sample_note}:",
-        f"  moments:   mean={audit.mean:+.{ndigits}g} std={audit.std:.{ndigits}g} " f"median={audit.median:+.{ndigits}g} MAD={audit.mad:.{ndigits}g}",
-        f"  shape:     skew={audit.skew:+.{ndigits-2}f} excess_kurt={audit.excess_kurt:+.{ndigits-2}f} "
+        (f"  moments:   mean={audit.mean:+.{ndigits}g} std={audit.std:.{ndigits}g} " f"median={audit.median:+.{ndigits}g} MAD={audit.mad:.{ndigits}g}"),
+        (f"  shape:     skew={audit.skew:+.{ndigits-2}f} excess_kurt={audit.excess_kurt:+.{ndigits-2}f} "
         f"|p01,p99|=[{audit.p01:+.{ndigits-2}f}, {audit.p99:+.{ndigits-2}f}] "
-        f"outliers_3sigma={audit.pct_outliers_3sigma*100:.2f}%",
-        f"  hetero:    spearman(|resid|, y_hat) = {audit.hetero_spearman:+.{ndigits-2}f} " f"({'significant' if audit.hetero_significant else 'ok'})",
+        f"outliers_3sigma={audit.pct_outliers_3sigma*100:.2f}%"),
+        (f"  hetero:    spearman(|resid|, y_hat) = {audit.hetero_spearman:+.{ndigits-2}f} " f"({'significant' if audit.hetero_significant else 'ok'})"),
         f"  hypothesis: {audit.hypothesis}",
         f"  suggested:  {audit.suggested_loss}",
     ]

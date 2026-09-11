@@ -34,6 +34,43 @@ pattern works on a built wheel by importing ``mlframe.training``, ``mlframe.metr
 from __future__ import annotations
 
 
+def _autoconfigure_macos_omp_threads() -> None:
+    """Set ``OMP_NUM_THREADS=1`` / ``KMP_DUPLICATE_LIB_OK=TRUE`` on macOS, as early as possible.
+
+    LightGBM's Dataset construction crashes on macOS CI inside libomp.dylib itself
+    (``EXC_BAD_ACCESS`` in ``__kmp_suspend_initialize_thread``, see
+    ``audits/ci_review_2026-09-08/_TRACKER.md``, X5) -- confirmed a libomp bug, not
+    LightGBM's or mlframe's own code, and confirmed NOT fixed by pinning an older
+    libomp build, NOR by LightGBM's own ``num_threads``/``n_jobs`` config (round 9:
+    the crash still reproduced with the estimator's own ``n_jobs=1``, because some of
+    LightGBM's internal sampling call sites read the process-wide OpenMP thread count
+    rather than the just-configured value). Setting the real OS env var closes that
+    gap regardless of which internal path reads it -- but only if it lands before
+    libomp's runtime resolves its thread count on the FIRST parallel-region entry
+    anywhere in the process (lazy, not at library load), which is why this runs
+    unconditionally at ``import mlframe`` time rather than being deferred like the
+    GPU-runtime routines below: it is cheap (two ``setdefault`` calls, no probing, no
+    subprocess, no third-party import) and its value collapses to a no-op if
+    ``import mlframe`` happens to run after some other library already opened a
+    parallel region first.
+
+    ``setdefault`` so an operator who has explicitly set either var is not overridden.
+    Opt-out: ``MLFRAME_NO_MACOS_OMP_AUTOCONFIG=1`` (e.g. to test whether a newer
+    libomp/LightGBM release has actually fixed the crash upstream).
+    """
+    import sys
+    if sys.platform != "darwin":
+        return
+    import os
+    if os.environ.get("MLFRAME_NO_MACOS_OMP_AUTOCONFIG", "").strip() not in ("", "0", "false", "False"):
+        return
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
+
+_autoconfigure_macos_omp_threads()
+
+
 def _autoconfigure_cuda_home() -> None:
     """Point CUDA_HOME/CUDA_PATH at the pip-installed nvidia NVVM when nothing else has.
 

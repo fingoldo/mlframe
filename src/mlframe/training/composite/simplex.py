@@ -42,7 +42,7 @@ is what makes the inversion produce a valid simplex point.
 
 cProfile (fit + predict, n=20k, K=5, LightGBM n_estimators=100): ~0.55 s total,
 of which ~0.48 s is inside the K-1 inner LightGBM fits and their predict calls.
-The wrapper-side log-ratio forward/​inverse is pure vectorised numpy (a couple of
+The wrapper-side log-ratio forward/inverse is pure vectorised numpy (a couple of
 ``np.log`` / ``np.exp`` / one ``(K, K-1)`` matmul for ``ilr``) and measures
 <1 ms combined at this shape, so there is NO actionable wrapper-side speedup --
 the cost is the K-1 inner fits, each already internally threaded. No numba / GPU

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mlframe"
 dynamic = ["version"]
-description = "Production-grade machine learning framework for tabular data: training pipelines, feature engineering & selection, ensembling, calibration, ranking, and quantile regression."
+description = "One-call training, calibration, ensembling and diagnostics for tabular ML across sklearn, CatBoost, LightGBM, XGBoost and PyTorch."
 authors = [{name = "Anatoly Alexeev", email = "fingoldo@gmail.com"}]
 license = "MIT"
 license-files = ["LICENSE"]
@@ -155,9 +155,51 @@ dependencies = [
     "numpy<2.0; python_version < '3.10'",
 ]
 
+# Where uv resolves pyutilz from. It is not on PyPI, so `pyutilz>=1.0.0` in [project.dependencies] is
+# unresolvable for any registry-based resolver -- which is why this project had no lockfile at all: `uv
+# lock` failed outright on it. pip ignores [tool.uv.sources], so plain-pip users are unaffected and still
+# install pyutilz from GitHub first, as the dependency comment above instructs.
+#
+# Deliberately a BRANCH, not a commit. The exact commit is recorded in uv.lock, which is what makes a build
+# reproducible; putting a SHA here as well would mean hand-editing pyproject.toml to move it, in step with
+# the copies in the CI workflows. With the branch here, bumping pyutilz is one command --
+# `uv lock --upgrade-package pyutilz` -- and the diff to review is the locked commit in uv.lock.
+#
+# This is not a return to floating resolution. The incident recorded in the pyutilz dependency comment
+# above (a same-day commit silently flipped a shared helper's default and broke MRMR.fit for every caller)
+# happened because there was no lock: every install took whatever master was at that moment. The lock is
+# the fix; the SHA in pyproject was the stopgap for not having one.
+[tool.uv.sources]
+pyutilz = { git = "https://github.com/fingoldo/pyutilz.git", branch = "master" }
+
 # uv-specific resolver overrides. Honored by `uv pip install` (verified with
 # uv 0.11) as well as `uv lock`/`uv sync`.
 [tool.uv]
+# Bound the universal resolution to the interpreters this project actually supports. requires-python stays
+# open at >=3.9 so pip never refuses to install on a newer interpreter, but a universal lock with no upper
+# bound must also solve for 3.15+, where none of the C-extension stack has wheels yet -- and an unsolvable
+# hypothetical split fails the whole lock. The upper bound here matches the Programming Language ::
+# classifiers; raise it when 3.15 is added to the CI matrix.
+#
+# The lower bound excludes 3.9.0 and 3.9.1 specifically. cryptography (pulled by the [mlflow] extra, with a
+# CVE floor of >=48.0.1) declares `>3.9.0,<3.9.1 | >3.9.1` -- it refuses exactly those two patch releases,
+# so a universal lock over all of >=3.9 has an unsolvable split. Nobody runs them: setup-python "3.9"
+# resolves to the newest 3.9.x. This is the lock's universe only; requires-python is untouched, so pip on a
+# genuine 3.9.0 still installs everything except that extra.
+#
+# One entry PER MINOR VERSION, not a single range. uv minimises forking, so a range expressed as one
+# environment makes it prefer a version valid across the whole span: with 3.9 in that span it resolved
+# torch to 2.0.1 -- the last release with cp39 wheels -- for 3.10 through 3.14 as well, and `uv sync` then
+# failed outright on 3.13 because 2.0.1 has no cp313 wheel. Split per version, each fork picks the newest
+# release that version actually supports.
+environments = [
+    "python_full_version >= '3.9.2' and python_full_version < '3.10'",
+    "python_full_version >= '3.10' and python_full_version < '3.11'",
+    "python_full_version >= '3.11' and python_full_version < '3.12'",
+    "python_full_version >= '3.12' and python_full_version < '3.13'",
+    "python_full_version >= '3.13' and python_full_version < '3.14'",
+    "python_full_version >= '3.14' and python_full_version < '3.15'",
+]
 # optbinning 0.21.0 (latest) conservatively pins ortools>=9.4,<9.12, but ortools
 # ships cp313/cp314 wheels only from 9.12+ — so the unpatched cap makes the [all]
 # extra uninstallable on Python 3.13/3.14. optbinning is pure-Python and its
@@ -301,7 +343,7 @@ viz = [
     "ipywidgets>=8.0",
     # Not imported directly; floors hvplot -> bokeh's transitive tornado resolution above the
     # patched version for GHSA-pw6j-qg29-8w7f.
-    "tornado>=6.5.7",
+    "tornado>=6.5.8",  # GHSA-wwv5-g3v4-889x / GHSA-8423-8fgw-73vq / CVE-2026-82397; open at 6.5.7
 ]
 
 # Experiment tracking.
@@ -312,7 +354,7 @@ mlflow = [
     # starlette, pulled via mlflow-skinny (PYSEC-2026-248/249).
     # Both patched releases require Python >=3.10, so on 3.9 these float only as far as 3.13.5 /
     # 0.49.3 and the advisories above stay OPEN there -- same tradeoff as pillow in [project.dependencies].
-    "aiohttp>=3.14.1; python_version >= '3.10'",
+    "aiohttp>=3.14.3; python_version >= '3.10'",  # PYSEC-2026-3545/3546/3547; measured open at 3.14.1
     "aiohttp>=3.13.5; python_version < '3.10'",
     "cryptography>=48.0.1,<49",  # mlflow itself caps cryptography<49
     "starlette>=1.3.1; python_version >= '3.10'",
@@ -322,7 +364,7 @@ mlflow = [
 # Database and storage backends.
 db = [
     "sqlalchemy>=2.0",
-    "psycopg2-binary>=2.9",
+    "psycopg2-binary>=2.9.12",
     "pymongo>=4.5",
     "duckdb>=0.9",
     "zstandard>=0.21",
@@ -368,8 +410,11 @@ gpu = [
 ]
 gpu-cuda12 = ["mlframe[gpu]"]
 gpu-cuda11 = [
-    "cupy-cuda11x>=12.0,<14.0",
-    "nvidia-cuda-nvcc-cu11>=11.8.89",
+    # The <3.13 marker states in metadata what the note above states in prose: cupy ships cuda11x wheels
+    # only through the 13.x line, which stops at cp312. Without it the declared extra claims support it
+    # does not have, and any universal resolution over the supported matrix fails on 3.13/3.14.
+    "cupy-cuda11x>=12.0,<14.0; python_version < '3.13'",
+    "nvidia-cuda-nvcc-cu11>=11.8.89; python_version < '3.13'",
     "gpu-info>=0.1",
 ]
 
@@ -396,7 +441,7 @@ transformer_gpu = [
 ]
 # CUDA-11 variant (Python <=3.12 only -- no cuda11x wheel for cupy 14 / Python 3.13+).
 transformer_gpu_cuda11 = [
-    "cupy-cuda11x>=12.0,<14.0",
+    "cupy-cuda11x>=12.0,<14.0; python_version < '3.13'",
 ]
 transformer_full = [
     "mlframe[transformer_ann,transformer_gpu]",
@@ -455,24 +500,35 @@ dev = [
                                     # CPU tests silently skipped in CI, leaving dtw.py at a genuine 0% coverage despite the
                                     # test file existing and passing locally. No manylinux wheel for 3.9 at the pinned floor
                                     # (2.4.0) -- gated the same way black is, above; importorskip already handles the 3.9 leg.
-    "mypy>=1.0",
+    "mypy==2.1.0 ; python_version >= '3.10'",  # pinned exact, matching mypy-full.yml's `mypy-version` input. Gated
+                                  # like black and deptry: 2.1.0 requires >=3.10, and the type gate runs on the
+                                  # representative interpreter, never on the 3.9 leg. A whole-project
+                                  # zero-error gate on an open range drifts the same way the ruff pin above
+                                  # exists to prevent: 1.x to 2.x moved defaults and the error set.
     "bandit>=1.7",
+    # The five below are invoked by BLOCKING `language: system` hooks in .pre-commit-config.yaml and were
+    # declared nowhere, so `pip install -e ".[all,dev]"` did not produce a working hook set. Pinned exact
+    # for the same reason ruff and black are: each one gates.
+    "codespell==2.4.2",           # prose typos; `python -m codespell_lib`
+    "deptry==0.25.1 ; python_version >= '3.10'",  # declared-vs-imported dependency drift; `python -m deptry`.
+                                  # Gated like black above: 0.25.1 requires >=3.10, and no 3.9-compatible line is
+                                  # worth carrying for a hook that runs on the representative interpreter anyway.
+    "interrogate==1.7.0",         # docstring coverage; `python -m interrogate`
+    "vulture==2.16",              # dead-code scan; `python -m vulture`
+    "yamllint==1.38.0 ; python_version >= '3.10'",  # workflow YAML style; `python -m yamllint`. 1.38.0 needs
+                                  # >=3.10; like black/deptry/mypy this hook runs on the representative interpreter.
     "pre-commit>=3.3",
     "pip-audit>=2.7",             # known-CVE scan of installed/declared deps; run via `python -m pip_audit --local` (or `-r pyproject.toml` for the declared-only, non-transitive set)
-    "import-linter>=2.0",         # architectural-boundary contracts (see [tool.importlinter]); run via `lint-imports`
     "pydoclint>=0.5",             # docstring-vs-signature consistency (params/returns/raises actually match); run via `pydoclint src/mlframe`
-    "semgrep>=1.70",               # custom org-specific static rules (see .semgrep.yml); run via `semgrep --config .semgrep.yml src/mlframe`
     # IPython is imported unconditionally by src/mlframe/evaluation/reports.py
     # and training/evaluation.py (for display_html / rich-shell detection).
     # Required so test collection of the modules that import them succeeds.
     "ipython>=8.0",
-    # Shared CI/lint tooling (black_filtered_apply / format_warn / bandit_warn / vulture_warn),
-    # consumed by .pre-commit-config.yaml's `language: system` local hooks. Not yet on PyPI --
-    # install from GitHub, mirroring the existing pyutilz dependency pattern.
-    # X_SECURITY_API_PACKAGING-5 fix (mrmr_audit_2026-07-22): pinned to a specific commit SHA rather
-    # than the floating default branch (see the matching pyutilz note above for the rationale). Bump
-    # deliberately (with a CHANGELOG entry) when a new py-ci-shared feature is actually needed.
-    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git",
+    # py-ci-shared is NOT declared here. It is a git checkout, and a PEP 440 direct reference in project
+    # metadata makes the built distribution unuploadable to PyPI while `twine check` passes it silently --
+    # verified by reading this project's own wheel METADATA on 2026-09-08, where it sat verbatim. It lives
+    # in requirements-dev.txt instead, which is the same place and for the same reason pyutilz keeps it.
+    #   pip install -e ".[all,dev]" -r requirements-dev.txt
 ]
 
 [project.scripts]
@@ -722,73 +778,10 @@ check-return-types = false           # ditto for return types (~149 findings: DO
 skip-checking-raises = true          # our style doesn't require a "Raises" section for every raise statement (~112 findings: DOC501/DOC503).
 check-class-attributes = false       # ditto for dataclass/NamedTuple attribute docs (~11 findings: DOC601/DOC603/DOC605).
 
-# ---------------------------------------------------------------------------
-# import-linter (architectural-boundary contracts). Advisory only, NOT blocking: `run-import-linter` sits in the
-# lint-advisory CI job and the `import-linter-warn` pre-commit hook is `stages: [manual]`. Contracts here are
-# therefore documentation of intent -- a rule that must actually hold needs its own meta-test under
-# tests/test_meta/ (see test_no_inbound_edge_to_benchmarking.py, which enforces the benchmarking-sink contract).
-# Kept narrow on purpose: each contract is one genuinely safe boundary verified against the real import graph,
-# not a full layered-architecture policy this codebase was never designed against. Run via `lint-imports`.
-#
-# A "vendored third-party code stays isolated" contract was ATTEMPTED but dropped: grimp (the
-# graph library import-linter uses) never discovers leading-underscore SUBDIRECTORIES as packages
-# during its filesystem scan (confirmed: `_vendored/infonet` never appears in
-# `grimp.build_graph('mlframe').modules` even with an `__init__.py` added, while sibling
-# non-underscore subpackages like `filters.mrmr`/`filters.discretization` are found fine) -- a
-# grimp/import-linter tool limitation, not a config mistake. Revisit if a future grimp release
-# fixes underscore-directory discovery.
-# ---------------------------------------------------------------------------
-[tool.importlinter]
-root_packages = ["mlframe"]
-
-[[tool.importlinter.contracts]]
-name = "Kernel-sibling modules split off the 1k-LOC ceiling must not import back their facade"
-type = "forbidden"
-source_modules = [
-    "mlframe.feature_selection.filters._gpu_resident_select_kernels",
-    "mlframe.training.composite.provenance_formulas",
-]
-forbidden_modules = [
-    "mlframe.feature_selection.filters._gpu_resident_select",
-    "mlframe.training.composite.provenance",
-]
-# allow_indirect_imports=true restricts the check to DIRECT imports only: this is a flat, densely
-# cross-referenced package (everything transitively reaches almost everything else through
-# unrelated legitimate chains), so the default transitive check flagged real-but-irrelevant long
-# paths (e.g. kernels -> radix_ktc -> select -> ... -> composite -> provenance, none of which is
-# the sibling literally importing its own facade back). Only a genuine direct back-import is the
-# real circular-import risk the monolith-split pattern needs to avoid.
-allow_indirect_imports = true
-# Both siblings were carved out of an over-1k-LOC parent (CLAUDE.md's monolith-split convention)
-# specifically so the parent could re-export their names -- a back-import would create a real
-# circular-import risk the split was designed to avoid. Add each new facade/sibling pair here as
-# the monolith-split pattern is applied to more files.
-
-[[tool.importlinter.contracts]]
-name = "The benchmarking harness is a pure sink: production packages must not import it"
-type = "forbidden"
-source_modules = [
-    "mlframe.evaluation",
-    "mlframe.reporting",
-    "mlframe.training",
-    "mlframe.feature_selection",
-    "mlframe.metrics",
-]
-forbidden_modules = [
-    "mlframe.benchmarking",
-]
-# allow_indirect_imports=true restricts the check to DIRECT imports only, for the same reason as the
-# contract above: this is a flat, densely cross-referenced package, so the default transitive check
-# reports long incidental chains rather than the one thing that matters here -- a production module
-# literally importing the harness.
-allow_indirect_imports = true
-# ``benchmarking`` sits at the BOTTOM of the graph on purpose: it pulls ``feature_selection`` (a ~10-25s
-# cold import), so a single inbound edge would drag that cost into every consumer of the importing
-# package, and it would let the harness join an SCC it can never be refactored out of.
-# DOCUMENTATION ONLY -- import-linter is advisory in this repo (see the section header above:
-# `run-import-linter` lives in the lint-advisory CI job, and the local hook is `stages: [manual]`), so
-# this contract never blocks. The enforcing gate is the blocking meta-test
-# tests/test_meta/test_no_inbound_edge_to_benchmarking.py, which runs on every shard.
+# The two architectural-boundary rules import-linter used to express here (kernel-sibling
+# back-imports, benchmarking-as-a-pure-sink) are enforced by real blocking meta-tests instead
+# (test_no_sibling_backimport_to_facade.py, test_no_inbound_edge_to_benchmarking.py), so the
+# advisory-only TOML config, its pre-commit hook, and the import-linter dev dependency were removed.
 
 [tool.deptry.per_rule_ignores]
 # DEP002 (unused declared dependency): many optional extras are declared for callers who reach
@@ -815,7 +808,8 @@ DEP002 = [
     "pytest", "pytest-cov", "pytest-xdist", "pytest-timeout", "pytest-benchmark", "pytest-order",
     "pytest-randomly", "pytest-instafail", "pytest-progress", "pytest-split", "pytest-rerunfailures", "coverage", "freezegun",
     "ruff", "black", "mypy", "bandit", "pre-commit", "pip-audit",
-    "import-linter", "pydoclint", "semgrep",  # invoked as `lint-imports`/`pydoclint`/`semgrep` CLI commands, never imported
+    "pydoclint",  # invoked as `pydoclint` CLI command, never imported
+    "codespell", "deptry", "interrogate", "vulture", "yamllint",  # invoked by pre-commit hooks as `python -m ...`, never imported
     "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette",
     "py-ci-shared",  # invoked as `python -m py_ci_shared.*` CLI/pre-commit-hook commands, never `import py_ci_shared`
 ]
@@ -845,7 +839,7 @@ DEP001 = [
     # third-party one. `allpairspy` and `arfs` are genuine undeclared third-party test-only deps
     # and are deliberately NOT added here -- they should keep surfacing until added to a test
     # extras group or their call sites are confirmed to always `pytest.importorskip` first.
-    "test_coverage_fill", "training", "profile_training_core", "_source_proxy_scan",
+    "test_coverage_fill", "training", "profile_training_core",
     # cupy/cupyx/cupy_backends/kaleido/torchvision/dtaidistance/bottleneck/model_diagnostics
     # (2026-08-04, CI-only failure -- `finance`/`concepts` above document the identical flip):
     # deptry's DEP001-vs-DEP003 classification depends on whether the module actually resolves
@@ -940,6 +934,14 @@ extend-select = [
               # category stays off: PD011 (.values, 115 hits) / PD013 (.stack) / PD003/PD009/PD010/PD101
               # are stylistic-only on this codebase (no correctness delta found in a spot-check), not
               # worth the mass-rewrite diff/review risk right now.
+    "PGH",    # blanket `# type: ignore` / `# noqa`. A code-less silencer suppresses EVERY future error on
+              # that line, which defeats mypy's own warn_unused_ignores ratchet and hides the next, unrelated
+              # error at the same site. Enabled 2026-09-08: all 46 findings closed -- the type-ignore codes
+              # were measured by running mypy over an identical checkout with every blanket ignore stripped,
+              # not guessed, and the _benchmarks trees are exempt below because mypy does not check them.
+    "PLW0127",  # self-assigning-variable: a dead statement where a real operation was intended. Two findings,
+                # both dead rather than wrong (see models/ensembling/predict.py's shape-restore branch).
+    "PLE2515",  # invalid-character-zero-width-space: an invisible character inside a string literal.
 ]
 # SIM/RET/TRY (2026-07-18 architecture review suggestion) evaluated and NOT enabled this pass:
 # `ruff check --select SIM,RET,TRY` surfaces 3803 findings, 69% of them TRY003 (raise-vanilla-args)
@@ -967,7 +969,7 @@ extend-ignore = [
 [tool.ruff.lint.mccabe]
 # Raised 2026-07-09 after triage: threshold=20 flagged 246 functions (median complexity in this
 # codebase is 30 -- half the codebase would be "too complex" at 20, pure noise). threshold=40 keeps
-# 70 findings, including the genuinely pathological outliers (_fit_impl at 1227, materialise_and_
+# 92 findings, including the genuinely pathological outliers (_fit_impl at 1227, materialise_and_
 # finalise_fe_candidates at 141, _score_one_pair at 117) without flagging routine 20-40 dispatch/
 # config functions that are complex by the nature of a config-driven ML pipeline, not by neglect.
 # NOT shared via ruff-base.toml -- this is mlframe's own measured number (pyutilz's is 20).
@@ -983,6 +985,9 @@ max-complexity = 40
 # declaration needed.
 
 [tool.ruff.lint.per-file-ignores]
+# PGH003 wants every `type: ignore` to name its error code. mypy does not check the _benchmarks
+# trees, so there is no reported code to name there and a blanket ignore hides nothing.
+"**/_benchmarks/**" = ["PGH003"]
 "__init__.py" = ["F401", "F403"]
 # Tutorial notebooks: print() is the intended interactive display, not a lint issue.
 "docs/**/*.ipynb" = ["T201"]
@@ -995,6 +1000,9 @@ max-complexity = 40
 "src/mlframe/**/_profile_*.py" = ["B023", "T201"]
 "src/mlframe/**/_smoke_*.py" = ["T201"]
 "src/mlframe/**/_*_showcase.py" = ["T201"]
+# Same family: a scan whose whole output is a list of call paths for a human to act on. Routing it
+# through logging would put the findings behind a level nobody sets when running it by hand.
+"src/mlframe/**/_*_scan.py" = ["T201"]
 # Standalone bench/profile scripts: print() to stdout is the interface (progress/results
 # output read by a human running the script directly), not something that should route
 # through logging. B023 loop-closures are the same "time/print this iteration now, never
@@ -1032,6 +1040,15 @@ max-complexity = 40
 # MyPy
 # ---------------------------------------------------------------------------
 [tool.mypy]
+# Comparisons between non-overlapping types are always False -- `if dtype == "float64"` against an
+# np.dtype, `if mode == SomeEnum.X` where mode is a str, a Literal compared to a value outside its own
+# set. No AST gate in tests/test_meta can see that class, and the failure is silent: the branch simply
+# never runs. Enabled 2026-09-08 after measuring the cost on the whole project -- exactly one finding, a
+# redundant `mode != "mean"` in _cv_aggregation.py that an early return already guaranteed.
+#
+# warn_unreachable stays OFF on purpose: this codebase's optional-dependency `try/except ImportError`
+# gates and version-guarded branches are precisely what it over-reports on.
+strict_equality = true
 # The project's minimum RUNTIME support is still 3.9 (see [project] requires-python);
 # this is only the syntax-checking target mypy 2.x type-checks against, and mypy 2.x
 # dropped 3.9 support for that setting (raises "Python 3.9 is not supported" otherwise).

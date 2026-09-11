@@ -17,7 +17,7 @@ import pandas as pd
 try:
     import polars as pl
 except ImportError:
-    pl = None  # type: ignore
+    pl = None  # type: ignore[assignment]
 
 
 from mlframe.config import CATBOOST_MODEL_TYPES

@@ -32,11 +32,23 @@ from sklearn.base import clone
 
 from ..configs import TargetTypes
 from ..utils import log_phase
-from ..trainer import _configure_recurrent_params
 from ._misc_helpers import _compute_neural_max_time
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
+
+
+def _configure_recurrent_params(*args, **kwargs):
+    """Thin forwarder to ``training.trainer._configure_recurrent_params``, imported at call time.
+
+    At module scope that import closed a cycle: ``trainer`` imports ``_trainer_train_and_evaluate``, which
+    imports ``_calib_oof_outputs``, which imports ``training.core`` -- whose ``__init__`` reaches this
+    module, back into a ``trainer`` still halfway through executing. Deferring it to call time breaks the
+    cycle while keeping the name a module attribute, which is what ``test_core_coverage`` patches.
+    """
+    from ..trainer import _configure_recurrent_params as _impl
+
+    return _impl(*args, **kwargs)
 
 
 def _coerce_to_numpy(arr):

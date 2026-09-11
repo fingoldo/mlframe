@@ -406,7 +406,6 @@ __all__ = [
     "process_infinities",
     "remove_constant_columns",
     # Previously importable via `from mlframe.training import ...` but missing from __all__
-    "NGBConfig",
     "clean_ram_and_gpu",
     "estimate_df_size_mb",
     "get_process_rss_mb",

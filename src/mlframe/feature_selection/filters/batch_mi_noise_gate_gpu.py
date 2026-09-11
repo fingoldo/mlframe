@@ -76,6 +76,8 @@ _CUDA_MI_KERNEL: "object | None" = None
 # ---------------------------------------------------------------------------
 
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 def batch_mi_with_noise_gate_cupy_v1(
     disc_2d: np.ndarray,
     factors_nbins: np.ndarray,
@@ -395,7 +397,12 @@ def _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P):
     y_all = np.empty((P, n), dtype=np.int32)
     y_all[0, :] = np.asarray(classes_y, dtype=np.int32)
     if nperm > 0:
-        y_all[1:, :] = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm).astype(np.int32)
+        # `_build_shuffle_matrix` is `@njit(parallel=True)` and both residency helpers are reachable
+        # from `check_prospective_fe_pairs`, which runs a thread pool. Two threads inside one prange
+        # region aborts the process on macOS. Held here rather than at the dispatcher so the
+        # serialisation covers the kernel call and not the surrounding GPU work.
+        with parallel_kernel_entry():
+            y_all[1:, :] = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm).astype(np.int32)
     d_y = _nb_cuda.to_device(np.ascontiguousarray(y_all))
     with _DY_DEVICE_CACHE_LOCK:
         try:
@@ -434,7 +441,12 @@ def _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, 
     y_all = np.empty((P, n), dtype=np.int32)
     y_all[0, :] = np.asarray(classes_y, dtype=np.int32)
     if nperm > 0:
-        y_all[1:, :] = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm).astype(np.int32)
+        # `_build_shuffle_matrix` is `@njit(parallel=True)` and both residency helpers are reachable
+        # from `check_prospective_fe_pairs`, which runs a thread pool. Two threads inside one prange
+        # region aborts the process on macOS. Held here rather than at the dispatcher so the
+        # serialisation covers the kernel call and not the surrounding GPU work.
+        with parallel_kernel_entry():
+            y_all[1:, :] = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm).astype(np.int32)
     d_y = cp.asarray(np.ascontiguousarray(y_all))
     with _DY_DEVICE_CACHE_CUPY_LOCK:
         try:

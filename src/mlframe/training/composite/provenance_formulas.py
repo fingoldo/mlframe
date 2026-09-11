@@ -191,7 +191,7 @@ def _f_linear_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
     a_g = _fmt(p.get("alpha_global"))
     b_g = _fmt(p.get("beta_global"))
     return (
-        f"T = {t} - alpha_g * {b} - beta_g  (per-group OLS, James-Stein shrunk " f"to global alpha={a_g}, beta={b_g}; small/unseen groups use global)",
+        (f"T = {t} - alpha_g * {b} - beta_g  (per-group OLS, James-Stein shrunk " f"to global alpha={a_g}, beta={b_g}; small/unseen groups use global)"),
         f"y_hat = T_hat + alpha_g * {b} + beta_g",
     )
 
@@ -239,7 +239,7 @@ def _f_frac_diff(t: str, b: str, p: dict) -> tuple[str, str]:
     d = _fmt(p.get("d"))
     lags = int(p.get("lags", 0))
     return (
-        f"T_i = sum_k w_k * {t}_(i-k)  (Lopez de Prado frac-diff, d={d}, {lags} lags; " f"w_k = -w_(k-1)*(d-k+1)/k, pre-window padded with train mean)",
+        (f"T_i = sum_k w_k * {t}_(i-k)  (Lopez de Prado frac-diff, d={d}, {lags} lags; " f"w_k = -w_(k-1)*(d-k+1)/k, pre-window padded with train mean)"),
         "y_hat_i = (T_i - sum_(k>=1) w_k * y_hat_(i-k)) / w_0  (iterative reconstruction)",
     )
 
@@ -448,8 +448,8 @@ def _f_chain_linres_cbrt_qn(t: str, b: str, p: dict) -> tuple[str, str]:
     alpha = _fmt(bp.get("alpha"))
     beta = _fmt(bp.get("beta"))
     return (
-        f"T1 = {t} - {alpha} * {b} - ({beta}); T2 = sign(T1) * |T1|^(1/3); " f"T = Phi^-1(rank(T2)/(n+1))",
-        f"T2_hat = empirical_CDF_inverse(Phi(T_hat)); T1_hat = T2_hat^3; " f"y_hat = T1_hat + {alpha} * {b} + ({beta})  (scale lost in quantile-normal stage)",
+        (f"T1 = {t} - {alpha} * {b} - ({beta}); T2 = sign(T1) * |T1|^(1/3); " f"T = Phi^-1(rank(T2)/(n+1))"),
+        (f"T2_hat = empirical_CDF_inverse(Phi(T_hat)); T1_hat = T2_hat^3; " f"y_hat = T1_hat + {alpha} * {b} + ({beta})  (scale lost in quantile-normal stage)"),
     )
 
 
@@ -466,7 +466,7 @@ def _f_target_encoding_residual(t: str, b: str, p: dict) -> tuple[str, str]:
     """Formula strings for 'target_encoding_residual': residual after subtracting the empirical-Bayes smoothed per-category mean of the target."""
     sm = _fmt(p.get("smoothing"))
     return (
-        f"T = {t} - cat_mean(group)  (empirical-Bayes smoothed per-category mean, " f"smoothing={sm}; unseen categories use the global mean)",
+        (f"T = {t} - cat_mean(group)  (empirical-Bayes smoothed per-category mean, " f"smoothing={sm}; unseen categories use the global mean)"),
         "y_hat = T_hat + cat_mean(group)",
     )
 
@@ -484,7 +484,7 @@ def _f_nadaraya_watson_residual(t: str, b: str, p: dict) -> tuple[str, str]:
     """Formula strings for 'nadaraya_watson_residual': residual after subtracting a fitted Gaussian-kernel Nadaraya-Watson regression of the base feature."""
     bw = _fmt(p.get("bandwidth"))
     return (
-        f"T = {t} - g({b})  (g = Gaussian-kernel Nadaraya-Watson, bandwidth={bw}, " "subsampled knots; far-from-support rows converge to the nearest knot)",
+        (f"T = {t} - g({b})  (g = Gaussian-kernel Nadaraya-Watson, bandwidth={bw}, " "subsampled knots; far-from-support rows converge to the nearest knot)"),
         f"y_hat = T_hat + g({b})",
     )
 
@@ -494,7 +494,7 @@ def _f_gaussian_copula_residual(t: str, b: str, p: dict) -> tuple[str, str]:
     alpha = _fmt(p.get("alpha"))
     beta = _fmt(p.get("beta"))
     return (
-        f"T = z_y - {alpha} * z_b - ({beta})  (z_y=Phi^-1(ecdf_{t}), z_b=Phi^-1(ecdf_{b}), " "train empirical CDFs)",
+        (f"T = z_y - {alpha} * z_b - ({beta})  (z_y=Phi^-1(ecdf_{t}), z_b=Phi^-1(ecdf_{b}), " "train empirical CDFs)"),
         f"y_hat = quantile_{t}(Phi(T_hat + {alpha} * z_b + ({beta})))  (train y-ECDF knot lookup)",
     )
 
@@ -543,7 +543,7 @@ def _f_ewma_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
     k = int(p.get("k", 7))
     alpha = 2.0 / (k + 1.0)
     return (
-        f"T = {t} - EWMA_k({b})  (k={k}, alpha=2/(k+1)={alpha:.4g}; per-group recursion reset, " "unseen groups use the global anchor)",
+        (f"T = {t} - EWMA_k({b})  (k={k}, alpha=2/(k+1)={alpha:.4g}; per-group recursion reset, " "unseen groups use the global anchor)"),
         f"y_hat = T_hat + EWMA_k({b})",
     )
 
@@ -553,7 +553,7 @@ def _f_frac_diff_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
     d = _fmt(p.get("d"))
     lags = int(p.get("lags", 0))
     return (
-        f"T_i = sum_k w_k * {t}_(i-k)  (Lopez de Prado frac-diff, d={d}, {lags} lags; " "per-group pre-window padding, each group padded with its OWN train-y mean)",
+        (f"T_i = sum_k w_k * {t}_(i-k)  (Lopez de Prado frac-diff, d={d}, {lags} lags; " "per-group pre-window padding, each group padded with its OWN train-y mean)"),
         "y_hat_i = (T_i - sum_(k>=1) w_k * y_hat_(i-k)) / w_0  (iterative reconstruction, per group)",
     )
 
@@ -561,7 +561,7 @@ def _f_frac_diff_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
 def _f_quantile_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
     """Formula strings for 'quantile_residual_grouped': per-group sibling of quantile_residual -- per-group bin medians/IQR, James-Stein shrunk toward the global fit; small/unseen groups fall back to the global fit entirely."""
     return (
-        f"T = ({t} - median_bin_group({t})) / IQR_bin_group({t})  (quantile bins of {b}, " "per-group James-Stein shrunk toward the global fit)",
+        (f"T = ({t} - median_bin_group({t})) / IQR_bin_group({t})  (quantile bins of {b}, " "per-group James-Stein shrunk toward the global fit)"),
         "y_hat = T_hat * IQR_bin_group + median_bin_group  (small/unseen groups use the global fit)",
     )
 
@@ -569,7 +569,7 @@ def _f_quantile_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
 def _f_monotonic_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
     """Formula strings for 'monotonic_residual_grouped': per-group sibling of monotonic_residual -- per-group monotone PCHIP, James-Stein shrunk toward the global fit; small/unseen groups fall back to the global fit entirely."""
     return (
-        f"T = {t} - g_group({b})  (g_group = per-group monotone PCHIP, James-Stein " "shrunk toward the global fit)",
+        (f"T = {t} - g_group({b})  (g_group = per-group monotone PCHIP, James-Stein " "shrunk toward the global fit)"),
         f"y_hat = T_hat + g_group({b})  (small/unseen groups use the global g)",
     )
 

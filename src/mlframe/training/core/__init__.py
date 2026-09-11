@@ -14,7 +14,7 @@ sibling under this package is **internal**. The leading underscore is the projec
 * Renames / signature changes inside a ``_*`` module DO NOT require a deprecation cycle. If
   external code reaches into an underscore module it accepts the breakage risk.
 
-This is enforced as a meta-test: see ``tests/test_meta/test_no_production_underscore_imports.py``.
+This is enforced as a meta-test: see ``tests/test_meta/test_no_underscore_imports_cross_package.py``.
 """
 from __future__ import annotations
 

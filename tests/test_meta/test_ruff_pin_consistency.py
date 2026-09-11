@@ -39,3 +39,34 @@ def test_ruff_version_pins_agree_across_pyproject_and_precommit():
         f"ruff version pins have drifted apart: pyproject.toml has {sorted(set(pyproject_pins))}, "
         f".pre-commit-config.yaml's ruff-pre-commit revs have {sorted(set(precommit_pins))} -- all must match"
     )
+
+
+def test_installed_tool_versions_match_their_exact_pins():
+    """Every tool the dev extra pins exactly must be that version in the interpreter running the hooks.
+
+    The blocking pre-commit hooks override the upstream ruff hook with ``language: system`` +
+    ``entry: python -m ruff``, so pre-commit never builds the pinned isolated environment -- it runs the
+    ambient interpreter's ruff, and the ``rev:`` guarantees nothing about what actually executed. The
+    2026-09-08 review measured that gap live: every config said 0.16.1 while the installed ruff was
+    0.15.22, which is exactly the "passes locally, fails in CI" failure the pin exists to prevent. The
+    test above compares text to text; this one compares text to the binary that produces the verdicts.
+    """
+    import importlib.metadata as md
+
+    pins = dict(re.findall(r'^\s*"([a-z0-9-]+)==([\d.]+)"', _read("pyproject.toml"), re.M))
+    assert pins, "expected exact tool pins in pyproject.toml's dev extra"
+
+    mismatched = {}
+    for name, pinned in sorted(pins.items()):
+        try:
+            installed = md.version(name)
+        except md.PackageNotFoundError:
+            # A pinned tool absent from this environment is 1.4's finding, not this one's: the hook that
+            # needs it fails closed with ModuleNotFoundError rather than passing silently.
+            continue
+        if installed != pinned:
+            mismatched[name] = (pinned, installed)
+
+    assert not mismatched, "installed tool versions differ from their exact pins (reinstall the dev extra): " + ", ".join(
+        f"{n}: pinned {p}, installed {i}" for n, (p, i) in sorted(mismatched.items())
+    )

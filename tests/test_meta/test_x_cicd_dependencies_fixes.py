@@ -104,14 +104,22 @@ def test_ci_jobs_have_timeout_minutes():
 # ---------------------------------------------------------------------------
 
 
-def test_f4_dependabot_pip_ecosystem_reenabled():
-    """F4 dependabot pip ecosystem re-enabled."""
+def test_f4_dependabot_python_ecosystem_reenabled():
+    """F4: the Python dependency ecosystem must stay enabled at a non-zero PR limit.
+
+    Originally written against `package-ecosystem: pip`. It became `uv` on 2026-09-08 when uv.lock landed:
+    the pip ecosystem reads pyproject.toml and does not know uv.lock exists, so every security-patch PR
+    would have left the lock describing the old graph. The invariant F4 actually protects is that this
+    repo keeps an automated security-patch signal at all -- dependency-review only inspects new deps in an
+    incoming diff, and pip-audit is continue-on-error and opens nothing -- so it is asserted on whichever
+    Python ecosystem is configured, not on the name `pip`.
+    """
     import yaml
 
     doc = yaml.safe_load(_read(".github/dependabot.yml"))
-    pip_entries = [u for u in doc["updates"] if u["package-ecosystem"] == "pip"]
-    assert len(pip_entries) == 1
-    assert pip_entries[0]["open-pull-requests-limit"] > 0, "F4 REGRESSION: pip ecosystem must not be silently permanently disabled"
+    python_entries = [u for u in doc["updates"] if u["package-ecosystem"] in {"pip", "uv"}]
+    assert len(python_entries) == 1, f"expected exactly one Python dependency ecosystem, found {len(python_entries)}"
+    assert python_entries[0]["open-pull-requests-limit"] > 0, "F4 REGRESSION: the Python dependency ecosystem must not be silently permanently disabled"
 
 
 # ---------------------------------------------------------------------------

@@ -18,9 +18,23 @@ from .pipeline import _prepare_test_split
 from ._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
 from .cb import _predict_with_fallback
 from ._eval_helpers import run_confidence_analysis
-from .core._predict_pre_pipeline import _apply_row_wise_extensions
 
 logger = logging.getLogger("mlframe.training.trainer")
+
+
+def _apply_row_wise_extensions(*args, **kwargs):
+    """Thin forwarder to ``training.core._predict_pre_pipeline``, imported at call time.
+
+    Importing it at module scope pulls in ``training.core``'s package ``__init__``, which loads the whole
+    training suite -- and that chain re-enters ``training.trainer`` while it is still executing, so a plain
+    ``import mlframe.training.trainer`` (and the public ``from mlframe.training import
+    train_and_evaluate_model`` with it) raised ImportError on a fresh interpreter. The suite never noticed
+    because pytest's collection happens to load ``training.core`` first. By the time this is called the
+    package is fully initialised.
+    """
+    from .core._predict_pre_pipeline import _apply_row_wise_extensions as _impl
+
+    return _impl(*args, **kwargs)
 
 
 def _align_to_model_feature_names(df: Any, model: object) -> Any:

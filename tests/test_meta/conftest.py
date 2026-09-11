@@ -28,13 +28,20 @@ _REFRESH_FLAGS = [
     "--refresh-fe-budget-conflict-baseline",
     "--refresh-fe-noop-copy-baseline",
     "--refresh-logger-baseline",
+    # py_ci_shared.loc_budget's own flag for _loc_over_1k_baseline.json; unregistered, the documented refresh command
+    # was rejected by pytest before the test could read it.
+    "--refresh-loc-budget-baseline",
     "--refresh-mojibake-baseline",
     "--refresh-module-env-mutation-baseline",
     "--refresh-mutable-defaults-baseline",
     "--refresh-orth-fe-recipes-no-freeze-baseline",
     "--refresh-resource-handle-baseline",
-    "--refresh-source-proxy-baseline",
+    "--refresh-source-text-baseline",
+    "--refresh-readonly-to-numpy-mutation-baseline",
+    "--refresh-single-shot-timing-baseline",
     "--refresh-stale-not-wired-docstring-baseline",
+    "--refresh-tick-isinstance-baseline",
+    "--refresh-unprotected-treeexplainer-baseline",
     "--refresh-unlocked-module-cache-baseline",
     "--refresh-verbose-gated-except-baseline",
 ]
@@ -58,3 +65,7 @@ def pytest_addoption(parser):
     from py_ci_shared.readme_env_var_parity import register_refresh_option as register_readme_env_var_refresh_option
 
     register_readme_env_var_refresh_option(parser)  # --refresh-readme-env-var-baseline, shared with every other consumer
+
+    from py_ci_shared.uncalled_functions import register_refresh_option as register_uncalled_functions_refresh_option
+
+    register_uncalled_functions_refresh_option(parser)  # --refresh-uncalled-functions-baseline, shared with every other consumer

@@ -945,9 +945,21 @@ def per_feature_edges(
             """Column-index-preserving wrapper around ``_compute_col_edges`` so ``ThreadPoolExecutor.map`` results can be scattered back into ``edges_list`` by their original column position."""
             return j, _compute_col_edges(_cols[j])
 
-        with ThreadPoolExecutor(max_workers=_resolved_jobs) as _ex:
-            for j, (edges, _was_lc) in _ex.map(_one, _miss_cols):
-                edges_list[j] = edges
+        # The first column is computed on THIS thread, before the pool exists. The njit kernels reached
+        # from ``_compute_col_edges`` (``_mdlp_recurse_validated_bfs`` and friends, all ``cache=True``)
+        # are compiled on first call, and several threads entering numba's compiler at once aborts the
+        # process on macOS: mlframe's first macOS CI run crashed 150 xdist workers across 10 shards with
+        # ``Fatal Python error: Aborted``, and every faulthandler dump showed two or more threads inside
+        # ``_mdlp_recurse_validated_bfs`` -> ``dispatcher.compile``. Warming serially costs one column's
+        # worth of parallelism on a cold cache and nothing at all on a warm one, and it leaves the pool
+        # executing already-compiled code, which is what the measured 1.2x-7.2x speedup was ever about.
+        _warm, _rest = _miss_cols[0], _miss_cols[1:]
+        _warm_edges, _ = _compute_col_edges(_cols[_warm])
+        edges_list[_warm] = _warm_edges
+        if _rest:
+            with ThreadPoolExecutor(max_workers=_resolved_jobs) as _ex:
+                for j, (edges, _was_lc) in _ex.map(_one, _rest):
+                    edges_list[j] = edges
     else:
         for j in _miss_cols:
             edges, _was_lc = _compute_col_edges(_cols[j])

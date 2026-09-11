@@ -2,3 +2,8 @@
 # (a CRLF shebang line makes a script fail to run on Linux CI/dev boxes; shellcheck
 # SC1017 catches this class of bug -- see scripts/run_numba_coverage.sh, 2026-07-06).
 *.sh text eol=lf
+
+# uv.lock is machine-generated and ~3 MB. Pin it to LF so a Windows checkout does not rewrite three
+# megabytes of line endings into every diff, and mark it generated so review tooling collapses it --
+# the reviewable part of a lock change is which versions moved, not the file body.
+uv.lock text eol=lf linguist-generated=true

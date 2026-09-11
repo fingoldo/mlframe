@@ -23,11 +23,16 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # (src-scoped hook id, tests-scoped hook id) pairs that are meant to jointly cover the whole repo.
+# Pairs are named by hook id where that is unique, and by the hook's `name:` where it is not. The ruff
+# pair needs the latter: three hooks share the id `ruff` (blocking src, blocking tests, and a manual-stage
+# auto-fixer), so an id-keyed lookup silently resolves to whichever came last, which is why the
+# highest-traffic gate in the repo was the one pair this check did not cover.
 PAIRED_HOOKS = [
     ("black-filtered-blocking", "black-filtered-tests-blocking"),
     ("bandit-blocking", "bandit-tests-blocking"),
     ("interrogate-blocking", "interrogate-tests-blocking"),
     ("codespell-blocking", "codespell-tests-blocking"),
+    ("ruff (real bugs block)", "ruff tests/ (real bugs block)"),
 ]
 
 SRC_SAMPLE = "src/mlframe/feature_selection/filters/_mrmr_class.py"
@@ -35,13 +40,27 @@ TESTS_SAMPLE = "tests/training/test_trainer.py"
 
 
 def _load_precommit_hooks() -> dict:
-    """Maps hook id -> its pre-commit config dict (repo entry's hooks: list, flattened)."""
+    """Maps a hook's `name:` -- and its id, where that id is unambiguous -- to its config dict.
+
+    Keying on id alone loses hooks: `ruff` is declared three times from the same upstream repo (blocking
+    over src, blocking over tests, and a manual-stage auto-fixer), so an id-keyed dict keeps only the last.
+    Names are unique and are what the pair list uses for those; ids stay available for the hooks that have
+    no explicit name.
+    """
     with open(REPO_ROOT / ".pre-commit-config.yaml", encoding="utf-8") as f:
         config = yaml.safe_load(f)
-    hooks = {}
-    for repo in config["repos"]:
-        for hook in repo["hooks"]:
+
+    all_hooks = [hook for repo in config["repos"] for hook in repo["hooks"]]
+    id_counts: dict[str, int] = {}
+    for hook in all_hooks:
+        id_counts[hook["id"]] = id_counts.get(hook["id"], 0) + 1
+
+    hooks: dict = {}
+    for hook in all_hooks:
+        if id_counts[hook["id"]] == 1:
             hooks[hook["id"]] = hook
+        if hook.get("name"):
+            hooks[hook["name"]] = hook
     return hooks
 
 

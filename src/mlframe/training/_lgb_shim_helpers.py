@@ -22,7 +22,7 @@ try:
     _LGB_AVAILABLE = True
 except ImportError:
     _LGB_AVAILABLE = False
-    lgb = None  # type: ignore
+    lgb = None  # type: ignore[assignment]
 
 
 try:
@@ -31,7 +31,7 @@ try:
     _PL_AVAILABLE = True
 except ImportError:
     _PL_AVAILABLE = False
-    pl = None  # type: ignore
+    pl = None  # type: ignore[assignment]
 
 
 def _maybe_bridge_polars_to_pandas(X):

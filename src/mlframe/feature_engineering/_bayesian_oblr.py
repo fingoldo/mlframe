@@ -11,6 +11,8 @@ from typing import Optional
 
 import numpy as np
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 # Duplicated (not imported) from ``bayesian.py`` to avoid a module-import cycle: that module
 # re-exports ``online_bayesian_linear_regression`` (this file's public function) from its own
 # bottom, so importing ``_NUMBA_AVAILABLE``/the njit kernels back from it here would make the two
@@ -191,7 +193,9 @@ def online_bayesian_linear_regression(
         lm = np.full(n, np.nan, dtype=np.float64)
         backend = _force_backend if _force_backend in ("serial", "parallel") else dispatch_recursion_backend("fe_oblr", n, int(starts.size))
         if backend == "parallel":
-            _oblr_groups_parallel(y_sorted, X_sorted, starts, ends, prior_precision, noise_sigma, pm, pv, lm)
+            # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
+            with parallel_kernel_entry():
+                _oblr_groups_parallel(y_sorted, X_sorted, starts, ends, prior_precision, noise_sigma, pm, pv, lm)
         else:
             _oblr_groups_serial(y_sorted, X_sorted, starts, ends, prior_precision, noise_sigma, pm, pv, lm)
         out_pred_mean[sort_idx] = pm

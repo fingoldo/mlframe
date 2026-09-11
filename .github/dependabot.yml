@@ -27,7 +27,13 @@ updates:
   # original disable blamed; the pip ecosystem was the only automated security-patch signal this
   # repo had (dependency-review.yml only inspects NEW deps in an incoming PR's diff; pip-audit in
   # lint-advisory.yml is continue-on-error and never opens a fix PR on its own).
-  - package-ecosystem: "pip"
+  #
+  # Ecosystem switched pip -> uv on 2026-09-08, when uv.lock landed. The pip ecosystem reads
+  # pyproject.toml but has no idea uv.lock exists, so every dependabot PR would have bumped a
+  # dependency and left the lock describing the old graph -- which the new `lockfile` CI job would then
+  # fail on, turning every automated security patch into a manual re-lock. The uv ecosystem updates both
+  # in one PR.
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"

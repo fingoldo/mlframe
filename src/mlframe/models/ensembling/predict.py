@@ -482,10 +482,9 @@ def ensemble_probabilistic_predictions_streaming(
     std_preds = raw_result["std"]
     uncertainty = std_preds.mean(axis=1) if std_preds is not None else None
 
-    # Restore (N,) shape if original was 1-D
+    # Restore (N,) shape if original was 1-D. Only the predictions need it: `uncertainty` is the
+    # axis=1 mean of the (N, K) Welford std, so it is already (N,) on every path.
     if first.ndim == 1 and ensembled_predictions.shape[1] == 1:
         ensembled_predictions = ensembled_predictions[:, 0]
-        if uncertainty is not None and uncertainty.shape:
-            uncertainty = uncertainty
 
     return ensembled_predictions, uncertainty, None

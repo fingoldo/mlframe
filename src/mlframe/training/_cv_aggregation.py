@@ -19,6 +19,7 @@ The function returns a *single* penalty-augmented score where ``direction="min"`
 is better (RMSE, log-loss): worse-shard variance pushes the returned value UP. ``direction="max"``
 (AUC, accuracy) pushes it DOWN, so the caller's existing argmax / argmin works unchanged.
 """
+
 from __future__ import annotations
 
 from typing import Literal, Sequence
@@ -81,7 +82,7 @@ def _resolve_inflation(
     if not isinstance(correlation_inflation, str):
         return float(correlation_inflation)
     if correlation_inflation != AUTO_INFLATION:
-        raise ValueError(f"aggregate_fold_scores: correlation_inflation must be a float or {AUTO_INFLATION!r}, " f"got {correlation_inflation!r}")
+        raise ValueError(f"aggregate_fold_scores: correlation_inflation must be a float or {AUTO_INFLATION!r}, got {correlation_inflation!r}")
     if split_geometry is None:
         return 1.0
     k = int(split_geometry[0])
@@ -141,7 +142,10 @@ def aggregate_fold_scores(
     if mode == "mean":
         return float(np.mean(arr))
 
-    if arr.size < 2 and mode != "mean":
+    # A single fold has no spread to penalise, so every remaining mode degenerates to the mean. The
+    # `mode != "mean"` half of this condition used to be here too and is always true: the early return
+    # above is the only path that handles "mean", so control cannot reach this line with it.
+    if arr.size < 2:
         return float(np.mean(arr))
 
     sign = 1.0 if direction == "min" else -1.0

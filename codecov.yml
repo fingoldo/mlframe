@@ -1,13 +1,13 @@
 codecov:
   # ci.yml uploads exactly 10 partial coverage.xml reports (one per pytest-split shard on the
-  # single python-3.11 leg that runs `--cov`; other python versions in the matrix don't upload).
+  # single leg that runs `--cov` -- ci.yml's REPRESENTATIVE_PYTHON on COVERAGE_OS; other legs don't upload).
   # Without this hint codecov has no way to know when it has received every expected partial
   # report for a commit, so it either finalizes on the first upload (silently discarding the
   # other 9) or times out waiting past its default window and reports "incomplete uploads" --
   # observed as the badge staying at 0.00% and the commit page's own error message
   # ("No coverage data is available due to incomplete uploads on the first attempt").
   # Raised 8->16 then dropped 16->10 (2026-08-15, same day) alongside ci.yml's shard-count changes --
-  # MUST stay in lockstep with ci.yml's matrix `group` count for the python-3.11 leg, or codecov
+  # MUST stay in lockstep with ci.yml's matrix `group` count for the coverage-publishing leg, or codecov
   # finalizes on a partial set again.
   notify:
     after_n_builds: 10

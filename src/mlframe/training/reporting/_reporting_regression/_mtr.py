@@ -45,7 +45,7 @@ def render_mtr_report(
     if print_report:
         try:
             _msg_lines = [
-                f"MULTI_TARGET_REGRESSION [{model_name}] " f"shape=(N={targets_arr.shape[0]}, K={targets_arr.shape[1]}):",
+                (f"MULTI_TARGET_REGRESSION [{model_name}] " f"shape=(N={targets_arr.shape[0]}, K={targets_arr.shape[1]}):"),
             ]
             for _k, _v in _mtr_extra.items():
                 _msg_lines.append(f"  {_k} = {_v:+.4f}")

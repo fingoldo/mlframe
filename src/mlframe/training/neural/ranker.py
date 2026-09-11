@@ -450,9 +450,9 @@ try:
     from lightning.pytorch.callbacks import EarlyStopping as _EarlyStopping
 except ImportError:
     try:
-        from pytorch_lightning.callbacks import EarlyStopping as _EarlyStopping  # type: ignore
+        from pytorch_lightning.callbacks import EarlyStopping as _EarlyStopping  # type: ignore[assignment]
     except ImportError:
-        _EarlyStopping = None  # type: ignore
+        _EarlyStopping = None  # type: ignore[assignment, misc]
 
 
 class MLPRankerLightningModule(_L_MODULE.LightningModule):  # type: ignore[name-defined]  # _L_MODULE is either lightning.pytorch or pytorch_lightning, resolved at runtime; mypy can't statically type a dynamic base class

@@ -6,6 +6,8 @@ import logging
 
 import numpy as np
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
 from ._pairs_materialise import (
     _fe_use_parallel_kernels,
@@ -278,7 +280,10 @@ def _compute_one_fe_chunk(
                 chunk_buffer[:, :col],
             )
             if _fe_use_parallel_kernels(col, serial_main_thread):
-                _materialise_chunk_njit_parallel(*_mat_args)
+                # Reached from the chunk pipeline's producer thread while the main thread scores; two
+                # threads in one prange region aborts on macOS. See mlframe._numba_parallel_guard.
+                with parallel_kernel_entry():
+                    _materialise_chunk_njit_parallel(*_mat_args)
             else:
                 _materialise_chunk_njit(*_mat_args)
         # Fold the single batched materialise time evenly across the bin_func names (diagnostic only - the

@@ -85,8 +85,8 @@ def _audit_from_agg(
             timestamp_col=timestamp_col, granularity=granularity,
             bins=bins, change_point_indices=[], segments=[],
             warnings=[
-                f"only {len(kept_bins)} non-sparse bins after the {min_bin_fraction}× median-n_obs filter "
-                f"- too few for a temporal audit. Consider a finer granularity or a longer time span.",
+                (f"only {len(kept_bins)} non-sparse bins after the {min_bin_fraction}× median-n_obs filter "
+                f"- too few for a temporal audit. Consider a finer granularity or a longer time span."),
             ],
             actionable={},
         )

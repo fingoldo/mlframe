@@ -14,6 +14,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
 
 from ._gpu_probe import CUDA_IS_AVAILABLE, LGB_GPU_AVAILABLE, XGB_GPU_AVAILABLE
+from .lgb_shim import lgb_default_n_jobs
 from ._classif_helpers import _classif_objective_kwargs
 from mlframe.metrics.core import (
     ICE,
@@ -397,8 +398,11 @@ def get_training_configs(
         # LightGBM fit. Explicit -1 resolves via LightGBM's OTHER branch
         # (joblib.cpu_count(only_physical_cores=False), i.e. plain os.cpu_count(), <1ms, no
         # subprocess) with the same "use all available cores" intent -- functionally equivalent
-        # parallelism, just computed without the slow path.
-        n_jobs=-1,
+        # parallelism, just computed without the slow path. Routed through
+        # lgb_default_n_jobs so the macOS libomp-crash mitigation (forces
+        # n_jobs=1 there; see lgb_shim.py) applies to this central config
+        # too, not just the dataset-reuse shim's own fit() path.
+        n_jobs=lgb_default_n_jobs(-1),
         # histogram_pool_size=16384,
     )
     LGB_GENERAL_PARAMS.update(lgb_kwargs)

@@ -22,6 +22,8 @@ import logging
 from typing import Any, cast
 
 import numpy as np
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from numba import njit, prange
 
 logger = logging.getLogger(__name__)
@@ -216,7 +218,9 @@ def score_margin_auto(margin: np.ndarray, y: np.ndarray, metric_code: int) -> fl
     short ones (anchor subsets, small holdouts) stay serial to dodge thread-spawn overhead. Both
     kernels compute the same loss; the choice is purely a wall-clock route, never a semantic one."""
     if margin.shape[0] >= _score_margin_parallel_min_rows():
-        return float(score_margin_parallel(margin, y, metric_code))
+        # Reachable from the FE pair sweep's threaded pipeline; see mlframe._numba_parallel_guard.
+        with parallel_kernel_entry():
+            return float(score_margin_parallel(margin, y, metric_code))
     return float(score_margin(margin, y, metric_code))
 
 

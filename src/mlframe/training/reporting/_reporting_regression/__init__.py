@@ -723,9 +723,9 @@ def report_regression_model_perf(
         if _is_t_scale_composite:
             _report_lines = [
                 report_title + " " + model_name,
-                "  (composite/residual scale -- per-model metrics suppressed; "
+                ("  (composite/residual scale -- per-model metrics suppressed; "
                 "original y-scale metrics emitted by the "
-                "[CompositeTargetEstimator] wrap-pass)",
+                "[CompositeTargetEstimator] wrap-pass)"),
             ]
         else:
             # One-line metrics in the log block.

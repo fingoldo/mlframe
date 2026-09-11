@@ -38,8 +38,8 @@ try:
     _FILELOCK_AVAILABLE = True
 except ImportError:  # pragma: no cover -- optional dep until D phase wires cache layer
     _FILELOCK_AVAILABLE = False
-    Timeout = TimeoutError  # type: ignore
-    _BaseFileLock = object  # type: ignore
+    Timeout = TimeoutError  # type: ignore[assignment, misc]
+    _BaseFileLock = object  # type: ignore[assignment, misc]
 
 
 class StaleLockReclaimed(UserWarning):

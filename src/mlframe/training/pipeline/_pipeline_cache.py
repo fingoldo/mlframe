@@ -28,7 +28,7 @@ import pandas as pd
 try:
     import polars as pl
 except ImportError:
-    pl = None  # type: ignore
+    pl = None  # type: ignore[assignment]
 
 # polars' ``hash_rows`` panics at the Rust layer on a zero-column frame
 # (``pyo3_runtime.PanicException: at least one key``). That panic class is

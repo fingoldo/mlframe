@@ -22,6 +22,10 @@ jobs:
   build:
     name: build sdist + wheel
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write      # attest-build-provenance signs via OIDC
+      attestations: write
     # Every other job in this repo's workflows sets an explicit timeout-minutes; this one job was
     # the sole omission (2026-07-18 architecture review). Low risk in practice (build+twine-check
     # is fast and deterministic) but inconsistent with the rest of the codebase's own discipline.
@@ -58,6 +62,14 @@ jobs:
       - name: Verify distributions with twine
         run: uvx twine check dist/*
 
+      # Signed, verifiable provenance for what was built, alongside the Trusted Publishing already used
+      # for the upload itself. Release-only: a dispatch build has no release to attest against.
+      - name: Attest build provenance
+        if: github.event_name == 'release'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: dist/*
+
       - name: Upload built distributions
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -66,6 +78,11 @@ jobs:
 
   publish:
     name: publish to PyPI
+    # workflow_dispatch is a trigger on this workflow so the build/validate legs can be exercised from
+    # any ref. Uploading is irreversible, so only a real release event may reach it -- a dispatch would
+    # otherwise publish whatever version.py happens to say on that ref, unguarded by the tag/version
+    # equality assert, which is itself gated on the release event.
+    if: github.event_name == 'release'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10

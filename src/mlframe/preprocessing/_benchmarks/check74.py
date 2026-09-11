@@ -1,4 +1,4 @@
-import scipy.stats, numba, numpy as np, pandas as pd  # noqa
+import scipy.stats, numba, numpy as np, pandas as pd  # noqa: F401
 import mlframe.preprocessing.cleaning as C
 
 NEW = C._get_nunique

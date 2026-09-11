@@ -1,0 +1,258 @@
+name: deep-nightly
+
+# The DEPTH run. ci.yml answers "does it work everywhere" -- three OSes on one Python version per push,
+# one filtered pass. This answers a different question: "does the exhaustive variant space still hold".
+#
+# Three things ci.yml never runs, and until this workflow existed nothing else did either:
+#
+#   * `slow`-marked tests           deselected on every push by `-m "not slow ..."`
+#   * fuzz combos                   deselected unless --run-fuzz is passed
+#   * the full parametric sweeps    collapsed by MLFRAME_FAST=1, which makes fast_subset() return one
+#                                   representative value per code path (48 test files, 182 call sites)
+#
+# Measured 2026-09-08: the push matrix runs 33151 of 35355 collectable tests. The ~2200 it does not are
+# what this workflow is for. GPU stays out -- GitHub-hosted runners have none, and gpu-matrix.yml covers
+# it on a self-hosted box.
+#
+# ONE OS and ONE Python version on purpose. Depth and breadth are separate questions, and multiplying
+# them is what makes a matrix unaffordable: folding these three categories into the weekly three-OS,
+# six-version sweep would multiply 180 jobs by a much slower suite. A slow test or a fuzz combo fails on
+# its logic, not on its platform, and the platform axis is already covered per push.
+
+on:
+  schedule:
+    # 01:40 UTC, nightly. Off the hour because GitHub queues scheduled workflows account-wide and
+    # everyone's cron sits on :00; ahead of numba-coverage's 03:00 so the two do not contend for the
+    # concurrency ceiling.
+    - cron: "40 1 * * *"
+  workflow_dispatch:
+    inputs:
+      run:
+        description: "Actually run (set false to skip a manual dispatch without disabling the cron)"
+        type: boolean
+        default: true
+
+concurrency:
+  # Per event type: a manual dispatch should not cancel the nightly, and vice versa.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # For a numerics library, RuntimeWarning is the silent-correctness channel: "invalid value encountered in
+  # divide", "overflow encountered in exp", "Mean of empty slice", "Degrees of freedom <= 0". The function
+  # returns NaN or inf, a downstream nanmax or comparison absorbs it, and the only symptom is a slightly
+  # worse feature ranking. pytest's filterwarnings errors on exactly one thing (DeprecationWarning from
+  # mlframe) and ignores the rest, and no AST gate can see this -- it is a runtime property. The codebase is
+  # already positioned for the gate: the ~144 np.errstate sites are the places that legitimately expect
+  # these warnings.
+  #
+  # Non-blocking, because the size of the failure set is not yet known for the whole tree. It was measured
+  # on tests/metrics + tests/calibration + tests/evaluation (1592 tests, 2026-09-08): zero failures. This
+  # job exists to produce the same number for the parts that measurement did not reach -- the feature
+  # engineering and selection trees, where the kernels that emit these warnings actually live. Once it
+  # reads zero, move the filter into pyproject's filterwarnings and delete this job.
+  runtime-warnings:
+    env:
+      # [tool.uv.sources] points pyutilz at git, while this job installs it from a local clone. uv sees
+      # two different URLs for one package and refuses: "Requirements contain conflicting URLs for
+      # package `pyutilz`". The source exists so `uv lock` can resolve a package that is not on PyPI;
+      # here the clone is the intended input, so the table is ignored. Never set this on the lockfile
+      # job -- that one needs the source to resolve at all.
+      UV_NO_SOURCES: "1"
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run }}
+    name: RuntimeWarning census (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+        with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[all,dev]"
+          pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
+
+      - name: Install contributor tooling not declarable in [dev]
+        run: |
+          # py-ci-shared is a git checkout, so it cannot live in [dev] without putting a PEP 440 direct
+          # reference into the built distribution's metadata (see requirements-dev.txt). It is still needed
+          # here: tests/test_meta/conftest.py imports py_ci_shared at collection time, so without it every
+          # shard that collects tests/test_meta errors out before running anything.
+          uv pip install --system -r requirements-dev.txt
+
+      - name: Run the per-push set with RuntimeWarning as an error
+        env:
+          PYTHONUNBUFFERED: "1"
+          MLFRAME_FAST: "1"
+        run: |
+          # The per-push selection, not the deep one: this job is sizing a warning class, and pairing a new
+          # filter with the slow/fuzz set would make an unrelated deep failure look like a warning finding.
+          pytest -m "not slow and not gpu and not multigpu" \
+            --ignore=tests/training/test_core.py \
+            -n auto \
+            --dist=loadgroup \
+            --no-cov \
+            -p no:randomly \
+            --timeout=900 \
+            --timeout-method=signal \
+            --durations=200 \
+            -W "error::RuntimeWarning:mlframe"
+
+  deep:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run }}
+    name: deep suite (shard ${{ matrix.group }}/20)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    # Near the 360-minute hosted ceiling. Every one of the three additions makes the suite slower than
+    # the push matrix: slow tests are slow by definition, fuzz combos enumerate, and the full sweeps
+    # multiply every parametrised case back out. Headroom, not a budget -- a shard that needs it should
+    # finish and report real failures rather than being truncated.
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 shards, twice ci.yml's 10, because this pass is doing considerably more work per shard.
+        group: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"]
+    env:
+      # [tool.uv.sources] points pyutilz at git, while this job installs it from a local clone; without
+      # this uv refuses on conflicting URLs for the same package. See the note in ci.yml's test job.
+      UV_NO_SOURCES: "1"
+      PYTHONUNBUFFERED: "1"
+      # NOT setting MLFRAME_FAST is the point of this workflow -- fast_subset() then returns the full
+      # value list instead of one representative, which is most of what the push matrix skips.
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          # The same version ci.yml runs on a push. Depth varies the TEST SET, not the interpreter;
+          # the interpreter axis belongs to ci.yml's weekly sweep.
+          python-version: "3.12"
+
+      # install-pyutilz below runs `uv pip install`, so uv has to exist first. Missing this step is what
+      # made the very first deep run die at exit 127 before a single test ran.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          # 20 shards a night each resolving a several-hundred-package, multi-GB graph from cold is the
+          # single largest avoidable spend in this workflow. setup-python's `cache: pip` used to sit here
+          # instead and cached nothing, because every install in this job goes through uv.
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      # Installs pyutilz AND this project in one uv call, exactly as ci.yml does -- the extras are what
+      # the action installs, so leaving them empty asks it to install nothing.
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+        with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[all,dev]"
+          pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
+
+      - name: Install contributor tooling not declarable in [dev]
+        run: |
+          # py-ci-shared is a git checkout, so it cannot live in [dev] without putting a PEP 440 direct
+          # reference into the built distribution's metadata (see requirements-dev.txt). It is still needed
+          # here: tests/test_meta/conftest.py imports py_ci_shared at collection time, so without it every
+          # shard that collects tests/test_meta errors out before running anything.
+          uv pip install --system -r requirements-dev.txt
+
+      - name: Restore numba JIT cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.numba-cache
+          key: numba-deep-${{ runner.os }}-py3.12-${{ hashFiles('src/**/*.py') }}
+          restore-keys: |
+            numba-deep-${{ runner.os }}-py3.12-
+
+      - name: Show installed versions
+        run: |
+          python -c "import mlframe; print('mlframe', mlframe.__version__)"
+          python -c "import os; print('MLFRAME_FAST =', os.environ.get('MLFRAME_FAST') or '(unset -- full sweeps)')"
+
+      - name: Run the deep suite
+        env:
+          SHARD_GROUP: ${{ matrix.group }}
+        run: |
+          # --run-fuzz enables the fuzz-combo tests the conftest deselects by default.
+          # -m keeps `slow` IN and only drops what this runner physically cannot do.
+          # --durations-path: its own file. Timings here are nothing like ci.yml's -- the same node ID
+          # can take 100x longer with its full sweep restored -- so sharing .test_durations would
+          # misbalance both suites.
+          #
+          # There is deliberately no merge-and-commit job yet, unlike ci.yml's. Until one exists the
+          # shards are split by FILE COUNT, which is correct but badly balanced, and a heavy shard may
+          # need most of the 340 minutes. The per-shard artifacts below are what a merge job would
+          # consume; wiring one up is worth doing once this run is green and its real timings are known,
+          # rather than guessing a balance for a suite nobody has yet run to completion.
+          pytest \
+            -m "not gpu and not multigpu" \
+            --run-fuzz \
+            --splits 20 --group "$SHARD_GROUP" \
+            --durations-path=.test_durations_deep \
+            --store-durations \
+            -n auto \
+            --dist=loadgroup \
+            --cov=src/mlframe \
+            --cov-report=xml \
+            -p no:randomly \
+            --timeout=1800 \
+            -ra
+
+      # This run reaches lines nothing else does -- slow tests, fuzz combos and the parametric variants
+      # MLFRAME_FAST collapses away -- so its coverage is the part the other two workflows structurally
+      # cannot contribute. Uploaded twice, for two different questions:
+      #
+      #   the `deep` flag     what depth alone covers, readable on its own
+      #   the raw .coverage   merged by codecov-full.yml into the `combined` flag, which is the only
+      #                       honest whole-project number: a line counts as covered if ANY run executed
+      #                       it, and adding two flags' percentages double-counts instead of unioning.
+      - name: Upload coverage to Codecov (deep flag)
+        if: success() || failure()
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@f50288e5a6f5b7f972efb60f948ce6184c8e9e70  # v1.3.4
+        with:
+          files: ./coverage.xml
+          flags: deep
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload raw coverage data (for the cross-workflow merged report)
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: raw-coverage-deep-${{ matrix.group }}
+          path: .coverage
+          retention-days: 3
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+      - name: Upload this shard's durations
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: deep-durations-${{ matrix.group }}
+          path: .test_durations_deep
+          retention-days: 7
+          include-hidden-files: true
+          if-no-files-found: ignore

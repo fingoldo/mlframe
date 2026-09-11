@@ -507,7 +507,7 @@ def retain_usable_pure_forms(
                 try:
                     from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
                 except ImportError:
-                    fe_gpu_strict_resident_enabled = None  # type: ignore
+                    fe_gpu_strict_resident_enabled = None  # type: ignore[assignment]
             if fe_gpu_strict_resident_enabled is not None and fe_gpu_strict_resident_enabled():
                 try:
                     from ._fe_pure_form_retention_gpu_resident import adds_nonlinear_value_batch_gpu_resident

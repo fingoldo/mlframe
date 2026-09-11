@@ -40,6 +40,17 @@ default_language_version:
   python: python3
 
 repos:
+  # First, ahead of every ruff hook below: the blocking ruff hooks are `language: system`, so they run whatever ruff this
+  # interpreter has. This fails when that ruff, the pyproject pin and the version py-ci-shared's CI workflows run disagree.
+  - repo: local
+    hooks:
+      - id: pinned-tool-versions
+        name: "pinned tool versions (ruff) match py-ci-shared"
+        entry: python -m py_ci_shared.pinned_tool_versions
+        language: system
+        pass_filenames: false
+        always_run: true
+
   # Standard pre-commit.com baseline -- absent until 2026-07-18's architecture review, near-zero
   # cost (well under a second combined) and catches a class of bug the rest of this file's
   # Python-specific tooling structurally can't: a committed merge-conflict marker, an
@@ -54,6 +65,11 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: ['--maxkb=2048']
+        # uv.lock is ~3 MB and machine-generated: it pins 594 packages with per-marker forks and their
+        # wheel hashes, so its size is a property of the dependency graph, not of anyone's judgement.
+        # Excluded by name rather than by raising the ceiling, so the 2 MB limit keeps protecting every
+        # other path from an accidentally-committed artifact.
+        exclude: '^uv\.lock$'
       - id: mixed-line-ending
         args: ['--fix=lf']
         # CRLF-vs-LF is already a live, repo-documented incident class (this repo's own
@@ -79,6 +95,20 @@ repos:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
         exclude: '\.secrets\.baseline$'
+
+  # The ruff version exists in four places: CI's (py-ci-shared's tool_versions.RUFF_VERSION, read by the
+  # ruff-blocking.yml this repo calls), the ruff== pin in pyproject.toml, the ruff-pre-commit revs below,
+  # and the interpreter's own ruff. They drifted: the pin and the revs said 0.16.1 while CI still ran
+  # 0.15.22, with a comment claiming otherwise. This fails when any of them disagree, naming both versions.
+  - repo: local
+    hooks:
+      - id: pinned-tool-versions
+        name: "pinned tool versions (ruff) match py-ci-shared"
+        entry: python -m py_ci_shared.pinned_tool_versions
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
 
   # Ordering (2026-07-18 architecture review): these two blocking gates are the fastest AND most
   # likely to catch a plain typo (a syntax slip, an undefined name, a misspelled word in an assert
@@ -525,35 +555,15 @@ repos:
         verbose: true
         stages: [manual]
 
-  # Architectural-boundary / docstring-consistency / custom-rule advisory checks. Added 2026-07-18
-  # CI/CD architecture review -- manual-only (same posture as vulture-blocking and lint-advisory-warn
-  # above): none of the three has a triaged 0-findings baseline yet (pydoclint alone: 858 findings
-  # across the existing codebase), so running them on every commit would be pure noise. Mirrors
-  # lint-advisory.yml's own advisory (continue-on-error) posture for these same three tools.
+  # Docstring-consistency advisory check. Added 2026-07-18 CI/CD architecture review -- manual-only
+  # (same posture as vulture-blocking and lint-advisory-warn above): no triaged 0-findings baseline
+  # yet (858 findings across the existing codebase), so running it on every commit would be pure
+  # noise. Mirrors lint-advisory.yml's own advisory (continue-on-error) posture for this tool.
   - repo: local
     hooks:
-      - id: import-linter-warn
-        name: "import-linter (architectural boundaries, advisory)"
-        # PYTHONPATH: the worktree editable-install trap -- a bare `import mlframe` in a git
-        # worktree resolves to the MAIN tree's install location, not this worktree's own src/,
-        # silently missing any file added/moved since the editable install was created.
-        entry: bash -c 'PYTHONPATH="$(pwd)/src" lint-imports'
-        language: system
-        pass_filenames: false
-        verbose: true
-        stages: [manual]
-
       - id: pydoclint-warn
         name: "pydoclint (docstring-vs-signature consistency, advisory)"
         entry: pydoclint --style=google src/mlframe
-        language: system
-        pass_filenames: false
-        verbose: true
-        stages: [manual]
-
-      - id: semgrep-warn
-        name: "semgrep (custom org-specific rules, advisory)"
-        entry: semgrep --config .semgrep.yml src/mlframe
         language: system
         pass_filenames: false
         verbose: true
