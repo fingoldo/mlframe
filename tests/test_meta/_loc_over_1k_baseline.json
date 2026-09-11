@@ -1,0 +1,13 @@
+{
+  "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py": 1452,
+  "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_score.py": 1283,
+  "src/mlframe/feature_selection/filters/_gpu_resident_fe.py": 1213,
+  "src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py": 1924,
+  "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_core.py": 1060,
+  "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py": 1189,
+  "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py": 2543,
+  "src/mlframe/feature_selection/filters/discretization/__init__.py": 1074,
+  "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py": 4265,
+  "src/mlframe/training/_trainer_train_and_evaluate.py": 1033,
+  "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py": 1173
+}
