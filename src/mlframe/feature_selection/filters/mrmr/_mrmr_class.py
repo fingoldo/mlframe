@@ -16,6 +16,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import sys
 import threading
 import warnings
 from collections import OrderedDict
@@ -135,6 +136,22 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Sentinel distinguishing "constructor attribute was not overridden during fit" from a stored value of None.
 _UNSET = object()
+
+# macOS only: numba's default 'workqueue' threading layer is not thread-safe for concurrent entry --
+# two threads simultaneously launching a numba parallel=True kernel abort the whole process
+# ("Numba workqueue threading layer is terminating: Concurrent access has been detected", then
+# "Fatal Python error: Aborted"). fit()'s own docstring anticipates concurrent multi-threaded calls
+# (multi-target discovery, joblib-threading callers, web-service workers), and _fit_impl reaches numba
+# parallel kernels (e.g. the MDLP discretization BFS) on essentially every real fit, so this is a
+# genuine macOS production stability gap, not a test-only artifact -- reproduced by
+# tests/feature_selection/mrmr/caching/test_fit_cache_thread_safety.py's concurrent-fit storm.
+# numba itself suggests TBB/OMP as thread-safe alternative layers, but switching the process-wide
+# threading layer would also change the scheduling of every already-benchmarked njit(parallel=True)
+# kernel in this codebase. Serializing fit() bodies on macOS is the conservative fix: each fit still
+# uses numba's internal parallelism, only two fits can no longer LAUNCH a parallel region at the
+# same instant. Linux/Windows are unaffected (numba's workqueue layer tolerates concurrent launch
+# there) so the lock is a no-op everywhere else.
+_MACOS_NUMBA_PARALLEL_FIT_LOCK = threading.Lock() if sys.platform == "darwin" else None
 
 
 def _mrmr_y_is_multioutput(y) -> bool:
@@ -3339,6 +3356,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         try:
             self._enter_active_fit_scope()
             try:
+                if _MACOS_NUMBA_PARALLEL_FIT_LOCK is not None:
+                    with _MACOS_NUMBA_PARALLEL_FIT_LOCK:
+                        return self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
                 return self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
             finally:
                 self._exit_active_fit_scope()
