@@ -30,7 +30,6 @@ Run from the repository root. The script re-runs each meta-test in
 - `_docstring_baseline.json` - missing-docstring allow-list
 - `_logger_lazy_baseline.json` - non-lazy logger format strings
 - `_loc_over_1k_baseline.json` - modules over 1000 lines and their one-way ceilings (`--refresh-loc-budget-baseline`)
-- `_mutable_defaults_baseline.json` - mutable default-argument sites
 - `_audit_metadata_baseline.json` - audit/phase metadata leaking into code comments
 - `_cache_mutation_lock_baseline.json` - cache mutations performed without holding the module lock
 - `_code_audit_tests_baseline.json` - the shared code-audit scanners run over `tests/` instead of `src/`

@@ -29,7 +29,6 @@ _BASELINES: dict[str, tuple[str, str]] = {
     "_debt_baseline.json": ("test_deferred_drift", "regenerate_baseline"),
     "_docstring_baseline.json": ("test_public_docstrings", "regenerate_baseline"),
     "_logger_lazy_baseline.json": ("test_logger_lazy_formatting", "regenerate_baseline"),
-    "_mutable_defaults_baseline.json": ("test_no_mutable_defaults", "regenerate_baseline"),
     "_value_bearing_asserts_baseline.json": ("test_no_value_bearing_asserts", "regenerate_baseline"),
 }
 

@@ -1,6 +1,6 @@
 """Meta-test: run pyutilz.dev.code_audit's generic AST/SQL scanners against
 this repo's own source, baseline-driven per this directory's snapshot-style
-meta-test convention (see test_no_bare_except.py / test_no_mutable_defaults.py).
+meta-test convention (see test_no_bare_except.py).
 
 Findings are baselined together (keyed by ``check::file:line``) so
 pre-existing debt doesn't block adoption -- only a NEW finding fails the

@@ -9,8 +9,8 @@ Keeping them in ONE file makes "which shared checks does this repo actually run?
 single import block, rather than by grepping for `py_ci_shared` across a hundred-odd meta modules.
 
 Checks already covered by a first-party mlframe meta test are deliberately NOT re-wired here: the LOC budget
-(`test_no_file_over_1k_loc.py`), import cycles (`test_no_import_cycles.py`), mutable defaults
-(`test_no_mutable_defaults.py`), the code-audit ratchet (`test_code_audit_baseline.py`), README env-var
+(`test_no_file_over_1k_loc.py`), import cycles (`test_no_import_cycles.py`), the code-audit ratchet
+(`test_code_audit_baseline.py`, which also catches mutable default arguments), README env-var
 parity (`test_readme_env_var_parity.py`) and per-job CI timeouts (`test_x_cicd_dependencies_fixes.py`).
 Duplicating those would give two baselines for one rule.
 
