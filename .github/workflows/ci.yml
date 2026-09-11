@@ -123,14 +123,14 @@ jobs:
                   for g in GROUPS
               ]
           else:
-              # All three platforms, one version. Blocking on purpose, including the two that have never
-              # been green: a non-blocking leg on a platform nobody has made green is a leg nobody looks
-              # at. Expect red until Windows and macOS are driven green -- that is the signal working, not
-              # the signal broken.
+              # TEMPORARY (audits/ci_review_2026-09-08/_TRACKER.md, X5): macOS-only push matrix while
+              # iterating on the libomp/LightGBM crash fix -- ubuntu/windows dropped so each CI round
+              # queues far fewer jobs and turns around faster. Revert to all three platforms once macOS
+              # is confirmed stable across a few consecutive pushes.
               legs = [
                   {"os": os_name, "python-version": REPRESENTATIVE, "splits": "10",
                    "group": g, "experimental": False}
-                  for os_name in ("ubuntu-latest", "windows-latest", "macos-latest")
+                  for os_name in ("macos-latest",)
                   for g in GROUPS
               ]
 
@@ -259,7 +259,7 @@ jobs:
           # itself had no way to honour one until pyutilz-ref was added) -- every other workflow's
           # inline "git -C pyutilz checkout <sha>" line already matched this SHA; see
           # X_CICD_DEPENDENCIES-1 for why pinning matters here.
-          pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: 34e34256c6e99e5ba366be0015314b01f9121d95  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Install contributor tooling not declarable in [dev]
         run: |
@@ -485,7 +485,7 @@ jobs:
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: 34e34256c6e99e5ba366be0015314b01f9121d95  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Restore numba JIT cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0

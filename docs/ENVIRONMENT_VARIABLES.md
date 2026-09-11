@@ -169,6 +169,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_KSG_GPU_N` | `'50000'` | [src/mlframe/feature_selection/filters/_ksg.py](../src/mlframe/feature_selection/filters/_ksg.py#L54) |
 | `MLFRAME_KTC_ONLINE_LEARN` | `''` | [src/mlframe/feature_selection/_benchmarks/kernel_tuning_cache/dispatch.py](../src/mlframe/feature_selection/_benchmarks/kernel_tuning_cache/dispatch.py#L178) |
 | `MLFRAME_LGB_CACHE_DISABLE` | — | [src/mlframe/training/lgb_shim.py](../src/mlframe/training/lgb_shim.py#L277) |
+| `MLFRAME_LGB_MACOS_ALLOW_MULTITHREAD` | `'0'` | [src/mlframe/training/lgb_shim.py](../src/mlframe/training/lgb_shim.py#L87) |
 | `MLFRAME_LOAD_MODEL_CACHE_MAX` | `'32'` | [src/mlframe/training/io.py](../src/mlframe/training/io.py#L733) |
 | `MLFRAME_LOAD_MODEL_CACHE_MAX_MB` | `'2048'` | [src/mlframe/training/io.py](../src/mlframe/training/io.py#L681) |
 | `MLFRAME_MAX_ERROR_PAR_THRESHOLD` | `'5000000'` | [src/mlframe/metrics/regression/_regression_metrics.py](../src/mlframe/metrics/regression/_regression_metrics.py#L55) |
@@ -195,6 +196,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_NONFINITE_PAR_THRESHOLD` | `'1000000'` | [src/mlframe/feature_engineering/transformer/_utils.py](../src/mlframe/feature_engineering/transformer/_utils.py#L40) |
 | `MLFRAME_NO_CUDA_AUTOCONFIG` | `''` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L51) |
 | `MLFRAME_NO_GPU_INFO_CACHE` | — | [src/mlframe/training/cb/_cb_pool.py](../src/mlframe/training/cb/_cb_pool.py#L550) |
+| `MLFRAME_NO_MACOS_OMP_AUTOCONFIG` | — | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L65) |
 | `MLFRAME_NUMBA_MI` | `''` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_backends.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_backends.py#L203) |
 | `MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL` | — | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L295) |
 | `MLFRAME_NW_PARALLEL_MIN_QUERIES` | `'2000'` | [src/mlframe/feature_engineering/nadaraya_watson.py](../src/mlframe/feature_engineering/nadaraya_watson.py#L42) |

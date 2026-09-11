@@ -30,6 +30,7 @@ import pytest
 
 import mlframe
 
+from tests.test_meta._scan_guard import assert_scanned_enough
 from tests.test_meta._shared_ast_cache import parsed_ast, source_text
 
 MLFRAME_DIR = Path(__file__).resolve().parents[2] / "src" / "mlframe"
@@ -89,12 +90,14 @@ def _scan_for_reexport_alias_writes() -> list[str]:
     """Every ``$alias.$CONST = ...`` write where ``$alias`` is a `from . import X as alias` module
     import and the imported module does NOT itself define ``$CONST`` (it only re-exports it)."""
     offenders: list[str] = []
+    scanned = 0
     for py in sorted(MLFRAME_DIR.rglob("*.py")):
         if "__pycache__" in py.parts or py.name.endswith(".py.old"):
             continue
         tree = parsed_ast(py)
         if tree is None:
             continue
+        scanned += 1
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
                 continue
@@ -115,6 +118,7 @@ def _scan_for_reexport_alias_writes() -> list[str]:
                     f"{py.relative_to(MLFRAME_DIR)}:{node.lineno}  {alias}.{const} = ...  "
                     f"(imported module {owning_module.relative_to(MLFRAME_DIR)} does not define {const} itself)"
                 )
+    assert_scanned_enough(scanned, "src/mlframe")
     return offenders
 
 
