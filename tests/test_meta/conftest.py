@@ -33,7 +33,6 @@ _REFRESH_FLAGS = [
     "--refresh-loc-budget-baseline",
     "--refresh-mojibake-baseline",
     "--refresh-module-env-mutation-baseline",
-    "--refresh-mutable-defaults-baseline",
     "--refresh-orth-fe-recipes-no-freeze-baseline",
     "--refresh-resource-handle-baseline",
     "--refresh-source-text-baseline",
