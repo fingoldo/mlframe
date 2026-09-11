@@ -46,7 +46,6 @@ UNGUARDED: set[str] = {
     "test_no_inbound_edge_to_benchmarking.py",
     "test_no_lazy_from_import_under_joblib_delayed.py",
     "test_no_module_level_logging_disable.py",
-    "test_no_mutable_defaults.py",
     "test_no_njit_unsupported_numpy_reduction.py",
     "test_no_nondiscriminating_assert.py",
     "test_no_numba_config_env_restore_footgun.py",
