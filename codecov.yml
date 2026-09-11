@@ -18,6 +18,17 @@ codecov:
 coverage:
   status:
     project: off
-    patch: off
+    # L1.6 (audits/ci_review_2026-09-08/_TRACKER.md): patch status is the high-signal half of a
+    # coverage gate for a PR-driven repo -- it checks whether the lines a change actually touches
+    # are covered, not the whole tree's total. Target taken from the first GREEN `codecov-full`
+    # run (2026-09-10, run 34487120883, the `combined` flag's own TOTAL line): 77.79%.
+    # `informational: true` so a below-target patch reports on the commit without failing it --
+    # this measured number has never gated anything before, so the first live run under it needs
+    # to be watched before trusting it to block. Flip informational off once a few real patches
+    # have reported cleanly against it.
+    patch:
+      default:
+        target: 77.79%
+        informational: true
 
 comment: false

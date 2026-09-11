@@ -34,6 +34,7 @@ _REFRESH_FLAGS = [
     "--refresh-mojibake-baseline",
     "--refresh-module-env-mutation-baseline",
     "--refresh-orth-fe-recipes-no-freeze-baseline",
+    "--refresh-pydoclint-baseline",
     "--refresh-resource-handle-baseline",
     "--refresh-source-text-baseline",
     "--refresh-readonly-to-numpy-mutation-baseline",

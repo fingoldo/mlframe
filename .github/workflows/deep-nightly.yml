@@ -114,6 +114,17 @@ jobs:
             --durations=200 \
             -W "error::RuntimeWarning:mlframe"
 
+      # L3.4 (audits/ci_review_2026-09-08/_TRACKER.md): scoped to calibration + metrics, the same
+      # mypy-strict beachhead this repo already trusts for correctness elsewhere. Deliberately landed
+      # in THIS job rather than a new one, per that finding's own note that doctest-modules and the
+      # RuntimeWarning census both add a leg over the same subpackages and should not duplicate it.
+      # `pytest --doctest-modules` exits 5 ("no tests collected") when a scanned tree has no doctest
+      # examples at all -- true today -- which is not a failure worth a red advisory pill, so it is
+      # folded into "pass" explicitly rather than left to fail the step.
+      - name: Doctest examples in calibration + metrics (advisory)
+        run: |
+          pytest --doctest-modules src/mlframe/calibration src/mlframe/metrics --no-cov -p no:randomly || test "$?" = 5
+
   deep:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run }}
     name: deep suite (shard ${{ matrix.group }}/20)

@@ -44,6 +44,7 @@ Run from the repository root. The script re-runs each meta-test in
 - `_readonly_to_numpy_mutation_baseline.json` - writes through a read-only `to_numpy()` view
 - `_single_shot_timing_baseline.json` - assertions on a single un-repeated timing measurement
 - `_source_text_baseline.json` - tests asserting on source text rather than behaviour (py_ci_shared.source_text_claims)
+- `_pydoclint_baseline.json` - pydoclint docstring-vs-signature findings (py_ci_shared.baseline_ratchet), refresh with `--refresh-pydoclint-baseline`
 - `_stale_comment_baseline.json` - comments describing code that no longer exists
 - `_stale_not_wired_docstring_baseline.json` - "not wired" docstrings on things that now are
 - `_tick_isinstance_baseline.json` - `isinstance` checks on matplotlib tick/offset objects
