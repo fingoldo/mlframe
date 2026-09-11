@@ -12,7 +12,8 @@ production code worth policing. These tests catch:
       police. The whole point of a meta-test is to cover the public
       contract — if the test imports ``_foo`` from a production module,
       it's testing implementation, not behaviour. Whitelist via
-      ``_PERMITTED_PRIVATE_IMPORTS`` for legitimate cases (e.g. the
+      ``_PERMITTED_PRIVATE_IMPORTS`` for legitimate cases, checked by ``py_ci_shared.meta_private_imports``,
+      where a permitted entry nothing imports fails (e.g. the
       lazy-proxy meta-test must touch ``_create_lazy_module`` because
       that IS the surface under test).
 
@@ -25,11 +26,10 @@ production code worth policing. These tests catch:
 
 from __future__ import annotations
 
-import ast
-from functools import cache
 from pathlib import Path
 
 import pytest
+from py_ci_shared.meta_private_imports import assert_no_private_meta_imports
 from py_ci_shared.fail_message_quality import assert_fail_messages_actionable
 
 _TEST_META_DIR = Path(__file__).resolve().parent
@@ -73,7 +73,6 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     # under audit here, exactly like the parent module already whitelisted for this test.
     "test_log_only_except_reports_and_phase_composite_best_effort::mlframe.training.pipeline._pipeline_extensions_pysr",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.data_valuation._propagate_gpu_ktc",
-    "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.inference._ktc_dispatch",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.training._eval_helpers._append_split_rate_suffix",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.training._feature_importances._captum_integrated_gradients_importance",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.training._training_loop._in_interactive_notebook",
@@ -187,39 +186,6 @@ def _meta_test_files() -> list[Path]:
     return sorted(out)
 
 
-@cache
-def _parsed_ast(py: Path) -> ast.AST | None:
-    """Read + AST-parse ``py`` once, cached: both F1 and F2 scanners below walk
-    the same meta-test file set independently, so an uncached read_text()+ast.parse()
-    per scanner doubles the I/O + parse cost."""
-    try:
-        src = py.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
-    try:
-        return ast.parse(src)
-    except SyntaxError:
-        return None
-
-
-def _imports(tree: ast.AST) -> list[str]:
-    """Yield fully-qualified imported names from ``import X`` and
-    ``from X import Y`` (where Y joins the dotted base)."""
-    out: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                out.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            base = node.module or ""
-            for alias in node.names:
-                if base:
-                    out.append(f"{base}.{alias.name}")
-                else:
-                    out.append(alias.name)
-    return out
-
-
 # ---------------------------------------------------------------------------
 # F1 — actionable failure messages
 # ---------------------------------------------------------------------------
@@ -236,31 +202,10 @@ def test_every_pytest_fail_call_has_actionable_text() -> None:
 
 
 def test_meta_tests_dont_reach_private_internals():
-    """F2: meta-tests must cover the public contract, not reach into unwhitelisted private internals."""
-    bad: list[str] = []
-    for py in _meta_test_files():
-        stem = py.stem
-        tree = _parsed_ast(py)
-        if tree is None:
-            continue
-        for imp in _imports(tree):
-            # Only audit our own package imports.
-            if not (imp.startswith("pyutilz") or imp.startswith("mlframe")):
-                continue
-            # Last segment with a single leading underscore is "private".
-            last = imp.rsplit(".", 1)[-1]
-            if not last.startswith("_") or last.startswith("__"):
-                continue
-            entry = f"{stem}::{imp}"
-            if entry in _PERMITTED_PRIVATE_IMPORTS:
-                continue
-            bad.append(entry)
-    if bad:
-        pytest.fail(
-            f"{len(bad)} meta-test(s) import a private symbol without "
-            f"justification. Either use the public API instead, OR "
-            f"whitelist via _PERMITTED_PRIVATE_IMPORTS with reasoning:\n  " + "\n  ".join(sorted(set(bad)))
-        )
+    """F2: a private import from a meta-test needs a permitted entry with its reason, and a permitted entry nothing imports fails."""
+    assert_no_private_meta_imports(
+        _TEST_META_DIR, ("mlframe", "pyutilz"), permitted=_PERMITTED_PRIVATE_IMPORTS, exclude=(Path(__file__).name,), any_segment=False, min_files=100
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -54,6 +54,11 @@ def _iter_modules():
             except (SyntaxError, UnicodeDecodeError):
                 # Reported by its own test below, not swallowed here.
                 continue
+            except FileNotFoundError:
+                # Gone between the glob and the read: test_progress_xdist_plugin_conflict writes and deletes a probe
+                # file in this directory, and under -n 4 this walk met it half-way. A file that no longer exists has
+                # no import to check.
+                continue
             yield path.relative_to(REPO_ROOT).as_posix(), tree
 
 

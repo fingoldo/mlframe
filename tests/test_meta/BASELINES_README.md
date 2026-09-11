@@ -29,6 +29,7 @@ Run from the repository root. The script re-runs each meta-test in
 - `_debt_baseline.json` - per-test deferred-debt budgets
 - `_docstring_baseline.json` - missing-docstring allow-list
 - `_logger_lazy_baseline.json` - non-lazy logger format strings
+- `_loc_over_1k_baseline.json` - modules over 1000 lines and their one-way ceilings (`--refresh-loc-budget-baseline`)
 - `_mutable_defaults_baseline.json` - mutable default-argument sites
 - `_audit_metadata_baseline.json` - audit/phase metadata leaking into code comments
 - `_cache_mutation_lock_baseline.json` - cache mutations performed without holding the module lock
@@ -43,10 +44,11 @@ Run from the repository root. The script re-runs each meta-test in
 - `_readme_env_var_baseline.json` - env vars in the source that README does not document
 - `_readonly_to_numpy_mutation_baseline.json` - writes through a read-only `to_numpy()` view
 - `_single_shot_timing_baseline.json` - assertions on a single un-repeated timing measurement
-- `_source_proxy_baseline.json` - tests asserting on source text rather than behaviour
+- `_source_text_baseline.json` - tests asserting on source text rather than behaviour (py_ci_shared.source_text_claims)
 - `_stale_comment_baseline.json` - comments describing code that no longer exists
 - `_stale_not_wired_docstring_baseline.json` - "not wired" docstrings on things that now are
 - `_tick_isinstance_baseline.json` - `isinstance` checks on matplotlib tick/offset objects
 - `_uncalled_functions_baseline.json` - module-level functions with no production call site
 - `_unlocked_module_cache_baseline.json` - module-level caches mutated without a lock
 - `_unprotected_treeexplainer_baseline.json` - `shap.TreeExplainer` calls with no guard
+- `_value_bearing_asserts_baseline.json` - production asserts that check a value, which `python -O` deletes (`regen_baselines.py`)

@@ -28,12 +28,15 @@ _REFRESH_FLAGS = [
     "--refresh-fe-budget-conflict-baseline",
     "--refresh-fe-noop-copy-baseline",
     "--refresh-logger-baseline",
+    # py_ci_shared.loc_budget's own flag for _loc_over_1k_baseline.json; unregistered, the documented refresh command
+    # was rejected by pytest before the test could read it.
+    "--refresh-loc-budget-baseline",
     "--refresh-mojibake-baseline",
     "--refresh-module-env-mutation-baseline",
     "--refresh-mutable-defaults-baseline",
     "--refresh-orth-fe-recipes-no-freeze-baseline",
     "--refresh-resource-handle-baseline",
-    "--refresh-source-proxy-baseline",
+    "--refresh-source-text-baseline",
     "--refresh-readonly-to-numpy-mutation-baseline",
     "--refresh-single-shot-timing-baseline",
     "--refresh-stale-not-wired-docstring-baseline",
