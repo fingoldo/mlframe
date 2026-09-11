@@ -40,4 +40,7 @@
 # Bumped 2026-09-10 from e1453da to v1.4.2: the pinned-tool-versions pre-commit hook calls
 # py_ci_shared.pinned_tool_versions, which checks this repo's ruff pin, its ruff-pre-commit revs and the
 # interpreter's ruff against py_ci_shared.tool_versions.RUFF_VERSION -- the version CI actually runs.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@845334a2e8afba37881d8ff5b1df4811fa18ef87
+# Bumped 2026-09-11 from v1.4.2 to da63ad7: test_pyutilz_pin imports git_dependency_pins' pins-agree and
+# installed-includes-pin checks, which do not exist before v1.14.0, and the source-text detector there sees two
+# claim shapes v1.4.2 missed, and its git calls ignore the GIT_DIR a hook exports; the source-text baseline moves in the same commit.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@da63ad7280a1724ddcbe0b9db9e827a6ede70556
