@@ -27,8 +27,9 @@ property being tested -- or fail and report the miss. The achieved ceiling trave
 
 from __future__ import annotations
 
-from typing import Literal, Tuple
+from typing import Literal
 
+from mlframe.data.datasets.scenarios._common import probes
 from mlframe.data.datasets.spec import CopulaSpec, DatasetSpec, EdgeSpec, FeatureSpec, LinkSpec, TargetSpec
 
 __all__ = ["tail_dependence_spec", "gaussian_tail_control_spec", "TAIL_QUANTILE"]
@@ -37,11 +38,6 @@ __all__ = ["tail_dependence_spec", "gaussian_tail_control_spec", "TAIL_QUANTILE"
 #: region holds a few hundred rows at the sizes these beds run at -- a gate nobody's sample reaches is not a
 #: hard bed, it is an empty one.
 TAIL_QUANTILE = 0.80
-
-
-def _probes(count: int) -> Tuple[FeatureSpec, ...]:
-    """Return independent probe columns."""
-    return tuple(FeatureSpec(name=f"n{i:03d}") for i in range(count))
 
 
 def _tail_bed(
@@ -60,7 +56,7 @@ def _tail_bed(
         name=name,
         n_samples=n_samples,
         root_seed=seed,
-        features=(*(FeatureSpec(name=column) for column in pair), *_probes(n_noise)),
+        features=(*(FeatureSpec(name=column) for column in pair), *probes(n_noise)),
         copulas=(CopulaSpec(columns=pair, family=family, rho=rho, df=df, margin="normal"),),
         targets=(
             TargetSpec(
