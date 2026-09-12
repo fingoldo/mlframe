@@ -591,7 +591,23 @@ def show_calibration_plot(
     # (PNG + plotly HTML) regardless of show_plots / plot_file / session kind.
     # backend="plotly" is also routed here so the legacy inline-plotly branch
     # below never runs -- one PlotlyRenderer, no duplicated styling.
-    if (plot_outputs and base_path) or (backend == "plotly" and (plot_file or show_plots)):
+    #
+    # A bare ``show_plots=True`` (the DEFAULT) must NOT alone count as "save to disk": the
+    # matplotlib branch below already treats ``show_plots`` with no real ``plot_file`` as a no-op
+    # outside an interactive session (``plt.show()`` is a documented no-op there); the plotly
+    # branch used to skip that check entirely, so ``show_calibration_plot(..., backend="plotly")``
+    # with every OTHER argument at its default silently wrote a stray ``calibration.html`` into the
+    # CURRENT WORKING DIRECTORY every time (falling back to the literal ``"calibration"`` base name
+    # when ``plot_file`` is empty) -- confirmed: this reached the repo root via a non-tmp_path test
+    # (test_show_calibration_plot_plotly_no_consumer.py), landed on master via `git add -A`, and is
+    # the artifact audits/ci_review_2026-09-08/_TRACKER.md's X4 named but never traced to a producer.
+    # An explicit ``plot_file`` still forces a save regardless of session, matching every other
+    # branch in this function.
+    try:
+        _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]
+    except NameError:
+        _is_interactive_session = hasattr(sys, "ps1")
+    if (plot_outputs and base_path) or (backend == "plotly" and (plot_file or (show_plots and _is_interactive_session))):
         from mlframe.reporting.charts.calibration import build_calibration_spec
         from mlframe.reporting.output import parse_plot_output_dsl
         from mlframe.reporting.renderers import render_and_save
