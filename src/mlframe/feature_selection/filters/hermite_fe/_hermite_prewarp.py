@@ -421,6 +421,11 @@ def fit_pair_prewarp_als(
     za = np.ascontiguousarray(za, dtype=np.float64)
     zb = np.ascontiguousarray(zb, dtype=np.float64)
     try:
+        # build_basis_matrix guards its own numba parallel=True dispatch internally (see its docstring);
+        # warm_start_als_seed is a plain OLS-ALS solve, not a numba kernel. Neither call here needs an
+        # additional guard -- parallel_kernel_entry() is a plain, non-reentrant Lock, so wrapping this
+        # whole block would deadlock against build_basis_matrix's own inner acquisition on the same
+        # thread (confirmed: reproduces the deadlock directly, not a race).
         Ba = build_basis_matrix(basis, za, deg)
         Bb = build_basis_matrix(basis, zb, deg)
         # ``x_a``/``x_b`` are passed for call-site symmetry only; the ALS sweep does

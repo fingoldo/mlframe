@@ -17,11 +17,13 @@ module's platform-derived lock to a real ``threading.Lock()`` (mirroring what ``
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from mlframe.feature_selection.filters.mrmr import _mrmr_class
 from mlframe.feature_selection.filters.mrmr import MRMR
@@ -87,6 +89,14 @@ def test_simulated_darwin_lock_serializes_concurrent_fit_bodies(monkeypatch):
     assert not overlap_detected.is_set(), "two threads were inside _fit_body simultaneously under the simulated darwin lock"
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="this test monkeypatches away the REAL darwin lock to prove concurrent fits overlap without it -- "
+    "running that on an actual macOS host reproduces the exact numba workqueue abort the lock exists to "
+    "prevent (CI: run 34661105847, shard 4/10, Fatal Python error: Aborted from this test's own worker "
+    "threads). The scenario it demonstrates (no lock -> real overlap) is only meaningful to prove on a "
+    "platform where overlap is actually safe.",
+)
 def test_lock_is_none_off_darwin_so_real_concurrency_is_unaffected(monkeypatch):
     """Off darwin (the real value on this box), fit() takes the plain no-lock path -- concurrent
     fits are free to overlap, matching pre-fix behaviour on Linux/Windows."""

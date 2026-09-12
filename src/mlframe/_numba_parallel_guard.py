@@ -14,6 +14,15 @@ Serialising ENTRY costs little: the kernel already parallelises across every cor
 thread waiting to enter is a thread that had no cores to run on anyway. Everything OUTSIDE the kernel --
 sorting, binning, candidate counting, cache lookups -- keeps overlapping, which is where the measured
 speedups of these fan-outs actually come from.
+
+Reentrant on purpose: shared dispatchers guard themselves at their own boundary (the module's own
+guidance), and callers a few hops up sometimes ALSO guard the same call for defense-in-depth or because
+the call graph isn't obvious from the caller's vantage point. A plain ``Lock`` would deadlock the SAME
+thread against its own outer acquisition the moment two such guards nest -- confirmed directly (fit_pair_
+prewarp_als wrapping build_basis_matrix, and _dispatch_batch_mi_with_noise_gate wrapping the GPU-resident
+path's own inner guard, both hung immediately under test). An ``RLock`` costs nothing extra here: the
+guarantee that matters is "no two DIFFERENT threads inside at once", and re-entry from the thread already
+holding it is by definition still only one thread inside.
 """
 
 from __future__ import annotations
@@ -24,14 +33,15 @@ __all__ = ["parallel_kernel_entry"]
 
 #: Process-wide, deliberately: numba's threading layer is a process-wide resource, so a per-module lock
 #: would let two different fan-outs enter it at the same time and reproduce the crash between them.
-_ENTRY = threading.Lock()
+#: RLock, not Lock: see the reentrancy note above -- nested guards on the SAME thread must not deadlock.
+_ENTRY = threading.RLock()
 
 
-def parallel_kernel_entry() -> threading.Lock:
+def parallel_kernel_entry() -> threading.RLock:
     """The lock to hold while calling a ``parallel=True`` kernel from a thread that may not be alone.
 
-    Used as ``with parallel_kernel_entry(): out = some_prange_kernel(...)``. Safe to hold around a plain
-    call: it is a plain lock, so it must not be taken re-entrantly on one thread -- guard the outermost
-    kernel call, not every helper along the way.
+    Used as ``with parallel_kernel_entry(): out = some_prange_kernel(...)``. Reentrant: the same thread
+    may hold it across nested guarded calls (a caller guarding a callee that already guards itself)
+    without deadlocking; a DIFFERENT thread still blocks until every level on the holding thread exits.
     """
     return _ENTRY

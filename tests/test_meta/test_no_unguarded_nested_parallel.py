@@ -81,10 +81,35 @@ def test_the_allowlist_still_describes_real_modules():
 
 
 def test_the_guard_serialises_entry():
-    """The guard is only worth importing if it actually excludes a second thread."""
+    """The guard is only worth importing if it actually excludes a second THREAD -- but is reentrant on
+    the same thread (nested guards must not deadlock, see the module's own docstring)."""
+    import threading
+
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
     lock = parallel_kernel_entry()
     assert lock is parallel_kernel_entry(), "each call handed back a different lock; nothing would be serialised"
+
+    # Same thread: reentrant, must NOT deadlock or fail to acquire.
     with lock:
-        assert not lock.acquire(blocking=False), "a second thread could enter while the first was inside"
+        assert lock.acquire(blocking=False), "the guard must be reentrant on the SAME thread"
+        lock.release()
+
+    # Different thread: must be excluded while the holder is inside.
+    other_thread_acquired = threading.Event()
+    other_thread_done = threading.Event()
+
+    def _try_from_other_thread():
+        """Attempt a non-blocking acquire from a second thread while the main thread holds the lock."""
+        if lock.acquire(blocking=False):
+            other_thread_acquired.set()
+            lock.release()
+        other_thread_done.set()
+
+    with lock:
+        t = threading.Thread(target=_try_from_other_thread)
+        t.start()
+        t.join(timeout=5)
+
+    assert other_thread_done.is_set(), "the other thread never finished its attempt"
+    assert not other_thread_acquired.is_set(), "a second thread could enter while the first was inside"

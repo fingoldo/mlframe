@@ -191,7 +191,19 @@ def _mi_prange_dispatch(
 ) -> tuple[int, int]:
     """Dispatch to the serial or parallel ``parallel_mi_prange`` variant via the per-host
     kernel_tuning_cache (``_MI_PRANGE_PARALLELISM_SPEC``). Bit-identical output either way (see
-    ``_parallel_mi_prange_serial``'s docstring)."""
+    ``_parallel_mi_prange_serial``'s docstring).
+
+    ``parallel_mi_prange`` is a numba ``parallel=True`` kernel reached via joblib-threaded fan-outs
+    (``check_prospective_fe_pairs``'s per-pair ``Parallel``) as well as ``ThreadPoolExecutor`` ones --
+    numba's default threading layer aborts the process on macOS when two threads enter a ``parallel=True``
+    kernel at once (CI: ``Fatal Python error: Aborted`` inside this exact call,
+    audits/ci_review_2026-09-08/_TRACKER.md X6). Guarded here, the shared entry point every ``mi_direct``
+    caller dispatches through, per ``mlframe._numba_parallel_guard``'s own guidance to hold the lock at a
+    shared dispatcher rather than every caller. The serial variant needs no guard, but is cheap to cover
+    too rather than branch the lock on which variant got chosen.
+    """
+    from mlframe._numba_parallel_guard import parallel_kernel_entry
+
     n = len(classes_y)
     try:
         choice = _MI_PRANGE_PARALLELISM_SPEC.choose(n=n, npermutations=int(npermutations))
@@ -199,9 +211,10 @@ def _mi_prange_dispatch(
         logger.debug("mi_prange_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
         choice = _mi_prange_fallback_choice(n, int(npermutations))
     fn = parallel_mi_prange if choice == "parallel" else _parallel_mi_prange_serial
-    nfailed, n_checked = fn(
-        classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y, freqs_y=freqs_y,
-        npermutations=npermutations, original_mi=original_mi, base_seed=base_seed,
-        dtype=dtype, use_su=use_su,
-    )
+    with parallel_kernel_entry():
+        nfailed, n_checked = fn(
+            classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y, freqs_y=freqs_y,
+            npermutations=npermutations, original_mi=original_mi, base_seed=base_seed,
+            dtype=dtype, use_su=use_su,
+        )
     return int(nfailed), int(n_checked)

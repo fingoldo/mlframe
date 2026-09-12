@@ -432,16 +432,26 @@ def treeshap_phi_base_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.n
 
     ``X`` is cast to float32 for routing (xgboost's internal comparison dtype). ``phi`` is in margin /
     log-odds space; ``base`` is the ensemble intercept so ``base + phi.sum(1)`` is the model margin.
+
+    ``_treeshap_batch`` is a numba ``parallel=True`` kernel reached via joblib-threaded fan-outs
+    (``_shap_proxy_explain.py``'s per-fold ``Parallel``) as well as ``ThreadPoolExecutor`` ones -- numba's
+    default threading layer aborts the process on macOS when two threads enter a ``parallel=True`` kernel
+    at once (CI: ``Fatal Python error: Aborted`` inside this exact call, audits/ci_review_2026-09-08/
+    _TRACKER.md X6). Guarded here, the shared entry point, per ``mlframe._numba_parallel_guard``'s own
+    guidance to hold the lock at a shared dispatcher rather than every caller.
     """
+    from mlframe._numba_parallel_guard import parallel_kernel_entry
+
     Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
     n = Xf.shape[0]
     phi = np.zeros((n, ensemble.n_features), dtype=np.float64)
-    _treeshap_batch(
-        Xf, phi,
-        ensemble.children_left, ensemble.children_right, ensemble.children_default,
-        ensemble.features, ensemble.thresholds, ensemble.values, ensemble.node_sample_weight,
-        ensemble.tree_roots, ensemble.max_depth,
-    )
+    with parallel_kernel_entry():
+        _treeshap_batch(
+            Xf, phi,
+            ensemble.children_left, ensemble.children_right, ensemble.children_default,
+            ensemble.features, ensemble.thresholds, ensemble.values, ensemble.node_sample_weight,
+            ensemble.tree_roots, ensemble.max_depth,
+        )
     return phi, float(ensemble.base_offset)
 
 
