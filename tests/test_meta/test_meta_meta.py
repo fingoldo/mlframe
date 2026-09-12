@@ -173,6 +173,20 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     "test_reproducibility::mlframe.training.helpers._predict_from_probs",
     "test_utility_fuzz::mlframe.training.helpers._canonical_predict_proba_shape",
     "test_utility_fuzz::mlframe.training.helpers._predict_from_probs",
+    # Source-text-audit round 1 (2026-09-12): the whole point of these ten sites was converting them
+    # FROM asserting on source text TO calling the real private function and asserting on its real
+    # return value + log record -- each one is a dev-only `_benchmarks/` helper with no public wrapper
+    # at all, so the private name IS the only surface that exists to test.
+    "test_broad_except_logging_benchmarks_harness::mlframe.feature_selection._benchmarks.bench_adaptive_nbins_ab._run_fold_ab",
+    "test_broad_except_logging_benchmarks_harness::mlframe.feature_selection._benchmarks.bench_boruta_auto_dispatch._honest_holdout_auc",
+    "test_broad_except_logging_benchmarks_harness::mlframe.feature_selection._benchmarks.bench_bur_lambda_qual22._downstream",
+    "test_broad_except_logging_benchmarks_harness::mlframe.feature_selection._benchmarks.bench_fs_levers_dflip._honest_metric",
+    "test_broad_except_logging_benchmarks_harness::mlframe.feature_selection._benchmarks.bench_mi_correction_miller_madow._downstream",
+    "test_broad_except_logging_benchmarks_harness::mlframe.feature_selection._benchmarks.bench_mrmr_threading_vs_loky._peak_rss_mb",
+    "test_broad_except_logging_benchmarks_harness::mlframe.training._benchmarks.bench_arch_d._free_ram_bytes",
+    "test_broad_except_logging_benchmarks_harness::mlframe.training._benchmarks.bench_content_fingerprint._rss_mb",
+    "test_broad_except_logging_benchmarks_harness::mlframe.training._benchmarks.bench_drift_value_counts_microbench._is_object_array_col",
+    "test_broad_except_logging_benchmarks_harness::mlframe.training._benchmarks.bench_lgb_dataset_polars_bridge._rss_mb",
 }
 
 
