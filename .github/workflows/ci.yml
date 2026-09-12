@@ -316,33 +316,43 @@ jobs:
           # driven to zero -- SIGALRM delivered into a thread doing native numba/multiprocessing work
           # aborts the process there rather than raising. Windows has no SIGALRM at all.
           TIMEOUT_METHOD: ${{ runner.os == 'Linux' && 'signal' || 'thread' }}
+          # macOS only: `-n auto` on this runner measured 3 real xdist WORKER PROCESSES, not the 2 this
+          # job's own long-standing OOM note assumed -- each one imports the full mlframe/numpy/pandas/
+          # sklearn/lightgbm/xgboost/catboost/torch/numba stack (a real, sizeable RSS on its own) before
+          # running a single test, so 3 of them on a 7GB host leaves little headroom before any test even
+          # allocates real data. CI (run 34678887789) still lost shards 2/3/5 to the exact "node down: Not
+          # properly terminated" whole-host OOM signature AFTER test_core.py's exclusion (below) and the 3
+          # prior targeted per-test mitigations that comment already lists -- a lever aimed at a SPECIFIC
+          # test class cannot fix a baseline-import-footprint problem. Capping to 2 workers is a new,
+          # different lever: fewer resident full-stack processes, not less concurrency within one. Linux/
+          # Windows keep `auto` -- their runners are not the ones OOM-killing.
+          XDIST_WORKERS: ${{ matrix.os == 'macos-latest' && '2' || 'auto' }}
           JUNIT_XML: junit-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.group }}.xml
         run: |
           # --dist=loadgroup: plain `-n auto` defaults to `--dist=load`, which does NOT honor
           # `@pytest.mark.xdist_group(...)` -- every group pin in the suite (GPU tests, the
           # kernel-tuning-cache singleton tests, the CatBoost-fit OOM-avoidance pins) was silently a
           # no-op under the old distmode, confirmed by grouped tests still landing on different
-          # workers/crashing concurrently despite the marker. loadgroup keeps `-n auto`'s worker count
-          # and load-balancing, it only additionally pins same-group tests to one worker.
+          # workers/crashing concurrently despite the marker. loadgroup keeps the worker count and
+          # load-balancing `-n` picks, it only additionally pins same-group tests to one worker.
           # tests/training/test_core.py is EXCLUDED here and run separately by test-heavy-serial
           # below (-n 1, no xdist at all): even with its two classes already xdist_group-pinned to
           # one worker, CI still recurrently OOM-killed the runner ("node down: Not properly
           # terminated" -- the whole-host OOM-kill signature, not a per-worker one) because -n
-          # auto on this 2-vCPU runner still starts a SECOND worker for the rest of the shard's
-          # tests, and that worker's own memory use stacks with the pinned group's on the same
-          # 7GB host. xdist_group only serializes tests WITHIN the group against each other: it
-          # cannot stop a completely different worker from running concurrently. Confirmed this
-          # isn't a fixable per-test issue -- 3 prior targeted mitigations (worker-pinning both
-          # heavy classes together, matplotlib/gc cleanup between tests, capping CatBoost's own
-          # thread_count) all already landed here and the crash still recurred with all three in
-          # place, which only makes sense as inter-worker host memory pressure, not anything local
-          # to this file. Excluding it from every -n auto shard removes the second-worker source of
-          # that pressure entirely, without slowing the other ~99% of the suite that never showed
-          # this failure mode.
+          # auto on this 7GB macOS runner still starts OTHER workers for the rest of the shard's
+          # tests, and their own memory use stacks with the pinned group's on the same host.
+          # xdist_group only serializes tests WITHIN the group against each other: it cannot stop a
+          # completely different worker from running concurrently. Confirmed this isn't a fixable
+          # per-test issue -- 3 prior targeted mitigations (worker-pinning both heavy classes
+          # together, matplotlib/gc cleanup between tests, capping CatBoost's own thread_count) all
+          # already landed here and the crash still recurred with all three in place, which only
+          # makes sense as inter-worker host memory pressure, not anything local to this file.
+          # Excluding it from every macOS shard removes ONE source of that pressure; XDIST_WORKERS
+          # (above) removes another, independent one -- the worker COUNT itself.
           pytest -m "not slow and not gpu and not multigpu" \
             --splits "$SHARD_SPLITS" --group "$SHARD_GROUP" \
             --ignore=tests/training/test_core.py \
-            -n auto \
+            -n "$XDIST_WORKERS" \
             --dist=loadgroup \
             --cov=src/mlframe \
             --cov-report=xml \
