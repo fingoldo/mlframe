@@ -628,7 +628,7 @@ jobs:
 
   lint-blocking:
     name: lint + security (blocking, triaged clean)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@64e2b6bab64414b8508dc05100a9421849a74a64  # v1 (adds per-tool version-pin inputs)
     with:
       source-path: src/mlframe
       codespell-paths: src/mlframe
@@ -647,6 +647,18 @@ jobs:
         # carry `env:`, so it goes on the command. Same reason as mypy-full.yml.
         UV_NO_SOURCES=1 uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
       run-zizmor: true
+      # L1.1: pin every uvx-run tool this repo has an EXACT version for elsewhere, so `uvx TOOL`
+      # here can't silently drift from the pin test_installed_tool_versions_match_their_exact_pins
+      # already asserts for the pre-commit-hook / local-dev-environment copy of each tool. Sourced
+      # from this repo's own [project.optional-dependencies].dev pins (codespell/yamllint/vulture/
+      # interrogate) and .pre-commit-config.yaml's actionlint-py `rev:` (bandit and zizmor have no
+      # exact pin anywhere in this repo yet, so they stay unpinned -- L3.3's own "measure, don't
+      # guess" applies here too).
+      actionlint-version: "1.7.12.24"
+      codespell-version: "2.4.2"
+      yamllint-version: "1.38.0"
+      vulture-version: "2.16"
+      interrogate-version: "1.7.0"
 
   lint-advisory:
     name: lint (advisory)
@@ -680,7 +692,7 @@ jobs:
 
   tests-lint-blocking:
     name: lint + security tests/ (blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@64e2b6bab64414b8508dc05100a9421849a74a64  # v1 (adds per-tool version-pin inputs)
     with:
       source-path: tests
       codespell-paths: tests
@@ -694,6 +706,13 @@ jobs:
       # zizmor scans .github/workflows/ regardless of source-path -- already covered by the
       # src-scoped lint-blocking job above; skip the duplicate run here.
       run-zizmor: false
+      # L1.1: same pins as the src-scoped lint-blocking job above -- one tool version regardless
+      # of which tree it's scanning.
+      actionlint-version: "1.7.12.24"
+      codespell-version: "2.4.2"
+      yamllint-version: "1.38.0"
+      vulture-version: "2.16"
+      interrogate-version: "1.7.0"
 
   build:
     name: build sdist + wheel + install smoke
