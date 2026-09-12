@@ -937,3 +937,29 @@ dedicated pass auditing each of the 36 paths `python -m mlframe._nested_parallel
 `_POOL_STARTER_NAMES` includes `parallel_run`/`Parallel` -- guard each real one, allowlist genuinely
 single-threaded ones (e.g. a blocking-future watchdog, per the existing allowlist's own precedent) with a
 real reason.
+
+### X8: macOS "node down: Not properly terminated" whole-host OOM -- traced to concurrent heavy real fits, not a single test
+
+Separate from X6/X5 (both numba-abort signatures): once the numba crashes stopped, macOS shards still
+recurrently died to the SAME whole-host OOM signature this repo's own `ci.yml` comment already named for
+`test_core.py` (excluded from every macOS shard for exactly this reason). Round 1 (`-n auto` -> `-n 2`,
+since `-n auto` measured 3 real worker processes, not the 2 the old note assumed) reduced but did not
+clear it: run `34691983203` still lost 4/10 shards.
+
+Traced with the per-shard JUnit XML + `.test_durations` artifacts (uploaded even on a killed run) rather
+than guessing: every crashed shard's own slowest tests are `biz_val`/MRMR-invariant tests running a real
+model fit at meaningful `n` (thousands of rows) -- 130-270s each, several per shard (`test_biz_val_
+cluster_aggregate`, `test_mrmr_distribution_profiles`, `test_mrmr_endtoend_invariants`, `test_biz_val_
+stratified_subsample`, `test_jmim_cache_parity_and_hits`, ...). No single common culprit -- a whole class,
+spread across many files with no existing `xdist_group`/marker to pin them onto one worker (unlike
+`test_core.py`, which already has exactly that). With 2 workers, two of these landing concurrently
+recreates the identical "two large fits at once" mechanism the `test_core.py` note already names.
+
+**Disposition: FUTURE.** Capped macOS to `-n 1` (removes concurrent large fits entirely, at real
+wall-time cost -- roughly doubles the slowest shard, close to but not confirmed over the 360-minute
+hard ceiling). Not verified against a live macOS host; needs a CI round to confirm this actually clears
+the OOM class rather than trading it for a timeout class. **Next action if `-n 1` is not enough:**
+either a `biz_val`/`heavy_fit` pytest marker + `xdist_group` pin (mirrors `test_core.py`'s own
+precedent, applied to the whole class instead of one file) so these tests serialize against each other
+specifically while everything else keeps `-n auto`-level parallelism, or split these files into their
+own dedicated low-concurrency shard.

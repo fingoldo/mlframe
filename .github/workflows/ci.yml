@@ -316,17 +316,20 @@ jobs:
           # driven to zero -- SIGALRM delivered into a thread doing native numba/multiprocessing work
           # aborts the process there rather than raising. Windows has no SIGALRM at all.
           TIMEOUT_METHOD: ${{ runner.os == 'Linux' && 'signal' || 'thread' }}
-          # macOS only: `-n auto` on this runner measured 3 real xdist WORKER PROCESSES, not the 2 this
-          # job's own long-standing OOM note assumed -- each one imports the full mlframe/numpy/pandas/
-          # sklearn/lightgbm/xgboost/catboost/torch/numba stack (a real, sizeable RSS on its own) before
-          # running a single test, so 3 of them on a 7GB host leaves little headroom before any test even
-          # allocates real data. CI (run 34678887789) still lost shards 2/3/5 to the exact "node down: Not
-          # properly terminated" whole-host OOM signature AFTER test_core.py's exclusion (below) and the 3
-          # prior targeted per-test mitigations that comment already lists -- a lever aimed at a SPECIFIC
-          # test class cannot fix a baseline-import-footprint problem. Capping to 2 workers is a new,
-          # different lever: fewer resident full-stack processes, not less concurrency within one. Linux/
-          # Windows keep `auto` -- their runners are not the ones OOM-killing.
-          XDIST_WORKERS: ${{ matrix.os == 'macos-latest' && '2' || 'auto' }}
+          # macOS only. First lever (run 34678887789): `-n auto` measured 3 real xdist worker
+          # PROCESSES on this runner, not the 2 this job's long-standing OOM note assumed -- capped to
+          # 2. That reduced but did not clear the OOM class: run 34691983203 still lost 4/10 shards to
+          # the same "node down: Not properly terminated" whole-host signature. Traced it with the
+          # per-shard JUnit XML + .test_durations artifacts (each shard uploads both even on a killed
+          # run): every crashed shard's own slowest tests are `biz_val`/MRMR-invariant tests running a
+          # REAL model fit at meaningful n (thousands of rows) -- 130-270s each, several per shard, no
+          # single common culprit, spread across many files with no existing xdist_group/marker to pin
+          # them onto one worker (unlike test_core.py, which already has exactly that). With 2 workers,
+          # two of these landing concurrently is exactly the "two large fits at once" the earlier
+          # single-worker OOM note already names as the mechanism -- capping the worker count answers
+          # WHICH lever, 1 is the one that removes concurrent large fits entirely rather than just
+          # reducing import-footprint duplication. Linux/Windows keep `auto` -- not the runners OOM-ing.
+          XDIST_WORKERS: ${{ matrix.os == 'macos-latest' && '1' || 'auto' }}
           JUNIT_XML: junit-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.group }}.xml
         run: |
           # --dist=loadgroup: plain `-n auto` defaults to `--dist=load`, which does NOT honor
