@@ -899,3 +899,41 @@ directly (not just "CI went green"): `test_macos_concurrent_fit_serialization.py
 `threading.Lock()` simulating the darwin branch and proves two concurrent `fit()` calls never run
 `_fit_body` simultaneously, plus a sanity check confirming the same spy DOES catch overlap when the lock
 is `None` (matching real Linux/Windows behaviour). Full existing thread-safety suite passes unchanged.
+
+### X6, round 2: the `fit()`-level lock did not cover it -- the real concurrency is INSIDE one fit
+
+The next CI round (`34628887279`) went from 3 failing macOS shards to 9/10: the crash reproduces from a
+SINGLE `MRMR.fit()` call, not two concurrent ones. `_run_fe_step_impl`'s `parallel_run` (a joblib wrapper)
+silently falls back from the loky (process-based, safe) backend to a threading one whenever loky cannot
+spawn a nested process pool -- which happens whenever the caller is already on a non-main thread, exactly
+what a pytest-xdist worker is -- and spawns several worker threads that all call the same numba
+`parallel=True` dispatcher (`_dispatch_batch_mi_with_noise_gate`) at once. Round 1's lock only guards the
+OUTER `fit()` entry point; it does nothing for concurrency joblib introduces inside a single fit.
+
+**Attempted next: switch numba's threading layer to `tbb` on macOS (`7ebde971c`).** REJECTED, fast and
+hard: the `tbb` PyPI package ships NO macOS wheel at all (only `manylinux_2_28_x86_64` and `win_amd64`),
+so the install itself failed on every macOS shard (round 3, `34658837510`, 10/10 failures -- worse than
+before, since now nothing even reached the tests). Reverted immediately.
+
+**Real fix: this repo already has the right mechanism, built for exactly this crash class
+(`mlframe._numba_parallel_guard.parallel_kernel_entry`, added after an earlier three-OS CI crash) --
+it just had a gap.** `_nested_parallel_scan.py`'s static gate (`tests/test_meta/
+test_no_unguarded_nested_parallel.py`) only recognised a literal `ThreadPoolExecutor(` call as a "thread
+fan-out start"; it had no idea `Parallel`/`parallel_run` (joblib's own wrapper, and this repo's shim over
+it) can silently become one too. Guarded `_dispatch_batch_mi_with_noise_gate` itself (the shared dispatcher
+>10 FE-family modules call into) with `parallel_kernel_entry()` via a thin wrapper delegating to a renamed
+`_dispatch_batch_mi_with_noise_gate_impl`, so all three of its internal `_cpu_kernel(...)` call sites are
+covered without touching each one. Verified against the existing fe-pairs test suite plus the scanner's own
+gate (10/10 green).
+
+**Disposition on the scanner gap itself: FUTURE, not fixed here.** Extending `_POOL_STARTER_NAMES` to
+include `parallel_run`/`Parallel` (the correct, durable fix -- otherwise the next joblib-threading crash is
+invisible to this gate too, the same way this one was) surfaces **36 currently-unguarded reachable paths
+across ~15 unrelated modules** (shap-proxy, ensembling, baselines, composite discovery, polynom-pair FE,
+...) -- a real, pre-existing gap this session's narrow fix does not touch, not something safe to blanket
+allowlist (the gate's own convention requires "the reason it cannot race", not "not yet audited") or fix
+blind under CI-outage time pressure. Reverted the scanner widening for this round. **Next action:** a
+dedicated pass auditing each of the 36 paths `python -m mlframe._nested_parallel_scan` reports once
+`_POOL_STARTER_NAMES` includes `parallel_run`/`Parallel` -- guard each real one, allowlist genuinely
+single-threaded ones (e.g. a blocking-future watchdog, per the existing allowlist's own precedent) with a
+real reason.

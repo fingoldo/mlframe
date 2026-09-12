@@ -7,6 +7,7 @@ from typing import NamedTuple, Optional
 
 import numpy as np
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from mlframe.utils.log_throttle import log_throttle
 
 from ._pairs_common import _module_logger
@@ -65,6 +66,42 @@ except Exception as e:
 
 
 def _dispatch_batch_mi_with_noise_gate(
+    disc_2d: np.ndarray,
+    quantization_nbins: int,
+    classes_y: np.ndarray,
+    classes_y_safe: np.ndarray,
+    freqs_y: np.ndarray,
+    npermutations: int,
+    min_nonzero_confidence: float,
+    use_su: bool,
+    batch_mi_kernel,
+    env_gate: Optional[_FeDispatchEnvGate] = None,
+) -> np.ndarray:
+    """Thin, guarded entry point for ``_dispatch_batch_mi_with_noise_gate_impl``.
+
+    This is the shared dispatcher every FE family (pairs, orthogonal-univariate, GPU-resident) calls into,
+    and callers reach it via joblib-threaded fan-outs (``_run_fe_step_impl``'s ``parallel_run``) as well as
+    ``ThreadPoolExecutor`` ones -- numba's default threading layer aborts the process on macOS when two
+    threads enter a ``parallel=True`` kernel at once, and the impl body below calls one at up to three
+    different return points. Guard the whole call rather than each ``_cpu_kernel(...)`` site individually,
+    per ``mlframe._numba_parallel_guard``'s own guidance to hold the lock at a shared dispatcher.
+    """
+    with parallel_kernel_entry():
+        return _dispatch_batch_mi_with_noise_gate_impl(
+            disc_2d,
+            quantization_nbins,
+            classes_y,
+            classes_y_safe,
+            freqs_y,
+            npermutations,
+            min_nonzero_confidence,
+            use_su,
+            batch_mi_kernel,
+            env_gate=env_gate,
+        )
+
+
+def _dispatch_batch_mi_with_noise_gate_impl(
     disc_2d: np.ndarray,
     quantization_nbins: int,
     classes_y: np.ndarray,
