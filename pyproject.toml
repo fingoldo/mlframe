@@ -94,13 +94,6 @@ dependencies = [
     "dill>=0.3.6",
     "orjson>=3.9",
     "numba>=0.59",  # numpy-2-compatible floor (numba <0.59 is built against the numpy 1.x ABI)
-    # macOS only: numba's default 'workqueue' threading layer aborts the whole process on concurrent
-    # entry from multiple Python threads (confirmed CI crash, audits/ci_review_2026-09-08/_TRACKER.md
-    # X6) -- joblib's threading backend (used whenever it falls back from loky, e.g. when already
-    # running inside a non-main thread) routinely calls numba parallel=True kernels from several
-    # worker threads at once. tbb is numba's own documented thread-safe alternative layer; ci.yml
-    # selects it via NUMBA_THREADING_LAYER on the macos leg only, so this is unused weight elsewhere.
-    "tbb>=2021; sys_platform == 'darwin'",
     "psutil>=5.9",
     "matplotlib>=3.7",
     # Not imported directly; floors matplotlib's own transitive pillow resolution above the
@@ -819,7 +812,6 @@ DEP002 = [
     "codespell", "deptry", "interrogate", "vulture", "yamllint",  # invoked by pre-commit hooks as `python -m ...`, never imported
     "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette",
     "py-ci-shared",  # invoked as `python -m py_ci_shared.*` CLI/pre-commit-hook commands, never `import py_ci_shared`
-    "tbb",  # darwin-only, never imported directly -- installs the runtime numba's own 'tbb' threading layer loads at parallel-kernel dispatch time
 ]
 
 # DEP001 (import missing from declared deps): genuinely optional third-party libs behind

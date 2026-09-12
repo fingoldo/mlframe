@@ -7073,7 +7073,6 @@ dependencies = [
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and python_full_version < '3.15'" },
-    { name = "tbb", marker = "sys_platform == 'darwin'" },
     { name = "tqdm" },
     { name = "xxhash" },
 ]
@@ -7459,7 +7458,6 @@ requires-dist = [
     { name = "starlette", marker = "python_full_version >= '3.10' and extra == 'mlflow'", specifier = ">=1.3.1" },
     { name = "starlette", marker = "python_full_version < '3.10' and extra == 'mlflow'", specifier = ">=0.49.3" },
     { name = "statsmodels", marker = "extra == 'stats'", specifier = ">=0.14" },
-    { name = "tbb", marker = "sys_platform == 'darwin'", specifier = ">=2021" },
     { name = "torch", marker = "extra == 'neural'", specifier = ">=2.0" },
     { name = "tornado", marker = "extra == 'viz'", specifier = ">=6.5.8" },
     { name = "tqdm", specifier = ">=4.65" },
@@ -14865,19 +14863,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/46/58/8c37dea7bbf769b20
 wheels = [
     { url = "https://files.pythonhosted.org/packages/99/55/db07de81b5c630da5cbf5c7df646580ca26dfaefa593667fc6f2fe016d2e/tabulate-0.10.0-py3-none-any.whl", hash = "sha256:f0b0622e567335c8fabaaa659f1b33bcb6ddfe2e496071b743aa113f8774f2d3", size = 39814, upload-time = "2026-03-04T18:55:31.284Z" },
 ]
-
-[[package]]
-name = "tbb"
-version = "2023.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "tcmlib" },
-]
-
-[[package]]
-name = "tcmlib"
-version = "1.5.0"
-source = { registry = "https://pypi.org/simple" }
 
 [[package]]
 name = "tensorboard"

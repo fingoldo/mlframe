@@ -158,17 +158,6 @@ jobs:
       # feature_selection test file's cold time is first-call compilation (64.6s cold -> 11.9s warm), which is
       # what pushed each shard past the 120-min cap. A persisted cache makes warm shards ~5x faster to compile.
       NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
-      # macOS only (audits/ci_review_2026-09-08/_TRACKER.md X6): numba's default 'workqueue' threading
-      # layer aborts the whole process on concurrent entry from multiple Python threads -- joblib's
-      # threading backend (falls back to it whenever loky can't spawn a nested process pool, e.g.
-      # already running inside a non-main thread) routinely calls numba parallel=True kernels from
-      # several worker threads at once. 'tbb' is numba's own documented thread-safe alternative;
-      # the `tbb` PyPI package is installed on darwin only (see pyproject.toml), so every other OS
-      # uses 'default' (numba's own literal for "auto-select"), NOT an empty string -- confirmed
-      # empirically that numba raises ValueError("The threading layer requested '' is unknown to
-      # Numba") on first parallel dispatch when the env var is SET but empty (GitHub Actions sets
-      # it either way; only the value differs).
-      NUMBA_THREADING_LAYER: ${{ matrix.os == 'macos-latest' && 'tbb' || 'default' }}
     # A GitHub-hosted runner has only 2 vCPUs and the suite is large. Two costs dominate per shard: numba
     # cold-JIT compilation (now cached across runs+shards via NUMBA_CACHE_DIR) and model-training tests. We
     # shard 10 ways via pytest-split (`--splits 10 --group N`) so even a cold shard (which must populate the
