@@ -122,7 +122,7 @@ def test_reduce_falls_back_to_raw_pickle_when_json_roundtrip_is_lossy(monkeypatc
             """Return a JSON string that deliberately does not match the input, simulating information loss."""
             return "LOSSY-MISMATCH"
 
-    monkeypatch.setattr(_PdsPipeline, "from_json", classmethod(lambda cls, json_str: _LossyReconstructed()))
+    monkeypatch.setattr(_PdsPipeline, "from_json", classmethod(lambda cls, _json_str: _LossyReconstructed()))
     try:
         callable_, args = proxy.__reduce__()
     finally:
