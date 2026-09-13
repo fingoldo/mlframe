@@ -64,9 +64,13 @@ class ScatterPanelSpec:
     # geometry and the colour scale.
     inline_label_colors: Optional[Tuple[str, ...]] = None
     legend_label: Optional[str] = None
-    # Place the legend beside the panel instead of inside it. A calibration diagram puts its most important points
-    # in the bottom-left corner, which is exactly where an inside legend lands by default.
+    # Place the legend beside the panel instead of inside it.
     legend_outside: bool = False
+    # matplotlib legend location string (e.g. "lower right") for an INSIDE legend, used when a corner of the
+    # panel is known ahead of time to be empty -- a calibration reliability scatter's most important points sit
+    # near the origin, so its legend belongs in the opposite (lower-right) corner instead of pushed outside the
+    # panel entirely. None keeps the default "best" placement.
+    legend_loc: Optional[str] = None
     grid: bool = True
     # When the colorbar represents a meaningful axis (e.g. bin population),
     # set ``colorbar_label`` so renderers add a labelled colorbar.

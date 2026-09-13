@@ -696,8 +696,10 @@ def build_calibration_spec(
         overlay_line=overlay_line,
         overlay_band=overlay_band,
         # The reliability diagram's most informative region is the low-probability corner, which is exactly where an
-        # inside legend lands by default -- it sat on top of the curve near the origin.
-        legend_outside=True,
+        # inside legend lands by default -- it sat on top of the curve near the origin. The curve runs from that
+        # corner to the opposite one, so the lower-right corner is reliably empty; park the legend there INSIDE
+        # the panel instead of pushing it outside (which wasted a wide strip of blank margin next to the colorbar).
+        legend_loc="lower right",
         # Both axes are probabilities on [0, 1]; pin a tight range so the population-sized bubble markers cannot drive
         # autoscale past the data. Not squared: the diagonal spans corner-to-corner at any aspect, so the scatter fills
         # the panel width and aligns with the population histogram below (no empty left gutter).

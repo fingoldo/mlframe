@@ -54,6 +54,21 @@ class TestCalibrationSpec:
         )
         assert len(spec.panels) == 1
 
+    def test_legend_sits_inside_the_lower_right_corner_not_pushed_outside(self):
+        """The reliability scatter's legend used to be pushed OUTSIDE the panel (legend_outside=True),
+        wasting a wide strip of blank margin next to the colorbar. The curve runs corner-to-corner, so
+        the lower-right corner is reliably empty of data -- the legend now parks there, INSIDE the panel."""
+        spec = build_calibration_spec(
+            freqs_predicted=np.linspace(0.05, 0.95, 10),
+            freqs_true=np.linspace(0.0, 1.0, 10),
+            hits=np.array([1000, 800, 600, 400, 300, 200, 150, 100, 80, 50]),
+            plot_title="test",
+        )
+        panel = spec.panels[0][0]
+        assert isinstance(panel, ScatterPanelSpec)
+        assert panel.legend_outside is False
+        assert panel.legend_loc == "lower right"
+
     def test_inline_labels_populated(self):
         """Inline labels populated."""
         spec = build_calibration_spec(

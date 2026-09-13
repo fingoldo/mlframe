@@ -126,8 +126,8 @@ class TestShowCalibrationPlot:
                 plot_outputs="matplotlib[png] + plotly[html]",
                 base_path=str(tmp_path / "dsl"),
             )
-        assert _saved(tmp_path, "dsl.matplotlib.png").exists()
-        assert _saved(tmp_path, "dsl.plotly.html").exists()
+        assert _saved(tmp_path, "dsl.png").exists()
+        assert _saved(tmp_path, "dsl.html").exists()
 
 
 # ----------------------------------------------------------------------------
@@ -169,7 +169,7 @@ class TestPlotResidualDiagnostics:
         plt.close(fig)
 
     def test_dsl_optin_matplotlib(self, reg_inputs, tmp_path):
-        """The default report (panels_template left unset) now writes THREE files -- predictions /
+        """The default report (panels_template left unset) now writes THREE files -- perfplot /
         residuals / res_dist_and_acf -- instead of one combined "resid.png"."""
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
 
@@ -186,7 +186,7 @@ class TestPlotResidualDiagnostics:
             )
         # Opt-in path returns the audit (computed lazily if not supplied).
         assert audit is not None
-        for _suffix in ("predictions", "residuals", "res_dist_and_acf"):
+        for _suffix in ("perfplot", "residuals", "res_dist_and_acf"):
             _name = f"resid_{_suffix}.png"
             assert os.path.exists(_saved(tmp_path, _name)), f"missing {_name}"
             assert os.path.getsize(_saved(tmp_path, _name)) > 5000
@@ -221,7 +221,7 @@ class TestPlotResidualDiagnostics:
                 plot_outputs="plotly[html]",
                 base_path=str(tmp_path / "resid"),
             )
-        for _suffix in ("predictions", "residuals", "res_dist_and_acf"):
+        for _suffix in ("perfplot", "residuals", "res_dist_and_acf"):
             assert os.path.exists(_saved(tmp_path, f"resid_{_suffix}.html"))
 
     def test_degenerate_input_returns_audit_no_crash(self, tmp_path):

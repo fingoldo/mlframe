@@ -50,9 +50,9 @@ class TestLayout:
         """The whole point: the interactive copy and the static copy stop sharing a directory."""
         base = str(tmp_path / "plot")
         render_and_save(spec, parse_plot_output_dsl("plotly[html] + matplotlib[png]"), base, interactive=False, format_subfolders=True)
-        assert (tmp_path / "html" / "plot.plotly.html").exists()
-        assert (tmp_path / "png" / "plot.matplotlib.png").exists()
-        assert not (tmp_path / "plot.plotly.html").exists()
+        assert (tmp_path / "html" / "plot.html").exists()
+        assert (tmp_path / "png" / "plot.png").exists()
+        assert not (tmp_path / "plot.html").exists()
 
     def test_the_filename_is_unchanged_by_the_layout(self, spec, tmp_path):
         """A caller that knows the flat name finds the file by prepending the format directory, nothing else."""
@@ -74,8 +74,27 @@ class TestLayout:
         """Two formats from one backend are two different KINDS of artifact, so they split too."""
         base = str(tmp_path / "plot")
         render_and_save(spec, parse_plot_output_dsl("plotly[html,json]"), base, interactive=False, format_subfolders=True)
-        assert (tmp_path / "html" / "plot.plotly.html").exists()
-        assert (tmp_path / "json" / "plot.plotly.json").exists()
+        assert (tmp_path / "html" / "plot.html").exists()
+        assert (tmp_path / "json" / "plot.json").exists()
+
+    def test_two_backends_writing_the_same_format_still_get_distinct_names(self, spec, tmp_path):
+        """The one case the extension alone can't disambiguate: both backends asked to write ``png``.
+        Without a backend-name suffix here the two writers would overwrite the same path -- add it back,
+        but ONLY for the colliding format (an unrelated html/png pair in the same call stays unsuffixed)."""
+        base = str(tmp_path / "plot")
+        render_and_save(spec, parse_plot_output_dsl("plotly[png] + matplotlib[png]"), base, interactive=False, format_subfolders=False)
+        assert (tmp_path / "plot.plotly.png").exists()
+        assert (tmp_path / "plot.matplotlib.png").exists()
+
+    def test_default_two_backend_two_format_pair_drops_the_backend_name(self, spec, tmp_path):
+        """The common case (plotly html + matplotlib png) has no collision, so the backend name is just
+        noise repeating what the extension already says -- it must not appear in either filename."""
+        base = str(tmp_path / "plot")
+        render_and_save(spec, parse_plot_output_dsl("plotly[html] + matplotlib[png]"), base, interactive=False, format_subfolders=False)
+        assert (tmp_path / "plot.html").exists()
+        assert (tmp_path / "plot.png").exists()
+        assert not (tmp_path / "plot.plotly.html").exists()
+        assert not (tmp_path / "plot.matplotlib.png").exists()
 
 
 class TestOverrideResolution:

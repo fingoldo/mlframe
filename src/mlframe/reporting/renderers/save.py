@@ -97,13 +97,23 @@ def _use_format_subfolders() -> bool:
     return _FORMAT_SUBFOLDERS_DEFAULT
 
 
-def resolve_output_path(base_path: str, backend: str, fmt: str, *, multi_output: bool, subfolders: Optional[bool] = None) -> str:
+def resolve_output_path(
+    base_path: str, backend: str, fmt: str, *, multi_output: bool, subfolders: Optional[bool] = None, disambiguate_backend: bool = False
+) -> str:
     """Full path for one saved figure, honouring the per-format subfolder layout.
 
     The filename is unchanged by the layout, so a caller that knows the flat name can find the file by prepending
     the format directory rather than by re-deriving the name.
+
+    ``backend`` is NOT part of the filename by default: different backends almost always write different
+    formats (``plotly[html] + matplotlib[png]``), which already disambiguate by extension and, when
+    ``subfolders`` is on, by directory too -- stamping the render backend into every name just repeated
+    information the extension already carried. Set ``disambiguate_backend`` for the one real collision case,
+    two backends both writing the SAME format in the same call (e.g. ``"plotly[png] + matplotlib[png]"``),
+    where the extension/subfolder alone cannot tell the files apart; ``multi_output`` is otherwise unused for
+    naming and kept only for callers that still pass it.
     """
-    stem = f"{base_path}.{backend}.{fmt}" if multi_output else f"{base_path}.{fmt}"
+    stem = f"{base_path}.{backend}.{fmt}" if disambiguate_backend else f"{base_path}.{fmt}"
     if not (subfolders if subfolders is not None else _use_format_subfolders()):
         return stem
     directory, name = os.path.split(stem)
@@ -317,6 +327,16 @@ def render_and_save(
     # Filtering cannot change the on-disk names: a backend is only dropped when nothing is being saved.
     multi_output = (len(_backends) > 1) or any(len(fmts) > 1 for _, fmts in _backends)
 
+    # The backend name is dropped from the filename (see resolve_output_path's docstring) UNLESS two backends
+    # in THIS call would both write the same format -- the one case the extension/subfolder can't disambiguate
+    # on its own (e.g. an explicit "plotly[png] + matplotlib[png]"). Detected up front across all requested
+    # (backend, fmt) pairs so a colliding fmt gets the backend suffix on BOTH sides, not just the second writer.
+    _fmt_counts: Dict[str, int] = {}
+    for _b, _fmts in _backends:
+        for _f in _fmts:
+            _fmt_counts[_f] = _fmt_counts.get(_f, 0) + 1
+    _colliding_fmts = {f for f, n in _fmt_counts.items() if n > 1}
+
     # Parallelize render+save across backends: each builds its OWN renderer
     # + fig from the frozen FigureSpec (no shared mutable state). Both Agg
     # (matplotlib) and write_html (plotly) release the GIL during the heavy
@@ -341,7 +361,7 @@ def render_and_save(
         # ``resolve_output_path`` then composed a name out of the extension alone -- writing ``.matplotlib.png``
         # and ``.html`` into the process's working directory. Dot-prefixed, so ``ls`` never showed them.
         for fmt in fmts if will_save else ():
-            path = resolve_output_path(base_path, backend, fmt, multi_output=multi_output, subfolders=_subfolders)
+            path = resolve_output_path(base_path, backend, fmt, multi_output=multi_output, subfolders=_subfolders, disambiguate_backend=fmt in _colliding_fmts)
             _dir = os.path.dirname(path)
             if _dir:
                 os.makedirs(_dir, exist_ok=True)

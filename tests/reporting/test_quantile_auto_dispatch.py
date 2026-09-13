@@ -94,8 +94,8 @@ class TestQRDispatch:
                 quantile_panels="RELIABILITY",
                 base_path=str(tmp_path / "qr"),
             )
-        assert (tmp_path / "qr_quantile_panels.matplotlib.png").exists()
-        assert (tmp_path / "qr_quantile_panels.plotly.html").exists()
+        assert (tmp_path / "qr_quantile_panels.png").exists()
+        assert (tmp_path / "qr_quantile_panels.html").exists()
 
     def test_composer_exception_swallowed(self, qr_inputs, tmp_path, monkeypatch, caplog):
         """Composer exception swallowed."""

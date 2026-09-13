@@ -238,5 +238,5 @@ class TestTargetAcfPacf:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             render_and_save(spec, parse_plot_output_dsl("matplotlib[png]+plotly[html]"), os.path.join(str(tmp_path), "acfpacf"))
-        assert os.path.exists(tmp_path / "acfpacf.matplotlib.png")
-        assert os.path.exists(tmp_path / "acfpacf.plotly.html")
+        assert os.path.exists(tmp_path / "acfpacf.png")
+        assert os.path.exists(tmp_path / "acfpacf.html")

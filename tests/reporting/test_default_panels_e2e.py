@@ -167,7 +167,7 @@ class TestDefaultRegressionPanels:
         assert cfg.regression_panels is None
 
     def test_default_regression_report_produces_three_figures_without_err_by_decile(self):
-        """The default report (panels_template left at its None default) renders predictions / residuals /
+        """The default report (panels_template left at its None default) renders perfplot / residuals /
         res_dist_and_acf, each with the expected panel count, and ERR_BY_DECILE appears in none of them --
         it was dropped from the default report per explicit user feedback ("не понимаю, выброси его")."""
         from mlframe.reporting.charts import compose_regression_report_figures
@@ -178,8 +178,8 @@ class TestDefaultRegressionPanels:
         y = rng.standard_normal(n) * 5.0
         y_pred = y + rng.standard_normal(n) * 0.5
         figures = compose_regression_report_figures(y, y_pred)
-        assert set(figures) == {"predictions", "residuals", "res_dist_and_acf"}
-        assert _n_panels(figures["predictions"]) == 2
+        assert set(figures) == {"perfplot", "residuals", "res_dist_and_acf"}
+        assert _n_panels(figures["perfplot"]) == 2
         assert _n_panels(figures["residuals"]) == 2
         assert _n_panels(figures["res_dist_and_acf"]) == 2
         # ERR_BY_DECILE renders as a BarPanelSpec titled "Error by target decile ..."; confirm no panel in

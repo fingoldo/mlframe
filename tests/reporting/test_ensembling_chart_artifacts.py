@@ -97,8 +97,9 @@ def test_each_ensemble_method_writes_its_own_perfplot(ensembling_dataset, tmp_pa
         )
 
     # Walk tmp_path and collect every emitted perfplot PNG. The default plot_outputs is multi-backend
-    # ("plotly[html] + matplotlib[png]"), so the matplotlib image is named ``<base>_perfplot.matplotlib.png``
-    # (single-backend configs name it ``<base>_perfplot.png``); match both, exclude the ``.plotly.html`` twin.
+    # ("plotly[html] + matplotlib[png]"), and the render backend is not part of the filename (the
+    # extension already disambiguates), so the matplotlib image is named ``<base>_perfplot.png`` --
+    # exclude the ``.html`` twin via the extension filter below.
     pngs: list[str] = []
     for _root, _dirs, files in os.walk(tmp_path):
         for f in files:
@@ -164,7 +165,7 @@ def test_each_ensemble_method_writes_distinct_filename(ensembling_dataset, tmp_p
     ens_pngs = []
     for _root, _dirs, files in os.walk(tmp_path):
         for f in files:
-            # Multi-backend output names the matplotlib image ``<base>_perfplot.matplotlib.png``; match either form.
+            # Multi-backend output names the matplotlib image ``<base>_perfplot.png`` (no backend in the name).
             if f.startswith("Ens") and "_perfplot" in f and f.endswith(".png"):
                 ens_pngs.append(f)
 

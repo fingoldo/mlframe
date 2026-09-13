@@ -112,7 +112,7 @@ class TestPanelTemplateValidation:
 
     def test_regression_default(self):
         """None is the sentinel selecting the 3-figure default report (compose_regression_report_figures);
-        SCATTER and RESID_HIST live in its "predictions" and "residuals" groups respectively."""
+        SCATTER and RESID_HIST live in its "perfplot" and "residuals" groups respectively."""
         from mlframe.reporting.charts.regression import DEFAULT_REGRESSION_REPORT_GROUPS
 
         cfg = ReportingConfig()

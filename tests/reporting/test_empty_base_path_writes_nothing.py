@@ -61,7 +61,7 @@ class TestAnEmptyBasePathPersistsNothing:
         monkeypatch.chdir(tmp_path)
         render_and_save(_spec(), OUTPUT, "", keep_handles=True, interactive=True)
         assert not (tmp_path / ".html").exists()
-        assert not (tmp_path / ".matplotlib.png").exists()
+        assert not (tmp_path / ".png").exists()
 
     def test_the_handles_are_still_returned(self, tmp_path, monkeypatch):
         """Suppressing the write must not suppress the figure the caller asked for."""

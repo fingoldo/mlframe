@@ -323,8 +323,8 @@ class TestMultiBackend:
                 multiclass_panels="CONFUSION PR_F1",
                 base_path=str(tmp_path / "mc"),
             )
-        assert os.path.exists(tmp_path / "mc_multiclass_panels.matplotlib.png")
-        assert os.path.exists(tmp_path / "mc_multiclass_panels.plotly.html")
+        assert os.path.exists(tmp_path / "mc_multiclass_panels.png")
+        assert os.path.exists(tmp_path / "mc_multiclass_panels.html")
 
 
 # ----------------------------------------------------------------------------

@@ -432,6 +432,14 @@ class PlotlyRenderer:
                 # TRACK across instead of running one very tall single file down the side.
                 orientation="h" if _ncol > 1 else "v",
             ))
+        elif any(getattr(pn, "legend_loc", None) == "lower right" for row in spec.panels for pn in row if pn is not None):
+            # Mirrors the matplotlib ``legend_loc="lower right"`` placement (e.g. the calibration reliability
+            # scatter, whose most informative points sit near the origin) -- plotly's own default in-axes
+            # legend corner is top-right, which would sit on top of that region instead of the empty one.
+            fig.update_layout(legend=dict(
+                font=dict(size=9), itemsizing="constant", bgcolor="rgba(255,255,255,0.7)",
+                yanchor="bottom", y=0.02, xanchor="right", x=0.98,
+            ))
         # Plotly's cartesian gridlines are drawn at full strength; matplotlib's are alpha=0.3 over the same
         # data, so the two backends printed the same chart at two visual densities. Pin the weight here, once,
         # rather than on every axis call.

@@ -125,7 +125,7 @@ class TestLTRPanelWiring:
         assert not list(tmp_path.glob("*_ltr_panels.*"))
 
     def test_dual_backend_emits_both(self, mini_search_data, tmp_path):
-        """Multi-backend DSL emits both .matplotlib.png and .plotly.html."""
+        """Multi-backend DSL emits both .png and .html."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             train_mlframe_ranker_suite(
@@ -142,5 +142,5 @@ class TestLTRPanelWiring:
                 ltr_panels="NDCG_K",
                 verbose=0,
             )
-        assert (tmp_path / "ltr_wt_cb_val_ltr_panels.matplotlib.png").exists()
-        assert (tmp_path / "ltr_wt_cb_val_ltr_panels.plotly.html").exists()
+        assert (tmp_path / "ltr_wt_cb_val_ltr_panels.png").exists()
+        assert (tmp_path / "ltr_wt_cb_val_ltr_panels.html").exists()

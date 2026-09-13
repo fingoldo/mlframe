@@ -722,7 +722,10 @@ DEFAULT_REGRESSION_PANELS = "SCATTER RESID_HIST RESID_VS_PRED"
 # the default report -- still reachable via an explicit ``panels_template`` on ``compose_regression_figure``).
 DEFAULT_REGRESSION_REPORT_GROUPS: Dict[str, Tuple[str, int]] = {
     # key (also used as the caller's file-name suffix) -> (panels_template, max_cols)
-    "predictions": ("PRED_SAMPLE SCATTER", 1),
+    # "perfplot" matches classification's own performance-overview figure name, so the two task types share
+    # one naming convention instead of "predictions" (regression) vs "perfplot" (classification) for the
+    # same kind of figure.
+    "perfplot": ("PRED_SAMPLE SCATTER", 1),
     "residuals": ("RESID_HIST RESID_VS_PRED", 2),
     "res_dist_and_acf": ("WORM RESID_ACF", 2),
 }
@@ -825,9 +828,9 @@ def compose_regression_report_figures(
     """Build the default regression report as THREE separate figures instead of one combined grid.
 
     Each group answers a different question and gets its own descriptive key (used by the caller as a
-    file-name suffix, e.g. ``{base_path}_predictions.{backend}.{ext}``), rather than every diagnostic
+    file-name suffix, e.g. ``{base_path}_perfplot.{ext}``), rather than every diagnostic
     living in one image whose only distinguishing filename token was the render BACKEND:
-      - ``"predictions"``: is the fit any good, at both an eyeball-traceable sample scale (PRED_SAMPLE)
+      - ``"perfplot"``: is the fit any good, at both an eyeball-traceable sample scale (PRED_SAMPLE)
         and the full-data density view (SCATTER, no robust-fit overlay -- the sample panel already shows
         directional bias at a glance).
       - ``"residuals"``: where do the errors live (RESID_HIST + RESID_VS_PRED).
