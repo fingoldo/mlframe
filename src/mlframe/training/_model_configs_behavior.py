@@ -223,9 +223,9 @@ class TrainingBehaviorConfig(BaseConfig):
     #
     # ``report_residual_audit``: when False, ``report_model_perf`` skips the multi-line residual-audit footer (moments / shape / hetero / hypothesis / suggested-loss block). Default True (informative for regression diagnostics); set False on production runs where the block adds 6-8 noisy lines per (model x split).
     #
-    # ``confidence_ensemble_quantile``: top-quantile of MOST-CONFIDENT rows used by the "Conf Ensemble" flavors. Default 0.1 (= top 10%); set 0.0 to disable Conf Ensembles entirely (saves ~6 flavor x 2 split = 12 log blocks + their charts per ensemble pass). The raw ensemble metrics still print - only the confidence-subset variant is suppressed.
+    # ``confidence_ensemble_quantile``: top-quantile of MOST-CONFIDENT rows used by the "Conf Ensemble" flavors. Default 0.0 (disabled: these blocks cluttered the default notebook output -- ~6 flavor x 2 split = 12 log blocks + their charts per ensemble pass, on top of the raw ensemble metrics that already print). Set e.g. 0.1 (top 10%) to opt back in.
     report_residual_audit: bool = True
-    confidence_ensemble_quantile: float = 0.1
+    confidence_ensemble_quantile: float = 0.0
 
     # When True (default), the simple-ensembling blends (arithm / harm / quad / qube / geo / median) consume AP12-calibrated probs stamped by ``post_calibrate_model`` (``member.calibrated_val_probs`` / ``calibrated_test_probs``) instead of raw ``member.val_probs`` / ``test_probs``. This dampens the heterogeneous-scale dominance bug flagged by ensembling-critique A3#3 (well-calibrated tree probs in [0.1, 0.9] dominated by raw sigmoid in [0.005, 0.01] under arithmetic mean). When False, every blend uses raw probs (legacy pre-W16D behaviour). RRF is rank-based and is unaffected either way (scale-invariant). Members without the AP12 stamp transparently fall back to raw probs -- the knob never raises on missing calibration.
     use_ap12_calibrated_probs_in_ensemble: bool = True

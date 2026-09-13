@@ -32,6 +32,51 @@ def _is_numeric_column(X, name: str) -> bool:
         return False
 
 
+def _impute_nonfinite_1d(values: np.ndarray) -> "tuple[np.ndarray | None, int]":
+    """Replace NaN/+-inf entries in a 1-D float array with the MEDIAN of its own finite entries.
+
+    Returns ``(imputed_array, n_imputed)``, or ``(None, n)`` if every entry is non-finite (no median
+    exists to fill with). Never mutates the input.
+
+    An init score is added directly to the booster's prediction and must be finite for EVERY row, but
+    dropping the non-finite rows would desync the init_score array from ``X``/``y`` (the quick refit
+    consumes them 1:1) -- a per-column median fill keeps the array the right length and injects a
+    neutral, no-signal value at exactly the rows the dominant feature happens to be missing on, rather
+    than losing the whole diagnostic to one NaN-heavy top feature (production features routinely carry
+    NaN as meaningful missingness, per the very models this baseline emulates).
+    """
+    finite = np.isfinite(values)
+    n_imputed = int((~finite).sum())
+    if n_imputed == 0:
+        return values, 0
+    if not finite.any():
+        return None, n_imputed
+    out = values.copy()
+    out[~finite] = np.median(values[finite])
+    return out, n_imputed
+
+
+def _impute_nonfinite_columns(B: np.ndarray) -> "tuple[np.ndarray, np.ndarray, int]":
+    """Column-wise ``_impute_nonfinite_1d`` over a 2-D ``(n_rows, n_cols)`` array.
+
+    Returns ``(imputed_B, finite_col_mask, n_imputed_total)``: a column with NO finite entries is left
+    untouched and flagged ``False`` in ``finite_col_mask`` -- the caller excludes it exactly like an
+    all-constant column already is (via ``ptp``), rather than aborting the whole combiner over one
+    unusable column while its siblings are fine.
+    """
+    out = B.copy()
+    finite_col_mask = np.ones(B.shape[1], dtype=bool)
+    n_imputed_total = 0
+    for col in range(B.shape[1]):
+        imputed_col, n_imputed = _impute_nonfinite_1d(out[:, col])
+        n_imputed_total += n_imputed
+        if imputed_col is None:
+            finite_col_mask[col] = False
+            continue
+        out[:, col] = imputed_col
+    return out, finite_col_mask, n_imputed_total
+
+
 def _fit_init_score_baseline(
     self,
     X: pd.DataFrame,
@@ -89,7 +134,16 @@ def _fit_init_score_baseline(
 
     if len(chosen) == 1:
         feat = chosen[0].feature
-        base_values = X[feat].to_numpy().astype(np.float64)
+        base_values, _n_imputed = _impute_nonfinite_1d(X[feat].to_numpy().astype(np.float64))
+        if base_values is None:
+            logger.info("BaselineDiagnostics: init_score top feature %r is entirely non-finite; skipping.", feat)
+            return None
+        if _n_imputed:
+            logger.info(
+                "BaselineDiagnostics: init_score top feature %r had %d non-finite row(s); "
+                "imputed with the column's finite median rather than skipping the diagnostic.",
+                feat, _n_imputed,
+            )
         feature_used = feat
     else:
         # Linear combiner: OLS for regression, LR for binary.
@@ -105,8 +159,15 @@ def _fit_init_score_baseline(
                 B = X.select(_feats_for_combiner).to_numpy()
                 if B.dtype != np.float64:
                     B = B.astype(np.float64, copy=False)
-            ptp = B.ptp(axis=0)
-            keep_cols = ptp > 1e-12
+            B, _finite_col_mask, _n_imputed = _impute_nonfinite_columns(B)
+            if _n_imputed:
+                logger.info(
+                    "BaselineDiagnostics: init_score combiner input had %d non-finite value(s) across "
+                    "%d candidate column(s); imputed each with its own finite median rather than skipping.",
+                    _n_imputed, B.shape[1],
+                )
+            ptp = np.ptp(B, axis=0)
+            keep_cols = (ptp > 1e-12) & _finite_col_mask
             if keep_cols.sum() == 0:
                 return None
             B = B[:, keep_cols]
@@ -134,10 +195,22 @@ def _fit_init_score_baseline(
                 exc,
             )
             feat = chosen[0].feature
-            base_values = X[feat].to_numpy().astype(np.float64)
+            base_values, _n_imputed = _impute_nonfinite_1d(X[feat].to_numpy().astype(np.float64))
+            if base_values is None:
+                logger.info("BaselineDiagnostics: init_score top feature %r is entirely non-finite; skipping.", feat)
+                return None
+            if _n_imputed:
+                logger.info(
+                    "BaselineDiagnostics: init_score top feature %r had %d non-finite row(s); "
+                    "imputed with the column's finite median rather than skipping the diagnostic.",
+                    feat, _n_imputed,
+                )
             feature_used = feat
 
     if not np.all(np.isfinite(base_values)):
+        # Last-resort safety net: every raw feature input reaching this point is now NaN/inf-free
+        # (imputed above), so this can only fire from a degenerate downstream combiner result (e.g. a
+        # near-singular OLS coefficient), not from a NaN-heavy top feature.
         logger.info("BaselineDiagnostics: init_score base values contain " "non-finite entries; skipping.")
         return None
 

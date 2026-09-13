@@ -49,18 +49,45 @@ def _rgba(color: str, alpha: float) -> str:
         return c
 
 
-def _mpl_to_plotly_cmap(name: str) -> str:
-    """Map a matplotlib colormap name to a plotly colorscale name.
+def _discrete_step_colorscale(colors: "tuple[str, ...]") -> list:
+    """Build a plotly ``colorscale`` (a ``[[pos, color], ...]`` list) with HARD color bands, no gradient,
+    from a fixed sequence of colors.
+
+    Matplotlib's ``tab10`` (and the family it belongs to, ``ListedColormap``) is a fixed set of N
+    DISTINCT colors, not a continuous gradient -- routing it through a smooth named colorscale like
+    'Viridis' (the prior fallback) loses that discreteness, so adjacent classes can render as similar
+    shades instead of maximally distinct hues. This builds the step-function equivalent plotly needs for
+    its continuous ``colorscale=`` parameter to render the SAME N flat color bands matplotlib would.
+    """
+    n = len(colors)
+    scale: list = []
+    for i, color in enumerate(colors):
+        scale.append([i / n, color])
+        scale.append([(i + 1) / n, color])
+    return scale
+
+
+def _mpl_to_plotly_cmap(name: str) -> "str | list":
+    """Map a matplotlib colormap name to a plotly colorscale (a name, or a ``[[pos, color], ...]`` list
+    for a fixed-palette qualitative cmap -- see ``_discrete_step_colorscale``).
 
     Case-insensitive (matplotlib resolves names case-insensitively); a trailing ``_r`` is stripped, the base looked up, and ``_r``
-    re-appended so the plotly scale is reversed the same way matplotlib reverses. Falls back to 'Viridis' for genuinely-unknown
-    names with a WARN — the goal is zero warnings for cmaps the charts actually request.
+    re-appended (or the discrete band order reversed) so the plotly scale is reversed the same way matplotlib reverses. Falls
+    back to 'Viridis' for genuinely-unknown names with a WARN — the goal is zero warnings for cmaps the charts actually request.
     """
     key = str(name).lower()
     reversed_suffix = ""
     if key.endswith("_r"):
         key = key[:-2]
         reversed_suffix = "_r"
+    if key == "tab10":
+        # LINE_PALETTE is mlframe's own committed tab10 hex sequence (reporting/colors.py) -- reused here
+        # instead of hand-rolling a second copy, and it is deliberately colorblind-accessible per that
+        # module's own docstring (tab20's lightness variants were dropped for exactly this reason).
+        from mlframe.reporting.colors import LINE_PALETTE
+
+        colors = tuple(reversed(LINE_PALETTE)) if reversed_suffix else LINE_PALETTE
+        return _discrete_step_colorscale(colors)
     base = _MPL_TO_PLOTLY.get(key)
     if base is not None:
         # XOR the request's reversal with any reversal baked into the mapped name (e.g. coolwarm -> RdBu_r).

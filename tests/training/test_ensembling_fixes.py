@@ -490,3 +490,42 @@ def test_w9e_f9_multiclass_diversity_per_class_correlation():
     if pairs:
         for p in pairs:
             assert not ({p["m1"], p["m2"]} == {"m_a", "m_c"}), f"independent multiclass pair must not be flagged at threshold=0.95: {p}"
+
+
+# Default flip (2026-09-13): Conf Ensemble output was cluttering the default notebook -- ~6 flavor x 2
+# split = 12 log blocks + their charts per ensemble pass, on top of the raw ensemble metrics that already
+# print unconditionally. confidence_ensemble_quantile now defaults to 0.0 (disabled).
+class TestConfEnsembleDisabledByDefault:
+    """The suite's own behavior-config default, and the actual score_ensemble gate it drives."""
+
+    def test_training_behavior_config_default_is_zero(self):
+        """TrainingBehaviorConfig.confidence_ensemble_quantile defaults to 0.0, not the old 0.1."""
+        from mlframe.training.configs import TrainingBehaviorConfig
+
+        assert TrainingBehaviorConfig().confidence_ensemble_quantile == 0.0
+
+    def test_uncertainty_quantile_zero_suppresses_conf_flavors_from_score_ensemble(self):
+        """score_ensemble's own "<method> conf" keys must be entirely absent when uncertainty_quantile=0.0
+        -- the exact value the suite now passes by default (mirrors _phase_train_one_target_ensembling.py's
+        wiring: uncertainty_quantile=_conf_q)."""
+        rng = np.random.default_rng(0)
+        n = 200
+        y_true = rng.normal(size=n)
+        members = [
+            _named_reg_member(y_true + rng.normal(scale=0.1, size=n), "m_a"),
+            _named_reg_member(y_true + rng.normal(scale=0.1, size=n), "m_b"),
+        ]
+        res = score_ensemble(
+            models_and_predictions=members,
+            ensemble_name="t",
+            ensembling_methods=["arithm"],
+            uncertainty_quantile=0.0,
+            build_votenrank_leaderboard=False,
+            enable_stacking_aware_gate=False,
+            require_oof_for_gate=False,
+            verbose=False,
+        )
+        conf_keys = [k for k in res if k.endswith(" conf")]
+        assert conf_keys == [], f"Conf Ensemble variant(s) present despite uncertainty_quantile=0.0: {conf_keys}"
+        # The raw (non-confidence-gated) flavor must still be present -- only the gated variant is suppressed.
+        assert "arithm" in res

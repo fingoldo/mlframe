@@ -123,6 +123,8 @@ class TestChartCmapsHavePlotlyMapping:
     so the plotly HTML matches the matplotlib PNG instead of silently falling back to Viridis."""
 
     # The set of cmap names passed via colormap=/cmap= across charts/*.py + the heatmap defaults; keep in sync with the charts.
+    # "tab10" (engineered_separability.py) resolves to a list, not a string -- excluded from the string-equality
+    # checks below and covered separately by TestTab10ResolvesToADiscreteColorscale.
     CHART_CMAPS = ("Reds", "Blues", "RdYlGn_r", "RdBu_r", "viridis", "RdYlGn", "coolwarm")
 
     def test_each_chart_cmap_maps_to_non_viridis(self):
@@ -172,6 +174,55 @@ class TestChartCmapsHavePlotlyMapping:
         with caplog.at_level(logging.WARNING, logger=plotly_mod.logger.name):
             assert _mpl_to_plotly_cmap("totally_made_up_cmap") == "Viridis"
         assert any("falling back to plotly 'Viridis'" in r.getMessage() for r in caplog.records)
+
+
+class TestTab10ResolvesToADiscreteColorscale:
+    """Production log: 79 occurrences of "Unknown colormap 'tab10'; falling back to plotly 'Viridis'" in one
+    training run (engineered_separability.py's class-separation chart requests colormap="tab10"). tab10 is a
+    FIXED 10-color qualitative palette (matplotlib ListedColormap), not a gradient -- routing it through the
+    continuous 'Viridis' scale loses that discreteness (adjacent classes can render as similar shades). Must
+    resolve to a hard-banded step colorscale built from mlframe's own CB-safe LINE_PALETTE, with no warning."""
+
+    def test_tab10_no_longer_warns_or_falls_back_to_viridis(self, caplog):
+        """The exact production warning must not fire for tab10 any more."""
+        import logging
+        from mlframe.reporting.renderers import plotly as plotly_mod
+
+        with caplog.at_level(logging.WARNING, logger=plotly_mod.logger.name):
+            scale = _mpl_to_plotly_cmap("tab10")
+        assert scale != "Viridis"
+        assert not any("falling back to plotly 'Viridis'" in r.getMessage() for r in caplog.records)
+
+    def test_tab10_resolves_to_a_hard_banded_scale_of_the_line_palette_colors(self):
+        """10 flat bands, in LINE_PALETTE order, each spanning exactly 1/10th of [0, 1]."""
+        scale = _mpl_to_plotly_cmap("tab10")
+        assert isinstance(scale, list)
+        assert len(scale) == 20  # 2 stops per color (start + end of its flat band)
+        colors_in_order = [stop[1] for stop in scale[::2]]
+        assert tuple(colors_in_order) == LINE_PALETTE
+        # Each band is genuinely flat: the stop closing band i has the SAME color as the stop opening it.
+        for i in range(0, len(scale), 2):
+            assert scale[i][1] == scale[i + 1][1]
+        assert scale[0][0] == 0.0
+        assert scale[-1][0] == 1.0
+
+    def test_tab10_case_insensitive(self):
+        """Matches every other cmap's case-insensitivity contract."""
+        assert _mpl_to_plotly_cmap("TAB10") == _mpl_to_plotly_cmap("tab10")
+
+    def test_tab10_reversed_suffix_reverses_the_band_order(self):
+        """tab10_r must reverse which class gets which color, mirroring matplotlib's own _r convention."""
+        forward = _mpl_to_plotly_cmap("tab10")
+        reversed_scale = _mpl_to_plotly_cmap("tab10_r")
+        forward_colors = [stop[1] for stop in forward[::2]]
+        reversed_colors = [stop[1] for stop in reversed_scale[::2]]
+        assert reversed_colors == list(reversed(forward_colors))
+
+    def test_tab20_is_not_silently_aliased_to_tab10(self):
+        """tab20 was deliberately dropped from LINE_PALETTE (colourblind-accessibility reason, see
+        TestLinePaletteUnchanged) -- it must keep falling back to Viridis with a warning, not silently
+        reuse the tab10 bands for a request asking for twice as many distinct colors."""
+        assert _mpl_to_plotly_cmap("tab20") == "Viridis"
 
 
 class TestLinePaletteUnchanged:

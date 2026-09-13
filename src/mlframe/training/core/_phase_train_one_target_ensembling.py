@@ -69,8 +69,10 @@ def _finalize_per_target_ensembling(
         _members_label = "[" + "+".join(_member_tags) + "]"
     else:
         _members_label = f"[N={len(_member_tags)}]"
-    # confidence_ensemble_quantile=0.0 disables the Conf Ensemble output entirely.
-    _conf_q = float(getattr(behavior_config, "confidence_ensemble_quantile", 0.1))
+    # confidence_ensemble_quantile=0.0 disables the Conf Ensemble output entirely (the default: see
+    # BehaviorConfig.confidence_ensemble_quantile's docstring). The getattr fallback matches that same
+    # default for a behavior_config stub that lacks the attribute entirely.
+    _conf_q = float(getattr(behavior_config, "confidence_ensemble_quantile", 0.0))
     # Thread ctx.group_ids + per-target sample_weight into score_ensemble so the
     # gate / NNLS / RRF stages compute weighted + group-aware. Pre-fix these were
     # both silently absent here -- score_ensemble's docstring at models/ensembling.py

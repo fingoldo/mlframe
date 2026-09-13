@@ -414,3 +414,12 @@ NOT expose it as an attribute (`hasattr` is `False`), but doesn't need the guard
 directly that `cross_val_predict` on a `CatBoostRegressor(early_stopping_rounds=5, ...)` with no
 eval_set trains successfully (CatBoost gracefully skips early stopping rather than raising, unlike
 LightGBM/XGBoost) — a clean negative result, not a gap.
+
+## Flipped to default-OFF (2026-09-13)
+
+- **`TrainingBehaviorConfig.confidence_ensemble_quantile`**: default changed from `0.1` to `0.0`, which
+  disables the "Conf Ensemble" flavors (arithm / harm / median, each with a confidence-gated variant)
+  entirely. Explicit user directive: these blocks cluttered default notebook output -- ~6 flavor x 2
+  split = 12 extra log blocks + their charts per ensemble pass, on top of the raw (non-confidence-gated)
+  ensemble metrics that already print unconditionally. Set e.g. `confidence_ensemble_quantile=0.1` to
+  opt back in; the mechanism itself is unchanged, only the default is off.
