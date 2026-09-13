@@ -76,6 +76,22 @@ def test_extract_lgb_history_canonicalises_positional_splits():
     assert es_iter == es
 
 
+def test_extract_lgb_history_single_eval_set_is_val_not_train():
+    """mlframe's own default fit path (``_setup_eval_set``) registers exactly ONE eval set for a plain
+    (non-shard) fit -- the VALIDATION data, never a train re-eval -- so lgb names it ``valid_0`` with no
+    ``training`` key anywhere. The old canonicalisation mapped a lone positional entry to "train"
+    unconditionally, so the resulting chart showed a single series labelled "train" that was actually the
+    validation curve early stopping was watching -- and silently lost the "val optimum" star marker, which
+    requires both train and val to be present."""
+    it = np.arange(20)
+    val = 1.0 / (1.0 + it)
+    evals = {"valid_0": {"l2": val.tolist()}}
+    hist, es_iter = _extract_training_history(_FakeLGB(evals, 12))
+    assert hist is not None
+    assert set(hist["l2"]) == {"val"}
+    assert es_iter == 12
+
+
 def test_extract_xgb_history():
     """Extract xgb history."""
     evals, es = _synthetic_evals()

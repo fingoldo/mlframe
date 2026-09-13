@@ -221,6 +221,14 @@ def _canonicalize_split_names(split_names: list) -> dict:
     that the FIRST eval set is the training fold and the LAST is the holdout, the lowest-index ``valid_N`` maps to
     ``train`` and the highest to ``val``. When an explicit train key (e.g. lgb's ``training``) is already present, a
     lone positional ``valid_N`` is the holdout and maps to ``val`` (not a second train). Leftovers keep their name.
+
+    A LONE positional entry with no explicit train key is the ``val`` set, not ``train``: mlframe's own
+    ``_setup_eval_set`` (the path every default suite fit goes through) registers exactly ONE eval set for
+    lgb/xgb/cb when no shard evaluation is configured, and that one set is always the VALIDATION data
+    (``fit_params["eval_set"] = (val_df, val_target)`` / ``[(val_df, val_target)]`` -- never a train re-eval).
+    Mapping it to ``train`` produced a training-curve chart with a single series labelled "train" that was
+    actually the validation curve early stopping was watching -- and because ``_metric_panel``'s "val optimum"
+    star marker requires BOTH ``train`` and ``val`` present, the mislabelling also silently dropped the star.
     """
     out: dict = {}
     recognised_train = {"train", "training", "learn"}
@@ -246,10 +254,13 @@ def _canonicalize_split_names(split_names: list) -> dict:
             # An explicit train split already exists; the (lone or last) positional is the holdout.
             if not has_val:
                 out[positional[-1][1]] = "val"
-        else:
+        elif len(positional) > 1:
             out[positional[0][1]] = "train"
-            if len(positional) > 1:
-                out[positional[-1][1]] = "val"
+            out[positional[-1][1]] = "val"
+        else:
+            # A single positional entry with no train key anywhere: mlframe's own default fit path never
+            # registers a lone TRAIN-only eval set, so this one is the validation data.
+            out[positional[0][1]] = "val"
     return out
 
 
