@@ -35,6 +35,7 @@ import torch
 
 from mlframe.training.neural.data import TorchDataset
 from tests._perf_paired import assert_paired_speedup
+from tests.conftest import skip_if_host_contended
 
 # ---------------------------------------------------------------------------
 # Correctness: eager conversion
@@ -397,6 +398,7 @@ class TestEagerVsLazyPerformance:
     def test_share_memory_no_perf_regression(self):
         """Wave 23's share_memory_() must not slow down per-batch reads
         in single-process mode (it only helps the multi-worker path)."""
+        skip_if_host_contended("share_memory perf ratio is unmeasurable under detected host contention")
 
         n = 50_000
         features = np.random.rand(n, 16).astype(np.float32)

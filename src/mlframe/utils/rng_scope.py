@@ -24,11 +24,14 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-# numba types the seed argument as int64, so anything at or above 2**63 raises OverflowError on the way in.
-# A full 64-bit draw crosses that line about half the time, and because the restore is best-effort (it must
-# not mask whatever the guarded block did), the exception lands in a debug log and the stream is left exactly
-# where the block put it -- the failure this scope exists to prevent, occurring silently on half the calls.
-_SEED_MASK = (1 << 63) - 1
+# A compiled @njit body accepts any int64 seed, but under NUMBA_DISABLE_JIT=1 (the coverage-measurement
+# mode) an @njit function runs as plain Python, so np.random.seed(s) becomes numpy's own seeding call,
+# which enforces the legacy MT19937 constraint 0 <= s < 2**32 regardless of numba's own type. A seed drawn
+# from the wider int64 range raises ValueError there, and because the restore is best-effort (it must not
+# mask whatever the guarded block did), that exception lands in a debug log and the stream is left exactly
+# where the block put it -- the failure this scope exists to prevent, occurring on every draw at or above
+# 2**32 in that mode.
+_SEED_MASK = (1 << 32) - 1
 
 
 def _fresh_seed() -> int:

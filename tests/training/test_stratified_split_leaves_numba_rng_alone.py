@@ -86,10 +86,11 @@ def test_without_the_scope_the_block_dictates_what_follows():
 def test_every_restore_seed_is_one_numba_can_accept():
     """The restore is best-effort, so a seed numba rejects makes the scope silently do nothing.
 
-    numba types its seed argument as int64: a full 64-bit entropy draw is >= 2**63 about half the time and
-    raises OverflowError on the way in. That landed in a debug log and left the stream exactly where the
-    guarded block put it -- the scope failing, invisibly, on roughly half its calls. `screen.py` drew its
-    numba and cupy restoration seeds the same way and had the same defect.
+    A compiled @njit body accepts any int64 seed, but under NUMBA_DISABLE_JIT=1 an @njit function runs as
+    plain Python, so np.random.seed(s) becomes numpy's own call, which enforces 0 <= s < 2**32 regardless
+    of numba's own wider type. A seed drawn from the full int64 range crosses that line on essentially
+    every call in that mode. That landed in a debug log and left the stream exactly where the guarded
+    block put it -- the scope failing, invisibly, whenever tests run under NUMBA_DISABLE_JIT=1.
     """
     from pyutilz.data.numbalib import set_numba_random_seed
 
@@ -98,8 +99,8 @@ def test_every_restore_seed_is_one_numba_can_accept():
     seeds = {rng_scope._fresh_seed() for _ in range(2000)}
     assert len(seeds) > 1900, "the restore seeds are not varying; the entropy source is broken"
     worst = max(seeds)
-    assert worst < 2**63, f"a restore seed reached {worst}, which numba's int64 seed argument cannot accept"
-    set_numba_random_seed(worst)  # the real gate: numba must take the largest value this can produce
+    assert worst < 2**32, f"a restore seed reached {worst}, which numpy's legacy seeding (used under NUMBA_DISABLE_JIT=1) cannot accept"
+    set_numba_random_seed(worst)  # the real gate: numba (compiled or JIT-disabled) must take the largest value this can produce
 
 
 def test_an_unseeded_scope_touches_nothing():
