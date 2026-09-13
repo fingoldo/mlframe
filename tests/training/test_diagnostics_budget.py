@@ -78,6 +78,35 @@ class TestTheReport:
         assert "diagnostics_max_seconds" in text
 
 
+class TestTheTimingBreakdown:
+    """Which of the ~13 independent diagnostics under this one block actually dominates."""
+
+    def test_ran_diagnostics_are_timed_worst_first(self, caplog):
+        """A profiler sees this whole block as one opaque phase; the breakdown is the only cheap way to
+        tell which single diagnostic inside it is the real cost, without re-running under cProfile."""
+        budget = DiagnosticsBudget(60.0)
+        budget.run("fast", lambda: time.sleep(0.01))
+        budget.run("slow", lambda: time.sleep(0.05))
+        with caplog.at_level(logging.INFO, logger="mlframe.training.reporting._diagnostics_budget"):
+            budget.report()
+        text = " ".join(r.getMessage() for r in caplog.records)
+        assert text.index("slow=") < text.index("fast=")
+
+    def test_a_skipped_diagnostic_is_not_timed(self):
+        """Never ran, so it has no wall time to report -- it belongs in ``skipped``, not ``timings``."""
+        budget = DiagnosticsBudget(0.01)
+        time.sleep(0.02)
+        budget.run("pdp_ice", lambda: "drawn")
+        assert budget.timings == []
+
+    def test_nothing_ran_logs_no_breakdown_line(self, caplog):
+        """An empty block must not print an empty breakdown."""
+        budget = DiagnosticsBudget(60.0)
+        with caplog.at_level(logging.INFO, logger="mlframe.training.reporting._diagnostics_budget"):
+            budget.report()
+        assert not any("per-diagnostic wall time" in r.getMessage() for r in caplog.records)
+
+
 class TestTheConfigKnob:
     """The default has to be larger than a normal block and smaller than the runaway one."""
 

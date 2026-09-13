@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Callable, List, Optional, TypeVar
+from typing import Callable, List, Optional, Tuple, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,12 @@ class DiagnosticsBudget:
         self.out_of_scope: List[str] = []
         self._t0 = time.perf_counter()
         self.skipped: List[str] = []
+        # Per-diagnostic wall time for the ones that actually ran. A wall-clock profiler sees this whole
+        # block as one opaque "render_post_fit_diagnostics" phase spanning ~13 independent chart builders
+        # (SHAP x3, PDP/PDP-2D, interaction strength, slice finder, decision curve, decile table, risk
+        # coverage, model card, ...) -- without this, finding which ONE of them actually dominates means
+        # re-running under cProfile. Logged by ``report()`` so the answer is in the run's own log, every time.
+        self.timings: List[Tuple[str, float]] = []
 
     @property
     def elapsed(self) -> float:
@@ -90,10 +96,25 @@ class DiagnosticsBudget:
         if self.exhausted():
             self.skipped.append(name)
             return None
-        return fn()
+        _t0 = time.perf_counter()
+        try:
+            return fn()
+        finally:
+            self.timings.append((name, time.perf_counter() - _t0))
 
     def report(self) -> None:
-        """Say what was dropped and why, once. Silent when nothing was."""
+        """Say what was dropped and why, once; log a per-diagnostic timing breakdown, worst first.
+
+        The breakdown is unconditional (not just on a skip) at INFO level: identifying the one slow
+        diagnostic among a dozen independent ones is exactly the question a caller has no other cheap way
+        to answer, since they all nest under the same outer phase-timer entry.
+        """
+        if self.timings:
+            _ranked = sorted(self.timings, key=lambda kv: kv[1], reverse=True)
+            logger.info(
+                "  [diagnostics] per-diagnostic wall time (worst first): %s",
+                ", ".join(f"{name}={secs:.2f}s" for name, secs in _ranked),
+            )
         if self.out_of_scope:
             logger.info(
                 "  [diagnostics] %d model-explanation diagnostic(s) not rendered for this model (%s): they are "
