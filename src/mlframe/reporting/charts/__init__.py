@@ -78,6 +78,7 @@ from mlframe.reporting.charts.quantile import (
 from mlframe.reporting.charts.regression import (
     ALLOWED_REGRESSION_PANEL_TOKENS, DEFAULT_REGRESSION_PANELS,
     build_regression_panel_spec, compose_regression_figure,
+    compose_regression_report_figures,
 )
 from mlframe.reporting.charts.temporal import (
     ALLOWED_TEMPORAL_PANEL_TOKENS, DEFAULT_TEMPORAL_TARGET_PANELS,
@@ -147,6 +148,7 @@ __all__ = [
     "wilson_ci",
     "build_regression_panel_spec",
     "compose_regression_figure",
+    "compose_regression_report_figures",
     "build_temporal_audit_spec",
     "compose_target_acf_figure",
     "ALLOWED_TEMPORAL_PANEL_TOKENS",

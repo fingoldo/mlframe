@@ -111,11 +111,15 @@ class TestPanelTemplateValidation:
         assert "PIT_HIST" in toks
 
     def test_regression_default(self):
-        """Regression default."""
+        """None is the sentinel selecting the 3-figure default report (compose_regression_report_figures);
+        SCATTER and RESID_HIST live in its "predictions" and "residuals" groups respectively."""
+        from mlframe.reporting.charts.regression import DEFAULT_REGRESSION_REPORT_GROUPS
+
         cfg = ReportingConfig()
-        toks = cfg.regression_panels.split()
-        assert "SCATTER" in toks
-        assert "RESID_HIST" in toks
+        assert cfg.regression_panels is None
+        all_toks = " ".join(tmpl for tmpl, _cols in DEFAULT_REGRESSION_REPORT_GROUPS.values()).split()
+        assert "SCATTER" in all_toks
+        assert "RESID_HIST" in all_toks
 
     def test_unknown_quantile_token_raises(self):
         """Unknown quantile token raises."""
@@ -153,15 +157,21 @@ class TestNewPanelsDefaultOn:
         assert ReportingConfig(quantile_panels="COVERAGE").quantile_panels == "COVERAGE"
 
     def test_resid_vs_pred_default_on_and_valid(self):
-        """Resid vs pred default on and valid."""
-        cfg = ReportingConfig()
-        assert "RESID_VS_PRED" in cfg.regression_panels.split()
+        """RESID_VS_PRED lives in the default report's "residuals" group; an explicit override is still
+        a valid, accepted token."""
+        from mlframe.reporting.charts.regression import DEFAULT_REGRESSION_REPORT_GROUPS
+
+        assert "RESID_VS_PRED" in DEFAULT_REGRESSION_REPORT_GROUPS["residuals"][0].split()
         assert ReportingConfig(regression_panels="RESID_VS_PRED").regression_panels == "RESID_VS_PRED"
 
-    def test_err_by_decile_default_on_and_valid(self):
-        """Err by decile default on and valid."""
-        cfg = ReportingConfig()
-        assert "ERR_BY_DECILE" in cfg.regression_panels.split()
+    def test_err_by_decile_not_in_default_but_still_a_valid_explicit_token(self):
+        """ERR_BY_DECILE was dropped from the default report entirely (explicit user feedback: "не понимаю,
+        выброси его") -- it must not appear in any of the three default groups, but remains a valid token
+        for a caller who explicitly asks for it via a custom panels_template."""
+        from mlframe.reporting.charts.regression import DEFAULT_REGRESSION_REPORT_GROUPS
+
+        all_toks = " ".join(tmpl for tmpl, _cols in DEFAULT_REGRESSION_REPORT_GROUPS.values()).split()
+        assert "ERR_BY_DECILE" not in all_toks
         assert ReportingConfig(regression_panels="ERR_BY_DECILE").regression_panels == "ERR_BY_DECILE"
 
     def test_quantile_reliability_decomp_crossing_default_on(self):
@@ -187,8 +197,10 @@ class TestNewPanelsDefaultOn:
         assert "FAN_CHART" in ReportingConfig().quantile_panels.split()
 
     def test_worm_resid_acf_default_on_in_regression(self):
-        """Worm resid acf default on in regression."""
-        toks = ReportingConfig().regression_panels.split()
+        """WORM + RESID_ACF live together in the default report's "res_dist_and_acf" group."""
+        from mlframe.reporting.charts.regression import DEFAULT_REGRESSION_REPORT_GROUPS
+
+        toks = DEFAULT_REGRESSION_REPORT_GROUPS["res_dist_and_acf"][0].split()
         assert "WORM" in toks and "RESID_ACF" in toks
 
     def test_threshold_sweep_default_on_in_multilabel(self):

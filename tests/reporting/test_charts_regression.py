@@ -56,19 +56,22 @@ def synth_reg():
 
 def test_allowed_tokens_include_core_and_diagnostics():
     """Allowed tokens include core and diagnostics."""
-    assert ALLOWED_REGRESSION_PANEL_TOKENS == frozenset({"SCATTER", "RESID_HIST", "RESID_VS_PRED", "ERR_BY_DECILE", "WORM", "RESID_ACF"})
-    # Default template is the integrator's concern; WORM / RESID_ACF are opt-in via the template until wired.
-    assert DEFAULT_REGRESSION_PANELS == "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE"
+    assert ALLOWED_REGRESSION_PANEL_TOKENS == frozenset({"PRED_SAMPLE", "SCATTER", "RESID_HIST", "RESID_VS_PRED", "ERR_BY_DECILE", "WORM", "RESID_ACF"})
+    # ERR_BY_DECILE is intentionally NOT in the default (dropped from the default report per explicit user
+    # feedback); it stays reachable via an explicit panels_template. The production default report is now
+    # THREE separate figures (compose_regression_report_figures), not this single-figure default string --
+    # see test_default_panels_e2e.py's TestDefaultRegressionPanels for that behaviour.
+    assert DEFAULT_REGRESSION_PANELS == "SCATTER RESID_HIST RESID_VS_PRED"
 
 
-def test_default_template_packs_four_panels(synth_reg):
-    """Default template packs four panels."""
+def test_default_template_packs_three_panels(synth_reg):
+    """Default template packs three panels (SCATTER + RESID_HIST + RESID_VS_PRED; ERR_BY_DECILE dropped)."""
     yt, yp = synth_reg
     fig = compose_regression_figure(yt, yp, audit=audit_residuals(yt, yp))
     panels = _flat(fig)
     types = {type(p).__name__ for p in panels}
-    assert {"ScatterPanelSpec", "HistogramPanelSpec", "LinePanelSpec", "BarPanelSpec"} == types
-    assert len(panels) == 4
+    assert {"ScatterPanelSpec", "HistogramPanelSpec", "LinePanelSpec"} == types
+    assert len(panels) == 3
 
 
 def test_unknown_token_raises(synth_reg):
@@ -150,7 +153,7 @@ def test_audit_none_does_not_crash(synth_reg):
     """Audit none does not crash."""
     yt, yp = synth_reg
     fig = compose_regression_figure(yt, yp, audit=None)
-    assert len(_flat(fig)) == 4
+    assert len(_flat(fig)) == 3
 
 
 @pytest.mark.parametrize("backend", ["matplotlib[png]", "plotly[html]"])

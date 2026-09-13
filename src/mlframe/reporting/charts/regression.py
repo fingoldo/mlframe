@@ -282,6 +282,58 @@ def _scatter_panel(
     )
 
 
+# Default row count for the eyeball-traceable sample panel: enough to see a spread of pairs, few enough
+# that a reader can actually follow each one by eye without the lines turning into a solid mess.
+DEFAULT_PRED_SAMPLE_SIZE: int = 20
+# max/min ratio over a sample's own (positive) combined true+pred values above which the y-axis switches
+# to log scale. A heavy-tailed target can put a small random sample anywhere from single digits to the
+# thousands (observed live: 8.4 to 1.34e+03 on one production report) -- linear crushes that into a spike.
+DEFAULT_PRED_SAMPLE_LOG_RATIO: float = 20.0
+
+
+def _pred_sample_trace_panel(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    sample_size: int = DEFAULT_PRED_SAMPLE_SIZE,
+    log_ratio_threshold: float = DEFAULT_PRED_SAMPLE_LOG_RATIO,
+    seed: int = 42,
+) -> PanelSpec:
+    """A small, eyeball-traceable sample of true-vs-predicted pairs.
+
+    Unlike the dense scatter/heatmap panel (built for the full row count), this panel draws only
+    ``sample_size`` randomly-chosen rows as two line+marker series (true, predicted) against a plain
+    sample index, sorted by true value so a reader's eye can follow the pair at each position instead of
+    hunting through an unordered cloud. Auto-switches the y-axis to log scale when every sampled value is
+    positive and the sample's own max/min ratio is large.
+    """
+    yt, yp = _finite_pair(y_true, y_pred)
+    if yt.size == 0:
+        return _empty_annotation("Predictions vs true (sample)", int(np.asarray(y_true).size))
+    n = yt.size
+    k = min(sample_size, n)
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(n, size=k, replace=False)
+    idx = idx[np.argsort(yt[idx])]
+    s_true, s_pred = yt[idx], yp[idx]
+
+    combined = np.concatenate([s_true, s_pred])
+    use_log = bool(np.all(combined > 0)) and float(combined.max()) / float(combined.min()) > log_ratio_threshold
+
+    x = np.arange(k, dtype=np.float64)
+    return LinePanelSpec(
+        x=x,
+        y=(s_true, s_pred),
+        series_labels=("true", "predicted"),
+        title=f"Predictions vs true -- sample of {k} row(s), traceable by eye" + (" [log y]" if use_log else ""),
+        xlabel="sample index (sorted by true value)",
+        ylabel="value",
+        line_styles=("lines+markers", "lines+markers"),
+        colors=("steelblue", "darkorange"),
+        yscale="log" if use_log else "linear",
+    )
+
+
 def _resid_hist_panel(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -630,6 +682,7 @@ def _resid_acf_panel(
 
 
 _TOKEN_BUILDERS: Dict[str, Callable] = {
+    "PRED_SAMPLE": _pred_sample_trace_panel,
     "SCATTER": _scatter_panel,
     "RESID_HIST": _resid_hist_panel,
     "RESID_VS_PRED": _resid_vs_pred_panel,
@@ -644,6 +697,9 @@ ALLOWED_REGRESSION_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
 # figure-level caption used to describe the DEFAULT template, so a caller asking for a narrower mix read about
 # panels that were not on their figure.
 _TOKEN_CAPTIONS: Dict[str, str] = {
+    "PRED_SAMPLE": (
+        "A small random sample of rows, drawn as true/predicted line-and-marker pairs so a reader can trace an individual row's error by eye instead of reading it off a dense cloud."
+    ),
     "SCATTER": (
         "The predicted-versus-actual scatter puts the identity line where a perfect model would sit; curvature away from it is bias the residual panels then localise."
     ),
@@ -657,7 +713,19 @@ _TOKEN_CAPTIONS: Dict[str, str] = {
 }
 
 
-DEFAULT_REGRESSION_PANELS = "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE"
+DEFAULT_REGRESSION_PANELS = "SCATTER RESID_HIST RESID_VS_PRED"
+
+# The default regression report is 3 SEPARATE figures rather than one big grid: each groups panels that
+# answer one kind of question (is the fit any good / where do the errors live / are the residuals
+# well-behaved noise), and each gets its own descriptive file suffix instead of every diagnostic being
+# buried in one combined image. ERR_BY_DECILE is intentionally not part of any group here (dropped from
+# the default report -- still reachable via an explicit ``panels_template`` on ``compose_regression_figure``).
+DEFAULT_REGRESSION_REPORT_GROUPS: Dict[str, Tuple[str, int]] = {
+    # key (also used as the caller's file-name suffix) -> (panels_template, max_cols)
+    "predictions": ("PRED_SAMPLE SCATTER", 1),
+    "residuals": ("RESID_HIST RESID_VS_PRED", 2),
+    "res_dist_and_acf": ("WORM RESID_ACF", 2),
+}
 
 
 def compose_regression_figure(
@@ -700,7 +768,9 @@ def compose_regression_figure(
 
     panels: List[PanelSpec] = []
     for tok in tokens:
-        if tok == "SCATTER":
+        if tok == "PRED_SAMPLE":
+            panels.append(_pred_sample_trace_panel(y_true, y_pred, seed=seed))
+        elif tok == "SCATTER":
             panels.append(_scatter_panel(
                 y_true, y_pred, title=scatter_title,
                 sample_size=sample_size, hexbin_threshold=hexbin_threshold, seed=seed,
@@ -736,6 +806,54 @@ def compose_regression_figure(
             _TOKEN_CAPTIONS,
         ),
     )
+
+
+def compose_regression_report_figures(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    audit: Any = None,
+    suptitle: str = "",
+    metrics_str: str = "",
+    sample_size: int = DEFAULT_REGRESSION_SCATTER_SAMPLE,
+    hexbin_threshold: int = DEFAULT_HEXBIN_THRESHOLD,
+    seed: int = 42,
+    worst_k_indices: Optional[np.ndarray] = None,
+    cell_width: float = 6.0,
+    cell_height: float = 4.0,
+) -> Dict[str, FigureSpec]:
+    """Build the default regression report as THREE separate figures instead of one combined grid.
+
+    Each group answers a different question and gets its own descriptive key (used by the caller as a
+    file-name suffix, e.g. ``{base_path}_predictions.{backend}.{ext}``), rather than every diagnostic
+    living in one image whose only distinguishing filename token was the render BACKEND:
+      - ``"predictions"``: is the fit any good, at both an eyeball-traceable sample scale (PRED_SAMPLE)
+        and the full-data density view (SCATTER, no robust-fit overlay -- the sample panel already shows
+        directional bias at a glance).
+      - ``"residuals"``: where do the errors live (RESID_HIST + RESID_VS_PRED).
+      - ``"res_dist_and_acf"``: are the residuals well-behaved noise (WORM + RESID_ACF).
+
+    ERR_BY_DECILE is intentionally excluded from every group (still reachable via an explicit
+    ``panels_template`` on ``compose_regression_figure`` directly).
+    """
+    figures: Dict[str, FigureSpec] = {}
+    for _key, (_template, _max_cols) in DEFAULT_REGRESSION_REPORT_GROUPS.items():
+        figures[_key] = compose_regression_figure(
+            y_true, y_pred,
+            audit=audit,
+            panels_template=_template,
+            suptitle=suptitle,
+            metrics_str=metrics_str,
+            sample_size=sample_size,
+            hexbin_threshold=hexbin_threshold,
+            seed=seed,
+            worst_k_indices=worst_k_indices,
+            trend_line=None,
+            max_cols=_max_cols,
+            cell_width=cell_width,
+            cell_height=cell_height,
+        )
+    return figures
 
 
 def build_regression_panel_spec(
@@ -778,8 +896,11 @@ def build_regression_panel_spec(
 __all__ = [
     "ALLOWED_REGRESSION_PANEL_TOKENS",
     "DEFAULT_REGRESSION_PANELS",
+    "DEFAULT_REGRESSION_REPORT_GROUPS",
     "DEFAULT_HEXBIN_THRESHOLD",
     "DEFAULT_REGRESSION_SCATTER_SAMPLE",
+    "DEFAULT_PRED_SAMPLE_SIZE",
     "compose_regression_figure",
+    "compose_regression_report_figures",
     "build_regression_panel_spec",
 ]

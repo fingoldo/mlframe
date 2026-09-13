@@ -299,6 +299,37 @@ def test_pdp_panel_has_ice_and_mean_series():
     assert panel.colors[-1] == "#08519c"
 
 
+def test_pdp_panel_heavy_tailed_feature_uses_rank_spaced_x_with_value_labels():
+    """Production chart: a quantile-spaced PDP grid over a heavy-tailed feature (e.g. hourly_budget_range,
+    grid [0, 1, 5, ..., 30, 54.2, 996]) plotted its true values on a linear axis -- squashing every point
+    but the last few into a sliver near one edge, even though the grid itself is quantile-spaced
+    specifically so each point holds an equal population share. Must fall back to rank-evenly-spaced x
+    with the real values as tick labels (mirroring the 2-D PDP heatmap's own axis)."""
+    rng = np.random.default_rng(0)
+    n = 2000
+    body = rng.uniform(0, 30, int(n * 0.98))
+    tail = rng.uniform(500, 1000, n - body.size)
+    x0 = np.concatenate([body, tail])
+    x1 = rng.normal(size=n)
+    X = np.column_stack([x0, x1])
+    panel = pdp_ice.pdp_panel(_LinearModel([0.01, 1.0]), X, 0, grid=20, sample=500)
+    assert isinstance(panel, LinePanelSpec)
+    assert panel.x_tick_labels is not None
+    # Rank-evenly-spaced: x is a plain 0..N-1 index, not the heavy-tailed real values.
+    assert np.allclose(panel.x, np.arange(panel.x.size))
+    # The extreme grid point's real value still appears somewhere in the tick labels.
+    assert any(float(lbl) > 400 for lbl in panel.x_tick_labels)
+
+
+def test_pdp_panel_well_behaved_feature_keeps_true_value_x_axis():
+    """A feature whose quantile grid is NOT heavy-tailed must keep plotting real values on x (no
+    gratuitous rank-spacing for well-behaved data)."""
+    rng = np.random.default_rng(4)
+    X = rng.normal(size=(4000, 3))
+    panel = pdp_ice.pdp_panel(_LinearModel([1.0, 0.0, 0.0]), X, 0, grid=15, sample=600)
+    assert panel.x_tick_labels is None
+
+
 def test_pdp_panel_constant_feature_is_annotation():
     """Pdp panel constant feature is annotation."""
     X = np.column_stack([np.full(500, 2.0), np.random.default_rng(5).normal(size=500)])

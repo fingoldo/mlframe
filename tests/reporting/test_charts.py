@@ -248,10 +248,10 @@ def _fake_audit():
 
 class TestRegressionSpec:
     """Groups tests for: TestRegressionSpec."""
-    def test_returns_4_panel_grid(self):
-        """The default template restores RESID_VS_PRED and adds ERR_BY_DECILE,
-        so the legacy adapter now packs SCATTER + RESID_HIST + RESID_VS_PRED +
-        ERR_BY_DECILE into a 2x2 grid (scatter + residual hist on the top row)."""
+    def test_returns_3_panel_grid(self):
+        """The (legacy single-figure adapter's) default template is SCATTER + RESID_HIST + RESID_VS_PRED
+        -- ERR_BY_DECILE was dropped from the default report entirely (it stays reachable via an explicit
+        panels_template)."""
         rng = np.random.default_rng(0)
         y_true = rng.standard_normal(200)
         y_pred = y_true + rng.standard_normal(200) * 0.2
@@ -264,7 +264,7 @@ class TestRegressionSpec:
         )
         assert spec.suptitle == "VAL CB ..."
         n_panels = sum(1 for row in spec.panels for c in row if c is not None)
-        assert n_panels == 4
+        assert n_panels == 3
         assert isinstance(spec.panels[0][0], ScatterPanelSpec)
         assert isinstance(spec.panels[0][1], HistogramPanelSpec)
 

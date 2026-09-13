@@ -169,7 +169,8 @@ class TestPlotResidualDiagnostics:
         plt.close(fig)
 
     def test_dsl_optin_matplotlib(self, reg_inputs, tmp_path):
-        """Dsl option matplotlib."""
+        """The default report (panels_template left unset) now writes THREE files -- predictions /
+        residuals / res_dist_and_acf -- instead of one combined "resid.png"."""
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
 
         y, yp = reg_inputs
@@ -185,11 +186,30 @@ class TestPlotResidualDiagnostics:
             )
         # Opt-in path returns the audit (computed lazily if not supplied).
         assert audit is not None
+        for _suffix in ("predictions", "residuals", "res_dist_and_acf"):
+            _name = f"resid_{_suffix}.png"
+            assert os.path.exists(_saved(tmp_path, _name)), f"missing {_name}"
+            assert os.path.getsize(_saved(tmp_path, _name)) > 5000
+
+    def test_dsl_optin_matplotlib_legacy_template_writes_one_file(self, reg_inputs, tmp_path):
+        """An explicit panels_template keeps the OLD single-combined-file behaviour."""
+        from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
+
+        y, yp = reg_inputs
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            plot_residual_diagnostics(
+                y,
+                yp,
+                plot_outputs="matplotlib[png]",
+                base_path=str(tmp_path / "resid"),
+                panels_template="SCATTER RESID_HIST",
+            )
         assert os.path.exists(_saved(tmp_path, "resid.png"))
         assert os.path.getsize(_saved(tmp_path, "resid.png")) > 5000
 
     def test_dsl_optin_plotly(self, reg_inputs, tmp_path):
-        """Dsl option plotly."""
+        """Same 3-file default split on the plotly backend."""
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
 
         y, yp = reg_inputs
@@ -201,7 +221,8 @@ class TestPlotResidualDiagnostics:
                 plot_outputs="plotly[html]",
                 base_path=str(tmp_path / "resid"),
             )
-        assert os.path.exists(_saved(tmp_path, "resid.html"))
+        for _suffix in ("predictions", "residuals", "res_dist_and_acf"):
+            assert os.path.exists(_saved(tmp_path, f"resid_{_suffix}.html"))
 
     def test_degenerate_input_returns_audit_no_crash(self, tmp_path):
         """Degenerate input returns audit no crash."""

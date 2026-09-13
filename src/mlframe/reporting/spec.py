@@ -331,6 +331,17 @@ class LinePanelSpec:
     line_styles: Optional[Tuple[str, ...]] = None
     colors: Optional[Tuple[str, ...]] = None
     grid: bool = True
+    # Log-scale the y-axis. A small sampled trace (e.g. a 20-row eyeball-traceable subsample of a
+    # heavy-tailed target) can span single digits to the thousands, which crushes a linear axis into an
+    # unreadable spike -- mirrors HistogramPanelSpec.yscale.
+    yscale: Literal["linear", "log"] = "linear"
+    # Explicit tick labels at the corresponding positions in ``x`` (same length as ``x``, or as the first
+    # series' x when ``x`` is a per-series tuple). Use this when ``x`` is deliberately an evenly-spaced
+    # RANK (0, 1, 2, ...) rather than the feature's own value -- e.g. a quantile-spaced PDP grid over a
+    # heavy-tailed feature, where plotting the true values on a linear axis squashes every point but the
+    # last few into a sliver (the grid was built to give each quantile equal WEIGHT, not equal screen
+    # space). None leaves the axis as plain numeric ticks off ``x`` itself.
+    x_tick_labels: Optional[Tuple[str, ...]] = None
     # Vertical reference lines: tuple of (x, color, label). label may be "" for unlabeled. ``x`` may be a float OR a
     # datetime / numpy datetime64 (temporal change-point markers); renderers draw these on a datetime x-axis too.
     vlines: Optional[Tuple[Tuple[Any, str, str], ...]] = None

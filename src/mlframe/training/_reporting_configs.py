@@ -214,8 +214,13 @@ class ReportingConfig(BaseConfig):
     quantile_panels: str = (
         "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST " "QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING FAN_CHART"
     )
-    # Regression report panels rendered by ``compose_regression_figure``; all-by-default. WORM (de-trended residual QQ) + RESID_ACF (residual autocorrelation, Bartlett band) surface tail-misfit and serial dependence the scatter/hist hide.
-    regression_panels: str = "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE WORM RESID_ACF"
+    # None (default) renders the regression report as THREE separate figures via
+    # ``compose_regression_report_figures`` -- "{plot_file}_predictions"/"_residuals"/"_res_dist_and_acf" -- each
+    # answering one question (is the fit good / where do the errors live / are the residuals well-behaved
+    # noise) instead of every diagnostic sharing one combined grid. Set an explicit space-separated token
+    # string (see ``ALLOWED_REGRESSION_PANEL_TOKENS`` in ``mlframe.reporting.charts.regression``) to opt back
+    # into the legacy single-figure behaviour with exactly that panel set, in one file.
+    regression_panels: Optional[str] = None
 
     # Calibration binning strategy for the reliability diagram + ECE bins. ``"auto"`` (default) picks quantile (equal-population) bins under a rare-event base rate where uniform bins collapse to <=2 populated bins, uniform otherwise. ``"uniform"`` / ``"quantile"`` force one strategy.
     calibration_binning: Literal["auto", "uniform", "quantile"] = "auto"
@@ -384,8 +389,13 @@ class ReportingConfig(BaseConfig):
         "quantile_panels", "regression_panels",
     )
     @classmethod
-    def _validate_panel_template(cls, v: str, info) -> str:
+    def _validate_panel_template(cls, v: Optional[str], info) -> Optional[str]:
         """Validate a ``*_panels`` field's tokens against that report type's ALLOWED_*_PANEL_TOKENS set, reject unknown tokens and duplicates."""
+        if v is None:
+            # Only regression_panels can be None (its default -- see that field's docstring: None means
+            # "render the new 3-figure split", not "no panels"). Every other *_panels field stays a plain
+            # str, so this branch is a no-op for them.
+            return v
         # Source the allowed token sets from the chart modules' own
         # ALLOWED_*_PANEL_TOKENS frozensets (the single source of truth that
         # the composers also key off), so any new builder token is valid here

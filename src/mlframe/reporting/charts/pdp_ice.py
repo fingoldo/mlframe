@@ -550,8 +550,27 @@ def pdp_panel(
     except Exception as exc:  # best-effort enrichment: a caveat must never break the panel
         logger.debug("pdp support note failed (%s: %s)", type(exc).__name__, exc)
 
+    # The grid is quantile-spaced by construction (_feature_grid) so each point represents an EQUAL
+    # population slice -- but plotting the true values on a linear axis still gives each point screen
+    # space proportional to its VALUE gap, not its population weight. On a heavy-tailed feature a handful
+    # of quantile points near the extreme (e.g. a "hourly_budget_range" grid of [0, 1, 5, ..., 30, 54.2,
+    # 996]) then squash every other point into a sliver near one edge -- observed live. Detect this by
+    # comparing the trimmed (10th-90th grid-RANK) span against the full span; when the trimmed span is a
+    # small fraction of the full one, plot rank-evenly-spaced x with the real values as tick labels
+    # instead (mirrors the 2-D PDP heatmap's own axis, which already does this).
+    g = gv.shape[0]
+    x_vals: np.ndarray = gv
+    x_tick_labels = None
+    if not res["is_discrete"] and g >= 5:
+        full_span = float(gv[-1] - gv[0])
+        lo_i, hi_i = int(0.1 * g), min(g - 1, int(0.9 * g))
+        trimmed_span = float(gv[hi_i] - gv[lo_i])
+        if full_span > 0 and trimmed_span < 0.3 * full_span:
+            x_vals = np.arange(g, dtype=np.float64)
+            x_tick_labels = tuple(f"{v:.3g}" for v in gv)
+
     return LinePanelSpec(
-        x=gv,
+        x=x_vals,
         y=tuple(series),
         series_labels=tuple(labels),
         title=f"PDP / ICE: {label}{support_note}",
@@ -559,6 +578,7 @@ def pdp_panel(
         ylabel=ylab + (" (centered)" if centered else ""),
         line_styles=tuple(styles),
         colors=tuple(colors),
+        x_tick_labels=x_tick_labels,
     )
 
 

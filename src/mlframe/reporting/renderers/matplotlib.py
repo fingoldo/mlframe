@@ -777,6 +777,11 @@ class MatplotlibRenderer:
             ax.set_ylim(*p.ylim)
         if p.xlim is not None:
             ax.set_xlim(*p.xlim)
+        if p.yscale == "log":
+            ax.set_yscale("log")
+        if p.x_tick_labels is not None:
+            _tick_x = _xi(0)
+            ax.set_xticks(_tick_x, labels=list(p.x_tick_labels), rotation=30, ha="right")
         if p.x_is_time:
             # The numeric x carries epoch NANOSECONDS, which read as "1.62e18" unless converted. The COUNT
             # comes from the axis rather than the helper's fixed six: a date label rotated 30 degrees needs

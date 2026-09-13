@@ -244,8 +244,14 @@ def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
     _tv, _tt = epoch_ns_ticks(_xi(0), n_ticks=_n_dates) if p.x_is_time else (None, None)
     if _tv is not None:
         _xkw.update(tickmode="array", tickvals=_tv, ticktext=_tt)
+    _x_tick_labels = getattr(p, "x_tick_labels", None)
+    if _x_tick_labels is not None:
+        _xkw.update(tickmode="array", tickvals=list(_xi(0)), ticktext=list(_x_tick_labels), tickangle=-30)
     fig.update_xaxes(**_xkw)
-    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, secondary_y=False)
+    _ykw: dict = dict(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, secondary_y=False)
+    if getattr(p, "yscale", "linear") == "log":
+        _ykw["type"] = "log"
+    fig.update_yaxes(**_ykw)
     if has_secondary:
         fig.update_yaxes(title_text=p.secondary_ylabel, row=row, col=col, secondary_y=True, showgrid=False)
 

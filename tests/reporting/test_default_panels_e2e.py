@@ -157,25 +157,52 @@ class TestDefaultTemplatesDispatch:
 
 
 class TestDefaultRegressionPanels:
-    """Groups tests for: TestDefaultRegressionPanels."""
-    def test_default_regression_template_includes_new_panels(self):
-        """Default regression template includes new panels."""
-        cfg = ReportingConfig()
-        toks = cfg.regression_panels.split()
-        assert "RESID_VS_PRED" in toks
-        assert "ERR_BY_DECILE" in toks
+    """Default regression reporting is now THREE separate figures (compose_regression_report_figures),
+    not one combined grid -- ``ReportingConfig.regression_panels`` stays None to select that default;
+    setting it to an explicit token string opts back into the legacy single-figure behaviour."""
 
-    def test_default_regression_composer_renders_one_panel_per_token(self):
-        """The regression composer renders one panel per token in the config default, including the
-        RESID_VS_PRED + decile panels and the integrator-enabled WORM + RESID_ACF (the report path uses this default)."""
+    def test_default_regression_panels_config_is_none(self):
+        """None is the sentinel for "use the new 3-figure split", not "no panels"."""
+        cfg = ReportingConfig()
+        assert cfg.regression_panels is None
+
+    def test_default_regression_report_produces_three_figures_without_err_by_decile(self):
+        """The default report (panels_template left at its None default) renders predictions / residuals /
+        res_dist_and_acf, each with the expected panel count, and ERR_BY_DECILE appears in none of them --
+        it was dropped from the default report per explicit user feedback ("не понимаю, выброси его")."""
+        from mlframe.reporting.charts import compose_regression_report_figures
+        from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec
+
         rng = np.random.default_rng(0)
         n = 2000
         y = rng.standard_normal(n) * 5.0
         y_pred = y + rng.standard_normal(n) * 0.5
-        cfg = ReportingConfig()
-        spec = compose_regression_figure(y, y_pred, panels_template=cfg.regression_panels)
+        figures = compose_regression_report_figures(y, y_pred)
+        assert set(figures) == {"predictions", "residuals", "res_dist_and_acf"}
+        assert _n_panels(figures["predictions"]) == 2
+        assert _n_panels(figures["residuals"]) == 2
+        assert _n_panels(figures["res_dist_and_acf"]) == 2
+        # ERR_BY_DECILE renders as a BarPanelSpec titled "Error by target decile ..."; confirm no panel in
+        # any of the three default figures carries that title (the decisive, not just structural, check).
+        for fig in figures.values():
+            for row in fig.panels:
+                for panel in row:
+                    if panel is None or isinstance(panel, AnnotationPanelSpec):
+                        continue
+                    assert not (isinstance(panel, BarPanelSpec) and "target decile" in panel.title.lower())
+
+    def test_legacy_explicit_template_still_renders_one_combined_figure(self):
+        """A caller (or a customized ReportingConfig.regression_panels) that explicitly sets a token string
+        keeps the OLD single-figure behaviour with exactly the requested panels, unaffected by the new
+        default split."""
+        rng = np.random.default_rng(0)
+        n = 2000
+        y = rng.standard_normal(n) * 5.0
+        y_pred = y + rng.standard_normal(n) * 0.5
+        explicit = "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE WORM RESID_ACF"
+        spec = compose_regression_figure(y, y_pred, panels_template=explicit)
         assert isinstance(spec, FigureSpec)
-        assert _n_panels(spec) == len(cfg.regression_panels.split())
+        assert _n_panels(spec) == len(explicit.split())
 
 
 class TestDefaultLtrTemplate:

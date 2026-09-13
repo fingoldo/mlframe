@@ -682,7 +682,9 @@ def plot_residual_diagnostics(
     # shared renderer. Default behaviour preserved for callers that
     # supply their own axes.
     if plot_outputs and base_path:
-        from mlframe.reporting.charts.regression import DEFAULT_REGRESSION_PANELS, build_regression_panel_spec
+        from mlframe.reporting.charts.regression import (
+            DEFAULT_REGRESSION_PANELS, build_regression_panel_spec, compose_regression_report_figures,
+        )
         from mlframe.reporting.output import parse_plot_output_dsl
         from mlframe.reporting.renderers import render_and_save
         _yt = np.asarray(y_true, dtype=np.float64).ravel()
@@ -701,6 +703,26 @@ def plot_residual_diagnostics(
                     _audit_err,
                 )
                 audit = None
+        _outputs = parse_plot_output_dsl(plot_outputs)
+        if panels_template is None:
+            # Default report: 3 SEPARATE figures (predictions / residuals / res_dist_and_acf) instead of one
+            # combined grid -- see compose_regression_report_figures's docstring. Each gets its own
+            # descriptive file suffix (e.g. "{base_path}_predictions.{backend}.{ext}") rather than every
+            # diagnostic sharing one image whose only distinguishing filename token was the render backend.
+            _figures = compose_regression_report_figures(
+                _yt, _yp,
+                audit=audit, suptitle=header_str, metrics_str=metrics_str,
+                sample_size=plot_sample_size, seed=seed,
+            )
+            for _suffix, _spec in _figures.items():
+                if dpi is not None:
+                    import dataclasses as _dc
+                    _spec = _dc.replace(_spec, dpi=dpi)
+                render_and_save(_spec, _outputs, f"{base_path}_{_suffix}")
+            return audit
+        # Caller (or ReportingConfig.regression_panels) explicitly customized the panel set -- keep the
+        # legacy single-figure behaviour so an existing custom template still renders exactly the panels
+        # asked for, in one file, rather than being silently reshuffled into the new 3-figure split.
         spec = build_regression_panel_spec(
             _yt, _yp,
             audit=audit, header_str=header_str, metrics_str=metrics_str,
@@ -710,7 +732,7 @@ def plot_residual_diagnostics(
         if dpi is not None:
             import dataclasses as _dc
             spec = _dc.replace(spec, dpi=dpi)
-        render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path)
+        render_and_save(spec, _outputs, base_path)
         return audit
 
     try:
