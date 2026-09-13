@@ -638,7 +638,20 @@ def _cb_gpu_usable() -> bool:
                     iterations=1, task_type="GPU", devices="0",
                     allow_writing_files=False, verbose=False,
                 )
-                _probe.fit(_np.zeros((2, 1), dtype=_np.float32), _np.array([0.0, 1.0], dtype=_np.float32))
+                # 10x2 with real per-column variance -- a 2x1 all-zero probe (the prior shape) made BOTH
+                # rows of the single feature column identical, so CatBoost's own quantization legitimately
+                # saw a CONSTANT feature and raised "All features are either constant or ignored" (observed
+                # live: two probe attempts, both failed this way, treated as a "transient device condition"
+                # and retried, then the whole process fell back to CPU-only routing -- a false negative from
+                # a degenerate probe input, not a real GPU-usability signal). linspace over two columns
+                # (one ascending, one descending) gives every column genuine spread regardless of row count.
+                _n_probe_rows = 10
+                _X_probe = _np.column_stack([
+                    _np.linspace(0.0, 1.0, _n_probe_rows, dtype=_np.float32),
+                    _np.linspace(1.0, 0.0, _n_probe_rows, dtype=_np.float32),
+                ])
+                _y_probe = _np.linspace(0.0, 1.0, _n_probe_rows, dtype=_np.float32)
+                _probe.fit(_X_probe, _y_probe)
                 _CB_GPU_USABLE_CACHE = True
                 break
             except Exception as e:

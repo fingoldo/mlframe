@@ -201,6 +201,78 @@ def _carrier_with_categoricals(X: Any) -> Any:
     return X.assign(**{c: X[c].astype("category") for c in obj_cols})
 
 
+def _xgboost_base_score_patched_config_json(model: Any) -> Optional[str]:
+    """Return a corrected ``save_config()`` JSON string for an XGBoost model whose ``base_score`` is a
+    bracketed single-value array string (e.g. ``"[4.1309687E-1]"``), or ``None`` if this model isn't
+    XGBoost / isn't in that shape / any lookup fails.
+
+    XGBoost 3.x's ``Booster.save_config()`` always emits ``base_score`` this way (reproduced directly: a
+    freshly-fit ``XGBClassifier`` on this xgboost version round-trips its config with the bracketed form
+    even right after ``load_config()`` is fed a plain scalar -- ``save_config()`` re-derives the array
+    form from the booster's own internal state every time, so mutating the booster in place cannot make
+    a LATER ``save_config()`` call return the scalar form). It is XGBoost's own on-disk representation,
+    not a corruption. See ``_construct_tree_explainer_with_xgb_base_score_shim`` for how this is actually
+    used: a SCOPED monkeypatch of ``save_config`` around one ``shap.TreeExplainer(model)`` retry, not a
+    persistent rewrite of the model.
+    """
+    get_booster = getattr(model, "get_booster", None)
+    booster = get_booster() if callable(get_booster) else (model if type(model).__name__ == "Booster" else None)
+    if booster is None or not hasattr(booster, "save_config"):
+        return None
+    try:
+        import json
+
+        cfg = json.loads(booster.save_config())
+        param = cfg["learner"]["learner_model_param"]
+        base_score = param.get("base_score")
+        if not isinstance(base_score, str):
+            return None
+        stripped = base_score.strip()
+        if not (stripped.startswith("[") and stripped.endswith("]")):
+            return None
+        values = json.loads(stripped)
+        if len(values) != 1:
+            return None
+        param["base_score"] = repr(float(values[0]))
+        return json.dumps(cfg)
+    except Exception as e:
+        logger.debug("XGBoost base_score config patch skipped (%s: %s)", type(e).__name__, e)
+        return None
+
+
+def _construct_tree_explainer_with_xgb_base_score_shim(model: Any) -> Any:
+    """``shap.TreeExplainer(model)``, retried once with a SCOPED, restored monkeypatch of the XGBoost
+    booster's ``save_config()`` if construction fails with the exact incompatibility between XGBoost
+    3.x's ``base_score`` config serialization (a bracketed single-value array string) and an
+    older/pinned shap build's ``XGBTreeModelLoader``, which does a bare
+    ``float(learner_model_param["base_score"])`` and raises ``ValueError: could not convert string to
+    float: '[4.1309687E-1]'`` -- observed live (a real CI training run, XGBClassifier, both val and test
+    SHAP panels silently lost via the dispatcher's broad except). A newer shap build that already
+    tolerates or bypasses this (e.g. via ``ast.literal_eval`` or a UBJSON-based loader) never raises
+    here, so this shim only ever engages on the builds that need it.
+
+    Any other ``ValueError``, or an XGBoost model whose config isn't in the bracketed-single-value
+    shape ``_xgboost_base_score_patched_config_json`` expects, re-raises unchanged so the caller's
+    existing broad except still handles it (never masks an unrelated failure as "fixed").
+    """
+    import shap  # required dep; the caller (shap_summary_and_dependence) already imports it too
+
+    try:
+        return shap.TreeExplainer(model)
+    except ValueError:
+        get_booster = getattr(model, "get_booster", None)
+        booster = get_booster() if callable(get_booster) else None
+        fixed_json = _xgboost_base_score_patched_config_json(model) if booster is not None else None
+        if fixed_json is None or booster is None:
+            raise
+        original_save_config = booster.save_config
+        booster.save_config = lambda: fixed_json
+        try:
+            return shap.TreeExplainer(model)
+        finally:
+            booster.save_config = original_save_config
+
+
 def _as_frame_and_names(X: Any, feature_names: Optional[Sequence[str]]) -> Tuple[Any, np.ndarray, List[str]]:
     """Return ``(carrier_for_shap, values_2d, names)``.
 
@@ -622,8 +694,8 @@ def shap_summary_and_dependence(
     vals_sample = vals[idx]
 
     if tree:
-        explainer = shap.TreeExplainer(model)
         try:
+            explainer = _construct_tree_explainer_with_xgb_base_score_shim(model)
             shap_values = explainer(X_sample, check_additivity=False)
         except Exception as _shap_exc:
             # Tree-SHAP on categorical / text / non-pandas frames is fragile across shap + backend versions. shap runs

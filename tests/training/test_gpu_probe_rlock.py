@@ -123,3 +123,42 @@ def test_cb_gpu_probe_skipped_when_devices_hidden(monkeypatch) -> None:
     assert probe_calls["n"] == before + 1, "probe must run when a device is visible"
 
     _cb_pool._CB_GPU_USABLE_CACHE = None
+
+
+def test_gpu_probe_fit_data_has_no_constant_feature_column(monkeypatch) -> None:
+    """Regression: the probe used to fit np.zeros((2, 1)) -- a single feature column whose two rows are
+    BOTH 0.0, i.e. constant. CatBoost's own quantization then raises "All features are either constant or
+    ignored" (reproduced live: two probe attempts, both hit this, and the whole process fell back to
+    CPU-only CatBoost routing on a false negative). Every column the probe actually fits on must have
+    real spread (ptp > 0), on ANY row count, so a genuinely GPU-capable wheel is never rejected by its
+    own degenerate probe input."""
+    monkeypatch.setattr(_cb_pool, "_cached_gpu_info", lambda: [{"index": 0}])
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    _cb_pool._CB_GPU_USABLE_CACHE = None
+
+    captured = {}
+
+    class _SpyRegressor:
+        """Records the exact (X, y) the probe fits on, mirroring the class's own contract."""
+
+        def __init__(self, *a, **k):
+            pass
+
+        def fit(self, X, y, *a, **k):
+            """Capture the probe's fit arguments instead of actually fitting."""
+            captured["X"] = X
+            captured["y"] = y
+
+    import catboost
+
+    monkeypatch.setattr(catboost, "CatBoostRegressor", _SpyRegressor)
+    assert _cb_pool._cb_gpu_usable() is True
+
+    X = captured["X"]
+    assert X.shape[0] >= 2, "at least 2 rows are needed for any column to have variance at all"
+    import numpy as np
+
+    for col in range(X.shape[1]):
+        assert np.ptp(X[:, col]) > 0, f"probe feature column {col} is constant -- CatBoost quantization would reject it as 'constant or ignored'"
+
+    _cb_pool._CB_GPU_USABLE_CACHE = None
