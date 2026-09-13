@@ -447,10 +447,20 @@ def render_target_drift_diagnostics(
 
     if adversarial_validation and train_frame is not None and (test_frame is not None or val_frame is not None):
         try:
+            # Its own LightGBM classifier fit cost scales with COLUMN count, not just row count -- unlike
+            # every other builder in this dispatcher (all row/histogram capped), this one had no bound on a
+            # very wide frame at all. Capped the same way this module's OWN dense-matrix builders already
+            # are (DIAG_MAX_FEATURES), by restricting feature_names before the fit rather than after: the
+            # underlying frame-reader already narrows to exactly the given names, so no extra frame slicing
+            # is needed. Traced to a production profile alongside the (separately fixed) PDP categorical-
+            # sweep cost -- the same "cost scales with an unbounded dimension" bug class.
+            _adv_names = list(feature_names) if feature_names is not None else _column_names(train_frame)
+            if _adv_names is not None and len(_adv_names) > DIAG_MAX_FEATURES:
+                _adv_names = _adv_names[:DIAG_MAX_FEATURES]
             spec = _adversarial_validation_fn(
                 train_frame, test_frame if test_frame is not None else val_frame,
                 val_frame=val_frame if test_frame is not None else None,
-                feature_names=feature_names, seed=seed,
+                feature_names=_adv_names, seed=seed,
             )
             ok = _save_spec(spec, plot_outputs, base_path + "_adversarial")
             _record(charts, "adversarial", ok)

@@ -303,6 +303,43 @@ class TestTargetDriftDiagnostics:
         auc_shift, *_ = adversarial_auc(base, shifted, feature_names=["a", "b"])
         assert auc_shift > null_high, f"a 4-sigma mean shift scored {auc_shift:.3f}, inside the identical-pair null (top {null_high:.3f}); the detector is not detecting"
 
+    def test_adversarial_validation_caps_feature_count_on_a_wide_frame(self, tmp_path, monkeypatch):
+        """Unlike every other builder in this dispatcher (row/histogram capped), adversarial_validation's
+        LightGBM fit cost scales with COLUMN count and had no bound at all -- a production profile traced a
+        wide-frame fit costing far more than the (separately fixed) categorical PDP sweep. feature_names
+        must be capped to DIAG_MAX_FEATURES before the fit, not passed through uncapped."""
+        import mlframe.reporting.diagnostics_dispatch as dd
+
+        monkeypatch.setattr(dd, "DIAG_MAX_FEATURES", 5)
+        rng = np.random.default_rng(0)
+        n = 400
+        p = 20
+        train = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(p)})
+        test = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(p)})
+
+        import mlframe.reporting.charts.drift as drift_mod
+
+        captured: dict = {}
+        real_fn = drift_mod.adversarial_validation
+
+        def _spy(*args, **kwargs):
+            """Record the feature_names the real builder was actually called with."""
+            captured["feature_names"] = kwargs.get("feature_names")
+            return real_fn(*args, **kwargs)
+
+        # render_target_drift_diagnostics imports adversarial_validation LOCALLY (fresh lookup per call), so
+        # the patch has to land on its real home module, not on diagnostics_dispatch's own namespace.
+        monkeypatch.setattr(drift_mod, "adversarial_validation", _spy)
+        m: dict = {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            dd.render_target_drift_diagnostics(
+                train_frame=train, test_frame=test,
+                plot_outputs="matplotlib[png]", base_path=str(tmp_path / "drift"), metrics_dict=m,
+                adversarial_validation=True, calibration_drift=False, target_acf=False, cusum_drift=False,
+            )
+        assert captured["feature_names"] is not None and len(captured["feature_names"]) == 5
+
 
 # ----------------------------------------------------------------------------
 # Target distribution overlay

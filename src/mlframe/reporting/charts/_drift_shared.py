@@ -57,8 +57,11 @@ def _adversarial_auc_bar(n_a: int, n_b: int) -> float:
     se = float(np.sqrt((n_a + n_b + 1.0) / (12.0 * n_a * n_b)))
     return _ADV_Z * se
 # Per-side row cap for the adversarial classifier. A LightGBM split-classifier converges on distribution-shift signal
-# long before 200k rows/side; sampling caps the fit cost at large n without changing the verdict.
-ADV_MAX_ROWS_PER_SIDE: int = 200_000
+# long before 200k rows/side (this module's own prior comment already said so); tightened 200k -> 50k per explicit
+# user request after a production profile showed multi-hundred-thousand-row Dataset builds for this exact
+# diagnostic -- a several-million-row split has no business feeding all of it to a coarse "is there drift at all"
+# classifier. Sampling caps the fit cost at large n without changing the verdict.
+ADV_MAX_ROWS_PER_SIDE: int = 50_000
 ADV_TOP_FEATURES: int = 20
 # Trees in the adversarial LightGBM separator. The adversarial AUC is a COARSE drift signal (is it ~0.5, or elevated?),
 # not a tuned predictor, so it saturates far below 200 trees: reducing 200 -> 75 shifts the OOF AUC by <=0.007 and never

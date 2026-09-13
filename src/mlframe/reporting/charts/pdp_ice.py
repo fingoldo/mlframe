@@ -233,8 +233,7 @@ def _native_row_subset(carrier: Any, idx: np.ndarray) -> Any:
 
 # Row cap for the batched grid predict (_predict_grid_batched): bounds the transient (grid*sample, n_cols)
 # stacked block so a pathological caller-supplied grid/sample can't blow up memory on a very wide frame.
-# 200k matches the row-cap convention used elsewhere in this reporting package (e.g. adversarial_validation's
-# ADV_MAX_ROWS_PER_SIDE) -- comfortably above the default grid=20 x sample=2000=40_000.
+# Comfortably above the default grid=20 x sample=2000=40_000.
 _PDP_BATCH_MAX_ROWS = 200_000
 
 
