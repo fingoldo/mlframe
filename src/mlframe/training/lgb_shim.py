@@ -340,7 +340,7 @@ class _DatasetReuseMixin:
         categorical_feature="auto",
         callbacks=None,
         init_model=None,
-        monotonic_decline_patience=7,
+        monotonic_decline_patience=20,
         capture_iteration_metrics=False,
         iteration_metrics_stride=1,
     ):
@@ -660,6 +660,13 @@ class _DatasetReuseMixin:
 
             if monotonic_decline_patience is not None and not any(isinstance(cb, LGBMonotonicDeclineStop) for cb in train_callbacks):
                 train_callbacks.append(LGBMonotonicDeclineStop(patience=monotonic_decline_patience))
+            # Kept for the post-fit stop-reason log below: the ONLY way to tell "the monotonic-decline
+            # detector stopped this fit" apart from "native early_stopping_round did" from the outside,
+            # since both roll the booster back to the same best_iteration and neither is otherwise
+            # distinguishable from iteration count alone.
+            _mono_cb_ref = next((cb for cb in train_callbacks if isinstance(cb, LGBMonotonicDeclineStop)), None)
+        else:
+            _mono_cb_ref = None
 
         # Per-iteration full-metric-suite capture (meta-learning / HPO-from-early-observation). lgb's binned val
         # Dataset cannot be re-predicted, so the raw first eval pair (_iter_metrics_Xval/_iter_metrics_yval, captured
@@ -702,6 +709,21 @@ class _DatasetReuseMixin:
         self._evals_result = evals_result
         self._best_iteration = booster.best_iteration
         self._best_score = booster.best_score
+        # Which of the two independent stop mechanisms actually ended this fit -- the monotonic-decline
+        # detector already logs its own firing (above), so this only adds the case that had NO log line at
+        # all: LightGBM's native early_stopping_round (silent unless verbosity is turned up), and the
+        # trivial "ran to the full budget" case. Read from valid_sets so a train-only fit (no eval data,
+        # nothing CAN have stopped it early) stays silent instead of stating a reason for a fit that had
+        # neither ES mechanism wired at all.
+        if valid_sets and booster.best_iteration and int(booster.best_iteration) < int(n_estimators) - 1:
+            if _mono_cb_ref is not None and getattr(_mono_cb_ref, "fired", False):
+                pass  # already logged inline by LGBMonotonicDeclineStop itself
+            else:
+                logger.info(
+                    "[lgb] stopped at iteration %d of %d requested: native early_stopping_round fired "
+                    "(monotonic-decline patience=%s did not trigger first).",
+                    booster.best_iteration, n_estimators, monotonic_decline_patience,
+                )
         if _iter_metrics_cb is not None:
             self.iteration_metrics_ = _iter_metrics_cb.iteration_metrics_
         # ``fitted_`` is the flag ``__sklearn_is_fitted__`` checks --

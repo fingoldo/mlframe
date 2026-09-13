@@ -147,18 +147,22 @@ class TrainingBehaviorConfig(BaseConfig):
     # Extra kwargs forwarded to ``isotonic_overfit_risk`` (e.g. ``segment_ratio_threshold``, ``remediate``, ``density_window``).
     isotonic_risk_kwargs: Optional[Dict[str, Any]] = None
 
-    # Canonical monotonic strict-decline overfitting-stop knob (default 5). Threads through to the lgb / xgb
+    # Canonical monotonic strict-decline overfitting-stop knob. Threads through to the lgb / xgb
     # shims' ``.fit(monotonic_decline_patience=...)`` and the CatBoost ``callback_params`` so a single value
     # controls the byte-identical ``MonotonicDeclineStopper`` rule across all three boosters (and mirrors the
     # neural / sklearn-wrapper paths). The detector stops once the monitored val metric strictly worsens for
     # this many CONSECUTIVE rounds since the global best (a new best, a plateau, or a bounce-up all reset the
     # streak). ``None`` disables it entirely -- the off-switch -- so the booster trains to its full iteration
     # cap unless its native ``early_stopping_rounds`` fires first.
-    # N=5 calibrated by bench_worsening_vs_monotonic_stop.py (18 lgb fits): ties patience-level holdout
-    # accuracy while stopping ~3.6x earlier than the full budget; N=3 was too aggressive (catastrophic
-    # 7-tree stops). The old budget-scaled ``early_stop_on_worsening`` detector was REMOVED (benchmarked
-    # no-op: stopped at 499/500 in 18/18 fits, and had the worst test accuracy).
-    monotonic_decline_patience: Optional[int] = 7
+    # N=7 was calibrated by bench_worsening_vs_monotonic_stop.py (18 lgb fits) to tie patience-level holdout
+    # accuracy while stopping ~3.6x earlier than the full budget. Raised 7 -> 20 per explicit user request:
+    # 7 fired well ahead of an explicitly-configured native ``early_stopping_rounds`` in the hundreds (e.g.
+    # 150), which "whichever fires first wins" then made THIS the effective patience regardless of what the
+    # caller set -- 20 gives the native patience much more room to be the one that actually decides, while
+    # still catching a confident, sustained overfitting run faster than most native patience budgets. The old
+    # budget-scaled ``early_stop_on_worsening`` detector was REMOVED (benchmarked no-op: stopped at 499/500 in
+    # 18/18 fits, and had the worst test accuracy).
+    monotonic_decline_patience: Optional[int] = 20
 
     # Per-iteration FULL-metric-suite capture for meta-learning / HPO-from-early-observation. When enabled, a
     # per-round (booster) / per-epoch (neural) callback computes the complete target-type metric suite

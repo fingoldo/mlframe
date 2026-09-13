@@ -2,7 +2,7 @@
 THREAD through to the boosters -- None disables the monotonic strict-decline stop so the booster trains
 its full iteration cap.
 
-The config field exists and defaults to 3; setting it to None must reach the lgb / xgb shim ``.fit()``
+The config field exists and defaults to 20; setting it to None must reach the lgb / xgb shim ``.fit()``
 kwarg (and the CatBoost ``callback_params``) so the stop is fully disabled. This pins the missing off-switch
 the adversarial review flagged.
 """
@@ -13,12 +13,12 @@ import numpy as np
 import pytest
 
 
-def test_behavior_config_has_monotonic_decline_patience_default_7():
-    """TrainingBehaviorConfig defaults monotonic_decline_patience to 7 and honors an explicit None to disable it."""
+def test_behavior_config_has_monotonic_decline_patience_default_20():
+    """TrainingBehaviorConfig defaults monotonic_decline_patience to 20 and honors an explicit None to disable it."""
     from mlframe.training._model_configs_behavior import TrainingBehaviorConfig
 
     cfg = TrainingBehaviorConfig()
-    assert cfg.monotonic_decline_patience == 7
+    assert cfg.monotonic_decline_patience == 20
     cfg_off = TrainingBehaviorConfig(monotonic_decline_patience=None)
     assert cfg_off.monotonic_decline_patience is None
 

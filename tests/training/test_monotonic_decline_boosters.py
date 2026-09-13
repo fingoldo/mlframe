@@ -141,6 +141,56 @@ def test_lgb_shim_monotonic_stops_early():
     assert _rmse(yv, m_mono.predict(Xv)) <= _rmse(yv, m_none.predict(Xv)) + 0.05
 
 
+def test_lgb_shim_logs_which_mechanism_stopped_training(caplog):
+    """Both native ``early_stopping_round`` and the monotonic-decline detector roll the booster back to
+    the same best_iteration, so an operator cannot tell them apart from the iteration count alone. The
+    monotonic detector already logs its own firing; this pins the complementary case -- when IT is
+    disabled and native ES is what actually stopped the fit -- which previously had no log line at all."""
+    pytest.importorskip("lightgbm")
+    import logging
+
+    from mlframe.training.lgb_shim import LGBMRegressorWithDatasetReuse
+
+    Xtr, ytr, Xv, yv = _overfit_data()
+    m = LGBMRegressorWithDatasetReuse(
+        n_estimators=400, learning_rate=0.1, num_leaves=63, min_child_samples=5, verbose=-1, random_state=0,
+        early_stopping_rounds=5,
+    )
+    with caplog.at_level(logging.INFO, logger="mlframe.training.lgb_shim"):
+        m.fit(Xtr, ytr, eval_set=[(Xv, yv)], eval_metric="l2", monotonic_decline_patience=None)
+    assert m.booster_.num_trees() < 400, "fit must actually have stopped early for this test to mean anything"
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "native early_stopping_round fired" in text
+
+
+def test_monotonic_decline_stop_marks_fired_flag():
+    """The ``.fired`` flag (read by lgb_shim.py to decide whether to log its OWN stop-reason line) must be
+    False until the detector actually stops training, then True -- the log-suppression logic depends on it."""
+    lgb = pytest.importorskip("lightgbm")
+    from mlframe.training.callbacks.monotonic_decline import LGBMonotonicDeclineStop
+
+    cb = LGBMonotonicDeclineStop(patience=3)
+    assert cb.fired is False
+
+    class _Env:
+        """Minimal ``env`` stand-in carrying one round's evaluation_result_list."""
+
+        def __init__(self, iteration, value):
+            """Init."""
+            self.iteration = iteration
+            self.evaluation_result_list = [("valid_0", "l2", value, False)]
+
+    for i, v in enumerate([1.0, 0.9, 0.8]):  # improving: never fires
+        cb(_Env(i, v))
+    assert cb.fired is False
+    try:
+        for i, v in enumerate([0.9, 1.0, 1.1, 1.2], start=3):  # 3 consecutive worse rounds -> fires
+            cb(_Env(i, v))
+    except lgb.callback.EarlyStopException:
+        pass
+    assert cb.fired is True
+
+
 def test_xgb_shim_monotonic_stops_early():
     """Xgb shim monotonic stops early."""
     pytest.importorskip("xgboost")

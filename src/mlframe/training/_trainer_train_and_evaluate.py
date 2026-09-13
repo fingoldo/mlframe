@@ -224,7 +224,7 @@ def train_and_evaluate_model(
     callback_params = control.callback_params
     model_category = control.model_category
 
-    # Thread ``TrainingBehaviorConfig.monotonic_decline_patience`` (default 5; None disables) to the boosters:
+    # Thread ``TrainingBehaviorConfig.monotonic_decline_patience`` (default 20; None disables) to the boosters:
     # for cb it travels via ``callback_params`` (consumed by ``_setup_early_stopping_callback``), for the lgb /
     # xgb shims it is a ``.fit()`` kwarg read from ``fit_params``.
     # A value already present in callback_params / fit_params (explicit per-call override) wins.
@@ -232,7 +232,7 @@ def train_and_evaluate_model(
     if _mono_beh is not None and "monotonic_decline_patience" in _mono_beh:
         _mono_patience_cfg = _mono_beh["monotonic_decline_patience"]
     else:
-        _mono_patience_cfg = getattr(control, "monotonic_decline_patience", 7)
+        _mono_patience_cfg = getattr(control, "monotonic_decline_patience", 20)
     if model_category == "cb" or callback_params:
         # Only materialise callback_params for cb (which consumes the key) or when the caller already passed
         # one -- avoid injecting an empty callbacks kwarg into non-booster fits that previously got None.

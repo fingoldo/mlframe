@@ -927,10 +927,10 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
         if budget:
             callback_params = {**callback_params, "max_iter": int(budget)}
 
-    # Pull the monotonic-decline patience out of callback_params (default-on at 5, mirroring the lgb / xgb
-    # shims) before splatting the rest into the UniversalCallback subclass, which does not accept this kwarg.
+    # Pull the monotonic-decline patience out of callback_params (mirroring the lgb / xgb shims' own default)
+    # before splatting the rest into the UniversalCallback subclass, which does not accept this kwarg.
     # ``None`` disables the fixed-N monotonic stop, leaving the booster's native detector.
-    _mono_patience = 7
+    _mono_patience = 20
     if isinstance(callback_params, dict) and "monotonic_decline_patience" in callback_params:
         callback_params = dict(callback_params)
         _mono_patience = callback_params.pop("monotonic_decline_patience")
@@ -951,7 +951,7 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
     elif model_category == "cb":
         es_callback = CatBoostCallback(**callback_params)
         fit_params["callbacks"].append(es_callback)
-        # Monotonic strict-decline stop for CatBoost (default-on at 3) -- same shared rule as lgb / xgb / mlp.
+        # Monotonic strict-decline stop for CatBoost (default-on) -- same shared rule as lgb / xgb / mlp.
         # Gated on a runtime probe of the installed build's ``callbacks=`` support; older builds fall back to
         # the native od_wait detector gracefully.
         if _mono_patience is not None:

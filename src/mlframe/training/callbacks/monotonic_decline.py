@@ -76,7 +76,7 @@ class LGBMonotonicDeclineStop:
     order = 30
     before_iteration = False
 
-    def __init__(self, patience: Optional[int] = 7, monitor_dataset: Optional[str] = None,
+    def __init__(self, patience: Optional[int] = 20, monitor_dataset: Optional[str] = None,
                  monitor_metric: Optional[str] = None, mode: Optional[str] = None) -> None:
         self.patience = patience
         self.monitor_dataset = monitor_dataset
@@ -85,6 +85,10 @@ class LGBMonotonicDeclineStop:
         self._stopper: Optional[MonotonicDeclineStopper] = None
         self._best_iter = 0
         self._best_value: Optional[float] = None
+        # Set True the moment THIS detector (not the booster's native early_stopping_round) is what actually
+        # stopped training -- so a caller that stops early can tell the two apart instead of guessing from
+        # the iteration count alone. Read by lgb_shim.py right after fit() to log the definitive reason.
+        self.fired = False
 
     def __call__(self, env) -> None:
         import lightgbm as lgb
@@ -117,6 +121,7 @@ class LGBMonotonicDeclineStop:
             self._best_value = value
             self._best_iter = env.iteration
         if self._stopper.update(value):
+            self.fired = True
             logger.info(
                 "[lgb monotonic-decline] stopping at iteration %d: %s/%s strictly worsened for %d "
                 "consecutive rounds since best @%d.", env.iteration, ds, mt, self._stopper.streak,
@@ -126,7 +131,7 @@ class LGBMonotonicDeclineStop:
             raise lgb.callback.EarlyStopException(self._best_iter, [(ds, mt, self._best_value, self._stopper.mode == "max")])
 
 
-def _make_xgb_monotonic_callback(patience: Optional[int] = 7, monitor_dataset: Optional[str] = None,
+def _make_xgb_monotonic_callback(patience: Optional[int] = 20, monitor_dataset: Optional[str] = None,
                                  monitor_metric: Optional[str] = None, mode: Optional[str] = None):
     """Build an XGBoost ``TrainingCallback`` subclass instance for the monotone strict-decline stop.
 
@@ -154,6 +159,7 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 7, monitor_dataset: O
             self._monitor_metric = monitor_metric
             self._best_iter = 0
             self._best_value: Optional[float] = None
+            self.fired = False
 
         def after_iteration(self, model, epoch, evals_log) -> bool:
             """Feed the latest monitored metric value to the shared stopper; on trigger, stamp best-iteration attrs on ``model`` and return True to stop XGBoost training."""
@@ -188,6 +194,7 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 7, monitor_dataset: O
                 self._best_value = value
                 self._best_iter = epoch
             if self._stopper.update(value):
+                self.fired = True
                 logger.info(
                     "[xgb monotonic-decline] stopping at iteration %d: %s/%s strictly worsened for %d "
                     "consecutive rounds since best @%d.", epoch, ds, mt, self._stopper.streak, self._best_iter,
@@ -230,13 +237,14 @@ class CBMonotonicDeclineStop:
     Returning ``True`` continues training; a disabled detector always returns ``True``.
     """
 
-    def __init__(self, patience: Optional[int] = 7, monitor_dataset: Optional[str] = None,
+    def __init__(self, patience: Optional[int] = 20, monitor_dataset: Optional[str] = None,
                  monitor_metric: Optional[str] = None, mode: Optional[str] = None) -> None:
         self.patience = patience
         self.monitor_dataset = monitor_dataset
         self.monitor_metric = monitor_metric
         self._mode = mode
         self._stopper: Optional[MonotonicDeclineStopper] = None
+        self.fired = False
 
     def after_iteration(self, info) -> bool:
         """Feed the latest monitored metric value to the shared stopper; returns False to stop CatBoost training once the strict-decline streak fires, True otherwise."""
@@ -261,6 +269,7 @@ class CBMonotonicDeclineStop:
             if not self._stopper.enabled:
                 return True
         if self._stopper.update(value):
+            self.fired = True
             logger.info(
                 "[cb monotonic-decline] stopping: %s/%s strictly worsened for %d consecutive iters "
                 "since best (confident overfitting).", ds, mt, self._stopper.streak,
