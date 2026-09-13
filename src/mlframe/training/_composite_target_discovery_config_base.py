@@ -504,6 +504,18 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     tiny_model_cv_folds: int = 3
     tiny_model_sample_n: int = 20_000  # rows used per tiny-model fit
     top_m_after_tiny: int = 10  # final top-M after Phase B re-rank
+    # Global cap across the WHOLE run (all regression base targets combined), unlike ``top_m_after_tiny``
+    # which is per-target. Without it, a run with several heavy-tailed/skewed targets accepts ~top_m_after_tiny
+    # composite targets from EACH one with no overall ceiling (observed in production: 5 base targets each
+    # near their own top_m -> 47 composite targets added, each trained cb+xgb+lgb with the FULL post-fit
+    # diagnostics suite -- a multiplicative blow-up in total wall time and in the sheer number of repeated
+    # native model-explanation calls). Every accepted spec across every target already carries an honest,
+    # holdout-measured, cross-target-comparable quality score (``CompositeSpec.honest_holdout_rmse_gain``
+    # relative to ``honest_holdout_raw_rmse``, i.e. the fraction of baseline RMSE it saves OOS) -- so the
+    # cap is applied globally AFTER all targets have run their own discovery, keeping the best-scoring
+    # specs across the whole run rather than an equal share per target. ``None`` disables the cap (the
+    # previous, per-target-only behaviour).
+    max_total_composite_targets: Optional[int] = 25
     tiny_model_n_jobs: int = 0  # CV-fold joblib parallelism for the tiny models; 0 = auto (physical core count), >=1 = explicit, 1 = serial folds
 
     # Parallelise the per-spec rerank loop in

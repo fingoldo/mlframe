@@ -261,6 +261,13 @@ def run_composite_target_discovery(
                 _hoist_err,
             )
 
+    # Candidates accepted by EVERY base target's own discovery, buffered rather than written straight into
+    # target_by_type: max_total_composite_targets is a budget for the whole run, and picking the best-scoring
+    # specs across targets (instead of an equal per-target share) requires seeing all of them first. See the
+    # config field's own docstring for the production motivation (47 composite targets from 5 base targets,
+    # no overall ceiling).
+    _pending_composite: list[dict] = []
+
     for _tt_disc, _named_disc in list(target_by_type.items()):
         if _tt_disc != TargetTypes.REGRESSION:
             continue
@@ -843,12 +850,25 @@ def run_composite_target_discovery(
                     _t_train_for_median = _t_train_for_median[np.isfinite(_t_train_for_median)]
                     if _t_train_for_median.size > 0:
                         _ct_t_full[~np.isfinite(_ct_t_full)] = float(np.median(_t_train_for_median))
-                target_by_type[_tt_disc][_spec.name] = _ct_t_full
                 _t_by_spec_for_charts[_spec.name] = _ct_t_full
-                logger.info(
-                    "[CompositeTargetDiscovery] added composite target '%s' "
-                    "to target_by_type[%s].", _spec.name, _tt_disc,
-                )
+                # Not written to target_by_type yet -- buffered so the max_total_composite_targets budget
+                # (spent across ALL base targets, not per-target) can pick the best-scoring specs seen so
+                # far across the WHOLE run once every target's own discovery has finished. See the
+                # end-of-function flush for the actual target_by_type write + log line.
+                _raw_rmse = getattr(_spec, "honest_holdout_raw_rmse", None)
+                _rmse_gain = getattr(_spec, "honest_holdout_rmse_gain", None)
+                _rel_gain: float
+                if _raw_rmse is not None and _rmse_gain is not None and _raw_rmse > 0:
+                    _rel_gain = float(_rmse_gain) / float(_raw_rmse)
+                else:
+                    # Honest-holdout RMSE re-score didn't run for this spec (disabled / too few holdout rows) --
+                    # fall back to the honest MI-gain (still holdout-measured, just not RMSE-scaled) so the spec
+                    # is still globally rankable rather than silently excluded from the budget entirely.
+                    _honest_mi = getattr(_spec, "honest_holdout_gain", None)
+                    _rel_gain = float(_honest_mi) if _honest_mi is not None else float(_spec.mi_gain)
+                _pending_composite.append({
+                    "tt": _tt_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain,
+                })
 
             # Render the winning-spec diagnostics (target-distribution + MI-gain) into the chart dir; the
             # discovery accept-path is the only point where the original y, the per-spec T column, and the
@@ -870,6 +890,30 @@ def run_composite_target_discovery(
                         "[CompositeTargetDiscovery] diagnostic chart render failed for target='%s': %s; training continues.",
                         _tname_disc, _chart_err,
                     )
+
+    # Global selection: every base target's discovery has now run, so every candidate's honest-holdout
+    # quality score is comparable at once. Keep the best-scoring specs across the WHOLE run (not an equal
+    # share per target) up to max_total_composite_targets; None keeps every discovered spec (old behaviour).
+    _max_total = getattr(composite_target_discovery_config, "max_total_composite_targets", None)
+    _pending_composite.sort(key=lambda item: item["gain"], reverse=True)
+    if _max_total is not None and len(_pending_composite) > int(_max_total):
+        _kept_composite = _pending_composite[: int(_max_total)]
+        _dropped_composite = _pending_composite[int(_max_total) :]
+        logger.info(
+            "[CompositeTargetDiscovery] global cap: keeping the %d best-scoring composite target(s) of %d "
+            "discovered (max_total_composite_targets=%d, ranked by honest-holdout OOS RMSE gain vs raw-y, "
+            "%% of baseline saved). Dropped: %s",
+            len(_kept_composite), len(_pending_composite), int(_max_total),
+            ", ".join(f"{d['name']}({d['gain']:+.3f})" for d in _dropped_composite),
+        )
+    else:
+        _kept_composite = _pending_composite
+    for _item in _kept_composite:
+        target_by_type[_item["tt"]][_item["name"]] = _item["values"]
+        logger.info(
+            "[CompositeTargetDiscovery] added composite target '%s' to target_by_type[%s] (honest gain %+.3f).",
+            _item["name"], _item["tt"], _item["gain"],
+        )
 
     n_specs_total = sum(len(v) for tt_specs in metadata["composite_target_specs"].values() for v in tt_specs.values())
     # Composite-feature-stacking stub: surface the discovered specs so the
@@ -899,11 +943,12 @@ def run_composite_target_discovery(
             "pipeline -- the generic suite does not auto-attach.",
             len(metadata["composite_feature_stacking"]["available_specs"]),
         )
-    if n_specs_total > 0:
+    n_specs_trained = len(_kept_composite)
+    if n_specs_trained > 0:
         logger.info(
             "[CompositeTargetDiscovery] %d composite target(s) added to "
             "target_by_type. They will be trained alongside raw targets in the "
-            "per-target loop.", n_specs_total,
+            "per-target loop.", n_specs_trained,
         )
         if _gpu_families:
             logger.warning(
@@ -913,7 +958,7 @@ def run_composite_target_discovery(
                 "runs even with random_state fixed. Set deterministic=True / "
                 "single_precision_histogram=True / force_row_wise=True on the inner "
                 "estimators if reproducibility matters.",
-                ", ".join(_gpu_families), n_specs_total, n_specs_total,
+                ", ".join(_gpu_families), n_specs_trained, n_specs_trained,
             )
 
     return target_by_type, metadata

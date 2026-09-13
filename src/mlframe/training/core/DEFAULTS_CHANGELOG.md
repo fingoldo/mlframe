@@ -445,3 +445,25 @@ LightGBM/XGBoost) — a clean negative result, not a gap.
   discovery (whose default transform pool already includes `cbrt_y` / `log_y` / `yeo_johnson_y` /
   `quantile_normal_y`) never once engaging. The two diagnostics agreed with each other and neither acted
   on it.
+
+- **`CompositeTargetDiscoveryConfig.max_total_composite_targets`**: new field, default `25`. Caps the
+  number of composite targets actually added to `target_by_type` across the WHOLE run (all base
+  regression targets combined) -- unlike the pre-existing `top_m_after_tiny`, which is per-target only.
+  `run_composite_target_discovery` now buffers every accepted spec (across every base target) instead of
+  writing it straight into `target_by_type` inside the per-target loop, then -- once every target's own
+  discovery has finished -- sorts the whole buffer by each spec's honest-holdout OOS RMSE gain relative to
+  the raw-y baseline (`CompositeSpec.honest_holdout_rmse_gain / honest_holdout_raw_rmse`, falling back to
+  `honest_holdout_gain` / `mi_gain` when the RMSE re-score didn't run) and keeps only the best-scoring
+  specs up to the cap. `None` restores the old, uncapped behaviour.
+
+  Why: a production log showed the (now auto-enabled, see above) discovery running on 5 heavy-tailed
+  regression targets and accepting ~10 composite specs from EACH, landing 47 composite targets in one
+  suite -- every one trained cb+xgb+lgb with the FULL post-fit diagnostics suite (PDP/SHAP/slice-finder
+  each doing dozens of native model-explanation calls per model). That multiplicative blow-up in total
+  wall time and in the sheer number of repeated native calls was independently implicated in a Jupyter
+  kernel crash the same session (a known, unresolved native CatBoost Pool-rebuild memory-safety race
+  becomes far more likely to fire purely from the extra volume of repeated calls). Picking the cap
+  globally by honest gain (rather than an equal per-target share) was chosen so a target with one strong
+  transform isn't starved by four targets each keeping a mediocre one; verified directly (a 2-target
+  synthetic with cap=1 keeps the higher-honest-gain target's spec, not whichever target discovery visited
+  first).
