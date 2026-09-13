@@ -355,6 +355,12 @@ class LinePanelSpec:
     # Explicit y-axis limits (lo, hi); overrides autoscale (e.g. clipping a net-benefit panel's floor
     # below a steeply-diving treat-all reference so the informative region near 0 stays readable).
     ylim: Optional[Tuple[float, float]] = None
+    # Explicit x-axis limits (lo, hi); overrides autoscale. Same purpose as ``ylim`` but on x -- e.g. a
+    # heavy-tailed target's density overlay: the full data range spans 1000s of units of near-empty tail,
+    # squashing the entire informative mass into a sliver at one edge. Cropping the VISIBLE range (while
+    # the underlying curve is still computed over the full data) keeps the plot readable without lying
+    # about the density values themselves.
+    xlim: Optional[Tuple[float, float]] = None
     # Per-point / per-bar tooltip text (plotly only -- matplotlib has no hover layer). This is where a builder
     # attaches the DENOMINATOR behind an aggregate: without it a rate computed from 3 rows renders identically to
     # one from 300k, and the count is usually already in hand at the point the bar is built.

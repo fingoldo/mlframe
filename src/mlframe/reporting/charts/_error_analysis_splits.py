@@ -83,6 +83,7 @@ def _density_overlay_panel(
     series: List[np.ndarray] = []
     labels: List[str] = []
     cols: List[str] = []
+    all_finite: List[np.ndarray] = []
     for i, (lab, arr) in enumerate(groups.items()):
         a = _as_float_1d(arr)
         a = a[np.isfinite(a)]
@@ -90,6 +91,8 @@ def _density_overlay_panel(
         series.append(dens)
         labels.append(f"{lab} (mean={a.mean():.3g})" if a.size else f"{lab} (empty)")
         cols.append(_colors.line_color(i))
+        if a.size:
+            all_finite.append(a)
 
     vlines = None
     vspans = None
@@ -100,6 +103,25 @@ def _density_overlay_panel(
             p01, p99 = float(np.percentile(tr, 1)), float(np.percentile(tr, 99))
             vlines = ((p01, "gray", "train p01"), (p99, "gray", "train p99"))
             vspans = ((p01, p99, "gray", 0.08),)
+
+    # Visible-range crop for a heavy-tailed variable: the histogram is still binned over the FULL
+    # edges (density values stay honest), but a few extreme outliers can stretch those edges across
+    # thousands of units while >99% of the mass sits in a sliver at one end -- observed live on a target
+    # with excess_kurt=312.5, where the curve rendered as a single spike squashed against the left edge
+    # with a long empty tail out to 1600. Crop the DISPLAYED x-range to a robust (p0.5, p99.5) window
+    # (padded 5%) over the combined data, but only when it is meaningfully narrower than the full span --
+    # a well-behaved variable's own percentile window already covers ~all of edges, so this is a no-op there.
+    xlim = None
+    if all_finite:
+        combined = np.concatenate(all_finite)
+        vis_lo, vis_hi = float(np.percentile(combined, 0.5)), float(np.percentile(combined, 99.5))
+        if vis_hi > vis_lo:
+            pad = 0.05 * (vis_hi - vis_lo)
+            vis_lo, vis_hi = vis_lo - pad, vis_hi + pad
+            full_span = float(edges[-1] - edges[0])
+            if full_span > 0 and (vis_hi - vis_lo) < 0.3 * full_span:
+                xlim = (max(vis_lo, float(edges[0])), min(vis_hi, float(edges[-1])))
+
     return LinePanelSpec(
         x=centers,
         y=tuple(series),
@@ -107,9 +129,10 @@ def _density_overlay_panel(
         colors=tuple(cols),
         title=title,
         xlabel=xlabel,
-        ylabel="Density",
+        ylabel="Probability density",
         vlines=vlines,
         vspans=vspans,
+        xlim=xlim,
     )
 
 
@@ -229,21 +252,32 @@ def target_dist_overlay(
     """
     panels: List[PanelSpec] = []
     drift_line = _target_drift_verdict(y_true_by_split, train_key=train_key, task=task)
+    _any_cropped = False
     if task == "classification":
         panels.append(_classrate_panel(y_true_by_split, title="Target class rate by split", xlabel="class"))
         if pred_by_split:
             panels.append(_classrate_panel(pred_by_split, title="Prediction class rate by split", xlabel="class"))
     else:
-        panels.append(_density_overlay_panel(
+        target_panel = _density_overlay_panel(
             y_true_by_split, nbins=nbins, title="Target (y) distribution by split",
             xlabel="y", train_key=train_key,
-        ))
+        )
+        _any_cropped = _any_cropped or (getattr(target_panel, "xlim", None) is not None)
+        panels.append(target_panel)
         if pred_by_split:
-            panels.append(_density_overlay_panel(
+            pred_panel = _density_overlay_panel(
                 pred_by_split, nbins=nbins, title="Prediction distribution by split (incl. OOF vs test)",
                 xlabel="prediction", train_key=train_key if train_key in pred_by_split else None,
-            ))
+            )
+            _any_cropped = _any_cropped or (getattr(pred_panel, "xlim", None) is not None)
+            panels.append(pred_panel)
     grid = pack_panels(panels, max_cols=2)
+    _crop_note = (
+        " A heavy tail stretches past the plotted x-range on one or more panels (a handful of extreme values "
+        "would otherwise squash the whole curve); the view is cropped to the ~p0.5-p99.5 window but every "
+        "density value is still computed from the FULL data, tail included."
+        if _any_cropped else ""
+    )
     return FigureSpec(
         suptitle=title,
         panels=grid,
@@ -252,7 +286,7 @@ def target_dist_overlay(
             "Overlaid per-split distributions of the target and of the predictions. Curves that separate mean the "
             "splits are not exchangeable, so a holdout metric may not transfer to the next period. The grey band is "
             "the train p01-p99 envelope: prediction mass outside it is extrapolation, where the model has never "
-            f"seen a comparable example. VERDICT: {drift_line}"
+            f"seen a comparable example. VERDICT: {drift_line}{_crop_note}"
         ),
     )
 

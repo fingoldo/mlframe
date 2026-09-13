@@ -17,6 +17,11 @@ from ._configs_base import BaseConfig
 class CompositeTargetDiscoveryConfigBase(BaseConfig):
     """Carved field-declaration base for :class:`CompositeTargetDiscoveryConfig`."""
 
+    # Field default is False, but the suite (run_composite_target_discovery / _maybe_auto_enable_discovery
+    # in mlframe.training.core._phase_composite_discovery) auto-flips this to True per-suite when a
+    # regression target shows a heavy_tail or skewed_target pathology AND the caller left this field
+    # unset (never explicitly opted out). Pass enabled=False explicitly to always skip discovery
+    # regardless of target shape; pass enabled=True explicitly to always run it.
     enabled: bool = False
 
     # Optional chronological-order column (timestamp / monotone index). When set, discovery SORTS the MI-screening sample by it so the tiny-model CV is a forward-walk (TimeSeriesSplit) not a shuffled K-fold -- the canonical non-monotone ``lag(y)`` base defeated the legacy base-monotonicity heuristic, so the screen leaked future->past. None keeps the legacy auto-detection.

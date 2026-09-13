@@ -423,3 +423,25 @@ LightGBM/XGBoost) — a clean negative result, not a gap.
   split = 12 extra log blocks + their charts per ensemble pass, on top of the raw (non-confidence-gated)
   ensemble metrics that already print unconditionally. Set e.g. `confidence_ensemble_quantile=0.1` to
   opt back in; the mechanism itself is unchanged, only the default is off.
+
+## Auto-enable added (2026-09-13)
+
+- **`CompositeTargetDiscoveryConfig.enabled`**: field default stays `False`, but
+  `run_composite_target_discovery` (via the new `_maybe_auto_enable_discovery` in
+  `mlframe.training.core._phase_composite_discovery`) now auto-flips it to `True` for a suite where a
+  regression target shows a `heavy_tail` or `skewed_target` pathology (the same detection
+  `target_distribution_analyzer` already runs) AND the caller left `enabled` unset (never explicitly
+  opted out via `model_fields_set`). Explicit user intent always wins in both directions -- an explicit
+  `enabled=False` is respected as a deliberate opt-out and never overridden, an explicit `enabled=True`
+  runs regardless of target shape.
+
+  Why: `target_distribution_analyzer` detects these two pathologies and its own code comment already
+  says "the composite-discovery block already considers log/sqrt residual targets when its auto-detector
+  flags skew" -- but composite discovery's `enabled` defaulted to `False`, so that claim was never
+  actually true for a caller who never explicitly turned it on. A production log independently showed
+  `residual_audit` (a SEPARATE post-fit diagnostic) repeatedly printing `hypothesis: LogNormal ...
+  suggested: MSE on log(y)` for every model on a `heavy_tail(excess_kurt=312.5)` /
+  `skewed_target(skew=11.60)` regression target across an entire multi-hour suite, with composite
+  discovery (whose default transform pool already includes `cbrt_y` / `log_y` / `yeo_johnson_y` /
+  `quantile_normal_y`) never once engaging. The two diagnostics agreed with each other and neither acted
+  on it.

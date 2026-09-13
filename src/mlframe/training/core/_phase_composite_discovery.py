@@ -1,5 +1,7 @@
 """
-Composite-target discovery (opt-in, default OFF).
+Composite-target discovery (default OFF, auto-enabled per suite when a regression target shows a
+heavy-tail/skewed-target pathology and the caller left ``enabled`` at its default -- see
+``_maybe_auto_enable_discovery``; an explicit ``enabled=False`` is always respected).
 
 Runs after outlier detection, before per-target training. Each discovered spec
 becomes one entry in ``target_by_type[regression]``; specs are stored on
@@ -42,6 +44,77 @@ from ._phase_composite_discovery_helpers import (
     _discovery_config_signature,
 )
 
+# Pathology name PREFIXES (TargetDistributionReport.pathologies entries are formatted strings like
+# "heavy_tail(excess_kurt=312.5)") that justify auto-enabling composite-target discovery: these are
+# exactly the two regression pathologies target_distribution_analyzer's own docstring/comment already
+# says composite discovery is "the" answer for (log/sqrt/cbrt residual targets), yet
+# analyze_target_distribution deliberately issues no knob_override for them because a target transform
+# is composite discovery's job, not a hyperparameter flip -- see
+# ``_target_distribution_analyzer_target_fn.py``'s skewed_target branch comment. Left disconnected, the
+# two diagnostics talked past each other: the target-side analyzer detects the pathology and defers, and
+# composite discovery (default OFF) never actually runs unless a caller manually opts in.
+_AUTO_ENABLE_DISCOVERY_PATHOLOGY_PREFIXES = ("heavy_tail", "skewed_target")
+
+
+def _target_pathologies_for_auto_enable(y_train: np.ndarray, target_name: str, td_report: dict) -> list[str]:
+    """Pathologies relevant to auto-enabling discovery for one regression target.
+
+    Reuses the suite-level ``target_distribution_report`` (already computed once per suite on a picked
+    representative target) when ``target_name`` IS that picked target -- no extra compute. For any other
+    regression target, runs the same cheap O(n) moments-based analyzer fresh (mean/std/skew/kurtosis over
+    the train slice only) since the suite-level report never covers more than one target.
+    """
+    if td_report.get("picked_target_name") == target_name:
+        pathologies = list(td_report.get("pathologies", []))
+    else:
+        try:
+            from ..targets import analyze_target_distribution
+
+            pathologies = list(analyze_target_distribution(y_train, target_type="regression", has_time_axis=False).pathologies)
+        except Exception as e:
+            logger.debug("per-target heavy-tail/skew auto-enable check failed for %r (%s); treating as no pathology", target_name, e)
+            return []
+    return [p for p in pathologies if p.startswith(_AUTO_ENABLE_DISCOVERY_PATHOLOGY_PREFIXES)]
+
+
+def _maybe_auto_enable_discovery(composite_target_discovery_config, *, target_by_type: dict, train_idx, metadata: dict):
+    """Auto-enable composite-target discovery for a suite that left ``enabled`` at its default (never
+    explicitly opted out) when a real regression target shows a heavy-tail/skewed-target pathology.
+
+    Explicit user intent always wins either way: an explicit ``enabled=True`` runs regardless of this
+    check, and an explicit ``enabled=False`` (present in ``model_fields_set``) is respected as a
+    deliberate opt-out and never overridden. Returns the (possibly ``.model_copy``'d) effective config.
+    """
+    if composite_target_discovery_config.enabled or "enabled" in composite_target_discovery_config.model_fields_set:
+        return composite_target_discovery_config
+    _reasons: dict[str, list[str]] = {}
+    for _tname_auto, _tvals_auto in (target_by_type.get(TargetTypes.REGRESSION) or {}).items():
+        try:
+            _y_auto = np.asarray(_tvals_auto)
+            if _y_auto.ndim != 1:
+                continue
+            if train_idx is not None:
+                _idx_auto = np.asarray(train_idx)
+                if _idx_auto.size and _y_auto.size > int(_idx_auto.max()):
+                    _y_auto = _y_auto[_idx_auto]
+        except Exception as e:
+            logger.debug("auto-enable target slice failed for %r (%s)", _tname_auto, e)
+            continue
+        _hits = _target_pathologies_for_auto_enable(_y_auto, _tname_auto, metadata.get("target_distribution_report", {}) or {})
+        if _hits:
+            _reasons[_tname_auto] = _hits
+    if not _reasons:
+        return composite_target_discovery_config
+    logger.info(
+        "[CompositeTargetDiscovery] auto-enabled (composite_target_discovery_config.enabled was left at its "
+        "default): target(s) show a heavy-tail/skewed-target pathology composite discovery's log/cbrt/"
+        "yeo_johnson/quantile_normal transforms directly address -- %s. Pass "
+        "composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False) explicitly to opt out.",
+        _reasons,
+    )
+    return composite_target_discovery_config.model_copy(update={"enabled": True})
+
+
 def run_composite_target_discovery(
     *,
     composite_target_discovery_config,
@@ -72,6 +145,11 @@ def run_composite_target_discovery(
 
     Returns updated (target_by_type, metadata).
     """
+    if TargetTypes.REGRESSION in target_by_type:
+        composite_target_discovery_config = _maybe_auto_enable_discovery(
+            composite_target_discovery_config, target_by_type=target_by_type, train_idx=train_idx, metadata=metadata,
+        )
+
     _gpu_families, _kept_spec_total = _init_composite_discovery_metadata(
         composite_target_discovery_config=composite_target_discovery_config,
         target_by_type=target_by_type,

@@ -558,6 +558,19 @@ def epoch_ns_ticks(x_values: Any, n_ticks: int = 6) -> tuple[np.ndarray, list[st
     may pass real ``datetime`` objects instead of epoch integers), and both renderers format genuine
     datetime axes natively -- only the numeric-epoch form needs help.
     """
+    # A genuine numpy datetime64 array must be rejected BEFORE the float64 cast below: unlike a python
+    # datetime object (which raises TypeError on a direct float() cast, caught below), numpy happily
+    # reinterprets datetime64[ns]'s underlying int64 as a float64 nanosecond count with NO exception --
+    # so this branch used to silently "succeed" on real datetime64 x-arrays, computing tickvals in
+    # epoch-NANOSECOND units (~1e18) while matplotlib's native date axis for that SAME data plots in its
+    # own days-since-epoch unit (~2e4). ax.set_xticks(tickvals) then force-expanded the axis to include
+    # those ~1e18 tick positions, squashing 100% of the real (small-unit) data into a hairline sliver at
+    # one edge -- observed live on the temporal-audit chart (23 weekly bins spanning 5 months rendered as
+    # a single crushed column). Confirmed directly: np.asarray(datetime64_array, dtype=np.float64) raises
+    # neither TypeError nor ValueError.
+    _pre = np.asarray(x_values)
+    if np.issubdtype(_pre.dtype, np.datetime64):
+        return None, None
     try:
         arr = np.asarray(x_values, dtype=np.float64).ravel()
     except (TypeError, ValueError):

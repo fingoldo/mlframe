@@ -525,6 +525,37 @@ def test_target_dist_overlay_regression_panels():
     assert panels[0].vspans is not None
 
 
+def test_target_dist_overlay_heavy_tail_crops_visible_xlim_and_labels_density_clearly():
+    """Production log: a heavy-tailed regression target (excess_kurt=312.5) rendered as a single spike
+    squashed against the left edge with an empty tail out to ~1600 -- the plotted x-range spanned the
+    full min/max instead of the ~p0.5-p99.5 window that actually holds the density mass. Also: the bare
+    "Density" y-label read as unclear to a non-technical reader."""
+    rng = np.random.default_rng(0)
+    # 99.9% of mass in [0, ~5]; 0.1% a long right tail out past 500 -- mirrors the production shape
+    # (excess_kurt=312.5: a tiny fraction of extreme rows, not a broad heavy tail).
+    body = rng.exponential(1.0, 9990)
+    tail = rng.uniform(500, 1600, 10)
+    y = {"train": np.concatenate([body, tail])}
+    fig = target_dist_overlay(y, task="regression")
+    panel = next(p for row in fig.panels for p in row if p is not None)
+    assert isinstance(panel, LinePanelSpec)
+    assert panel.ylabel == "Probability density"
+    assert panel.xlim is not None, "a heavy-tailed target's density panel must crop its visible x-range"
+    _lo, hi = panel.xlim
+    assert hi < 100, f"xlim should crop out the long tail (>=500), got hi={hi}"
+    assert "cropped" in fig.caption.lower() or "tail" in fig.caption.lower()
+
+
+def test_target_dist_overlay_well_behaved_target_is_not_cropped():
+    """A normally-distributed target's own p0.5-p99.5 window already covers ~the full histogram span --
+    xlim must stay None (no gratuitous cropping of well-behaved data)."""
+    rng = np.random.default_rng(0)
+    y = {"train": rng.normal(0, 1, 3000)}
+    fig = target_dist_overlay(y, task="regression")
+    panel = next(p for row in fig.panels for p in row if p is not None)
+    assert panel.xlim is None
+
+
 def test_target_dist_overlay_classification_classrates():
     """Target dist overlay classification classrates."""
     rng = np.random.default_rng(1)

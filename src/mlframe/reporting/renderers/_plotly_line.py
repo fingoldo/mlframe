@@ -231,6 +231,9 @@ def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
     if _ylim is not None:
         fig.update_yaxes(range=[float(_ylim[0]), float(_ylim[1])], row=row, col=col, secondary_y=False)
     _xkw: dict = dict(title_text=p.xlabel, row=row, col=col, showgrid=p.grid, tickangle=-30 if p.x_is_time else 0)
+    _xlim = getattr(p, "xlim", None)
+    if _xlim is not None:
+        _xkw["range"] = [float(_xlim[0]), float(_xlim[1])]
     # The COUNT comes from the panel's own width, not the helper's fixed six: a -30-degree date label needs
     # real room, and the fixed count crowds a narrow panel exactly as a fixed cap crowded the heatmap ticks.
     _n_dates = 6

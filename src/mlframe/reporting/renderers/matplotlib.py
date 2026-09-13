@@ -775,6 +775,8 @@ class MatplotlibRenderer:
         # it -- a line panel's window was silently discarded on BOTH backends.
         if p.ylim is not None:
             ax.set_ylim(*p.ylim)
+        if p.xlim is not None:
+            ax.set_xlim(*p.xlim)
         if p.x_is_time:
             # The numeric x carries epoch NANOSECONDS, which read as "1.62e18" unless converted. The COUNT
             # comes from the axis rather than the helper's fixed six: a date label rotated 30 degrees needs

@@ -458,6 +458,62 @@ def test_epoch_ns_ticks_is_safe_on_degenerate_input():
     assert tickvals is not None and len(ticktext) >= 2
 
 
+def test_epoch_ns_ticks_rejects_a_real_datetime64_array():
+    """A genuine numpy datetime64[ns] array must return (None, None), not silently-wrong tickvals.
+
+    Unlike a python ``datetime`` object (which raises on a direct float() cast, already covered by
+    test_epoch_ns_ticks_is_safe_on_degenerate_input's degenerate-input path), numpy reinterprets
+    datetime64[ns]'s underlying int64 as a float64 nanosecond count with NO exception -- so a naive
+    try/except around the float cast silently "succeeds" and computes tickvals in epoch-NANOSECOND units
+    (~1e18) for data whose real plotted range (matplotlib's native days-since-epoch unit, ~2e4) is 14
+    orders of magnitude smaller. ax.set_xticks(tickvals) then force-expands the axis to include those
+    huge positions, squashing 100% of the real data into a hairline sliver at one edge -- observed live on
+    the temporal-audit chart (23 weekly bins spanning 5 months rendered as a single crushed column).
+    """
+    import pandas as pd
+
+    from mlframe.reporting.renderers._shared_helpers import epoch_ns_ticks
+
+    x = pd.date_range("2026-03-02", periods=23, freq="7D").to_numpy()
+    assert x.dtype.kind == "M"  # fixture sanity: genuinely datetime64
+    assert epoch_ns_ticks(x) == (None, None)
+
+
+def test_temporal_audit_chart_xlim_matches_the_real_data_range():
+    """End-to-end regression for the exact crushed-column bug: build_temporal_audit_spec's LinePanelSpec,
+    rendered by MatplotlibRenderer, must end with an x-axis range that actually bounds the plotted dates
+    -- not one stretched across ~1e18 by a wrongly-classified epoch-nanosecond tick set."""
+    from types import SimpleNamespace
+
+    import pandas as pd
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    from mlframe.reporting.charts.temporal import build_temporal_audit_spec
+    from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+
+    starts = pd.date_range("2026-03-02", periods=23, freq="7D")
+    bins = [
+        SimpleNamespace(bin_label=str(s.date()), bin_start=s.to_pydatetime(), n_obs=1000, target_rate=5.0 + np.sin(i), kept=True) for i, s in enumerate(starts)
+    ]
+    audit = SimpleNamespace(
+        bins=bins, segments=[{"start_idx": 0, "end_idx": 22, "mean_rate": 5.0}], change_point_indices=[],
+        target_name="t", granularity="week", target_type="regression", timestamp_col="ts",
+    )
+    line = build_temporal_audit_spec(audit).panels[0][0]
+
+    fig = Figure(figsize=(12.0, 4.5))
+    FigureCanvasAgg(fig)
+    ax = fig.add_subplot(1, 1, 1)
+    MatplotlibRenderer()._line(ax, line, fig)
+
+    lo, hi = ax.get_xlim()
+    # matplotlib's native date-number unit for these dates sits in the low ~2e4 range (days since its own
+    # epoch); the bug produced a max of ~1.786e18 (raw epoch nanoseconds) regardless of the real data.
+    assert hi < 1e5, f"x-axis range still stretched to epoch-nanosecond scale: xlim=({lo}, {hi})"
+    assert hi - lo < 300, f"x-axis spans far more than the ~180-day real data range: xlim=({lo}, {hi})"
+
+
 def test_plotly_single_labelled_panel_keeps_its_legend():
     """A one-panel figure whose series are named must show a legend even in interactive HTML.
 
