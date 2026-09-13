@@ -99,6 +99,45 @@ def test_proxy_pickle_roundtrip_preserves_transform_output():
     )
 
 
+def test_reduce_falls_back_to_raw_pickle_when_json_roundtrip_is_lossy(monkeypatch):
+    """X4-adjacent regression (CI run 34703435856, macOS/ARM64): to_json()/from_json() silently lost
+    information for some encoder variant there -- the proxy reconstructed WITHOUT raising, but its
+    .transform() output diverged from the original's, with no signal at save time. __reduce__ now
+    verifies the round-trip (from_json(to_json(x)).to_json() == to_json(x)) before trusting it and
+    falls back to pickling the raw Pipeline object when it isn't. Forces the lossy branch directly
+    (rather than hunting for a real polars-ds config that reproduces it) by monkeypatching
+    Pipeline.from_json to return an object whose own to_json() differs from the input."""
+    from polars_ds.pipeline import Pipeline as _PdsPipeline
+    from mlframe.training.core._setup_helpers_pipeline_cache import _PolarsDsPipelineJsonProxy
+
+    df, pipe = _make_pipeline()
+    proxy = _PolarsDsPipelineJsonProxy(pipe)
+
+    real_from_json = _PdsPipeline.from_json
+
+    class _LossyReconstructed:
+        """Stands in for a Pipeline whose own to_json() differs from what it was built from."""
+
+        def to_json(self):
+            """Return a JSON string that deliberately does not match the input, simulating information loss."""
+            return "LOSSY-MISMATCH"
+
+    monkeypatch.setattr(_PdsPipeline, "from_json", classmethod(lambda cls, json_str: _LossyReconstructed()))
+    try:
+        callable_, args = proxy.__reduce__()
+    finally:
+        monkeypatch.setattr(_PdsPipeline, "from_json", real_from_json)
+
+    assert callable_ is _PolarsDsPipelineJsonProxy, "a detected-lossy round-trip must fall back to wrapping the raw Pipeline, not the JSON reconstructor"
+    assert args == (pipe,), "the fallback must carry the ORIGINAL raw Pipeline object, not a re-derived one"
+
+    # The fallback tuple must itself still pickle correctly end to end (normal Pipeline pickling, slow
+    # but exact) and reproduce the original transform output.
+    blob = pickle.dumps(callable_(*args))
+    loaded = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+    assert pipe.transform(df).equals(loaded.transform(df))
+
+
 def test_proxy_forwards_attribute_access():
     """The proxy's ``__getattr__`` must forward to the wrapped Pipeline so
     existing code paths that touch ``metadata['pipeline']`` attributes

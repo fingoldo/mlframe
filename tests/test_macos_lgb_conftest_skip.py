@@ -77,3 +77,37 @@ def test_opt_out_env_var_skips_installing_the_patch(monkeypatch):
     monkeypatch.setenv("MLFRAME_TESTS_ALLOW_MACOS_LGB_FIT", "1")
     _install_macos_lgb_crash_skip()
     assert lightgbm.basic.Dataset.construct is original
+
+
+def test_skip_clears_the_lgb_shim_cache_so_it_does_not_poison_a_later_fit(monkeypatch):
+    """CI run 34703435856: lgb_shim.py caches the raw Dataset (module-level, process-wide, keyed on
+    the X/categorical-feature signature) BEFORE ever calling ``.construct()`` on it -- construction
+    happens lazily inside ``lightgbm.train()``. Skipping ``.construct()`` without clearing that cache
+    left an unconstructed (``_handle=None``) Dataset sitting there for the rest of the pytest session:
+    a LATER, unrelated test building an X of the same shape/dtype hit the cache-HIT path, never
+    reached ``.construct()`` itself, and called ``.num_data()`` on the poisoned object --
+    ``lightgbm.basic.LightGBMError: Cannot get num_data before construct dataset`` -- instead of
+    getting its own clean skip. Reproduces the real shim end-to-end (not a synthetic cache dict)."""
+    from mlframe.training.lgb_shim import LGBMRegressorWithDatasetReuse
+    import numpy as np
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.delenv("MLFRAME_TESTS_ALLOW_MACOS_LGB_FIT", raising=False)
+    _install_macos_lgb_crash_skip()
+
+    rng = np.random.default_rng(0)
+    X = rng.random((30, 3)).astype(np.float64)
+    y = rng.random(30)
+
+    # First fit: reaches real Dataset construction, gets skipped -- this used to leave a poisoned
+    # cache entry behind for the signature (X.shape/dtype, categorical_feature="auto") pair.
+    m1 = LGBMRegressorWithDatasetReuse(n_estimators=2, verbose=-1)
+    with pytest.raises(pytest.skip.Exception):
+        m1.fit(X, y)
+
+    # A second, independent estimator building an X of the identical signature must not find a
+    # stale entry in the module-level cache -- it must also reach construction (and get its own
+    # clean skip), not a downstream LightGBMError from a half-built cached Dataset.
+    m2 = LGBMRegressorWithDatasetReuse(n_estimators=2, verbose=-1)
+    with pytest.raises(pytest.skip.Exception):
+        m2.fit(X, y)

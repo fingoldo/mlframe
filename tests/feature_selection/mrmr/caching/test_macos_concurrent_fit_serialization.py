@@ -43,8 +43,14 @@ def _fast_selector(seed: int) -> MRMR:
 
 
 def test_macos_lock_exists_and_is_a_lock():
-    """The platform-gated lock is either None (non-darwin dev/CI box) or a real threading.Lock."""
-    assert _mrmr_class._MACOS_NUMBA_PARALLEL_FIT_LOCK is None or isinstance(_mrmr_class._MACOS_NUMBA_PARALLEL_FIT_LOCK, type(threading.Lock()))
+    """The platform-gated lock matches ``sys.platform`` exactly: a real ``threading.Lock`` on darwin,
+    ``None`` everywhere else -- not merely "one of the two", which would pass even if the platform
+    gate itself were inverted or broken."""
+    assert hasattr(_mrmr_class, "_MACOS_NUMBA_PARALLEL_FIT_LOCK"), "the platform-gated lock attribute is missing entirely"
+    lock = _mrmr_class._MACOS_NUMBA_PARALLEL_FIT_LOCK
+    is_darwin = sys.platform == "darwin"
+    assert is_darwin == isinstance(lock, type(threading.Lock())), f"sys.platform={sys.platform!r} but lock={lock!r}"
+    assert is_darwin or lock is None
 
 
 def test_simulated_darwin_lock_serializes_concurrent_fit_bodies(monkeypatch):

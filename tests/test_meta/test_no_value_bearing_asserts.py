@@ -12,8 +12,9 @@ The tree already holds such asserts, recorded in ``_value_bearing_asserts_baseli
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
+import orjson
 
 from py_ci_shared.value_bearing_asserts import assert_no_value_bearing_asserts, find_value_bearing_asserts
 
@@ -26,7 +27,7 @@ def regenerate_baseline(path: Path = _BASELINE_PATH) -> None:
     """Rewrite the debt baseline from today's value-bearing asserts, for ``regen_baselines.py``."""
     offenders, _seen = find_value_bearing_asserts(PACKAGE_ROOT)
     keys = sorted({f"{entry.split('  ', 1)[0].rsplit(':', 1)[0]}::{entry.split('  ', 1)[1]}" for entry in offenders})
-    path.write_text(json.dumps(keys, indent=2) + "\n", encoding="utf-8")
+    path.write_text(orjson.dumps(keys, option=orjson.OPT_INDENT_2).decode("utf-8") + "\n", encoding="utf-8")
 
 
 def test_no_new_value_bearing_asserts() -> None:

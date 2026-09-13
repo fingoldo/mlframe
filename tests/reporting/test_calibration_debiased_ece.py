@@ -190,10 +190,12 @@ def test_debiased_ece_is_o_bins_not_o_n():
 
     pr = cProfile.Profile()
     pr.enable()
-    for _ in range(200):
-        debiased_ece(fps, fts, hs)
-        debiased_ece(fpb, ftb, hb)
-    pr.disable()
+    try:
+        for _ in range(200):
+            debiased_ece(fps, fts, hs)
+            debiased_ece(fpb, ftb, hb)
+    finally:
+        pr.disable()
     s = io.StringIO()
     pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats("debiased_ece")
     out = s.getvalue()

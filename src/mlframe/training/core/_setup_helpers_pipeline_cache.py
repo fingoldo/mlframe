@@ -278,7 +278,32 @@ class _PolarsDsPipelineJsonProxy:
         # consumers may not have polars-ds installed; the import-error path
         # then falls through with the JSON string carried as a string blob
         # for late reconstruction).
-        return (_polars_ds_pipeline_from_json, (self._pipeline.to_json(),))
+        #
+        # Verified before trusting it: CI (run 34703435856, macOS/ARM64) caught
+        # to_json()/from_json() silently losing information for some encoder
+        # variant -- the pickled/dill'd proxy reconstructed WITHOUT raising, but its
+        # .transform() output diverged from the original's. There was no signal at
+        # save time that anything had gone wrong. Round-trip the JSON once here
+        # (from_json then to_json again) and compare strings -- if they differ, the
+        # JSON encoding is lossy for THIS pipeline's configuration, and correctness
+        # matters more than the ~5000x load speedup this proxy exists for. Falls
+        # back to pickling the raw Pipeline object directly (slow, but exact),
+        # mirroring the same "from_json roundtrip failed -> fall back" pattern
+        # test_save_path_falls_back_to_pickle_when_from_json_roundtrip_fails
+        # already established for the disk-cache save path.
+        json_str = self._pipeline.to_json()
+        try:
+            from polars_ds.pipeline import Pipeline as _PdsPipeline
+
+            if _PdsPipeline.from_json(json_str).to_json() != json_str:
+                logger.warning(
+                    "_PolarsDsPipelineJsonProxy: to_json()/from_json() round-trip is lossy for this pipeline "
+                    "(re-serialised JSON differs) -- pickling the raw Pipeline object instead of the JSON proxy."
+                )
+                return (_PolarsDsPipelineJsonProxy, (self._pipeline,))
+        except Exception as e:
+            logger.debug("_PolarsDsPipelineJsonProxy: JSON round-trip verification failed, proceeding with the JSON proxy anyway: %s", e)
+        return (_polars_ds_pipeline_from_json, (json_str,))
 
     def transform(self, df):
         """Explicit passthrough to the wrapped Pipeline's ``transform`` (kept alongside ``__getattr__`` forwarding so ``transform`` is discoverable without triggering ``__getattr__``)."""

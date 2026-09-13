@@ -258,9 +258,11 @@ class TestPIT:
             y = base + rng.normal(scale=0.5, size=4000)
             got = pit_values(y, P, alphas)
             ref = reference(np.asarray(y, dtype=np.float64), np.asarray(P, dtype=np.float64), alphas)
-            assert np.array_equal(
-                got, ref
-            ), f"PIT njit kernel diverged from numpy reference (tied={tied}, nonmono={nonmono}); maxdiff={np.max(np.abs(got - ref)):.2e}"
+            # atol=1e-12, not bit-identical: CI (run 34703435856, macOS/ARM64) measured maxdiff=1.11e-16 --
+            # half a float64 ULP, a numba-codegen FP-reorder artifact between ISAs (ARM64 vs the x86_64 dev
+            # host this was written on), not a logic divergence. 1e-12 is far tighter than any real
+            # sort-tie-order or interp-slope bug would produce, so it still trips a genuine regression.
+            assert np.allclose(got, ref, rtol=0, atol=1e-12), f"PIT njit kernel diverged from numpy reference (tied={tied}, nonmono={nonmono}); maxdiff={np.max(np.abs(got - ref)):.2e}"
 
 
 class TestSummary:

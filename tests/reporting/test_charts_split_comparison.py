@@ -343,8 +343,10 @@ def test_cprofile_bounded():
         per_split[name] = {"y_true": y, "y_score": p}
     pr = cProfile.Profile()
     pr.enable()
-    fig = compose_split_comparison_figure(per_split, task="classification", model_name="bench")
-    pr.disable()
+    try:
+        fig = compose_split_comparison_figure(per_split, task="classification", model_name="bench")
+    finally:
+        pr.disable()
     assert isinstance(fig, FigureSpec)
     st = pstats.Stats(pr, stream=io.StringIO())
     total = st.total_tt

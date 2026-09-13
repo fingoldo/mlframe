@@ -44,8 +44,12 @@ def test_budget_never_exceeds_available_or_total_fraction():
         vm = psutil.virtual_memory()
         for frac in (0.1, 0.4, 0.6):
             b = _resolve_pipeline_cache_budget(frac)
-            # Never more than the fraction of total ...
-            assert b <= int(vm.total * frac) + _GiB, (frac, b)
+            # Never more than the fraction of total, UNLESS the 2 GiB hard floor exceeds it -- on a
+            # small-RAM host (a GitHub Actions macOS runner: 7 GiB total) `total * 0.1 + 1 GiB` is
+            # itself under 2 GiB, so the floor legitimately dominates every fraction tested here.
+            # Mirrors the very next assertion's own max(2 GiB, ...) pattern; confirmed live (CI run
+            # 34703435856): frac=0.1 -> b=2 GiB exactly on that runner, failing the un-floored form.
+            assert b <= max(2 * _GiB, int(vm.total * frac) + _GiB), (frac, b)
             # ... and never more than (available - 4 GB floor), unless the
             # 2 GiB hard floor applies.
             assert b <= max(2 * _GiB, vm.available), (frac, b)

@@ -277,8 +277,10 @@ def test_cprofile_correlation_at_1e6_predictions():
     }
     pr = cProfile.Profile()
     pr.enable()
-    panel = mc._corr_heatmap_panel(per_model, mc.CORR_SUBSAMPLE, seed=0)
-    pr.disable()
+    try:
+        panel = mc._corr_heatmap_panel(per_model, mc.CORR_SUBSAMPLE, seed=0)
+    finally:
+        pr.disable()
     assert isinstance(panel, HeatmapPanelSpec)
     assert panel.matrix.shape == (3, 3)
     s = io.StringIO()
@@ -298,7 +300,9 @@ def test_cprofile_full_compose_at_1e6_binary():
     per_model = {"A": _binary_entry(y, sg, roc_auc=0.9), "B": _binary_entry(y, sb, roc_auc=0.6)}
     pr = cProfile.Profile()
     pr.enable()
-    fig = mc.compose_model_comparison_figure(per_model, "binary", metric="roc_auc")
-    pr.disable()
+    try:
+        fig = mc.compose_model_comparison_figure(per_model, "binary", metric="roc_auc")
+    finally:
+        pr.disable()
     flat = [p for row in fig.panels for p in row if p is not None]
     assert len(flat) == 3

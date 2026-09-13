@@ -381,8 +381,10 @@ def test_cprofile_tree_bounded_by_sample_cap(tmp_path):
 
     pr = cProfile.Profile()
     pr.enable()
-    res = sp.shap_summary_and_dependence(m, X, feature_names=list(X.columns), max_rows=20_000, top_k=6, plot_file=str(tmp_path / "prof.png"))
-    pr.disable()
+    try:
+        res = sp.shap_summary_and_dependence(m, X, feature_names=list(X.columns), max_rows=20_000, top_k=6, plot_file=str(tmp_path / "prof.png"))
+    finally:
+        pr.disable()
 
     assert res.skipped is None
     assert res.top_features[0] == "f0"

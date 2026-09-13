@@ -573,7 +573,27 @@ def _install_macos_lgb_crash_skip() -> None:
         return
 
     def _construct_or_skip(self, *args, **kwargs):
-        """Skip instead of crashing the interpreter -- see _install_macos_lgb_crash_skip's docstring."""
+        """Skip instead of crashing the interpreter -- see _install_macos_lgb_crash_skip's docstring.
+
+        Clears mlframe.training.lgb_shim's process-wide Dataset cache FIRST: lgb_shim caches the raw
+        Dataset object (keyed on the X/categorical-feature signature) before ever calling
+        ``.construct()`` on it (construction happens lazily inside ``lightgbm.train()``), so skipping
+        construct still leaves an unconstructed (``_handle=None``) Dataset sitting in that cache --
+        poisoning every LATER test that happens to build an X of the same shape/dtype, which then hits
+        the cache-HIT path and calls ``.num_data()`` on the never-constructed object, raising
+        ``lightgbm.basic.LightGBMError: Cannot get num_data before construct dataset`` instead of the
+        clean skip its OWN Dataset construction would have gotten (confirmed live: CI run 34703435856,
+        tests/training/test_lgb_shim_init_score_cache_hit.py and 3 siblings failed this exact way after
+        an unrelated earlier test in the same shard populated the cache and got skipped here).
+        """
+        try:
+            from mlframe.training.lgb_shim import _lgb_cache_clear
+
+            _lgb_cache_clear()
+        except Exception as e:  # nosec B110 - best-effort cache cleanup, must never block the skip itself
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug("lgb_shim cache clear before macOS construct-skip failed: %s", e)
         pytest.skip(
             "macOS: LightGBM Dataset construction crashes inside libomp.dylib itself (upstream bug, "
             "not fixable from mlframe/test code -- see audits/ci_review_2026-09-08/_TRACKER.md, X5). "

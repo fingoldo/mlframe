@@ -14,8 +14,9 @@ Refresh after an intentional change::
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
+import orjson
 
 from py_ci_shared.deferred_drift import assert_deferred_lists_not_grown
 
@@ -27,7 +28,10 @@ def regenerate_baseline(path: Path = _BASELINE_PATH) -> None:
     """Rewrite the debt baseline from today's counts, for ``regen_baselines.py``."""
     from pyutilz.dev.meta_test_utils import count_user_deferred_entries
 
-    path.write_text(json.dumps(count_user_deferred_entries(TEST_META_DIR), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        orjson.dumps(count_user_deferred_entries(TEST_META_DIR), option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS).decode("utf-8") + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_user_deferred_lists_havent_grown() -> None:

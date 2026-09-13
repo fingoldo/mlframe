@@ -154,10 +154,12 @@ def test_cprofile_band_bounded():
     bootstrap_reliability_band(s, y)  # warm sklearn / numpy paths
     pr = cProfile.Profile()
     pr.enable()
-    t0 = time.perf_counter()
-    bootstrap_reliability_band(s, y)
-    dt = time.perf_counter() - t0
-    pr.disable()
+    try:
+        t0 = time.perf_counter()
+        bootstrap_reliability_band(s, y)
+        dt = time.perf_counter() - t0
+    finally:
+        pr.disable()
     st = pstats.Stats(pr, stream=io.StringIO())
     st.sort_stats("cumulative")
     # Wall-clock cost is unreliable under -n xdist contention (a worker can be starved for seconds), so skip the timing

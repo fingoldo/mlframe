@@ -92,7 +92,37 @@ def test_helpers_training_configs_lgb_general_params_serial_on_darwin(monkeypatc
     """
     _reload_lgb_shim(monkeypatch, request, "darwin")
     import mlframe.training._helpers_training_configs as h
+    import mlframe.training.helpers as helpers_facade
+
+    # `helpers.py` does `from ._helpers_training_configs import get_training_configs` ONCE at import
+    # time, binding its own namespace to that specific function OBJECT. Reloading `h` re-executes its
+    # top-level code and creates a NEW `get_training_configs` object in the (in-place-mutated) sibling
+    # module -- the facade's already-bound reference is untouched, so it silently diverges from the
+    # sibling's current object. CI (run 34703435856) caught this exact split via
+    # tests/training/test_training_helpers_split.py::test_get_training_configs_identity failing under
+    # a full, unsharded (-n 1) run where both test modules share one process: `assert
+    # <function get_training_configs at ...> is <function get_training_configs at ...>`.
+    #
+    # ``importlib.reload()`` is NOT idempotent for identity: the original finalizer here
+    # (``importlib.reload(h)`` again) does not restore the PRE-test object, it mints a THIRD, still
+    # different one -- confirmed directly (a naive "restore the facade to its pre-test object, then
+    # reload h again" attempt still left the two split after teardown, since the second reload's
+    # fresh object never matches what the facade was restored to). The only way back to the exact
+    # pre-test state is an explicit snapshot-and-setattr restore of BOTH modules' bindings, bypassing
+    # reload entirely for the restore step.
+    original_sibling_fn = h.get_training_configs
+    original_facade_fn = helpers_facade.get_training_configs
+
+    def _restore():
+        """Put both modules' bindings back to their exact pre-test function objects."""
+        h.get_training_configs = original_sibling_fn
+        helpers_facade.get_training_configs = original_facade_fn
+
+    request.addfinalizer(_restore)
 
     reloaded_h = importlib.reload(h)
-    request.addfinalizer(lambda: importlib.reload(h))
+    # Keep the facade's binding in sync with the just-reloaded sibling for the duration of this test
+    # too (not only restored afterward) -- callers going through helpers.get_training_configs during
+    # this test must see the SAME darwin-serial-n_jobs behaviour reloaded_h itself just proved.
+    helpers_facade.get_training_configs = reloaded_h.get_training_configs
     assert reloaded_h.lgb_default_n_jobs(-1) == 1

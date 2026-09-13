@@ -588,8 +588,10 @@ def test_decile_table_figure_cprofile_bounded_at_1e6():
     binary_decile_table_figure(y, s)  # warm matplotlib import
     pr = cProfile.Profile()
     pr.enable()
-    fig = binary_decile_table_figure(y, s)
-    pr.disable()
+    try:
+        fig = binary_decile_table_figure(y, s)
+    finally:
+        pr.disable()
     st = pstats.Stats(pr, stream=io.StringIO())
     total = st.total_tt
     assert fig is not None
@@ -738,8 +740,10 @@ def test_operating_point_cprofile_bounded_reuses_sweep():
     compose_binary_figure(y, s, panels_template="ROC PR", ap_ci=False)  # warm
     pr = cProfile.Profile()
     pr.enable()
-    fig = compose_binary_figure(y, s, panels_template="ROC PR", ap_ci=False)
-    pr.disable()
+    try:
+        fig = compose_binary_figure(y, s, panels_template="ROC PR", ap_ci=False)
+    finally:
+        pr.disable()
     st = pstats.Stats(pr, stream=io.StringIO())
     assert fig is not None
     assert st.total_tt < 2.0, f"ROC+PR build at n=1e6 took {st.total_tt:.3f}s (operating point should add no full-n pass)"

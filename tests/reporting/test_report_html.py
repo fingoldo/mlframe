@@ -351,8 +351,10 @@ def test_cprofile_report_assembly_is_cheap_at_200_entries(tmp_path):
 
     pr = cProfile.Profile()
     pr.enable()
-    build_combined_report(entries, title="200-chart report", out_path=out_path)
-    pr.disable()
+    try:
+        build_combined_report(entries, title="200-chart report", out_path=out_path)
+    finally:
+        pr.disable()
 
     total = pstats.Stats(pr, stream=io.StringIO()).total_tt
     assert total < 1.0, f"200-entry assembly took {total:.3f}s; expected < 1s (O(entries) assembly)"

@@ -120,8 +120,10 @@ def test_cprofile_psi_at_1e6_rows():
     ts = np.arange(n)
     pr = cProfile.Profile()
     pr.enable()
-    matrix, _, _ = drift.compute_psi_matrix(X, ts, n_time_buckets=10)
-    pr.disable()
+    try:
+        matrix, _, _ = drift.compute_psi_matrix(X, ts, n_time_buckets=10)
+    finally:
+        pr.disable()
     assert matrix.shape == (8, 10)
     s = io.StringIO()
     pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(8)
@@ -204,8 +206,10 @@ def test_cprofile_residual_vs_time_at_1e6_rows():
     yp = yt + rng.normal(0.0, 0.5, n)
     pr = cProfile.Profile()
     pr.enable()
-    fig = drift.residual_vs_time(yt, yp, ts, n_time_buckets=20)
-    pr.disable()
+    try:
+        fig = drift.residual_vs_time(yt, yp, ts, n_time_buckets=20)
+    finally:
+        pr.disable()
     assert fig.panels[0][0].y[0].shape == (20,)
 
 
@@ -378,8 +382,10 @@ def test_cprofile_cusum_at_1e6_rows():
     ts = np.arange(1_000_000)
     pr = cProfile.Profile()
     pr.enable()
-    fig = drift.cusum_residual_drift(yt, yp, ts, decision_h=10.0)
-    pr.disable()
+    try:
+        fig = drift.cusum_residual_drift(yt, yp, ts, decision_h=10.0)
+    finally:
+        pr.disable()
     assert isinstance(fig.panels[0][0], (LinePanelSpec, AnnotationPanelSpec))
     s = io.StringIO()
     pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(8)
@@ -481,8 +487,10 @@ def test_cprofile_metric_over_time_at_1e6_rows():
     p = np.clip(y * 0.55 + rng.random(n) * 0.45, 0, 1)
     pr = cProfile.Profile()
     pr.enable()
-    fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=50)
-    pr.disable()
+    try:
+        fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=50)
+    finally:
+        pr.disable()
     assert isinstance(fig.panels[0][0], (LinePanelSpec, AnnotationPanelSpec))
 
 
@@ -610,8 +618,10 @@ def test_cprofile_adversarial_subsample_bound():
     Xb = rng.normal(size=(n, d))
     pr = cProfile.Profile()
     pr.enable()
-    auc, _fpr, _tpr, imp, _ = drift.adversarial_auc(Xa, Xb, max_rows_per_side=5000, n_splits=3, seed=3)
-    pr.disable()
+    try:
+        auc, _fpr, _tpr, imp, _ = drift.adversarial_auc(Xa, Xb, max_rows_per_side=5000, n_splits=3, seed=3)
+    finally:
+        pr.disable()
     assert imp.shape == (d,)
     assert 0.0 <= auc <= 1.0
 

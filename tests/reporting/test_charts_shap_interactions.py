@@ -106,8 +106,10 @@ def test_cprofile_bounded_at_cap():
     si.shap_interaction_summary(model, X, feature_names=names, max_rows=2000)  # warm
     pr = cProfile.Profile()
     pr.enable()
-    si.shap_interaction_summary(model, X, feature_names=names, max_rows=2000)
-    pr.disable()
+    try:
+        si.shap_interaction_summary(model, X, feature_names=names, max_rows=2000)
+    finally:
+        pr.disable()
     stats = pstats.Stats(pr)
     # Look up shap_interaction_summary's own frame directly by name instead of dumping only the top-5
     # cumulative frames and substring-matching that truncated text: whether this frame lands in the top

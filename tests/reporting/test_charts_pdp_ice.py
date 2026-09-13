@@ -418,8 +418,10 @@ def test_cprofile_compute_pdp_at_1e6_rows_subsampled():
     model = _LinearModel(rng.normal(size=8))
     pr = cProfile.Profile()
     pr.enable()
-    res = pdp_ice.compute_pdp(model, X, 0, grid=20, sample=2000, ice=True)
-    pr.disable()
+    try:
+        res = pdp_ice.compute_pdp(model, X, 0, grid=20, sample=2000, ice=True)
+    finally:
+        pr.disable()
     assert res["pdp"].shape[0] <= 20
     assert res["ice"].shape[0] <= pdp_ice.ICE_CURVE_DRAW_CAP
     s = io.StringIO()
@@ -437,8 +439,10 @@ def test_cprofile_compute_pdp_2d_at_1e6_rows_subsampled():
     model = _LinearModel(rng.normal(size=6))
     pr = cProfile.Profile()
     pr.enable()
-    res = pdp_ice.compute_pdp_2d(model, X, (0, 1), grid=12, sample=2000)
-    pr.disable()
+    try:
+        res = pdp_ice.compute_pdp_2d(model, X, (0, 1), grid=12, sample=2000)
+    finally:
+        pr.disable()
     assert res["surface"].shape == (res["grid0"].shape[0], res["grid1"].shape[0])
 
 

@@ -296,8 +296,10 @@ def test_cprofile_bounded_at_production_shape():
     s = 1.0 / (1.0 + np.exp(-(rng.standard_normal(n) + 1.5 * y)))
     pr = cProfile.Profile()
     pr.enable()
-    fig = compose_model_card_figure(task="classification", y_true=y, y_score=s)
-    pr.disable()
+    try:
+        fig = compose_model_card_figure(task="classification", y_true=y, y_score=s)
+    finally:
+        pr.disable()
     st = pstats.Stats(pr, stream=io.StringIO())
     total = st.total_tt
     # Through perf_time_budget rather than a bare 5.0: this went red at 5.12 s purely because other work was

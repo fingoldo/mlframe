@@ -267,8 +267,10 @@ def test_cprofile_calibration_drift_one_million_rows_bounded():
 
     pr = cProfile.Profile()
     pr.enable()
-    res = calibration_drift(yt, score, ts, n_windows=10, n_bins=20)
-    pr.disable()
+    try:
+        res = calibration_drift(yt, score, ts, n_windows=10, n_bins=20)
+    finally:
+        pr.disable()
 
     assert res.n_windows == 10
     total = pstats.Stats(pr, stream=io.StringIO()).total_tt

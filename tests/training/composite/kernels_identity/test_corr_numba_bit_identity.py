@@ -118,6 +118,7 @@ class TestCorrNumbaBitIdentity:
 class TestCorrNumbaBizValue:
     """Groups tests covering corr numba biz value."""
     @skip_under_numba_disabled_jit
+    @pytest.mark.flaky(reruns=4, reruns_delay=2, only_rerun=["AssertionError"])
     def test_biz_kernel_faster_than_numpy_at_production_shape(self) -> None:
         """Floor 1.2x; measured ~6.7x on the dev host (n=50k, F=200, 16 physical cores). CI's runner
         is a SHARED 2-VCPU box (see ci.yml) -- the kernel's prange parallelism is fundamentally

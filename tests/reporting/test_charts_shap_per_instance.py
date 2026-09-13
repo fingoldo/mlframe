@@ -167,8 +167,10 @@ def test_cprofile_background_bounded():
 
     pr = cProfile.Profile()
     pr.enable()
-    res = spi.shap_worst_errors_explanation(model, X, y, score, k=4, max_explain_rows=500)
-    pr.disable()
+    try:
+        res = spi.shap_worst_errors_explanation(model, X, y, score, k=4, max_explain_rows=500)
+    finally:
+        pr.disable()
     s = io.StringIO()
     pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(10)
     assert res.skipped is None

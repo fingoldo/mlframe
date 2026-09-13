@@ -198,10 +198,19 @@ def test_f3_fast_path_still_short_circuits_when_all_handlers_are_fixed():
 
 
 def test_f4_oversized_xt_ensemble_file_is_a_documented_exempt():
-    """F4: oversized xt ensemble file is a documented exempt."""
-    from tests.test_meta.test_no_file_over_1k_loc import LOC_BUDGET_EXEMPT
+    """F4: oversized xt ensemble file is a documented exempt.
 
-    assert "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py" in LOC_BUDGET_EXEMPT
+    The file-size gate's exemption mechanism moved from a hand-maintained ``LOC_BUDGET_EXEMPT`` set
+    (removed) to a baseline JSON file (L1.11, audits/ci_review_2026-09-08/_TRACKER.md) -- an
+    over-budget file is "documented exempt" by having a pinned line count in
+    ``_loc_over_1k_baseline.json``, not by appearing in a now-nonexistent set.
+    """
+    import orjson
+
+    from tests.test_meta.test_no_file_over_1k_loc import BASELINE
+
+    baseline = orjson.loads(BASELINE.read_bytes())
+    assert "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py" in baseline
 
 
 # ---------------------------------------------------------------------------
