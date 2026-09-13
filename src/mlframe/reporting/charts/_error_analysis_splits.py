@@ -262,14 +262,16 @@ def target_dist_overlay(
             y_true_by_split, nbins=nbins, title="Target (y) distribution by split",
             xlabel="y", train_key=train_key,
         )
-        _any_cropped = _any_cropped or (getattr(target_panel, "xlim", None) is not None)
+        if getattr(target_panel, "xlim", None) is not None:
+            _any_cropped = True
         panels.append(target_panel)
         if pred_by_split:
             pred_panel = _density_overlay_panel(
                 pred_by_split, nbins=nbins, title="Prediction distribution by split (incl. OOF vs test)",
                 xlabel="prediction", train_key=train_key if train_key in pred_by_split else None,
             )
-            _any_cropped = _any_cropped or (getattr(pred_panel, "xlim", None) is not None)
+            if getattr(pred_panel, "xlim", None) is not None:
+                _any_cropped = True
             panels.append(pred_panel)
     grid = pack_panels(panels, max_cols=2)
     _crop_note = (
