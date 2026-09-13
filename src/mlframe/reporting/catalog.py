@@ -75,6 +75,7 @@ _DESCRIPTIONS: Dict[str, Dict[str, str]] = {
         "FAN_CHART": "Median forecast over the horizon with nested shaded quantile bands; widening bands = growing uncertainty.",
     },
     "regression": {
+        "PRED_SAMPLE": "A small random sample of rows as true/predicted line-and-marker pairs, traceable by eye; auto-log-y on a wide-dynamic-range sample.",
         "SCATTER": "Predictions vs true with y=x, robust trend line, and worst-K residuals highlighted red.",
         "RESID_HIST": "Residual histogram + fitted-Normal overlay (noise hypothesis + suggested loss).",
         "RESID_VS_PRED": "Residuals vs predicted with a running-median + IQR band (heteroscedasticity / bias).",
