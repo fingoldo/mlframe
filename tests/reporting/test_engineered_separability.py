@@ -74,6 +74,28 @@ def test_panel_subsamples_and_labels():
     assert panel.xlabel == "a" and panel.ylabel == "b"
 
 
+def test_panel_crops_heavy_tailed_axis_but_keeps_well_behaved_ones_uncropped():
+    """Production chart: hourly_budget_range (99% of mass under 30, a handful of rows in the hundreds)
+    rendered with a linear y-axis stretched to ~900 -- squashing the whole bulk into a sliver near 0.
+    The panel must crop such an axis to a robust window; a well-behaved feature (has_clear_timeline, a
+    plain 0/1 indicator) must stay uncropped."""
+    rng = np.random.default_rng(3)
+    n = 5000
+    has_clear_timeline = rng.integers(0, 2, size=n).astype(float)
+    # 99.9% of mass under 30; 0.1% a handful of extreme rows past 500 -- mirrors the production shape
+    # (a rare few jobs with an outsized hourly_budget_range among tens of thousands of ordinary ones).
+    body = rng.uniform(0, 30, int(n * 0.999))
+    tail = rng.uniform(500, 1000, n - body.size)
+    hourly_budget_range = np.concatenate([body, tail])
+    X = pd.DataFrame({"has_clear_timeline": has_clear_timeline, "hourly_budget_range": hourly_budget_range})
+    y = rng.integers(0, 2, size=n).astype(float)
+    panel = separability_panel(X, y, ["has_clear_timeline", "hourly_budget_range"], sample=n)
+    assert isinstance(panel, ScatterPanelSpec)
+    assert panel.xlim is None, "a plain 0/1 indicator must not be gratuitously cropped"
+    assert panel.ylim is not None, "the heavy-tailed feature's axis must be cropped"
+    assert panel.ylim[1] < 100, f"crop should exclude the >=500 tail, got ylim={panel.ylim}"
+
+
 def test_panel_raises_clean_error_on_x_y_length_mismatch():
     """A ``y`` shorter than ``X`` (e.g. an ensembling COARSE-gate rescoring call that passes the full-frame X
     alongside a subset y) used to hit ``rng.choice(n, ...)`` sampling indices up to ``len(X)-1`` then index ``yv``

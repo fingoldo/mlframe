@@ -16,7 +16,7 @@ njit matches the numpy two-pass reduction numerically and wins at every profiled
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -181,6 +181,26 @@ def _column_names(X: Any) -> List[Any]:
     return list(range(np.asarray(X).shape[1]))
 
 
+def _robust_axis_lim(values: np.ndarray) -> Optional[Tuple[float, float]]:
+    """A (lo, hi) crop for a scatter axis when ``values`` is heavy-tailed enough that its full min-max
+    span would squash the bulk of the points into a sliver -- a few extreme outliers (rare rows, e.g. a
+    handful of jobs with hourly_budget_range in the hundreds against a bulk under 30) otherwise dominate a
+    linear axis. None when the data is not meaningfully heavy-tailed (no crop needed).
+    """
+    finite = values[np.isfinite(values)]
+    if finite.size < 5:
+        return None
+    lo, hi = float(np.percentile(finite, 0.5)), float(np.percentile(finite, 99.5))
+    if hi <= lo:
+        return None
+    pad = 0.05 * (hi - lo)
+    lo, hi = lo - pad, hi + pad
+    full_span = float(finite.max() - finite.min())
+    if full_span > 0 and (hi - lo) < 0.3 * full_span:
+        return (max(lo, float(finite.min())), min(hi, float(finite.max())))
+    return None
+
+
 def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample: int = DEFAULT_SAMPLE, seed: int = 0) -> PanelSpec:
     """ScatterPanelSpec of the two named ``features`` coloured by ``y``, titled with the 2-D Fisher separability score.
 
@@ -233,6 +253,8 @@ def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample
         point_alpha=0.4,
         colorbar_label=f"class ({_n_classes} values)",
         equal_aspect=False,
+        xlim=_robust_axis_lim(z0),
+        ylim=_robust_axis_lim(z1),
     )
 
 
