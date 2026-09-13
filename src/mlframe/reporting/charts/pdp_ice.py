@@ -56,6 +56,17 @@ ICE_CURVE_DRAW_CAP: int = 200
 # A feature with at most this many distinct values is treated as discrete (grid = its categories) rather than
 # continuous (quantile grid). Mirrors the low-cardinality cat heuristic used elsewhere in the suite.
 DISCRETE_MAX_UNIQUE: int = 12
+# Max categories swept for a genuinely categorical model feature. Unlike a continuous sweep (capped to
+# DEFAULT_PDP_GRID quantile points) a categorical sweep is NEVER batched (see _predict_grid_batched's
+# docstring -- an unresolved native CatBoost/polars crash risk), so every extra category is one more
+# unbatched predict + Pool/Dataset construction. A pandas/polars categorical dtype can declare far more
+# categories than DISCRETE_MAX_UNIQUE would ever admit for a numeric column (a fitted CatBoost categorical
+# with a few hundred distinct values is routine), and _categorical_grid returns ALL of them uncapped --
+# profiled at 500 categories -> 500 separate Pool builds (49.6s of Pool-construction alone, before any
+# scoring) for a single PDP panel. Capped the same way the continuous grid already is: keep the
+# most-frequent categories IN THE SAMPLED ROWS (the ones that actually explain model behaviour on this
+# data), drop the long tail of rare categories a PDP reader would not learn much from individually anyway.
+CATEGORICAL_PDP_MAX_CATEGORIES: int = DEFAULT_PDP_GRID
 
 
 def _predict_fn(model: Any) -> Tuple[Callable[[np.ndarray], Optional[np.ndarray]], str]:
@@ -166,6 +177,34 @@ def _feature_grid(col: np.ndarray, grid: int) -> Tuple[np.ndarray, bool]:
     qs = np.linspace(0.0, 1.0, int(grid))
     g = np.unique(np.quantile(finite, qs))
     return g.astype(np.float64), False
+
+
+def _cap_categorical_labels(carrier_sample: Any, col_name: Optional[str], cat_labels: list, max_categories: int) -> list:
+    """Keep at most ``max_categories`` labels, the most frequent ones IN THE SAMPLED ROWS -- everything else about
+    a categorical PDP sweep (one unbatched predict + Pool/Dataset build per label) scales with ``len(cat_labels)``,
+    and a fitted model's declared category set can be far larger than what a bounded row sample even contains.
+
+    Falls back to the first ``max_categories`` declared labels (arbitrary but deterministic) when the column can't
+    be read off ``carrier_sample`` for counting -- never crashes the sweep over a display-order preference.
+    """
+    if len(cat_labels) <= max_categories or col_name is None:
+        return cat_labels
+    try:
+        if type(carrier_sample).__module__.startswith("polars"):
+            # Series.value_counts() -> a 2-column (value, count) frame, NOT a dict -- and the DataFrame branch
+            # below cannot be reused here: polars' own DataFrame ALSO defines .to_dict(), so checking for that
+            # method first (as the pandas branch does) would silently misread a polars value_counts() result.
+            _vc = carrier_sample[col_name].value_counts()
+            counts = dict(zip(_vc[col_name].to_list(), _vc["count"].to_list()))
+        elif hasattr(carrier_sample, "columns") and not isinstance(carrier_sample, np.ndarray):
+            counts = carrier_sample[col_name].value_counts().to_dict()  # pandas Series -> {label: count}
+        else:
+            return list(cat_labels[:max_categories])
+    except Exception as exc:  # nosec B110 -- best-effort ranking; an arbitrary-but-valid label subset is safe
+        logger.debug("PDP categorical cap: frequency count failed (%s: %s); keeping first %d declared labels", type(exc).__name__, exc, max_categories)
+        return list(cat_labels[:max_categories])
+    ranked = sorted(cat_labels, key=lambda lab: counts.get(lab, 0), reverse=True)
+    return ranked[:max_categories]
 
 
 def _subsample_idx(n: int, sample: int, seed: int) -> np.ndarray:
@@ -340,6 +379,7 @@ def compute_pdp(
     _col_name = names[col_idx] if names is not None else None
     _cat_labels, _cat_dtype = _categorical_grid(carrier, _col_name)
     if _cat_labels is not None:
+        _cat_labels = _cap_categorical_labels(carrier_sample, _col_name, _cat_labels, CATEGORICAL_PDP_MAX_CATEGORIES)
         # Categorical feature: sweep its native categories (display axis = category codes 0..k-1), substituting the
         # native label so the model receives valid categorical input rather than a dtype-breaking float grid value.
         grid_vals = np.arange(len(_cat_labels), dtype=np.float64)

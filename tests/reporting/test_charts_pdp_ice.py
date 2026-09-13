@@ -560,6 +560,59 @@ def test_pdp_sweeps_categorical_feature_over_native_categories_catboost():
         assert np.all(np.isfinite(r2["surface"]))
 
 
+def test_pdp_high_cardinality_categorical_sweep_is_capped():
+    """A categorical sweep is NEVER batched (a documented, unresolved native crash risk), so every extra category
+    is one more unbatched predict + Pool build. ``_categorical_grid`` returns EVERY declared category uncapped --
+    profiled in production at 500 categories -> 500 separate Pool builds for one PDP panel. The sweep must cap to
+    ``CATEGORICAL_PDP_MAX_CATEGORIES``, keeping the categories most frequent IN THE SAMPLED ROWS."""
+    cb = pytest.importorskip("catboost")
+    import numpy as np
+    import pandas as pd
+    from mlframe.reporting.charts.pdp_ice import CATEGORICAL_PDP_MAX_CATEGORIES, compute_pdp
+
+    rng = np.random.default_rng(0)
+    n = 3000
+    # A skewed category distribution: a handful of categories dominate the row count, hundreds of others are rare.
+    codes = rng.choice(np.arange(500), size=n, p=np.concatenate(([0.3, 0.2, 0.1], np.full(497, 0.4 / 497))))
+    df = pd.DataFrame(
+        {
+            "cat_feat": pd.Categorical(codes.astype(str), categories=[str(i) for i in range(500)]),
+            "num": rng.standard_normal(n),
+        }
+    )
+    y = df["num"].to_numpy() + rng.standard_normal(n) * 0.1
+    model = cb.CatBoostRegressor(iterations=10, cat_features=["cat_feat"], verbose=False).fit(df, y)
+
+    res = compute_pdp(model, df, feature="cat_feat", sample=2000)
+    assert res["grid"].shape[0] == CATEGORICAL_PDP_MAX_CATEGORIES
+    assert np.all(np.isfinite(res["pdp"]))
+
+
+def test_cap_categorical_labels_keeps_the_most_frequent_ones_in_the_sample():
+    """Unit-level check of the ranking itself: ``compute_pdp``'s own return carries only grid CODES (0..k-1
+    in kept-label order), not the labels, so the frequency-selection logic is verified directly here."""
+    import pandas as pd
+    from mlframe.reporting.charts.pdp_ice import _cap_categorical_labels
+
+    df = pd.DataFrame({"c": pd.Categorical(["rare1", "common", "common", "common", "rare2", "mid", "mid"])})
+    kept = _cap_categorical_labels(df, "c", ["rare1", "common", "mid", "rare2"], max_categories=2)
+    assert kept == ["common", "mid"]
+
+
+def test_cap_categorical_labels_polars_matches_pandas():
+    """polars.DataFrame ALSO defines ``.to_dict()`` (unlike a pandas Series' label->count mapping, it returns
+    {column_name: [values]}) -- an earlier version of this cap checked for that method first and silently
+    misread a polars ``value_counts()`` result as if it were the pandas dict, keeping arbitrary labels instead
+    of the most frequent ones. Same input, both carriers, must rank identically."""
+    pl = pytest.importorskip("polars")
+    from mlframe.reporting.charts.pdp_ice import _cap_categorical_labels
+
+    values = ["rare1", "common", "common", "common", "rare2", "mid", "mid"]
+    df = pl.DataFrame({"c": pl.Series(values, dtype=pl.Categorical)})
+    kept = _cap_categorical_labels(df, "c", ["rare1", "common", "mid", "rare2"], max_categories=2)
+    assert kept == ["common", "mid"]
+
+
 def test_carrier_with_categoricals_drops_list_valued_embedding_column():
     """A pandas object-dtype column holding list elements (e.g. a materialized embedding column) used to make
     ``.astype("category")`` raise ``TypeError: unhashable type: 'numpy.ndarray'`` -- pandas' Categorical factorize
