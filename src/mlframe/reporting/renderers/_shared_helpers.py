@@ -73,8 +73,10 @@ def plotly_axis_suffix(fig: Any, row: int, col: int, n_cols: int) -> str:
         return "" if idx == 1 else str(idx)
 
 
-def truncate_bar_label(label: Any, maxlen: int = _BAR_LABEL_MAXLEN, keep_tail: int = 0) -> str:
-    """Shorten one bar-category label to ``maxlen`` chars.
+def truncate_bar_label(label: Any, maxlen: Optional[int] = None, keep_tail: int = 0) -> str:
+    """Shorten one bar-category label to ``maxlen`` chars (``_BAR_LABEL_MAXLEN`` when ``None`` -- a
+    builder whose combo labels genuinely need more room, e.g. a multi-feature slice description, passes
+    its own wider budget via ``BarPanelSpec.label_maxlen`` rather than everyone sharing one constant).
 
     ``keep_tail`` > 0 switches to a MIDDLE ellipsis, preserving that many trailing characters: for a label
     whose builder appended a payload the panel title refers to, cutting the tail throws away the part the
@@ -84,6 +86,7 @@ def truncate_bar_label(label: Any, maxlen: int = _BAR_LABEL_MAXLEN, keep_tail: i
     differently-labelled charts, and two copies of a truncation rule is exactly the drift this module exists
     to prevent (see the shared threshold constants above).
     """
+    maxlen = maxlen if maxlen is not None else _BAR_LABEL_MAXLEN
     s = str(label)
     if len(s) <= maxlen:
         return s

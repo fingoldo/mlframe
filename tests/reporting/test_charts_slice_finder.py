@@ -80,6 +80,34 @@ def test_spec_shape_and_orientation():
     assert panels[0].orientation == "horizontal"
 
 
+def test_panel_label_maxlen_wide_enough_for_two_feature_combo_names():
+    """The panel's label_maxlen must be wide enough that two combo slices sharing a common feature-name
+    prefix (e.g. job_req_countries_count / job_req_english, both "job_req_...") do NOT truncate to the
+    SAME string -- production symptom: three genuinely different slices all rendered as
+    "hourly_budget_mid [...] & job_req...0..1" at the shared default cap of 60."""
+    from mlframe.reporting.renderers._shared_helpers import truncate_bar_label
+
+    rng = np.random.default_rng(2)
+    n = 3000
+    f0, f1 = rng.random(n), rng.random(n)
+    bad = (f0 > 0.5) & (f1 > 0.5)
+    X = pd.DataFrame({"f0": f0, "f1": f1})
+    res = find_weak_slices(X, np.zeros(n), np.where(bad, 5.0, 1.0), max_arity=2)
+    panel = _flat(res.figure)[0]
+    assert panel.label_maxlen == 110
+
+    label_a = "hourly_budget_mid [3..12.5] & job_req_countries_count [0..1]  (n=5_587, 3x)"
+    label_b = "hourly_budget_mid [3..12.5] & job_req_english [0..1]  (n=5_587, 3x)"
+    truncated_a = truncate_bar_label(label_a, maxlen=panel.label_maxlen, keep_tail=panel.label_keep_tail)
+    truncated_b = truncate_bar_label(label_b, maxlen=panel.label_maxlen, keep_tail=panel.label_keep_tail)
+    assert truncated_a != truncated_b, f"distinct slices collided after truncation: {truncated_a!r}"
+    # At the OLD shared default (60) these two genuinely-different slices DID collide -- pin the failure
+    # mode this fix addresses, not just its absence at the new width.
+    old_default_a = truncate_bar_label(label_a, maxlen=60, keep_tail=panel.label_keep_tail)
+    old_default_b = truncate_bar_label(label_b, maxlen=60, keep_tail=panel.label_keep_tail)
+    assert old_default_a == old_default_b, "fixture assumption broken: the old default no longer collides on this pair"
+
+
 def test_bar_categories_are_worst_first_to_match_title():
     """The horizontal-bar categories must be in worst-first order (matching ``table`` / the worst_slice).
 

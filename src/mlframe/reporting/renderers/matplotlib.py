@@ -644,7 +644,7 @@ class MatplotlibRenderer:
             # category_discriminability both grow the figure 0.5in per bar, so at top_k=40 the axis had room
             # for every label and the renderer still hid twenty of them, leaving twenty unidentifiable bars.
             n_cat = len(p.categories)
-            _cats = [truncate_bar_label(c, keep_tail=p.label_keep_tail) for c in p.categories]
+            _cats = [truncate_bar_label(c, maxlen=p.label_maxlen, keep_tail=p.label_keep_tail) for c in p.categories]
             _keep = _thin_tick_positions(n_cat, ticks_that_fit(_measured_axis_in(ax, horizontal=True), n_cat,
                                                                pitch_in=rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, 0)))
             ax.set_yticks(pos[np.asarray(_keep, dtype=np.int64)])
@@ -661,7 +661,7 @@ class MatplotlibRenderer:
             # ``truncate_bar_label`` exists as a safety valve against. The two thinning constants are the module
             # ones now rather than 25 and 20 written out again, so the same numbers stop living in four places.
             n_cat = len(p.categories)
-            _cats_v = [truncate_bar_label(c, keep_tail=p.label_keep_tail) for c in p.categories]
+            _cats_v = [truncate_bar_label(c, maxlen=p.label_maxlen, keep_tail=p.label_keep_tail) for c in p.categories]
             # Unrotated labels on a horizontal axis sit end to end, so what has to fit is the widest one's
             # WIDTH; rotated ones are parallel lines and clear each other at a line height perpendicular to
             # themselves. Either way the budget comes from the axis's measured length, not the count.

@@ -290,6 +290,13 @@ class BarPanelSpec:
     # append a payload their own title refers to ("... (n=12_345, 2.31x)") set this, so the cap takes the
     # middle of a long name rather than the annotation the reader was told to read.
     label_keep_tail: int = 0
+    # Override the shared truncation budget (default ``_BAR_LABEL_MAXLEN``, 60 chars) for labels that
+    # genuinely need more room -- e.g. a multi-feature slice combo ("feat_a [bound] & feat_b [bound]") can
+    # lose its ENTIRE second feature name to the elided middle at the default cap, and two DIFFERENT
+    # slices whose second feature shares a common prefix (job_req_countries_count / job_req_english, both
+    # "job_req...") then render as the SAME label -- actively misleading a reader into seeing a duplicate.
+    # None keeps the default.
+    label_maxlen: Optional[int] = None
     # Per-point / per-bar tooltip text (plotly only -- matplotlib has no hover layer). This is where a builder
     # attaches the DENOMINATOR behind an aggregate: without it a rate computed from 3 rows renders identically to
     # one from 300k, and the count is usually already in hand at the point the bar is built.

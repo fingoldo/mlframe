@@ -730,7 +730,7 @@ class PlotlyRenderer:
             # The bars stay one per category; only the labels subsample.
             # Truncation here; the SUBSAMPLING runs after the layout is final (``_bar_tick_budget``), because
             # the axis length it has to fit into is not known while panels are being drawn.
-            fig.update_yaxes(tickmode="array", tickvals=list(cats), ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats], row=row, col=col)
+            fig.update_yaxes(tickmode="array", tickvals=list(cats), ticktext=[_truncate_label(c, maxlen=p.label_maxlen, keep_tail=p.label_keep_tail) for c in cats], row=row, col=col)
             fig.update_yaxes(autorange="reversed", row=row, col=col)
             # ``xlabel`` names the VALUE and ``ylabel`` the CATEGORY, whatever the orientation -- that is what
             # every horizontal-bar builder in charts/ passes ("ECE (lower = better calibrated)" / "subgroup",
@@ -747,12 +747,12 @@ class PlotlyRenderer:
             if n_cat > _BAR_XTICK_THIN_THRESHOLD:
                 fig.update_xaxes(tickmode="array",
                                  tickvals=list(cats),
-                                 ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats],
+                                 ticktext=[_truncate_label(c, maxlen=p.label_maxlen, keep_tail=p.label_keep_tail) for c in cats],
                                  tickangle=tickangle if p.xtick_rotation else -45,
                                  row=row, col=col, title_text=p.xlabel, showgrid=False)
             elif needs_trunc:
                 fig.update_xaxes(tickmode="array", tickvals=cats,
-                                 ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats],
+                                 ticktext=[_truncate_label(c, maxlen=p.label_maxlen, keep_tail=p.label_keep_tail) for c in cats],
                                  tickangle=tickangle if p.xtick_rotation else -30,
                                  row=row, col=col, title_text=p.xlabel, showgrid=False)
             else:

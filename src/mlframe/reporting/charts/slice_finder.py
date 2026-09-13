@@ -519,6 +519,13 @@ def find_weak_slices(
         # The title tells the reader the label carries "(n=..., ratio)"; a head-preserving cut deletes exactly
         # that on a two-feature slice, whose bounds string alone runs past the cap.
         label_keep_tail=20,
+        # The shared 60-char default left barely any room for a two-feature combo's SECOND feature name
+        # before the "(n=..., ratio)" tail -- a common prefix shared by several columns (job_req_countries_
+        # count / job_req_english / job_req_local_market, all "job_req_...") then landed entirely in the
+        # elided middle, so multiple genuinely DIFFERENT slices rendered the identical truncated label
+        # (observed live: three distinct rows all reading "hourly_budget_mid [...] & job_req...0..1"). 110
+        # gives a typical two-feature combo enough room to keep each feature's distinguishing prefix.
+        label_maxlen=110,
         colors=("crimson",),
         value_err=(err_lo, err_hi),
         hline=(global_error, "black", f"global = {global_error:.3g}"),
