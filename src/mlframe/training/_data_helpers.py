@@ -912,9 +912,29 @@ def _build_cb_iteration_metrics_callback(fit_params, model_obj, stride):
         return None
 
 
+def _cb_is_gpu(model_obj) -> bool:
+    """True when ``model_obj`` is a CatBoost estimator configured for GPU training.
+
+    CatBoost rejects ANY ``callbacks=`` list on GPU ("User defined callbacks are not supported for GPU") --
+    every GPU CatBoost fit therefore used to attempt the CatBoostCallback/CBMonotonicDeclineStop wiring
+    below, fail with a CatBoostError on the first attempt, and get silently retried without callbacks by
+    ``_train_model_with_fallback``'s reactive fallback. That fallback still has to exist (a caller-supplied
+    ``task_type`` can arrive by other paths this probe does not see), but checking here avoids paying for the
+    guaranteed-to-fail first Pool build + fit attempt on the common path.
+    """
+    if model_obj is None:
+        return False
+    try:
+        return str(model_obj.get_params().get("task_type", "")).upper() == "GPU"
+    except Exception:  # nosec B110 -- best-effort probe; an unreadable task_type just keeps the callback path
+        return False
+
+
 def _setup_early_stopping_callback(model_category, fit_params, callback_params, model_obj=None):
     """Set up early stopping callback for the given model category."""
     no_callback_list_models = {"xgb", "hgb", "ngb"}
+    if model_category == "cb" and _cb_is_gpu(model_obj):
+        no_callback_list_models = no_callback_list_models | {"cb"}
 
     if model_category not in no_callback_list_models:
         if "callbacks" not in fit_params:
@@ -944,11 +964,13 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
         _cap_iter = bool(callback_params.pop("capture_iteration_metrics"))
         _iter_stride = int(callback_params.pop("iteration_metrics_stride", 1))
 
-    es_callback: LightGBMCallback | CatBoostCallback | XGBoostCallback
+    # None on a GPU CatBoost model (no callback wired at all -- CatBoost rejects the whole list on GPU), or
+    # any other category the if/elif chain below does not recognise; guarded at the bottom before use.
+    es_callback: LightGBMCallback | CatBoostCallback | XGBoostCallback | None = None
     if model_category == "lgb":
         es_callback = LightGBMCallback(**callback_params)
         fit_params["callbacks"].append(es_callback)
-    elif model_category == "cb":
+    elif model_category == "cb" and not _cb_is_gpu(model_obj):
         es_callback = CatBoostCallback(**callback_params)
         fit_params["callbacks"].append(es_callback)
         # Monotonic strict-decline stop for CatBoost (default-on) -- same shared rule as lgb / xgb / mlp.
@@ -972,7 +994,7 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
         callbacks = [cb for cb in existing_callbacks if isinstance(cb, XGBTrainingCallback) and not isinstance(cb, XGBoostCallback)]
         callbacks.append(es_callback)
         model_obj.set_params(callbacks=callbacks)
-    if model_obj is not None:
+    if model_obj is not None and es_callback is not None:
         # Expose the per-iteration trajectory on the estimator for the run metadata. The containers are bound
         # BY REFERENCE at wiring time (the same idiom ``_build_cb_iteration_metrics_callback`` uses for
         # ``iteration_metrics_``) so they fill during fit with no post-fit harvest step. Recorded regardless

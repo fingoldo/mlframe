@@ -789,6 +789,27 @@ class TestSetupEarlyStoppingCallback:
         assert isinstance(fit_params_cb2["callbacks"][0], CatBoostCallback)
         assert fit_params_cb2["callbacks"][0] is not first_cb_callback
 
+    def test_gpu_catboost_gets_no_callbacks_wired(self):
+        """CatBoost rejects ANY ``callbacks=`` list on GPU ("User defined callbacks are not supported for
+        GPU"). Every GPU fit used to attempt the wiring below anyway, fail with a CatBoostError on the first
+        try (caught by ``_train_model_with_fallback``'s reactive fallback, which strips callbacks and
+        retries), wasting a full Pool build + fit attempt on every single GPU CatBoost fit. Proactively
+        skipping the wiring when the model is configured for GPU avoids that guaranteed-to-fail first try."""
+        cb = pytest.importorskip("catboost")
+        from mlframe.training.trainer import _setup_early_stopping_callback
+
+        model_gpu = cb.CatBoostClassifier(task_type="GPU", iterations=10)
+        fit_params = {}
+        _setup_early_stopping_callback("cb", fit_params, {"time_budget_mins": 60, "patience": 10}, model_gpu)
+        assert "callbacks" not in fit_params or not fit_params["callbacks"]
+        assert not hasattr(model_gpu, "_mlframe_es_callback")
+
+        # A CPU model in the same call still gets both callbacks wired -- the skip is GPU-specific.
+        model_cpu = cb.CatBoostClassifier(iterations=10)
+        fit_params_cpu = {}
+        _setup_early_stopping_callback("cb", fit_params_cpu, {"time_budget_mins": 60, "patience": 10}, model_cpu)
+        assert len(fit_params_cpu["callbacks"]) == 2
+
 
 # =============================================================================
 # Tests for _is_fitted helper function
