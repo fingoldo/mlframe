@@ -78,9 +78,14 @@ def _cmi_xy_given_z_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray, K_x: int, 
 
 
 @njit(nogil=True, cache=True)
-def _joint_cmi_xy_given_zw_njit(x: np.ndarray, y: np.ndarray, z1: np.ndarray, z2: np.ndarray, K_x: int, K_y: int, K_z1: int, K_z2: int) -> float:
-    """I(X; Y | Z_1, Z_2) via plug-in on composite (Z_1, Z_2). Treats the
-    pair (Z_1, Z_2) as a single conditioning variable of size K_z1*K_z2."""
+def _joint_mi_x_zw_given_y_njit(x: np.ndarray, z1: np.ndarray, z2: np.ndarray, y: np.ndarray, K_x: int, K_z1: int, K_z2: int, K_y: int) -> float:
+    """I(X; (Z_1, Z_2) | Y) via plug-in on composite (Z_1, Z_2).
+
+    The composite pair is the SECOND variable of the mutual information, with ``Y`` as the conditioning
+    variable -- the orientation the co-information decomposition in :func:`relaxmrmr_3d_score` needs. The
+    previous helper here built the same composite but placed it in the CONDITIONING slot, yielding
+    ``I(X; Y | Z_1, Z_2)``: a different quantity that cannot be substituted for this one.
+    """
     n = x.shape[0]
     if n <= 0:
         return 0.0
@@ -88,7 +93,7 @@ def _joint_cmi_xy_given_zw_njit(x: np.ndarray, y: np.ndarray, z1: np.ndarray, z2
     z_comp = np.empty(n, dtype=np.int64)
     for i in range(n):
         z_comp[i] = int(z1[i]) * K_z2 + int(z2[i])
-    return float(_cmi_xy_given_z_njit(x, y, z_comp, K_x, K_y, K_zz))
+    return float(_cmi_xy_given_z_njit(x, z_comp, y, K_x, K_zz, K_y))
 
 
 @njit(nogil=True, cache=True)
@@ -184,7 +189,9 @@ def relax_mrmr_score(
         K_z = K_sel[j]
         marg_mi[j] = _mi_pair_njit(x_int, sel_int[j], K_x, K_z)
         pair_red += marg_mi[j]
-        cmi_given_y[j] = _cmi_xy_given_z_njit(x_int, y_int, sel_int[j], K_x, K_y, K_z)
+        # I(X; X_j | Y) -- X_j is the SECOND variable, Y conditions. Passing Y second and X_j third would
+        # compute I(X; Y | X_j), a different quantity (the variable's own comment above names the intended one).
+        cmi_given_y[j] = _cmi_xy_given_z_njit(x_int, sel_int[j], y_int, K_x, K_z, K_y)
     pair_red /= float(n_S)
     # 3-way interaction-information correction: alpha / C(|S|,2) * sum_{i<j} II(X; Z_i; Z_j),
     # where II = I(X; Z_i; Z_j | Y) - I(X; Z_i; Z_j) and each co-information is decomposed as
@@ -202,7 +209,7 @@ def relax_mrmr_score(
                 col_j = sel_int[j]
                 K_i = K_sel[i]
                 K_j = K_sel[j]
-                cmi_ij = _joint_cmi_xy_given_zw_njit(x_int, y_int, col_i, col_j, K_x, K_y, K_i, K_j)
+                cmi_ij = _joint_mi_x_zw_given_y_njit(x_int, col_i, col_j, y_int, K_x, K_i, K_j, K_y)
                 co_cond = cmi_given_y[i] + cmi_given_y[j] - cmi_ij
                 mi_x_zz = _mi_x_pair_njit(x_int, col_i, col_j, K_x, K_i, K_j)
                 co_uncond = marg_mi[i] + marg_mi[j] - mi_x_zz

@@ -397,6 +397,8 @@ def compute_pair_maxt_floor(
     ``fe_pair_maxt_min_pairs`` candidate pairs the floor is 0.0 (no-op => byte-identical narrow pools). ``fe_pair_maxt_null_permutations=0`` disables.
     """
     _pair_maxt_floor: float | None = 0.0
+    # Reset per call: a stale True from an earlier FE step would otherwise mark this step's floor as failed.
+    self._pair_maxt_floor_failed_ = False
     # MM-DEBIAS (2026-06-09, IRON RULE): per-pair Miller-Madow joint-MI bias
     # (sorted-index tuple -> bias). Subtracted from BOTH the floor's per-shuffle joint MIs
     # (inside the null kernel) AND the observed ``pair_mi`` at the gate-floor comparison,
@@ -461,9 +463,16 @@ def compute_pair_maxt_floor(
                 )
                 try:
                     trip_pair_maxt_gpu_circuit_breaker()
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
+                except Exception as e:
+                    # The breaker's whole job is to make the fault above recoverable: without it every later
+                    # pair re-faults the same poisoned CUDA context and re-enters this handler, which is how a
+                    # ~1h CPU floor went invisible once already. A failure to ARM it must not be quieter than
+                    # the fault it guards against.
+                    logger.warning(
+                        "MRMR FE: failed to trip the pair-maxT GPU circuit breaker (%s: %s); every later pair "
+                        "will re-fault the poisoned CUDA context instead of skipping straight to the CPU floor.",
+                        type(e).__name__, e,
+                    )
                 _pair_maxt_floor = None
             if _pair_maxt_floor is None:
                 _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor(
@@ -489,12 +498,19 @@ def compute_pair_maxt_floor(
                     _pair_maxt_perms, _mm_debias,
                 )
         except Exception:
+            # 0.0 is ALSO the deliberate self-gating no-op value (see the docstring: narrow pools floor at
+            # 0.0 to stay byte-identical), so a failure that substitutes 0.0 is indistinguishable in the DATA
+            # from "the floor was intentionally not applied". Keep the permissive degradation -- a failed
+            # floor must not kill the fit -- but record the failure on the estimator so a caller, a
+            # diagnostic or a test can tell the two apart afterwards, and say in the log what is now OFF.
             logger.warning(
-                "MRMR FE: order-2 maxT permutation-null floor failed; continuing without it.",
+                "MRMR FE: order-2 maxT permutation-null floor failed; best-of-p chance-max noise-pair "
+                "rejection is DISABLED for this FE step (floor=0.0, same value as the deliberate no-op).",
                 exc_info=True,
             )
             _pair_maxt_floor = 0.0
             _pair_mm_bias = {}
+            self._pair_maxt_floor_failed_ = True
     assert _pair_maxt_floor is not None  # resolved to a float by the None-check branch above, or reset to 0.0 in the except handler
     return _pair_maxt_floor, _pair_mm_bias
 

@@ -553,10 +553,17 @@ def _assign_support_tail(
                 # at EVERY n - never re-attach them here (the marginal-MI token match cannot tell
                 # a fully-subsumed operand from a genuine independent term; the excess-CMI sweep can).
                 _redund_dropped_names = set(getattr(self, "_raw_redundancy_dropped_", None) or ())
+                # The caller's pinned search space (``factors_names_to_use`` / ``factors_to_use``) is enforced
+                # at the single chokepoint before support_ is frozen, precisely because re-add passes like
+                # this one run AFTER it. Every sibling re-add re-checks it explicitly; this one did not, so a
+                # raw column the caller excluded re-entered support_ whenever its name appeared as a source
+                # token of a confirmed recipe and its marginal MI cleared the floor -- and the fit is cached
+                # and replayed, so the leak persisted.
                 _to_add = [i for i, _name, m in sorted(_raw_mi_aug, key=lambda kv: (-kv[2], kv[0]))
                            if m > _floor_aug and i not in _selected_set and _name in _eng_tokens
                            and _name not in _aug_excluded_names
                            and _name not in _redund_dropped_names
+                           and (_allowed_raw_idx is None or int(i) in _allowed_raw_idx)
                            and not (_aug_large_n and _name in _surviving_eng_operands)]
                 if _to_add:
                     selected_vars.extend(_to_add)

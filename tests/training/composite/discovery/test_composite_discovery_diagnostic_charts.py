@@ -76,12 +76,21 @@ def test_inv44_discovery_renders_winning_spec_diagnostics_on_disk(tmp_path):
     saved = metadata.get("composite_target_diagnostic_charts", {}).get(str(TargetTypes.REGRESSION), {}).get("TVT", [])
     assert saved, "INV-44: no diagnostic chart paths stamped into metadata when save_charts=True"
 
-    mi_gain_pngs = glob.glob(os.path.join(data_dir, "composite_*_mi_gain.png"))
-    tdist_pngs = glob.glob(os.path.join(data_dir, "composite_*_tdist_*.png"))
-    assert mi_gain_pngs, f"INV-44: MI-gain diagnostic PNG not written under {data_dir}"
-    assert tdist_pngs, f"INV-44: target-distribution diagnostic PNG not written under {data_dir}"
+    # Composite diagnostics live in the run's chart tree under the target they describe, the same
+    # ``<data_dir>/charts/<target>/...`` shape every other chart type uses. They previously landed flat in
+    # ``data_dir`` as ``composite_<target>_<suffix>.png``, which dumped every target's charts into the run
+    # root beside the data artifacts.
+    mi_gain_pngs = glob.glob(os.path.join(data_dir, "charts", "*", "composite_discovery", "mi_gain.png"))
+    tdist_pngs = glob.glob(os.path.join(data_dir, "charts", "*", "composite_discovery", "tdist_*.png"))
+    assert mi_gain_pngs, f"INV-44: MI-gain diagnostic PNG not written under {data_dir}/charts/<target>/composite_discovery"
+    assert tdist_pngs, f"INV-44: target-distribution diagnostic PNG not written under {data_dir}/charts/<target>/composite_discovery"
     for _p in mi_gain_pngs + tdist_pngs:
         assert os.path.getsize(_p) > 0, f"INV-44: diagnostic PNG {_p} is empty"
+    # Nothing composite-shaped may be left loose in the run root any more.
+    assert not glob.glob(os.path.join(data_dir, "composite_*.png")), "composite charts still landing flat in data_dir"
+    # The metadata paths must point at the files that actually exist, not at the old flat names.
+    for _p in saved:
+        assert os.path.exists(_p), f"metadata records a chart path that was never written: {_p}"
 
 
 def test_inv44_no_charts_when_save_charts_false(tmp_path):

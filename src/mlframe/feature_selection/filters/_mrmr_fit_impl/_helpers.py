@@ -284,7 +284,22 @@ def _build_stability_replay_state(
 
     t_idx = int(np.asarray(target_indices).ravel()[0])
     cols = list(cols)
-    sel_set = set(int(v) for v in np.asarray(selected_vars, dtype=np.intp).ravel())
+    _col_of_name = {str(nm): c for c, nm in enumerate(cols)}
+
+    # ``selected_vars`` arrives in feature_names_in_ INDEX SPACE (the fit body rebinds it to
+    # ``original_indices`` before _assign_support runs), while ``cols`` is categorize_dataset's output: it
+    # carries the injected target column, every engineered column, and a categorical-first reorder. Indexing
+    # one with the other silently named the wrong columns in ``selection_stability_report`` -- it does not
+    # raise, it returns a plausible table. Translate through NAMES instead, which is the only space both
+    # sides agree on. Engineered selections live in ``_engineered_features_`` (they are absent from
+    # feature_names_in_ entirely, so the old index set could never have contained them either).
+    _selected_names: list[str] = []
+    _fni = getattr(self, "feature_names_in_", None)
+    if _fni is not None:
+        _fni = np.asarray(_fni)
+        _selected_names.extend(str(_fni[int(v)]) for v in np.asarray(selected_vars, dtype=np.intp).ravel() if 0 <= int(v) < _fni.shape[0])
+    _selected_names.extend(str(nm) for nm in (getattr(self, "_engineered_features_", None) or []))
+    sel_set = {_col_of_name[nm] for nm in _selected_names if nm in _col_of_name}
 
     cand_cols = [c for c in range(n_cols) if c != t_idx]
     cand_names = [str(cols[c]) for c in cand_cols]
@@ -302,7 +317,7 @@ def _build_stability_replay_state(
     # Per-recipe frozen bin codes for the unary_binary survival replay. ``data``
     # already carries every engineered column the screen scored, keyed by name in
     # ``cols``; the recipe's source operands are likewise present (raw or nested).
-    name_to_col = {str(nm): c for c, nm in enumerate(cols)}
+    name_to_col = _col_of_name  # same map the selection translation above already built
     _recipes = engineered_recipes or {}
     if isinstance(_recipes, (list, tuple)):
         _recipes = {getattr(r, "name", str(i)): r for i, r in enumerate(_recipes)}

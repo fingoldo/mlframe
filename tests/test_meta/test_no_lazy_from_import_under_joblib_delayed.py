@@ -122,10 +122,12 @@ def test_no_lazy_from_imports_inside_joblib_delayed_callees():
             all_violations.append((rel, callee, lineno, line))
     if all_violations:
         msg_lines = [
-            "E1.1 (2026-05-22) joblib-delayed callees must NOT carry ``from X import name`` "
-            "inside their body -- two threads racing on a partial-init module leave the "
-            "local binding unset and produce silent NameErrors (TVT-2026-05-21 root cause). "
-            "Hoist to module top, or add ``# joblib-import-race-ok`` to the line.",
+            (
+                "E1.1 (2026-05-22) joblib-delayed callees must NOT carry ``from X import name`` "
+                "inside their body -- two threads racing on a partial-init module leave the "
+                "local binding unset and produce silent NameErrors (TVT-2026-05-21 root cause). "
+                "Hoist to module top, or add ``# joblib-import-race-ok`` to the line."
+            ),
             "Violations:",
         ]
         for path, callee, ln, line in all_violations:

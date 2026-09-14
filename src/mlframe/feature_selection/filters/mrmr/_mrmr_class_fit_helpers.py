@@ -222,6 +222,16 @@ class _MRMRFitHelpersMixin:
         method = getattr(self, "stability_selection_method", "classic")
         if method == "classic":
             return None  # fall through to legacy fit
+
+        # ``sample_weight`` is consumed at the wrapper level by ``_maybe_resample_for_sample_weight``, but that
+        # call sits AFTER this branch in ``fit`` -- so every non-classic method returned before it ran and
+        # selected on unweighted data with no warning at any level. Apply the same resampling here, once,
+        # before the bootstrap loop: each replicate then draws its rows from the weight-resampled frame and
+        # the inner selector needs no weight plumbing at all. Uniform / absent weights return the inputs
+        # unchanged, so the unweighted path stays byte-identical.
+        _sw = fit_kwargs.get("sample_weight")
+        if _sw is not None:
+            X, y = self._maybe_resample_for_sample_weight(X, y, _sw)
         from .._stability_cluster import (
             cluster_stability_selection,
             complementary_pairs_stability,

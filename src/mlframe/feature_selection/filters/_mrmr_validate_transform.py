@@ -302,6 +302,31 @@ def _validate_inputs(self, X, y):
     return X
 
 
+def _identity_fastpath_is_safe(self, X) -> bool:
+    """True when returning ``X`` unchanged is genuinely the identity for THIS fitted selector.
+
+    Only meaningful for named frames (pandas / polars): a matching column COUNT says nothing about whether
+    the columns are the same ones, in the same order. An ndarray carries no names, and its width was already
+    checked against ``n_features_in_`` by the caller, so it stays eligible.
+    """
+    _fitted_names = getattr(self, "feature_names_in_", None)
+    if _fitted_names is None:
+        return True
+    try:
+        if pd is not None and isinstance(X, pd.DataFrame):
+            _incoming = list(X.columns)
+        elif hasattr(X, "schema"):  # polars DataFrame / LazyFrame
+            _incoming = list(X.schema.keys()) if hasattr(X.schema, "keys") else list(X.columns)
+        else:
+            return True  # unnamed container: the width check upstream is the only available signal
+        return [str(c) for c in _incoming] == [str(c) for c in _fitted_names]
+    except Exception:
+        # Never let an exotic container make transform() silently permissive: fall through to the slow path,
+        # which validates names explicitly and raises an actionable error.
+        logger.debug("MRMR.transform: identity fast-path safety probe failed; using the full path.", exc_info=True)
+        return False
+
+
 def transform(self, X, y=None):
     """Apply the fitted MRMR selection + engineered-recipe replay to ``X``.
 
@@ -352,13 +377,20 @@ def transform(self, X, y=None):
     # Fast-path: when MRMR selected every input column AND produced zero engineered recipes, transform()
     # is the identity. Return X unchanged to avoid a full-copy X[selected_cols] and to let the caller detect
     # the no-op (checked via ``_mlframe_identity_equivalent`` downstream).
+    #
+    # A COUNT match is not enough to prove identity on a NAMED frame. The bare width check above is
+    # deliberately skipped for named frames so the actionable column-name RuntimeError below can fire -- but
+    # this fast-path returns before that check ever runs, so a same-width frame with different or merely
+    # REORDERED columns was being handed back unchanged, every column silently mis-mapped downstream (and the
+    # returned order disagreeing with ``get_feature_names_out()``). Require exact name-and-order equality for
+    # named frames; anything else falls through to the normal path, which reorders correctly or raises.
     if not recipes and hasattr(X, "shape"):
         _support_arr = np.asarray(support)
         if len(_support_arr) > 0 and isinstance(_support_arr.flat[0], (bool, np.bool_)):
             _n_selected = int(np.count_nonzero(_support_arr))
         else:
             _n_selected = len(_support_arr)
-        if _n_selected == X.shape[1]:
+        if _n_selected == X.shape[1] and _identity_fastpath_is_safe(self, X):
             return X
 
     # Empty-base-support: if no base AND no engineered recipes, return legacy empty output. Recipes but no

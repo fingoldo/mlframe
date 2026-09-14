@@ -23,30 +23,39 @@ def _render_composite_discovery_diagnostics(
     t_by_spec: Dict[str, np.ndarray],
     specs_export: List[dict],
 ) -> List[str]:
-    """Render the winning-spec target-distribution + MI-gain diagnostics under ``data_dir``.
+    """Render the winning-spec target-distribution + MI-gain diagnostics into the run's chart tree.
 
     One ``plot_mi_gain_with_jitter`` per raw target (ranks the accepted specs), plus one
     ``plot_target_distribution`` per accepted spec (y-vs-T shape sanity-check). Both are small
     per-spec diagnostics; the helpers already subsample huge inputs internally. Returns the saved
     paths so the caller can stamp them into ``metadata`` for the chart-summary log.
+
+    Layout: ``<data_dir>/charts/<target>/composite_discovery/``, matching the ``<data_dir>/charts/<target>/...``
+    convention every other chart type follows via ``_setup_model_directories``. These used to land flat in
+    ``data_dir`` as ``composite_<target>_<suffix>.png``, so a multi-target run dumped every composite chart
+    into the run root alongside the data artifacts instead of grouping them per target under ``charts/``.
+    Discovery runs before any model exists, hence a ``composite_discovery`` leaf rather than the per-model
+    ``<model>/<target_type>/<cur_target>`` tail the trained-model charts use.
     """
     import os
 
     import matplotlib.pyplot as plt
+    from pyutilz.strings import slugify
 
     from ..composite.diagnostics import plot_mi_gain_with_jitter, plot_target_distribution
 
     saved: List[str] = []
-    _safe_target = "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(raw_target_name))
+    _chart_dir = os.path.join(str(data_dir), "charts", slugify(str(raw_target_name)), "composite_discovery")
     try:
-        os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(_chart_dir, exist_ok=True)
     except OSError as _mk_err:
         logger.info("[CompositeTargetDiscovery] chart dir create failed (%s); diagnostics skipped.", _mk_err)
         return saved
 
     def _save(fig, suffix: str) -> None:
-        """Save ``fig`` under a target-scoped filename, record the path in ``saved``, and always close the figure afterward to avoid leaking matplotlib figure objects across repeated discovery calls."""
-        path = os.path.join(data_dir, f"composite_{_safe_target}_{suffix}.png")
+        """Save ``fig`` into the target's chart dir, record the path in ``saved``, and always close the figure afterward to avoid leaking matplotlib figure objects across repeated discovery calls."""
+        # The directory already scopes the target, so the filename no longer repeats it.
+        path = os.path.join(_chart_dir, f"{suffix}.png")
         try:
             fig.savefig(path, dpi=110, bbox_inches="tight")
             saved.append(path)

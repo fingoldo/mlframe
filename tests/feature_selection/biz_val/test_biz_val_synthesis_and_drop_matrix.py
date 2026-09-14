@@ -168,10 +168,12 @@ _SYNTH_FAMILIES = [
         lambda X, r: ((np.floor(X[:, 0] * 3).astype(int)) % 2).astype(float),
         0.5,
         0.10,
-        "FS GAP: the pairwise-modular operator is integer-only (a+b mod m / hidden integer period); this single CONTINUOUS "
-        "column's floor-then-parity is not covered -- binning a continuous column before mod is deliberately not generated "
-        "(it would re-introduce the FP-explosion the integer-only eligibility prevents), and real tabular parity-of-a-binned-"
-        "continuous structure is almost always an already-encoded categorical. Smooth bases still cannot fit the sawtooth.",
+        (
+            "FS GAP: the pairwise-modular operator is integer-only (a+b mod m / hidden integer period); this single CONTINUOUS "
+            "column's floor-then-parity is not covered -- binning a continuous column before mod is deliberately not generated "
+            "(it would re-introduce the FP-explosion the integer-only eligibility prevents), and real tabular parity-of-a-binned-"
+            "continuous structure is almost always an already-encoded categorical. Smooth bases still cannot fit the sawtooth."
+        ),
     ),
 ]
 

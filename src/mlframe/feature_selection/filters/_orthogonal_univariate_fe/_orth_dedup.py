@@ -183,6 +183,28 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     return np.asarray(cp.asnumpy(corr))
 
 
+def _row_center_finite(A: np.ndarray) -> np.ndarray:
+    """Subtract each row's own finite mean, so the three backends' ``Sxx - Sx*Sx/n`` variance stays conditioned.
+
+    Pearson r is translation-invariant, so shifting a row by ANY constant leaves the true correlation exactly
+    unchanged -- but the raw-power-sum form all three backends use (``var = E[x**2] - E[x]**2`` at k=2) loses
+    catastrophic precision when a column's offset dwarfs its spread. A price-like column centred at 8.5e3 with
+    spread 0.05 drives ``varx`` to numerical garbage, it trips this file's own ``var <= 1e-24`` guard, the entry
+    becomes ``nan``, and ``nan`` means "not a duplicate" here -- so genuinely collinear engineered columns
+    survive dedup. Centring first is the cheap exact fix (one O(q*n) pass against six matmuls).
+
+    The mean is taken in float64 for accuracy, then cast back so the cupy backend's documented caller-dtype
+    passthrough is unaffected. All-NaN rows yield a NaN mean and stay all-NaN; they are excluded downstream by
+    the ``n < 8`` common-row guard either way.
+    """
+    finite = np.isfinite(A)
+    counts = finite.sum(axis=1, keepdims=True)
+    sums = np.where(finite, np.asarray(A, dtype=np.float64), 0.0).sum(axis=1, keepdims=True)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        means = np.where(counts > 0, sums / np.maximum(counts, 1), 0.0)
+    return np.asarray(np.asarray(A, dtype=np.float64) - means, dtype=A.dtype)
+
+
 def _pairwise_complete_abs_corr(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     """``|Pearson r|`` between every row of ``Q`` and every row of ``R`` over PAIRWISE-COMPLETE (both-finite) rows,
     vectorized instead of a Python per-pair ``np.corrcoef`` loop. ``Q``/``R``: ``(q, n)`` / ``(r, n)`` float64 with
@@ -192,6 +214,10 @@ def _pairwise_complete_abs_corr(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     force-selectable via ``MLFRAME_FE_DEDUP_CORR_BACKEND=cupy|njit|numpy`` and consulted per-host via the kernel tuning
     cache. numpy is the default because (a) njit measured slower everywhere and (b) cupy's solo win is eroded under the
     FE pipeline's joblib-worker GPU contention (same lesson as ``lookup_mi_classif_backend``). cupy OOM -> numpy."""
+    # Centre ONCE here rather than in each backend: all three share the raw-power-sum variance form and would
+    # otherwise each need the same fix (and could drift apart). See ``_row_center_finite``.
+    Q = _row_center_finite(Q)
+    R = _row_center_finite(R)
     backend = _resolve_pc_backend(Q.shape[0], R.shape[0], Q.shape[1])
     if backend == "njit":
         return np.asarray(_pc_corr_njit(np.ascontiguousarray(Q, dtype=np.float64), np.ascontiguousarray(R, dtype=np.float64)))
