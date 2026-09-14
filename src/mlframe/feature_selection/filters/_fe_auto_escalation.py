@@ -560,6 +560,28 @@ def find_underdelivering_pairs(
     return out
 
 
+def _slice_admitted_pool(admitted_pool: dict, idx, classes_y_sub, nbins: int) -> dict:
+    """Restrict the admitted-support pool ``{name: (values, marginal_mi)}`` to the escalation row subsample ``idx``.
+
+    The marginals are re-estimated on the subsample with the estimator the escalation survivors use (``_quantile_bin`` +
+    ``_cmi_from_binned`` against the densified subsample target). The caller computed them on the full frame, and plug-in MI is biased
+    upward by roughly (k_x - 1)(k_y - 1) / 2n: kept as-is next to subsample-estimated survivor MIs in one redundancy-gate pool, they make
+    the admitted support look weaker than the candidates and set the gate's bar from the wrong scale, in the direction that admits more.
+    """
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
+
+    y_sub = np.asarray(classes_y_sub)
+    if not np.issubdtype(y_sub.dtype, np.integer):
+        y_sub = y_sub.astype(np.int64)
+    _, y_dense = np.unique(y_sub, return_inverse=True)
+    y_dense = y_dense.astype(np.int64)
+    out: dict = {}
+    for name, (values, _full_frame_marginal) in admitted_pool.items():
+        sliced = np.asarray(values)[idx]
+        out[name] = (sliced, float(_cmi_from_binned(_quantile_bin(np.asarray(sliced, dtype=np.float64), nbins=nbins), y_dense, None)))
+    return out
+
+
 def run_fe_auto_escalation(
     self: Any,
     *,
@@ -646,7 +668,7 @@ def run_fe_auto_escalation(
         if capture_vals:
             capture_vals = {k: np.asarray(v)[_esc_idx] for k, v in capture_vals.items()}
         if admitted_pool:
-            admitted_pool = {k: (np.asarray(v)[_esc_idx], m) for k, (v, m) in (admitted_pool or {}).items()}
+            admitted_pool = _slice_admitted_pool(admitted_pool, _esc_idx, classes_y, nbins)
         if _y_rank_eff is not None and np.asarray(_y_rank_eff).shape[0] == n_rows:
             _y_rank_eff = np.asarray(_y_rank_eff)[_esc_idx]
         n_rows = int(_esc_ss_n)
