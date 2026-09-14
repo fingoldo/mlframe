@@ -73,6 +73,7 @@ class TestNamingPolicy:
     def test_two_backends_writing_the_same_format_uses_backend_in_filename(self, trivial_spec, tmp_path):
         """The one real collision: two backends both asked to write the SAME format. The extension
         alone can't tell the files apart here, so the backend name is restored for just this case."""
+        pytest.importorskip("kaleido")  # plotly[png] needs a real PNG export; not in CI [all,dev] extras
         out = parse_plot_output_dsl("plotly[png] + matplotlib[png]")
         base = str(tmp_path / "plot")
         render_and_save(trivial_spec, out, base)
