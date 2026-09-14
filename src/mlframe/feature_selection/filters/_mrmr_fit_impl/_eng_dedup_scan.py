@@ -12,6 +12,11 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+from .._fe_frame_ops import FE_EAGER_MATERIALIZE_MAX_BYTES
+
+# Byte budget for the dedup rank buffer. Module-level so a test can shrink it; read at call time.
+_RANK_BUF_MAX_BYTES = FE_EAGER_MATERIALIZE_MAX_BYTES
+
 
 def scan_engineered_duplicates(
     X: pd.DataFrame,
@@ -42,9 +47,38 @@ def scan_engineered_duplicates(
     # candidate (O(K^2 * n) total memcpy, the SAME order as the corrcoef calls it replaces - measured
     # a NET LOSS). This buffer is written ONCE per fully-finite column (when first admitted) and never
     # copied again; the kernel takes a zero-copy VIEW of it plus a boolean "still live" mask.
-    _eng_rank_buf = np.empty((len(_eng_cols_appended), len(X)), dtype=np.float64)
+    # The buffer is allocated LAZILY and grown geometrically, bounded by ``_RANK_BUF_MAX_BYTES``. It used to be a
+    # K x n float64 ``np.empty`` at function entry, sized by the TOTAL appended-column count before any column was
+    # inspected: 3.2 GB at the ~200-column / n=2M case this module cites, 160 GB at n=100M -- and on Windows
+    # ``np.empty`` commits pages against the paging file (the documented WinError 1455 failure). Rows are only ever
+    # written for fully-finite ADMITTED columns, so most of that allocation was never touched. A column that cannot
+    # fit under the budget just gets no buffer row, and the per-pair path below already compares every kept column
+    # without one -- so keep/drop is unchanged, only the batching coverage shrinks.
+    _eng_rank_buf: np.ndarray | None = None
+    _eng_rank_cap = 0
     _eng_row_of: dict[str, int] = {}
     _eng_next_free_row = 0
+    _n_rows = len(X)
+    _eng_rank_hard_cap = len(_eng_cols_appended) if _n_rows == 0 else min(len(_eng_cols_appended), int(_RANK_BUF_MAX_BYTES) // (8 * _n_rows))
+
+    def _store_rank_row(ranks: np.ndarray) -> int | None:
+        """Append ``ranks`` as the next buffer row, growing within budget; ``None`` when the budget is exhausted."""
+        nonlocal _eng_rank_buf, _eng_rank_cap, _eng_next_free_row
+        if _eng_next_free_row >= _eng_rank_hard_cap:
+            return None
+        _buf = _eng_rank_buf
+        if _buf is None or _eng_next_free_row == _eng_rank_cap:
+            _new_cap = min(_eng_rank_hard_cap, max(4, _eng_rank_cap * 2))
+            _grown = np.empty((_new_cap, _n_rows), dtype=np.float64)
+            if _buf is not None and _eng_next_free_row:
+                _grown[:_eng_next_free_row] = _buf[:_eng_next_free_row]
+            _buf = _grown
+            _eng_rank_buf, _eng_rank_cap = _grown, _new_cap
+        _row = _eng_next_free_row
+        _buf[_row] = ranks
+        _eng_next_free_row += 1
+        return _row
+
     _eng_fully_finite: dict[str, bool] = {}
     for _c in _eng_cols_appended:
         if _c in _eng_drop:
@@ -93,7 +127,7 @@ def scan_engineered_duplicates(
         # call instead of one ``np.corrcoef`` call per kept column. Kept columns with any NaN (rare
         # per this loop's own comment) fall through to the unchanged per-pair path below, unaffected.
         _fast_kept_set: set = set()
-        if _eng_fully_finite[_c] and _arr_c.shape[0] >= 8 and _eng_next_free_row > 0:
+        if _eng_fully_finite[_c] and _arr_c.shape[0] >= 8 and _eng_next_free_row > 0 and _eng_rank_buf is not None:
             from ._eng_dedup_batch_corr import one_vs_many_abs_corr_masked
             _active_mask = np.zeros(_eng_next_free_row, dtype=np.bool_)
             _row_to_kc: dict[int, str] = {}
@@ -148,14 +182,14 @@ def scan_engineered_duplicates(
                 _eng_keep.append(_c)
                 _eng_arrs[_c] = _arr_c
                 if _eng_fully_finite[_c]:
-                    _eng_rank_buf[_eng_next_free_row] = _ranks_c
-                    _eng_row_of[_c] = _eng_next_free_row
-                    _eng_next_free_row += 1
+                    _row_c = _store_rank_row(_ranks_c)
+                    if _row_c is not None:
+                        _eng_row_of[_c] = _row_c
         else:
             _eng_keep.append(_c)
             _eng_arrs[_c] = _arr_c
             if _eng_fully_finite[_c]:
-                _eng_rank_buf[_eng_next_free_row] = _ranks_c
-                _eng_row_of[_c] = _eng_next_free_row
-                _eng_next_free_row += 1
+                _row_c = _store_rank_row(_ranks_c)
+                if _row_c is not None:
+                    _eng_row_of[_c] = _row_c
     return _eng_keep, _eng_drop, _eng_arrs, _eng_ranks

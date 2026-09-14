@@ -201,11 +201,13 @@ def perm_null_residue_mis_resident(
         if codes_r is None:
             return None
         codes_r = codes_r.astype(cp.int64, copy=False).ravel()
-        # column i = codes_r[inv_perm_i]; np.argsort(perm) is the inverse permutation. Build the inverse-perm
-        # index matrix on the host (cheap int gather) and gather on device -> (n, n_perm) int64 code matrix.
+        # column i = codes_r[inv_perm_i]. Build the inverse-perm index matrix on the host and gather on device ->
+        # (n, n_perm) int64 code matrix. The inverse is a scatter (``inv[perm] = arange``), not ``np.argsort(perm)``:
+        # bit-identical for a duplicate-free permutation, but O(n) instead of an O(n log n) sort per column.
         inv_idx = np.empty((n, n_perm), dtype=np.int64)
+        _arange_n = np.arange(n, dtype=np.int64)
         for i, perm in enumerate(perms):
-            inv_idx[:, i] = np.argsort(np.asarray(perm))
+            inv_idx[np.asarray(perm), i] = _arange_n
         inv_g = cp.asarray(np.ascontiguousarray(inv_idx))
         code_mat = cp.ascontiguousarray(codes_r[inv_g])  # (n, n_perm), gathered codes
         # y rides the SAME resident "y_mi_classif" role the host STRICT MI path uses (uploaded once per fit).

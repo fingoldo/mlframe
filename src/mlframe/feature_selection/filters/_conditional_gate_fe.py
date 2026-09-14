@@ -332,7 +332,9 @@ def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int =
         feat_host = np.ascontiguousarray(feat, dtype=np.float64).ravel()
         for i in range(n_perm):
             perm = rng.permutation(n)
-            mat[:, i] = feat_host[np.argsort(perm)]
+            # Scatter, not ``feat_host[np.argsort(perm)]``: for a duplicate-free permutation the two are bit-identical,
+            # but argsort is an O(n log n) sort run n_perm times per candidate where one O(n) scatter suffices.
+            mat[perm, i] = feat_host
         vals = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
     return float(vals.mean() + z * vals.std())
 
