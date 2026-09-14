@@ -302,6 +302,54 @@ def _validate_inputs(self, X, y):
     return X
 
 
+def _recipe_reachable_columns(X, recipes) -> list:
+    """Columns of ``X`` the recipe-replay loop can actually read, in ``X``'s own order.
+
+    The replay needs a PRIVATE frame it can append engineered columns onto without mutating the caller's,
+    and it used to take that ownership by deep-copying the whole of ``X`` on every ``transform()`` call.
+    Frames here reach 100+ GB, and the loop only ever reads single named columns (every recipe pulls its
+    operands through ``_extract_column(X, name)``), so copying columns no recipe can name is pure waste.
+
+    ``copy(deep=False)`` is NOT the fix: this repo has already been bitten by a shallow copy sharing the
+    source's BlockManager, where a later ``out[name] = arr`` promoted and mutated the SHARED block and the
+    new column surfaced on the caller's frame (see ``_build_disc_df_for_target``'s note). Narrowing keeps
+    the deep copy's ownership guarantee and just makes it small.
+
+    The set is a deliberate SUPERSET: the transitive closure of every recipe's ``src_names`` (following
+    ``nested_parent_a/b``, which carry their own sources), plus any string in a recipe's ``extra`` that
+    happens to name a real column -- so a kind that reaches for a column outside ``src_names`` (a group
+    key, say) is still covered without this helper needing to know every recipe kind. On any doubt it
+    returns every column, i.e. exactly the old behaviour.
+    """
+    try:
+        _present = {str(c) for c in X.columns}
+        _needed: set = set()
+
+        def _walk(r, _depth: int = 0) -> None:
+            """Add ``r``'s source columns and any column-naming ``extra`` value to ``_needed``, recursing into nested parents."""
+            if r is None or _depth > 8:  # depth guard: a malformed recipe chain must not recurse forever
+                return
+            for s in tuple(getattr(r, "src_names", ()) or ()):
+                _needed.add(str(s))
+            _extra = getattr(r, "extra", {}) or {}
+            if isinstance(_extra, dict):
+                for _k, _v in _extra.items():
+                    if isinstance(_v, str) and _v in _present:
+                        _needed.add(_v)
+                    elif _k in ("nested_parent_a", "nested_parent_b"):
+                        _walk(_v, _depth + 1)
+
+        for _r in recipes or ():
+            _walk(_r)
+        _keep = [c for c in X.columns if str(c) in _needed]
+        # An empty intersection means the recipes name nothing in X (or the shape assumptions above did not
+        # hold) -- fall back to the full frame rather than silently handing the loop an empty substrate.
+        return _keep if _keep else list(X.columns)
+    except Exception:
+        logger.debug("MRMR.transform: reachable-column narrowing failed; copying the full frame.", exc_info=True)
+        return list(X.columns)
+
+
 def _identity_fastpath_is_safe(self, X) -> bool:
     """True when returning ``X`` unchanged is genuinely the identity for THIS fitted selector.
 
@@ -582,7 +630,7 @@ def _append_engineered(self, base_out, X, recipes):
         # cheap in-place column append instead of ``.assign()`` (see below) - profiling a 100k-row
         # transform found this loop's repeated ``.assign()`` calls responsible for 36.5s of the wall
         # (16,204 pandas block-manager copies, cProfile `wellbore_profile_99401rows.prof`).
-        chained = _X_for_recipes.copy()
+        chained = _X_for_recipes[_recipe_reachable_columns(_X_for_recipes, recipes)].copy()
         # Dependency-aware replay: a chained recipe (e.g. modular-of-cross,
         # spline-on-He2) references an earlier engineered column via src_names.
         # The recorded order is USUALLY topological, but cross-family chaining

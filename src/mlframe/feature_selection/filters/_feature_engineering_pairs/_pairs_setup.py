@@ -146,8 +146,19 @@ def _fit_prewarp_and_gate_med(
                 # |corr|<floor BUT dcor>=0.15 across mul/xor-sign/sq*abs/a*sin(b).
                 return abs(float(np.corrcoef(_recon, _y_val)[0, 1])) >= _pw_min_val_corr
             except Exception as e:
-                _module_logger.debug("prewarp held-out correlation validation failed, falling back to accepting the warp: %s", e)
-                return True  # validation failure -> fall back to accepting the warp
+                # ACCEPT was the wrong fallback direction: this closure's entire job is to prove, on held-out
+                # rows, that the warp helps. A failure means there is NO such evidence, yet returning True
+                # promoted an unvalidated (possibly distorted) operand into the engineered set -- the gate
+                # switching itself off in exactly the conditions that trip it. Reject instead: losing one
+                # candidate warp is strictly cheaper than admitting an unchecked one, and ``False`` is
+                # already an ordinary outcome of this closure. Throttled warning (per-pair hot path) so a
+                # validator that starts failing is discoverable rather than silently permissive.
+                log_throttle(
+                    _module_logger, "prewarp_heldout_validation_failed", logging.WARNING,
+                    "prewarp held-out correlation validation failed (%s: %s); REJECTING the warp (no held-out evidence).",
+                    type(e).__name__, e,
+                )
+                return False
 
         # bench-attempt-rejected (2026-06-20): "skip the ALS prewarp fit when the clean-form
         # demotion (commit 3e62742e) would discard it anyway" was investigated and NOT shipped.

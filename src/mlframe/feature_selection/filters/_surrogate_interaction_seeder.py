@@ -290,16 +290,36 @@ def surrogate_gbm_interaction_seeds(
         perm_std = float(perm_arr.std())
         info["oof_perm"] = perm_mean
     else:
-        # permuted runs all failed: fall back to the majority-class / 0-R^2 baseline + a
-        # nominal spread so the z-gate still applies.
+        # Permuted runs all failed, so there is NO null distribution to test against. The analytic
+        # majority-class / 0-R^2 baseline is still a reasonable point estimate for REPORTING, but it comes
+        # with no spread -- and the old code set ``perm_std = 0.0`` and divided by ``perm_std + 1e-9``,
+        # which turns any positive gap into z ~ 1e9 and makes the gate pass UNCONDITIONALLY. That is the
+        # exact opposite of the "nominal spread so the z-gate still applies" the comment claimed. Absent a
+        # null, the honest z is "unknown", and unknown must not emit.
         if is_classification:
             _, cnts = np.unique(np.asarray(y), return_counts=True)
             perm_mean = float(cnts.max() / cnts.sum())
         else:
             perm_mean = 0.0
-        perm_std = 0.0
+        perm_std = float("nan")
         info["oof_perm"] = perm_mean
-    info["self_gate_z"] = float((oof_real - perm_mean) / (perm_std + 1e-9))
+    info["self_gate_null_available"] = bool(perm_scores)
+    if perm_scores and perm_std > 1e-12:
+        info["self_gate_z"] = float((oof_real - perm_mean) / perm_std)
+    else:
+        # No null, or a degenerate one (every permuted run scored identically): either way the z-statistic
+        # is undefined rather than large. Fail the gate instead of fabricating significance.
+        if perm_scores:
+            logger.warning(
+                "surrogate interaction seeder: permuted-null spread is degenerate (std=%.3g over %d runs); "
+                "the self-gate z is undefined, emitting NO pair seeds.", perm_std, len(perm_scores),
+            )
+        else:
+            logger.warning(
+                "surrogate interaction seeder: every permuted run failed, so there is no null to test "
+                "against; the self-gate z is undefined, emitting NO pair seeds."
+            )
+        info["self_gate_z"] = float("-inf")
     z = info["self_gate_z"]
 
     # SELF-GATE is asymmetric by INFORMATION CONTENT of the OOF statistic at each order:
