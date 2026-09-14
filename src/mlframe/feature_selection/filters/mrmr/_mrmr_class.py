@@ -3702,11 +3702,16 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # data-derived survivors BEFORE the super-linear MRMR machinery. Fastest-default dispatch, not opt-in.
         # Subsetting X to survivor columns (pandas/polars/numpy) keeps the rest of fit unchanged; the screen
         # is best-effort - any failure falls through to the full path.
+        _sis_input_space_info = None
         try:
             _sis_thr = int(getattr(self, "sis_screen_threshold", 0) or 0)
             _p_in = int(X.shape[1]) if hasattr(X, "shape") and getattr(X, "ndim", 1) > 1 else 0
             if _sis_thr and _p_in >= _sis_thr:
+                from .._mrmr_sis_apply import _sis_input_space
+
+                _sis_space = _sis_input_space(X)
                 X = self._apply_sis_screen(X, y)
+                _sis_input_space_info = _sis_space
         except Exception as _sis_exc:
             warnings.warn(
                 f"MRMR SIS front gate raised {type(_sis_exc).__name__}: {_sis_exc}; falling back to the "
@@ -4017,6 +4022,12 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                 # established pattern here - clear exactly once, at the SAME outer call-site boundary,
                 # regardless of how _fit_impl exited.
                 _clear_fe_deadline()
+            if _sis_input_space_info is not None:
+                # The fit ran on the SIS survivors; express support_ / feature_names_in_ / n_features_in_ in the caller's input space before
+                # anything below reads them. Done per fit, so a cache replay of the survivor-space state is remapped the same way.
+                from .._mrmr_sis_apply import _remap_sis_fit_to_input_space
+
+                _remap_sis_fit_to_input_space(self, *_sis_input_space_info)
             try:
                 _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
                 # ``_effective_random_seed`` resolves both the canonical ``random_state`` and the

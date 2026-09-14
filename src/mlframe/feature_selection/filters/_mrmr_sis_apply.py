@@ -90,4 +90,31 @@ def _apply_sis_screen(self, X, y):
         return X.iloc[:, survivors]
     if str(type(X).__module__).startswith("polars"):
         return X[:, survivors.tolist()]
-    return X[:, survivors]
+    # An ndarray has no names, and the fit would synthesize ``feature_<j>`` from SUBSET positions, so "feature_3" would mean the 4th
+    # survivor. Name each survivor by its INPUT position instead, so every name, recipe source and ``support_`` entry can be mapped back.
+    return pd.DataFrame(X[:, survivors], columns=[f"feature_{int(i)}" for i in survivors])
+
+
+def _sis_input_space(X) -> tuple:
+    """``(names, synthesized)`` describing the caller's full input, captured before the SIS gate narrows it."""
+    if hasattr(X, "columns"):
+        return list(X.columns), False
+    return [f"feature_{i}" for i in range(int(X.shape[1]))], True
+
+
+def _remap_sis_fit_to_input_space(self, full_names, synthesized) -> None:
+    """Re-express a fit made on the SIS survivors in the caller's input space.
+
+    The fit saw only the survivors, so ``feature_names_in_`` / ``n_features_in_`` / ``support_`` describe that subset. ``transform`` checks
+    an ndarray's width against ``n_features_in_`` and indexes it positionally with ``support_``, so both must refer to the full input. The
+    mapping goes through names, which are unique and identical in both spaces.
+    """
+    position = {name: i for i, name in enumerate(full_names)}
+    fitted_names = list(self.feature_names_in_)
+    support = np.asarray(self.support_)
+    if support.dtype == bool:
+        support = np.flatnonzero(support)
+    self.support_ = np.asarray([position[fitted_names[int(i)]] for i in support], dtype=np.int64)
+    self.feature_names_in_ = np.asarray(full_names, dtype=object)
+    self.n_features_in_ = len(full_names)
+    self._feature_names_in_synthesized_ = bool(synthesized)

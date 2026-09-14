@@ -243,7 +243,9 @@ class _MRMRFitHelpersMixin:
         # Pass the FRAME (not to_numpy()) so per-column dtypes survive: a mixed numeric+categorical frame -> to_numpy() is an object array that
         # (a) crashed the cluster correlation's float64 coercion and (b) would feed the bootstrap sub-MRMR all-object columns. The stability helpers
         # cluster only the numeric columns (categoricals -> singletons) and hand the sub-selector dtype-preserved rows.
-        X_df = X if hasattr(X, "iloc") else pd.DataFrame(np.asarray(X))
+        # An ndarray gets the same ``feature_<i>`` placeholders the classic path synthesizes: pandas' default integer labels would store
+        # non-string feature_names_in_ and defeat get_feature_names_out's placeholder detection.
+        X_df = X if hasattr(X, "iloc") else pd.DataFrame(np.asarray(X), columns=[f"feature_{i}" for i in range(np.asarray(X).shape[1])])
         y_arr = (y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)).ravel()
         feature_names = list(X_df.columns)
         # Computed ONCE outside the bootstrap/complementary-pairs loop: every replicate previously
@@ -304,8 +306,9 @@ class _MRMRFitHelpersMixin:
             raise ValueError(f"unknown stability_selection_method={method!r}; expected one of 'classic', 'cluster', 'complementary_pairs'.")
 
         # Persist the standard MRMR public-API attributes from the chosen set.
+        self._seed_default_fitted_attrs(X)
         self.support_ = np.asarray(sel, dtype=np.int64)
-        self.feature_names_in_ = np.asarray(feature_names, dtype=object)
+        self.feature_names_in_ = np.asarray([str(n) for n in feature_names], dtype=object)
         self.n_features_in_ = len(feature_names)
         self.n_features_ = int(self.support_.size)
         self.stability_freq_ = freq
@@ -465,6 +468,28 @@ class _MRMRFitHelpersMixin:
             )
         return dict(artifacts)
 
+    def _seed_default_fitted_attrs(self, X) -> None:
+        """Set the diagnostic fitted attributes every terminal fit path must expose, at their "did not run" defaults.
+
+        Paths that bypass the full fit (the identity shortcut, the stability-selection outer loop) call this so consumers that introspect
+        ``dcd_`` / ``mrmr_gains_`` / ``friend_graph_`` / ``cluster_aggregate_`` and friends never hit an AttributeError, and so
+        ``get_feature_names_out`` knows whether ``feature_names_in_`` are synthesized placeholders.
+        """
+        self._engineered_features_: list = []
+        self._engineered_recipes_: list = []  # list invariant (matches the full-fit paths); consumers iterate it as a list
+        self.fallback_used_ = False
+        self.dcd_ = None
+        # None when DCD was disabled or did not run.
+        self.cluster_members_ = None
+        # Empty dict, not None: "DCD ran but found no super-structure" is a different state from "DCD disabled".
+        self.cluster_hierarchy_: dict = {}
+        self.mrmr_gains_ = np.array([], dtype=np.float64)
+        self.friend_graph_ = None
+        self.cluster_aggregate_ = None
+        self.ran_out_of_time_ = False
+        self.provenance_: Optional[dict] = None
+        self._feature_names_in_synthesized_ = not hasattr(X, "columns")
+
     def _fit_identity_shortcut(self, X) -> None:
         """Populate the fit-result attributes as if MRMR returned the input X unchanged.
 
@@ -488,35 +513,9 @@ class _MRMRFitHelpersMixin:
         else:
             _names = [f"f{i}" for i in range(n_cols)]
         self.feature_names_in_ = np.asarray(_names, dtype=object)
-        self._engineered_features_: list = []
-        self._engineered_recipes_: list = []  # list invariant (matches the full-fit paths); consumers iterate it as a list
+        self._seed_default_fitted_attrs(X)
         self.n_features_in_ = int(n_cols)
         self.n_features_ = int(n_cols)
-        self.fallback_used_ = False
-        # 1: set DCD/diagnostic fitted attrs to safe
-        # defaults so the identity shortcut produces a
-        # fitted-state-complete estimator (matches full-fit attribute
-        # surface). Without these the cache-replay tests and
-        # downstream consumers that introspect ``sel.dcd_`` /
-        # ``sel.mrmr_gains_`` /``sel.friend_graph_`` /
-        # ``sel.cluster_aggregate_`` blow up on the shortcut path.
-        self.dcd_ = None
-        # identity-shortcut path must also expose the
-        # ``cluster_members_`` attribute (None when DCD was disabled or did
-        # not run) so introspection code paths don't AttributeError.
-        self.cluster_members_ = None
-        # hierarchical post-hoc cluster map. Empty
-        # dict default (matches "DCD ran but found no super-structure" -
-        # meaningfully different from None, which would mean DCD disabled).
-        # Identity shortcut bypasses DCD entirely, so the empty default is
-        # the correct attribute-complete marker.
-        self.cluster_hierarchy_: dict = {}
-        self.mrmr_gains_ = np.array([], dtype=np.float64)
-        self.friend_graph_ = None
-        self.cluster_aggregate_ = None
-        self.ran_out_of_time_ = False
-        self.provenance_: Optional[dict] = None
-        self._feature_names_in_synthesized_ = not hasattr(X, "columns")
         # Mark for transform() to know we're in shortcut state. Some downstream code looks at .signature; safe-default to a stable string.
         self.signature: tuple | str | None = f"_mrmr_identity_shortcut_n{n_cols}"
 

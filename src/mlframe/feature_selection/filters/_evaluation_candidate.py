@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 def get_candidate_name(candidate_indices: Sequence, factors_names: Sequence[str]) -> str:
     """Render a candidate (single index or k-way interaction tuple) as a human-readable ``"-"``-joined name for logging, resolving each factor index against ``factors_names``."""
-    cand_name = "-".join([factors_names[el] for el in candidate_indices])
+    # str(): a frame built from an ndarray carries integer column labels, and join() raises on anything but str.
+    cand_name = "-".join([str(factors_names[el]) for el in candidate_indices])
     return cand_name
 
 
