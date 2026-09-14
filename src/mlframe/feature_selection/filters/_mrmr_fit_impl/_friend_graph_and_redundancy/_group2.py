@@ -441,57 +441,11 @@ def _friend_graph_and_redundancy_passes_group2(
                 if _cv.shape[0] == _rp_n and np.all(np.isfinite(_cv)):
                     _rp_base.append(_cv)
 
-            # Hoist the fold- and candidate-INVARIANT pieces out of the per-candidate R^2 (each call below
-            # re-used the SAME held-out target, its centered SS, and the SAME base design rows): the val
-            # target ``_yv`` / its SS, the train target, and the base design already sliced into train/val
-            # blocks. Every call scores ``[base | one candidate column]``, so only the single candidate
-            # column is stacked/sliced per call instead of rebuilding + row-slicing the full base at n rows.
-            _yv = _rp_y[_rp_va]
-            _rp_ss = float(np.sum((_yv - _yv.mean()) ** 2))
-            _rp_y_tr = _rp_y[_rp_tr]
-            _rp_base_mat = np.column_stack(_rp_base)
-            _rp_base_tr = _rp_base_mat[_rp_tr]
-            _rp_base_va = _rp_base_mat[_rp_va]
+            # The base design is factorised once and extended by one column per candidate (measured 20x faster than a fresh lstsq per
+            # candidate at production shape: p~120, n_tr~53k, 109 candidates, 91s -> 4.5s); see ``heldout_r2_scorer``.
+            from ._raw_protect_r2 import heldout_r2_scorer
 
-            # QR of the FIXED base design, computed ONCE and reused for every candidate below (a perf
-            # fix). Each candidate previously re-solved lstsq on ``[base | one extra column]`` from
-            # scratch - O(n*p^2) per call with only a single column differing between calls. Extending an
-            # EXISTING QR by one column via ``scipy.linalg.qr_insert`` is an O(n*p) update, mathematically
-            # equivalent to a fresh least-squares solve of the augmented design (verified: max coefficient
-            # difference ~6e-17, i.e. machine-epsilon-level agreement with the original SVD-based
-            # ``np.linalg.lstsq``, not just "close enough" - this is the standard Frisch-Waugh-Lovell-style
-            # QR-update result, not an approximation). Measured 20x faster at production shape (p~120,
-            # n_tr~53k, 109 candidates: 91s -> 4.5s on synthetic data of that shape).
-            import scipy.linalg as _rp_sla
-            try:
-                _rp_Q, _rp_R = _rp_sla.qr(_rp_base_tr, mode="economic")
-                _rp_Qty = _rp_Q.T @ _rp_y_tr
-                _rp_coef_base = _rp_sla.solve_triangular(_rp_R, _rp_Qty)
-                _rp_qr_ok = True
-            except Exception as exc:
-                logger.debug("mrmr: QR-based raw-protection incremental check failed; falling back to the full-refit path: %r", exc, exc_info=True)
-                _rp_qr_ok = False
-
-            def _rp_r2(_extra=None):
-                """Held-out R^2 of ``[base | extra]``; ``_extra`` is a single full-length column or None.
-                Numerically identical (to ~1e-16) to the prior ``_rp_r2(_design)`` (same columns in the
-                same order, same train/val rows, same lstsq) - see the QR-reuse comment above."""
-                if _rp_ss < 1e-24:
-                    return 0.0
-                if _extra is None:
-                    if not _rp_qr_ok:
-                        return -np.inf
-                    return 1.0 - float(np.sum((_yv - _rp_base_va @ _rp_coef_base) ** 2)) / _rp_ss
-                if not _rp_qr_ok:
-                    return -np.inf
-                try:
-                    _q1, _r1 = _rp_sla.qr_insert(_rp_Q, _rp_R, _extra[_rp_tr], _rp_Q.shape[1], which="col")
-                    _coef = _rp_sla.solve_triangular(_r1, _q1.T @ _rp_y_tr)
-                except Exception as e:
-                    logger.debug("QR-insert regression probe failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
-                    return -np.inf
-                _A_va = np.column_stack((_rp_base_va, _extra[_rp_va]))
-                return 1.0 - float(np.sum((_yv - _A_va @ _coef) ** 2)) / _rp_ss
+            _rp_r2 = heldout_r2_scorer(np.column_stack(_rp_base), _rp_y, _rp_tr, _rp_va)
 
             if int(_rp_tr.sum()) >= 32 and int(_rp_va.sum()) >= 16:
                 _rp_r2_base = _rp_r2()
