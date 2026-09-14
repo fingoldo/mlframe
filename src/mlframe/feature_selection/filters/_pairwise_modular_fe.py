@@ -293,6 +293,10 @@ def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int 
 
     vals = perm_null_residue_mis_resident(r, yi, perms, eff_nbins=eff_nbins, rank_binning=_rb)
     if vals is None:
+        # bench-attempt-rejected: batching these 12 MIs into one host call (stacking r[inv_perm_i], as the resident path does) is NOT
+        # bit-identical here. The residues are heavily tied, and rank binning splits ties by row order: the loop keeps r in its original
+        # order and permutes y, so r bins identically every time, while each re-ordered column bins its ties differently. Measured on
+        # 5000-row residues (k=3/7, two seeds) the null band moved by up to 31%. See test_pairwise_modular_perm_null_host_batched.py.
         vals = np.empty(n_perm, dtype=np.float64)
         for i in range(n_perm):
             vals[i] = _mi(r, yi[perms[i]], nbins=eff_nbins)

@@ -754,30 +754,31 @@ def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis, heavy_host
 
 _ABS_CORR_SRC = r"""
 extern "C" __global__
-void abs_corr(const double* __restrict__ cand, const double* __restrict__ y, const long long n,
-              const int m, const double Sy, const double Syy, double* __restrict__ out) {
+void abs_corr(const double* __restrict__ cand, const double* __restrict__ yc, const double* __restrict__ mu, const long long n,
+              const int m, const double Syy, double* __restrict__ out) {
+    // Centred accumulation: yc is the centred target and mu the per-column means, so the sums below are sum((v-mean)^2) and
+    // sum((v-mean)*yc) directly. The raw-power-sum form n*sum(v^2) - (sum v)^2 cancels to rounding noise once a column's mean is far
+    // above its spread, and then reported a corrupted |corr| or the -1.0 skip sentinel for a perfectly usable column.
     int c = blockIdx.x;
     if (c >= m) return;
-    __shared__ double sh[3];                       // sum_x, sum_xx, sum_xy
+    __shared__ double sh[2];                       // sum_cc, sum_cy
     int tid = threadIdx.x, nt = blockDim.x;
-    if (tid < 3) sh[tid] = 0.0;
+    if (tid < 2) sh[tid] = 0.0;
     __syncthreads();
-    double psx = 0.0, psxx = 0.0, psxy = 0.0;
+    double pcc = 0.0, pcy = 0.0;
+    double muc = mu[c];
     for (long long i = tid; i < n; i += nt) {
-        double v = cand[i * (long long)m + c];
-        double yy = y[i];
-        psx += v; psxx += v * v; psxy += v * yy;
+        double d = cand[i * (long long)m + c] - muc;
+        pcc += d * d; pcy += d * yc[i];
     }
-    atomicAdd(&sh[0], psx); atomicAdd(&sh[1], psxx); atomicAdd(&sh[2], psxy);
+    atomicAdd(&sh[0], pcc); atomicAdd(&sh[1], pcy);
     __syncthreads();
     if (tid == 0) {
-        double nf = (double)n, sx = sh[0], sxx = sh[1], sxy = sh[2];
-        double cov = nf * sxy - sx * Sy;
-        double vx = nf * sxx - sx * sx;            // = n * sum((v-mean)^2)
-        double vy = nf * Syy - Sy * Sy;
-        double den = sqrt(vx * vy);
-        double corr = den > 1e-300 ? fabs(cov / den) : 0.0;
-        bool ok = isfinite(corr) && (sqrt(vx / nf) > 1e-12);   // cn = sqrt(sum cc^2) = sqrt(vx/n) > 1e-12
+        double nf = (double)n, scc = sh[0], scy = sh[1];
+        double den = sqrt(scc * Syy);
+        double corr = den > 1e-300 ? fabs(scy / den) : 0.0;
+        bool ok = isfinite(corr) && (sqrt(scc) > 1e-12);   // same degenerate test as the cupy chain: cn = sqrt(sum cc^2) > 1e-12
+        (void)nf;
         out[c] = ok ? corr : -1.0;
     }
 }
@@ -809,9 +810,11 @@ def _gpu_batched_abs_corr(cp, cand, y_cont):
         n, m = int(cand2.shape[0]), int(cand2.shape[1])
         cand2 = cp.ascontiguousarray(cand2.astype(cp.float64, copy=False))
         yv = y_cont.astype(cp.float64, copy=False).ravel()
-        Sy, Syy = (float(_s) for _s in cp.asnumpy(cp.stack([yv.sum(), (yv * yv).sum()])))  # one D2H for the pair
+        yc = cp.ascontiguousarray(yv - yv.mean())
+        mu = cp.ascontiguousarray(cand2.mean(axis=0))
+        Syy = float((yc * yc).sum())
         out = cp.empty(m, dtype=cp.float64)
-        _get_abs_corr_kernel()((m,), (256,), (cand2, yv, np.int64(n), np.int32(m), np.float64(Sy), np.float64(Syy), out), shared_mem=3 * 8)
+        _get_abs_corr_kernel()((m,), (256,), (cand2, yc, mu, np.int64(n), np.int32(m), np.float64(Syy), out), shared_mem=2 * 8)
         return out
     except Exception as e:
         import logging

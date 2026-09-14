@@ -79,6 +79,9 @@ def _rbf_gram(x: np.ndarray, sigma: Optional[float] = None) -> np.ndarray:
     if sigma is None:
         sigma = _silverman_sigma(x)
     sigma = max(float(sigma), 1e-12)
+    # Centre first. The kernel depends only on differences, so this changes nothing mathematically, but |a|^2 + |b|^2 - 2a.b on raw columns
+    # carries a rounding error that scales with the offset squared against a spread-sized bandwidth, corrupting the Gram matrix.
+    x = x - x.mean(axis=0, keepdims=True)
     sq = np.sum(x * x, axis=1)
     d2 = sq[:, None] + sq[None, :] - 2.0 * (x @ x.T)
     np.maximum(d2, 0.0, out=d2)
