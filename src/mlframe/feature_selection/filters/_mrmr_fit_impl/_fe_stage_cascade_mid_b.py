@@ -782,12 +782,14 @@ def _fe_stage_cascade_mid_b(
                 # parent was not itself selected. Scoping to ``feature_names_in_``
                 # keeps every wavelet recipe 1-deep and replayable.
                 # NOTE: ``self.feature_names_in_`` is not assigned until the
-                # target-injection block far below, so the exclusion source is the
-                # ``hybrid_orth_features_`` ledger every prior univariate stage
-                # appends to (the hinge stage's exact pattern).
+                # target-injection block far below, so scope to the raw pre-FE column
+                # snapshot, as the conditional-dispersion stage does. Excluding the
+                # ``hybrid_orth_features_`` ledger was not enough: ``mi_greedy_features_``
+                # is never merged into it and MI-greedy runs earlier in the cascade, so a
+                # Haar leg could still be built on an MI-greedy column and fail to replay.
                 if _wv_cols is None:
-                    _wv_already = set(getattr(self, "hybrid_orth_features_", None) or [])
-                    _wv_cols = [c for c in X.columns if c not in _wv_already] or None
+                    _wv_raw = set(_raw_input_cols_pre_fe)
+                    _wv_cols = [c for c in X.columns if c in _wv_raw] or None
                 _X_before_wv_cols = list(X.columns)
                 X_wv, _wv_appended, _wv_recipes, _ = hybrid_wavelet_fe_with_recipes(
                     X, _y_for_wv,
@@ -841,11 +843,12 @@ def _fe_stage_cascade_mid_b(
                 # conditional-dispersion stages): keep rankgauss recipes 1-deep and
                 # replayable - never rank-Gaussianise an engineered column whose
                 # parent the transform()-time replay cannot materialise first.
-                # ``feature_names_in_`` is not yet assigned here; exclude via the
-                # ``hybrid_orth_features_`` ledger (hinge-stage pattern).
+                # ``feature_names_in_`` is not yet assigned here; scope to the raw pre-FE
+                # column snapshot (see the wavelet stage above for why the
+                # ``hybrid_orth_features_`` exclusion missed MI-greedy columns).
                 if _rg_cols is None:
-                    _rg_already = set(getattr(self, "hybrid_orth_features_", None) or [])
-                    _rg_cols = [c for c in X.columns if c not in _rg_already] or None
+                    _rg_raw = set(_raw_input_cols_pre_fe)
+                    _rg_cols = [c for c in X.columns if c in _rg_raw] or None
                 _X_before_rg_cols = list(X.columns)
                 X_rg, _rg_appended, _rg_recipes, _ = hybrid_rankgauss_fe(
                     X, _y_for_rg,

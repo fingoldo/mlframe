@@ -226,9 +226,9 @@ def _fe_stage_cascade_early_b(
                     if _cnt_cfg:
                         _cnt_cols = [c for c in _cnt_cfg if c in X.columns and c not in _engineered_seen_l34]
                     else:
-                        _cnt_cols = auto_detect_te_cols(
-                            X, min_card=5, max_card=500,
-                        )
+                        # X is already augmented here: the auto branch must drop engineered columns exactly as the explicit branch does
+                        # (and as ``_resolve_missing_cols`` below does for both), or a count recipe is built on a source transform() cannot replay.
+                        _cnt_cols = [c for c in auto_detect_te_cols(X, min_card=5, max_card=500) if c not in _engineered_seen_l34]
                     _X_before_cnt_cols = list(X.columns)
                     _y_for_cnt = _y_np
                     X_c, _cnt_appended, _cnt_recipes = count_encode_with_recipes(
@@ -263,12 +263,13 @@ def _fe_stage_cascade_early_b(
             if _fe_family_on("fe_frequency_encoding_enable", False):
                 try:
                     _freq_cfg = tuple(getattr(self, "fe_frequency_encoding_cols", ()) or ())
+                    # ``_engineered_seen_l34`` was snapshotted before count encoding ran, so it lacks the count columns that block just appended,
+                    # integer counts well inside the auto-detect cardinality window. Without them a frequency recipe can be built on a count column.
+                    _engineered_seen_freq = _engineered_seen_l34 | set(self.count_encoding_features_ or [])
                     if _freq_cfg:
-                        _freq_cols = [c for c in _freq_cfg if c in X.columns and c not in _engineered_seen_l34]
+                        _freq_cols = [c for c in _freq_cfg if c in X.columns and c not in _engineered_seen_freq]
                     else:
-                        _freq_cols = auto_detect_te_cols(
-                            X, min_card=5, max_card=500,
-                        )
+                        _freq_cols = [c for c in auto_detect_te_cols(X, min_card=5, max_card=500) if c not in _engineered_seen_freq]
                     _X_before_freq_cols = list(X.columns)
                     _y_for_freq = _y_np
                     X_f, _freq_appended, _freq_recipes = frequency_encode_with_recipes(
