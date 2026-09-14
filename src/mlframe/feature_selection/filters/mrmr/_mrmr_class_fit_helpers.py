@@ -177,9 +177,12 @@ class _MRMRFitHelpersMixin:
                     import polars as _pl
 
                     _struct_cols = [c for c, dt in zip(X.columns, X.dtypes) if dt == _pl.Struct]
-                except Exception as exc:
-                    logger.debug("mrmr: polars Struct-column detection failed; assuming none: %r", exc, exc_info=True)
+                except ImportError:
                     _struct_cols = []
+                except Exception as exc:
+                    # This is a validator: assuming "no Struct columns" on failure would let an unsupported column into MI estimation.
+                    logger.warning("mrmr: polars Struct-column detection failed (%s: %s); not assuming the frame has none", type(exc).__name__, exc)
+                    raise
                 if _struct_cols:
                     raise ValueError(f"MRMR.fit: polars Struct column(s) {_struct_cols} are not supported -- a Struct has no scalar value for MI estimation. Unnest/flatten them before fitting.")
 

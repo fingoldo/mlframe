@@ -30,6 +30,58 @@ from ._assign_support_tail import _assign_support_tail
 logger = logging.getLogger(__name__)
 
 
+def _subsumed_operands_verdict(self, *, data, cols, cols_idx, operand_idxs, raw_names, recipe_name, classes_y, y, engineered_continuous, X):
+    """Names of engineered operands the conditional-redundancy verdict judges fully subsumed by a surviving engineered child.
+
+    Returns an empty set when no restriction applies (``redundancy_policy`` other than ``"drop"``, which keeps engineered operands), and
+    ``None`` when the verdict could not be computed, so the caller can refuse to re-attach an operand on an unverified basis.
+    """
+    if getattr(self, "redundancy_policy", "emit_both") != "drop":
+        return set()
+    try:
+        return _compute_subsumed_operands(
+            self, data=data, cols=cols, cols_idx=cols_idx, operand_idxs=operand_idxs, raw_names=raw_names, recipe_name=recipe_name,
+            classes_y=classes_y, y=y, engineered_continuous=engineered_continuous, X=X,
+        )
+    except Exception as exc:
+        # An empty set here would make EVERY operand eligible, re-attaching exactly the subsumed operand this verdict exists to exclude.
+        logger.warning("mrmr: subsumed-operand verdict unavailable (%s: %s); not re-attaching a raw stand-in on an unverified basis", type(exc).__name__, exc)
+        return None
+
+
+def _compute_subsumed_operands(self, *, data, cols, cols_idx, operand_idxs, raw_names, recipe_name, classes_y, y, engineered_continuous, X) -> set:
+    """Run the n-invariant conditional-redundancy verdict over the operands and the surviving engineered columns."""
+    from .._fe_raw_redundancy_drop import _linear_usability_keep_enabled, drop_redundant_raw_operands as _ne_drop
+
+    _recipe_names = [recipe_name(r) for r in self._engineered_recipes_]
+    _eng_survivor_cols = [cols_idx[_nm] for _nm in _recipe_names if _nm in cols_idx and _nm not in raw_names]
+    if not (_eng_survivor_cols and operand_idxs):
+        return set()
+    _trial_sel = sorted(set(operand_idxs) | set(_eng_survivor_cols))
+    # name -> EngineeredRecipe so the verdict can isolate clean nested
+    # sub-expressions here too (BUG1 nested-operand consumer detection).
+    _ne_recipes = {recipe_name(_r): _r for _r in self._engineered_recipes_ if recipe_name(_r) is not None}
+    _, _ne_dropped = _ne_drop(
+        data=data, cols=cols, selected_cols_idx=_trial_sel,
+        raw_name_set=raw_names, y_binned=classes_y,
+        y_continuous=(y.values if hasattr(y, "values") else np.asarray(y)),
+        engineered_continuous=engineered_continuous,
+        replayable_eng_names=set(_recipe_names),
+        recipes=_ne_recipes,
+        raw_X=X,
+        linear_usability_keep=_linear_usability_keep_enabled(self),
+        seed=int(getattr(self, "random_seed", 0) or 0), verbose=0,
+    )
+    return set(_ne_dropped or ())
+
+
+def _never_empty_eligible(operand_idxs, cols, subsumed, fused_dropped) -> list:
+    """Operand indices that may be re-attached as the never-empty raw stand-in; none when the subsumption verdict is unavailable."""
+    if subsumed is None:
+        return []
+    return [_oi for _oi in operand_idxs if cols[_oi] not in subsumed and cols[_oi] not in fused_dropped]
+
+
 def _assign_support(
     self,
     *,
@@ -123,41 +175,18 @@ def _assign_support(
             # the main drop. Only operands NOT judged subsumed are eligible; if every
             # operand is subsumed (the composite fully reconstructs y), leave the support
             # engineered-only - the recipe IS the complete feature set.
-            _subsumed_operand_names: set = set()
-            try:
-                # emit_both keeps engineered operands; skip the subsumption restriction so the never-empty re-attach is not narrowed.
-                if getattr(self, "redundancy_policy", "emit_both") != "drop":
-                    raise RuntimeError("redundancy_policy=emit_both: skip subsumption restriction")
-                from .._fe_raw_redundancy_drop import _linear_usability_keep_enabled, drop_redundant_raw_operands as _ne_drop
-                _recipe_names = [_ne_recipe_name(r) for r in self._engineered_recipes_]
-                _eng_survivor_cols = [_ne_cols_idx[_nm] for _nm in _recipe_names if _nm in _ne_cols_idx and _nm not in _raw_names_ne]
-                if _eng_survivor_cols and _operand_idxs:
-                    _trial_sel = sorted(set(_operand_idxs) | set(_eng_survivor_cols))
-                    # name -> EngineeredRecipe so the verdict can isolate clean nested
-                    # sub-expressions here too (BUG1 nested-operand consumer detection).
-                    _ne_recipes = {_ne_recipe_name(_r): _r for _r in self._engineered_recipes_ if _ne_recipe_name(_r) is not None}
-                    _, _ne_dropped = _ne_drop(
-                        data=data, cols=cols, selected_cols_idx=_trial_sel,
-                        raw_name_set=_raw_names_ne, y_binned=classes_y,
-                        y_continuous=(y.values if hasattr(y, "values") else np.asarray(y)),
-                        engineered_continuous=_eng_continuous_snapshot,
-                        replayable_eng_names=set(_recipe_names),
-                        recipes=_ne_recipes,
-                        raw_X=X,
-                        linear_usability_keep=_linear_usability_keep_enabled(self),
-                        seed=int(getattr(self, "random_seed", 0) or 0), verbose=0,
-                    )
-                    _subsumed_operand_names = set(_ne_dropped or ())
-            except Exception as exc:
-                logger.debug("mrmr: subsumed-operand computation failed; falling back to MI-only pick (best-effort): %r", exc, exc_info=True)
-                _subsumed_operand_names = set()  # best-effort: fall back to MI-only pick
+            _subsumed_verdict = _subsumed_operands_verdict(
+                self, data=data, cols=cols, cols_idx=_ne_cols_idx, operand_idxs=_operand_idxs, raw_names=_raw_names_ne,
+                recipe_name=_ne_recipe_name, classes_y=classes_y, y=y, engineered_continuous=_eng_continuous_snapshot, X=X,
+            )
+            _subsumed_operand_names: set = _subsumed_verdict or set()
             # C2 ADDITIVE-FUSION EXCLUSION: never re-attach a raw operand the
             # FE additive-fusion proposer already judged subsumed by the fused ``add(...)``
             # compound (``_raw_redundancy_dropped_``). The fused compound carries its additive
             # term, so resurrecting it as the never-empty stand-in re-injects the redundant
             # single-group fragment the fusion removed (the FUSION-blocked goal's leftover raw).
             _fused_dropped_ne = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
-            _eligible_idxs = [_oi for _oi in _operand_idxs if cols[_oi] not in _subsumed_operand_names and cols[_oi] not in _fused_dropped_ne]
+            _eligible_idxs = _never_empty_eligible(_operand_idxs, cols, _subsumed_verdict, _fused_dropped_ne)
             if _eligible_idxs:
                 _tgt_ne = np.asarray(target_indices, dtype=np.int64)
                 _fn_ne = np.asarray(nbins, dtype=np.int64)

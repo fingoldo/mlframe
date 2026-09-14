@@ -41,8 +41,11 @@ def _mi_classif_batch_sklearn(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) 
             binned = np.searchsorted(edges, col_f)
             mis[j] = float(mutual_info_score(binned, y[finite]))
         except Exception as e:
-            logger.debug("mutual_info_score failed for column %d, treating MI as 0.0: %s", j, e)
-            mis[j] = 0.0
+            # 0.0 is MRMR's never-select score, so substituting it would silently delete this column from the ranking.
+            logger.warning(
+                "mutual_info_score failed for column %d (dtype=%s, %d of %d values finite): %s: %s", j, col.dtype, int(finite.sum()), col.shape[0], type(e).__name__, e
+            )
+            raise
     return mis
 
 
@@ -202,8 +205,12 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                     plugin_mi_classif_batch_dispatch(col_f, y_f, nbins)[0],
                 )
             except Exception as e:
-                logger.debug("plugin_mi_classif_batch_dispatch failed for column %d, treating MI as 0.0: %s", j, e)
-                mis[j] = 0.0
+                # Same reasoning as the sklearn loop: scoring the column 0.0 would silently delete it from the ranking.
+                logger.warning(
+                    "plugin_mi_classif_batch_dispatch failed for column %d (dtype=%s, %d of %d values finite): %s: %s",
+                    j, col.dtype, int(finite.sum()), col.shape[0], type(e).__name__, e,
+                )
+                raise
     return mis
 
 

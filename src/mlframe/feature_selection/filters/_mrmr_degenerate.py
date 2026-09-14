@@ -41,13 +41,22 @@ logger = logging.getLogger(__name__)
 # linear dependence (covers float round-off in an exact 2*x+3 relationship).
 _COLLINEAR_TOL = 1e-9
 
-_xxh3_64: Optional[Callable] = None
-try:
-    import xxhash as _xxhash
+def _resolve_xxh3_64() -> Optional[Callable]:
+    """Return ``xxhash.xxh3_64_intdigest``, or ``None`` when duplicate-column detection must use pandas ``hash_array`` instead."""
+    try:
+        import xxhash as _xxhash
 
-    _xxh3_64 = _xxhash.xxh3_64_intdigest
-except Exception as e:  # nosec B110 - xxhash optional: falls back to pandas hash_array below
-    logger.debug("xxhash unavailable, falling back to pandas hash_array for duplicate-column detection: %s", e)
+        return _xxhash.xxh3_64_intdigest
+    except ImportError as e:
+        logger.debug("xxhash unavailable, falling back to pandas hash_array for duplicate-column detection: %s", e)
+        return None
+    except Exception as e:
+        # Resolved once per process, so a broken install would otherwise pin every fit onto the slower hash without a trace.
+        logger.warning("xxhash is installed but unusable (%s: %s); duplicate-column detection falls back to pandas hash_array", type(e).__name__, e)
+        return None
+
+
+_xxh3_64: Optional[Callable] = _resolve_xxh3_64()
 
 
 def _column_arrays(X):

@@ -88,6 +88,17 @@ def _free_gpu_fe_mempool() -> bool:
         return False
 
 
+def _capture_prefe_screened_raw(self, cols, selected_vars) -> None:
+    """Record the screening-confirmed raw columns on ``self._prefe_screened_raw_`` so support finalisation can re-add them."""
+    try:
+        _raw_set = set(self.feature_names_in_)
+        self._prefe_screened_raw_ = [cols[v] for v in selected_vars if cols[v] in _raw_set]
+    except Exception as exc:
+        # Runs at most once per fit, so a warning costs nothing, and without it genuine raws can be dropped with no trace.
+        logger.warning("mrmr: capturing the pre-FE screened-raw safety net failed; support finalisation cannot re-add these raws: %s: %s", type(exc).__name__, exc)
+        self._prefe_screened_raw_ = []
+
+
 def _run_fe_step(self, **kwargs):
     """Fit-scoped wrapper around ``_run_fe_step_impl``: opens ``dedup_collinear_memo_scope()`` for the
     WHOLE FE step so every opt-in FE family's ``_dedup_collinear_source_cols`` call within this one round
@@ -320,12 +331,7 @@ def _run_fe_step_impl(
     # dropped). ``MRMR.fit`` re-adds these at support finalisation unless a
     # SINGLE-PARENT engineered child substitutes them (the prefer-engineered case).
     if num_fs_steps == 0:
-        try:
-            _raw_set = set(self.feature_names_in_)
-            self._prefe_screened_raw_ = [cols[v] for v in selected_vars if cols[v] in _raw_set]
-        except Exception as exc:
-            logger.debug("mrmr: capturing the pre-FE screened-raw safety net failed; support finalisation cannot re-add these raws: %r", exc, exc_info=True)
-            self._prefe_screened_raw_ = []
+        _capture_prefe_screened_raw(self, cols, selected_vars)
 
     n_recommended_features = 0
     if verbose >= 2:

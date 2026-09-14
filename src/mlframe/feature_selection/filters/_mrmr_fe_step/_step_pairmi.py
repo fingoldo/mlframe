@@ -516,30 +516,46 @@ def compute_pair_mis_and_floor(
             _auto_n = int(data.shape[0])
             _auto_min_rpc = float(getattr(self, "fe_confirm_undersample_rows_per_cell", 5.0))
             _auto_chunk_size = max(1, int(getattr(self, "fe_auto_prevalence_debias_chunk_size", 50_000) or 50_000))
+            _auto_failed_chunks = 0
+            _auto_failed_pairs = 0
+            _auto_last_err = ""
             for _auto_chunk in _lazy_chunks(combinations(numeric_vars_to_consider, 2), _auto_chunk_size):
-                _auto_pa = np.fromiter((p[0] for p in _auto_chunk), dtype=np.int64, count=len(_auto_chunk))
-                _auto_pb = np.fromiter((p[1] for p in _auto_chunk), dtype=np.int64, count=len(_auto_chunk))
-                _auto_bias = pairwise_mm_joint_bias(data, _auto_pa, _auto_pb, nbins, _auto_ky)
-                # UNDER-SAMPLE GUARD (bias-variance, 2026-06-13): the MM bias (k_joint-1)(k_y-1)/2n is
-                # only a reliable correction when the joint table is adequately occupied. At tiny n the
-                # bias is large/noisy and over-tightening the prevalence gate feeds the synergy-rescue
-                # path, which can ADMIT worse features (measured: F2 n=2500 0.917 -> 1.079, but n=8000
-                # unchanged). So skip the debias (bias -> 0, raw pair_mi) for any pair whose rows-per-
-                # occupied-joint-cell falls below ``fe_confirm_undersample_rows_per_cell`` (default 5),
-                # mirroring the existing CMI-fallback rule. This FORGOES the (unreliable) tiny-n win
-                # rather than risk the tiny-n harm - the large-n win (bilinear n=8000 0.195 -> 0.052)
-                # is preserved because there rows-per-cell clears the floor. k_joint is recovered from
-                # the bias: k_joint = 1 + bias*2n/(k_y-1).
-                for _api, _apr in enumerate(_auto_chunk):
-                    _b = float(_auto_bias[_api])
-                    if _b > 0.0 and _auto_ky > 1:
-                        _kj = 1.0 + (_b * 2.0 * _auto_n) / float(_auto_ky - 1)
-                        _rpc = _auto_n / max(1.0, _kj * _auto_ky)
-                        if _rpc < _auto_min_rpc:
-                            _b = 0.0  # under-sampled joint -> unreliable bias -> use raw pair_mi
-                    _pair_mm_bias[tuple(sorted(_apr))] = _b
+                try:
+                    _auto_pa = np.fromiter((p[0] for p in _auto_chunk), dtype=np.int64, count=len(_auto_chunk))
+                    _auto_pb = np.fromiter((p[1] for p in _auto_chunk), dtype=np.int64, count=len(_auto_chunk))
+                    _auto_bias = pairwise_mm_joint_bias(data, _auto_pa, _auto_pb, nbins, _auto_ky)
+                    # UNDER-SAMPLE GUARD (bias-variance, 2026-06-13): the MM bias (k_joint-1)(k_y-1)/2n is
+                    # only a reliable correction when the joint table is adequately occupied. At tiny n the
+                    # bias is large/noisy and over-tightening the prevalence gate feeds the synergy-rescue
+                    # path, which can ADMIT worse features (measured: F2 n=2500 0.917 -> 1.079, but n=8000
+                    # unchanged). So skip the debias (bias -> 0, raw pair_mi) for any pair whose rows-per-
+                    # occupied-joint-cell falls below ``fe_confirm_undersample_rows_per_cell`` (default 5),
+                    # mirroring the existing CMI-fallback rule. This FORGOES the (unreliable) tiny-n win
+                    # rather than risk the tiny-n harm - the large-n win (bilinear n=8000 0.195 -> 0.052)
+                    # is preserved because there rows-per-cell clears the floor. k_joint is recovered from
+                    # the bias: k_joint = 1 + bias*2n/(k_y-1).
+                    for _api, _apr in enumerate(_auto_chunk):
+                        _b = float(_auto_bias[_api])
+                        if _b > 0.0 and _auto_ky > 1:
+                            _kj = 1.0 + (_b * 2.0 * _auto_n) / float(_auto_ky - 1)
+                            _rpc = _auto_n / max(1.0, _kj * _auto_ky)
+                            if _rpc < _auto_min_rpc:
+                                _b = 0.0  # under-sampled joint -> unreliable bias -> use raw pair_mi
+                        _pair_mm_bias[tuple(sorted(_apr))] = _b
+                except Exception as e:  # noqa: PERF203 - per-chunk isolation is the point; a handful of chunks of up to 50k pairs each
+                    # Skip the debias for this chunk's pairs only: an absent bias reads as 0.0 at the gate, i.e. the raw joint MI, while every
+                    # other chunk keeps it. Switching "auto" off for the whole fit would loosen the gate for pairs that were debiased fine.
+                    _auto_failed_chunks += 1
+                    _auto_failed_pairs += len(_auto_chunk)
+                    _auto_last_err = f"{type(e).__name__}: {e}"
+            if _auto_failed_chunks:
+                logger.warning(
+                    "prevalence auto-debias failed on %d chunk(s) covering %d pair(s) (last error %s); those pairs are gated on raw joint MI, all others stay debiased",
+                    _auto_failed_chunks, _auto_failed_pairs, _auto_last_err,
+                )
         except Exception as e:
-            logger.debug("prevalence auto-debias computation failed, disabling it for this fit: %s", e)
+            # Only the import or the setup above can land here; with no bias available at all, fall back to the fixed bar for this fit.
+            logger.warning("prevalence auto-debias setup failed, disabling it for this fit: %s: %s", type(e).__name__, e)
             _prevalence_debias_auto = False
 
     return numeric_vars_to_consider, _eng_cap, _pair_maxt_floor, _pair_mm_bias, _prevalence_debias_auto
