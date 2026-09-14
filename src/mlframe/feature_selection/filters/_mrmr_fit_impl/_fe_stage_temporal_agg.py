@@ -24,8 +24,8 @@ from __future__ import annotations
 import logging
 import warnings
 
-import numpy as np
 import pandas as pd
+from .._y_encoding import encode_y_for_classif_mi
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -65,17 +65,7 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes):
                         logger.info("MRMR.fit temporal_agg: skipped (need time_col + " "entity_cols + value_cols all present in X).")
                 else:
                     _y_for_ta = _y_np
-                    if _y_for_ta.dtype.kind in "fc":
-                        if int(np.unique(_y_for_ta).size) <= 32:
-                            _y_for_ta = _y_for_ta.astype(np.int64)
-                        else:
-                            try:
-                                _y_for_ta = pd.qcut(
-                                    _y_for_ta, q=10, labels=False, duplicates="drop",
-                                ).astype(np.int64)
-                            except Exception as e:
-                                logger.debug("pd.qcut decile binning failed, falling back to raw int64 cast: %s", e)
-                                _y_for_ta = _y_for_ta.astype(np.int64)
+                    _y_for_ta = encode_y_for_classif_mi(_y_for_ta)
                     _ta_stats = tuple(getattr(self, "fe_temporal_agg_stats", ()) or ("mean", "std", "count"))
                     _ta_windows = tuple(getattr(self, "fe_temporal_agg_windows", ()) or ())
                     _ta_lags = tuple(getattr(self, "fe_temporal_agg_lags", (1,)) or ())

@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters.mrmr import (
     _mrmr_compute_x_fingerprint,
     _mrmr_compute_y_fingerprint_sample,
 )
+from mlframe.feature_selection.filters._mrmr_fingerprints import _mrmr_identity_cache_key
 from mlframe.training.composite.transforms import _monotonic_residual_fit
 
 
@@ -88,10 +89,9 @@ class TestMRMRIdentityCache:
             }
         )
         y = rng.normal(size=n)
-        # Pre-populate cache as if a previous fit returned identity.
-        fp = _mrmr_compute_x_fingerprint(X)
-        _MRMR_IDENTITY_FP_CACHE[fp] = True
         m = MRMR(verbose=0, mrmr_skip_when_prior_was_identity=False)
+        # Pre-populate cache as if a previous fit returned identity, under the key this selector would look up.
+        _MRMR_IDENTITY_FP_CACHE[_mrmr_identity_cache_key(m, X, y)] = True
         m.fit(X, y)
         # support_ from a REAL fit (not shortcut) exists; signature attribute is None or a non-shortcut marker.
         assert hasattr(m, "support_")
@@ -120,10 +120,6 @@ class TestMRMRIdentityCache:
         rng.normal(size=n)
         y2 = rng.normal(size=n)  # different target
 
-        # Pre-populate cache as if a previous fit returned identity.
-        fp = _mrmr_compute_x_fingerprint(X)
-        _MRMR_IDENTITY_FP_CACHE[fp] = True
-
         m = MRMR(
             verbose=0,
             mrmr_skip_when_prior_was_identity=True,
@@ -134,6 +130,8 @@ class TestMRMRIdentityCache:
             # the pure X-fingerprint short-circuit performance path, which the 0.0 threshold selects.
             mrmr_identity_cache_ycorr_threshold=0.0,
         )
+        # Pre-populate cache as if a previous fit returned identity, under the key this selector would look up.
+        _MRMR_IDENTITY_FP_CACHE[_mrmr_identity_cache_key(m, X, y2)] = True
         # The shortcut exists to skip ``_fit_impl`` entirely, so assert it is never entered rather than
         # timing the call. A 0.5s budget is a claim about the host: the nightly coverage job traces every
         # line, and a contended worker multiplies per-call overhead severalfold, on code that is correct.

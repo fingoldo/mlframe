@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
-import pandas as pd
 
 from .._helpers import _orth_fe_numeric_cols, fe_decide_on_subsample
 from ..._fe_frame_ops import fe_append_columns, fe_extract_columns
+from ..._y_encoding import encode_y_for_classif_mi
 
 logger = logging.getLogger(__name__)
 
@@ -31,18 +30,7 @@ def _hybrid_orth_family_variants_group2(
             )
 
             _y_for_diff = _y_np
-            if _y_for_diff.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_diff).size)
-                if _n_unique <= 32:
-                    _y_for_diff = _y_for_diff.astype(np.int64)
-                else:
-                    try:
-                        _y_for_diff = pd.qcut(
-                            _y_for_diff, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the diff-basis FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_diff = _y_for_diff.astype(np.int64)
+            _y_for_diff = encode_y_for_classif_mi(_y_for_diff)
             # Restrict the seed pool to RAW source columns - engineered
             # columns from prior stages would create recipes whose
             # src_names reference an engineered column absent at transform.
@@ -130,18 +118,7 @@ def _hybrid_orth_family_variants_group2(
                 _record_fe_rejection(self, step=_cb_step, **_kw)
 
             _y_for_cb = _y_np
-            if _y_for_cb.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_cb).size)
-                if _n_unique <= 32:
-                    _y_for_cb = _y_for_cb.astype(np.int64)
-                else:
-                    try:
-                        _y_for_cb = pd.qcut(
-                            _y_for_cb, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the cluster-basis FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_cb = _y_for_cb.astype(np.int64)
+            _y_for_cb = encode_y_for_classif_mi(_y_for_cb)
             # Restrict to RAW source columns - engineered columns from
             # prior stages would create recipes whose src_names reference
             # an engineered column absent at transform.
@@ -234,18 +211,7 @@ def _hybrid_orth_family_variants_group2(
             )
 
             _y_for_boot = _y_np
-            if _y_for_boot.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_boot).size)
-                if _n_unique <= 32:
-                    _y_for_boot = _y_for_boot.astype(np.int64)
-                else:
-                    try:
-                        _y_for_boot = pd.qcut(
-                            _y_for_boot, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the bootstrap-MI FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_boot = _y_for_boot.astype(np.int64)
+            _y_for_boot = encode_y_for_classif_mi(_y_for_boot)
             _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
             if getattr(self, "factors_names_to_use", None):
                 _boot_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
@@ -322,18 +288,7 @@ def _hybrid_orth_family_variants_group2(
             )
 
             _y_for_tg = _y_np
-            if _y_for_tg.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_tg).size)
-                if _n_unique <= 32:
-                    _y_for_tg = _y_for_tg.astype(np.int64)
-                else:
-                    try:
-                        _y_for_tg = pd.qcut(
-                            _y_for_tg, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the three-gate FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_tg = _y_for_tg.astype(np.int64)
+            _y_for_tg = encode_y_for_classif_mi(_y_for_tg)
             _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
             if getattr(self, "factors_names_to_use", None):
                 _tg_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
@@ -417,18 +372,7 @@ def _hybrid_orth_family_variants_group2(
             )
 
             _y_for_ksg = _y_np
-            if _y_for_ksg.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_ksg).size)
-                if _n_unique <= 32:
-                    _y_for_ksg = _y_for_ksg.astype(np.int64)
-                else:
-                    try:
-                        _y_for_ksg = pd.qcut(
-                            _y_for_ksg, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the KSG-MI FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_ksg = _y_for_ksg.astype(np.int64)
+            _y_for_ksg = encode_y_for_classif_mi(_y_for_ksg)
             _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
             if getattr(self, "factors_names_to_use", None):
                 _ksg_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]

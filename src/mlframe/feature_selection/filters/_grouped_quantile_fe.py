@@ -51,6 +51,7 @@ import numpy as np
 import pandas as pd
 
 from ._internals import group_key_strings
+from ._y_encoding import encode_y_for_classif_mi
 
 logger = logging.getLogger(__name__)
 
@@ -343,16 +344,7 @@ def generate_target_aware_group_bins(
         raise TypeError(f"generate_target_aware_group_bins: X must be a pandas DataFrame; " f"got {type(X).__name__}")
     group_cols = [c for c in group_cols if c in X.columns]
     y_arr = np.asarray(y)
-    if y_arr.dtype.kind in "fc":
-        if int(np.unique(y_arr).size) <= 32:
-            y_arr = y_arr.astype(np.int64)
-        else:
-            try:
-                y_arr = pd.qcut(y_arr, q=10, labels=False, duplicates="drop").to_numpy()
-            except Exception as e:
-                logger.debug("pd.qcut failed, falling back to direct int64 cast: %s", e)
-                y_arr = y_arr.astype(np.int64)
-    y_arr = y_arr.astype(np.int64)
+    y_arr = encode_y_for_classif_mi(y_arr)
 
     encoded: dict[str, np.ndarray] = {}
     raw_recipes: dict[str, dict] = {}

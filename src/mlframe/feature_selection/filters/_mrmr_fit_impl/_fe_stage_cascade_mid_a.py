@@ -19,8 +19,8 @@ from __future__ import annotations
 import logging
 import warnings
 
-import numpy as np
 import pandas as pd
+from .._y_encoding import encode_y_for_classif_mi
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -72,19 +72,7 @@ def _fe_stage_cascade_mid_a(
                 # CMI gate needs a class-typed target; bin continuous y the
                 # same way the Layer 60 CMI-greedy stage does.
                 _y_for_ga = _y_np
-                if _y_for_ga.dtype.kind in "fc":
-                    _n_unique_ga = int(np.unique(_y_for_ga).size)
-                    if _n_unique_ga <= 32:
-                        _y_for_ga = _y_for_ga.astype(np.int64)
-                    else:
-                        try:
-                            _y_for_ga = pd.qcut(
-                                _y_for_ga, q=10, labels=False, duplicates="drop",
-                            ).astype(np.int64)
-                        except Exception as exc:
-                            logger.debug("mrmr: y densification failed for the grouped-aggregation FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                            _y_for_ga = _y_for_ga.astype(np.int64)
-
+                _y_for_ga = encode_y_for_classif_mi(_y_for_ga)
                 _ga_groups = tuple(getattr(self, "fe_grouped_agg_group_cols", ()) or ())
                 _ga_groups = [c for c in _ga_groups if c in X.columns] or None  # type: ignore[assignment]
                 _ga_nums = tuple(getattr(self, "fe_grouped_agg_num_cols", ()) or ())
@@ -139,19 +127,7 @@ def _fe_stage_cascade_mid_a(
                 from .._composite_group_agg_fe import hybrid_composite_group_agg_fe
 
                 _y_for_cga = _y_np
-                if _y_for_cga.dtype.kind in "fc":
-                    _n_unique_cga = int(np.unique(_y_for_cga).size)
-                    if _n_unique_cga <= 32:
-                        _y_for_cga = _y_for_cga.astype(np.int64)
-                    else:
-                        try:
-                            _y_for_cga = pd.qcut(
-                                _y_for_cga, q=10, labels=False, duplicates="drop",
-                            ).astype(np.int64)
-                        except Exception as exc:
-                            logger.debug("mrmr: y densification failed for the composite-group-aggregation FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                            _y_for_cga = _y_for_cga.astype(np.int64)
-
+                _y_for_cga = encode_y_for_classif_mi(_y_for_cga)
                 # key_sets: each entry is a tuple of >= 2 group cols. Empty =>
                 # auto-detect r-combinations of detected group columns.
                 _cga_key_sets_raw = tuple(getattr(self, "fe_composite_group_agg_key_sets", ()) or ())

@@ -39,6 +39,30 @@ from .._fe_family_timing import record_fe_family_wall
 _LOKY_POOL_MIN_FE_NPERMUTATIONS = 20
 
 
+def _prefill_cached_pair_mis(
+    pair_a: np.ndarray,
+    pair_b: np.ndarray,
+    mi_values: np.ndarray,
+    cached_MIs: dict,
+    cached_confident_MIs: dict,
+) -> int:
+    """Write batch pair MIs into ``cached_MIs`` under canonical ``(low, high)`` keys, skipping known pairs; return how many.
+
+    The candidate-pair pool comes from iterating ``numeric_vars_to_consider``, a set that is rebuilt every FE step and whose
+    iteration order is not ascending once it mixes small raw indices with large later-appended engineered ones, and the batch
+    dispatchers take pairs by position in that order. Without canonicalising, the same logical pair lands under both
+    ``(a, b)`` and ``(b, a)`` in this fit-persistent dict: ranked twice, and missed by the next step's de-dup. Every prefill
+    site goes through this one function so the canonicalisation cannot be dropped at one of them.
+    """
+    written = 0
+    for i in range(int(pair_a.shape[0])):
+        key = tuple(sorted((int(pair_a[i]), int(pair_b[i]))))
+        if key not in cached_confident_MIs and key not in cached_MIs:
+            cached_MIs[key] = float(mi_values[i])
+            written += 1
+    return written
+
+
 def compute_pair_mis_and_floor(
     self,
     *,
@@ -195,16 +219,7 @@ def compute_pair_mis_and_floor(
             # Populate cached_MIs to short-circuit compute_pairs_mis's per-pair mi_direct call.
             # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).
             _n_pairs_batch = int(_pair_a_arr.shape[0])
-            for _i in range(_n_pairs_batch):
-                # Canonicalize to a sorted tuple. numeric_vars_to_consider
-                # is rebuilt as a fresh set every FE step and iterated to build the candidate-pair pool; set
-                # iteration order is not guaranteed ascending once it mixes small and large ints (e.g. raw indices
-                # plus later-appended engineered indices), so under fe_max_steps>1 the SAME logical pair could
-                # otherwise land as two divergent dict entries, (a,b) and (b,a), in this fit-persistent dict.
-                _p = tuple(sorted((int(_pair_a_arr[_i]), int(_pair_b_arr[_i]))))
-                if _p not in cached_confident_MIs and _p not in cached_MIs:
-                    cached_MIs[_p] = float(_pair_mi_batch[_i])
-                    _batch_prefill_count += 1
+            _batch_prefill_count += _prefill_cached_pair_mis(_pair_a_arr, _pair_b_arr, _pair_mi_batch, cached_MIs, cached_confident_MIs)
             if verbose:
                 _backend_summary = ", ".join(f"{k}={v}" for k, v in sorted(_backend_counts.items()))
                 logger.info(
@@ -418,12 +433,7 @@ def compute_pair_mis_and_floor(
                     force_backend="njit_parallel",
                 )
                 _retry_n = int(_retry_pair_a.shape[0])
-                _retry_prefill_count = 0
-                for _i in range(_retry_n):
-                    _p = (int(_retry_pair_a[_i]), int(_retry_pair_b[_i]))
-                    if _p not in cached_confident_MIs and _p not in cached_MIs:
-                        cached_MIs[_p] = float(_retry_mi[_i])
-                        _retry_prefill_count += 1
+                _retry_prefill_count = _prefill_cached_pair_mis(_retry_pair_a, _retry_pair_b, _retry_mi, cached_MIs, cached_confident_MIs)
                 logger.warning(
                     "MRMR FE: batched CPU retry covered %d/%d pair MIs via [%s] backend chunk(s) after " "the loky pool failure.",
                     _retry_prefill_count,

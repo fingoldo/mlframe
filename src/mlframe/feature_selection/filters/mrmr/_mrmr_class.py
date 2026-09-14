@@ -66,8 +66,7 @@ from ._mrmr_config_dataclasses import (
 )
 
 from .._mrmr_fingerprints import (
-    _mrmr_compute_y_fingerprint_sample,
-    _mrmr_compute_x_fingerprint,
+    _mrmr_identity_cache_key,
     _mrmr_y_corr_sample,
     _mrmr_y_corr,
     _hashable_params_signature,
@@ -3604,10 +3603,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             _cache_dict = cast(dict, _MRMR_IDENTITY_FP_CACHE)
         _x_fp = None
         if _identity_skip:
-            _x_fp = _mrmr_compute_x_fingerprint(X)
-            if _include_y:
-                # T3#18: stricter cache key - include y-fingerprint so legitimately distinct targets on same X get separate slots.
-                _x_fp = _x_fp + "_yfp_" + _mrmr_compute_y_fingerprint_sample(y)
+            # Covers X, y (when ``mrmr_identity_cache_include_y``) and this selector's params. Read, store and the self-refit check below all
+            # use this one key.
+            _x_fp = _mrmr_identity_cache_key(self, X, y)
             with _MRMR_IDENTITY_FP_LOCK:
                 _prior_entry = _cache_dict.get(_x_fp)
             # Entry is either a legacy bool or the (is_id, prior_y_sample) tuple stored below.

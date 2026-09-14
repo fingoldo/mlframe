@@ -563,6 +563,9 @@ def _pipeline_signature_for_cache(pipeline) -> str:
 # computes the correct key anyway; the worst case is one extra
 # hash recompute, not a wrong key.
 _LAST_KEY_CACHE: dict = {"id_tup": None, "key": None}
+# Guards BOTH the read and the write of the memo above. Dedicated rather than _PRE_PIPELINE_CACHE_LOCK so a caller already holding that
+# lock cannot deadlock here; re-entrant for the same reason on nested calls.
+_LAST_KEY_CACHE_LOCK = threading.RLock()
 
 
 def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, target_name=None, sample_weight=None):
@@ -604,8 +607,10 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
         str(target_name) if target_name is not None else "",
         _id_shape(sample_weight),
     )
-    if _LAST_KEY_CACHE["id_tup"] == id_tup:
-        return _LAST_KEY_CACHE["key"]
+    # Compare and fetch under one lock; as two unlocked reads a concurrent writer could slip another input's key in between.
+    with _LAST_KEY_CACHE_LOCK:
+        if _LAST_KEY_CACHE["id_tup"] == id_tup:
+            return _LAST_KEY_CACHE["key"]
 
     sig = _pipeline_signature_for_cache(pipeline)
     _wants_sw = False
@@ -634,10 +639,10 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
         sig,
         _sw_fp,
     )
-    # Publish key BEFORE id_tup so a torn read on this unlocked single-slot memo can only see an OLD id_tup (miss -> recompute), never a NEW id_tup paired
-    # with a stale key from a prior different (df, target) under id-recycling.
-    _LAST_KEY_CACHE["key"] = key
-    _LAST_KEY_CACHE["id_tup"] = id_tup
+    # Written under the same lock the read takes, so a reader never pairs a new id_tup with a stale key.
+    with _LAST_KEY_CACHE_LOCK:
+        _LAST_KEY_CACHE["key"] = key
+        _LAST_KEY_CACHE["id_tup"] = id_tup
     return key
 
 

@@ -13,10 +13,10 @@ from __future__ import annotations
 import logging
 
 import numpy as np
-import pandas as pd
 
 from ._helpers import _dispatch_default_scorer, fe_decide_on_subsample
 from .._fe_frame_ops import fe_append_columns, fe_extract_columns, fe_is_numeric_col
+from .._y_encoding import encode_y_for_classif_mi
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -123,6 +123,14 @@ def _fe_stage_cascade_early_a(
     # explicit-opt-in carve-out, so fe_max_steps=0 disables both unconditionally).
     _hybrid_on = _fe_family_on("fe_hybrid_orth_enable", False) and fe_max_steps > 0
     _univ_basis_on = _fe_family_on("fe_univariate_basis_enable", True) and fe_max_steps > 0
+    # Bound ONCE, before the polynomial stage, so every later reader sees a value whether or not that stage's
+    # ``try:`` raised or its families were off. Both used to be bound only inside that ``try:`` and read back under
+    # ``except NameError`` fallbacks, and the scorer fallback set ``_extra_basis_scorer_ok = True`` -- silently
+    # re-enabling the Fourier extra basis under an alternate ``fe_hybrid_orth_default_scorer`` whenever the polynomial
+    # stage failed. ``encode_y_for_classif_mi`` replaces the inline ``astype(int64)`` discretisation, which truncated
+    # non-integral float labels (``{0.0, 0.5, 1.0, 1.5}`` -> two classes) instead of densifying them.
+    _y_for_hybrid = encode_y_for_classif_mi(_y_np)
+    _default_scorer = str(getattr(self, "fe_hybrid_orth_default_scorer", "plug_in"))
     if (_hybrid_on or _univ_basis_on) and _fe_budget_ok():
         # Polars frames: skip with a warning - hybrid FE pipeline operates on
         # pandas. Native polars support would require a separate code path;
@@ -134,28 +142,6 @@ def _fe_stage_cascade_early_a(
                 hybrid_orth_mi_pair_fe_with_recipes,
             )
 
-            _y_for_hybrid = _y_np
-            # Hybrid MI scoring expects discrete y. Two cases:
-            #   (a) Float-encoded discrete labels (0.0/1.0) - safe to cast to int64.
-            #   (b) Continuous regression target - truncating to int destroys the
-            #       signal (e.g. y in [-2.5, 3.1] all collapses to {-2,-1,0,1,2,3},
-            #       6 quasi-balanced bins, MI to any continuous predictor ~0).
-            #       Quantile-bin instead so MI scoring sees a meaningful discrete y.
-            if _y_for_hybrid.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_hybrid).size)
-                if _n_unique <= 32:
-                    _y_for_hybrid = _y_for_hybrid.astype(np.int64)
-                else:
-                    try:
-                        _y_for_hybrid = pd.qcut(
-                            _y_for_hybrid, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: qcut-based y discretisation failed (heavy ties/NaN); falling back to int-cast: %r", exc, exc_info=True)
-                        # qcut can fail when y has heavy ties or NaN. Fall back to
-                        # int-cast so the pipeline still runs (signal may degrade
-                        # but does not crash the fit).
-                        _y_for_hybrid = _y_for_hybrid.astype(np.int64)
             _h_degrees = tuple(int(d) for d in self.fe_hybrid_orth_degrees)
             _h_basis = str(self.fe_hybrid_orth_basis)
             _h_top_k = int(self.fe_hybrid_orth_top_k)
@@ -182,9 +168,6 @@ def _fe_stage_cascade_early_a(
             # the alternate scorers operate on univariate columns only.
             # "plug_in" preserves the master-branch byte-identical
             # behaviour: pair stage runs IFF ``pair_enable=True``.
-            _default_scorer = str(getattr(
-                self, "fe_hybrid_orth_default_scorer", "plug_in",
-            ))
             if _default_scorer == "plug_in":
                 if _h_pair_enable:
                     # Decide on the shared FE subsample; winners replayed at full n.
@@ -255,24 +238,9 @@ def _fe_stage_cascade_early_a(
         # rules, Fourier catches periodic patterns. Recipes are
         # closed-form (no y), replay safe.
         _extra_bases_cfg = tuple(getattr(self, "fe_hybrid_orth_extra_bases", ()) or ())
-        # Defensive guard: the polynomial-stage ``try:`` may have raised
-        # before defining ``_y_for_hybrid`` / ``_h_top_k``. Bind safe
-        # defaults so the extra-basis stage can still run.
-        try:
-            _y_for_extra = _y_for_hybrid
-        except NameError:
-            _y_for_extra = _y_np
-            if _y_for_extra.dtype.kind in "fc":
-                if int(np.unique(_y_for_extra).size) <= 32:
-                    _y_for_extra = _y_for_extra.astype(np.int64)
-                else:
-                    try:
-                        _y_for_extra = pd.qcut(
-                            _y_for_extra, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the hybrid-orth extra-basis FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_extra = _y_for_extra.astype(np.int64)
+        # ``_y_for_hybrid`` is bound unconditionally before the polynomial stage, so it is defined here even when
+        # that stage's ``try:`` raised or its families were off.
+        _y_for_extra = _y_for_hybrid
         _top_k_for_extra = int(getattr(self, "fe_hybrid_orth_top_k", 5))
         # Effective extra-basis set. Two independent contributors:
         #   * the EXPLICIT ``fe_hybrid_orth_extra_bases`` config, but only under
@@ -288,10 +256,7 @@ def _fe_stage_cascade_early_a(
         # The default-on Fourier univariate basis is part of the plug-in univariate dispatch. Under an alternate ``fe_hybrid_orth_default_scorer`` (cmim / jmim / ksg / ...) the routing
         # runs ONLY the univariate basis-selection for that scorer (the pair stage is likewise skipped above); the Fourier extra basis is a plug-in-path addition, so adding it under
         # alternate routing would emit columns the routed scorer never selected and diverge from a direct call to that scorer. Gate it to plug-in routing.
-        try:
-            _extra_basis_scorer_ok = _default_scorer == "plug_in"
-        except NameError:
-            _extra_basis_scorer_ok = True
+        _extra_basis_scorer_ok = _default_scorer == "plug_in"
         if _univ_fourier_on and _univ_basis_on and _extra_basis_scorer_ok and "fourier" not in _eff_extra_bases:
             _eff_extra_bases = (*_eff_extra_bases, "fourier")
         if _eff_extra_bases:
@@ -543,18 +508,7 @@ def _fe_stage_cascade_early_a(
                 _record_fe_rejection(self, step=_mig_step, **_kw)
 
             _y_for_mig = _y_np
-            if _y_for_mig.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_mig).size)
-                if _n_unique <= 32:
-                    _y_for_mig = _y_for_mig.astype(np.int64)
-                else:
-                    try:
-                        _y_for_mig = pd.qcut(
-                            _y_for_mig, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the MI-greedy FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_mig = _y_for_mig.astype(np.int64)
+            _y_for_mig = encode_y_for_classif_mi(_y_for_mig)
             # Restrict the MI-greedy seed pool to RAW source columns only
             # (i.e. exclude hybrid-orth-appended columns from the prior
             # stage). Compound transforms like ``log(He2(x))`` would
@@ -617,18 +571,7 @@ def _fe_stage_cascade_early_a(
             from .._mi_greedy_cmi_fe import greedy_cmi_fe_construct_with_recipes
 
             _y_for_cmi = _y_np
-            if _y_for_cmi.dtype.kind in "fc":
-                _n_unique_cmi = int(np.unique(_y_for_cmi).size)
-                if _n_unique_cmi <= 32:
-                    _y_for_cmi = _y_for_cmi.astype(np.int64)
-                else:
-                    try:
-                        _y_for_cmi = pd.qcut(
-                            _y_for_cmi, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the CMI-greedy FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_cmi = _y_for_cmi.astype(np.int64)
+            _y_for_cmi = encode_y_for_classif_mi(_y_for_cmi)
             _eng_already_appended = set(getattr(self, "hybrid_orth_features_", None) or []) | set(self.mi_greedy_features_ or [])
             if getattr(self, "factors_names_to_use", None):
                 _cmi_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _eng_already_appended]

@@ -78,6 +78,7 @@ in the sibling _helpers.py.
 
 
 from ._helpers import _mrmr_cache_bytes_total
+from .._y_encoding import encode_y_for_classif_mi
 
 def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
     """We run N selections on data subsets, and pick only features that appear in all selections"""
@@ -687,18 +688,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     try:
         from .._orthogonal_univariate_fe import _mi_classif_batch
         _y_for_eng_mi = _y_np
-        if _y_for_eng_mi.dtype.kind in "fc":
-            _n_unique_eng = int(np.unique(_y_for_eng_mi).size)
-            if _n_unique_eng <= 32:
-                _y_for_eng_mi = _y_for_eng_mi.astype(np.int64)
-            else:
-                try:
-                    _y_for_eng_mi = pd.qcut(_y_for_eng_mi, q=10, labels=False, duplicates="drop").astype(np.int64)
-                except Exception as exc:
-                    logger.debug("mrmr: y densification failed for the engineered-MI dedup pass; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                    _y_for_eng_mi = _y_for_eng_mi.astype(np.int64)
-        else:
-            _y_for_eng_mi = _y_for_eng_mi.astype(np.int64)
+        _y_for_eng_mi = encode_y_for_classif_mi(_y_for_eng_mi)
         if isinstance(X, pd.DataFrame) and len(_eng_cols_appended) >= 2:
             _mi_cols = [_c for _c in _eng_cols_appended if _c in X.columns]
             if _mi_cols:

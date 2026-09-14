@@ -425,6 +425,27 @@ def _target_name_signature(y) -> tuple:
 # collisions, the two calls happen microseconds apart within MRMR.fit
 # so the input is guaranteed unchanged.
 _MRMR_LAST_X_HASH_CACHE: dict = {"id_shape": None, "hash": None}
+# Guards BOTH the read and the write of the memo above. Dedicated rather than the identity-cache lock so a caller already holding that
+# lock cannot deadlock here; re-entrant so a nested call on the same thread cannot either.
+_MRMR_LAST_X_HASH_LOCK = _threading.RLock()
+
+
+def _mrmr_identity_cache_key(estimator, X, y) -> str:
+    """Key of ``estimator``'s entry in the cross-target identity cache: the X fingerprint, the optional y fingerprint, and the selector's params.
+
+    ``MRMR.fit`` reads, stores and detects its own self-refit with this one key. Anything that seeds or probes the cache must build the key here
+    as well: a key assembled from the X fingerprint alone matches no entry.
+    """
+    key = _mrmr_compute_x_fingerprint(X)
+    if bool(getattr(estimator, "mrmr_identity_cache_include_y", False)):
+        # Legitimately distinct targets on the same X get separate slots.
+        key = key + "_yfp_" + _mrmr_compute_y_fingerprint_sample(y)
+    # Without the params, a permissive config that legitimately returned identity on this X licensed a stricter one (fewer features, different
+    # binning, other FE flags) to skip its fit and "select" every column it never scored. The in-object signature and ``_FIT_CACHE`` layers
+    # already fold the same params signature.
+    params = getattr(estimator, "_pre_fit_ctor_params_snapshot_", None)
+    signature = _hashable_params_signature(params if params is not None else estimator.get_params(deep=True))
+    return key + "_p_" + hashlib.blake2b(repr(signature).encode("utf-8"), digest_size=8).hexdigest()
 
 
 def _full_x_content_hash(X) -> str:
@@ -465,8 +486,11 @@ def _full_x_content_hash(X) -> str:
         # 10-cell strided content signature into the key so a different B is a memo MISS (recompute), while the
         # intra-fit second call on the SAME X (id+shape+content all identical) still hits and skips the full hash.
         id_shape = (id(X), sh if sh is not None else (None,), _content_array_signature(arr))
-        if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
-            return str(_MRMR_LAST_X_HASH_CACHE["hash"])
+        # Compare the key and fetch the value under one lock. As two unlocked reads, a concurrent writer could publish another frame's
+        # digest between them, and this would return that digest for this frame whichever field the writer set first.
+        with _MRMR_LAST_X_HASH_LOCK:
+            if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
+                return str(_MRMR_LAST_X_HASH_CACHE["hash"])
         # blake2b reads the contiguous array via the buffer protocol directly
         # (no .tobytes() copy); bit-identical to hashing tobytes() bytes.
         h = hashlib.blake2b(np.ascontiguousarray(arr), digest_size=16)  # type: ignore[arg-type]  # ndarray supports the buffer protocol; hashlib's Buffer stub doesn't recognize it
@@ -480,10 +504,8 @@ def _full_x_content_hash(X) -> str:
                 logger.debug("suppressed: %s", e)
                 pass
         result = h.hexdigest()
-        # Guard the single-slot memo write with the same lock the sibling identity cache uses; the publish-hash-before-key ordering is the
-        # extra belt-and-braces so even a torn read (lock contention aside) can only see an OLD key paired with whatever hash - a miss that
-        # recomputes - never a NEW id_shape paired with a stale hash from a prior different X.
-        with _MRMR_IDENTITY_FP_LOCK:
+        # Same lock as the read above, so a reader never observes a half-written (key, value) pair.
+        with _MRMR_LAST_X_HASH_LOCK:
             _MRMR_LAST_X_HASH_CACHE["hash"] = result
             _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
         return result

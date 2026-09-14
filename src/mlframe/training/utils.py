@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import weakref
 from textwrap import shorten
 from typing import Any
@@ -424,6 +425,9 @@ def compute_model_input_fingerprint(
 # want to retain a long history). Matches the iter625 / iter627
 # "double-call with same id in tight succession" doctrine.
 _PD_VIEW_LAST_CACHE: dict = {"id_key": None, "result": None}
+# Guards every read and write of the memo above. Re-entrant because the weakref finalizer that invalidates it can be run by the garbage
+# collector on a thread that is already inside one of these critical sections, where a plain Lock would deadlock.
+_PD_VIEW_LAST_CACHE_LOCK = threading.RLock()
 
 
 def _invalidate_pd_view_cache_if_current(id_key: tuple) -> None:
@@ -438,9 +442,10 @@ def _invalidate_pd_view_cache_if_current(id_key: tuple) -> None:
     to an EARLIER, already-collected test's polars frame, not the one actually being converted.
     Invalidating exactly when the source object dies (rather than only on the next call) means id()
     can never be reused before the stale entry is gone."""
-    if _PD_VIEW_LAST_CACHE.get("id_key") == id_key:
-        _PD_VIEW_LAST_CACHE["id_key"] = None
-        _PD_VIEW_LAST_CACHE["result"] = None
+    with _PD_VIEW_LAST_CACHE_LOCK:
+        if _PD_VIEW_LAST_CACHE.get("id_key") == id_key:
+            _PD_VIEW_LAST_CACHE["id_key"] = None
+            _PD_VIEW_LAST_CACHE["result"] = None
 
 
 def clear_pandas_view_cache() -> None:
@@ -448,8 +453,9 @@ def clear_pandas_view_cache() -> None:
     the polars frame's buffers zero-copy, so while it lives it PINS those buffers. Call this when releasing ctx polars
     frames to reclaim RAM -- otherwise the last-converted frame's gigabytes stay resident behind the memo and the
     release shows a ~0 MB delta (observed prod 2026: 8 GB expected, 0 reclaimed)."""
-    _PD_VIEW_LAST_CACHE["id_key"] = None
-    _PD_VIEW_LAST_CACHE["result"] = None
+    with _PD_VIEW_LAST_CACHE_LOCK:
+        _PD_VIEW_LAST_CACHE["id_key"] = None
+        _PD_VIEW_LAST_CACHE["result"] = None
 
 
 def get_pandas_view_of_polars_df(
@@ -553,11 +559,13 @@ def get_pandas_view_of_polars_df(
         # extra discriminator that catches the common same-shape-different-columns recycle.
         _cols = tuple(_orig_df.columns) if hasattr(_orig_df, "columns") else None
         _id_key = (id(_orig_df), sh if sh is not None else (None,), _cols)
-        _cached = _PD_VIEW_LAST_CACHE.get("id_key")
-        if _cached == _id_key:
-            _result = _PD_VIEW_LAST_CACHE.get("result")
-            if _result is not None:
-                return _result
+        # Compare the key and fetch the view under one lock: as two unlocked reads, a concurrent writer could publish another frame's
+        # pandas view between them, and this would hand back the wrong DATA for this frame.
+        with _PD_VIEW_LAST_CACHE_LOCK:
+            _cached = _PD_VIEW_LAST_CACHE.get("id_key")
+            _result = _PD_VIEW_LAST_CACHE.get("result") if _cached == _id_key else None
+        if _result is not None:
+            return _result
 
     # iter354 (2026-05-27) size-aware dispatcher: the pyarrow-Table +
     # per-column-cast path below is 9.5x faster than ``df.to_pandas()`` for
@@ -869,10 +877,11 @@ def get_pandas_view_of_polars_df(
             sh = getattr(_orig_df, "shape", None)
             _cols = tuple(_orig_df.columns) if hasattr(_orig_df, "columns") else None
             _id_key = (id(_orig_df), sh if sh is not None else (None,), _cols)
-            # Publish result BEFORE key so a torn read on this unlocked single-slot memo can only see an OLD key (miss -> recompute), never a NEW id_key
-            # paired with a stale pandas view from a prior different df. Key co-validates id()+shape+columns (see the read site).
-            _PD_VIEW_LAST_CACHE["result"] = pandas_df
-            _PD_VIEW_LAST_CACHE["id_key"] = _id_key
+            # Written under the same lock the read site takes, so a reader never pairs a new id_key with a stale view.
+            # The key co-validates id()+shape+columns (see the read site).
+            with _PD_VIEW_LAST_CACHE_LOCK:
+                _PD_VIEW_LAST_CACHE["result"] = pandas_df
+                _PD_VIEW_LAST_CACHE["id_key"] = _id_key
             # Close the id()-recycling gap: invalidate the memo the instant the CALLER's original df is
             # actually collected, so a later frame's id() can never alias a still-live stale entry. Must
             # be _orig_df (the caller's argument), not the local ``df`` -- ``df`` may have been rebound

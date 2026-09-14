@@ -81,14 +81,15 @@ def test_identity_shortcut_ndarray_via_cache_hit_completes_without_crash():
         _MRMR_IDENTITY_FP_CACHE,
     )
     from mlframe.feature_selection.filters._mrmr_fingerprints import (
-        _mrmr_compute_x_fingerprint,
+        _mrmr_identity_cache_key,
     )
 
     rng = np.random.default_rng(2)
     X = rng.standard_normal((200, 4))
     y = pd.Series(rng.integers(0, 2, 200))
-    _MRMR_IDENTITY_FP_CACHE[_mrmr_compute_x_fingerprint(X)] = True
     sel = MRMR(mrmr_skip_when_prior_was_identity=True, verbose=0)
+    # Seeded under the key the selector looks up, so the cache-hit path this test is named for is actually reached.
+    _MRMR_IDENTITY_FP_CACHE[_mrmr_identity_cache_key(sel, X, y)] = True
     # Pre-fix: AttributeError. Post-fix: completes (with or without
     # shortcut firing).
     sel.fit(X, y)

@@ -1,11 +1,13 @@
-"""Regression: single-slot id-memo caches must publish the VALUE field before the KEY field.
+"""Single-slot id-memo caches keep publishing the VALUE field before the KEY field.
 
-These unlocked module-level memos (``_MRMR_LAST_X_HASH_CACHE``, ``_PD_VIEW_LAST_CACHE``, ``_LAST_KEY_CACHE``) short-circuit an expensive
-recompute when the same input recurs. Reads are unsynchronised and MRMR.fit / the pipeline-cache key build may run under joblib threads.
-If the KEY field is published before the VALUE field, a concurrent reader can observe a NEW key paired with a STALE value (a value computed
-for a DIFFERENT, prior input) and return it -- a wrong-data cache collision. Publishing the value first makes a torn read degrade to a
-cache MISS (recompute), never a wrong hit. We pin the ordering deterministically via a dict that records assignment order; pre-fix code
-(key-before-value) fails these.
+These module-level memos (``_MRMR_LAST_X_HASH_CACHE``, ``_PD_VIEW_LAST_CACHE``, ``_LAST_KEY_CACHE``) short-circuit an expensive
+recompute when the same input recurs, and MRMR.fit / the pipeline-cache key build may run under joblib threads.
+
+The rationale this file used to give -- that writing the value first makes any torn read degrade to a cache MISS -- is not true on its own.
+A reader that has already matched its key can still have a concurrent writer publish a different input's value before it fetches, and
+return that value, whichever field the writer sets first. What actually prevents a wrong hit now is that each memo's read and write take the
+same dedicated lock; ``test_single_slot_memo_reads_are_atomic.py`` forces that interleave with real threads and pins it. The value-first
+ordering is kept as harmless defence in depth, and these tests keep it from regressing silently.
 """
 
 from __future__ import annotations

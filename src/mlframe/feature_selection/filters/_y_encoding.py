@@ -16,6 +16,8 @@ import logging
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # Above this many distinct float values a target is treated as continuous and quantile-binned rather than
@@ -51,7 +53,15 @@ def encode_y_for_classif_mi(y: np.ndarray) -> np.ndarray:
 
             # qcut(labels=False) returns an ndarray for ndarray input (Series for Series) - np.asarray covers both.
             arr = np.asarray(pd.qcut(arr, q=_CONTINUOUS_Y_QCUT_BINS, labels=False, duplicates="drop"))
-        except Exception as e:  # nosec B110 - qcut can fail on degenerate distributions; fall back to plain densify
-            logger.debug("pd.qcut continuous-target binning failed, falling back to plain densify: %s", e)
+        except Exception as e:
+            # The plain-densify fallback turns a genuinely continuous target into roughly n singleton classes, which the
+            # module docstring above names as signal-destroying for classification MI. It is kept so the fit still runs,
+            # but it must not be silent. Throttled: this helper runs per pair x per modulus x per permutation in the scans.
+            log_throttle(
+                logger, "encode_y_qcut_failed", logging.WARNING,
+                "encode_y_for_classif_mi: pd.qcut binning of a continuous target failed (%s: %s); falling back to plain "
+                "densify, which leaves ~one class per distinct value and degrades classification MI.",
+                type(e).__name__, e,
+            )
     _, inv = np.unique(arr, return_inverse=True)
     return inv.astype(np.int64, copy=False)

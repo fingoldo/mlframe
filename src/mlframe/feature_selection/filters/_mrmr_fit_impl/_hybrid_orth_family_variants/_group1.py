@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
-import pandas as pd
 
 from .._helpers import _orth_fe_numeric_cols, fe_decide_on_subsample
 from ..._fe_frame_ops import fe_append_columns, fe_extract_columns
+from ..._y_encoding import encode_y_for_classif_mi
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +32,7 @@ def _hybrid_orth_family_variants_group1(
             from ..._fe_frame_ops import fe_is_numeric_col
 
             _y_for_triplet = _y_np
-            if _y_for_triplet.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_triplet).size)
-                if _n_unique <= 32:
-                    _y_for_triplet = _y_for_triplet.astype(np.int64)
-                else:
-                    try:
-                        _y_for_triplet = pd.qcut(
-                            _y_for_triplet, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the triplet FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_triplet = _y_for_triplet.astype(np.int64)
+            _y_for_triplet = encode_y_for_classif_mi(_y_for_triplet)
             # Triplet seed pool is restricted to RAW columns - never
             # the previously-appended hybrid/extra-basis columns,
             # because those are themselves products of source cols and
@@ -152,18 +140,7 @@ def _hybrid_orth_family_variants_group1(
             from ..._fe_frame_ops import fe_is_numeric_col
 
             _y_for_quad = _y_np
-            if _y_for_quad.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_quad).size)
-                if _n_unique <= 32:
-                    _y_for_quad = _y_for_quad.astype(np.int64)
-                else:
-                    try:
-                        _y_for_quad = pd.qcut(
-                            _y_for_quad, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the quadruplet FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_quad = _y_for_quad.astype(np.int64)
+            _y_for_quad = encode_y_for_classif_mi(_y_for_quad)
             # Restrict the seed pool to RAW source columns - engineered
             # columns from prior stages would create recipes whose
             # src_names reference an engineered column absent at
@@ -237,18 +214,7 @@ def _hybrid_orth_family_variants_group1(
             )
 
             _y_for_aa = _y_np
-            if _y_for_aa.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_aa).size)
-                if _n_unique <= 32:
-                    _y_for_aa = _y_for_aa.astype(np.int64)
-                else:
-                    try:
-                        _y_for_aa = pd.qcut(
-                            _y_for_aa, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the adaptive-arity FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_aa = _y_for_aa.astype(np.int64)
+            _y_for_aa = encode_y_for_classif_mi(_y_for_aa)
             _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
             _aa_cols: list | None = None
             if getattr(self, "factors_names_to_use", None):
@@ -318,18 +284,7 @@ def _hybrid_orth_family_variants_group1(
             )
 
             _y_for_adapt = _y_np
-            if _y_for_adapt.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_adapt).size)
-                if _n_unique <= 32:
-                    _y_for_adapt = _y_for_adapt.astype(np.int64)
-                else:
-                    try:
-                        _y_for_adapt = pd.qcut(
-                            _y_for_adapt, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the adaptive-degree FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_adapt = _y_for_adapt.astype(np.int64)
+            _y_for_adapt = encode_y_for_classif_mi(_y_for_adapt)
             # Restrict the seed pool to RAW source columns - engineered
             # columns from prior stages would create recipes whose
             # src_names reference an engineered column absent at
@@ -398,18 +353,7 @@ def _hybrid_orth_family_variants_group1(
             )
 
             _y_for_route = _y_np
-            if _y_for_route.dtype.kind in "fc":
-                _n_unique = int(np.unique(_y_for_route).size)
-                if _n_unique <= 32:
-                    _y_for_route = _y_for_route.astype(np.int64)
-                else:
-                    try:
-                        _y_for_route = pd.qcut(
-                            _y_for_route, q=10, labels=False, duplicates="drop",
-                        ).astype(np.int64)
-                    except Exception as exc:
-                        logger.debug("mrmr: y densification failed for the conditional-routing FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
-                        _y_for_route = _y_for_route.astype(np.int64)
+            _y_for_route = encode_y_for_classif_mi(_y_for_route)
             # Restrict the seed pool to RAW source columns - engineered
             # columns from prior stages would create recipes whose
             # src_names reference an engineered column absent at
