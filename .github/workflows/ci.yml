@@ -197,6 +197,11 @@ jobs:
     # the fix is finding and isolating that specific hang (or switching CI's timeout method to
     # `signal` on Linux, which can actually preempt a blocked syscall), not raising the cap further --
     # there is no higher cap to raise to.
+    # 2026-09-14: `signal` was already tried on macOS too and reverted (see TIMEOUT_METHOD below) --
+    # SIGALRM landing in a thread doing native numba/multiprocessing work aborts the process there
+    # instead of raising cleanly. `tests/_hang_watchdog.py`'s autouse fixture is the safe alternative:
+    # it dumps every thread's stack partway through a stalled test WITHOUT signalling it, so the next
+    # hang names its exact blocking call in the live log instead of just "cancelled" 6 hours later.
     timeout-minutes: 360
     # Newest-Python rows are marked experimental so a single optional-extra
     # that has not yet published a cp314 wheel does not turn a required check

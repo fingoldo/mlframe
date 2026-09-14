@@ -984,6 +984,18 @@ def cleanup_memory(request):
 
 
 @pytest.fixture(autouse=True)
+def _hang_watchdog(request):
+    """Arm a stack-dump timer for the duration of each test; see ``tests/_hang_watchdog.py``."""
+    from tests import _hang_watchdog
+
+    _hang_watchdog.arm(request.node.nodeid)
+    try:
+        yield
+    finally:
+        _hang_watchdog.disarm()
+
+
+@pytest.fixture(autouse=True)
 def suppress_convergence_warnings(request):
     """Suppress sklearn ConvergenceWarning + the lbfgs / "Objective did not converge" pair during tests.
 
