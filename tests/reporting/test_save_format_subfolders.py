@@ -81,6 +81,7 @@ class TestLayout:
         """The one case the extension alone can't disambiguate: both backends asked to write ``png``.
         Without a backend-name suffix here the two writers would overwrite the same path -- add it back,
         but ONLY for the colliding format (an unrelated html/png pair in the same call stays unsuffixed)."""
+        pytest.importorskip("kaleido")  # plotly png export needs it; not in CI [all,dev] extras
         base = str(tmp_path / "plot")
         render_and_save(spec, parse_plot_output_dsl("plotly[png] + matplotlib[png]"), base, interactive=False, format_subfolders=False)
         assert (tmp_path / "plot.plotly.png").exists()

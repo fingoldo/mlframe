@@ -338,7 +338,7 @@ def test_xgboost_base_score_patched_config_json_fixes_bracketed_form():
     (e.g. "[4.1309687E-1]") even for a plain binary classifier -- reproduced directly on the installed
     xgboost version. The patched JSON this helper returns must parse fine via a bare float() call (the
     exact parse an older/pinned shap build's XGBTreeModelLoader does), with the value unchanged."""
-    import json
+    import orjson
     xgb = pytest.importorskip("xgboost")
 
     rng = np.random.default_rng(0)
@@ -347,14 +347,14 @@ def test_xgboost_base_score_patched_config_json_fixes_bracketed_form():
     m = xgb.XGBClassifier(n_estimators=10, base_score=0.4130968689918518)
     m.fit(X, y)
 
-    base_score_before = json.loads(m.get_booster().save_config())["learner"]["learner_model_param"]["base_score"]
+    base_score_before = orjson.loads(m.get_booster().save_config())["learner"]["learner_model_param"]["base_score"]
     assert base_score_before.strip().startswith("["), "fixture assumption broken: this xgboost no longer emits the bracketed form"
     with pytest.raises(ValueError):
         float(base_score_before)  # the exact failure mode an old shap build hits
 
     fixed_json = sp._xgboost_base_score_patched_config_json(m)
     assert fixed_json is not None
-    base_score_after = json.loads(fixed_json)["learner"]["learner_model_param"]["base_score"]
+    base_score_after = orjson.loads(fixed_json)["learner"]["learner_model_param"]["base_score"]
     assert float(base_score_after) == pytest.approx(0.4130968689918518, abs=1e-6)
 
 
@@ -369,7 +369,7 @@ def test_construct_tree_explainer_retries_with_shim_on_base_score_valueerror(mon
     succeeds once save_config() is monkeypatched to the fixed scalar form -- reproducing the actual crash
     site without depending on which shap version happens to be installed here (the current one never
     raises this at all, so a plain end-to-end call couldn't distinguish "fixed" from "never broken")."""
-    import json
+    import orjson
     xgb = pytest.importorskip("xgboost")
     shap = pytest.importorskip("shap")
 
@@ -381,7 +381,7 @@ def test_construct_tree_explainer_retries_with_shim_on_base_score_valueerror(mon
 
     def _fake_old_shap_tree_explainer(model):
         """Stand in for the old shap build's crash site: a bare float() parse of base_score."""
-        cfg = json.loads(model.get_booster().save_config())
+        cfg = orjson.loads(model.get_booster().save_config())
         float(cfg["learner"]["learner_model_param"]["base_score"])  # raises on the un-patched (real) config
         return "sentinel-explainer"
 
@@ -398,7 +398,7 @@ def test_construct_tree_explainer_retries_with_shim_on_base_score_valueerror(mon
     # The retry's monkeypatch of save_config must be restored, not left dangling on the model:
     # save_config() must be back to the REAL (bracketed) form, which a bare float() still can't parse.
     with pytest.raises(ValueError):
-        float(json.loads(m.get_booster().save_config())["learner"]["learner_model_param"]["base_score"])
+        float(orjson.loads(m.get_booster().save_config())["learner"]["learner_model_param"]["base_score"])
 
 
 def test_construct_tree_explainer_reraises_unrelated_valueerror(monkeypatch):

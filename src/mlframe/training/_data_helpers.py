@@ -32,6 +32,7 @@ except ImportError:
     XGBTrainingCallback = None  # type: ignore[assignment,misc]  # only used when xgboost is the chosen backend
 
 from .utils import filter_existing
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -926,7 +927,18 @@ def _cb_is_gpu(model_obj) -> bool:
         return False
     try:
         return str(model_obj.get_params().get("task_type", "")).upper() == "GPU"
-    except Exception:  # nosec B110 -- best-effort probe; an unreadable task_type just keeps the callback path
+    except Exception as exc:
+        # Best-effort probe: an unreadable task_type just keeps the callback-wiring path (the reactive
+        # fallback in _training_loop.py still catches a genuine GPU CatBoostError and retries), so this
+        # never breaks a fit -- but it DOES silently defeat this function's whole optimization (paying for
+        # the guaranteed-to-fail first attempt again) with no signal that it happened. Throttled warning
+        # (this can run once per model in a suite) so a probe that starts failing (e.g. a CatBoost API
+        # change to get_params()) is discoverable instead of a silent, permanent efficiency regression.
+        log_throttle(
+            logger, "cb_is_gpu_probe_failed", logging.WARNING,
+            "_cb_is_gpu: task_type probe failed on %s (%s: %s); keeping the callback-wiring path.",
+            type(model_obj).__name__, type(exc).__name__, exc,
+        )
         return False
 
 

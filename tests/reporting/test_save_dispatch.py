@@ -13,9 +13,11 @@ from mlframe.reporting.renderers.save import resolve_output_path
 from mlframe.reporting.spec import FigureSpec, ScatterPanelSpec
 
 
-def _saved(base: str, backend: str, fmt: str, *, multi: bool) -> str:
-    """Where render_and_save writes this (backend, format) under the default per-format-subfolder layout."""
-    return resolve_output_path(base, backend, fmt, multi_output=multi)
+def _saved(base: str, backend: str, fmt: str, *, disambiguate: bool = False) -> str:
+    """Where render_and_save writes this (backend, format). The backend name is stamped into the
+    filename ONLY when another backend in the SAME call also writes ``fmt`` (the one case the
+    extension alone can't disambiguate) -- pass ``disambiguate=True`` for that colliding case."""
+    return resolve_output_path(base, backend, fmt, multi_output=True, disambiguate_backend=disambiguate)
 
 
 @pytest.fixture
@@ -46,26 +48,38 @@ class TestNamingPolicy:
         out = parse_plot_output_dsl("matplotlib[png]")
         base = str(tmp_path / "plot")
         render_and_save(trivial_spec, out, base)
-        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
-        assert not os.path.exists(_saved(base, "matplotlib", "png", multi=True))
+        assert os.path.exists(_saved(base, "matplotlib", "png"))
+        assert not os.path.exists(_saved(base, "matplotlib", "png", disambiguate=True))
 
-    def test_multi_backend_uses_backend_in_filename(self, trivial_spec, tmp_path):
-        """Multi backend uses backend in filename."""
+    def test_multi_backend_different_formats_still_uses_short_path(self, trivial_spec, tmp_path):
+        """Different backends writing DIFFERENT formats need no backend suffix -- the extension
+        already disambiguates them, so stamping the backend in too would just repeat that."""
         out = parse_plot_output_dsl("plotly[html] + matplotlib[png]")
         base = str(tmp_path / "plot")
         render_and_save(trivial_spec, out, base)
-        assert os.path.exists(_saved(base, "plotly", "html", multi=True))
-        assert os.path.exists(_saved(base, "matplotlib", "png", multi=True))
-        assert not os.path.exists(_saved(base, "plotly", "html", multi=False))
-        assert not os.path.exists(_saved(base, "matplotlib", "png", multi=False))
+        assert os.path.exists(_saved(base, "plotly", "html"))
+        assert os.path.exists(_saved(base, "matplotlib", "png"))
+        assert not os.path.exists(_saved(base, "plotly", "html", disambiguate=True))
+        assert not os.path.exists(_saved(base, "matplotlib", "png", disambiguate=True))
 
-    def test_single_backend_multi_format_uses_backend_in_filename(self, trivial_spec, tmp_path):
-        """Single backend multi format uses backend in filename."""
+    def test_single_backend_multi_format_uses_short_path(self, trivial_spec, tmp_path):
+        """One backend writing two DIFFERENT formats: same reasoning, no backend suffix needed."""
         out = parse_plot_output_dsl("plotly[html,json]")
         base = str(tmp_path / "plot")
         render_and_save(trivial_spec, out, base)
-        assert os.path.exists(_saved(base, "plotly", "html", multi=True))
-        assert os.path.exists(_saved(base, "plotly", "json", multi=True))
+        assert os.path.exists(_saved(base, "plotly", "html"))
+        assert os.path.exists(_saved(base, "plotly", "json"))
+
+    def test_two_backends_writing_the_same_format_uses_backend_in_filename(self, trivial_spec, tmp_path):
+        """The one real collision: two backends both asked to write the SAME format. The extension
+        alone can't tell the files apart here, so the backend name is restored for just this case."""
+        out = parse_plot_output_dsl("plotly[png] + matplotlib[png]")
+        base = str(tmp_path / "plot")
+        render_and_save(trivial_spec, out, base)
+        assert os.path.exists(_saved(base, "plotly", "png", disambiguate=True))
+        assert os.path.exists(_saved(base, "matplotlib", "png", disambiguate=True))
+        assert not os.path.exists(_saved(base, "plotly", "png"))
+        assert not os.path.exists(_saved(base, "matplotlib", "png"))
 
 
 class TestKeepHandles:
@@ -112,7 +126,7 @@ class TestInteractiveDisplay:
         )
         render_and_save(trivial_spec, out, base, interactive=False)
         # File saved, show NOT called.
-        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
+        assert os.path.exists(_saved(base, "matplotlib", "png"))
         assert show_calls == []
 
     def test_interactive_true_does_not_show_matplotlib_inline(self, trivial_spec, tmp_path, monkeypatch):
@@ -133,7 +147,7 @@ class TestInteractiveDisplay:
             lambda self, fig: show_calls.append(fig),
         )
         render_and_save(trivial_spec, out, base, interactive=True)
-        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
+        assert os.path.exists(_saved(base, "matplotlib", "png"))
         assert show_calls == []
 
     def test_interactive_true_calls_show_for_plotly(self, trivial_spec, tmp_path, monkeypatch):
@@ -169,7 +183,7 @@ class TestInteractiveDisplay:
         render_and_save(trivial_spec, out, base, interactive=None)
         # Auto-detected non-interactive → show NOT called.
         assert show_calls == []
-        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
+        assert os.path.exists(_saved(base, "matplotlib", "png"))
 
     def test_interactive_show_failure_does_not_break_save(self, trivial_spec, tmp_path, monkeypatch):
         """If renderer.show raises, the on-disk save still completes
@@ -185,7 +199,7 @@ class TestInteractiveDisplay:
         monkeypatch.setattr(MatplotlibRenderer, "show", _explode)
         # Must not raise — show failures are non-fatal.
         render_and_save(trivial_spec, out, base, interactive=True)
-        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
+        assert os.path.exists(_saved(base, "matplotlib", "png"))
 
 
 class TestInlineDisplayOptOut:
@@ -224,7 +238,7 @@ class TestInlineDisplayOptOut:
         render_and_save(trivial_spec, out, base, interactive=None)
         # Env var won → no inline display.
         assert show_calls == []
-        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
+        assert os.path.exists(_saved(base, "matplotlib", "png"))
 
     def test_env_var_force_true_overrides_non_ipython(self, trivial_spec, tmp_path, monkeypatch):
         """Even outside a kernel, env var=1 turns the inline-display DECISION on.
@@ -254,7 +268,7 @@ class TestInlineDisplayOptOut:
         base = str(tmp_path / "p")
         render_and_save(trivial_spec, out, base, interactive=None)
         assert show_calls == []
-        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
+        assert os.path.exists(_saved(base, "matplotlib", "png"))
         shown = []
         monkeypatch.setattr(PlotlyRenderer, "show", lambda self, fig: shown.append(fig))
         render_and_save(trivial_spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "q"), interactive=None)

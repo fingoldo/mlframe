@@ -232,7 +232,7 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
         if p.legend_outside:
             ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=8, framealpha=0.7, borderaxespad=0.0)
         else:
-            ax.legend(loc=p.legend_loc or "best", fontsize=8, framealpha=0.7)
+            ax.legend(loc=(p.legend_loc if p.legend_loc is not None else "best"), fontsize=8, framealpha=0.7)
     if p.grid:
         ax.grid(True, alpha=0.3)
 

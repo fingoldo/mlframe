@@ -186,10 +186,16 @@ class TestPlotResidualDiagnostics:
             )
         # Opt-in path returns the audit (computed lazily if not supplied).
         assert audit is not None
+        _written = []
         for _suffix in ("perfplot", "residuals", "res_dist_and_acf"):
             _name = f"resid_{_suffix}.png"
-            assert os.path.exists(_saved(tmp_path, _name)), f"missing {_name}"
-            assert os.path.getsize(_saved(tmp_path, _name)) > 5000
+            _path = _saved(tmp_path, _name)
+            assert os.path.exists(_path), f"missing {_name}"
+            assert os.path.getsize(_path) > 5000
+            _written.append(_path)
+        # Unconditional (not just per-iteration) check that all three files actually appeared, not just
+        # that SOME did before an early exit hid a missing one.
+        assert len(_written) == 3
 
     def test_dsl_optin_matplotlib_legacy_template_writes_one_file(self, reg_inputs, tmp_path):
         """An explicit panels_template keeps the OLD single-combined-file behaviour."""
