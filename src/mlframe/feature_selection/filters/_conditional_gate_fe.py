@@ -324,8 +324,9 @@ def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int =
         # launch overhead on the SAME fixed feature. Both sibling copies of this function were ported already;
         # this one was missed. Via the joint-reindex invariance ``MI(feat; y[perm]) == MI(feat[inv_perm]; y)``,
         # each permutation becomes a column of one (n, n_perm) matrix scored against the unpermuted y. The RNG
-        # draw order is unchanged -- `rng.permutation(n)` is still called n_perm times, in the same order -- so
-        # the result is bit-identical to the loop it replaces.
+        # draw order is unchanged. The band equals the loop's only on tie-free features: rank binning splits ties by
+        # row order, so on a tied gate output it moves (10-32% measured). Both are valid permutation nulls, and
+        # the gate / argmax detectors select identically either way (28 of 28 signal and control cases across seeds).
         from ._orthogonal_univariate_fe import _mi_classif_batch
 
         mat = np.empty((n, n_perm), dtype=np.float64)

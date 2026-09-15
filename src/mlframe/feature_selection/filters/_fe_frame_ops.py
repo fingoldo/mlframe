@@ -135,7 +135,9 @@ def fe_append_columns(X: Any, cols: dict[str, np.ndarray]) -> Any:
     """Append engineered numpy columns ``{name: 1d-array}`` to ``X`` in ITS OWN framework (no whole-frame conversion).
 
     pandas -> ``concat`` (aligned on X.index); polars -> ``with_columns`` (native, zero-copy per Series); ndarray ->
-    horizontal stack. Only the new columns are materialised; the base frame is not duplicated.
+    horizontal stack. On pandas without copy-on-write the ``concat`` copies every existing column too, not just the new
+    ones. A shallow-copy-and-assign variant shares the base but did not win end to end (fragmentation; see
+    ``_benchmarks/bench_fe_append_columns.py`` and ``_benchmarks/ab_fe_append_columns_e2e.py``).
     """
     if not cols:
         return X

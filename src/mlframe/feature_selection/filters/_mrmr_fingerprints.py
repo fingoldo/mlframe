@@ -29,6 +29,7 @@ from itertools import islice
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 
 from mlframe._dtype_canon import canonicalise_dtype
 
@@ -277,11 +278,63 @@ def _hashable_params_signature(params: dict) -> tuple:
     return tuple(items)
 
 
+def _is_named_frame(arr) -> bool:
+    """True for a pandas or polars DataFrame, the containers whose whole-frame ``to_numpy()`` upcasts every column into one block."""
+    return (isinstance(arr, pd.DataFrame)) or (type(arr).__name__ == "DataFrame" and str(type(arr).__module__).startswith("polars"))
+
+
+def _column_values(frame, name, rows=None) -> np.ndarray:
+    """One column of a pandas / polars frame as a numpy array, optionally only at positional ``rows``; categoricals come back as codes."""
+    if isinstance(frame, pd.DataFrame):
+        col = frame[name]
+        if rows is not None:
+            col = col.iloc[rows]
+        if isinstance(col.dtype, pd.CategoricalDtype):
+            return np.asarray(col.cat.codes.to_numpy())
+        return np.asarray(col.to_numpy())
+    col = frame[name]
+    if rows is not None:
+        col = col.gather(rows)
+    if str(col.dtype).startswith(("Categorical", "Enum")):
+        col = col.to_physical()
+    return np.asarray(col.to_numpy())
+
+
+def _column_categories(frame, name):
+    """The category labels of a categorical column (pandas / polars), else ``None``."""
+    if isinstance(frame, pd.DataFrame):
+        dt = frame[name].dtype
+        return tuple(map(str, dt.categories)) if isinstance(dt, pd.CategoricalDtype) else None
+    col = frame[name]
+    if str(col.dtype).startswith(("Categorical", "Enum")):
+        return tuple(map(str, col.cat.get_categories().to_list()))
+    return None
+
+
+def _named_frame_signature(arr, col_names) -> tuple:
+    """Per-column strided sample of a pandas / polars frame: at most 1024 rows per column, no whole-frame conversion."""
+    n_rows, n_cols = int(arr.shape[0]), int(arr.shape[1])
+    dtypes = tuple(str(d) for d in arr.dtypes)
+    if n_rows == 0 or n_cols == 0:
+        return ((n_rows, n_cols), dtypes, b"", col_names)
+    _n_samples = 1024
+    rows = np.asarray([int(i * (n_rows - 1) / (_n_samples - 1)) for i in range(_n_samples)] if n_rows >= _n_samples else list(range(n_rows)), dtype=np.int64)
+    h = hashlib.blake2b(digest_size=16)
+    for name in arr.columns:
+        vals = _column_values(arr, name, rows)
+        if vals.dtype == object:
+            h.update(repr(vals.tolist()).encode("utf-8"))
+        else:
+            h.update(np.ascontiguousarray(vals).tobytes())
+    return ((n_rows, n_cols), dtypes, h.digest(), col_names)
+
+
 def _content_array_signature(arr) -> tuple:
-    """Cheap O(1) content-based fingerprint of an array / DataFrame.
+    """Cheap content-based fingerprint of an array / DataFrame, O(columns) in cost and independent of the row count.
 
     Used as a cache key when ``id()`` is unreliable: the training suite copies X between model iterations,
-    so semantically-equal X have distinct ``id(X)`` but identical content. Samples 10 evenly-spaced positions;
+    so semantically-equal X have distinct ``id(X)`` but identical content. Samples 1024 strided rows (per column for a frame, read
+    column by column, never a whole-frame ``to_numpy()`` that would upcast every column into one dense block);
     column names (when available) are included so ``df`` vs ``df.rename(...)`` produce different keys (otherwise
     a fit on the renamed frame would replay the prior ``feature_names_in_`` and ``transform()`` would mis-select).
 
@@ -296,6 +349,8 @@ def _content_array_signature(arr) -> tuple:
             except Exception as e:
                 logger.debug("_content_array_signature: reading column names failed, proceeding without them: %s", e)
                 col_names = None
+        if _is_named_frame(arr):
+            return _named_frame_signature(arr, col_names)
         # Unwrap to numpy
         if hasattr(arr, "to_numpy"):
             try:
@@ -460,12 +515,18 @@ def _full_x_content_hash(X) -> str:
     Mirrors ``_full_y_content_hash`` so the y-side and X-side guarantees are symmetric. Returns ``""`` on
     any conversion failure so the caller can choose to skip the cache rather than serve a wrong replay.
 
+    A pandas / polars frame is hashed column by column (categoricals by their codes plus their category labels), never through one
+    whole-frame ``to_numpy()``, which would upcast a mixed frame into a dense object block the size of the frame. A frame with a plain
+    object column still returns ``""``: its values have no deterministic byte form.
+
     iter627 (perf): single-entry memo on (id(X), X.shape). MRMR.fit
     calls this twice with the same X (signature key + store key);
     the second call returns the cached hash without re-hashing.
     """
     sh = getattr(X, "shape", None)
     try:
+        if _is_named_frame(X):
+            return _full_named_frame_hash(X, sh)
         if hasattr(X, "to_numpy"):
             try:
                 arr = X.to_numpy()
@@ -512,6 +573,34 @@ def _full_x_content_hash(X) -> str:
     except Exception as e:
         logger.debug("_full_x_content_hash: full-content hash failed, skipping the full-content cache disambiguator: %s", e)
         return ""
+
+
+def _full_named_frame_hash(X, sh) -> str:
+    """``_full_x_content_hash`` for a pandas / polars frame: one blake2b updated column by column, behind the same single-slot memo."""
+    columns = list(X.columns)
+    buffers = []
+    for name in columns:
+        vals = _column_values(X, name)
+        if vals.dtype == object:
+            return ""
+        buffers.append((name, np.ascontiguousarray(vals), _column_categories(X, name)))
+    id_shape = (id(X), sh if sh is not None else (None,), _content_array_signature(X))
+    with _MRMR_LAST_X_HASH_LOCK:
+        if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
+            return str(_MRMR_LAST_X_HASH_CACHE["hash"])
+    h = hashlib.blake2b(digest_size=16)
+    for name, vals, categories in buffers:
+        h.update(vals)  # type: ignore[arg-type]  # ndarray supports the buffer protocol; hashlib's Buffer stub doesn't recognize it
+        h.update(f"|{name}|{vals.dtype}|{vals.shape}".encode())
+        if categories is not None:
+            h.update(repr(categories).encode("utf-8"))
+    h.update(str(tuple(str(d) for d in X.dtypes)).encode())
+    h.update(",".join(str(c) for c in columns).encode())
+    result = h.hexdigest()
+    with _MRMR_LAST_X_HASH_LOCK:
+        _MRMR_LAST_X_HASH_CACHE["hash"] = result
+        _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
+    return result
 
 
 def _full_y_content_hash(y) -> str:

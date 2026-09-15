@@ -205,8 +205,11 @@ def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int, n_perm: int = 12,
     loop: ``MI(feat; y[perm]) == MI(feat[inv_perm]; y)`` (permuting y and permuting the feature by the
     INVERSE permutation score identically), so this stacks ``feat[inv_perm_i]`` for each perm as columns of
     one (n, n_perm) matrix and scores them all against the SAME unpermuted ``yi`` in one batched-njit call.
-    RNG draw order (``rng.permutation(n)`` called ``n_perm`` times) is unchanged, so this is bit-identical to
-    the original per-perm loop (verified: 0 diff across 30 synthetic scenarios, 1.95x at n=200k)."""
+    RNG draw order (``rng.permutation(n)`` called ``n_perm`` times) is unchanged, and on tie-free features the band
+    is bit-identical to the original per-perm loop (1.95x at n=200k). On TIED features it is not: rank binning splits
+    ties by row order, and each re-ordered column splits them differently (measured 7-13% band shift on an integer
+    product). It is still a valid permutation null, and the detectors select identically with either form (28 of 28
+    lattice / gate / argmax signal and control cases across seeds), which is the bar this FE family is held to."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     rng = np.random.default_rng(seed)

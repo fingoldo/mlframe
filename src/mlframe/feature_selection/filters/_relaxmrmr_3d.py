@@ -127,8 +127,107 @@ def _mi_x_pair_njit(x: np.ndarray, z1: np.ndarray, z2: np.ndarray, K_x: int, K_z
     return max(0.0, mi)
 
 
+# Miller-Madow-corrected estimators for the interaction term. Plug-in MI is biased upward by roughly (occupied cells - 1) / 2n per entropy,
+# and the interaction term differences MIs estimated on tables of very different sizes (the composite pair's table is K_i*K_j times wider),
+# so without a correction the bias does not cancel and every candidate gets a spurious "synergy" reward. Each entropy gets its own
+# (m - 1) / 2n term, applied once, and the results are NOT clamped at zero: a clamp is non-linear and would reintroduce the bias.
+@njit(nogil=True, cache=True)
+def _mi_mm_njit(a: np.ndarray, b: np.ndarray, K_a: int, K_b: int) -> float:
+    """Miller-Madow-corrected plug-in I(A; B) on integer codes, unclamped."""
+    n = a.shape[0]
+    if n <= 0:
+        return 0.0
+    joint = np.zeros((K_a, K_b), dtype=np.float64)
+    for i in range(n):
+        joint[a[i], b[i]] += 1.0
+    Pa = joint.sum(axis=1)
+    Pb = joint.sum(axis=0)
+    n_f = float(n)
+    mi = 0.0
+    m_ab = 0
+    for i in range(K_a):
+        for j in range(K_b):
+            v = joint[i, j]
+            if v > 0.0:
+                m_ab += 1
+                mi += (v / n_f) * math.log(v * n_f / (Pa[i] * Pb[j]))
+    m_a = 0
+    for i in range(K_a):
+        if Pa[i] > 0.0:
+            m_a += 1
+    m_b = 0
+    for j in range(K_b):
+        if Pb[j] > 0.0:
+            m_b += 1
+    return mi - (m_ab - m_a - m_b + 1) / (2.0 * n_f)
+
+
+@njit(nogil=True, cache=True)
+def _cmi_mm_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray, K_x: int, K_y: int, K_z: int) -> float:
+    """Miller-Madow-corrected plug-in I(X; Y | Z) on integer codes, unclamped."""
+    n = x.shape[0]
+    if n <= 0:
+        return 0.0
+    joint = np.zeros((K_x, K_y, K_z), dtype=np.float64)
+    for i in range(n):
+        joint[x[i], y[i], z[i]] += 1.0
+    Pz = np.zeros(K_z, dtype=np.float64)
+    Pxz = np.zeros((K_x, K_z), dtype=np.float64)
+    Pyz = np.zeros((K_y, K_z), dtype=np.float64)
+    m_xyz = 0
+    for i in range(K_x):
+        for j in range(K_y):
+            for k in range(K_z):
+                v = joint[i, j, k]
+                if v > 0.0:
+                    m_xyz += 1
+                Pz[k] += v
+                Pxz[i, k] += v
+                Pyz[j, k] += v
+    n_f = float(n)
+    cmi = 0.0
+    for i in range(K_x):
+        for j in range(K_y):
+            for k in range(K_z):
+                v = joint[i, j, k]
+                if v > 0.0:
+                    cmi += (v / n_f) * math.log((v * Pz[k]) / (Pxz[i, k] * Pyz[j, k]))
+    m_z = 0
+    for k in range(K_z):
+        if Pz[k] > 0.0:
+            m_z += 1
+    m_xz = 0
+    for i in range(K_x):
+        for k in range(K_z):
+            if Pxz[i, k] > 0.0:
+                m_xz += 1
+    m_yz = 0
+    for j in range(K_y):
+        for k in range(K_z):
+            if Pyz[j, k] > 0.0:
+                m_yz += 1
+    return cmi - (m_xyz - m_xz - m_yz + m_z) / (2.0 * n_f)
+
+
+@njit(nogil=True, cache=True)
+def _composite_codes_njit(z1: np.ndarray, z2: np.ndarray, K_z2: int) -> np.ndarray:
+    """Integer code of the pair (Z_1, Z_2)."""
+    n = z1.shape[0]
+    out = np.empty(n, dtype=np.int64)
+    for i in range(n):
+        out[i] = int(z1[i]) * K_z2 + int(z2[i])
+    return out
+
+
 def relax_mrmr_score(
-    x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarray, nbins_x: int, nbins_selected: list[int], nbins_y: int, alpha: float = 1.0
+    x_cand: np.ndarray,
+    selected_cols: list[np.ndarray],
+    y: np.ndarray,
+    nbins_x: int,
+    nbins_selected: list[int],
+    nbins_y: int,
+    alpha: float = 1.0,
+    min_rows_per_cell: float = 5.0,
 ) -> float:
     """RelaxMRMR / FJMI 3-D-MI score for one candidate (Vinh 2016).
 
@@ -140,6 +239,10 @@ def relax_mrmr_score(
         nbins_selected: cardinalities of ``selected_cols``, same order/length.
         nbins_y: cardinality of ``y``.
         alpha: weight on the 3-way interaction term (default 1.0 per Vinh 2016).
+        min_rows_per_cell: a selected pair contributes to the interaction term only when its largest table,
+            ``K_x * K_i * K_j * K_y`` cells for ``I(X; Z_i, Z_j | Y)``, holds at least this many rows per cell. Below that the
+            estimate is dominated by sampling bias no plug-in correction removes (measured: -0.37 "interaction" on fully
+            independent data at n=2000 with 10-level columns), so the pair's term is undefined and left out.
 
     Returns: scalar score with full 3-way correction; higher = better.
 
@@ -183,15 +286,8 @@ def relax_mrmr_score(
     # A candidate that duplicates a selected feature gets a large penalty; an independent one gets ~0.
     sel_int = [col.astype(np.int64) for col in selected_cols]
     pair_red = 0.0
-    marg_mi = np.empty(n_S, dtype=np.float64)  # I(X; X_j)
-    cmi_given_y = np.empty(n_S, dtype=np.float64)  # I(X; X_j | Y)
     for j in range(n_S):
-        K_z = K_sel[j]
-        marg_mi[j] = _mi_pair_njit(x_int, sel_int[j], K_x, K_z)
-        pair_red += marg_mi[j]
-        # I(X; X_j | Y) -- X_j is the SECOND variable, Y conditions. Passing Y second and X_j third would
-        # compute I(X; Y | X_j), a different quantity (the variable's own comment above names the intended one).
-        cmi_given_y[j] = _cmi_xy_given_z_njit(x_int, sel_int[j], y_int, K_x, K_z, K_y)
+        pair_red += _mi_pair_njit(x_int, sel_int[j], K_x, K_sel[j])
     pair_red /= float(n_S)
     # 3-way interaction-information correction: alpha / C(|S|,2) * sum_{i<j} II(X; Z_i; Z_j),
     # where II = I(X; Z_i; Z_j | Y) - I(X; Z_i; Z_j) and each co-information is decomposed as
@@ -200,19 +296,28 @@ def relax_mrmr_score(
     # II > 0 means the pair (Z_i, Z_j) carries MORE about X once Y is fixed than unconditionally (synergy) -> reward;
     # II < 0 means the joint already explains X without Y (redundancy) -> penalty. Adding alpha*II therefore lowers the
     # score of jointly-redundant candidates and raises synergistic ones, the direction RelaxMRMR (Vinh 2016) intends.
+    # The four MIs of each pair are estimated on tables of very different sizes, so they go through the Miller-Madow-corrected estimators
+    # (see ``_mi_mm_njit``); the plug-in values above stay as they are for the relevance and redundancy terms.
     inter = 0.0
     if n_S >= 2 and alpha > 0.0:
         norm = float(n_S * (n_S - 1)) / 2.0
+        marg_mm = np.empty(n_S, dtype=np.float64)
+        cmi_y_mm = np.empty(n_S, dtype=np.float64)
+        for j in range(n_S):
+            marg_mm[j] = _mi_mm_njit(x_int, sel_int[j], K_x, K_sel[j])
+            cmi_y_mm[j] = _cmi_mm_njit(x_int, sel_int[j], y_int, K_x, K_sel[j], K_y)
+        n_rows = float(x_int.shape[0])
         for i in range(n_S):
             for j in range(i + 1, n_S):
-                col_i = sel_int[i]
-                col_j = sel_int[j]
                 K_i = K_sel[i]
                 K_j = K_sel[j]
-                cmi_ij = _joint_mi_x_zw_given_y_njit(x_int, col_i, col_j, y_int, K_x, K_i, K_j, K_y)
-                co_cond = cmi_given_y[i] + cmi_given_y[j] - cmi_ij
-                mi_x_zz = _mi_x_pair_njit(x_int, col_i, col_j, K_x, K_i, K_j)
-                co_uncond = marg_mi[i] + marg_mi[j] - mi_x_zz
+                if n_rows < float(min_rows_per_cell) * K_x * K_i * K_j * K_y:
+                    continue  # undersampled composite table: this pair's interaction term is not estimable
+                z_pair = _composite_codes_njit(sel_int[i], sel_int[j], K_j)
+                cmi_ij = _cmi_mm_njit(x_int, z_pair, y_int, K_x, K_i * K_j, K_y)
+                co_cond = cmi_y_mm[i] + cmi_y_mm[j] - cmi_ij
+                mi_x_zz = _mi_mm_njit(x_int, z_pair, K_x, K_i * K_j)
+                co_uncond = marg_mm[i] + marg_mm[j] - mi_x_zz
                 inter += co_cond - co_uncond
         inter *= float(alpha) / norm
     return float(relevance - pair_red + inter)
