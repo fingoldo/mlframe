@@ -405,8 +405,14 @@ def missing_indicator_with_recipes(
     y: Optional[np.ndarray] = None,
     raw_X: Optional[pd.DataFrame] = None,
     reject_sink: Optional[Callable[..., None]] = None,
+    raw_columns: Optional[Sequence[str]] = None,
+    return_augmented: bool = True,
 ):
     """Append ``is_missing__{col}`` columns to X and emit one recipe per col.
+
+    ``return_augmented=False`` returns only the indicator columns (same index as ``X``) instead of ``X`` with them appended, so a caller that
+    keeps just the new columns does not pay a full-frame copy. ``raw_columns`` restricts the MI-floor reference to those columns of ``raw_X``
+    without building a sub-frame.
 
     ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91):
     per-source indicator columns are the explosion-prone L37 emitter (one
@@ -431,13 +437,15 @@ def missing_indicator_with_recipes(
     if mi_gate and y is not None and not enc_df.empty:
         from ._unified_fe_gate import local_mi_gate
 
-        _floor_ref = raw_X if isinstance(raw_X, pd.DataFrame) and raw_X.shape[1] else X
-        keep = set(local_mi_gate(enc_df, y, raw_X=_floor_ref, top_k=mi_gate_top_k, reject_sink=reject_sink))
+        _has_raw = isinstance(raw_X, pd.DataFrame) and raw_X.shape[1] and (raw_columns is None or len(raw_columns) > 0)
+        _floor_ref = raw_X if _has_raw else X
+        _floor_cols = raw_columns if _has_raw else None
+        keep = set(local_mi_gate(enc_df, y, raw_X=_floor_ref, top_k=mi_gate_top_k, reject_sink=reject_sink, raw_columns=_floor_cols))
         if not keep:
             return X, [], []
         cols = [c for c in cols if engineered_name_missing_indicator(c) in keep]
         enc_df = enc_df[[engineered_name_missing_indicator(c) for c in cols]]
-    X_aug = pd.concat([X, enc_df], axis=1)
+    X_aug = pd.concat([X, enc_df], axis=1) if return_augmented else enc_df
     appended = list(enc_df.columns)
     recipes = [
         build_missing_indicator_recipe(
@@ -453,9 +461,12 @@ def missingness_count_with_recipes(
     X: pd.DataFrame,
     *,
     cols: Optional[Sequence[str]] = None,
+    return_augmented: bool = True,
 ):
     """Append one ``missingness_count`` column to X and emit a single
-    recipe carrying the source-column subset."""
+    recipe carrying the source-column subset.
+
+    ``return_augmented=False`` returns only the count column (same index as ``X``), avoiding a full-frame copy."""
     from .engineered_recipes import build_missingness_count_recipe
 
     if not cols:
@@ -465,8 +476,11 @@ def missingness_count_with_recipes(
         return X, [], []
     counts, raw_recipe = missingness_count_fit(X, cols)
     name = engineered_name_missingness_count()
-    X_aug = X.copy()
-    X_aug[name] = counts
+    if return_augmented:
+        X_aug = X.copy()
+        X_aug[name] = counts
+    else:
+        X_aug = pd.DataFrame({name: counts}, index=X.index)
     recipe = build_missingness_count_recipe(
         name=name, cols=tuple(raw_recipe["cols"]),
     )
@@ -556,9 +570,12 @@ def missingness_pattern_with_recipes(
     *,
     cols: Optional[Sequence[str]] = None,
     top_k: int = 5,
+    return_augmented: bool = True,
 ):
     """Append one ``missingness_pattern`` column to X and emit a single
-    recipe carrying the top-K pattern signatures."""
+    recipe carrying the top-K pattern signatures.
+
+    ``return_augmented=False`` returns only the pattern column (same index as ``X``), avoiding a full-frame copy."""
     from .engineered_recipes import build_missingness_pattern_recipe
 
     if not cols:
@@ -568,8 +585,11 @@ def missingness_pattern_with_recipes(
         return X, [], []
     labels, raw_recipe = missingness_pattern_fit(X, cols, top_k=top_k)
     name = engineered_name_missingness_pattern()
-    X_aug = X.copy()
-    X_aug[name] = labels
+    if return_augmented:
+        X_aug = X.copy()
+        X_aug[name] = labels
+    else:
+        X_aug = pd.DataFrame({name: labels}, index=X.index)
     recipe = build_missingness_pattern_recipe(
         name=name,
         cols=tuple(raw_recipe["cols"]),

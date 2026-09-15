@@ -438,13 +438,17 @@ def _fe_stage_cascade_early_b(
                     _y_for_ind = _y_np
                     # Anchor the indicator's MI noise floor on the RAW input columns, not the engineered-polluted X: an earlier adaptive-Fourier stage appended high-(plug-in)-MI hijacker columns that would otherwise inflate the floor above a genuine MNAR indicator's MI and drop it (a >2%-missing source's signal lives in the NaN pattern the Fourier MI inflates).
                     _X_miss = _miss_frame()
-                    _raw_floor_X = _X_miss[[c for c in _raw_input_cols_pre_fe if c in X.columns]] if _raw_input_cols_pre_fe else None
+                    # The floor reads the raw columns by name from the same frame; a sub-frame X[[...]] would copy every raw column first.
+                    _raw_floor_cols = [c for c in _raw_input_cols_pre_fe if c in X.columns] if _raw_input_cols_pre_fe else None
+                    _raw_floor_X = _X_miss if _raw_floor_cols else None
                     X_i, _ind_appended, _ind_recipes = missing_indicator_with_recipes(
                         _X_miss, cols=_ind_cols,
                         mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                         mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                         y=_y_for_ind,
                         raw_X=_raw_floor_X,
+                        raw_columns=_raw_floor_cols,
+                        return_augmented=False,
                         reject_sink=_l37_reject_sink,
                     )
                     _ind_appended = [c for c in _ind_appended if c not in _X_before_ind_cols]
@@ -474,7 +478,7 @@ def _fe_stage_cascade_early_b(
                     _cnt_cols = _resolve_missing_cols(getattr(self, "fe_missingness_indicator_cols", ()))
                     _X_before_mc_cols = list(X.columns)
                     X_c, _mc_appended, _mc_recipes = missingness_count_with_recipes(
-                        _miss_frame(), cols=_cnt_cols,
+                        _miss_frame(), cols=_cnt_cols, return_augmented=False,
                     )
                     _mc_appended = [c for c in _mc_appended if c not in _X_before_mc_cols]
                     if _mc_appended:
@@ -504,7 +508,7 @@ def _fe_stage_cascade_early_b(
                     _top_k = int(getattr(self, "fe_missingness_pattern_top_k", 5))
                     _X_before_pat_cols = list(X.columns)
                     X_p, _pat_appended, _pat_recipes = missingness_pattern_with_recipes(
-                        _miss_frame(), cols=_pat_cols, top_k=_top_k,
+                        _miss_frame(), cols=_pat_cols, top_k=_top_k, return_augmented=False,
                     )
                     _pat_appended = [c for c in _pat_appended if c not in _X_before_pat_cols]
                     if _pat_appended:

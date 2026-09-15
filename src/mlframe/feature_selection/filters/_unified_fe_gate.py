@@ -159,12 +159,26 @@ def _coerce_y_classes_impl(y_arr: np.ndarray) -> np.ndarray:
 _RAW_MI_FLOOR_MEMO: dict[tuple, float] = {}
 
 
+def _buffer_hash(a: np.ndarray) -> int:
+    """Content hash of an array's buffer (with dtype and shape), without a ``tobytes()`` copy."""
+    c = np.ascontiguousarray(a)
+    try:
+        import xxhash
+
+        return int(xxhash.xxh3_64_intdigest(c.view(np.uint8).data)) ^ hash((c.dtype.str, c.shape))
+    except ImportError:
+        import hashlib
+
+        return int.from_bytes(hashlib.blake2b(c.view(np.uint8).data, digest_size=8).digest(), "little") ^ hash((c.dtype.str, c.shape))
+
+
 def raw_mi_noise_floor(
     raw_X: pd.DataFrame,
     y,
     *,
     nbins: int = 10,
     mad_mult: float = 3.5,
+    columns: Optional[Sequence[str]] = None,
 ) -> float:
     """Noise floor = ``median(raw_mi) + mad_mult * MAD(raw_mi)`` over the
     numeric raw columns' marginal ``MI(col; y)``.
@@ -187,15 +201,18 @@ def raw_mi_noise_floor(
 
     if not isinstance(raw_X, pd.DataFrame) or raw_X.shape[1] == 0:
         return 0.0
-    num_cols = [c for c in raw_X.columns if pd.api.types.is_numeric_dtype(raw_X[c])]
+    _candidates = raw_X.columns if columns is None else [c for c in columns if c in raw_X.columns]
+    num_cols = [c for c in _candidates if pd.api.types.is_numeric_dtype(raw_X[c])]
     if not num_cols:
         return 0.0
     y_bin = _coerce_y_classes(y)
-    arr = raw_X[num_cols].to_numpy(dtype=np.float64)
+    # Stack column by column: raw_X[num_cols] would copy a sub-frame before the float64 matrix copy the scorer needs.
+    arr = np.column_stack([raw_X[c].to_numpy(dtype=np.float64) for c in num_cols])
 
     _key = None
     try:
-        _key = (tuple(num_cols), arr.shape, hash(arr.tobytes()), hash(y_bin.tobytes()), int(nbins), float(mad_mult))
+        # Hash the buffers directly; tobytes() would copy the whole matrix just to key the memo.
+        _key = (tuple(num_cols), arr.shape, _buffer_hash(arr), _buffer_hash(y_bin), int(nbins), float(mad_mult))
         with _FE_GATE_MEMO_LOCK:
             _hit = _RAW_MI_FLOOR_MEMO.get(_key)
         if _hit is not None:
@@ -244,8 +261,11 @@ def local_mi_gate(
     mad_mult: float = 3.5,
     floor: Optional[float] = None,
     reject_sink: Optional[Callable[..., None]] = None,
+    raw_columns: Optional[Sequence[str]] = None,
 ) -> list[str]:
     """Tier-1 local MI floor. Returns the subset of ``enc_df`` columns to keep.
+
+    ``raw_columns`` restricts the floor's reference to those columns of ``raw_X`` without the caller building a sub-frame.
 
     A column is kept when ``MI(col; y) >= floor`` where ``floor`` is the
     ``raw_mi_noise_floor`` of ``raw_X`` (or the explicit ``floor`` argument).
@@ -264,7 +284,7 @@ def local_mi_gate(
     if not cand_cols:
         return []
     if floor is None:
-        floor = raw_mi_noise_floor(raw_X, y, nbins=nbins, mad_mult=mad_mult) if raw_X is not None else 0.0
+        floor = raw_mi_noise_floor(raw_X, y, nbins=nbins, mad_mult=mad_mult, columns=raw_columns) if raw_X is not None else 0.0
     y_bin = _coerce_y_classes(y)
     arr = enc_df[cand_cols].to_numpy(dtype=np.float64)
     # NOTE (device-born gate, 2026-06-29): unlike the CONDITIONAL gate (whose tau-grid candidates are derived
