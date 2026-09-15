@@ -279,7 +279,7 @@ def _get_infonet_model(device: str = "auto"):
                 try:
                     sys.path.remove(vendored)
                 except ValueError:
-                    pass
+                    logger.debug("neural MI: vendored path %s was already removed from sys.path", vendored)
         model = load_model(str(config_path), str(ckpt_path))
         _INFONET_MODEL_CACHE[cache_key] = model
         return model
@@ -391,7 +391,7 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
             try:
                 sys.path.remove(vendored)
             except ValueError:
-                pass
+                logger.debug("neural MI: vendored path %s was already removed from sys.path", vendored)
     mi = estimate_mi(model, xr, yr).squeeze().cpu().numpy()
     return _clamp_mi_nonneg(float(mi), "infonet_mi")
 

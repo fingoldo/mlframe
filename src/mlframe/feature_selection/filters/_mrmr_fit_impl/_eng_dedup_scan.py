@@ -149,7 +149,8 @@ def scan_engineered_duplicates(
             if _kept_col in _fast_kept_set:
                 continue
             _arr_k = _eng_arrs[_kept_col]
-            _mask = _fin_c & np.isfinite(_arr_k)
+            # A kept column already known to be fully finite contributes an all-True mask; skip the O(n) isfinite pass for it.
+            _mask = _fin_c if _eng_fully_finite.get(_kept_col, False) else (_fin_c & np.isfinite(_arr_k))
             if _mask.sum() < 8:
                 continue
             _a, _b = _arr_c[_mask], _arr_k[_mask]

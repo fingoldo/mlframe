@@ -84,6 +84,26 @@ def test_mrmr_gains_monotone_non_increasing_in_screen_order():
         assert (diffs <= 0.05).all(), f"mrmr_gains_ not weakly non-increasing: {sel.mrmr_gains_}"
 
 
+def test_mrmr_gains_non_increasing_within_raw_screen_prefix():
+    """With FE off, each greedy round picks the best remaining candidate and a larger selected set can only lower a candidate's
+    conditional gain, so the gains trace is non-increasing up to float rounding (no 0.05 allowance)."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    # Three independent additive signals of decreasing strength plus noise columns: the screen selects several features, so the trace
+    # has real rounds to compare.
+    rng = np.random.default_rng(7)
+    n = 4000
+    sig = rng.normal(size=(n, 3))
+    X = pd.DataFrame(np.hstack([sig, rng.normal(size=(n, 4))]), columns=[f"s{i}" for i in range(3)] + [f"z{i}" for i in range(4)])
+    y = ((sig @ np.array([1.0, 0.8, 0.6]) + 0.3 * rng.normal(size=n)) > 0).astype(np.int64)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sel = MRMR(verbose=0, fe_max_steps=0, random_seed=0).fit(X, y)
+    gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
+    assert gains.size >= 2, "fixture precondition: the raw screen must select at least two features"
+    assert np.all(np.diff(gains) <= 1e-12), f"raw-screen gains rose between rounds: {gains}"
+
+
 def test_uaed_auto_size_trims_at_elbow():
     """``MRMR(uaed_auto_size=True)`` must produce a support smaller than
     or equal to the default screen output AND set ``uaed_elbow_``.

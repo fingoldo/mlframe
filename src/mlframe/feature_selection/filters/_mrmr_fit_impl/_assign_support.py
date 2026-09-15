@@ -285,7 +285,7 @@ def _assign_support(
         # Use the in-scope LOCAL cached_MIs (populated by the screen, same dict used at the other read
         # sites) - self.cached_MIs is only assigned near the end of _fit_impl, so on a FRESH fit
         # hasattr(self,...) is False and this degraded to {} -> every rep tiebreak collapsed to 0.0.
-        _cached_cm = cached_MIs if ("cached_MIs" in dir() and isinstance(cached_MIs, dict)) else {}
+        _cached_cm = cached_MIs if isinstance(cached_MIs, dict) else {}
         _name2inidx_cm = {c: i for i, c in enumerate(self.feature_names_in_)}
         # Names ALREADY in selected_vars (raw, in feature_names_in_ index space). The greedy
         # screen / retention passes have already chosen these as the cluster's surviving
@@ -455,7 +455,7 @@ def _assign_support(
     # ceiling). When p >= n, cap the total selected raw set at ``max(20, p//3)`` features chosen by descending relevance MI(X_j, y),
     # mirroring the RFECV ``p_ge_n_fp_control_cap``. Confined to p >= n so the well-powered p<n path is byte-unchanged. Engineered
     # survivors are counted toward the cap (they reach the output too) but never the dropped tail - only raw ``selected_vars`` is trimmed.
-    _pgn_n = int(data.shape[0]) if "data" in dir() else 0
+    _pgn_n = int(data.shape[0])
     _pgn_p = int(getattr(self, "n_features_in_", 0) or 0)
     if _pgn_p > 0 and _pgn_n > 0 and _pgn_p >= _pgn_n and selected_vars:
         _pgn_ceiling = max(20, _pgn_p // 3)
@@ -467,8 +467,8 @@ def _assign_support(
         if len(selected_vars) > _pgn_budget:
             # LOCAL cached_MIs (see the cluster-rep note above): self.cached_MIs is unset until the end of
             # _fit_impl, so on a fresh fit this read degraded to {} and the p>=n cap sort collapsed to index order.
-            _pgn_cached = cached_MIs if ("cached_MIs" in dir() and isinstance(cached_MIs, dict)) else {}
-            _pgn_n2ci = {c: i for i, c in enumerate(cols)} if "cols" in dir() else {}
+            _pgn_cached = cached_MIs if isinstance(cached_MIs, dict) else {}
+            _pgn_n2ci = {c: i for i, c in enumerate(cols)}
             _fni_pgn = self.feature_names_in_
 
             def _pgn_rel(_v):

@@ -755,7 +755,8 @@ def _run_fe_step_impl(
         # hundreds of unary/binary candidates); the auto gate is CUDA-presence-gated internally.
         _gpu_fe_active = bool(_fe_gpu_disc_gate(int(getattr(X, "shape", [0])[0] or 0), 256))
     except Exception as exc:
-        logger.debug("mrmr: GPU-FE-active probe failed; downgrading to the serial dispatch path: %r", exc, exc_info=True)
+        # Correct but slower path; say so, as the full-n fallback just above does.
+        logger.warning("mrmr: GPU-FE-active probe failed (%s: %s); using the serial pair-check dispatch", type(exc).__name__, exc)
         _gpu_fe_active = False
     if _should_serialize_fe_pair_check(len(prospective_pairs), _gpu_fe_active, _fe_serial_min_pairs_per_worker):
         prospective_additions = check_prospective_fe_pairs(

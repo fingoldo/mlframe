@@ -608,7 +608,7 @@ def _assign_support_tail(
     # documented max(20, p//3) ceiling on a p>>n fit with real leftover linear-usable raw signal. Re-apply
     # the same cap here, at the true end of raw-selection mutation for this fit (nothing below this point
     # adds more raw columns - only the UAED elbow trim further down, which only shrinks).
-    _pgn_n_final = int(data.shape[0]) if "data" in dir() else 0
+    _pgn_n_final = int(data.shape[0])
     _pgn_p_final = int(getattr(self, "n_features_in_", 0) or 0)
     if _pgn_p_final > 0 and _pgn_n_final > 0 and _pgn_p_final >= _pgn_n_final and selected_vars:
         _pgn_ceiling_final = max(20, _pgn_p_final // 3)
@@ -616,7 +616,7 @@ def _assign_support_tail(
         _pgn_budget_final = _pgn_raw_budget(_pgn_ceiling_final, _pgn_eng_final)
         if len(selected_vars) > _pgn_budget_final:
             _pgn_cached_final = self.cached_MIs if isinstance(getattr(self, "cached_MIs", None), dict) else {}
-            _pgn_n2ci_final = {c: i for i, c in enumerate(cols)} if "cols" in dir() else {}
+            _pgn_n2ci_final = {c: i for i, c in enumerate(cols)}
             _fni_pgn_final = self.feature_names_in_
 
             def _pgn_rel_final(_v):

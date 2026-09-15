@@ -387,8 +387,8 @@ class TestPartB_AutoMethod:
             verbose=0,
             random_seed=0,
         ).fit(X, y)
-        if m.dcd_["n_swaps"] == 0:
-            pytest.skip("no swap fired on this fixture")
+        # A precondition, not a skip: on a fixture where no swap fires the test would silently check nothing.
+        assert m.dcd_["n_swaps"] >= 1, "fixture must provoke a DCD swap; strengthen it rather than skipping"
         entry = m.dcd_["swap_log"][0]
         assert entry["method"] == "pca_pc1"
         assert "kfold_scores" not in entry, f"pinned method must skip bake-off, but kfold_scores present: {entry}"

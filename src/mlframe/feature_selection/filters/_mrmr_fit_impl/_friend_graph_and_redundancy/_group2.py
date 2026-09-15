@@ -241,7 +241,10 @@ def _friend_graph_and_redundancy_passes_group2(
             r2_base = _r2(base)
             r2_full = _r2([*base, leg])
             if not (np.isfinite(r2_base) and np.isfinite(r2_full)):
-                return 0.0
+                # The solve failed, so the uplift is unmeasured, not zero. -inf keeps the reject verdict at both ``< floor`` call sites
+                # (a NaN would compare False there and admit the candidate) while no longer reading as a measured 0.0.
+                logger.debug("mrmr: held-out R^2 probe could not be solved (base=%r, full=%r); rejecting the candidate", r2_base, r2_full)
+                return float("-inf")
             return float(r2_full - r2_base)
 
         if _hinge_feats:

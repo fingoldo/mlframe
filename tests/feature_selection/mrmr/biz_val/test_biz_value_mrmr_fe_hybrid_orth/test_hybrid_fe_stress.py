@@ -530,8 +530,7 @@ class TestRecipeCorruptionSurvival:
             if r.kind == "mi_greedy_transform":
                 target_idx = i
                 break
-        if target_idx is None:
-            pytest.skip(f"seed={seed}: no mi_greedy_transform recipe in support ({[r.name for r in recipes]}); cannot test corruption")
+        assert target_idx is not None, f"seed={seed}: fixture must produce a mi_greedy_transform recipe ({[r.name for r in recipes]}); strengthen it rather than skipping"
         original = recipes[target_idx]
         corrupted = _replace_recipe_extra(
             original,
@@ -562,8 +561,7 @@ class TestRecipeCorruptionSurvival:
             if r.kind == "mi_greedy_transform":
                 target_idx = i
                 break
-        if target_idx is None:
-            pytest.skip(f"seed={seed}: no mi_greedy_transform recipe in support; cannot test corruption")
+        assert target_idx is not None, f"seed={seed}: fixture must produce a mi_greedy_transform recipe; strengthen it rather than skipping"
         original = recipes[target_idx]
         # Replace src_names with a column NOT in X (and not in
         # feature_names_in_ either).

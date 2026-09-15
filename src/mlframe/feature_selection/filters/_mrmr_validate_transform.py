@@ -310,9 +310,11 @@ def _validate_inputs(self, X, y):
         if hasattr(X, "select_dtypes"):
             _obj = X.select_dtypes(include=["object"])
             for _obj_col in _obj.columns:
+                # A column pandas infers as purely string-like cannot hold a float inf; skip it rather than calling a Python predicate per cell.
+                if pd.api.types.infer_dtype(_obj[_obj_col], skipna=True) in ("string", "unicode", "bytes", "empty"):
+                    continue
                 _obj_col_arr = _obj[_obj_col].to_numpy()
-                _obj_floats = np.frompyfunc(lambda v: isinstance(v, (float, np.floating)) and np.isinf(v), 1, 1)(_obj_col_arr).astype(bool)
-                if _obj_floats.any():
+                if any(isinstance(v, (float, np.floating)) and np.isinf(v) for v in _obj_col_arr):
                     raise ValueError(
                         f"MRMR.fit: input X contains +/-inf values in object-dtype column {_obj_col!r}. Replace or drop these rows before fitting; the discretization step produces undefined bins on inf."
                     )

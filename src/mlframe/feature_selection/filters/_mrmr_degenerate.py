@@ -102,10 +102,13 @@ def _is_constant(values: np.ndarray) -> bool:
     handled separately as ``all_nan``; a single non-null distinct value is constant."""
     try:
         if values.dtype.kind in "fc":
-            finite = values[~np.isnan(values)]
-            if finite.size == 0:
+            non_nan = values[~np.isnan(values)]
+            if non_nan.size == 0:
                 return False  # all-nan -> not "constant" (reported as all_nan)
-            return bool(np.ptp(finite) == 0)
+            # np.ptp on an all-+inf (or all--inf) column is inf - inf = nan, so a zero-variance infinite column read as non-constant.
+            if not np.isfinite(non_nan).all():
+                return bool(np.unique(non_nan).size == 1)
+            return bool(np.ptp(non_nan) == 0)
         # object / int / bool / datetime
         ser = pd.Series(values)
         nun = ser.nunique(dropna=True)
