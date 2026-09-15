@@ -122,8 +122,7 @@ def _mi_x_pair_njit(x: np.ndarray, z1: np.ndarray, z2: np.ndarray, K_x: int, K_z
             v = joint[i, j]
             if v <= 0.0 or Pz[j] <= 0.0:
                 continue
-            p = v / n_f
-            mi += p * math.log(p * n_f / (Px[i] * Pz[j] / n_f))
+            mi += (v / n_f) * math.log(v * n_f / (Px[i] * Pz[j]))
     return max(0.0, mi)
 
 
@@ -250,6 +249,10 @@ def relax_mrmr_score(
     sets enable the dispatcher only after the per-screen filter has pruned
     the pool.
     """
+    if alpha < 0.0:
+        # The interaction term is already signed (synergy rewarded, redundancy penalised); a negative alpha used to be silently
+        # treated as 0 (the term skipped), indistinguishable from alpha=0.
+        raise ValueError(f"relax_mrmr_score: alpha must be >= 0; got {alpha!r}.")
     from ._bur_term import _mi_pair_njit  # reuse the 2-var plug-in MI kernel
     # Guard against out-of-range / -1-sentinel codes: the njit kernels index joint[x[i], y[i], z[i]] directly, so a
     # negative sentinel wraps to the last bin and an over-range code writes out of bounds (silent corruption). PID

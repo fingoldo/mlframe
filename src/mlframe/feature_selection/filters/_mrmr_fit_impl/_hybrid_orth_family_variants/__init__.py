@@ -7,10 +7,10 @@ conditional-routing, diff-basis, cluster-basis, bootstrap, three-gate, KSG, copu
 JMIM, TC, CMIM, auto-scorer, ensemble, meta) -- one contiguous run of near-identical-shaped blocks
 between the initial ``_gbm_seeded_triplet_names`` setup and the (separately-gated) MI-greedy FE
 stage that follows. Further split (2026-08-15) into four sibling group modules (``_group1``
-through ``_group4``, ~5 families each) once this package itself crossed the 1k-LOC gate -- each
-group is a verbatim contiguous slice of the original single-function body, so no per-block
-free-variable re-analysis was needed: the whole original function only ever closed over the params
-below, so every slice's free variables are a subset by construction.
+through ``_group4``, ~5 families each) once this package itself crossed the 1k-LOC gate. Each group is a contiguous slice
+of the original single-function body, but slicing is NOT safe by construction: function-local imports and locals assigned in an
+earlier block are not free variables of the whole function, and 14 of 19 family blocks here did share one early block's import.
+The gate for any further split is a per-submodule AST audit of every Load-context name, not a subset argument.
 
 Threads ``self`` plus every fit-body local this section reads as explicit keyword arguments
 (mirrors the other sub-split carve-outs' own pattern), derived via ``pyutilz.dev.freevar_analysis``.

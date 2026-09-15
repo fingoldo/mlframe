@@ -30,6 +30,12 @@ from .mrmr import MRMR
 logger = logging.getLogger(__name__)
 
 
+def _rank_by_importance(imp) -> list:
+    """Indices of positive importances, highest first; ties keep column order (a reversed ascending argsort preferred the highest index)."""
+    imp = np.asarray(imp, dtype=float)
+    return [int(i) for i in np.argsort(-imp, kind="stable") if imp[i] > 0]
+
+
 class MRMRTreeRescued(MRMR):
     """MRMR + a gated shallow-GBM importance rescue for the under-selection (interaction-heavy) regime.
 
@@ -112,9 +118,9 @@ class MRMRTreeRescued(MRMR):
                 # entire pandas-3.x matrix leg -- always paying the ~3-pass ``apply``/``to_numeric``/``fillna``
                 # cost this fast path exists to avoid.
                 try:
+                    # NaN is left in place: LightGBM handles missing values natively, whereas a 0.0 fill sits inside most features' range
+                    # and the GBM splits on the imputed value as if it were observed.
                     Xnum = np.array(Xf, dtype=float, copy=True)
-                    if np.isnan(Xnum).any():
-                        Xnum[np.isnan(Xnum)] = 0.0
                 except (ValueError, TypeError):
                     _coerced = Xf.apply(pd.to_numeric, errors="coerce")
                     _nan_fill = int(_coerced.isna().to_numpy().sum())
@@ -138,7 +144,7 @@ class MRMRTreeRescued(MRMR):
                     n_jobs=getattr(self, "n_jobs", -1), verbose=-1, random_state=int(seed))
             m.fit(Xnum, yv)
             imp = np.asarray(m.feature_importances_, dtype=float)
-            order = [int(i) for i in np.argsort(imp)[::-1] if imp[i] > 0]
+            order = _rank_by_importance(imp)
             # respect factors_to_use if the user restricted the pool: filter the FULL ranking BEFORE the
             # top-k cut, so an allowed feature ranked below the global top-k is still eligible for rescue
             # (truncating first dropped allowed-but-globally-lower features -> under-added).

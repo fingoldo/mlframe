@@ -411,7 +411,8 @@ def _friend_graph_and_redundancy_passes_group3(
                     ) and _pcr_raw_is_significant(_ridx):
                         _pcr_readd.append(_ridx)
                 if _pcr_readd:
-                    selected_vars = list(selected_vars) + [i for i in _pcr_readd if i not in _pcr_sel_set]
+                    # The loop already skips selected columns, so every entry here is new; extend and log from the same list.
+                    selected_vars = list(selected_vars) + _pcr_readd
                     if verbose:
                         logger.info(
                             "MRMR pseudo-child masked-raw rescue: re-added %d raw operand(s) the greedy "

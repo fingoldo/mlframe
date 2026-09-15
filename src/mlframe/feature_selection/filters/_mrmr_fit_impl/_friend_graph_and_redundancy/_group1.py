@@ -141,14 +141,14 @@ def _friend_graph_and_redundancy_passes_group1(
                     _drop_sg.add(nm)
             if _drop_sg:
                 selected_vars = [v for v in selected_vars if cols[v] not in _drop_sg]
-                if getattr(self, "verbose", 0):
+                if verbose:
                     logger.info(
                         "MRMR FE fast-search: pruned %d standalone cross-group gate column(s) covered by " "clean engineered survivors: %s",
                         len(_drop_sg),
                         sorted(_drop_sg),
                     )
         except Exception as _sg_exc:
-            logger.warning("MRMR fast-search standalone-gate prune skipped (%s); continuing.", type(_sg_exc).__name__)
+            logger.warning("MRMR fast-search standalone-gate prune skipped (%s: %s); continuing.", type(_sg_exc).__name__, _sg_exc)
 
     # N-WAY SYNERGY SEEDING. The greedy screen assembles features one-at-a-time by
     # CONDITIONAL gain, which cannot climb a PURE-synergy gradient: on a 3-way XOR every operand has
@@ -169,7 +169,8 @@ def _friend_graph_and_redundancy_passes_group1(
     # the interaction. Fixed-width equi-frequency quantile bins depend only on rank order, not on
     # marginal relevance, so a zero-marginal operand keeps its full joint-MI resolution.
     _iac_max_order = getattr(self, "interactions_max_order", None)
-    if int(_iac_max_order if _iac_max_order is not None else 1) >= 2 and len(selected_vars) >= 0:
+    # No selected-count guard: the screen seeds operands the greedy never selected, so an empty support is a valid input.
+    if int(_iac_max_order if _iac_max_order is not None else 1) >= 2:
         try:
             from ..._fe_synergy_screen import detect_synergy_combos
             from ..._mi_greedy_cmi_fe import _quantile_bin
@@ -303,7 +304,7 @@ def _friend_graph_and_redundancy_passes_group1(
         _RR_PROTECT_MAX_N = int(getattr(self, "fe_raw_retention_max_n", 20000) or 0)
         _n_rows_rr = int(data.shape[0])
 
-        def _rr_raw_is_relevant_given_engineered(_raw_idx, _eng_cols):
+        def _rr_raw_is_relevant_given_engineered(_eng_cols):
             """Whether a raw operand of a surviving engineered child carries signal the
             engineered set does NOT capture, so raw-retention should OVERRIDE the re-selection's
             redundancy drop. Two regimes:
@@ -414,7 +415,7 @@ def _friend_graph_and_redundancy_passes_group1(
             if _idx in _sv_set:
                 continue
             _eng_cols = _eng_operands_of.get(_rn)
-            if _eng_cols and not _rr_raw_is_relevant_given_engineered(_idx, _eng_cols):
+            if _eng_cols and not _rr_raw_is_relevant_given_engineered(_eng_cols):
                 # Fully captured by a surviving engineered child -> respect the
                 # re-selection's redundancy verdict (the OLD CORRECT behaviour).
                 _dropped_redundant.append(_rn)

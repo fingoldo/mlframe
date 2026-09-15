@@ -118,7 +118,7 @@ def _friend_graph_and_redundancy_passes_group4(
                     # below does NOT mistake this for a "screen returned 0 raw" emergency and
                     # re-pollute the support with the dropped operands (or, worse, a pure-noise
                     # column ranked next by marginal MI).
-                    _remaining_raw_after_drop = [v for v in selected_vars if cols[v] in set(self.feature_names_in_)]
+                    _remaining_raw_after_drop = [v for v in selected_vars if cols[v] in _raw_names_for_redund]
                     if not _remaining_raw_after_drop:
                         # NEVER-EMPTY RAW FLOOR. The drop is allowed to
                         # remove a raw subsumed by a surviving engineered child WHILE other raws remain (the
@@ -156,7 +156,7 @@ def _friend_graph_and_redundancy_passes_group4(
                         _floor_child_vals = []
                         for _ei in _kept_redund:
                             _enm = cols[_ei]
-                            if _enm in set(self.feature_names_in_):
+                            if _enm in _raw_names_for_redund:
                                 continue
                             _cv = (_eng_continuous_snapshot or {}).get(_enm)
                             if _cv is not None and np.asarray(_cv).shape[0] == int(data.shape[0]):
@@ -167,7 +167,7 @@ def _friend_graph_and_redundancy_passes_group4(
                             _yv_floor = np.asarray(_y_np)
                             _yv_floor = np.asarray(_yv_floor, dtype=np.float64).reshape(-1)
                         except Exception as exc:
-                            logger.debug("mrmr: classes_y coercion failed for the floor-drop rescue; falling back to a raw classes_y reshape: %r", exc, exc_info=True)
+                            logger.debug("mrmr: y coercion failed for the floor-drop rescue; falling back to classes_y: %r", exc, exc_info=True)
                             _yv_floor = np.asarray(classes_y, dtype=np.float64).reshape(-1)
                         # name -> index map built once (O(F)) instead of a ``.index()`` rescan of
                         # ``cols`` per ``_dn`` (O(F) each) - turns the O(K*F) loop below into O(K+F).
