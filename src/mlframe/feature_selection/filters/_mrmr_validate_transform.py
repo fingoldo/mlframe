@@ -177,7 +177,11 @@ def _validate_inputs(self, X, y):
                 import psutil as _psutil
                 _available_bytes = int(_psutil.virtual_memory().available)
             except Exception as e:
-                logger.debug("psutil.virtual_memory() probe failed: %s", e)
+                log_throttle(
+                    logger, "mrmr_ram_headroom_probe_failed", logging.WARNING,
+                    "MRMR.fit: psutil.virtual_memory() failed (%s: %s); the RAM headroom guard is OFF for this fit (~%.2f GB int32 working set unchecked)",
+                    type(e).__name__, e, _footprint_bytes / 1e9,
+                )
                 _available_bytes = 0
             _headroom_bytes = _available_bytes // 2
             if _headroom_bytes > 0 and _footprint_bytes > _headroom_bytes:
@@ -278,27 +282,28 @@ def _validate_inputs(self, X, y):
                     )
     except ValueError:
         raise  # re-raise our own ValueError
-    except Exception:
-        logger.debug("MRMR.fit: inf/NaN input validation scan failed unexpectedly; skipping the guard.", exc_info=True)
+    except Exception as exc:
+        logger.warning("MRMR.fit: the +/-inf input scan failed (%s: %s); inf values, if any, were NOT rejected and will produce undefined bins", type(exc).__name__, exc)
     # All-same y: raise (symmetric with RFECV.fit's single-class y validation). Constant y has H(y)=0 so
     # every MI(X_j, y) = 0; the entire MRMR pipeline produces zero-information output.
     # Multilabel y is (N, K): require that AT LEAST ONE label column has variation
     # (a single dead label is normal; all dead labels means the whole y is constant).
     try:
         _y_arr = np.asarray(y)
+        # pd.unique hashes instead of sorting, so an object target of unorderable values (None, mixed types) is counted too.
         if _y_arr.ndim == 2:
-            _per_col_unique = [len(np.unique(_y_arr[:, _j])) for _j in range(_y_arr.shape[1])]
+            _per_col_unique = [len(pd.unique(_y_arr[:, _j])) for _j in range(_y_arr.shape[1])]
             _y_is_constant = max(_per_col_unique) == 1 if _per_col_unique else True
         else:
-            _y_is_constant = len(np.unique(_y_arr)) == 1
+            _y_is_constant = len(pd.unique(_y_arr.ravel())) == 1
         if _y_is_constant:
             raise ValueError(
                 "MRMR.fit: target y has only 1 unique value. H(y)=0 " "so all features have MI(X_j, y)=0 by construction. " "Drop or rebuild y before fitting."
             )
     except ValueError:
         raise  # re-raise our own ValueError
-    except Exception:
-        logger.debug("MRMR.fit: constant-y validation scan failed unexpectedly; skipping the guard.", exc_info=True)
+    except Exception as exc:
+        logger.warning("MRMR.fit: the constant-target check failed (%s: %s); a single-valued y was NOT rejected", type(exc).__name__, exc)
     return X
 
 

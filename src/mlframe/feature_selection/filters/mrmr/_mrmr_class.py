@@ -162,8 +162,8 @@ def _mrmr_y_is_multioutput(y) -> bool:
     try:
         arr = np.asarray(y)
     except Exception as exc:
-        logger.debug("mrmr: multi-target detection np.asarray(y) failed; treating as single-target: %r", exc, exc_info=True)
-        return False
+        # Guessing single-target here would route a possibly multi-target y down the single-target fit, which mishandles the extra columns.
+        raise TypeError(f"MRMR.fit: cannot read y of type {type(y).__name__} as an array to tell single- from multi-target ({type(exc).__name__}: {exc})") from exc
     return arr.ndim >= 2 and arr.shape[-1] >= 2
 
 

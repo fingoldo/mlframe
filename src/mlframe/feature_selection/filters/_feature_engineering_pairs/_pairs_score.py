@@ -64,6 +64,18 @@ logger = logging.getLogger(__name__)
 _DEGENERATE_PAIR_SINGLE_OPERAND_CORR: float = 0.999
 
 
+def _should_demote_prewarp(pw_corr, clean_corr) -> bool:
+    """Whether a prewarp-form winner is demoted to its MI-equivalent clean form, from the two forms' |corr| with continuous y.
+
+    ``-1.0`` means the clean config is genuinely unrecoverable (nothing to demote to); ``None`` means a correlation could not be measured.
+    An unmeasured side resolves toward the simpler clean form: the prewarp is a distorted re-expression that must EARN its place by being
+    at least 5% more linearly usable, and a failed measurement is no evidence that it is.
+    """
+    if clean_corr is None or pw_corr is None:
+        return bool(clean_corr is None or clean_corr >= 0.0)
+    return bool(clean_corr >= 0.0 and pw_corr < clean_corr * 1.05)
+
+
 def _score_one_pair(
     *,
     raw_vars_pair,
@@ -781,8 +793,13 @@ def _score_one_pair(
                         return -1.0
                     return _safe_abs_corr(_v)
                 except Exception as e:
-                    logger.debug("_config_corr: column re-materialisation/correlation failed for config %r, treating it as unrecoverable: %s", _cfg, e)
-                    return -1.0
+                    # Unmeasured, not unrecoverable: -1.0 here used to switch the clean-form demotion OFF when the CLEAN side failed.
+                    log_throttle(
+                        logger, "pairs_score_config_corr_failed", logging.WARNING,
+                        "_config_corr: could not measure |corr| for config %r (%s: %s); the prewarp demotion treats it as unmeasured",
+                        _cfg, type(e).__name__, e,
+                    )
+                    return None
 
             _pw_corr = _config_corr(best_config)
             _clean_corr = _config_corr(best_nonprewarp_config)
@@ -791,7 +808,7 @@ def _score_one_pair(
             # distorted re-expression; a genuinely non-monotone inner clears this comfortably
             # (its warp reconstruction is the ONLY linearly-aligned form), while a
             # monotone-equivalent warp scores <= the clean form and is demoted.
-            if _clean_corr >= 0.0 and _pw_corr < _clean_corr * 1.05:
+            if _should_demote_prewarp(_pw_corr, _clean_corr):
                 best_config, best_mi = best_nonprewarp_config, best_nonprewarp_mi
                 # The single-best emission path (below) does NOT read ``best_config``
                 # directly - it rebuilds the leaders band from ``var_pairs_perf`` and

@@ -335,9 +335,12 @@ def _gpu_upload_fits(required_bytes: int, *, n_samples: int = 0, n_cols: int = 0
 
         free_b, total_b = cp.cuda.runtime.memGetInfo()
         cap = min(cap, int(free_b * 0.5))
+    except ImportError:
+        return True  # no cupy: no GPU dispatch can happen, so there is nothing to guard
     except Exception as e:
-        logger.debug("%s._gpu_upload_fits: memGetInfo failed (%s); permissive", context, e)
-        return True
+        # A guard that cannot read free VRAM cannot say the upload fits; on a near-full card that is exactly the launch fault it prevents.
+        logger.warning("%s._gpu_upload_fits: memGetInfo failed (%s: %s); refusing a %.2fGB GPU upload", context, type(e).__name__, e, required_bytes / 1024**3)
+        return False
     if required_bytes > cap:
         try:
             pool = cp.get_default_memory_pool()
@@ -367,7 +370,8 @@ def _gpu_upload_fits(required_bytes: int, *, n_samples: int = 0, n_cols: int = 0
             )
             return False
     except Exception as e:
-        logger.debug("%s._gpu_upload_fits: cushion probe failed (%s); permissive", context, e)
+        logger.warning("%s._gpu_upload_fits: VRAM cushion probe failed (%s: %s); refusing a %.2fGB GPU upload", context, type(e).__name__, e, required_bytes / 1024**3)
+        return False
     return True
 
 

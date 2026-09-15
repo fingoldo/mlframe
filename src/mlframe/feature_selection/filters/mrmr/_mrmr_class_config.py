@@ -184,7 +184,10 @@ class _MRMRConfigMixin:
         try:
             _defaults = type(self)._ctor_defaults()
         except Exception as exc:
-            logger.debug("mrmr: ctor-default introspection failed in _apply_fast_search_profile; treating all knobs as user-set: %r", exc, exc_info=True)
+            logger.warning(
+                "mrmr: fe_fast_search profile NOT applied: constructor-default introspection failed (%s: %s), so no knob can be told apart from a user value",
+                type(exc).__name__, exc,
+            )
             _defaults = {}
 
         for _attr, _val in self._FAST_SEARCH_OVERRIDES:

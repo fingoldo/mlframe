@@ -113,8 +113,13 @@ def _batch_usability_admission_verdicts(self, *, need_usability, y_continuous, c
             _usability_verdict[_pk] = bool(_v)
         return _usability_verdict
     except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-        logger.debug("usability-verdict batch lookup failed, every candidate defaults to False: %s", e)
-        return {}  # any failure: every lookup defaults to False (strict rank-MI decision stands)
+        # Every lookup then defaults to False (the strict rank-MI decision stands), which removes the usability admission route for the
+        # whole step, so the failure is reported with its scope.
+        logger.warning(
+            "usability-verdict batch lookup failed (%s: %s); the usability admission route is off for all %d candidate pair(s) in this step",
+            type(e).__name__, e, len(need_usability),
+        )
+        return {}
 
 
 def _maybe_relax_prevalence_for_tail_concentrated_pool(

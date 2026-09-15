@@ -570,8 +570,11 @@ def _target_entropy_nats(y: np.ndarray) -> float:
         p = counts.astype(np.float64) / float(counts.sum())
         p = p[p > 0.0]
         return float(-np.sum(p * np.log(p)))
-    except Exception:
-        logger.debug("_target_entropy_nats: could not establish H(y); MI-ceiling bound disabled", exc_info=True)
+    except Exception as exc:
+        logger.warning(
+            "_target_entropy_nats: could not establish H(y) (%s: %s, dtype=%s); the MI-ceiling sanity bound on the noise floors is off for this call",
+            type(exc).__name__, exc, getattr(y, "dtype", type(y).__name__),
+        )
         return 0.0
 
 

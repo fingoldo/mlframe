@@ -260,19 +260,18 @@ def route_prospective_pairs(
     eps = 1e-9
     kept: dict = {}
     n_demoted = 0
+    n_unroutable = 0
     for key, sort_val in prospective_pairs.items():
         raw_vars_pair, pair_mi = key
         va, vb = raw_vars_pair
-        # a missing marginal-MI cache entry silently
-        # substituted 0.0, which INFLATES the interaction-information score (pair_mi - 0 - mi_b) and can
-        # mis-route a pair to "synergy" instead of surfacing a real upstream caching defect. Log so the
-        # two cases (genuinely-zero marginal vs. missing cache entry) are distinguishable.
-        if (va,) not in cached_MIs:
-            logger.debug("mrmr: interaction-information routing found no cached marginal MI for column %r; treating as 0.0.", va)
-        if (vb,) not in cached_MIs:
-            logger.debug("mrmr: interaction-information routing found no cached marginal MI for column %r; treating as 0.0.", vb)
-        mi_a = float(cached_MIs.get((va,), 0.0))
-        mi_b = float(cached_MIs.get((vb,), 0.0))
+        # A missing marginal MI cannot be substituted: 0.0 INFLATES ii = pair_mi - mi_a - mi_b and would route the pair as synergy on
+        # the strength of a cache defect. Such a pair is left unrouted and kept, so the search neither promotes nor demotes it.
+        if (va,) not in cached_MIs or (vb,) not in cached_MIs:
+            n_unroutable += 1
+            kept[key] = sort_val
+            continue
+        mi_a = float(cached_MIs[(va,)])
+        mi_b = float(cached_MIs[(vb,)])
         nb_a = int(nbins[va])
         nb_b = int(nbins[vb])
         ii = pair_interaction_information(
@@ -295,6 +294,12 @@ def route_prospective_pairs(
             continue
         kept[key] = sort_val
 
+    if n_unroutable:
+        logger.warning(
+            "MRMR FE II-routing: %d prospective pair(s) had no cached marginal MI for an operand; kept them unrouted rather than route on a 0.0 "
+            "substitute (which would read as synergy). This points at an upstream marginal-MI caching gap.",
+            n_unroutable,
+        )
     if verbose >= 1 and n_demoted:
         logger.info(
             "MRMR FE II-routing: demoted %d additive (interaction-information <= null floor=%.5f) speculative "

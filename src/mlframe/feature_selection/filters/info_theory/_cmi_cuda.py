@@ -805,8 +805,9 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
         free_b, total_b = cp.cuda.runtime.memGetInfo()
         cap = min(cap, int(free_b * 0.5))
     except Exception as e:
-        logger.debug("swallowed exception in _cmi_cuda.py: %s", e)
-        pass
+        # Unknown free VRAM: falling through would ALLOW CUDA, and one launch fault latches _CMI_GPU_FAILED for the whole process.
+        logger.warning("_should_use_cuda: VRAM probe failed (%s: %s); keeping CMI on the CPU for %.2fGB of device buffers", type(e).__name__, e, bytes_needed / 1024**3)
+        return False
     if bytes_needed > cap:
         return False
     # ABSOLUTE cushion guard: the relative cap above is computed only AFTER the cupy pool may
@@ -824,8 +825,8 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
         if not cushion_ok:
             return False
     except Exception as e:
-        logger.debug("swallowed exception in _cmi_cuda.py: %s", e)
-        pass
+        logger.warning("_should_use_cuda: VRAM cushion check failed (%s: %s); keeping CMI on the CPU", type(e).__name__, e)
+        return False
     # Shared-mem guard: cc 6.x has 48 KB/block and BOTH kernels must fit (see _cmi_cuda_shmem_fits).
     if not _cmi_cuda_shmem_fits(joint_size, nbins_x, nbins_y, nbins_z):
         return False
