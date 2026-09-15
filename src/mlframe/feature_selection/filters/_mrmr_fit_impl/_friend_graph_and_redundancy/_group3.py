@@ -332,9 +332,12 @@ def _friend_graph_and_redundancy_passes_group3(
                             and int(np.unique(_pcr_yv).size) > max(20, 2 * int(np.unique(_pcr_y).size))):
                         _pcr_nb = int(min(max(10, int(np.unique(_pcr_y).size)), max(2, int(data.shape[0]) // 50)))
                         _pcr_y = np.ascontiguousarray(_pcr_qbin(_pcr_yv.astype(np.float64), nbins=_pcr_nb)).astype(np.int64)
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("mrmr: post-cluster-rescue y rebinning failed: %r", e, exc_info=True)
-                    pass
+                except Exception as e:
+                    # Not neutral: the keep rule then runs on the coarser screening classes, which can change its verdict.
+                    logger.warning(
+                        "mrmr: post-cluster-rescue y re-binning failed (%s: %s); the masked-raw keep rule uses the coarser screening classes instead",
+                        type(e).__name__, e,
+                    )
                 _pcr_eng_cont = _eng_continuous_snapshot
                 from ..._fe_raw_redundancy_drop import _TOKEN_SPLIT
                 # PERMUTATION-SIGNIFICANCE GATE on the masked-raw rescue (I4 noise

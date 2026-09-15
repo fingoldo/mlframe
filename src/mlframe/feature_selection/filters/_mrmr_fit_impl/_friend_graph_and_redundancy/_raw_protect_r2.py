@@ -18,10 +18,11 @@ def _well_conditioned(r: np.ndarray) -> bool:
     return bool(d.size) and bool(np.all(np.isfinite(d))) and float(d.min()) > _RCOND * float(d.max())
 
 
-def heldout_r2_scorer(base_mat: np.ndarray, y: np.ndarray, train_mask: np.ndarray, val_mask: np.ndarray):
+def heldout_r2_scorer(base_mat, y: np.ndarray, train_mask: np.ndarray, val_mask: np.ndarray):
     """Return ``r2(extra=None)``: the held-out R^2 of a least-squares fit of ``y`` on ``[base | extra]``, trained on ``train_mask`` rows.
 
-    ``extra`` is one full-length candidate column, or ``None`` for the base design alone. The base is QR-factorised once and extended by one
+    ``base_mat`` is an ``(n, p)`` array or a sequence of ``p`` length-n columns; a sequence is sliced per column, so the full-height design
+    never exists (only its train and validation blocks). ``extra`` is one full-length candidate column, or ``None`` for the base design alone. The base is QR-factorised once and extended by one
     column per call, an O(n*p) update instead of a fresh solve. That is exact only while the factor is full rank: an unpivoted QR of a
     rank-deficient design (a raw column and its monotone twin, a count and its frequency encoding - both routinely selected together) has
     a near-zero diagonal, ``solve_triangular`` then returns huge coefficients without raising, and the R^2 becomes noise. So the fast path is
@@ -32,8 +33,12 @@ def heldout_r2_scorer(base_mat: np.ndarray, y: np.ndarray, train_mask: np.ndarra
     yv = y[val_mask]
     ss = float(np.sum((yv - yv.mean()) ** 2))
     y_tr = y[train_mask]
-    base_tr = base_mat[train_mask]
-    base_va = base_mat[val_mask]
+    if isinstance(base_mat, np.ndarray):
+        base_tr = base_mat[train_mask]
+        base_va = base_mat[val_mask]
+    else:
+        base_tr = np.column_stack([np.asarray(c)[train_mask] for c in base_mat])
+        base_va = np.column_stack([np.asarray(c)[val_mask] for c in base_mat])
 
     def _lstsq_r2(a_tr: np.ndarray, a_va: np.ndarray) -> float:
         """Held-out R^2 from the rank-revealing least-squares solution."""

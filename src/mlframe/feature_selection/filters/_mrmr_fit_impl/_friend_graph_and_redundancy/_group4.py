@@ -273,14 +273,6 @@ def _friend_graph_and_redundancy_passes_group4(
                         continue
                     if _cv.shape[0] == _mt_n and np.all(np.isfinite(_cv)) and _cv.std() > 1e-12:
                         _mt_ranks[_v] = pd.Series(_cv).rank(method="average").to_numpy()
-                # Relevance to break ties / pick the survivor: the screening marginal MI.
-                def _mt_relevance(_v):
-                    """Screening marginal MI(v, y) for raw column index ``_v``, used to pick the survivor between two monotone-twin raw columns (0.0 on a cache miss)."""
-                    try:
-                        return float(cached_MIs.get((_v,), 0.0))
-                    except Exception as e:
-                        logger.debug("cached_MIs lookup for monotone-twin relevance failed (%s: %s) -- treating as 0.0", type(e).__name__, e)
-                        return 0.0
                 from ..._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit as _mt_corr_njit
                 _mt_keep: list[int] = []
                 _mt_drop: set[int] = set()
@@ -309,8 +301,13 @@ def _friend_graph_and_redundancy_passes_group4(
                         _mt_keep.append(_v)
                     else:
                         # Drop the LOWER-relevance twin; if the candidate out-scores the kept twin,
-                        # displace the kept one instead.
-                        if _mt_relevance(_v) > _mt_relevance(_twin_of) + 1e-12:
+                        # displace the kept one instead. Unknown relevance on either side keeps both.
+                        from ._monotone_twin import monotone_twin_to_drop
+
+                        _mt_victim = monotone_twin_to_drop(_v, _twin_of, cached_MIs if isinstance(cached_MIs, dict) else {})
+                        if _mt_victim is None:
+                            _mt_keep.append(_v)
+                        elif _mt_victim == _twin_of:
                             _mt_drop.add(_twin_of)
                             _mt_keep.remove(_twin_of)
                             _mt_keep.append(_v)

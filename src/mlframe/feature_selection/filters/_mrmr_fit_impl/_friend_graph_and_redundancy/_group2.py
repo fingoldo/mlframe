@@ -449,7 +449,8 @@ def _friend_graph_and_redundancy_passes_group2(
             # candidate at production shape: p~120, n_tr~53k, 109 candidates, 91s -> 4.5s); see ``heldout_r2_scorer``.
             from ._raw_protect_r2 import heldout_r2_scorer
 
-            _rp_r2 = heldout_r2_scorer(np.column_stack(_rp_base), _rp_y, _rp_tr, _rp_va)
+            _rp_r2 = heldout_r2_scorer(_rp_base, _rp_y, _rp_tr, _rp_va)
+            del _rp_base  # the scorer holds only the train/validation blocks
 
             if int(_rp_tr.sum()) >= 32 and int(_rp_va.sum()) >= 16:
                 _rp_r2_base = _rp_r2()

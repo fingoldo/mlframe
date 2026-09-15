@@ -84,13 +84,16 @@ def _materialize_var(factors_data, var_idx, factors_nbins, dtype=np.int32):
     return np.asarray(classes, dtype=np.int64), int(nclasses)
 
 
-def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbins, dtype) -> float:
+def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbins, dtype, freqs_y=None) -> float:
     """SU-scale a marginal-relevance MI when ``mi_normalization='su'`` is active (no-op otherwise / on a non-positive gain).
 
     Scales by the SU denominator ``2/(H(X)+H(Y))`` so the value the ``min_relevance_gain`` floor compares against is the
     cardinality-scrubbed score, matching the unit SU definition. Shared by BOTH relevance-MI entry points so they stay on the
     SAME scale: the fresh ``mi_direct`` else-path AND the ``cached_confident_MIs`` branch (a confirmed candidate's bootstrapped
     gain, which is otherwise raw MI and would be compared against an SU-scale floor). A degenerate joint keeps the raw value.
+
+    ``freqs_y`` is the target's class frequencies when the caller already has them (they depend only on the fit-constant target), which
+    skips re-factorising the target for every candidate; ``None`` computes them here.
     """
     if not (use_su_normalization() and direct_gain > 0.0):
         return direct_gain
@@ -101,10 +104,13 @@ def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbin
             factors_data=factors_data, vars_indices=_x_idx, var_is_nominal=None,
             factors_nbins=factors_nbins, verbose=False, dtype=dtype,
         )
-        _, _freqs_y_su, _ = merge_vars(
-            factors_data=factors_data, vars_indices=_y_idx, var_is_nominal=None,
-            factors_nbins=factors_nbins, verbose=False, dtype=dtype,
-        )
+        if freqs_y is not None:
+            _freqs_y_su = freqs_y
+        else:
+            _, _freqs_y_su, _ = merge_vars(
+                factors_data=factors_data, vars_indices=_y_idx, var_is_nominal=None,
+                factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+            )
         _denom_su = entropy(freqs=_freqs_x_su) + entropy(freqs=_freqs_y_su)
         if _denom_su > 1e-12:
             return float(2.0 * direct_gain / _denom_su)
@@ -444,7 +450,7 @@ def evaluate_candidate(
             "scoring it through the SU floor-scaling guard.", X,
         )
         direct_gain, _ = cached_confident_MIs[X]  # type: ignore[index]
-        direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype)
+        direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype, freqs_y=freqs_y)
     else:
         _gmi = get_group_mi()
         _grp_gain = float("nan")
@@ -577,7 +583,7 @@ def evaluate_candidate(
             # floor (e.g. 80-level hi_* with MI ~0.11 > 0.16*H(y)=0.111) was admitted even though its SU ~0.044 sits far below. Scale the
             # debiased relevance by the SU denominator 2/(H(X)+H(Y)) so the floor sees the cardinality-scrubbed score, matching the unit
             # SU definition. Done only when direct_gain > 0 (a zero stays zero) and the SU toggle is on; legacy path is byte-identical.
-            direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype)
+            direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype, freqs_y=freqs_y)
             cached_MIs[X] = direct_gain  # type: ignore[index]
 
     # Synergy candidates can have direct_gain == 0 (pure XOR, parity, etc.: the
