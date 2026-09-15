@@ -12,7 +12,11 @@ int-truncated), then densified. Mirrors the temporal-agg family's continuous-y g
 """
 from __future__ import annotations
 
+import hashlib
 import logging
+import threading
+from collections import OrderedDict
+from typing import Callable
 
 import numpy as np
 
@@ -26,13 +30,71 @@ _CONTINUOUS_Y_DISTINCT_THRESHOLD = 32
 _CONTINUOUS_Y_QCUT_BINS = 10
 
 
+# Float targets at or above this length go through the content-keyed memo; below it the sort is cheaper than the bookkeeping.
+_ENCODE_MEMO_MIN_N = 4096
+# One fit discretises one target, so a couple of entries cover it; each entry holds the codes at their narrowest integer dtype.
+_ENCODE_MEMO_MAX_ENTRIES = 2
+_encode_memo: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
+_encode_memo_lock = threading.Lock()
+
+
+def _resolve_content_hash() -> Callable[[memoryview], int]:
+    """``xxhash.xxh3_64_intdigest`` when usable, else a blake2b digest; both hash the raw buffer."""
+    try:
+        import xxhash as _xxhash
+
+        return _xxhash.xxh3_64_intdigest
+    except Exception as e:
+        logger.debug("encode_y memo: xxhash unavailable (%s), hashing targets with blake2b", e)
+
+        def _blake(buf: memoryview) -> int:
+            """64-bit blake2b digest of ``buf`` as an int."""
+            return int.from_bytes(hashlib.blake2b(buf, digest_size=8).digest(), "little")
+
+        return _blake
+
+
+_content_hash = _resolve_content_hash()
+
+
+def _clear_encode_cache() -> None:
+    """Drop every memoised target encoding."""
+    with _encode_memo_lock:
+        _encode_memo.clear()
+
+
 def encode_y_for_classif_mi(y: np.ndarray) -> np.ndarray:
     """Dense int64 class codes for a classification-MI target.
 
     Integer/bool ``y`` is densified directly. A continuous (float/complex) ``y`` with more than
     ``_CONTINUOUS_Y_DISTINCT_THRESHOLD`` distinct values is quantile-binned (never int-truncated, which would
     collapse ``[0, 1)`` to one class) then densified. Idempotent on already-dense integer codes.
+
+    The FE cascade encodes the same fit target in many stages, so a float target's codes are memoised on a hash of its contents: an equal
+    target is served without re-sorting, a target whose values changed is re-encoded, and every call returns an array the caller owns.
     """
+    arr = np.asarray(y).ravel()
+    if arr.dtype.kind not in "fc" or arr.size < _ENCODE_MEMO_MIN_N:
+        return _encode_y_uncached(arr)
+    contig = np.ascontiguousarray(arr)
+    key = (contig.dtype.str, contig.shape, _content_hash(contig.view(np.uint8).data))
+    with _encode_memo_lock:
+        hit = _encode_memo.get(key)
+        if hit is not None:
+            _encode_memo.move_to_end(key)
+    if hit is not None:
+        return hit.astype(np.int64)
+    codes = _encode_y_uncached(contig)
+    stored = codes.astype(np.min_scalar_type(int(codes.max())) if codes.size else np.int8)
+    with _encode_memo_lock:
+        _encode_memo[key] = stored
+        while len(_encode_memo) > _ENCODE_MEMO_MAX_ENTRIES:
+            _encode_memo.popitem(last=False)
+    return codes
+
+
+def _encode_y_uncached(y: np.ndarray) -> np.ndarray:
+    """The encoding itself, without the memo; see ``encode_y_for_classif_mi``."""
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer) or arr.dtype == bool:
         a = arr.astype(np.int64, copy=False)

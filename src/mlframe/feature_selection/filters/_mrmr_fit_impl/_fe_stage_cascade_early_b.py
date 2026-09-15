@@ -384,14 +384,26 @@ def _fe_stage_cascade_early_b(
             # binned_numeric_agg cat-FE stage GPU-categorizes and imputes X in place (when CUDA_PATH is set), which erases the very NaNs the
             # missingness-FE family encodes - is_missing__ would be all-zeros and missingness_pattern would collapse to a single pattern. The raw
             # NaNs are the user's input; MRMR's nan_strategy='separate_bin' scorer handles them downstream, so reinstating them here is correct, not a hack.
+            # The restored columns live only in the frame these families read; X may be the caller's own DataFrame, so nothing is written back into it.
+            _restored_cols: dict = {}
             if _fit_entry_nan_mask and isinstance(X, pd.DataFrame):
                 for _mc, _mask in _fit_entry_nan_mask.items():
                     if _mc in X.columns and len(_mask) == len(X):
                         _col_now = X[_mc]
                         if not _col_now.isna().to_numpy().any():
-                            _restored = _col_now.to_numpy().astype(np.float64, copy=True)
+                            _restored = _col_now.to_numpy(dtype=np.float64, copy=True)
                             _restored[_mask] = np.nan
-                            X[_mc] = _restored
+                            _restored_cols[_mc] = _restored
+
+            def _miss_frame():
+                """Pandas view of the current X with the fit-entry NaNs reinstated; a shallow copy, so setting a column never touches X."""
+                _f = fe_to_pandas(X)
+                if not _restored_cols:
+                    return _f
+                _f = _f.copy(deep=False)
+                for _c, _v in _restored_cols.items():
+                    _f[_c] = _v
+                return _f
 
             # W6 follow-up: missingness-indicator family's unified local-MI
             # abs-MAD floor kills (pure-record; selection byte-identical).
@@ -416,7 +428,7 @@ def _fe_stage_cascade_early_b(
                 if _cfg:
                     return [c for c in _cfg if c in X.columns and c not in _engineered_seen_l37]
                 # Auto-detect candidate cols with NaN rate in [1%, 99%].
-                return [c for c in auto_detect_missing_cols(fe_to_pandas(X)) if c not in _engineered_seen_l37]
+                return [c for c in auto_detect_missing_cols(_miss_frame()) if c not in _engineered_seen_l37]
 
             # ----- Per-column indicator ------------------------------------
             if bool(getattr(self, "fe_missingness_indicator_enable", False)):
@@ -425,9 +437,10 @@ def _fe_stage_cascade_early_b(
                     _X_before_ind_cols = list(X.columns)
                     _y_for_ind = _y_np
                     # Anchor the indicator's MI noise floor on the RAW input columns, not the engineered-polluted X: an earlier adaptive-Fourier stage appended high-(plug-in)-MI hijacker columns that would otherwise inflate the floor above a genuine MNAR indicator's MI and drop it (a >2%-missing source's signal lives in the NaN pattern the Fourier MI inflates).
-                    _raw_floor_X = fe_to_pandas(X)[[c for c in _raw_input_cols_pre_fe if c in X.columns]] if _raw_input_cols_pre_fe else None
+                    _X_miss = _miss_frame()
+                    _raw_floor_X = _X_miss[[c for c in _raw_input_cols_pre_fe if c in X.columns]] if _raw_input_cols_pre_fe else None
                     X_i, _ind_appended, _ind_recipes = missing_indicator_with_recipes(
-                        fe_to_pandas(X), cols=_ind_cols,
+                        _X_miss, cols=_ind_cols,
                         mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                         mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                         y=_y_for_ind,
@@ -461,7 +474,7 @@ def _fe_stage_cascade_early_b(
                     _cnt_cols = _resolve_missing_cols(getattr(self, "fe_missingness_indicator_cols", ()))
                     _X_before_mc_cols = list(X.columns)
                     X_c, _mc_appended, _mc_recipes = missingness_count_with_recipes(
-                        fe_to_pandas(X), cols=_cnt_cols,
+                        _miss_frame(), cols=_cnt_cols,
                     )
                     _mc_appended = [c for c in _mc_appended if c not in _X_before_mc_cols]
                     if _mc_appended:
@@ -491,7 +504,7 @@ def _fe_stage_cascade_early_b(
                     _top_k = int(getattr(self, "fe_missingness_pattern_top_k", 5))
                     _X_before_pat_cols = list(X.columns)
                     X_p, _pat_appended, _pat_recipes = missingness_pattern_with_recipes(
-                        fe_to_pandas(X), cols=_pat_cols, top_k=_top_k,
+                        _miss_frame(), cols=_pat_cols, top_k=_top_k,
                     )
                     _pat_appended = [c for c in _pat_appended if c not in _X_before_pat_cols]
                     if _pat_appended:
