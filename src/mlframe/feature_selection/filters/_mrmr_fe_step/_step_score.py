@@ -142,7 +142,26 @@ def materialise_and_finalise_fe_candidates(
         # ``_quantile_bin`` on any cupy fault. Selection-equivalent (same device partition as the gate's binning).
         # ``_gate_resident`` is computed once at function scope above (shared with the escalation admitted-pool build).
         _cmi_cands: dict = {}
-        for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
+        # One batched device binning + marginal-MI workload for every candidate on the resident path; the per-candidate loop below is the fallback.
+        _batched_done = False
+        if _gate_resident:
+            from ._step_batched_marginals import batched_device_marginals
+
+            _b_names, _b_vals = [], []
+            for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
+                if not _tpf or _tvals is None or not _ncols:
+                    continue
+                for _jc, _cname in enumerate(_ncols):
+                    if _tvals.shape[1] <= _jc:
+                        continue
+                    _v = np.asarray(_tvals[:, _jc], dtype=np.float64)
+                    _b_names.append(_cname)
+                    _b_vals.append(_v[::_gate_stride] if _gate_stride > 1 else _v)
+            _b_mi = batched_device_marginals(_b_vals, _y_dense_g, int(self.quantization_nbins))
+            if _b_mi is not None:
+                _cmi_cands = {_nm: (_vv, _mm) for _nm, _vv, _mm in zip(_b_names, _b_vals, _b_mi)}
+                _batched_done = True
+        for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in (() if _batched_done else prospective_additions.items()):
             if not _tpf or _tvals is None or not _ncols:
                 continue
             for _jc, _cname in enumerate(_ncols):
@@ -828,7 +847,23 @@ def materialise_and_finalise_fe_candidates(
 
                 _esc_y_dense = dense_class_codes(classes_y)
                 _esc_admitted_pool: dict = {}
-                for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
+                _esc_batched_done = False
+                if _gate_resident:
+                    from ._step_batched_marginals import batched_device_marginals
+
+                    _e_names, _e_vals = [], []
+                    for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
+                        if not _tpf or _tvals is None or not _ncols:
+                            continue
+                        for _jc, _cname in enumerate(_ncols):
+                            if _tvals.shape[1] > _jc:
+                                _e_names.append(_cname)
+                                _e_vals.append(np.asarray(_tvals[:, _jc], dtype=np.float64))
+                    _e_mi = batched_device_marginals(_e_vals, _esc_y_dense, int(self.quantization_nbins))
+                    if _e_mi is not None:
+                        _esc_admitted_pool = {_nm: (_vv, _mm) for _nm, _vv, _mm in zip(_e_names, _e_vals, _e_mi)}
+                        _esc_batched_done = True
+                for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in (() if _esc_batched_done else prospective_additions.items()):
                     if not _tpf or _tvals is None or not _ncols:
                         continue
                     for _jc, _cname in enumerate(_ncols):

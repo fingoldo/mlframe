@@ -55,7 +55,12 @@ try:
                 lo = int(np.floor(idx))
                 hi = int(np.ceil(idx))
                 frac = idx - lo
-                out[k, i] = s[lo] if lo == hi else s[lo] * (1.0 - frac) + s[hi] * frac
+                if lo == hi:
+                    out[k, i] = s[lo]
+                else:
+                    # numpy's _lerp, including its branch at frac >= 0.5; the weighted sum s[lo]*(1-frac) + s[hi]*frac differs from np.nanquantile by a ULP.
+                    d = s[hi] - s[lo]
+                    out[k, i] = s[lo] + d * frac if frac < 0.5 else s[hi] - d * (1.0 - frac)
         return out
 
     _HAS_NUMBA = True

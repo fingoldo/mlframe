@@ -116,11 +116,9 @@ def _fe_stage_cascade_early_a(
     # which stays behind ``fe_hybrid_orth_enable``. Recovery pinned in
     # ``test_biz_value_mrmr_univariate_basis_fe.py``.
     # fe_max_steps==0 is the documented "no FE at all" contract (see e.g. test_group_aware_mi_mrmr.py's
-    # fe_max_steps=0 fixtures): both default-ON families must not fire just because the user never
-    # explicitly touched their own enable flag - gate on fe_max_steps>0 too, matching the analogous
-    # discrete-structural-operators precedent above (which DOES allow fe_max_steps=0 firing, but only
-    # for an operator the caller explicitly opted into via its own flag - neither family here has that
-    # explicit-opt-in carve-out, so fe_max_steps=0 disables both unconditionally).
+    # fe_max_steps=0 fixtures), and it has no family exceptions: _fe_family_on already requires fe_max_steps>0 for
+    # every family, the discrete-structural operators included (their former fe_max_steps=0 carve-out was retired).
+    # The explicit fe_max_steps>0 conjunct below restates that rule at the two default-ON basis families.
     _hybrid_on = _fe_family_on("fe_hybrid_orth_enable", False) and fe_max_steps > 0
     _univ_basis_on = _fe_family_on("fe_univariate_basis_enable", True) and fe_max_steps > 0
     # Bound ONCE, before the polynomial stage, so every later reader sees a value whether or not that stage's

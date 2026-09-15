@@ -114,7 +114,9 @@ def _quantile_expr(sorted_row: pl.Expr, k: pl.Expr, q: float) -> pl.Expr:
     frac = h - h.floor()
     low = sorted_row.arr.get(lo, null_on_oob=True)
     high = sorted_row.arr.get((lo + 1).clip(upper_bound=k - 1), null_on_oob=True)
-    return low * (1.0 - frac) + high * frac
+    # numpy's _lerp, including its branch at frac >= 0.5, so the value equals np.nanquantile exactly rather than to a ULP.
+    diff = high - low
+    return pl.when(frac < 0.5).then(low + diff * frac).otherwise(high - diff * (1.0 - frac))
 
 
 def _stats_block(

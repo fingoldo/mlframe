@@ -416,9 +416,9 @@ def compute_pair_maxt_floor(
             # np.fromiter (not np.asarray): the caller passes a SET, which asarray cannot convert, and
             # fromiter also preserves the exact iteration order combinations() would have walked.
             _k_vars = np.fromiter(numeric_vars_to_consider, dtype=np.int64, count=len(numeric_vars_to_consider))
-            _ia, _ib = np.triu_indices(_k_vars.shape[0], k=1)
-            _maxt_pa = _k_vars[_ia]
-            _maxt_pb = _k_vars[_ib]
+            from ._pair_operand_arrays import fill_pair_bias, pair_operand_arrays
+
+            _maxt_pa, _maxt_pb = pair_operand_arrays(_k_vars)
             # Per-pair MM joint-MI bias (permutation-invariant) is needed BOTH at the gate (mapped into
             # _pair_mm_bias below) AND, when mm-debias, by the floor itself; compute it once up front so the
             # resident-GPU floor can subtract the IDENTICAL per-pair term the CPU floor does (consistent debias).
@@ -488,8 +488,7 @@ def compute_pair_maxt_floor(
                     mm_debias=_mm_debias,
                 )
             if _mm_debias and _bias_vec is not None:
-                for _pi, (_a, _b) in enumerate(zip(_maxt_pa.tolist(), _maxt_pb.tolist())):
-                    _pair_mm_bias[(_a, _b) if _a <= _b else (_b, _a)] = float(_bias_vec[_pi])
+                fill_pair_bias(_pair_mm_bias, _maxt_pa, _maxt_pb, np.asarray(_bias_vec))
             if _pair_maxt_floor != 0.0 and verbose >= 1:
                 logger.info(
                     "MRMR FE: order-2 maxT permutation-null joint-MI floor=%.5f over %d candidate "
