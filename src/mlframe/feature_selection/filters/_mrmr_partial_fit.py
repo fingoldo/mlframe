@@ -49,6 +49,8 @@ API CONTRACT
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any
 
 import numpy as np
@@ -209,6 +211,15 @@ def partial_fit(
         window = int(window)
         if window <= 0:
             raise ValueError(f"MRMR.partial_fit_window must be positive when set; got {window!r}.")
+        if min_recompute > window:
+            # The buffer can never hold more than ``window`` rows, so a larger threshold would still refit on ``window`` rows, just later than
+            # the user expects. Use ``window`` for this call; the constructor parameter itself is left untouched.
+            logging.getLogger("mlframe.feature_selection.filters.mrmr").warning(
+                "MRMR.partial_fit: partial_fit_window=%d is smaller than partial_fit_min_recompute=%d, so the buffer can never reach the "
+                "threshold; refitting every %d buffered rows instead",
+                window, min_recompute, window,
+            )
+            min_recompute = window
 
     # First call -> initialise buffer + delegate to fit on the new batch.
     is_first = getattr(self, "_partial_fit_X_buffer_", None) is None or getattr(self, "_partial_fit_y_buffer_", None) is None
@@ -227,7 +238,7 @@ def partial_fit(
         self._partial_fit_n_since_refit_ = 0
         # Run the full fit. Decay on a first call is moot (single batch),
         # so pass sample_weight straight through (caller-supplied or None).
-        self.fit(X_buf, y_buf, sample_weight=sample_weight, **fit_params)
+        _fit_from_partial_fit(self, X_buf, y_buf, sample_weight=sample_weight, **fit_params)
         return self
 
     # Subsequent call -> append, roll, possibly recompute.
@@ -295,5 +306,14 @@ def partial_fit(
         weights[-n_new_kept:] = weights[-n_new_kept:] * sw_new[-n_new_kept:]
 
     self._partial_fit_n_since_refit_ = 0
-    self.fit(X_buf, y_buf, sample_weight=weights, **fit_params)
+    _fit_from_partial_fit(self, X_buf, y_buf, sample_weight=weights, **fit_params)
     return self
+
+
+def _fit_from_partial_fit(est, X, y, **kwargs):
+    """Run ``fit`` on the streaming buffer, marked so ``fit`` does not treat it as an explicit refit that restarts the stream."""
+    est._in_partial_fit_ = True
+    try:
+        est.fit(X, y, **kwargs)
+    finally:
+        est._in_partial_fit_ = False

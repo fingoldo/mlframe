@@ -164,6 +164,7 @@ class HybridOrthConfig(_MRMRSubConfig):
     lasso_alpha: float = Field(default=0.01, gt=0.0)
     elasticnet_enable: bool = False
     elasticnet_alpha: float = Field(default=0.01, gt=0.0)
+    elasticnet_l1_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
 
     adaptive_degree_enable: bool = False
     adaptive_degree_range: tuple = (1, 2, 3, 4, 5, 6)

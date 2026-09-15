@@ -3264,6 +3264,12 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         misbehaving - see the check in ``__setstate__``."""
         state = self.__dict__.copy()
         state.pop("_fit_reentrancy_lock_", None)
+        # Transient or fit-local: the partial_fit marker, and the per-row sample weights (consumed during fit, read by nothing afterwards).
+        state.pop("_in_partial_fit_", None)
+        state.pop("_fit_sample_weight_", None)
+        from .._mrmr_stability_report import drop_oversized_replay_state
+
+        drop_oversized_replay_state(state)
         state["_mrmr_schema_version"] = _MRMR_SCHEMA_VERSION
         return state
 
@@ -3395,6 +3401,12 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``.
         """
+        if not getattr(self, "_in_partial_fit_", False):
+            # An explicit fit() replaces the model, so a partial_fit stream restarts from its next batch; resuming the old buffer made
+            # partial_fit(A); fit(B); partial_fit(C) silently refit on A + C.
+            for _pf_attr in ("_partial_fit_X_buffer_", "_partial_fit_y_buffer_", "_partial_fit_batch_sizes_", "_partial_fit_n_seen_", "_partial_fit_n_since_refit_"):
+                if getattr(self, _pf_attr, None) is not None:
+                    setattr(self, _pf_attr, None)
         # Row-count guard, first thing: no length-validation existed anywhere before the MI/screening
         # pipeline, so a mismatched (X, y) reached numba-njit kernels (bounds checking compiled OUT for
         # speed) with an out-of-bounds row index instead of a Python exception. Off the JIT-disabled

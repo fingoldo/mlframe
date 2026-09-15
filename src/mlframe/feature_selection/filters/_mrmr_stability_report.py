@@ -51,6 +51,41 @@ from ._fe_stability_vote import _marginal_mi as _marginal_mi_codes
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def _replay_state_nbytes(obj) -> int:
+    """Total ndarray bytes held anywhere inside a (nested dict / list) replay state."""
+    if isinstance(obj, np.ndarray):
+        return int(obj.nbytes)
+    if isinstance(obj, dict):
+        return sum(_replay_state_nbytes(v) for v in obj.values())
+    if isinstance(obj, (list, tuple)):
+        return sum(_replay_state_nbytes(v) for v in obj)
+    return 0
+
+
+def drop_oversized_replay_state(state: dict) -> None:
+    """Remove ``_stability_replay_state_`` from a pickle state dict when it exceeds ``MLFRAME_MRMR_PICKLE_REPLAY_STATE_MAX_MB`` (default 64).
+
+    The replay state is a cache for ``selection_stability_report`` only (subsample rows x candidates of bin codes, hundreds of MB at
+    production shape) and is otherwise shipped into every saved model and every joblib worker. When it is dropped the size is recorded so the
+    report on the reloaded model says why it has nothing to show, rather than returning an unexplained empty result.
+    """
+    replay = state.get("_stability_replay_state_")
+    if not replay:
+        return
+    import os
+
+    nbytes = _replay_state_nbytes(replay)
+    max_bytes = float(os.environ.get("MLFRAME_MRMR_PICKLE_REPLAY_STATE_MAX_MB", "64")) * 2**20
+    if nbytes > max_bytes:
+        logger.warning(
+            "MRMR pickling: dropping _stability_replay_state_ (%.1f MB > MLFRAME_MRMR_PICKLE_REPLAY_STATE_MAX_MB); selection_stability_report "
+            "will be unavailable on the reloaded model",
+            nbytes / 2**20,
+        )
+        state["_stability_replay_state_"] = None
+        state["_stability_replay_state_dropped_nbytes_"] = int(nbytes)
+
+
 def selection_stability_report(
     self,
     n_boot: int = 50,
@@ -97,6 +132,14 @@ def selection_stability_report(
     empty dict when the replay state was not stored (e.g. a degenerate fit).
     """
     state = getattr(self, "_stability_replay_state_", None)
+    _dropped = getattr(self, "_stability_replay_state_dropped_nbytes_", None)
+    if not state and _dropped:
+        msg = (
+            f"selection_stability_report: the replay state was not persisted when this model was pickled ({_dropped / 2**20:.1f} MB, above "
+            f"MLFRAME_MRMR_PICKLE_REPLAY_STATE_MAX_MB); refit, or raise that limit before pickling, to get the report."
+        )
+        logger.warning(msg)
+        return msg if as_text else {}
     if not state:
         msg = "selection_stability_report: no replay state stored (the fit was degenerate " "or pre-dates this accessor); nothing to report."
         if verbose:
