@@ -189,12 +189,107 @@ def _validate_hybrid_orth_string_params(self) -> None:
 # +/-inf values, single-class y, and polars LazyFrame / Expr edge cases. Each guard raises ValueError or warns.
 # All-constant features are NOT rejected here: zero-variance columns survive validation and surface as MI=0
 # in the screening loop, which is the documented downstream behaviour.
+def _dtype_kind(canon: str) -> str:
+    """Coarse kind of a canonical dtype string: int, float, bool, string, categorical, or the string itself for anything else."""
+    if canon[:1] in ("i", "u"):
+        return "int"
+    if canon[:1] == "f":
+        return "float"
+    if canon == "b":
+        return "bool"
+    if canon == "s":
+        return "string"
+    if canon == "c" or canon.startswith("enum"):
+        return "categorical"
+    return canon
+
+
+def _frame_dtypes(X):
+    """``{column: canonical dtype}`` for a named pandas / polars frame; ``None`` for input without column names."""
+    from mlframe._dtype_canon import canonicalise_dtype
+
+    if isinstance(X, pd.DataFrame):
+        return {c: canonicalise_dtype(dt) for c, dt in X.dtypes.items()}
+    schema = getattr(X, "schema", None)
+    if schema is not None and hasattr(X, "columns"):
+        try:
+            return {c: canonicalise_dtype(dt) for c, dt in dict(schema).items()}
+        except Exception as e:
+            logger.debug("MRMR: could not read the polars schema for the dtype snapshot: %s", e)
+    return None
+
+
+def _column_all_missing(X, name) -> bool:
+    """True when column ``name`` has rows and every one is missing. A strided sample is checked first, so a normal column costs ~1k reads."""
+    if isinstance(X, pd.DataFrame):
+        s = X[name]
+        if isinstance(s, pd.DataFrame):
+            s = s.iloc[:, 0]
+        n = len(s)
+        if n == 0 or not bool(s.iloc[:: max(1, n // 1024)].isna().all()):
+            return False
+        return bool(s.isna().all())
+    get_column = getattr(X, "get_column", None)
+    if get_column is not None:
+        col = get_column(name)
+        n = col.len()
+        if n == 0:
+            return False
+        if col.null_count() == n:
+            return True
+        return bool(col.dtype.is_float() and col.is_nan().fill_null(True).all())
+    return False
+
+
+def _drift_check_columns(selected_cols, recipes) -> list:
+    """Selected columns plus every recipe source column, in first-seen order."""
+    names = list(selected_cols)
+    for r in recipes or ():
+        names.extend(getattr(r, "src_names", ()) or ())
+    return list(dict.fromkeys(names))
+
+
+def _snapshot_fit_dtypes(self, X) -> None:
+    """Record the fit-time canonical dtype of every named input column, for transform-time drift checks."""
+    self._fit_dtypes_ = _frame_dtypes(X)
+
+
+def _warn_transform_dtype_drift(self, X, columns) -> None:
+    """Warn when a column read at transform has a different dtype kind than at fit, or is entirely missing.
+
+    An int column arriving as float, or a categorical arriving as string, changes the codes recipes key on; an all-missing selected column
+    reaches the downstream model as a live feature. None of these raise, so without a warning they give wrong values silently.
+    """
+    fit_dtypes = getattr(self, "_fit_dtypes_", None)
+    now = _frame_dtypes(X)
+    if not fit_dtypes or now is None:
+        return
+    drift, all_missing = [], []
+    for c in columns:
+        before, after = fit_dtypes.get(c), now.get(c)
+        if before is not None and after is not None and _dtype_kind(before) != _dtype_kind(after):
+            drift.append(f"{c}: {before} -> {after}")
+        if after is not None and _column_all_missing(X, c):
+            all_missing.append(c)
+    if drift:
+        log_throttle(
+            logger, "mrmr_transform_dtype_drift", logging.WARNING,
+            "MRMR.transform: %d column(s) changed dtype kind since fit %s; replayed values may differ from fit", len(drift), drift[:8],
+        )
+    if all_missing:
+        log_throttle(
+            logger, "mrmr_transform_all_missing", logging.WARNING,
+            "MRMR.transform: column(s) %s are entirely missing in this input and reach the output as all-missing", all_missing[:8],
+        )
+
+
 def _validate_inputs(self, X, y):
     """Validate constructor params and ``X``/``y`` shapes/dtypes for MRMR.fit (see module-level contract above)."""
     # Validate string-valued constructor params on every fit. We intentionally
     # do NOT validate inside __init__ to preserve sklearn-style "no work in
     # __init__" semantics (clone() must not raise).
     self._validate_string_params()
+    _snapshot_fit_dtypes(self, X)
     import warnings as _w
     n_rows = getattr(X, "shape", (None,))[0]
     if n_rows is not None:
@@ -545,6 +640,7 @@ def transform(self, X, y=None):
                     f"column set BETWEEN fit and transform. Investigate."
                 )
             _warn_unseen_transform_columns(self, X.columns)
+            _warn_transform_dtype_drift(self, X, _drift_check_columns(selected_cols, recipes))
             base_out = X[selected_cols]
         else:
             base_out = X.iloc[:, support]
@@ -572,6 +668,7 @@ def transform(self, X, y=None):
                 f"column set BETWEEN fit and transform. Investigate."
             )
         _warn_unseen_transform_columns(self, X.columns)
+        _warn_transform_dtype_drift(self, X, _drift_check_columns(selected_cols, recipes))
         base_out = X.select(selected_cols)
     else:
         # Plain ndarray: ``support`` indexes columns positionally (the shape check above guards the width), so it

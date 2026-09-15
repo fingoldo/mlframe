@@ -95,13 +95,27 @@ def _survivor_section(mrmr_self: Any) -> str:
     prov = getattr(mrmr_self, "fe_provenance_", None)
     if prov is None or not isinstance(prov, pd.DataFrame) or prov.empty:
         return "Surviving features: none recorded (estimator unfitted, or provenance wiped)."
+    # fe_provenance_ also lists produced-but-screened-out engineered columns (NaN gain); count and rank only what reaches the output. The
+    # actual selection decides membership: support_rank alone would drop a raw column kept by the empty-support fallback (rank -1).
+    prov_all = prov
+    try:
+        _selected_names = set(map(str, mrmr_self.get_feature_names_out()))
+        prov = prov_all[prov_all["feature_name"].astype(str).isin(_selected_names)]
+    except Exception as e:
+        logger.debug("mrmr-explain: could not read the selected feature names (%s); falling back to support_rank >= 0", e)
+        if "support_rank" in prov_all.columns:
+            prov = prov_all[pd.to_numeric(prov_all["support_rank"], errors="coerce") >= 0]
+    n_screened = len(prov_all) - len(prov)
+    if prov.empty:
+        return f"Surviving features: none of the {len(prov_all)} produced/raw column(s) in the provenance reached the output."
     by_origin = prov.groupby("origin", dropna=False).size().sort_values(ascending=False)
     n_total = len(prov)
     n_eng = int((prov["origin"].astype(str) != "raw").sum())
     kinds = [str(o) for o in by_origin.index if str(o) != "raw"]
     kinds_str = ", ".join(f"{k}={int(by_origin[k])}" for k in kinds) if kinds else "none"
+    _screened_str = f"; {n_screened} produced column(s) were screened out" if n_screened else ""
     lines = [
-        f"Surviving features: {n_total} selected ({n_eng} engineered, {n_total - n_eng} raw).",
+        f"Surviving features: {n_total} selected ({n_eng} engineered, {n_total - n_eng} raw){_screened_str}.",
         f"  engineered recipe kinds: {kinds_str}",
     ]
     # PER-FEATURE MI/gain ATTRIBUTION: order survivors by their MRMR gain to y (the
@@ -119,7 +133,8 @@ def _survivor_section(mrmr_self: Any) -> str:
             logger.warning("mrmr-explain: %d mrmr_gain value(s) were unparseable and excluded from the attribution roster.", _n_bad_gain)
         ranked = prov.assign(gain_attr=gains)
         scored = ranked[ranked["gain_attr"].notna()].sort_values("gain_attr", ascending=False)
-        roster = scored if not scored.empty else ranked
+        # Selected rows without a gain (a raw column kept by the empty-support fallback) are still survivors: list them after the ranked ones.
+        roster = pd.concat([scored, ranked[ranked["gain_attr"].isna()]]) if not scored.empty else ranked
     else:
         roster = prov.assign(gain_attr=float("nan"))
     head = roster.head(_MAX_SURVIVOR_ROWS)
@@ -136,7 +151,9 @@ def _survivor_section(mrmr_self: Any) -> str:
 
     named = ", ".join(_attr(r) for r in head.itertuples(index=False))
     suffix = "" if n_total <= _MAX_SURVIVOR_ROWS else f", ... (+{n_total - _MAX_SURVIVOR_ROWS} more)"
-    lines.append(f"  by MI/gain attribution: {named}{suffix}")
+    # The gain is the greedy screen's in-sample score on the data the feature was chosen on, not a held-out estimate. The qualifier trails
+    # the roster so the "by MI/gain attribution:" prefix and the first-ranked entry stay where consumers read them.
+    lines.append(f"  by MI/gain attribution: {named}{suffix} (in-screen greedy gain, not a held-out estimate)")
     return "\n".join(lines)
 
 

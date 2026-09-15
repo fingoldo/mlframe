@@ -540,7 +540,8 @@ def _finalise_fs_results(
                     except Exception as e:
                         logger.debug("_fit: within-group MI replay/discretise failed for recipe %r, leaving it alone: %s", _rname, e)
                         continue  # can't replay/discretise - leave this recipe alone (conservative)
-                if _grp_mi_f == _grp_mi_f and _grp_mi_f <= 0.0:  # not nan and exactly zero within-group signal
+                # Not nan and exactly zero within-group signal. group_blocked_mi floors every group's contribution at 0, so this is never negative.
+                if _grp_mi_f == _grp_mi_f and _grp_mi_f == 0.0:
                     _group_dropped_final.add(_rname)
             if _group_dropped_final:
                 self._engineered_recipes_ = [_r for _r in _eng_recipes_final if str(getattr(_r, "name", "")) not in _group_dropped_final]

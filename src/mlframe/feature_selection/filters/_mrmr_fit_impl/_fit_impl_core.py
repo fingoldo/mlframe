@@ -2452,39 +2452,49 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # dropped set keeps the redundancy decision consistent across both the FE-step
             # finalisation AND the downstream RFECV rescue.
             _excluded_from_rescue.update(getattr(self, "_raw_redundancy_dropped_", None) or set())
-            temp_columns = [c for c in X.columns if c not in _sel_names and c not in _excluded_from_rescue]
+            # The rescue maps pool columns back through feature_names_in_, so only raw input columns are eligible. Filtering by membership,
+            # not by per-family rosters, keeps every FE family's engineered columns out (an unary/binary pair column reached this pool and
+            # would have raised KeyError if RFECV had selected it).
+            _raw_rescue_names = set(self.feature_names_in_)
+            temp_columns = [c for c in X.columns if c in _raw_rescue_names and c not in _sel_names and c not in _excluded_from_rescue]
 
-            if _is_classification:
-                cb_num_rfecv = RFECV(
-                    estimator=CatBoostClassifier(**configs.CB_CLASSIF),
-                    fit_params=dict(plot=False),
-                    cat_features=categorical_vars_names,
-                    scoring=make_scorer(score_func=compute_probabilistic_multiclass_error, response_method="predict_proba", greater_is_better=False),
-                    **params,
-                )
+            if not temp_columns:
+                # Every raw column is already selected or excluded (cluster members, subsumed operands, engineered columns); the
+                # count above mixes the working frame (with engineered columns) and feature_names_in_, so it can be positive here.
+                if verbose:
+                    logger.info("RFECV rescue skipped: no discarded raw column is eligible after exclusions.")
             else:
-                # Regression branch: CatBoostRegressor with the same shared params; default scoring lets
-                # RFECV pick from the estimator (negative-MSE-like). Keeping the import local avoids
-                # paying the CatBoostRegressor import cost when only classification is exercised.
-                from catboost import CatBoostRegressor
-                cb_num_rfecv = RFECV(
-                    estimator=CatBoostRegressor(**configs.CB_REGR),
-                    fit_params=dict(plot=False),
-                    cat_features=categorical_vars_names,
-                    **params,
-                )
-            cb_num_rfecv.fit(X[temp_columns], y)
+                if _is_classification:
+                    cb_num_rfecv = RFECV(
+                        estimator=CatBoostClassifier(**configs.CB_CLASSIF),
+                        fit_params=dict(plot=False),
+                        cat_features=categorical_vars_names,
+                        scoring=make_scorer(score_func=compute_probabilistic_multiclass_error, response_method="predict_proba", greater_is_better=False),
+                        **params,
+                    )
+                else:
+                    # Regression branch: CatBoostRegressor with the same shared params; default scoring lets
+                    # RFECV pick from the estimator (negative-MSE-like). Keeping the import local avoids
+                    # paying the CatBoostRegressor import cost when only classification is exercised.
+                    from catboost import CatBoostRegressor
+                    cb_num_rfecv = RFECV(
+                        estimator=CatBoostRegressor(**configs.CB_REGR),
+                        fit_params=dict(plot=False),
+                        cat_features=categorical_vars_names,
+                        **params,
+                    )
+                cb_num_rfecv.fit(X[temp_columns], y)
 
-            if cb_num_rfecv.n_features_ > 0:
-                new_features = np.array(temp_columns)[cb_num_rfecv.support_]
-                if verbose:
-                    logger.info("RFECV selected %d additional feature(s): %s", cb_num_rfecv.n_features_, new_features)
-                # Reuse the name -> index map built above (``feature_names_in_`` is fit-invariant).
-                for feature in new_features:
-                    selected_vars.append(_fni_idx[feature])
-            else:
-                if verbose:
-                    logger.info("RFECV selected no additional features.")
+                if cb_num_rfecv.n_features_ > 0:
+                    new_features = np.array(temp_columns)[cb_num_rfecv.support_]
+                    if verbose:
+                        logger.info("RFECV selected %d additional feature(s): %s", cb_num_rfecv.n_features_, new_features)
+                    # Reuse the name -> index map built above (``feature_names_in_`` is fit-invariant).
+                    for feature in new_features:
+                        selected_vars.append(_fni_idx[feature])
+                else:
+                    if verbose:
+                        logger.info("RFECV selected no additional features.")
 
     # ---------------------------------------------------------------------------------------------------------------
     # Assign support
