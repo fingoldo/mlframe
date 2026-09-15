@@ -132,6 +132,8 @@ def _friend_graph_and_redundancy_passes_group2(
     # columns are independently default-on and need the SAME protection. Gate on hybrid_orth_features_ too so
     # the setup runs whenever either protection has candidates to consider; the hinge-specific re-add loop
     # below still runs ONLY when ``_hinge_feats`` is non-empty (see its own ``if _hinge_feats:`` guard).
+    # The orth-basis protection below reuses the held-out gate defined inside this block; record whether it exists explicitly.
+    _heldout_gate_ready = False
     if (_hinge_feats or getattr(self, "hybrid_orth_features_", None)) and len(selected_vars):
         _cols_index = {c: i for i, c in enumerate(cols)}
         _sv_set = set(selected_vars)
@@ -160,7 +162,7 @@ def _friend_graph_and_redundancy_passes_group2(
         # snapshot, raw from X) -> the baseline design the leg must beat OOS.
         _sel_value_cols = []
         if _y_for_hinge_gate is not None and isinstance(X, pd.DataFrame):
-            for _sn in _sel_names_now:
+            for _sn in dict.fromkeys(cols[i] for i in selected_vars if 0 <= i < len(cols)):
                 _cv = _eng_continuous_snapshot.get(_sn)
                 if _cv is None and _sn in X.columns:
                     _cv = X[_sn].to_numpy()
@@ -172,6 +174,8 @@ def _friend_graph_and_redundancy_passes_group2(
                     continue  # a raw categorical/string selected column (e.g. under skip_categorical_encoding) is not a numeric R^2-baseline regressor - exclude it from the linear design
                 if _cv.shape[0] == _y_for_hinge_gate.shape[0] and np.all(np.isfinite(_cv)):
                     _sel_value_cols.append(_cv)
+
+        _heldout_gate_ready = True
 
         def _heldout_incr_over_selected(_leg_vals, _src_vals=None) -> float:
             """Held-out R^2 gain of adding ``_leg_vals`` to the selected design
@@ -298,7 +302,7 @@ def _friend_graph_and_redundancy_passes_group2(
     # the hinge gate): for the basis the curve IS the win, so adding ``src^2`` would self-reject the very
     # quadratic basis we want. Reuses ``_heldout_incr_over_selected`` with ``_src_vals=None``.
     _orth_feats = getattr(self, "hybrid_orth_features_", None)
-    if _orth_feats and len(selected_vars) and ("_heldout_incr_over_selected" in locals()):
+    if _orth_feats and len(selected_vars) and _heldout_gate_ready:
         _cols_index_o = {c: i for i, c in enumerate(cols)}
         _sv_set_o = set(selected_vars)
         _sel_names_o = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
@@ -412,7 +416,7 @@ def _friend_graph_and_redundancy_passes_group2(
     if isinstance(X, pd.DataFrame) and len(selected_vars):
         _rp_y = None
         try:
-            _rp_yv = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).reshape(-1)
+            _rp_yv = np.asarray(_y_np, dtype=np.float64).reshape(-1)
             if _rp_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_rp_yv)):
                 _rp_y = _rp_yv
         except Exception as exc:
@@ -428,7 +432,7 @@ def _friend_graph_and_redundancy_passes_group2(
             _rp_tr = ~_rp_va
             _rp_sel_names = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
             _rp_base = [np.ones(_rp_n)]
-            for _sn in _rp_sel_names:
+            for _sn in dict.fromkeys(cols[i] for i in selected_vars if 0 <= i < len(cols)):
                 _cv = _eng_continuous_snapshot.get(_sn)
                 if _cv is None and _sn in X.columns:
                     _cv = X[_sn].to_numpy()
@@ -458,7 +462,7 @@ def _friend_graph_and_redundancy_passes_group2(
                 # below the effective floor, corr -0.04, yet R^2 incr ~0.011). Require the candidate to ALSO clear the SAME marginal-MI
                 # relevance floor the screen used (absolute effective floor AND the relative-to-strongest floor) so a below-null raw cannot
                 # be resurrected by linear-usability alone - this re-opened exactly the hole the screen floor closes.
-                _rp_rel_floor = float(_effective_min_relevance_gain) if "_effective_min_relevance_gain" in dir() else float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
+                _rp_rel_floor = float(_effective_min_relevance_gain)
                 _rp_rel_frac = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
                 _rp_max_mi = max((float(_v) for _v in cached_MIs.values()), default=0.0) if isinstance(cached_MIs, dict) else 0.0
                 _rp_floor = max(_rp_rel_floor, _rp_max_mi * _rp_rel_frac)

@@ -61,7 +61,7 @@ def _friend_graph_and_redundancy_passes_group4(
                 # anchor. Falls back to ``classes_y`` for already-discrete targets.
                 _y_cont_for_redund = None
                 try:
-                    _yv = y.values if hasattr(y, "values") else np.asarray(y)
+                    _yv = np.asarray(_y_np)
                     _yv = np.asarray(_yv).reshape(-1)
                     if _yv.shape[0] == int(data.shape[0]) and np.issubdtype(np.asarray(_yv).dtype, np.number):
                         _y_cont_for_redund = _yv
@@ -164,7 +164,7 @@ def _friend_graph_and_redundancy_passes_group4(
                             else:
                                 _floor_child_vals.append(np.asarray(data[:, _ei], dtype=np.float64).ravel())
                         try:
-                            _yv_floor = y.values if hasattr(y, "values") else np.asarray(y)
+                            _yv_floor = np.asarray(_y_np)
                             _yv_floor = np.asarray(_yv_floor, dtype=np.float64).reshape(-1)
                         except Exception as exc:
                             logger.debug("mrmr: classes_y coercion failed for the floor-drop rescue; falling back to a raw classes_y reshape: %r", exc, exc_info=True)

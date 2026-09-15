@@ -52,7 +52,7 @@ def _friend_graph_and_redundancy_passes_group3(
         if _cf_names:
             _cf_y = None
             try:
-                _cf_yv = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).reshape(-1)
+                _cf_yv = np.asarray(_y_np, dtype=np.float64).reshape(-1)
                 if _cf_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_cf_yv)):
                     _cf_y = _cf_yv
             except Exception as exc:
@@ -72,7 +72,7 @@ def _friend_graph_and_redundancy_passes_group3(
                 # Baseline design = intercept + continuous/binned values of the ALREADY-SELECTED columns, so a
                 # cat-FE column subsumed by a selected feature adds ~0 and is NOT re-added (no redundancy regression).
                 _cf_base = [np.ones(_cf_n)]
-                for _sn in _cf_sel_names:
+                for _sn in dict.fromkeys(cols[i] for i in selected_vars if 0 <= i < len(cols)):
                     _cv = _eng_continuous_snapshot.get(_sn)
                     if _cv is None and _sn in X.columns:
                         try:
@@ -181,17 +181,18 @@ def _friend_graph_and_redundancy_passes_group3(
             _dcd_st = _persisted_dcd_state
             _mask_w0 = int(_dcd_st.pool_pruned_mask.shape[0]) if _dcd_st.pool_pruned_mask is not None else 0
             _raw_name_set_dcd = set(self.feature_names_in_)
+            from ._raw_dtype import raw_column_is_numeric
+
             # Selected RAW columns: stable low indices within the DCD mask width, NUMERIC only (a
             # string/categorical raw can never enter the PC1/Pearson aggregate - it would raise
             # "could not convert string to float" in the swap's combiner - and is not a numeric
             # duplicate cluster anyway), in selection order.
-            # NUMERIC-only is enforced below via the dtype check directly (no `numeric_features_in_`
-            # attribute exists on MRMR to cross-check against - a prior getattr(..., None) here always
-            # silently returned the default and was a dead no-op, per code_audit's getattr_unknown_attribute).
+            # NUMERIC-only is judged on the RAW column's dtype: ``data`` holds integer bin codes for every column, so a dtype test on it
+            # passed string/categorical raws straight into the combiner.
             _sel_raw_dcd = [
                 int(v)
                 for v in selected_vars
-                if 0 <= int(v) < _mask_w0 and cols[int(v)] in _raw_name_set_dcd and np.issubdtype(np.asarray(data[:, int(v)]).dtype, np.number)
+                if 0 <= int(v) < _mask_w0 and cols[int(v)] in _raw_name_set_dcd and raw_column_is_numeric(X, cols[int(v)], data, int(v))
             ]
             _newly_pruned_dcd: set = set()
             _did_swap_dcd = False
@@ -325,7 +326,7 @@ def _friend_graph_and_redundancy_passes_group3(
                 _pcr_genuine_eng = [i for i in selected_vars if (cols[i] not in _pcr_raw_set) and not _pcr_is_pseudo(cols[i])]
                 _pcr_y = np.ascontiguousarray(np.asarray(classes_y)).ravel().astype(np.int64)
                 try:
-                    _pcr_yv = y.values if hasattr(y, "values") else np.asarray(y)
+                    _pcr_yv = np.asarray(_y_np)
                     _pcr_yv = np.asarray(_pcr_yv).reshape(-1)
                     if (_pcr_yv.shape[0] == int(data.shape[0]) and np.issubdtype(_pcr_yv.dtype, np.number)
                             and int(np.unique(_pcr_yv).size) > max(20, 2 * int(np.unique(_pcr_y).size))):
