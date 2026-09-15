@@ -533,12 +533,14 @@ class TestRosterAtLeast82PriorLayers:
         """Layer 29's baseline reference module is present, flat or relocated."""
         # The layer modules + themed subpackages live under tests/feature_selection/mrmr/biz_val/ after
         # the test-tree restructure; anchor on that dir (not the old flat feature_selection root).
+        # Import the reference module rather than checking a path: an import proves the module loads, a path check passes for a broken module.
+        import importlib
+
         root = next(p for p in Path(__file__).parents if p.name == "biz_val")
-        flat = root / "test_biz_value_mrmr_layer29.py"
-        # Layer 29 was relocated into a themed subpackage as test_hybrid_fe_toy_datasets.py; match the FILENAME
-        # (not source text) so the baseline-reference presence check survives the consolidation.
-        relocated = any(p.name == "test_hybrid_fe_toy_datasets.py" for p in root.glob("test_biz_value_mrmr_*/test_hybrid_fe_toy_datasets.py"))
-        assert flat.exists() or relocated, "Layer 29 module missing; Layer 83 expands L29's 5-dataset validation to 10 mechanisms and uses it as the reference."
+        hits = sorted(root.glob("test_biz_value_mrmr_*/test_hybrid_fe_toy_datasets.py"))
+        assert hits, "Layer 29 module missing; Layer 83 expands L29's 5-dataset validation to 10 mechanisms and uses it as the reference."
+        mod = importlib.import_module(f"tests.feature_selection.mrmr.biz_val.{hits[0].parent.name}.{hits[0].stem}")
+        assert any((name.startswith("test_") or name.startswith("Test")) and callable(getattr(mod, name)) for name in dir(mod)), "Layer 29 reference module defines no tests"
 
 
 # ---------------------------------------------------------------------------
