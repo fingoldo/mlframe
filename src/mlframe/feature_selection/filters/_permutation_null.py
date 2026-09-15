@@ -498,6 +498,32 @@ def _pairwise_occupied_joint_k(
     return np.asarray(_pairwise_occupied_joint_k_njit(factors_data, pa, pb, nb))
 
 
+def _validate_pair_floor_inputs(factors_data, nbins, pair_a, pair_b, classes_y, freqs_y) -> None:
+    """Reject input shapes the njit joint-MI kernel would index out of bounds (it segfaults instead of raising).
+
+    The kernel indexes contingency tables directly by these codes, so a per-ROW ``classes_y`` of length n, a per-COLUMN ``nbins`` vector,
+    in-range pair indices and target codes inside ``freqs_y``'s class count are preconditions, not conveniences.
+    """
+    data = np.asarray(factors_data)
+    if data.ndim != 2:
+        raise ValueError(f"factors_data must be a 2-D (rows, columns) array, got shape {data.shape}")
+    n, p = int(data.shape[0]), int(data.shape[1])
+    nb = np.asarray(nbins)
+    if nb.ndim != 1 or nb.shape[0] != p:
+        raise ValueError(f"nbins must be a 1-D vector with one entry per column of factors_data ({p}), got shape {nb.shape}")
+    y = np.asarray(classes_y)
+    if y.ndim != 1 or y.shape[0] != n:
+        raise ValueError(f"classes_y must hold one target code per row ({n}), got shape {y.shape}; pass the per-row codes, not the list of distinct classes")
+    pa, pb = np.asarray(pair_a), np.asarray(pair_b)
+    if pa.shape != pb.shape or pa.ndim != 1:
+        raise ValueError(f"pair_a and pair_b must be 1-D and the same length, got {pa.shape} and {pb.shape}")
+    if pa.size and (int(min(pa.min(), pb.min())) < 0 or int(max(pa.max(), pb.max())) >= p):
+        raise ValueError(f"pair indices must lie in [0, {p}), got range [{int(min(pa.min(), pb.min()))}, {int(max(pa.max(), pb.max()))}]")
+    k_y = int(np.asarray(freqs_y).shape[0])
+    if y.size and (int(y.min()) < 0 or int(y.max()) >= k_y):
+        raise ValueError(f"classes_y codes must lie in [0, {k_y}) to match freqs_y, got range [{int(y.min())}, {int(y.max())}]")
+
+
 def pooled_pair_permutation_null_joint_mi_floor(
     factors_data: np.ndarray,
     nbins: np.ndarray,
@@ -556,6 +582,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     debias on both sides). ``->`` the raw floor as ``n -> inf``.
     """
     n = int(factors_data.shape[0])
+    _validate_pair_floor_inputs(factors_data, nbins, pair_a, pair_b, classes_y, freqs_y)
     n_pairs = int(pair_a.shape[0])
     if n < 8 or n_permutations < 1 or n_pairs < 2:
         return 0.0

@@ -24,12 +24,12 @@ def _shallow_append(X, cols):
     """Candidate seam body. Runs with ``_fe_frame_ops``'s globals once its code object is installed, so it may only use names defined there."""
     if not cols:
         return X
-    if is_pandas(X):  # noqa: F821 - resolved in _fe_frame_ops' globals after the code swap
+    if is_pandas(X):  # type: ignore[name-defined]  # noqa: F821 - resolved in _fe_frame_ops' globals after the code swap
         out = X.copy(deep=False)
         for name, vals in cols.items():
             out[name] = vals
         return out
-    if is_polars(X):  # noqa: F821
+    if is_polars(X):  # type: ignore[name-defined]  # noqa: F821
         return X.with_columns([pl.Series(name, np.asarray(vals)) for name, vals in cols.items()])  # type: ignore[name-defined]  # noqa: F821
     if isinstance(X, np.ndarray):
         extra = np.column_stack([np.asarray(v) for v in cols.values()])
