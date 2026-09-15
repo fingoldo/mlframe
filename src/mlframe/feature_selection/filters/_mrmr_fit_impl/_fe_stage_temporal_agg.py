@@ -1,9 +1,6 @@
 """``MRMR._fit_impl`` Layer 92 temporal-aggregate FE stage.
 
-Carved verbatim out of the giant ``_fit_impl`` orchestration body in
-``_fit_impl_core.py`` (Tier E partial split) to shrink the parent below the
-monolith budget. ``_fe_stage_temporal_agg`` is the self-contained
-``if fe_temporal_agg_enable:`` block: temporal leak-safe grouped aggregations
+``_fe_stage_temporal_agg`` is the ``if fe_temporal_agg_enable:`` block of ``_fit_impl_core``: temporal leak-safe grouped aggregations
 keyed on a time column, only ever seeing the strict past (expanding / rolling /
 lag), each survivor MI-gated against y, recipes stored for transform-time
 replay against TRAIN history only. Routing piggybacks on
@@ -30,7 +27,7 @@ from .._y_encoding import encode_y_for_classif_mi
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
-def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes):
+def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes, _fe_family_on=None):
     """Layer 92 temporal-aggregate FE stage carved out of ``_fit_impl``.
 
     Threads the ``MRMR`` instance + fit-body locals explicitly, mutates
@@ -44,8 +41,13 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes):
     # per-entity sorted history so transform() replays test rows against TRAIN
     # history only. Routing piggybacks on hybrid_orth_features_.
     # ``fe_max_steps=0`` is the unconditional "no feature engineering at all" contract: a family flag can only
-    # enable a family within that budget, never buy its way past it (mirrors ``_fit_impl._fe_family_on``).
-    if bool(getattr(self, "fe_temporal_agg_enable", False)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0:
+    # enable a family within that budget, never buy its way past it. The shared ``_fe_family_on`` gate decides when the caller passes it.
+    _temporal_on = (
+        _fe_family_on("fe_temporal_agg_enable", False)
+        if _fe_family_on is not None
+        else bool(getattr(self, "fe_temporal_agg_enable", False)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0
+    )
+    if _temporal_on:
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 92 temporal_agg FE enabled but X is not a pandas "

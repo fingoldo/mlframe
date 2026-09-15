@@ -1,7 +1,4 @@
-"""Sibling of ``_fit_impl_core.py`` (part of the sub-split that brings the parent below
-the project's 1k-LOC module-size gate).
-
-Holds ``_fe_stage_cascade_mid_a``: Layer 87 (grouped multi-stat aggregator), Layer 93
+"""FE cascade stage ``_fe_stage_cascade_mid_a``, called from ``_fit_impl_core``: Layer 87 (grouped multi-stat aggregator), Layer 93
 (composite multi-column group-key aggregates), Layer 88 (per-group histogram + quantile FE),
 Layer 89 (cat x cat synergy cross), Layer 94 (cat x cat x cat triple synergy cross), Layer 90
 (numeric decomposition), Layer 95 PART A (periodic/modular decomposition). Every FE family
@@ -688,6 +685,10 @@ def _fe_stage_cascade_mid_a(
                             _row_argmax_pre_recipes[_r.name] = _r
                             # Record the raw source operands so the FE step keeps them as
                             # regularly-selected pair operands (see _gate_raw_operands_ init).
+                            if not isinstance(getattr(self, "_gate_raw_operands_", None), set):
+                                self._gate_raw_operands_ = set()
+                            if not isinstance(getattr(self, "_gate_col_src_vars_", None), dict):
+                                self._gate_col_src_vars_ = {}
                             self._gate_raw_operands_.update(str(s) for s in _r.src_names)
                             self._gate_col_src_vars_[str(_r.name)] = {str(s) for s in _r.src_names}
                     if verbose:
@@ -764,6 +765,10 @@ def _fe_stage_cascade_mid_a(
                             _conditional_gate_pre_recipes[_r.name] = _r
                             # Record the raw source operands so the FE step keeps them as
                             # regularly-selected pair operands (see _gate_raw_operands_ init).
+                            if not isinstance(getattr(self, "_gate_raw_operands_", None), set):
+                                self._gate_raw_operands_ = set()
+                            if not isinstance(getattr(self, "_gate_col_src_vars_", None), dict):
+                                self._gate_col_src_vars_ = {}
                             self._gate_raw_operands_.update(str(s) for s in _r.src_names)
                             self._gate_col_src_vars_[str(_r.name)] = {str(s) for s in _r.src_names}
                     if verbose:

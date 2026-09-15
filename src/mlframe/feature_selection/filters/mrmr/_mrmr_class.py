@@ -2554,6 +2554,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         #   in [1%, 99%].
         # * ``missingness_count``: per-row count of NaNs across a column
         #   subset (auto-detected if empty).
+        # All three families take their column scope from ``fe_missingness_indicator_cols``: setting it scopes count and pattern too.
         # * ``missingness_pattern``: per-row label of the top-K most
         #   frequent missingness patterns at fit; unseen patterns at
         #   transform map to the "other" bucket.

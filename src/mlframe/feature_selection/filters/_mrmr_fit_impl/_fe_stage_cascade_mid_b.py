@@ -1,7 +1,4 @@
-"""Sibling of ``_fit_impl_core.py`` (part of the sub-split that brings the parent below
-the project's 1k-LOC module-size gate).
-
-Holds ``_fe_stage_cascade_mid_b``: Layer 95 PART B (per-group distribution-distance) and
+"""FE cascade stage ``_fe_stage_cascade_mid_b``, called from ``_fit_impl_core``: Layer 95 PART B (per-group distribution-distance) and
 Layer 104 (rare-category / conditional-residual / conditional-dispersion /
 conditional-quantile-rank / ordinal-pattern / random-fourier / SIR-direction / LOF /
 mahalanobis-density / wavelet / rankgauss). Every FE family stage here reads the (possibly
@@ -12,9 +9,7 @@ All ``_*_pre_recipes`` dicts are caller-owned and mutated in place (never reassi
 confirmed via a systematic reassignment-vs-mutation check), so no return is needed for them.
 ``_raw_input_cols_pre_fe`` is read-only here (computed by an earlier cascade sibling).
 
-This is the LAST wave of the Layer 23-104 FE cascade: after this, ``_fit_impl_core.py``'s
-remaining body is the MI-greedy screen / friend-graph / assign-support / finalise machinery
-already carved into their own siblings in earlier waves.
+This is the last stage of the FE cascade; the MI-greedy screen, friend-graph, support assignment and finalisation follow in their own modules.
 """
 
 from __future__ import annotations

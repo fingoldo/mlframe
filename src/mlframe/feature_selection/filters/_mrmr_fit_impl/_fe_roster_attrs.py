@@ -68,6 +68,9 @@ def seed_empty_fe_rosters(estimator: Any) -> None:
     """
     for name in FE_ROSTER_ATTRS:
         setattr(estimator, name, [])
+    # Gate-operand bookkeeping read by the FE step and the redundancy passes; seeded here too so no fit path leaves it undefined.
+    estimator._gate_raw_operands_ = set()
+    estimator._gate_col_src_vars_ = {}
 
 
 def reconcile_fe_rosters(estimator: Any) -> None:

@@ -220,12 +220,15 @@ def compute_mrmr_artifacts(
     return artifacts
 
 
-def validate_artifact_dict(artifacts: dict | None) -> bool:
+def validate_artifact_dict(artifacts: dict | None, n_samples: int | None = None) -> bool:
     """Cheap sanity check on a precomputed artifact dict received from a
     consumer (ShapProxiedFS / future selectors). Returns True if the dict is
     structurally valid AND carries at minimum a usable SU vector. Logs a
     warning and returns False on any failure - callers should then fall back
     to recomputing from scratch.
+
+    Also rejects a dict from a newer ``schema_version`` than this reader knows, and ``bins`` without ``nbins_per_feature`` (or the
+    reverse). ``n_samples``, when the caller passes its own row count, must equal ``n_samples_at_fit``.
     """
     if artifacts is None or not isinstance(artifacts, dict):
         return False
@@ -244,6 +247,21 @@ def validate_artifact_dict(artifacts: dict | None) -> bool:
             "Precomputed artifact su_to_target shape %s does not match feature_names len %d; " "ignoring and recomputing from scratch.",
             su_arr.shape,
             len(names),
+        )
+        return False
+    _version = artifacts.get("schema_version")
+    if _version is not None and int(_version) > ARTIFACT_SCHEMA_VERSION:
+        logger.warning(
+            "Precomputed artifact schema_version %s is newer than this reader's %d; ignoring and recomputing from scratch.", _version, ARTIFACT_SCHEMA_VERSION,
+        )
+        return False
+    if (artifacts.get("bins") is None) != (artifacts.get("nbins_per_feature") is None):
+        logger.warning("Precomputed artifact has only one of bins / nbins_per_feature; ignoring and recomputing from scratch.")
+        return False
+    _fit_n = artifacts.get("n_samples_at_fit")
+    if n_samples is not None and _fit_n is not None and int(_fit_n) != int(n_samples):
+        logger.warning(
+            "Precomputed artifacts were computed on %s rows but the caller has %d; ignoring and recomputing from scratch.", _fit_n, int(n_samples),
         )
         return False
     return True
