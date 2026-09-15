@@ -118,13 +118,23 @@ def _fit_prewarp_and_gate_med(
         def _prewarp_generalises(_va_full, _vb_full):
             """True if an ALS warp fit on the train slice still tracks y on the
             held-out slice (rank-1 reconstruction correlation >= floor)."""
+            # Operands are read from the (already subsampled) pair-search frame and the target is cut to the same rows, so their lengths agree on
+            # every correct path. A mismatch means the rows are misaligned: no warp fit on them is meaningful, validated or not, so reject before
+            # the CV switch. Accepting here used to skip the held-out check and let the full ALS fit pair operand rows with the wrong target rows.
+            _len_a = int(np.asarray(_va_full).reshape(-1).shape[0])
+            _len_b = int(np.asarray(_vb_full).reshape(-1).shape[0])
+            if _len_a != _pw_n or _len_b != _pw_n:
+                log_throttle(
+                    _module_logger, "prewarp_operand_length_mismatch", logging.WARNING,
+                    "prewarp operand length (%d, %d) differs from the target's %d rows; the rows are misaligned, REJECTING the warp.",
+                    _len_a, _len_b, _pw_n,
+                )
+                return False
             if not _pw_cv_ok:
                 return True  # CV disabled / n too small -> accept (legacy behaviour)
             try:
                 _a = np.asarray(_va_full, dtype=np.float64).reshape(-1)
                 _b = np.asarray(_vb_full, dtype=np.float64).reshape(-1)
-                if _a.shape[0] != _pw_n or _b.shape[0] != _pw_n:
-                    return True  # length mismatch (subsample edge) -> don't block
                 _sa_tr, _sb_tr = fit_pair_prewarp_als(
                     _a[_tr_mask], _b[_tr_mask], _y_tr,
                     basis=prewarp_basis, max_degree=prewarp_max_degree,
