@@ -17,6 +17,8 @@ from collections import defaultdict
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
+from mlframe.utils.log_throttle import log_throttle
+
 from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
 
@@ -490,8 +492,11 @@ def score_prospective_pairs(
         """Return operand ``_idx``'s single-operand usability correlation, memoized across calls."""
         if _idx in _single_corr_cache:
             return _single_corr_cache[_idx]
+        if _yc_cont_ is None:
+            return None
         _op = _cached_operand(_idx)
-        if _yc_cont_ is None or _op is None or len(_yc_cont_) != _op.shape[0]:
+        if _op is None or len(_yc_cont_) != _op.shape[0]:
+            _single_corr_cache[_idx] = None
             return None
         _val = _single_operand_usability_corr(_yc_cont_, _op)
         _single_corr_cache[_idx] = _val
@@ -636,7 +641,15 @@ def score_prospective_pairs(
                 # docstring above for the full rationale) is resolved ONCE for every pair in the
                 # usability-admission pre-pass above and cached here - not recomputed inline, so this
                 # lookup is the SAME computation the pre-pass already paid for, just relocated earlier.
-                _passes_prevalence, _passes_maxt, _is_synergy_pair, _prev_thresh, _pair_mi_floor_cmp = _gate_cache[raw_vars_pair]
+                # The pre-pass mirrors this loop's filter chain; if the two ever drift, skip the pair visibly rather than abort the fit.
+                _gate_state = _gate_cache.get(raw_vars_pair)
+                if _gate_state is None:
+                    log_throttle(
+                        logger, "fe_pair_gate_cache_miss", logging.WARNING,
+                        "MRMR FE: no pre-pass gate state for pair %s (the pre-pass and scoring filter chains disagree); skipping it", raw_vars_pair,
+                    )
+                    continue
+                _passes_prevalence, _passes_maxt, _is_synergy_pair, _prev_thresh, _pair_mi_floor_cmp = _gate_state
                 # DATA-DRIVEN PREVALENCE (2026-06-12, EXPERIMENTAL, default OFF pending the
                 # 3-model RMSE A/B/C): the HARDCODED ratio bar over the MM-debiased joint MI
                 # under-admits an ASYMMETRIC interaction whose one operand has a strong

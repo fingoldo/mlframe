@@ -583,7 +583,8 @@ def run_cluster_aggregate_emission(
                 # directly - don't rely on a re-screen (with the default fe_max_steps=1 the loop breaks
                 # before re-screening). Remap routes the engineered name into _engineered_recipes_.
                 _sv = list(selected_vars) if not isinstance(selected_vars, list) else selected_vars
-                selected_vars = _sv + [i for i in _ca_indices if i not in _sv]
+                _sv_set = set(_sv)
+                selected_vars = _sv + [i for i in _ca_indices if i not in _sv_set]
             if _ca_removed:  # replace mode: consumed in _fit_impl before the cols->original remap
                 self._cluster_aggregate_removals_ = list(getattr(self, "_cluster_aggregate_removals_", [])) + list(_ca_removed)
             if _ca_summary:
@@ -623,7 +624,7 @@ def apply_interaction_information_routing(
 
     Returns the (possibly trimmed) ``prospective_pairs`` dict.
     """
-    if not bool(getattr(self, "fe_ii_routing_enable", True)) or not prospective_pairs:
+    if not bool(getattr(self, "fe_ii_routing_enable", False)) or not prospective_pairs:
         return prospective_pairs
     _perms = int(getattr(self, "fe_ii_routing_null_permutations", 25) or 0)
     _min_pairs = int(getattr(self, "fe_ii_routing_min_pairs", 30))

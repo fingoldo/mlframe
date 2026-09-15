@@ -163,7 +163,9 @@ def selection_stability_report(
     seed = random_state if random_state is not None else int(self._effective_random_seed() or 0)
     rng = np.random.default_rng(seed)
 
-    K = max(1, int(n_boot))
+    if int(n_boot) < 1:
+        raise ValueError(f"selection_stability_report: n_boot must be >= 1; got {n_boot!r}.")
+    K = int(n_boot)
     sel_counts = np.zeros(n_cand, dtype=np.int64)
 
     if n_selected <= 0 or n_cand == 0 or n_rows < 2:
@@ -245,6 +247,11 @@ def _replay_recipe_survival(*, voted, rec_state, y_codes, n_boot, rng) -> dict:
         b = None if b is None else np.asarray(b)
         alt = bool(rs.get("alt", False))
         if eng.shape[0] != n:
+            # The stored codes disagree with the target's length: the replay state is inconsistent with the fit, not merely absent.
+            logger.warning(
+                "selection_stability_report: recipe %r has %d stored engineered codes but y has %d rows; its survival frequency is omitted",
+                nm, int(eng.shape[0]), n,
+            )
             continue
         passes = 0
         for _ in range(n_boot):

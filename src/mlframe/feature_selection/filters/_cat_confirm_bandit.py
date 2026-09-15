@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
+# Floor on the binomial variance term of the early-stop margin (previously an additive 1e-9 inside the sqrt).
+_MIN_BANDIT_VARIANCE = 1e-9
+
 def _confirm_pairs_bandit_ucb1(
     factors_data: np.ndarray,
     pairs_a: np.ndarray,
@@ -218,7 +221,8 @@ def _confirm_pairs_bandit_ucb1(
         # Early-stop check: 95% Clopper-Pearson-ish bound on p. Conservative bound p +/- z * sqrt(p*(1-p)/n), z=1.96.
         n_j = nshuf[best_j]
         p_j = nfailed[best_j] / n_j
-        margin = 1.96 * math.sqrt(p_j * (1 - p_j) / n_j + 1e-9)
+        # Variance floored explicitly: at p_j of 0 or 1 the binomial variance is 0, which would give a zero-width interval.
+        margin = 1.96 * math.sqrt(max(p_j * (1 - p_j) / n_j, _MIN_BANDIT_VARIANCE))
         upper = p_j + margin
         lower = p_j - margin
         # If lower > alpha: pair confidently rejected. If upper < alpha: pair confidently accepted. Either way, no more shuffles needed.

@@ -685,9 +685,9 @@ def evaluate_candidate(
                 jmim_hit_counter=jmim_hit_counter,
                 can_use_x_cache=True,
                 can_use_y_cache=True,
-                use_su=use_su_normalization(),
+                use_su=(_use_su := use_su_normalization()),
                 use_jmim=use_jmim_aggregator(),
-                use_mm=(use_mi_miller_madow() and not use_su_normalization()),  # N-F2: MM redundancy when MM relevance is active
+                use_mm=(use_mi_miller_madow() and not _use_su),  # MM redundancy when MM relevance is active
             )
 
             partial_gains[cand_idx] = current_gain, k

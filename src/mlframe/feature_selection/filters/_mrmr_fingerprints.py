@@ -130,7 +130,11 @@ def _mrmr_compute_y_fingerprint_sample(y, max_sample: int = 1000) -> str:
             step = max(1, n // max_sample)
             sample = arr[::step][:max_sample]
         # Bit-exact ``tobytes()`` instead of the prior 6-decimal round. Two truly-equal floats already produce identical bytes, so the rounding only papered over EQUIVALENT-but-not-identical inputs - which is the collision case we DON'T want to merge (regression targets with legitimate precision below 1e-6, e.g. log-returns, normalised labels).
-        payload = sample.astype(np.float64).tobytes()
+        if not np.issubdtype(np.asarray(sample).dtype, np.number) and np.asarray(sample).dtype != bool:
+            # A string/object/categorical target cannot be cast to float; hash its labels instead of disabling the cache on every fit.
+            payload = "\x1f".join(map(str, np.asarray(sample).tolist())).encode("utf-8")
+        else:
+            payload = sample.astype(np.float64).tobytes()
         return hashlib.blake2b(payload, digest_size=10).hexdigest()
     except Exception as e:
         # Same reasoning as the X fingerprint below, and the same fix: CPython reuses object addresses after
