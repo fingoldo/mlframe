@@ -516,7 +516,8 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
             _lo = cp.floor(_pos).astype(cp.int64)
             _hi = cp.minimum(_lo + 1, _n - 1)
             _frac = _pos - _lo
-            e_d = _xs[_lo] * (1.0 - _frac) + _xs[_hi] * _frac
+            # numpy's form, exact on a tied edge; a*(1-f) + b*f rounds it one ULP off and shifts the tied mass to the next bin.
+            e_d = _xs[_lo] + (_xs[_hi] - _xs[_lo]) * _frac
             xc_d = cp.searchsorted(e_d, cvd, side="right").astype(cp.int64)
             # y_codes is the SAME target re-used by every gcands candidate in this loop (fit-constant) AND
             # by the downstream survivor-stage device gate (_binned_numeric_agg_resident.local_mi_gate_binagg_

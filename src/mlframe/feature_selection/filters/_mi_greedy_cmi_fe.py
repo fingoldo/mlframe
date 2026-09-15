@@ -140,7 +140,9 @@ def _sync_free_qbin_codes(cp, xd, nbins: int):
     lo = cp.floor(pos).astype(cp.int64)
     hi = cp.minimum(lo + 1, n - 1)
     frac = pos - lo
-    e = xs[lo] * (1.0 - frac) + xs[hi] * frac  # sorted ascending, nbins+1 edges
+    # numpy's interpolation form: exact when xs[lo] == xs[hi]. a*(1-f) + b*f rounds a tied value one ULP off (-0.9 -> -0.9000000000000001),
+    # and searchsorted(side="right") then moves that value's whole mass into the neighbouring bin.
+    e = xs[lo] + (xs[hi] - xs[lo]) * frac  # sorted ascending, nbins+1 edges
     dup = cp.empty(e.shape, dtype=bool)
     dup[0] = False
     dup[1:] = e[1:] == e[:-1]

@@ -69,6 +69,8 @@ def materialise_and_finalise_fe_candidates(
         _prewarp_specs = {}
         self._prewarp_specs_accum_ = _prewarp_specs
     _gate_med_specs = getattr(self, "_gate_med_specs_accum_", None)
+    # One frozen smart_log anchor per (source, nested parent) for this call; sibling candidates share parents.
+    _ls_anchor_memo: dict = {}
     if _gate_med_specs is None:
         _gate_med_specs = {}
         self._gate_med_specs_accum_ = _gate_med_specs
@@ -717,25 +719,10 @@ def materialise_and_finalise_fe_candidates(
                         # as replay does (raw column from X, or the nested parent's
                         # continuous replay) and compute the frozen anchor so replay is
                         # byte-exact. Best-effort: None leaves the legacy refit path.
-                        def _ls_anchor(_src_name, _nested, X=X):
-                            """Reconstruct the fit-time continuous operand (raw column or nested parent's replay) and compute the frozen ``smart_log`` shift anchor from it, so recipe replay reproduces the byte-exact fit-time log shift instead of recomputing a slice-dependent one."""
-                            try:
-                                if _nested is not None:
-                                    from ..engineered_recipes import apply_recipe as _ar
-                                    import dataclasses as _dc2
-                                    _p = _nested
-                                    if getattr(_p, "quantization", None) is not None:
-                                        _p = _dc2.replace(_p, quantization=None)
-                                    _ov = np.asarray(_ar(_p, X), dtype=np.float64)
-                                else:
-                                    _ov = np.asarray(X[_src_name].values if hasattr(X[_src_name], "values") else X[_src_name], dtype=np.float64)
-                                _mn = float(np.nanmin(_ov))
-                                return (1e-5 - _mn) if _mn <= 0 else 0.0
-                            except Exception as e:
-                                logger.debug("_ls_anchor: fit-time operand reconstruction failed, recipe replay falls back to the legacy refit path: %s", e)
-                                return None
-                        _ls_a = _ls_anchor(src_a_name_raw, _nested_a) if unary_a_name == "log" else None
-                        _ls_b = _ls_anchor(src_b_name_raw, _nested_b) if unary_b_name == "log" else None
+                        from ._step_log_anchor import smart_log_anchor
+
+                        _ls_a = smart_log_anchor(src_a_name_raw, _nested_a, X, _ls_anchor_memo) if unary_a_name == "log" else None
+                        _ls_b = smart_log_anchor(src_b_name_raw, _nested_b, X, _ls_anchor_memo) if unary_b_name == "log" else None
                         engineered_recipes[eng_name] = build_unary_binary_recipe(
                             name=eng_name,
                             src_a_name=src_a_name_raw,

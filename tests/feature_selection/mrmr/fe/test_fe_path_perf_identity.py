@@ -91,25 +91,13 @@ _REF_FE = {
     ],
 }
 
+# Re-captured for 9a154522b ("fe_max_steps=0 now disables EVERY FE family, unconditionally"): the discrete-structural
+# gate_mask operators and the hinge relu pair no longer fire at fe_steps=0, so the output is raw-only. The support set is
+# unchanged; only the greedy order of the raws moved, because the gate/relu columns no longer compete in the screen.
 _REF_NOFE = {
     "params": dict(n=4000, p=30, inf=8, seed=5, fe_steps=0),
     "support": [1, 5, 9, 12, 13, 15, 16, 20],
-    "names": [
-        "f_13",
-        "f_12",
-        "f_20",
-        "f_1",
-        "f_15",
-        "f_9",
-        "f_16",
-        "f_5",
-        "gate_mask__f_9__f_12__t-0.726506",
-        "gate_mask__f_5__f_15__t-0.337728",
-        "gate_mask__f_16__f_15__t-0.600261",
-        "gate_mask__f_15__f_5__t-1.38943",
-        "f_13__relu_gt1.42721",
-        "f_13__relu_lt1.42721",
-    ],
+    "names": ["f_13", "f_12", "f_9", "f_16", "f_5", "f_1", "f_20", "f_15"],
 }
 
 

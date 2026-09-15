@@ -70,7 +70,7 @@ def _floor_mean_from_nulls_dev(cp, nulls_dev, quantile: float) -> tuple[float, f
     lo = int(np.floor(pos))
     hi = min(lo + 1, m - 1)
     frac = pos - lo
-    q_dev = vs[lo] * (1.0 - frac) + vs[hi] * frac  # device 0-dim
+    q_dev = vs[lo] + (vs[hi] - vs[lo]) * frac  # device 0-dim; numpy's interpolation form, exact when the two order statistics tie
     both = cp.asnumpy(cp.stack([q_dev, cp.mean(nulls_dev)]))  # single D2H for (floor, mean)
     return float(both[0]), float(both[1])
 
