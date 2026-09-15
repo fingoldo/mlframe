@@ -332,7 +332,8 @@ class TestAllEnabledFitsAndTransforms:
     def test_fit_completes_and_transform_runs(self):
         """fit() populates every aux feature-list attr and transform() runs without raising."""
         X_tr, _y_tr, X_ho, _y_ho, m, _elapsed = _kitchen_sink_all_fe_fit()
-        # All six aux feature-list attrs are populated lists (not None).
+        # All six aux feature-list attrs are populated lists (not None), and at least one of them carries a surviving column.
+        _empty_rosters: list = []
         for attr in (
             "hybrid_orth_features_",
             "mi_greedy_features_",
@@ -341,7 +342,12 @@ class TestAllEnabledFitsAndTransforms:
             "frequency_encoding_features_",
             "cat_num_interaction_features_",
         ):
-            assert isinstance(getattr(m, attr, None), list), f"{attr} missing or not a list after fit with all FE enabled"
+            _val = getattr(m, attr, None)
+            assert isinstance(_val, list), f"{attr} missing or not a list after fit with all FE enabled"
+            # A family that silently stops producing candidates would still leave an empty list; record which ones do.
+            if not _val:
+                _empty_rosters.append(attr)
+        assert len(_empty_rosters) < 6, f"every FE roster is empty after fit with all FE enabled: {_empty_rosters}"
         # Transform runs without raising (the bug Layer 35 surfaced: spline-on-
         # He2 recipe chaining was broken pre-fix; transform raised KeyError
         # because ``_append_engineered`` looked up engineered intermediates

@@ -161,10 +161,15 @@ def cluster_stability_selection(
     _numeric_idx = np.where(_num_ok)[0]
     if _numeric_idx.size > _CLUSTER_MAX_FEATURES:
         _yv = np.asarray(y, dtype=_dtype).ravel() - np.asarray(y, dtype=_dtype).ravel().mean()
-        _ysd = float(_yv.std()) + 1e-12
+        _ysd = float(_yv.std())
         _sub = Xn[:, _numeric_idx]
         _xc = _sub - _sub.mean(axis=0)
-        _marg_corr = np.abs((_xc * _yv[:, None]).mean(axis=0) / ((_sub.std(axis=0) + 1e-12) * _ysd))
+        _sd_sub = _sub.std(axis=0)
+        _good_sub = _sd_sub > 32.0 * np.finfo(_sub.dtype).eps * np.abs(_sub).max(axis=0)
+        if _ysd > 0.0:
+            _marg_corr = np.where(_good_sub, np.abs((_xc * _yv[:, None]).mean(axis=0)) / (np.where(_good_sub, _sd_sub, 1.0) * _ysd), 0.0)
+        else:
+            _marg_corr = np.zeros(_numeric_idx.size, dtype=np.float64)
         _kept_numeric_idx = _numeric_idx[np.argsort(-_marg_corr)[:_CLUSTER_MAX_FEATURES]]
         logger.info(
             "cluster_stability_selection: %d numeric columns > cap %d; clustering only the top %d by "
@@ -180,7 +185,12 @@ def cluster_stability_selection(
     if _K > 1:
         # Z-standardise then correlation = (1/n) * Z.T @ Z, over the (possibly p-capped) kept subset only.
         _Xk = Xn[:, _kept_numeric_idx]
-        Z = (_Xk - _Xk.mean(axis=0)) / (_Xk.std(axis=0) + 1e-12)
+        # Guard rather than pad the std: an additive 1e-12 shrinks a genuinely tiny-scale column's z-scores, so it never correlates with (and
+        # never clusters with) its own rescaled duplicate. The tolerance is relative to each column's own magnitude, so only a column whose spread is
+        # rounding noise of its values (a constant) counts as degenerate; it gets a zero axis and stays a singleton.
+        _sd_k = _Xk.std(axis=0)
+        _good_k = _sd_k > 32.0 * np.finfo(_Xk.dtype).eps * np.abs(_Xk).max(axis=0)
+        Z = np.where(_good_k, (_Xk - _Xk.mean(axis=0)) / np.where(_good_k, _sd_k, 1.0), 0.0)
         C = np.abs((Z.T @ Z / n).astype(np.float64))  # promote the K x K result to f64 for the threshold compare
     else:
         C = np.ones((1, 1))

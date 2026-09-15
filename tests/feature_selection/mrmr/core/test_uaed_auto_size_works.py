@@ -64,7 +64,8 @@ def test_mrmr_gains_attribute_populated_after_fit():
     assert hasattr(sel, "mrmr_gains_")
     assert isinstance(sel.mrmr_gains_, np.ndarray)
     assert sel.mrmr_gains_.dtype == np.float64
-    assert sel.mrmr_gains_.size == len(sel.support_) or sel.mrmr_gains_.size >= 1
+    assert sel.mrmr_gains_.size >= 1
+    assert sel.mrmr_gains_.size == sel.n_features_ == len(list(sel.get_feature_names_out()))
 
 
 def test_mrmr_gains_monotone_non_increasing_in_screen_order():

@@ -95,6 +95,9 @@ def njit_binary_codes_or_none(binary_names) -> "np.ndarray | None":
     return np.asarray(codes, dtype=np.int64)
 
 
+# Near-constant when std is within this factor of machine epsilon of the combo's largest |value|.
+_USABILITY_DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
+
 @njit(cache=True, inline="always")
 def _apply_unary(v, code, xmin):
     """One element of the medium-preset unary, in float64 (the Python path applies the numpy unary to
@@ -319,7 +322,8 @@ def _pair_combo_mi_njit(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
             d = val[i] - mean
             ss += d * d
         var = ss / n
-        if var <= 1e-18:  # std <= 1e-9
+        # Relative to the combo's own magnitude (vmin/vmax are known): an absolute 1e-18 floor rejected every genuinely tiny-scale combo.
+        if var <= (_USABILITY_DEGENERATE_REL_TOL * max(abs(vmin), abs(vmax))) ** 2:
             out[j] = -1.0
             continue
         codes = np.empty(n, dtype=np.int64)
@@ -374,7 +378,7 @@ def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, 
             d = val[i] - mean
             ss += d * d
         var = ss / n
-        if var <= 1e-18:
+        if var <= (_USABILITY_DEGENERATE_REL_TOL * max(abs(vmin), abs(vmax))) ** 2:
             out[j] = -1.0
             continue
         codes = np.empty(n, dtype=np.int64)
@@ -441,7 +445,7 @@ def _pair_combo_mi_njit_table(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_
             d = val[i] - mean
             ss += d * d
         var = ss / n
-        if var <= 1e-18:
+        if var <= (_USABILITY_DEGENERATE_REL_TOL * max(abs(vmin), abs(vmax))) ** 2:
             out[j] = -1.0
             continue
         codes = np.empty(n, dtype=np.int64)
@@ -500,7 +504,7 @@ def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub
             d = val[i] - mean
             ss += d * d
         var = ss / n
-        if var <= 1e-18:
+        if var <= (_USABILITY_DEGENERATE_REL_TOL * max(abs(vmin), abs(vmax))) ** 2:
             out[j] = -1.0
             continue
         codes = np.empty(n, dtype=np.int64)

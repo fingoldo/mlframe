@@ -63,15 +63,13 @@ class TestMRMREdgeCases:
     # PR-11 dedup: test_ndarray_input migrated to
     # test_selectors_shared.py::TestSharedInputTypes::test_numpy_array_input.
 
-    def test_skip_retraining_parameter_exists(self, simple_classification_data):
-        """Test skip_retraining_on_same_content parameter can be set."""
+    def test_skip_retraining_param_survives_fit_unmutated(self, simple_classification_data):
+        """skip_retraining_on_same_content=True fits, and fit leaves the constructor parameter unchanged (the sklearn contract)."""
         X, y, _ = simple_classification_data
-
-        # Just test that the parameter can be set without error
         mrmr = MRMR(full_npermutations=3, baseline_npermutations=3, skip_retraining_on_same_content=True, verbose=0, n_jobs=1)
-
         mrmr.fit(X, y)
-        assert hasattr(mrmr, "n_features_")
+        assert mrmr.get_params()["skip_retraining_on_same_content"] is True
+        assert mrmr.n_features_ >= 1
 
     def test_target_container_normalization(self):
         """MRMR target normalization accepts numpy, pandas and polars

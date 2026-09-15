@@ -248,7 +248,7 @@ class TestDCDEdgeCases:
         ).fit(X, y)
         # DCD summary populated regardless of permutation budget.
         assert sel.dcd_ is not None
-        assert sel.dcd_["n_su_calls"] >= 0
+        assert sel.dcd_["n_su_calls"] >= 1, "DCD on a collinear frame must compute pairwise SU"
 
 
 class TestDCDSwapPath:

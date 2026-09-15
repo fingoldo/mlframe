@@ -498,5 +498,5 @@ class TestLayer51_RegressionL41toL50:
         assert "cluster_anchors_names" in m.dcd_
         # Layer 47 contract.
         assert "tau_calibration" in m.dcd_
-        # Layer 50 (sanity): n_su_calls is finite and non-negative.
-        assert m.dcd_["n_su_calls"] >= 0
+        # The batched SU dispatch must actually fire on this fixture.
+        assert m.dcd_["n_su_calls"] >= 1

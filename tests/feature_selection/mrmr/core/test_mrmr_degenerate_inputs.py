@@ -96,6 +96,46 @@ class TestConstantY:
             m.fit(X, y)
 
 
+class TestDegenerateShapes:
+    """Shapes no other degenerate fixture reaches: one feature, fewer rows than bins, an all-NaN target."""
+
+    def test_single_feature_frame_selects_it(self):
+        """A one-column frame with real signal fits, selects that column and transforms to one column."""
+        rng = np.random.default_rng(3)
+        n = 300
+        x = rng.standard_normal(n)
+        X = pd.DataFrame({"only": x})
+        y = pd.Series((x > 0).astype(int))
+        m = MRMR(**_kw())
+        m.fit(X, y)
+        assert m.n_features_ == 1
+        assert list(m.get_feature_names_out()) == ["only"]
+        assert np.asarray(m.mrmr_gains_).shape == (1,)
+        assert np.asarray(m.transform(X)).shape == (n, 1)
+
+    def test_n_samples_below_n_bins_fits(self):
+        """12 rows with quantization_nbins=32 must not raise, and still select a feature."""
+        rng = np.random.default_rng(4)
+        n = 12
+        x = rng.standard_normal(n)
+        X = pd.DataFrame({"a": x, "b": rng.standard_normal(n)})
+        y = pd.Series((x > 0).astype(int))
+        m = MRMR(**_kw(quantization_nbins=32, min_features_fallback=1))
+        m.fit(X, y)
+        assert m.n_features_ >= 1
+
+    def test_all_nan_target_raises_before_any_fe_work(self):
+        """An all-NaN target raises ValueError, and no engineered recipes are left behind."""
+        rng = np.random.default_rng(5)
+        n = 200
+        X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(3)})
+        y = pd.Series(np.full(n, np.nan))
+        m = MRMR(**_kw())
+        with pytest.raises(ValueError):
+            m.fit(X, y)
+        assert not getattr(m, "_engineered_recipes_", None)
+
+
 class TestSampleWeightValidation:
     """The _maybe_resample_for_sample_weight guard: all-zero / negative / NaN / Inf weights must all
     raise the SAME documented ValueError, never silently poison the resampling probabilities."""

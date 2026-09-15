@@ -461,7 +461,8 @@ class TestNoRegressionPriorLayers:
             random_seed=0,
         ).fit(X, y)
         assert m.cluster_members_ is None
-        assert m.dcd_ is None or m.dcd_.get("n_swaps", 0) == 0
+        if m.dcd_ is not None:
+            assert m.dcd_["n_swaps"] == 0
         assert hasattr(m, "support_")
         assert len(list(m.get_feature_names_out())) >= 1
 

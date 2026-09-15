@@ -357,13 +357,12 @@ class TestNoRegressionLayer35KitchenSink:
         ).fit(X, y)
         # Layer 41 attribute must be present.
         assert hasattr(m, "cluster_members_")
-        # It's either None (no clusters) or a valid dict.
+        # dcd_enable=True on this fixture must produce a populated dict; None would mean DCD silently did not run.
         cm = m.cluster_members_
-        assert cm is None or isinstance(cm, dict)
-        # If it's a dict, the diagnostic sub-keys must be present
-        # (lets future schema migrations notice missing fields).
-        if isinstance(cm, dict) and cm:
-            diag = m.dcd_.get("cluster_diagnostics", {})
+        assert isinstance(cm, dict), f"dcd_enable=True must populate cluster_members_ as a dict, got {type(cm).__name__}"
+        # The diagnostic sub-keys must be present for every anchor (lets future schema migrations notice missing fields).
+        if cm:
+            diag = m.dcd_["cluster_diagnostics"]
             for anchor_name in cm:
                 assert anchor_name in diag, f"Anchor {anchor_name!r} appears in cluster_members_ but not in cluster_diagnostics; the two views drifted."
 
@@ -742,7 +741,9 @@ class TestNoRegressionLayer41:
             random_seed=0,
         ).fit(X, y)
         assert m.cluster_members_ is None, "DCD-disabled fits must keep cluster_members_=None."
-        assert m.dcd_ is None or m.dcd_.get("n_swaps", 0) == 0
+        # Disabled DCD may leave dcd_ unset; when it is set, a missing n_swaps key must fail loudly rather than read as zero swaps.
+        if m.dcd_ is not None:
+            assert m.dcd_["n_swaps"] == 0
 
 
 # ---------------------------------------------------------------------------

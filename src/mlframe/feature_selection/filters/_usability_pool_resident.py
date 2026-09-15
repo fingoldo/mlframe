@@ -98,7 +98,8 @@ def score_pair_combos_table_resident(
     ``ua_codes``/``ub_codes`` the per-unary op-codes (preset order), ``bn_codes`` the per-binary op-codes.
 
     Returns a host ``(npairs, nc)`` float64 array (row ``p`` == ``score_pair_combos`` for pair ``p``,
-    sentinel ``-1.0`` for an ``std<=1e-9`` combo), or ``None`` if cupy is unavailable / a device error
+    sentinel ``-1.0`` for a near-constant combo (std within a small multiple of machine epsilon of its largest |value|), or ``None`` if cupy is
+    unavailable / a device error
     occurs (the caller then takes the exact per-pair njit path). BIT-FAITHFUL to the njit table kernel.
 
     Resident strategy: y is uploaded ONCE (fit-constant). For each pair we build its ``nc`` combo columns
@@ -210,7 +211,11 @@ def score_pair_combos_table_resident(
                 # which allocated a full (n,kk) ``cand*cand`` temp and ran two reduction passes. Measured 200k/178:
                 # 9.98ms vs 13.80ms (-3.8ms/chunk) and the std<=1e-9 sentinel mask (``> 1e-18``) is BIT-IDENTICAL
                 # (verified ((cand*cand).mean-mean^2 > 1e-18) == (cp.var > 1e-18) over the full block).
-                live_d = cand.var(axis=0) > 1e-18  # device std<=1e-9 mask; D2H deferred (see below)
+                # Near-constant mask, relative to each combo's largest |value| exactly as the njit table kernel does (an absolute 1e-18
+                # variance floor rejected genuinely tiny-scale combos); D2H deferred (see below).
+                from ._usability_njit_pool import _USABILITY_DEGENERATE_REL_TOL
+
+                live_d = cand.var(axis=0) > (_USABILITY_DEGENERATE_REL_TOL * cp.abs(cand).max(axis=0)) ** 2
                 wrote_resident = False
                 try:
                     interior = _radix_select_interior_edges(cand, int(nbins))

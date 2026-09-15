@@ -16,6 +16,9 @@ from .._fe_frame_ops import FE_EAGER_MATERIALIZE_MAX_BYTES
 
 # Byte budget for the dedup rank buffer. Module-level so a test can shrink it; read at call time.
 _RANK_BUF_MAX_BYTES = FE_EAGER_MATERIALIZE_MAX_BYTES
+# Raw-value near-constant test, relative to the column's own magnitude (an absolute std floor treats tiny-scale columns as constant).
+# Rank vectors keep their absolute floor: ranks are >= 1, so it cannot misfire there, and it matches the batched kernel.
+_REL_TOL = 32.0 * np.finfo(np.float64).eps
 
 
 def scan_engineered_duplicates(
@@ -104,7 +107,7 @@ def scan_engineered_duplicates(
         _arr_c = np.asarray(_col_view.to_numpy(), dtype=np.float64)
         _fin_c = np.isfinite(_arr_c)
         _eng_fully_finite[_c] = bool(_fin_c.all())
-        if not _fin_c.any() or _arr_c[_fin_c].std() <= 1e-12:
+        if not _fin_c.any() or _arr_c[_fin_c].std() <= _REL_TOL * float(np.abs(_arr_c[_fin_c]).max()):
             _eng_keep.append(_c)
             _eng_arrs[_c] = _arr_c
             continue
@@ -150,7 +153,7 @@ def scan_engineered_duplicates(
             if _mask.sum() < 8:
                 continue
             _a, _b = _arr_c[_mask], _arr_k[_mask]
-            if _a.std() <= 1e-12 or _b.std() <= 1e-12:
+            if _a.std() <= _REL_TOL * float(np.abs(_a).max()) or _b.std() <= _REL_TOL * float(np.abs(_b).max()):
                 continue
             if bool(_mask.all()):
                 # No-NaN fast path: masked subset == full column, so reuse the cached full-column ranks

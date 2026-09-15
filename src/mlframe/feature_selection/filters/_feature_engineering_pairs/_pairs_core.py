@@ -21,6 +21,9 @@ from pandas.api.extensions import ExtensionDtype
 
 from pyutilz.system import tqdmu
 
+# A column is near-constant when its std is within this factor of machine epsilon of its largest |value|: its spread is then rounding noise.
+_DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
+
 
 @numba.njit(cache=True, fastmath=False)
 def _abs_corr_finite_njit(a, y, yfin, min_n=8):
@@ -54,6 +57,8 @@ def _abs_corr_finite_njit(a, y, yfin, min_n=8):
     va = 0.0
     vy = 0.0
     cay = 0.0
+    amax = 0.0
+    ymax = 0.0
     for i in range(a.shape[0]):
         av = a[i]
         if yfin[i] and np.isfinite(av):
@@ -62,8 +67,13 @@ def _abs_corr_finite_njit(a, y, yfin, min_n=8):
             va += da * da
             vy += dy * dy
             cay += da * dy
-    # Same std<=1e-12 degeneracy guard as the numpy path (std^2 = va/n, so SS va <= 1e-24 * n).
-    if va <= 1e-24 * n or vy <= 1e-24 * n:
+            if abs(av) > amax:
+                amax = abs(av)
+            if abs(y[i]) > ymax:
+                ymax = abs(y[i])
+    # Near-constant when the spread is rounding noise of the column's own values. An absolute floor (va <= 1e-24 * n) declared every genuinely
+    # tiny-scale column (values ~1e-13) constant and returned 0.0 against its perfect correlate.
+    if va <= n * (_DEGENERATE_REL_TOL * amax) ** 2 or vy <= n * (_DEGENERATE_REL_TOL * ymax) ** 2:
         return 0.0
     denom = (va * vy) ** 0.5
     if denom <= 0.0:
@@ -105,6 +115,8 @@ def _abs_corr_zerofill_njit(a, b):
     va = 0.0
     vb = 0.0
     cab = 0.0
+    amax = 0.0
+    bmax = 0.0
     for i in range(n):
         av = a[i]
         bv = b[i]
@@ -117,7 +129,11 @@ def _abs_corr_zerofill_njit(a, b):
         va += da * da
         vb += db * db
         cab += da * db
-    if va <= 1e-24 * n or vb <= 1e-24 * n:
+        if abs(av) > amax:
+            amax = abs(av)
+        if abs(bv) > bmax:
+            bmax = abs(bv)
+    if va <= n * (_DEGENERATE_REL_TOL * amax) ** 2 or vb <= n * (_DEGENERATE_REL_TOL * bmax) ** 2:
         return 0.0
     denom = (va * vb) ** 0.5
     if denom <= 0.0:

@@ -60,4 +60,5 @@ def test_valid_stability_selection_methods_do_not_raise():
         MRMR._FIT_CACHE.clear()
         m = _fast(stability_selection_method=method, stability_n_bootstrap=5)
         m.fit(X, y)
-        assert np.asarray(m.support_).size >= 0
+        sup = np.asarray(m.support_)
+        assert sup.size >= 1, f"stability method {method!r} selected nothing"

@@ -180,6 +180,12 @@ def survivor_count(
     return m
 
 
+# Row cap for the redundancy-dedup correlation gather. The dedup decides |corr| >= ~0.92 clusters; a deterministic strided subset of this
+# many rows settles a correlation that far from zero, while the full-height float64 (n, m) gather is 16 GB at n=1M, m=2000 - four times what
+# the int16-sized survivor RAM cap budgets. Module-level so a test can shrink it.
+_SIS_DEDUP_MAX_ROWS = 200_000
+
+
 def _ram_cap_survivors(n_rows: int, free_bytes: int) -> int:
     """Upper cap on survivors from the Gate-B discretized-pool RAM budget: an int16 (n, m) matrix is
     ``n * m * 2`` bytes; budget at most ~1/4 of free RAM for it."""
@@ -356,7 +362,9 @@ def sis_screen(
             # membership (a selection change). The gather is over the SMALL (n x m) survivor sub-matrix
             # (m = post-screen survivors, a few thousand), never the full p-wide frame, and only when
             # ``dedup_corr_thr`` is set; ``corr_clusters`` requires a DataFrame (it reads ``.columns``).
-            surv_df = pd.DataFrame(np.asarray(Xarr[:, survivors], dtype=np.float64), columns=[str(int(s)) for s in survivors])
+            _n_rows_all = int(Xarr.shape[0])
+            _row_sel = slice(None) if _n_rows_all <= _SIS_DEDUP_MAX_ROWS else np.arange(0, _n_rows_all, int(np.ceil(_n_rows_all / _SIS_DEDUP_MAX_ROWS)))
+            surv_df = pd.DataFrame(np.asarray(Xarr[_row_sel][:, survivors], dtype=np.float64), columns=[str(int(s)) for s in survivors])
             _, members = corr_clusters(surv_df, thr=float(dedup_corr_thr))
             pos = {str(int(s)): i for i, s in enumerate(survivors)}
             # representative = the cluster member with the highest fused screen score (signal-preserving).
