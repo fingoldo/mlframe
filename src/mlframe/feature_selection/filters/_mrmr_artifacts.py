@@ -59,6 +59,7 @@ _ARTIFACT_SCHEMA = {
     "nbins_per_feature": "dict[str, int] | None, mapping feature_name -> bin count. Present together with 'bins'.",
     "n_samples_at_fit": "int, the row count at which the artifacts were computed (consumers should warn / discard on shape mismatch).",
     "schema_version": "int, currently 1. Bumped if a future change breaks back-compat for consumers.",
+    "target_index_used": "int, the data-space column index of the target the SU / MI vectors were computed against. A multi-target fit uses the first target only.",
 }
 
 # Current schema revision. Consumers in different mlframe versions may inspect
@@ -126,6 +127,11 @@ def compute_mrmr_artifacts(
 
     # Target marginal entropy: H(y). Computed once and reused below.
     y_idx = int(target_indices[0])
+    if np.asarray(target_indices).size > 1:
+        logger.warning(
+            "compute_mrmr_artifacts: %d targets; su_to_target / mi_to_target are computed against the first target only (column index %d)",
+            int(np.asarray(target_indices).size), y_idx,
+        )
     y_bins = data[:, y_idx]
     y_nbins = int(nbins[y_idx])
     _assert_nonneg_codes(y_bins, "target column y_bins")
@@ -179,7 +185,15 @@ def compute_mrmr_artifacts(
         # are zero (constant column AND constant target).
         denom = h_x + h_y
         if (not np.isnan(mi_val)) and denom > 1e-12:
-            su_to_target[orig_idx] = max(0.0, min(1.0, 2.0 * mi_val / denom))
+            _su_raw = 2.0 * mi_val / denom
+            if not (-1e-9 <= _su_raw <= 1.0 + 1e-9):
+                # SU outside [0, 1] is impossible for consistent inputs: the cached MI and these marginal entropies disagree (different
+                # binning, a stale cache entry, or estimator bias). Keep the clamp, but do not let it pass as a real 0 or 1.
+                logger.warning(
+                    "compute_mrmr_artifacts: SU for %r is %.6g, outside [0, 1] (cached MI %.6g vs H(X)+H(y)=%.6g); clamped",
+                    name, _su_raw, mi_val, denom,
+                )
+            su_to_target[orig_idx] = max(0.0, min(1.0, _su_raw))
         # else: leave NaN
 
         if retain_bins:
@@ -198,6 +212,7 @@ def compute_mrmr_artifacts(
         "mi_to_target": mi_to_target,
         "mrmr_kept_indices": [int(i) for i in np.asarray(support_original).tolist()],
         "n_samples_at_fit": n_samples,
+        "target_index_used": y_idx,
     }
     if retain_bins:
         artifacts["bins"] = bins_dict

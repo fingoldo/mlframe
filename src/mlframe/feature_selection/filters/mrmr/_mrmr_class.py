@@ -3181,7 +3181,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # the extra n_workers= annotation) instead of raising out of a routine repr() call.
         r: str = super().__repr__(N_CHAR_MAX=N_CHAR_MAX)
         try:
-            if "n_workers=" not in r and r.endswith(")"):
+            # A truncated repr (N_CHAR_MAX) elides parameters as "..."; do not append an exact n_workers= to an elided list.
+            if "n_workers=" not in r and "..." not in r and r.endswith(")"):
                 _inner = r[:-1]
                 _sep = "" if _inner.endswith("(") else ", "
                 r = f"{_inner}{_sep}n_workers={getattr(self, 'n_workers', 1)})"
@@ -3267,6 +3268,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Transient or fit-local: the partial_fit marker, and the per-row sample weights (consumed during fit, read by nothing afterwards).
         state.pop("_in_partial_fit_", None)
         state.pop("_fit_sample_weight_", None)
+        # get_feature_names_out memo keyed by the recipes list's identity; rebuilt on first use after load.
+        state.pop("_engineered_names_cache_", None)
         from .._mrmr_stability_report import drop_oversized_replay_state
 
         drop_oversized_replay_state(state)

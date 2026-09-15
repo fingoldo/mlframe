@@ -292,7 +292,7 @@ def partial_fit(
         # (`sw_new[-kept_new:]`) and misattributed to the wrong rows with zero warning, instead of raising
         # the same actionable error the too-short branch already gives.
         _window_truncated = kept_new < len(X_df)
-        if sw_new.shape[0] != len(X_df) and is_first is False:
+        if sw_new.shape[0] != len(X_df):
             if not _window_truncated:
                 raise ValueError(f"MRMR.partial_fit: sample_weight length {sw_new.shape[0]} " f"does not align with the new batch length {len(X_df)}.")
             # New batch may have been partially truncated by the rolling

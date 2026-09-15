@@ -11,6 +11,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+import threading
 from collections import OrderedDict
 from typing import Any, ClassVar, Iterable, Optional
 
@@ -32,6 +33,9 @@ _FE_ENABLE_ATTR_NAMES_CACHE: dict[type, frozenset] = {}
 _FRESH_INSTANCE_DEFAULTS_CACHE: dict[type, Optional[dict]] = {}
 _FAST_SEARCH_SUBSAMPLE_N_CACHE: dict[type, int] = {}
 _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE: dict[type, int] = {}
+# One lock for all five: a miss is populated under it (double-checked), so concurrent unpicklers cannot each pay a miss - the
+# fresh-instance one constructs a full MRMR(). Re-entrant because _fe_enable_attr_names populates _ctor_defaults inside its own miss.
+_CLASS_CACHES_LOCK = threading.RLock()
 
 
 class _MRMRConfigMixin:
@@ -87,6 +91,14 @@ class _MRMRConfigMixin:
         int instead of round-tripping through ``get_kernel_tuning_cache().lookup(...)`` again."""
         if cls in _FAST_SEARCH_SUBSAMPLE_N_CACHE:
             return _FAST_SEARCH_SUBSAMPLE_N_CACHE[cls]
+        with _CLASS_CACHES_LOCK:
+            if cls in _FAST_SEARCH_SUBSAMPLE_N_CACHE:
+                return _FAST_SEARCH_SUBSAMPLE_N_CACHE[cls]
+            return cls._populate_fast_search_subsample_n()
+
+    @classmethod
+    def _populate_fast_search_subsample_n(cls) -> int:
+        """Resolve and store the fast-search screen size; caller holds ``_CLASS_CACHES_LOCK``."""
         _fallback = 90_000
         _result = _fallback
         try:
@@ -113,6 +125,14 @@ class _MRMRConfigMixin:
         Cached per class per process, same rationale as ``_fast_search_default_subsample_n``."""
         if cls in _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE:
             return _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE[cls]
+        with _CLASS_CACHES_LOCK:
+            if cls in _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE:
+                return _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE[cls]
+            return cls._populate_default_screen_subsample_n()
+
+    @classmethod
+    def _populate_default_screen_subsample_n(cls) -> int:
+        """Resolve and store the default screen size; caller holds ``_CLASS_CACHES_LOCK``."""
         _fallback = int(cls._DEFAULT_SCREEN_SUBSAMPLE_N)
         _result = _fallback
         try:
@@ -377,10 +397,11 @@ class _MRMRConfigMixin:
         """
         if cls in _CTOR_DEFAULTS_CACHE:
             return _CTOR_DEFAULTS_CACHE[cls]
-        sig = inspect.signature(cls.__init__)
-        result = {name: param.default for name, param in sig.parameters.items() if param.default is not inspect.Parameter.empty}
-        _CTOR_DEFAULTS_CACHE[cls] = result
-        return result
+        with _CLASS_CACHES_LOCK:
+            if cls not in _CTOR_DEFAULTS_CACHE:
+                sig = inspect.signature(cls.__init__)
+                _CTOR_DEFAULTS_CACHE[cls] = {name: param.default for name, param in sig.parameters.items() if param.default is not inspect.Parameter.empty}
+            return _CTOR_DEFAULTS_CACHE[cls]
 
     @classmethod
     def _fe_enable_attr_names(cls) -> frozenset:
@@ -391,9 +412,10 @@ class _MRMRConfigMixin:
         instance ``__dict__`` (~300 attrs, two string ops each) on every single fit."""
         if cls in _FE_ENABLE_ATTR_NAMES_CACHE:
             return _FE_ENABLE_ATTR_NAMES_CACHE[cls]
-        result = frozenset(name for name in cls._ctor_defaults() if name.startswith("fe_") and name.endswith("_enable"))
-        _FE_ENABLE_ATTR_NAMES_CACHE[cls] = result
-        return result
+        with _CLASS_CACHES_LOCK:
+            if cls not in _FE_ENABLE_ATTR_NAMES_CACHE:
+                _FE_ENABLE_ATTR_NAMES_CACHE[cls] = frozenset(name for name in cls._ctor_defaults() if name.startswith("fe_") and name.endswith("_enable"))
+            return _FE_ENABLE_ATTR_NAMES_CACHE[cls]
 
     @classmethod
     def _resolve_fresh_instance_defaults(cls) -> Optional[dict]:
@@ -419,14 +441,17 @@ class _MRMRConfigMixin:
         """
         if cls in _FRESH_INSTANCE_DEFAULTS_CACHE:
             return _FRESH_INSTANCE_DEFAULTS_CACHE[cls]
-        try:
-            _fresh = cls()
-            result: Optional[dict] = dict(_fresh.__dict__)
-        except Exception as exc:
-            logger.debug("mrmr: fresh-instance ctor-default cache-population failed; setstate will use raw ctor defaults: %r", exc, exc_info=True)
-            result = None
-        _FRESH_INSTANCE_DEFAULTS_CACHE[cls] = result
-        return result
+        with _CLASS_CACHES_LOCK:
+            if cls in _FRESH_INSTANCE_DEFAULTS_CACHE:
+                return _FRESH_INSTANCE_DEFAULTS_CACHE[cls]
+            try:
+                _fresh = cls()
+                result: Optional[dict] = dict(_fresh.__dict__)
+            except Exception as exc:
+                logger.debug("mrmr: fresh-instance ctor-default cache-population failed; setstate will use raw ctor defaults: %r", exc, exc_info=True)
+                result = None
+            _FRESH_INSTANCE_DEFAULTS_CACHE[cls] = result
+            return result
 
     @classmethod
     def recommend_enabled_fe(cls, X=None, y=None) -> dict:
