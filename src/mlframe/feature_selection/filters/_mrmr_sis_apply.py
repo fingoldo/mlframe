@@ -56,11 +56,9 @@ def _apply_sis_screen(self, X, y):
         if Xmat.dtype.kind in "USO" or Xmat.dtype == object:  # object ndarray -> factorise per column
             Xmat = _numeric_matrix(pd.DataFrame(Xmat))
 
-    k_target = getattr(self, "n_features", None)
-    try:
-        k_target = int(k_target) if k_target is not None else None
-    except (TypeError, ValueError):
-        k_target = None
+    # MRMR has no requested feature count (the greedy stops on its own information criterion), so there is no target to scale the
+    # survivor floor by; the screen's absolute floor applies. ``k_target`` stays on ``sis_screen`` for direct callers that do have one.
+    k_target = None
 
     # return_scores=True is FREE (the scores are already computed for survivor selection). We STASH the
     # survivor marginal-MI as a relevance prior so the screen's most expensive output is no longer discarded

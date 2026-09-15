@@ -96,15 +96,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             # sweep never ran (0 raws selected) so it could not mark them in ``_raw_redundancy_dropped_`` -
             # compute them directly from the surviving recipes so the rescue does not resurrect a raw a
             # surviving engineered child already captures (the underselection redundancy-dedup invariant).
-            from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RESC_TOK_SPLIT
-            _resc_raw_set = set(self.feature_names_in_)
-            for _en in getattr(self, "_engineered_recipes_", {}) or {}:
-                for _tok in _RESC_TOK_SPLIT.split(str(_en)):
-                    if not _tok:
-                        continue
-                    _b = _tok if _tok in _resc_raw_set else (_tok.split("__", 1)[0] if "__" in _tok else None)
-                    if _b in _resc_raw_set:
-                        _rescue_redund_dropped.add(_b)
+            _rescue_redund_dropped.update(surviving_recipe_operands(getattr(self, "_engineered_recipes_", None) or [], self.feature_names_in_))
             _cm_rescue = getattr(self, "cluster_members_", None)
             if isinstance(_cm_rescue, dict):
                 for _anchor, _members in _cm_rescue.items():
@@ -649,3 +641,22 @@ def _finalise_fs_results(
                     MRMR._FIT_CACHE.popitem(last=False)
 
     return self
+
+
+def surviving_recipe_operands(recipes, raw_names) -> set:
+    """Raw columns that appear as operands in the column names of ``recipes`` (an ``_engineered_recipes_`` list).
+
+    A token counts when it is a raw name, or when its ``__``-prefix is (a suffixed leg such as ``a__relu_gt``).
+    """
+    from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT
+
+    raw_set = set(raw_names)
+    out = set()
+    for _r in recipes:
+        for _tok in _PARENT_TOKEN_SPLIT.split(_engineered_recipe_name(_r)):
+            if not _tok:
+                continue
+            _b = _tok if _tok in raw_set else (_tok.split("__", 1)[0] if "__" in _tok else None)
+            if _b in raw_set:
+                out.add(_b)
+    return out

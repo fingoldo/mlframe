@@ -542,7 +542,8 @@ def _fe_stage_cascade_mid_a(
                     _y_pm_binned = _y_class_mi_binned
                     # Restrict operands to raw input columns: combining on already-engineered columns yields nested recipes
                     # whose engineered source is not resolvable at replay time (transform() emits NaN and drops the feature).
-                    _pm_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
+                    _pm_hybrid_set = set(self.hybrid_orth_features_ or [])
+                    _pm_raw_cols = [c for c in X.columns if c not in _pm_hybrid_set]
                     _pm_appended, _pm_recipes = hybrid_pairwise_modular_fe_with_recipes(
                         X, _y_pm_binned,  # type: ignore[arg-type]
                         cols=_pm_raw_cols,
@@ -603,7 +604,8 @@ def _fe_stage_cascade_mid_a(
                 if _y_class_mi_applicable:
                     _y_il_binned = _y_class_mi_binned
                     # Raw-column operands only (excludes pmod_/orth engineered columns added upstream); see the modular note.
-                    _il_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
+                    _il_hybrid_set = set(self.hybrid_orth_features_ or [])
+                    _il_raw_cols = [c for c in X.columns if c not in _il_hybrid_set]
                     _il_appended, _il_recipes = hybrid_integer_lattice_fe_with_recipes(
                         X, _y_il_binned,  # type: ignore[arg-type]
                         cols=_il_raw_cols,
@@ -664,7 +666,8 @@ def _fe_stage_cascade_mid_a(
                     _y_am_binned = _y_class_mi_binned
                     # Raw-column operands only (excludes pmod_/il_/orth engineered columns added upstream); combining on already-
                     # engineered columns yields nested recipes whose engineered source is not resolvable at replay -> NaN drop.
-                    _am_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
+                    _am_hybrid_set = set(self.hybrid_orth_features_ or [])
+                    _am_raw_cols = [c for c in X.columns if c not in _am_hybrid_set]
                     _am_appended, _am_recipes = hybrid_row_argmax_fe_with_recipes(
                         X, _y_am_binned,  # type: ignore[arg-type]
                         cols=_am_raw_cols,
@@ -725,7 +728,8 @@ def _fe_stage_cascade_mid_a(
                 if _y_class_mi_applicable:
                     _y_cg_binned = _y_class_mi_binned
                     # Raw-column operands only (see the row-argmax / modular note); engineered operands would orphan at replay.
-                    _cg_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
+                    _cg_hybrid_set = set(self.hybrid_orth_features_ or [])
+                    _cg_raw_cols = [c for c in X.columns if c not in _cg_hybrid_set]
                     _cg_appended, _cg_recipes = hybrid_conditional_gate_fe_with_recipes(
                         X, _y_cg_binned,  # type: ignore[arg-type]
                         cols=_cg_raw_cols,

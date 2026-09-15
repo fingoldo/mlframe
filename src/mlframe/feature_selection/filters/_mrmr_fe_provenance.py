@@ -146,11 +146,17 @@ _RECIPE_KIND_TO_ORIGIN: dict[str, str] = {
     "temporal_lag": "temporal_agg",
     # Wavelet basis family.
     "orth_wavelet": "wavelet_basis",
-    # Extra FE families (rare-category, conditional residual/dispersion, rankgauss).
+    # Extra FE families (rare-category, conditional residual/dispersion/quantile-rank, rankgauss, Mahalanobis density, random Fourier, LOF, SIR, ordinal pattern).
     "rare_category": "extra_fe",
     "conditional_residual": "extra_fe",
     "conditional_dispersion": "extra_fe",
     "rankgauss": "extra_fe",
+    "mahalanobis_density": "extra_fe",
+    "random_fourier": "extra_fe",
+    "lof_score": "extra_fe",
+    "conditional_quantile_rank": "extra_fe",
+    "sir_direction": "extra_fe",
+    "ordinal_pattern_te": "extra_fe",
     # Threshold-gate / number-theoretic / binned-aggregate families (default-ON 2026; previously
     # unmapped -> their surviving columns showed as engineered_unknown in fe_provenance_).
     "conditional_gate": "conditional_gate",  # gate_mask__ / gate_select__ regime-switch
@@ -547,14 +553,16 @@ def get_unlabeled_recipe_kinds(mrmr_self: Any) -> dict[str, int]:
     prov = getattr(mrmr_self, "fe_provenance_", None)
     if prov is None or not isinstance(prov, pd.DataFrame) or prov.empty:
         return out
-    # Index every recipe (survivor + produced ledger) by name so we can recover
-    # each engineered column's recipe.kind. Mirrors compute_fe_provenance's join.
+    # Index every recipe (survivor + produced ledger) by SIMPLIFIED name, as compute_fe_provenance does: the provenance frame holds simplified
+    # names, so a raw-name key misses every column whose name canonicalises and reports it as "<no-recipe>".
+    from .engineered_recipes._recipe_name_simplify import simplify_fe_name
+
     recipe_by_name: dict[str, Any] = {}
     for attr in ("_produced_recipes_", "_engineered_recipes_"):
         for r in getattr(mrmr_self, attr, None) or []:
             nm = getattr(r, "name", None)
             if nm is not None:
-                recipe_by_name[str(nm)] = r
+                recipe_by_name[simplify_fe_name(str(nm))] = r
     try:
         unlabeled = prov[(prov["origin"] == "engineered_unknown") & (prov["support_rank"] >= 0)]
     except Exception as e:

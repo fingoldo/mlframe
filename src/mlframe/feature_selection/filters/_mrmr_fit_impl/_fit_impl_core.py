@@ -397,7 +397,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             self._passthrough_features_ = _passthrough
             # Column-subset selection shares the underlying column buffers (no row copy) - RAM-safe on 100+ GB frames. The original full column order is recovered
             # at fit-end from ``feature_names_in_`` (built from the pre-narrow list below) so the re-appended passthrough indices land at their true positions.
-            _keep_cols = [c for c in (X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)) if c not in set(_passthrough)]
+            _passthrough_set = set(_passthrough)
+            _keep_cols = [c for c in (X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)) if c not in _passthrough_set]
             self._passthrough_full_columns_ = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
             X = X[_keep_cols]
             if verbose:
@@ -936,7 +937,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if len(_eng_now) >= 2:
                 from .._unified_fe_gate import unified_second_pass_gate
 
-                _raw_cols_u = [c for c in X.columns if c not in set(_eng_now)]
+                _eng_now_set = set(_eng_now)
+                _raw_cols_u = [c for c in X.columns if c not in _eng_now_set]
                 _y_for_u = _y_np
                 _keep_u = set(
                     unified_second_pass_gate(
