@@ -366,19 +366,31 @@ def _recipe_reachable_columns(X, recipes) -> list:
         _present = {str(c) for c in X.columns}
         _needed: set = set()
 
+        def _add_named(v) -> None:
+            """Add ``v`` when it is a column name, or each column name inside a list/tuple/set of names (e.g. ``entity_cols``)."""
+            if isinstance(v, str):
+                if v in _present:
+                    _needed.add(v)
+            elif isinstance(v, (list, tuple, set, frozenset)):
+                for _e in v:
+                    if isinstance(_e, str) and _e in _present:
+                        _needed.add(_e)
+
         def _walk(r, _depth: int = 0) -> None:
             """Add ``r``'s source columns and any column-naming ``extra`` value to ``_needed``, recursing into nested parents."""
             if r is None or _depth > 8:  # depth guard: a malformed recipe chain must not recurse forever
                 return
             for s in tuple(getattr(r, "src_names", ()) or ()):
                 _needed.add(str(s))
-            _extra = getattr(r, "extra", {}) or {}
-            if isinstance(_extra, dict):
+            # Recipes freeze ``extra`` into a read-only mapping, so test for ``items`` rather than ``dict``: a dict-only check skipped every
+            # recipe's extra and dropped columns read outside ``src_names`` (the temporal families' ``time_col``), breaking their replay.
+            _extra = getattr(r, "extra", None) or {}
+            if hasattr(_extra, "items"):
                 for _k, _v in _extra.items():
-                    if isinstance(_v, str) and _v in _present:
-                        _needed.add(_v)
-                    elif _k in ("nested_parent_a", "nested_parent_b"):
+                    if _k in ("nested_parent_a", "nested_parent_b"):
                         _walk(_v, _depth + 1)
+                    else:
+                        _add_named(_v)
 
         for _r in recipes or ():
             _walk(_r)
