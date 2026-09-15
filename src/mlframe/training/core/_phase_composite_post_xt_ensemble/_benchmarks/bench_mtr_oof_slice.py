@@ -39,7 +39,7 @@ from pathlib import Path
 import numpy as np
 
 try:
-    import orjson  # type: ignore
+    import orjson
 
     def _dumps(obj) -> bytes:
         return orjson.dumps(obj, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS)

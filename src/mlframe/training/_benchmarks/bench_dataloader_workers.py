@@ -26,8 +26,8 @@ import time
 from typing import Tuple
 
 try:
-    import torch  # type: ignore
-    from torch.utils.data import DataLoader, TensorDataset  # type: ignore
+    import torch
+    from torch.utils.data import DataLoader, TensorDataset
     _TORCH_OK = True
 except ImportError as e:
     print(f"torch import failed: {e}; skipping bench")
