@@ -68,3 +68,18 @@ def seed_empty_fe_rosters(estimator: Any) -> None:
     """
     for name in FE_ROSTER_ATTRS:
         setattr(estimator, name, [])
+
+
+def reconcile_fe_rosters(estimator: Any) -> None:
+    """Keep, in each FE roster, only the columns in ``estimator._engineered_features_`` (the engineered columns that reach the output).
+
+    Every roster is covered except ``_hinge_features_``, which the hinge protection block manages itself. Run it after the last mutation of
+    ``_engineered_features_``; order within each roster is preserved.
+    """
+    surviving = set(getattr(estimator, "_engineered_features_", None) or [])
+    for attr in FE_ROSTER_ATTRS:
+        if attr == "_hinge_features_":
+            continue
+        roster = getattr(estimator, attr, None)
+        if roster:
+            setattr(estimator, attr, [c for c in roster if c in surviving])

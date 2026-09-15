@@ -286,6 +286,9 @@ def sis_screen(
 
     mi = np.zeros(p, dtype=np.float64)
     prop = np.zeros(p, dtype=np.float64)
+    # Columns whose block failed to score. A zero score is not neutral (fuse_scores z-scores each channel, so a zeroed block ranks at the
+    # bottom and is cut), so these columns are kept as survivors instead of silently leaving the fit.
+    failed_blocks: list[tuple[int, int]] = []
 
     # REUSE-AUDIT RU-4 disposition: aligning this screen's binning with categorize's content-hash
     # cache to avoid "re-binning survivors" was evaluated and REJECTED - there is no reusable double-work. The
@@ -303,12 +306,14 @@ def sis_screen(
         try:
             mi[j0:j1] = _mi_classif_batch(block, y_mi, nbins=nbins)
         except Exception as exc:  # never let one block kill the whole screen
-            log_throttle(logger, "sis_screen_mi_block_failed", logging.WARNING, "sis_screen: MI block [%d:%d] failed (%s); scored 0", j0, j1, exc)
+            log_throttle(logger, "sis_screen_mi_block_failed", logging.WARNING, "sis_screen: MI block [%d:%d] failed (%s); keeping its columns unscreened", j0, j1, exc)
+            failed_blocks.append((j0, j1))
         # second-moment interaction propensity (reuse the sibling kernel as-is)
         try:
             prop[j0:j1] = second_moment_propensity(block, y_arr)
         except Exception as exc:
-            log_throttle(logger, "sis_screen_propensity_block_failed", logging.WARNING, "sis_screen: propensity block [%d:%d] failed (%s); scored 0", j0, j1, exc)
+            log_throttle(logger, "sis_screen_propensity_block_failed", logging.WARNING, "sis_screen: propensity block [%d:%d] failed (%s); keeping its columns unscreened", j0, j1, exc)
+            failed_blocks.append((j0, j1))
         del block
 
     fused = fuse_scores(mi, prop)
@@ -321,6 +326,13 @@ def sis_screen(
 
     # Top-m by fused score; ties broken by ascending index (lexsort: primary -fused, secondary +index).
     order = np.lexsort((np.arange(p), -fused))[:m]
+    if failed_blocks:
+        _failed_idx = np.unique(np.concatenate([np.arange(a, b) for a, b in failed_blocks]))
+        logger.warning(
+            "sis_screen: %d scoring block(s) failed; their %d column(s) %s are kept as survivors without screening",
+            len(failed_blocks), _failed_idx.size, sorted(set(failed_blocks))[:8],
+        )
+        order = np.union1d(order, _failed_idx)
     survivors = np.sort(order).astype(np.int64)
 
     # REDUNDANCY DEDUP: collapse near-duplicate survivors BEFORE the downstream

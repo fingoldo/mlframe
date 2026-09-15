@@ -645,24 +645,9 @@ def _assign_support(
     self.hybrid_orth_candidates_ = list(
         dict.fromkeys(list(getattr(self, "hybrid_orth_candidates_", None) or []) + list(getattr(self, "hybrid_orth_features_", None) or []))
     )
-    _surviving_eng = set(self._engineered_features_ or [])
-    for _roster_attr in (
-        "hybrid_orth_features_", "_adaptive_fourier_features_", "mi_greedy_features_",
-        "kfold_te_features_", "count_encoding_features_", "frequency_encoding_features_",
-        "cat_num_interaction_features_", "missingness_indicator_features_",
-        "missingness_count_features_", "missingness_pattern_features_",
-        "pairwise_ratio_features_", "pairwise_log_ratio_features_",
-        "grouped_delta_features_", "lagged_diff_features_", "grouped_agg_features_",
-        "composite_group_agg_features_", "grouped_quantile_features_",
-        "cat_pair_features_", "cat_triple_features_", "numeric_decompose_features_",
-        "modular_features_", "group_distance_features_", "rare_category_features_",
-        "conditional_residual_features_", "conditional_dispersion_features_",
-        "wavelet_features_",
-        "rankgauss_features_", "temporal_agg_features_",
-    ):
-        _roster = getattr(self, _roster_attr, None)
-        if _roster:
-            setattr(self, _roster_attr, [c for c in _roster if c in _surviving_eng])
+    from ._fe_roster_attrs import reconcile_fe_rosters
+
+    reconcile_fe_rosters(self)
 
     # Always store ``cached_MIs`` - the empty-support fallback at the bottom
     # of this function reads ``self.cached_MIs`` to rank by raw MI(X_j, y), so

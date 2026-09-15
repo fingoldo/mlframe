@@ -115,9 +115,9 @@ def materialise_and_finalise_fe_candidates(
         from .._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
 
         # y codes: reuse the discretised target the MI sweep scored against.
-        _y_codes = np.asarray(classes_y).ravel()
-        _, _y_dense = np.unique(_y_codes, return_inverse=True)
-        _y_dense = _y_dense.astype(np.int64)
+        from ._step_class_codes import dense_class_codes
+
+        _y_dense = dense_class_codes(classes_y)
 
         # GATE SCORING SUBSAMPLE. The conditional-MI redundancy gate only DECIDES which engineered
         # candidates are redundant (drop) vs carry private y-information (keep) - an admit/drop decision with
@@ -837,11 +837,9 @@ def materialise_and_finalise_fe_candidates(
                 from .._mi_greedy_cmi_fe import _cmi_from_binned as _esc_mi, _quantile_bin as _esc_qbin
                 # Admitted-support context for the S5 gate: the engineered columns
                 # the main path just materialised (continuous values + marginal MI).
-                _esc_y = np.asarray(classes_y)
-                if not np.issubdtype(_esc_y.dtype, np.integer):
-                    _esc_y = _esc_y.astype(np.int64)
-                _, _esc_y_dense = np.unique(_esc_y, return_inverse=True)
-                _esc_y_dense = _esc_y_dense.astype(np.int64)
+                from ._step_class_codes import dense_class_codes
+
+                _esc_y_dense = dense_class_codes(classes_y)
                 _esc_admitted_pool: dict = {}
                 for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
                     if not _tpf or _tvals is None or not _ncols:
@@ -864,7 +862,7 @@ def materialise_and_finalise_fe_candidates(
                                 _cb = None
                         if _cb is None:
                             _cb = _esc_qbin(_cv, nbins=int(self.quantization_nbins))
-                        _esc_admitted_pool[_cname] = (_cv, float(_esc_mi(_cb, _esc_y_dense, None)))
+                        _esc_admitted_pool[_cname] = (_cv, float(_esc_mi(_cb, _esc_y_dense, None, kx=int(self.quantization_nbins))))
                 # Per-pair admitted-capture values: UNDERDELIVERY-triggered pairs
                 # get their proposers fit on the RESIDUAL of the target given the
                 # existing capture (see ``run_fe_auto_escalation``); zero-admission

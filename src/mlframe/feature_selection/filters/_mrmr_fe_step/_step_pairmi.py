@@ -63,6 +63,18 @@ def _prefill_cached_pair_mis(
     return written
 
 
+def _use_serial_pair_sweep(n_jobs: int, n_pairs: int, below_perm_floor: bool, pairs_all_cached) -> tuple[bool, bool]:
+    """Return ``(run_serial, all_pairs_cached)``; ``pairs_all_cached`` is a zero-argument callable scanning the pair cache.
+
+    The scan walks all C(k, 2) pairs, so it runs only when the cheap predicates have not already chosen the serial sweep; otherwise
+    ``all_pairs_cached`` is reported as False (it only feeds a log line on the serial path).
+    """
+    if n_jobs <= 1 or n_pairs < max(2, n_jobs) or below_perm_floor:
+        return True, False
+    all_cached = n_pairs > 0 and bool(pairs_all_cached())
+    return all_cached, all_cached
+
+
 def compute_pair_mis_and_floor(
     self,
     *,
@@ -255,7 +267,6 @@ def compute_pair_mis_and_floor(
     # ``test_pair_mi_legacy_sweep_cache_starved.py``), so the serial pass is just a fast membership scan, not
     # a compute pass. Realistically thousands-to-low-hundred-thousands pairs at this stage (the operand-pool
     # PAIR stage, already bounded by the upstream operand caps - not the raw-column count).
-    _all_pairs_precomputed = n_pairs > 0 and all((p in cached_MIs or p in cached_confident_MIs) for p in combinations(numeric_vars_to_consider, 2))
     # Parallelise whenever (a) more than one worker is configured and
     # (b) we have at least n_jobs pairs to spread; per-pair MI compute is
     # ~35 s with default fe_npermutations on a wide frame, so parallel
@@ -264,7 +275,10 @@ def compute_pair_mis_and_floor(
     # should be a 4-minute job into ~1 h on a 16-core box.
     _legacy_sweep_t0 = perf_counter()
     _below_perm_floor = fe_npermutations < _LOKY_POOL_MIN_FE_NPERMUTATIONS
-    if n_jobs <= 1 or n_pairs < max(2, n_jobs) or _all_pairs_precomputed or _below_perm_floor:
+    _run_serial, _all_pairs_precomputed = _use_serial_pair_sweep(
+        n_jobs, n_pairs, _below_perm_floor, lambda: all((p in cached_MIs or p in cached_confident_MIs) for p in combinations(numeric_vars_to_consider, 2))
+    )
+    if _run_serial:
         if verbose and _below_perm_floor and not _all_pairs_precomputed and n_jobs > 1 and n_pairs >= max(2, n_jobs):
             logger.info(
                 "MRMR FE: fe_npermutations=%d < %d -- the loky pair-MI pool never wins at this budget "

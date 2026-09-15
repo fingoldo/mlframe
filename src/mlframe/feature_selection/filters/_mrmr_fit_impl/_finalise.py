@@ -563,6 +563,11 @@ def _finalise_fs_results(
                 type(_group_final_exc).__name__, _group_final_exc,
             )
 
+    # The demotion also removed names from ``_engineered_features_``; re-reconcile the public rosters so none still lists a demoted column.
+    from ._fe_roster_attrs import reconcile_fe_rosters
+
+    reconcile_fe_rosters(self)
+
     # Final re-alignment: the group-aware demotion just above is the LAST n_features_ mutation, and it does
     # not touch mrmr_gains_. Re-run the trim/pad here so the len(mrmr_gains_) == n_features_ contract holds
     # even when the demotion dropped >=1 engineered feature (idempotent no-op otherwise).
