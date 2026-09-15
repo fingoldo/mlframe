@@ -198,6 +198,30 @@ _ROSTER_ATTR_TO_ORIGIN: tuple[tuple[str, str], ...] = (
     ("pairwise_log_ratio_features_", "pairwise_log_ratio"),
     ("grouped_delta_features_", "grouped_delta"),
     ("lagged_diff_features_", "lagged_diff"),
+    ("cat_pair_features_", "cat_cross"),
+    ("cat_triple_features_", "cat_cross"),
+    ("grouped_agg_features_", "grouped_agg"),
+    ("composite_group_agg_features_", "grouped_agg"),
+    ("grouped_quantile_features_", "grouped_agg"),
+    ("group_distance_features_", "group_distance"),
+    ("temporal_agg_features_", "temporal_agg"),
+    ("wavelet_features_", "wavelet_basis"),
+    ("modular_features_", "periodic"),
+    ("pairwise_modular_features_", "periodic"),
+    ("numeric_decompose_features_", "numeric_decompose"),
+    ("integer_lattice_features_", "integer_lattice"),
+    ("conditional_gate_features_", "conditional_gate"),
+    ("row_argmax_features_", "row_argmax"),
+    ("rare_category_features_", "extra_fe"),
+    ("conditional_residual_features_", "extra_fe"),
+    ("conditional_dispersion_features_", "extra_fe"),
+    ("conditional_quantile_rank_features_", "extra_fe"),
+    ("rankgauss_features_", "extra_fe"),
+    ("mahalanobis_density_features_", "extra_fe"),
+    ("random_fourier_features_", "extra_fe"),
+    ("lof_features_", "extra_fe"),
+    ("sir_direction_features_", "extra_fe"),
+    ("ordinal_pattern_features_", "extra_fe"),
     # Catch-all rosters last so specific buckets win the lookup.
     ("mi_greedy_features_", "mi_greedy"),
     ("hybrid_orth_features_", "hybrid_orth"),
@@ -325,6 +349,22 @@ def _origin_from_rosters(name: str, mrmr_self: Any, roster_sets: Optional[list[t
     if isinstance(cluster_members, dict) and name in cluster_members:
         return "dcd_aggregate"
     return "engineered_unknown"
+
+
+def _greedy_rank_index(predictors: Iterable[Any]) -> dict[str, int]:
+    """Map each predictor-log entry's simplified name to its FIRST index, built once per report instead of re-simplifying the log per name."""
+    from .engineered_recipes._recipe_name_simplify import simplify_fe_name
+
+    index: dict[str, int] = {}
+    for idx, entry in enumerate(predictors or ()):
+        try:
+            _en = entry.get("name")
+            if _en is not None:
+                index.setdefault(simplify_fe_name(str(_en)), idx)
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-entry fault isolation, as in _greedy_rank_for_name
+            logging.getLogger(__name__).debug("suppressed: %s", e)
+            continue
+    return index
 
 
 def _greedy_rank_for_name(name: str, predictors: Iterable[Any]) -> int:
@@ -467,10 +507,11 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
     final_names = _final_feature_order(mrmr_self)
     raw_set = set(feature_names_in)
     _roster_sets = _build_roster_membership_sets(mrmr_self)
+    _rank_index = _greedy_rank_index(predictors)
 
     rows = []
     for name in final_names:
-        rank = _greedy_rank_for_name(name, predictors)
+        rank = _rank_index.get(simplify_fe_name(str(name)), -1)
         if rank >= 0 and rank < gains_arr.size:
             gain_val = float(gains_arr[rank])
         else:
