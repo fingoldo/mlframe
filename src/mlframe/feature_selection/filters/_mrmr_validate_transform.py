@@ -403,6 +403,25 @@ def _recipe_reachable_columns(X, recipes) -> list:
         return list(X.columns)
 
 
+def _warn_unseen_transform_columns(self, columns) -> None:
+    """Warn when a named transform input carries columns the fit never saw.
+
+    Missing selected columns already raise; extras used to pass silently, so an upstream step that added or swapped in a column gave no signal.
+    The output is unchanged: only the selected and recipe-source columns are read.
+    """
+    fit_names = getattr(self, "feature_names_in_", None)
+    if fit_names is None:
+        return
+    fit_set = {str(c) for c in fit_names}
+    unseen = [str(c) for c in columns if str(c) not in fit_set]
+    if unseen:
+        log_throttle(
+            logger, "mrmr_transform_unseen_columns", logging.WARNING,
+            "MRMR.transform: input has %d column(s) not seen at fit %s; they are ignored, but check whether an upstream step changed the column set",
+            len(unseen), unseen[:8],
+        )
+
+
 def _identity_fastpath_is_safe(self, X) -> bool:
     """True when returning ``X`` unchanged is genuinely the identity for THIS fitted selector.
 
@@ -523,6 +542,7 @@ def transform(self, X, y=None):
                     f"removal / imputer drop / OD filter) is mutating the "
                     f"column set BETWEEN fit and transform. Investigate."
                 )
+            _warn_unseen_transform_columns(self, X.columns)
             base_out = X[selected_cols]
         else:
             base_out = X.iloc[:, support]
@@ -549,6 +569,7 @@ def transform(self, X, y=None):
                 f"removal / imputer drop / OD filter) is mutating the "
                 f"column set BETWEEN fit and transform. Investigate."
             )
+        _warn_unseen_transform_columns(self, X.columns)
         base_out = X.select(selected_cols)
     else:
         # Plain ndarray: ``support`` indexes columns positionally (the shape check above guards the width), so it

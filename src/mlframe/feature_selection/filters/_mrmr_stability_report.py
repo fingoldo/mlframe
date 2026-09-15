@@ -177,7 +177,9 @@ def selection_stability_report(
             rel = np.empty(n_cand, dtype=np.float64)
             for c in range(n_cand):
                 rel[c] = _marginal_mi_codes(cand_codes[idx, c], y_b)
-            # Mirror the in-fit relevance ranking: top-n_selected by relevance MI.
+            # Mirror the in-fit relevance ranking: top-n_selected by relevance MI. np.argpartition sorts NaN to the HIGH end, so a degenerate
+            # candidate would count as selected on every resample; rank it last instead.
+            rel = np.nan_to_num(rel, nan=-np.inf)
             top = np.argpartition(rel, n_cand - n_selected)[n_cand - n_selected :]
             sel_counts[top] += 1
         freq = {cand_names[c]: float(sel_counts[c]) / float(K) for c in range(n_cand)}

@@ -246,7 +246,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # enough to avoid false positives on real data. Falls through to full fit on any error or miss.
     _cache_key = None
     try:
-        _params_sig = _hashable_params_signature(self.get_params(deep=False))
+        # deep=True, as the in-object skip signature uses: a nested estimator mutated in place must invalidate this cache too.
+        _params_sig = _hashable_params_signature(self.get_params(deep=True))
         _x_sig = _content_array_signature(X)
         _y_sig = _content_array_signature(y)
         # Two targets with statistically-similar sampled cells collide on _y_sig / _x_sig alone and replay one another's support_. Fold full blake2b hashes over BOTH X and y plus the target name to

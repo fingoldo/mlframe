@@ -376,12 +376,12 @@ def _content_array_signature(arr) -> tuple:
         try:
             sampled = bytes(flat[idx].tobytes())
         except Exception as e:
-            logger.debug("_content_array_signature: strided sample failed, falling back to id()-based key: %s", e)
+            logger.debug("_content_array_signature: strided sample failed, falling back to a unique never-matching key: %s", e)
             return ("uncached", uuid4().hex)
         return (shape, dtype_str, sampled, col_names)
     except Exception as e:
-        logger.debug("_content_array_signature: content signature failed, falling back to id()-based key: %s", e)
-        return ("uncached", id(arr))
+        logger.debug("_content_array_signature: content signature failed, falling back to a unique never-matching key: %s", e)
+        return ("uncached", uuid4().hex)
 
 
 def _target_to_numpy_values(y) -> np.ndarray:
