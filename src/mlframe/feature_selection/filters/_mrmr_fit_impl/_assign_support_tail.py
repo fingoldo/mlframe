@@ -278,14 +278,21 @@ def _assign_support_tail(
                                     )
                             if not _child_bins:
                                 continue  # no usable child to condition on -> not provably subsumed -> KEEP
-                            try:
-                                _retains = _rr_keep(raw_bin=_raw_b, y_bin=_rr_y,
-                                                    genuine_child_bins=_child_bins,
-                                                    allow_linear_usability=bool(getattr(self, "use_simple_mode", False)),
-                                                    seed=_rr_seed)
-                            except Exception as exc:
-                                logger.debug("mrmr: discriminator estimator failed; conservatively retaining (never drop genuine signal): %r", exc, exc_info=True)
-                                _retains = True  # estimator error -> never drop genuine signal
+                            from .._fallback_probe import call_or_default
+
+                            # Estimator error -> retain (never drop genuine signal), reported like the outer handler below.
+                            def _keep_probe(_rb: np.ndarray = _raw_b, _cb: list = _child_bins) -> bool:
+                                """Whether this raw keeps private signal beyond its genuine engineered children."""
+                                return bool(_rr_keep(
+                                    raw_bin=_rb, y_bin=_rr_y, genuine_child_bins=_cb,
+                                    allow_linear_usability=bool(getattr(self, "use_simple_mode", False)), seed=_rr_seed,
+                                ))
+
+                            _retains = call_or_default(
+                                _keep_probe,
+                                True, key="mrmr_subsumption_discriminator_candidate_failed",
+                                message="mrmr: subsumption discriminator failed for one candidate raw; RETAINING it unverified",
+                            )
                             if not _retains:
                                 _rr_excl_names.add(_base)  # truly subsumed -> exclude from re-attach
                     except Exception as exc:
@@ -449,12 +456,18 @@ def _assign_support_tail(
                                 _bf_ci = _post_name_to_idx.get(_dn)
                                 if _bf_ci is None:
                                     continue
-                                try:
-                                    from ..info_theory import mi as _pf_mi
-                                    _rel = float(_pf_mi(data, np.array([int(_bf_ci)], dtype=np.int64), _tgt_pf, _fn_pf))
-                                except Exception as exc:
-                                    logger.debug("mrmr: relevance computation failed for this candidate in the post-drop pass; treating as zero (conservative): %r", exc, exc_info=True)
-                                    _rel = 0.0
+                                from ..info_theory import mi as _pf_mi
+                                from .._fallback_probe import call_or_default
+
+                                def _post_rel_probe(_ci: int = _bf_ci) -> float:
+                                    """Marginal MI of dropped raw column ``_ci`` against the target."""
+                                    return float(_pf_mi(data, np.array([int(_ci)], dtype=np.int64), _tgt_pf, _fn_pf))
+
+                                _rel = float(call_or_default(
+                                    _post_rel_probe,
+                                    float("-inf"), key="mrmr_post_drop_relevance_failed",
+                                    message="mrmr: relevance probe failed for a post-drop raw floor candidate; it is excluded",
+                                ))
                                 if _rel > _bf_rel:
                                     _bf_rel, _bf_idx = _rel, _dn
                             if _bf_idx is not None and _bf_idx in self.feature_names_in_:

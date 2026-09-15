@@ -1658,9 +1658,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # ``extra`` is a read-only MappingProxyType on a frozen recipe; ``with_extra`` returns a fresh copy carrying the maps.
                     try:
                         cat_fe_state.recipes[_ri] = r.with_extra(cat_code_maps=_maps_for_recipe)
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                        logger.debug("mrmr: attaching cat_code_maps to recipe %r failed: %r", getattr(r, "name", "?"), e, exc_info=True)
-                        pass
+                    except Exception as e:
+                        # Without its train-time code maps the recipe replays categories with fresh codes at transform: silent train/serve skew.
+                        logger.warning("mrmr: attaching cat_code_maps to recipe %r failed (%s: %s); its transform-time category codes may not match fit", getattr(r, "name", "?"), type(e).__name__, e)
         # Cat-FE recipes feed the same engineered_recipes dict numeric FE uses; the fit-end splitter copies
         # any recipe whose engineered name appears in selected_vars_names into ``self._engineered_recipes_``.
         for r in cat_fe_state.recipes:

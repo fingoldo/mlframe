@@ -191,12 +191,19 @@ def _assign_support(
                 _tgt_ne = np.asarray(target_indices, dtype=np.int64)
                 _fn_ne = np.asarray(nbins, dtype=np.int64)
                 _best_idx_ne, _best_rel_ne = -1, float("-inf")
+                from .._fallback_probe import call_or_default
+
                 for _oi in sorted(_eligible_idxs):
-                    try:
-                        _rel_ne = float(_ne_mi(data, np.array([int(_oi)], dtype=np.int64), _tgt_ne, _fn_ne))
-                    except Exception as exc:
-                        logger.debug("mrmr: relevance computation failed for this non-engineered candidate; treating as zero (conservative): %r", exc, exc_info=True)
-                        _rel_ne = 0.0
+                    # -inf, not 0.0: a failed probe must be excluded, not tie at MI's floor where iteration order would pick the winner.
+                    def _rel_probe(_oi: int = _oi) -> float:
+                        """Marginal MI of candidate column ``_oi`` against the target."""
+                        return float(_ne_mi(data, np.array([int(_oi)], dtype=np.int64), _tgt_ne, _fn_ne))
+
+                    _rel_ne = float(call_or_default(
+                        _rel_probe,
+                        float("-inf"), key="mrmr_never_empty_relevance_failed",
+                        message="mrmr: relevance probe failed for a never-empty raw stand-in candidate; it is excluded",
+                    ))
                     if _rel_ne > _best_rel_ne:
                         _best_rel_ne, _best_idx_ne = _rel_ne, int(_oi)
                 if _best_idx_ne >= 0:
@@ -508,14 +515,20 @@ def _assign_support(
 
             def _eb_operand_is_signal(_cols_i):
                 """Permutation-significance test (32 permutations) for a raw operand of a selected engineered feature; True when it clears its own null (p<alpha) or the MI estimator errors, gating the emit-both re-attach so a noise operand fused into a composite is not resurrected."""
-                try:
+                from .._fallback_probe import call_or_default
+
+                def _probe():
+                    """p-value of the operand's marginal MI against its 32-permutation null, below alpha."""
                     _r = _eb_mi_direct(data, x=np.array([int(_cols_i)], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]
                                        factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
                                        return_null_mean=True, parallelism="none", dtype=_eb_qdtype, prefer_gpu=False)
                     return float(_r[3]) < _eb_alpha  # p-value below alpha -> genuine marginal signal
-                except Exception as e:
-                    logger.debug("Marginal-MI significance probe failed (%s: %s) -- not silently dropping a possibly-genuine operand", type(e).__name__, e)
-                    return True  # estimator error -> do not silently drop a possibly-genuine operand
+
+                # An estimator error keeps the operand (never silently drop a possibly-genuine one), but it is then re-attached unverified.
+                return bool(call_or_default(
+                    _probe, True, key="mrmr_emit_both_operand_probe_failed",
+                    message="mrmr: marginal-MI significance probe failed; the operand is re-attached without verification",
+                ))
             _eb_added = []
             for _op in _eb_operands:
                 _idx = _eb_name_to_in.get(_op)
@@ -699,7 +712,9 @@ def _assign_support(
             dtype=np.float64,
         )
     except Exception as exc:
-        logger.debug("mrmr: mrmr_gains_ computation failed; using an empty array: %r", exc, exc_info=True)
+        logger.warning(
+            "mrmr: mrmr_gains_ could not be built (%s: %s); it is left empty, which also makes uaed_auto_size a no-op for this fit", type(exc).__name__, exc
+        )
         self.mrmr_gains_ = np.array([], dtype=np.float64)
     # Layer 54: stash the greedy predictor log on ``self`` so the FE
     # provenance helper can map engineered feature names back to their
@@ -718,7 +733,7 @@ def _assign_support(
             for p in (predictors or [])
         )
     except Exception as exc:
-        logger.debug("mrmr: predictors-log capture failed; using an empty tuple: %r", exc, exc_info=True)
+        logger.warning("mrmr: predictors log could not be captured (%s: %s); FE provenance will not map engineered names to their gains", type(exc).__name__, exc)
         self._predictors_log_ = ()
     self.fallback_used_ = False
     self.fallback_metadata_ = None

@@ -181,27 +181,36 @@ def _friend_graph_and_redundancy_passes_group4(
                             # Full FE mode: no operand is eligible (defer to engineered-only - the I4b contract).
                             _eligible_floor = _floor_simple
                             if _floor_simple and _floor_child_vals:
-                                try:
+                                from ..._fallback_probe import call_or_default
+
+                                def _eligible(_dn=_dn, _floor_ci=_floor_ci):
+                                    """Whether this dropped raw carries private linear signal beyond the engineered survivors."""
                                     _rawv = None
                                     if isinstance(X, pd.DataFrame) and _dn in X.columns:
                                         _rawv = np.asarray(X[_dn], dtype=np.float64).ravel()
                                     if _rawv is None:
                                         _rawv = np.asarray(data[:, _floor_ci], dtype=np.float64).ravel()
-                                    _eligible_floor = bool(_floor_lin(
-                                        _rawv, _yv_floor, _floor_child_vals,
-                                        seed=int(getattr(self, "random_seed", 0) or 0),
-                                    ))
-                                except Exception as exc:
-                                    logger.debug("mrmr: floor-eligibility check failed for this candidate; treating as ineligible (conservative): %r", exc, exc_info=True)
-                                    _eligible_floor = False
+                                    return bool(_floor_lin(_rawv, _yv_floor, _floor_child_vals, seed=int(getattr(self, "random_seed", 0) or 0)))
+
+                                # Ineligible on failure (conservative), but visible: a systematic fault here empties the whole floor pool.
+                                _eligible_floor = bool(call_or_default(
+                                    _eligible, False, key="mrmr_floor_eligibility_failed",
+                                    message="mrmr: floor-eligibility check failed for a dropped raw; it is treated as ineligible",
+                                ))
                             if not _eligible_floor:
                                 continue
-                            try:
-                                from ...info_theory import mi as _floor_mi
-                                _rel = float(_floor_mi(data, np.array([int(_floor_ci)], dtype=np.int64), _tgt_floor, _fn_floor))
-                            except Exception as exc:
-                                logger.debug("mrmr: relevance computation failed for this candidate; treating as zero (conservative): %r", exc, exc_info=True)
-                                _rel = 0.0
+                            from ...info_theory import mi as _floor_mi
+                            from ..._fallback_probe import call_or_default
+
+                            def _floor_rel_probe(_ci: int = _floor_ci) -> float:
+                                """Marginal MI of floor candidate column ``_ci`` against the target."""
+                                return float(_floor_mi(data, np.array([int(_ci)], dtype=np.int64), _tgt_floor, _fn_floor))
+
+                            _rel = float(call_or_default(
+                                _floor_rel_probe,
+                                float("-inf"), key="mrmr_floor_relevance_failed",
+                                message="mrmr: relevance probe failed for a raw floor candidate; it is excluded",
+                            ))
                             if _rel > _best_floor_rel:
                                 _best_floor_rel, _best_floor_idx = _rel, int(_floor_ci)
                         if _best_floor_idx is not None:
