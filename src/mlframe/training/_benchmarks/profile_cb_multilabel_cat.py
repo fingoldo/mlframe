@@ -108,7 +108,7 @@ def _profile_one(n_rows: int, *, n_labels: int, iterations: int, seed: int, top_
     # Import the proven multilabel-capable test mock FTE.
     if str(_TESTS_DIR) not in sys.path:
         sys.path.insert(0, str(_TESTS_DIR))
-    from shared import SimpleFeaturesAndTargetsExtractor, get_cpu_config  # type: ignore
+    from shared import SimpleFeaturesAndTargetsExtractor, get_cpu_config
 
     df = _make_cat_heavy_multilabel_frame(n_rows, n_labels=n_labels, seed=seed)
     n_cols = len(df.columns)

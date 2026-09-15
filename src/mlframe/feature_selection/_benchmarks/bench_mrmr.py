@@ -131,7 +131,7 @@ def _stage_timer():
 
 def _run_one(scenario: _datasets.Scenario, seed: int, profile: bool) -> dict[str, Any]:
     """Single run: build data, fit MRMR, capture metrics. Imports MRMR fresh."""
-    from mlframe.feature_selection.filters import MRMR  # type: ignore
+    from mlframe.feature_selection.filters import MRMR
 
     X, y = _datasets.make_scenario_data(scenario, random_state=seed)
 
