@@ -140,6 +140,7 @@ def _validate_string_params(self):
                 )
             if _default_scorer not in _valid_scorers:
                 raise ValueError(f"MRMR: fe_hybrid_orth_default_scorer={_default_scorer!r} " f"is not a recognised value. " f"Valid values: {_valid_scorers}.")
+    _validate_hybrid_orth_string_params(self)
     # cluster_aggregate_methods is a sequence; validate each element.
     _methods = getattr(self, "cluster_aggregate_methods", None)
     if _methods is not None:
@@ -148,6 +149,41 @@ def _validate_string_params(self):
                 raise ValueError(
                     f"MRMR: cluster_aggregate_methods contains {_m!r}, not a recognised value. " f"Valid values: {self._VALID_CLUSTER_AGGREGATE_METHODS}."
                 )
+
+def _validate_hybrid_orth_string_params(self) -> None:
+    """Raise ValueError on an unrecognised hybrid-orth basis / kernel / aggregator / scorer string, listing the accepted values."""
+    from .mrmr._mrmr_param_constants import (
+        _VALID_FE_HYBRID_ORTH_BASES,
+        _VALID_FE_HYBRID_ORTH_CLUSTER_BASIS_AGGREGATORS,
+        _VALID_FE_HYBRID_ORTH_ENSEMBLE_AGGREGATORS,
+        _VALID_FE_HYBRID_ORTH_ENSEMBLE_SCORERS,
+        _VALID_FE_HYBRID_ORTH_HSIC_KERNELS,
+        _VALID_FE_HYBRID_ORTH_META_FORCE_SCORERS,
+    )
+
+    for name, valid in (
+        ("fe_hybrid_orth_basis", _VALID_FE_HYBRID_ORTH_BASES),
+        ("fe_hybrid_orth_hsic_kernel", _VALID_FE_HYBRID_ORTH_HSIC_KERNELS),
+        ("fe_hybrid_orth_ensemble_aggregator", _VALID_FE_HYBRID_ORTH_ENSEMBLE_AGGREGATORS),
+        ("fe_hybrid_orth_cluster_basis_aggregator", _VALID_FE_HYBRID_ORTH_CLUSTER_BASIS_AGGREGATORS),
+    ):
+        if not hasattr(self, name):
+            continue
+        val = getattr(self, name)
+        if not isinstance(val, str) or val not in valid:
+            raise ValueError(f"MRMR: {name}={val!r} is not a recognised value. Valid values: {valid}.")
+    scorers = getattr(self, "fe_hybrid_orth_ensemble_scorers", None)
+    if scorers is not None:
+        if isinstance(scorers, str) or not scorers:
+            raise ValueError(f"MRMR: fe_hybrid_orth_ensemble_scorers must be a non-empty sequence of scorer names; got {scorers!r}.")
+        bad = [s for s in scorers if s not in _VALID_FE_HYBRID_ORTH_ENSEMBLE_SCORERS]
+        if bad:
+            raise ValueError(f"MRMR: fe_hybrid_orth_ensemble_scorers contains {bad!r}. Valid values: {_VALID_FE_HYBRID_ORTH_ENSEMBLE_SCORERS}.")
+    force = getattr(self, "fe_hybrid_orth_meta_force_scorer", None)
+    # The meta scorer lower-cases the forced name, so accept any case here too.
+    if force is not None and (not isinstance(force, str) or force.lower() not in _VALID_FE_HYBRID_ORTH_META_FORCE_SCORERS):
+        raise ValueError(f"MRMR: fe_hybrid_orth_meta_force_scorer={force!r} is not a recognised value. Valid values: None or one of {_VALID_FE_HYBRID_ORTH_META_FORCE_SCORERS}.")
+
 
 # Input validation contract: explicit guards for memory-exhaustion shapes, malformed dtypes,
 # +/-inf values, single-class y, and polars LazyFrame / Expr edge cases. Each guard raises ValueError or warns.

@@ -97,3 +97,13 @@ _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS = (
     "elasticnet",  # Layer 82
     "auto_oracle",  # Layer 100 (L76 cold-start + L68 bake-off + Param-Oracle learning)
 )
+
+# Accepted values of the remaining hybrid-orth string params, mirroring what each consumer accepts. The consumers run inside a
+# broad per-family try/except that turns their own ValueError into a warning and drops the family, so without these a typo silently
+# disables that FE family for the whole fit.
+_VALID_FE_HYBRID_ORTH_HSIC_KERNELS = ("rbf",)
+_VALID_FE_HYBRID_ORTH_ENSEMBLE_AGGREGATORS = ("mean_rank", "borda_count", "reciprocal_rank", "mutual_top_k")
+_VALID_FE_HYBRID_ORTH_ENSEMBLE_SCORERS = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi", "tail_dep")
+_VALID_FE_HYBRID_ORTH_META_FORCE_SCORERS = ("plug_in", "ksg", "copula", "dcor", "hsic", "jmim", "cmim", "tc")
+_VALID_FE_HYBRID_ORTH_BASES = ("auto", "hermite", "legendre", "chebyshev", "laguerre", "fourier", "rbf", "sigmoid", "pade")
+_VALID_FE_HYBRID_ORTH_CLUSTER_BASIS_AGGREGATORS = ("mean_z", "median_z", "pc1")

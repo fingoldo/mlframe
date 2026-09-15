@@ -82,12 +82,14 @@ class DCDConfig(_MRMRSubConfig):
     """Denoised Cluster-Discovery (DCD): correlated-reflection clustering + aggregate scoring."""
 
     dcd_enable: bool = True
-    dcd_distance: str = "su"
+    dcd_distance: Literal["su", "vi", "sotoca_pla", "auto"] = "su"
     dcd_min_cluster_size: int = Field(default=2, ge=2)
     dcd_max_cluster_size: int = Field(default=12, ge=2)
     dcd_cluster_size_threshold: int = Field(default=4, ge=1)
     dcd_pairwise_cache_max: int = Field(default=50_000, ge=0)
-    dcd_swap_method: str = "auto"
+    dcd_swap_method: Literal[
+        "auto", "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score", "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum"
+    ] = "auto"
     dcd_swap_alpha: float = Field(default=0.05, gt=0.0, lt=1.0)
     dcd_swap_gain_threshold: float = Field(default=0.05, ge=0.0)
     dcd_swap_npermutations: int = Field(default=199, ge=1)
@@ -109,7 +111,7 @@ class HybridOrthScorersConfig(_MRMRSubConfig):
     dcor_enable: bool = False
     dcor_n_sample: int = Field(default=500, ge=1)
     hsic_enable: bool = False
-    hsic_kernel: str = "rbf"
+    hsic_kernel: Literal["rbf"] = "rbf"
     hsic_n_sample: int = Field(default=500, ge=1)
     jmim_enable: bool = False
     jmim_n_bins: int = Field(default=10, ge=2)
@@ -120,11 +122,13 @@ class HybridOrthScorersConfig(_MRMRSubConfig):
     auto_scorer_enable: bool = False
     auto_scorer_n_boot: int = Field(default=5, ge=1)
     ensemble_enable: bool = False
-    ensemble_aggregator: str = "mean_rank"
-    ensemble_scorers: tuple = ("plug_in", "ksg", "copula", "dcor", "hsic")
+    ensemble_aggregator: Literal["mean_rank", "borda_count", "reciprocal_rank", "mutual_top_k"] = "mean_rank"
+    ensemble_scorers: tuple[Literal["plug_in", "ksg", "copula", "dcor", "hsic", "xi", "tail_dep"], ...] = ("plug_in", "ksg", "copula", "dcor", "hsic")
     meta_enable: bool = False
-    meta_force_scorer: Optional[str] = None
-    default_scorer: str = "plug_in"
+    meta_force_scorer: Optional[Literal["plug_in", "ksg", "copula", "dcor", "hsic", "jmim", "cmim", "tc"]] = None
+    default_scorer: Literal[
+        "plug_in", "cmim", "jmim", "tc", "ksg", "copula", "dcor", "hsic", "auto", "ensemble", "meta", "lasso", "elasticnet", "auto_oracle"
+    ] = "plug_in"
 
 
 class HybridOrthConfig(_MRMRSubConfig):
@@ -134,7 +138,7 @@ class HybridOrthConfig(_MRMRSubConfig):
 
     enable: bool = True
     degrees: tuple = (2, 3)
-    basis: str = "auto"
+    basis: Literal["auto", "hermite", "legendre", "chebyshev", "laguerre", "fourier", "rbf", "sigmoid", "pade"] = "auto"
     top_k: int = Field(default=5, ge=1)
     extra_bases: tuple = ()
     fourier_freqs: tuple = (1.0, 2.0)
@@ -181,7 +185,7 @@ class HybridOrthConfig(_MRMRSubConfig):
     diff_basis_top_k: int = Field(default=3, ge=1)
 
     cluster_basis_enable: bool = False
-    cluster_basis_aggregator: str = "mean_z"
+    cluster_basis_aggregator: Literal["mean_z", "median_z", "pc1"] = "mean_z"
     cluster_basis_degrees: tuple = (2, 3)
     cluster_basis_top_k: int = Field(default=3, ge=1)
 
