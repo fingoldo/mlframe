@@ -291,6 +291,9 @@ def test_regression_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
     # Every trained entry records the chart prefix its own charts were written under; charts rendered for the model
     # after the fit (the composite-target y-scale perfplot, the split-comparison panel) are named from it.
     for _entries in models[TargetTypes.REGRESSION].values():
+        # Every entry carries a unique model_name: metadata blocks (bootstrap CI, calibration, fairness...) key by it.
+        _names = [getattr(_e, "model_name", None) for _e in _entries]
+        assert all(_names) and len(set(_names)) == len(_names), f"entry model_name missing or not unique: {_names}"
         for _e in _entries:
             _prefix = os.path.basename(getattr(_e, "plot_file", "") or "")
             assert _prefix, f"trained entry carries no chart prefix: {vars(_e).keys()}"

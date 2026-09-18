@@ -164,3 +164,39 @@ def test_per_model_emit_saves_val_and_test_perfplots_at_the_model_prefix(tmp_pat
     for split in ("val", "test"):
         hits = glob.glob(os.path.join(str(tmp_path), "**", f"recency__Ridge_{split}_perfplot*.png"), recursive=True)
         assert hits, f"{split} perfplot not saved under the model prefix"
+
+
+def test_per_model_chart_is_plotted_on_the_original_target_scale(monkeypatch) -> None:
+    """The chart must receive ORIGINAL-scale targets and predictions, not the transformed (T-scale) ones.
+
+    Here y ~ 11500 while the diff target the inner model learns is y - base ~ 0 +- 5, so the scale of what the chart
+    is handed is unambiguous.
+    """
+    import mlframe.training.evaluation as ev
+
+    captured = {}
+
+    def spy(**kw):
+        captured.setdefault("calls", []).append((np.asarray(kw["targets"], dtype=float), np.asarray(kw["preds"], dtype=float)))
+        return None, None
+
+    monkeypatch.setattr(ev, "report_regression_model_perf", spy)
+    df, test_idx, y_full, spec, entry = _build_diff_setup()
+    entry.plot_file = "unused_prefix"
+    emit_per_model_composite_y_scale_test(
+        entry=entry,
+        composite_spec=spec,
+        orig_target_name="TVT",
+        composite_name="TVT-diff-TVT_prev",
+        target_name="TVT-diff-TVT_prev",
+        y_full=y_full,
+        test_idx=test_idx,
+        test_df_pd=df.iloc[test_idx],
+        plot_file="",
+        reporting_config=types.SimpleNamespace(plot_outputs="matplotlib[png]", plot_dpi=None),
+    )
+    assert captured.get("calls"), "chart was not requested"
+    targets, preds = captured["calls"][-1]
+    np.testing.assert_allclose(np.sort(targets), np.sort(y_full[test_idx]))  # the raw target itself
+    assert abs(preds.mean() - y_full[test_idx].mean()) < 50.0, f"preds mean {preds.mean():.1f} is not on the y scale"
+    assert abs(preds.mean()) > 1000.0, "preds look like the transformed (diff) scale, not the original"

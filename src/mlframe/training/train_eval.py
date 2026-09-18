@@ -544,6 +544,14 @@ def process_model(
     if optimize_storage:
         optimize_model_for_storage(model, target_type, metadata_columns)
 
+    # A unique, stable identity for this entry among its target's models: feature pre-pipeline + model + weight schema
+    # (``model_file_name`` already carries the weight, e.g. "cb_recency"). Metadata blocks key results by
+    # ``entry.model_name``; without it they fell back to the class name / list index, so different weight schemas,
+    # pre-pipelines and wrapped composite-target models overwrote each other's bootstrap CI, calibration, fairness...
+    try:
+        model.model_name = f"{(pre_pipeline_name or '').strip()} {model_file_name}".strip()
+    except AttributeError:
+        logger.debug("could not stamp model_name on %s", type(model).__name__)
     models.setdefault(target_type, {}).setdefault(cur_target_name, []).append(model)
 
     # ens_models can be None when not building ensembles

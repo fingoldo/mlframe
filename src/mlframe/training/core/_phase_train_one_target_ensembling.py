@@ -155,6 +155,9 @@ def _finalize_per_target_ensembling(
             # working the moment chart rendering was disabled (``OutputConfig.save_charts=False``).
             try:
                 _entry_ns.name = _ens_method
+                # Unique identity among the target's models (flavour + pre-pipeline + members, as in the chart name);
+                # metadata blocks key results by ``model_name``, and without it every ensemble keyed as "NoneType".
+                _entry_ns.model_name = f"Ens{str(_ens_method).upper()} {pre_pipeline_name}{_members_label}".strip()
             except Exception as _name_stamp_err:
                 logger.debug("could not stamp flavour name %r onto ensemble result: %s", _ens_method, _name_stamp_err)
             _target_models.append(_entry_ns)
