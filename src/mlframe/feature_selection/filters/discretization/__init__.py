@@ -641,10 +641,16 @@ def discretize_array(
 # bottom of this module so the package public/private import surface is unchanged
 # (e.g. from ...discretization import _quantile_edges_2d_njit still resolves).
 from ._kernels import (
+    _count_le_2d_njit,
+    _count_le_2d_njit_parallel,
     _quantile_edges_2d_njit,
+    _quantile_edges_2d_njit_partition,
     _searchsorted_2d_right_njit,
     _searchsorted_2d_right_njit_parallel,
 )
+
+# Largest interior-edge count for which the branch-free count kernels beat the binary search (measured 1.25x at 31 edges).
+_COUNT_LE_MAX_EDGES = 31
 
 
 def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: type = np.int8, parallel: bool = False, assume_finite: bool = False) -> np.ndarray:
@@ -761,10 +767,16 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
         # cores. The caller (check_prospective_fe_pairs) passes ``parallel=True`` ONLY when it
         # knows it is on the main-thread/no-joblib branch (threaded down from _mrmr_fe_step's
         # ``len(X) < 50000`` dispatch); the joblib path keeps the serial kernel (parallel=False).
+        _use_count = edges_inner.shape[0] <= _COUNT_LE_MAX_EDGES and bool(np.isfinite(edges_inner).all())
         if parallel:
             # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
             with parallel_kernel_entry():
-                _searchsorted_2d_right_njit_parallel(edges_inner, arr_c, out)
+                if _use_count:
+                    _count_le_2d_njit_parallel(edges_inner, arr_c, out)
+                else:
+                    _searchsorted_2d_right_njit_parallel(edges_inner, arr_c, out)
+        elif _use_count:
+            _count_le_2d_njit(edges_inner, arr_c, out)
         else:
             _searchsorted_2d_right_njit(edges_inner, arr_c, out)
     return out

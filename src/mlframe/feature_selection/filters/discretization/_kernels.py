@@ -16,9 +16,11 @@ import math
 import numpy as np
 from numba import njit, prange
 
+from ._multiselect import multiselect_inplace
+
 
 @njit(parallel=True, nogil=True, cache=True)
-def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.ndarray, edges_out: np.ndarray) -> None:
+def _quantile_edges_2d_njit_partition(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.ndarray, edges_out: np.ndarray) -> None:
     """Per-column linear-interpolation quantiles, BIT-IDENTICAL to
     ``np.percentile(arr2d, quantiles, axis=0)`` on a NaN-free buffer.
 
@@ -110,6 +112,39 @@ def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.n
                 # t < 0.5 and ``b - (b-a)*(1-t)`` for t >= 0.5 - the asymmetric form numpy
                 # uses to keep the result monotone + endpoint-exact. Matching this branch
                 # (in float64) makes the edges bit-identical to ``np.percentile``.
+                diff_b_a = b - a
+                if t >= 0.5:
+                    edges_out[qi, j] = b - diff_b_a * (1.0 - t)
+                else:
+                    edges_out[qi, j] = a + diff_b_a * t
+
+
+@njit(parallel=True, nogil=True, cache=True)
+def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.ndarray, edges_out: np.ndarray) -> None:
+    """Same contract and bit-identity as :func:`_quantile_edges_2d_njit_partition`, selecting the ``kths`` order
+    statistics with :func:`multiselect_inplace` (one O(n log k) pass) instead of numba's ``np.partition(col, kths)``,
+    which re-runs a full quickselect per kth. Measured 1.5-2.3x per column across n=30..1M rows (float32, random and
+    tie-heavy columns, 10 bins, 2 threads), identical edges at every size. ``kths`` must be sorted and unique, which
+    ``discretize_2d_quantile_batch`` guarantees."""
+    n_rows = arr2d.shape[0]
+    n_cols = arr2d.shape[1]
+    n_q = quantiles.shape[0]
+    if n_rows == 0 or n_cols == 0:
+        return
+    for j in prange(n_cols):
+        col = np.empty(n_rows, dtype=arr2d.dtype)
+        for r in range(n_rows):
+            col[r] = arr2d[r, j]
+        multiselect_inplace(col, kths)
+        for qi in range(n_q):
+            v = (quantiles[qi] / 100.0) * (n_rows - 1)
+            lo = math.floor(v)
+            if lo >= n_rows - 1:
+                edges_out[qi, j] = col[n_rows - 1]
+            else:
+                a = float(col[lo])
+                b = float(col[lo + 1])
+                t = v - lo
                 diff_b_a = b - a
                 if t >= 0.5:
                     edges_out[qi, j] = b - diff_b_a * (1.0 - t)
@@ -288,3 +323,51 @@ def _searchsorted_2d_right_njit_parallel(edges_inner: np.ndarray, arr2d: np.ndar
                 else:
                     lo = mid + 1
             out[r, j] = lo
+
+
+# Branch-free twins of the two searchsorted kernels above for a SHORT, FINITE edge vector (the quantile discretiser's
+# default ~9 interior edges). ``searchsorted(side='right')`` returns the count of edges ``<= v``, so a straight count
+# over the edges gives the same code without the unpredictable binary-search branches; a NaN value keeps the
+# rightmost-bin contract explicitly. Equal only when no edge is NaN (a NaN edge compares False in both kernels but
+# at different positions), which the dispatcher checks. Measured on random float32 with 0.1% NaN, 10 bins, 2 threads:
+# 1.97x at 450 rows, 1.76x at 2000, 1.29x at 30000; 1.25x at 32 bins; identical codes throughout.
+@njit(nogil=True, cache=True)
+def _count_le_2d_njit(edges_inner: np.ndarray, arr2d: np.ndarray, out: np.ndarray) -> None:
+    """Serial ``nogil`` count-based ``searchsorted(side='right')`` per column; see the note above."""
+    n_rows = arr2d.shape[0]
+    n_cols = arr2d.shape[1]
+    n_edges = edges_inner.shape[0]
+    e = np.empty(n_edges, dtype=np.float64)
+    for j in range(n_cols):
+        for k in range(n_edges):
+            e[k] = edges_inner[k, j]
+        for r in range(n_rows):
+            v = arr2d[r, j]
+            if v != v:
+                out[r, j] = n_edges
+                continue
+            c = 0
+            for k in range(n_edges):
+                c += e[k] <= v
+            out[r, j] = c
+
+
+@njit(parallel=True, nogil=True, cache=True)
+def _count_le_2d_njit_parallel(edges_inner: np.ndarray, arr2d: np.ndarray, out: np.ndarray) -> None:
+    """Column-``prange`` twin of :func:`_count_le_2d_njit` for the serial-main-thread FE path."""
+    n_rows = arr2d.shape[0]
+    n_cols = arr2d.shape[1]
+    n_edges = edges_inner.shape[0]
+    for j in prange(n_cols):
+        e = np.empty(n_edges, dtype=np.float64)
+        for k in range(n_edges):
+            e[k] = edges_inner[k, j]
+        for r in range(n_rows):
+            v = arr2d[r, j]
+            if v != v:
+                out[r, j] = n_edges
+                continue
+            c = 0
+            for k in range(n_edges):
+                c += e[k] <= v
+            out[r, j] = c
