@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 _ENABLED: bool = False
 
 
-def enable_crash_reporting(file=None, all_threads: bool = True) -> bool:
+def enable_crash_reporting(file=None, all_threads: bool = True, crash_dir=None, heartbeat_s=None) -> bool:
     """Enable faulthandler + suppress Windows Error Reporting popup.
 
     Parameters
@@ -46,6 +46,12 @@ def enable_crash_reporting(file=None, all_threads: bool = True) -> bool:
         If True, dump tracebacks of all threads on a fatal signal —
         useful when the crash originates in an OpenMP worker thread
         (XGBoost, CatBoost, numba all use OMP).
+
+    crash_dir : str, optional
+        Directory for the persistent faulthandler file (default: MLFRAME_CRASH_LOG_DIR, else the log file's directory,
+        else the temp dir). Only used when ``file`` is None.
+    heartbeat_s : float, optional
+        Heartbeat period; None reads MLFRAME_CRASH_HEARTBEAT_S (default 300), 0 disables.
 
     Returns
     -------
@@ -97,6 +103,21 @@ def enable_crash_reporting(file=None, all_threads: bool = True) -> bool:
         except Exception as e:  # best-effort: escalated via the returned ok=False sentinel below
             logger.warning("SetErrorMode() failed: %s", e)
             ok = False
+
+    # A native crash / OOM kill / paging-file exhaustion otherwise leaves nothing in the log file: faulthandler above only
+    # reaches stderr. With no explicit ``file``, re-point faulthandler at a persistent file next to the log and add the
+    # exception hooks, exit line and heartbeat (see crash_diagnostics).
+    try:
+        from .crash_diagnostics import install_crash_diagnostics, install_exception_hooks, register_atexit, start_heartbeat
+
+        if file is None:
+            install_crash_diagnostics(crash_dir=crash_dir, all_threads=all_threads, heartbeat_s=heartbeat_s)
+        else:
+            install_exception_hooks()
+            register_atexit()
+            start_heartbeat(heartbeat_s)
+    except Exception as e:  # best-effort
+        logger.warning("crash diagnostics install failed: %s", e)
 
     _ENABLED = ok
     if ok:

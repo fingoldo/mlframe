@@ -137,6 +137,21 @@ def active_phase() -> str:
     stack = getattr(_PHASE_STACK, "names", None)
     return stack[-1] if stack else ""
 
+# thread-id -> that thread's live phase-name list (the SAME list object as the thread-local one). A watchdog / heartbeat thread
+# cannot read another thread's threading.local, yet it is exactly the thing that must report which step the suite was in when the process died.
+_ALL_PHASE_STACKS: dict[int, list] = {}
+
+
+def all_active_phases() -> dict[str, str]:
+    """``{thread_name: "outer > inner"}`` for every thread currently inside at least one phase (cross-thread, best-effort)."""
+    names_by_ident = {t.ident: t.name for t in threading.enumerate()}
+    out: dict[str, str] = {}
+    for ident, stack in list(_ALL_PHASE_STACKS.items()):
+        snap = list(stack)
+        if snap:
+            out[names_by_ident.get(ident, str(ident))] = " > ".join(snap)
+    return out
+
 
 def phase_snapshot() -> list[tuple[str, float, int]]:
     """Return list of ``(name, total_seconds, call_count)`` sorted by total desc."""
@@ -256,6 +271,7 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
     if _names is None:
         _names = []
         _PHASE_STACK.names = _names
+        _ALL_PHASE_STACKS[threading.get_ident()] = _names
     _names.append(name)
     logger.log(level, f"[phase] {name} START {ctx_str}".rstrip())
     t0 = _timer()
