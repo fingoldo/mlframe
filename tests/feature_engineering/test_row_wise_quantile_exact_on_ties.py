@@ -71,6 +71,7 @@ def test_numba_kernel_quantiles_equal_nanquantile(with_nan):
     rows = _rows(with_nan)
     qs = np.array([int(s[1:]) / 100.0 for s in _QS])
     got = kernel(np.ascontiguousarray(rows), qs)
+    assert len(got) == len(_QS), f"kernel returned {len(got)} quantile rows for {len(_QS)} requested"
     for k, stat in enumerate(_QS):
         _assert_exact(np.asarray(got[k]), _expected(rows, stat), f"numba {stat}")
 

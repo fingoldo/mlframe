@@ -192,6 +192,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_MRMR_GPU_CMI` | `'1'` | [src/mlframe/feature_selection/filters/_evaluation_driver.py](../src/mlframe/feature_selection/filters/_evaluation_driver.py#L51) |
 | `MLFRAME_MRMR_NULL_PERMS` | `'32'` | [src/mlframe/feature_selection/filters/permutation.py](../src/mlframe/feature_selection/filters/permutation.py#L75) |
 | `MLFRAME_MRMR_NULL_SIGNIF_ALPHA` | `'0.05'` | [src/mlframe/feature_selection/filters/evaluation.py](../src/mlframe/feature_selection/filters/evaluation.py#L73) |
+| `MLFRAME_MRMR_PICKLE_REPLAY_STATE_MAX_MB` | `'64'` | [src/mlframe/feature_selection/filters/_mrmr_stability_report.py](../src/mlframe/feature_selection/filters/_mrmr_stability_report.py#L78) |
 | `MLFRAME_NEURAL_MI_DEVICE` | `'auto'` | [src/mlframe/feature_selection/filters/_neural_mi.py](../src/mlframe/feature_selection/filters/_neural_mi.py#L59) |
 | `MLFRAME_NONFINITE_PAR_THRESHOLD` | `'1000000'` | [src/mlframe/feature_engineering/transformer/_utils.py](../src/mlframe/feature_engineering/transformer/_utils.py#L40) |
 | `MLFRAME_NO_CUDA_AUTOCONFIG` | `''` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L51) |

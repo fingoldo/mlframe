@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 
-def dense_class_codes(classes_y) -> np.ndarray:
+def dense_class_codes(classes_y: ArrayLike) -> np.ndarray:
     """Map ``classes_y`` to a 1-D array of dense int64 codes 0..K-1, one per row.
 
     Distinct values stay distinct (no integer cast before ``np.unique``, which would merge fractional labels), and the input is raveled first:

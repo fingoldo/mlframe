@@ -573,12 +573,8 @@ class TestRecipeCorruptionSurvival:
         # an explicit fallback that returns a documented sentinel column;
         # the current MI-greedy replay does NOT, so any silent success
         # implies the column lookup returned a phantom value -- a bug.
-        try:
+        with pytest.raises((KeyError, ValueError, TypeError, IndexError, AttributeError)) as exc_info:
             m_rt.transform(X)
-        except (KeyError, ValueError, TypeError, IndexError, AttributeError) as exc:
-            msg = str(exc)
-            # Actionability: error must mention the missing column name.
-            assert any(b in msg for b in bogus_src), f"seed={seed}: error must name the missing column for actionability; got: {msg!r}"
-            return
-        # Reached only on silent success -> contract failure.
-        pytest.fail(f"seed={seed}: transform() silently succeeded with corrupted src_names {bogus_src!r}; expected an actionable raise.")
+        msg = str(exc_info.value)
+        # Actionability: error must mention the missing column name.
+        assert any(b in msg for b in bogus_src), f"seed={seed}: error must name the missing column for actionability; got: {msg!r}"

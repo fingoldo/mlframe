@@ -12,6 +12,8 @@ TEST (an integrality check), and a cast applied to codes that ``np.unique(..., r
 import ast
 import pathlib
 
+from ._scan_guard import assert_scanned_enough
+
 _ROOT = pathlib.Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection"
 
 
@@ -63,5 +65,6 @@ def find_truncating_y_casts(root: pathlib.Path = _ROOT) -> list[str]:
 
 def test_no_fe_module_truncates_a_float_target_to_int64():
     """The shared encoder is the only correct path; a truncating cast anywhere is the RO-4 bug back again."""
+    assert_scanned_enough(sum(1 for _ in _ROOT.rglob("*.py")), "src/mlframe/feature_selection")
     hits = find_truncating_y_casts()
     assert hits == [], "truncating float-target discretisation reintroduced -- use encode_y_for_classif_mi:\n  " + "\n  ".join(hits)
