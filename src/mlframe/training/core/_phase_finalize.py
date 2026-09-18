@@ -432,10 +432,19 @@ def _render_split_comparison_panels(ctx: "TrainingContext") -> None:
             if not isinstance(_entries, list):
                 continue
             for _i, _entry in enumerate(_entries):
+                # First non-empty of: the entry's model_name, the unwrapped model's class name, a positional name.
                 _mn = str(
-                    getattr(_entry, "model_name", None)
-                    or type(unwrap_target_wrapper(getattr(_entry, "model", None))).__name__
-                    or f"model_{_i}"
+                    next(
+                        (
+                            n
+                            for n in (
+                                getattr(_entry, "model_name", None),
+                                type(unwrap_target_wrapper(getattr(_entry, "model", None))).__name__,
+                            )
+                            if n
+                        ),
+                        f"model_{_i}",
+                    )
                 )
                 # The entry's own chart prefix (recorded by the trainer, unique per model, weight schema and ensemble
                 # method) so this panel sits beside the model's other charts. Naming by class name instead collided:

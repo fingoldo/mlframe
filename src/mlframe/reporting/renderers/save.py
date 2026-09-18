@@ -287,8 +287,8 @@ def _start_daemon_task(fn, *args):
             return
         try:
             fut.set_result(fn(*args))
-        except BaseException as exc:  # noqa: BLE001 -- handed to the waiting caller, which classifies it
-            fut.set_exception(exc)
+        except Exception as exc:  # handed to the waiting caller, which classifies it; anything else leaves the
+            fut.set_exception(exc)  # future pending, and the caller's per-backend timeout already covers that
 
     threading.Thread(target=_run, name="mlframe-render", daemon=True).start()
     return fut

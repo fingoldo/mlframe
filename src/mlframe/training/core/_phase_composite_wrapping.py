@@ -108,7 +108,7 @@ def _emit_yscale_composite_chart(
     from mlframe.training.reporting import display_estimator_name
     _inner_class = display_estimator_name(type(getattr(_outer, "estimator_", _outer)).__name__)
     # Header stats are the split's own mean/std (y_target is the split slice), distinct from the suite's MTTR (TRAIN-split mean) -- label them as such to avoid cross-reading drift.
-    _split = str(split_name or "test")
+    _split = str(split_name) if split_name else "test"  # an empty split name labels as "test" too, on purpose
     _mttr = float(np.mean(y_target))
     _mtts = float(np.std(y_target))
     chart_model_name = f"{_inner_class} {target_name} [y-scale] {_split}_mean/{_split}_std={_mttr:.2f}/{_mtts:.2f}"
