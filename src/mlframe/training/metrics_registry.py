@@ -248,6 +248,15 @@ _KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
     # detectors must resolve their direction or they self-disable on an otherwise-known metric.
     "l2", "l1", "binary_logloss", "multi_logloss", "binary_error", "multi_error", "error",
     "fair", "tweedie", "gamma", "poisson",
+    # Robust / distributional regression losses as the boosters name them in their eval logs: LightGBM ``huber`` / ``quantile`` /
+    # ``gamma_deviance`` / ``xentropy``, XGBoost ``mphe`` (pseudo-Huber) / ``*-nloglik`` / ``mlogloss``, CatBoost ``Huber:delta=..`` /
+    # ``Lq:q=..`` / ``Expectile`` / ``RMSEWithUncertainty`` / ``MultiRMSE`` (parameter suffixes are stripped by the canonicaliser).
+    "huber", "mphe", "pseudo_huber", "pseudohuber", "pseudohubererror", "pseudo_huber_loss", "fair_loss", "fairloss",
+    "quantile", "expectile", "lq", "loglinquantile", "log_linear_quantile", "rmsewithuncertainty", "multirmse",
+    "multirmsewithmissingvalues", "msle", "medianabsoluteerror", "multiquantile",
+    "poisson-nloglik", "gamma-nloglik", "gamma-deviance", "tweedie-nloglik", "cox-nloglik", "aft-nloglik",
+    "mlogloss", "merror", "xentropy", "xentlambda", "cross_entropy_lambda", "kullback_leibler", "crossentropy",
+    "multiclass", "multiclassonevsall", "multilogloss", "multicrossentropy",
 })
 
 # Carry-out: LRAP is higher-is-better; ensure it lands in HIGHER bucket
@@ -257,8 +266,8 @@ _KNOWN_METRIC_DIRECTIONS_HIGHER = frozenset(_KNOWN_METRIC_DIRECTIONS_HIGHER | {"
 
 
 def _canonicalise_metric_name(name: str) -> str:
-    """Strip common prefixes (val_/test_/oof_/train_) and @k rank-cutoff
-    suffixes; lowercase. Used by ``metric_name_higher_is_better``."""
+    """Strip common prefixes (val_/test_/oof_/train_), @k rank-cutoff
+    suffixes and ``:param=value`` suffixes; lowercase. Used by ``metric_name_higher_is_better``."""
     if not isinstance(name, str):
         return ""
     s = name.strip().lower()
@@ -268,6 +277,10 @@ def _canonicalise_metric_name(name: str) -> str:
             break
     if "@" in s:
         s = s.split("@", 1)[0]
+    # CatBoost reports parameterised metrics verbatim (``Huber:delta=1.345``, ``Quantile:alpha=0.9``, ``Lq:q=2``); the parameters
+    # never change the optimisation direction, so drop everything from the first ':'.
+    if ":" in s:
+        s = s.split(":", 1)[0].strip()
     return s
 
 
