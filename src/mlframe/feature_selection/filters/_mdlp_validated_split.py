@@ -297,8 +297,8 @@ def _mdlp_permutation_batch_njit(
     """Batched twin of ``_split_significant``'s permutation branch, across ALL nodes at one BFS level
     that need it (``analytic_null_applicable`` was False for each). ``x_padded``/``y_padded`` are
     ``(n_nodes, max_n)`` -- row ``i``'s real data is ``[:node_sizes[i]]``, the rest is padding (never
-    read: every inner loop is bounded by ``node_sizes[i]``). ``numba.prange`` over nodes AND (nested,
-    via each node's own already-``prange``-batched call... no -- see below) over permutations.
+    read: every inner loop is bounded by ``node_sizes[i]``). One flat ``numba.prange`` over every
+    (node, permutation) pair, so a level with a single node still uses every core.
 
     Does NOT run ``_permutation_prefilter_reject`` (that check calls ``analytic_mi_null``, which uses
     ``scipy.stats.chi2`` and is not njit-compatible) -- safe to skip: its own docstring proves it "can
@@ -313,24 +313,28 @@ def _mdlp_permutation_batch_njit(
     """
     n_nodes = x_padded.shape[0]
     accept = np.zeros(n_nodes, dtype=np.bool_)
-    for node in numba.prange(n_nodes):
+    # prange over (node, permutation) PAIRS, not nodes: the shallow BFS levels hold one or two nodes (the root
+    # level exactly one, and it is the LARGEST node), so a prange over nodes ran those levels' whole
+    # n_permutations x O(n) scans on a single thread. Each draw seeds itself (base_seed + p) exactly as before,
+    # so the null gains - and every accept decision - are bit-identical to the per-node loop.
+    null_all = np.empty((n_nodes, n_permutations), dtype=np.float64)
+    for k in numba.prange(n_nodes * n_permutations):
+        node = k // n_permutations
+        p = k - node * n_permutations
         ni = node_sizes[node]
         x_i = x_padded[node, :ni]
-        y_i = y_padded[node, :ni]
-        nc = n_classes_arr[node]
+        np.random.seed(base_seeds[node] + p)
+        y_perm = y_padded[node, :ni].copy()
+        for i in range(ni - 1, 0, -1):
+            j = int(np.random.randint(0, i + 1))
+            tmp = y_perm[i]
+            y_perm[i] = y_perm[j]
+            y_perm[j] = tmp
+        _, g, _, _, _ = _mdlp_best_split_njit(x_i, y_perm, n_classes_arr[node], min_split_size)
+        null_all[node, p] = g if g > 0.0 else 0.0
+    for node in range(n_nodes):
         gain = node_gains[node]
-        base_seed = base_seeds[node]
-        null_gains = np.empty(n_permutations, dtype=np.float64)
-        for p in range(n_permutations):
-            np.random.seed(base_seed + p)
-            y_perm = y_i.copy()
-            for i in range(ni - 1, 0, -1):
-                j = int(np.random.randint(0, i + 1))
-                tmp = y_perm[i]
-                y_perm[i] = y_perm[j]
-                y_perm[j] = tmp
-            _, g, _, _, _ = _mdlp_best_split_njit(x_i, y_perm, nc, min_split_size)
-            null_gains[p] = g if g > 0.0 else 0.0
+        null_gains = null_all[node].copy()
         null_gains.sort()
         q_idx = min(math.ceil((1.0 - alpha) * n_permutations) - 1, n_permutations - 1)
         q_idx = max(0, q_idx)
