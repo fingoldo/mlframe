@@ -540,7 +540,10 @@ def _identity_fastpath_is_safe(self, X) -> bool:
     except Exception:
         # Never let an exotic container make transform() silently permissive: fall through to the slow path,
         # which validates names explicitly and raises an actionable error.
-        logger.info("MRMR.transform: identity fast-path safety probe failed on a %s; using the fully-validated path.", type(X).__name__, exc_info=True)
+        log_throttle(
+            logger, "mrmr_transform_identity_probe_failed", logging.WARNING,
+            "MRMR.transform: identity fast-path safety probe failed on a %s; using the fully-validated path.", type(X).__name__, exc_info=True,
+        )
         return False
 
 
