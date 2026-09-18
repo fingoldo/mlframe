@@ -238,11 +238,13 @@ class ReportingConfig(BaseConfig):
 
     # Standalone post-fit diagnostics wired into the per-(model, split) report path. All are cheap (reuse the
     # already-computed preds / errors / importances on a bounded subsample) so they default ON; each can be disabled
-    # individually for hot loops. The single genuinely-expensive path (non-tree SHAP, learning curve) is opt-in below.
+    # individually for hot loops. The ones whose summed cost dominated a production run (PDP/ICE, SHAP, slice finder, and the
+    # per-(model, split) model card / risk-coverage) are opt-in, as are non-tree SHAP and the learning curve.
     #
     # PDP/ICE for the top feature-importance features when a fitted model + feature frame are present. Rows are
-    # subsampled to ``pdp_sample`` before any predict, so cost is ``pdp_grid`` predicts independent of n.
-    pdp_ice: bool = True
+    # subsampled to ``pdp_sample`` before any predict, so cost is ``pdp_grid`` predicts independent of n -- but each predict is
+    # a full model call plus a plotly render, ~15s per model on a production run (3288s over 215 calls). OPT-IN: set True.
+    pdp_ice: bool = False
     pdp_top_features: int = 4
     pdp_sample: int = 2000
     pdp_grid: int = 20
@@ -297,7 +299,8 @@ class ReportingConfig(BaseConfig):
     # rendered when >=2 models were trained on the same task (single-model runs skip cheaply).
     model_comparison: bool = True
     # Multi-dim weak-slice search on the precomputed per-row error (no model calls); finds the worst feature-value regions.
-    slice_finder: bool = True
+    # The feature-combination enumeration costs ~3s per model on wide frames (586s over 213 calls in production). OPT-IN: set True.
+    slice_finder: bool = False
     # Skip the EXPENSIVE post-fit diagnostics (slice_finder combo-enumeration, PDP/ICE, SHAP panels)
     # when a regression model's predictions have COLLAPSED to ~constant (pred_std << target_std AND
     # R^2 < 0). A collapsed model carries no signal to slice/explain, and those panels otherwise burn
@@ -318,9 +321,10 @@ class ReportingConfig(BaseConfig):
     # Default ON (unchanged behavior for existing callers); set False for wide-frame hot loops / integration
     # tests that don't need the drift read.
     adversarial_validation: bool = True
-    # SHAP beeswarm + top-K dependence. Default-ON for TREE models (exact fast TreeExplainer, cost scales with the
-    # explained-row cap not n); for NON-tree models the slow KernelExplainer path is OFF unless ``shap_allow_kernel``.
-    shap_panels: bool = True
+    # SHAP beeswarm + top-K dependence. For TREE models it uses the exact TreeExplainer (cost scales with the explained-row
+    # cap not n); for NON-tree models the slow KernelExplainer path stays OFF unless ``shap_allow_kernel``. ~11s per model
+    # in production (2366s over 213 calls), so OPT-IN: set True.
+    shap_panels: bool = False
     shap_max_rows: int = 20000
     shap_top_k: int = 6
     shap_allow_kernel: bool = False
@@ -336,10 +340,12 @@ class ReportingConfig(BaseConfig):
     combined_html: bool = True
     # Decile gain/lift/KS table figure for binary targets (the tabular complement to the GAIN curve). Default-ON; reuses the already-computed score, single O(n log n) sort.
     decile_table: bool = True
-    # One-glance per-(model, split) model card: header metrics + traffic-light verdict + mini sparklines. Default-ON when charts saved; reuses the split's y_true + scores/preds.
-    model_card: bool = True
-    # Risk-coverage (selective prediction): accuracy/error as you abstain on the least-confident cases vs a random-rejection reference; AURC + accuracy@80% headline. Default-ON for binary/multiclass when scores present; single argsort + cumulative pass.
-    risk_coverage_charts: bool = True
+    # One-glance per-(model, split) model card: header metrics + traffic-light verdict + mini sparklines; reuses the split's y_true + scores/preds.
+    # Cheap per call (~3s, mostly the render) but it fires for every (model, split): 2742s over 984 calls in production. OPT-IN: set True.
+    model_card: bool = False
+    # Risk-coverage (selective prediction): accuracy/error as you abstain on the least-confident cases vs a random-rejection reference; AURC + accuracy@80% headline.
+    # Single argsort + cumulative pass, ~1s per call, but it fires for every (model, split): 1080s over 984 calls in production. OPT-IN: set True.
+    risk_coverage_charts: bool = False
     # Cross-split overfit panel per model (grouped headline-metric bars + delta table + verdict), rendered once all splits exist. Default-ON when >=2 usable splits.
     split_comparison_charts: bool = True
     # CUSUM change-point on standardized regression residuals; catches a sustained mean shift per-bucket residual_vs_time misses. Default-ON for regression when timestamps cover the split.

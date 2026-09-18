@@ -365,7 +365,7 @@ def _render_post_fit_diagnostics(
     else:
         _collapsed = False  # gate disabled -> behave as before
 
-    if getattr(cfg, "pdp_ice", True) and y_arr is not None and not _collapsed:
+    if getattr(cfg, "pdp_ice", False) and y_arr is not None and not _collapsed:
         _budget.run("pdp_ice", lambda: render_pdp_ice_diagnostic(
                 model=model, df=df, feature_names=names, feature_importances=importances,
                 plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
@@ -418,7 +418,7 @@ def _render_post_fit_diagnostics(
         )
 
     if (
-        getattr(cfg, "slice_finder", True) and df is not None
+        getattr(cfg, "slice_finder", False) and df is not None
         and y_arr is not None and y_pred is not None and not _multilabel
         and len(y_pred) == len(y_arr) and not _collapsed
     ):
@@ -447,7 +447,7 @@ def _render_post_fit_diagnostics(
                     y_true=y_arr, y_score=_score, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
             ))
 
-    if getattr(cfg, "risk_coverage_charts", True) and y_arr is not None and not _multilabel:
+    if getattr(cfg, "risk_coverage_charts", False) and y_arr is not None and not _multilabel:
         from mlframe.reporting import render_risk_coverage_diagnostic
         if tt == "binary_classification":
             _bs = _binary_positive_score(probs)
@@ -471,7 +471,7 @@ def _render_post_fit_diagnostics(
                     base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
             ))
 
-    if getattr(cfg, "model_card", True) and y_arr is not None:
+    if getattr(cfg, "model_card", False) and y_arr is not None:
         _mc_task = "regression" if task == "regression" else ("binary" if tt == "binary_classification" else "classification")
         # Card title must carry the ESTIMATOR identity (e.g. "LGBMRegressor"), not the target_type --
         # ``model_name_for_title(target_type)`` returns "regression"/"classification", which rendered a
@@ -500,7 +500,7 @@ def _render_post_fit_diagnostics(
                         base_path=plot_file, metrics_dict=metrics, model_name=_card_name, split=_split,
                 ))
 
-    if getattr(cfg, "shap_panels", True) and model is not None and df is not None and not _collapsed:
+    if getattr(cfg, "shap_panels", False) and model is not None and df is not None and not _collapsed:
         _budget.run("shap", lambda: render_shap_diagnostic(
                 model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
                 metrics_dict=metrics, max_rows=getattr(cfg, "shap_max_rows", 20000), plot_dpi=plot_dpi,

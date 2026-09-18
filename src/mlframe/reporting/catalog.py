@@ -92,7 +92,7 @@ _DESCRIPTIONS: Dict[str, Dict[str, str]] = {
 # Standalone post-fit diagnostics (not panel-template tokens): each has its own composer / savefig path and is
 # wired into the per-(model, split) report by the suite, gated by a ``ReportingConfig`` knob.
 _STANDALONE_DIAGNOSTICS: List[Tuple[str, str]] = [
-    ("pdp_ice", "Partial-dependence + ICE for the top feature-importance features (default-on; subsampled, model-call bounded)."),
+    ("pdp_ice", "Partial-dependence + ICE for the top feature-importance features (opt-in via ReportingConfig.pdp_ice; subsampled, model-call bounded)."),
     ("interaction_strength", "Friedman-Popescu H-statistic heatmap over the top features (opt-in; O(k^2) 2-D PDP surfaces, k<=8)."),
     ("engineered_separability", "2-D scatter of the top-2 features colored by target + Fisher separability score (default-on; njit O(n))."),
     ("class_structure", "Group x time-bin class-rate heatmap for leakage / temporal-structure (default-on when a categorical group column is present)."),
@@ -100,17 +100,17 @@ _STANDALONE_DIAGNOSTICS: List[Tuple[str, str]] = [
     ("fuzzy_membership", "Soft-membership curves of a fitted fuzzy partition (interpretability for the fuzzy feature encoder; standalone)."),
     ("spectral_embedding", "Laplacian Fiedler-eigenvector graph layout (spectral embedding of the SGT graph descriptor; standalone)."),
     ("model_comparison", "Multi-model leaderboard (curve overlay + metric bar + prediction-correlation) when >=2 models share a task."),
-    ("slice_finder", "Multi-dim weak-slice search over the precomputed per-row error; worst feature-value regions ranked by degradation x support."),
+    ("slice_finder", "Multi-dim weak-slice search over the precomputed per-row error; worst feature-value regions ranked by degradation x support (opt-in via ReportingConfig.slice_finder)."),
     ("decision_curve", "Binary decision-curve net-benefit vs treat-all / treat-none (the clinical-utility operating read)."),
     ("calibration_drift", "Binary calibration drift over time (ECE per equal-population time window) when a split timestamp is present."),
-    ("shap_panels", "SHAP beeswarm + top-K dependence (default-on for tree models via fast TreeExplainer; opt-in KernelExplainer for non-tree)."),
+    ("shap_panels", "SHAP beeswarm + top-K dependence (opt-in via ReportingConfig.shap_panels; TreeExplainer for tree models, KernelExplainer for non-tree only with shap_allow_kernel)."),
     ("learning_curve", "Holdout score vs train size (OPT-IN: K full refits; set LearningCurveConfig(enabled=True))."),
     ("combined_html", "Single navigable HTML index per (model, split) stitching the rendered chart artifacts (assembly-only)."),
     # The list above had drifted badly: 19 diagnostics the dispatcher actually renders and records were
     # missing, so `describe_available_panels()` under-reported the suite's own output by more than half.
     # `test_catalog_lists_every_wired_diagnostic` now diffs this list against the `_record(charts, "...")`
     # call sites in the dispatch modules, so the next added diagnostic cannot silently go unlisted.
-    ("model_card", "One-glance per-(model, split) executive card: headline metrics, traffic-light verdict, 3 mini sparklines."),
+    ("model_card", "One-glance per-(model, split) executive card: headline metrics, traffic-light verdict, 3 mini sparklines (opt-in via ReportingConfig.model_card)."),
     ("decile_table", "Binary decile / gain table: per-decile response rate, cumulative gain and lift."),
     ("split_comparison", "Per-split metric comparison for the same model (train / val / test side by side)."),
     ("prediction_stability", "Rank-stability of per-row predictions across splits or refits (Spearman-based)."),
