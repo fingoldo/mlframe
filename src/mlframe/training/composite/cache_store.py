@@ -276,11 +276,15 @@ class DiscoveryCache:
 
     def __del__(self) -> None:
         # Best-effort flush so a cache GC'd without an explicit close() still persists access order.
+        # At interpreter shutdown module globals (logging internals included) may already be torn down, so even the
+        # debug log inside close()'s handler can raise TypeError; any failure here must stay silent ("Exception ignored in __del__").
         try:
             self.close()
-        except Exception as e:
-            logger.debug("swallowed exception in cache_store.py: %s", e)
-            pass
+        except Exception:
+            try:
+                logger.debug("DiscoveryCache.__del__ flush failed")
+            except Exception:
+                pass
 
     def _touch_lru(self, key: str) -> None:
         """Record ``key`` as accessed now in the in-memory LRU ledger and mark it dirty (disk write deferred to the next flush point)."""
