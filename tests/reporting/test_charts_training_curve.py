@@ -229,3 +229,74 @@ class TestTrainingCurveBizValue:
         post_gap = float(np.mean(val[turn:] - train[turn:]))
         assert pre_gap < 0.01, f"pre-ES gap should be ~0, got {pre_gap}"
         assert post_gap > pre_gap + 0.05, f"post-ES divergence too small: {post_gap} vs {pre_gap}"
+
+
+# ----------------------------------------------------------------------------
+# metric_period sampling + layout
+# ----------------------------------------------------------------------------
+
+
+def _catboost_sampled_history(n=600, period=5):
+    """CatBoost with metric_period=k logs learn at 0, k, 2k, ... plus the last iteration, validation every iteration."""
+    it = np.arange(n, dtype=np.float64)
+    train_full = 0.33 - 0.00002 * it  # linear, so interpolating the sampled points must reproduce it exactly
+    val = 0.285 + 0.02 * np.exp(-it / 15.0) + 0.000002 * it
+    pos = list(range(0, n, period))
+    if pos[-1] != n - 1:
+        pos.append(n - 1)
+    return {"Huber": {"learn": train_full[pos].tolist(), "validation": val.tolist()}}, train_full, val
+
+
+class TestMetricPeriodAlignment:
+    """A train curve logged every k-th iteration must be drawn at its real iterations, not its array index."""
+
+    def test_sampled_train_curve_spans_all_iterations(self):
+        """121 learn points over 600 iterations cover the whole x range instead of stopping at x=120."""
+        h, train_full, _ = _catboost_sampled_history()
+        panel = compose_training_curve_figure(h, es_iteration=133, metric_period=5).panels[0][0]
+        train = np.asarray(panel.y[panel.series_labels.index("train")])
+        assert train.shape[0] == 600 and np.isfinite(train).all()
+        np.testing.assert_allclose(train, train_full, rtol=1e-12)
+
+    def test_gap_is_measured_at_the_early_stop(self):
+        """The title's gap pairs train and val at the SAME (early-stop) iteration, not train[i] with val[i]."""
+        h, train_full, val = _catboost_sampled_history()
+        panel = compose_training_curve_figure(h, es_iteration=133, metric_period=5).panels[0][0]
+        expected = f"{val[133] - train_full[133]:+.3g} at early stop"
+        assert expected in panel.title, panel.title
+        assert f"{val[599] - train_full[599]:+.3g} at iter 599" in panel.title
+
+    def test_short_series_without_period_keeps_nan_tail(self):
+        """Without a known metric_period the short series is not stretched (it may have genuinely stopped early)."""
+        h, _, _ = _catboost_sampled_history()
+        train = np.asarray(compose_training_curve_figure(h).panels[0][0].y[0])
+        assert np.isfinite(train[:121]).all() and np.isnan(train[121:]).all()
+
+    def test_truncated_series_not_matching_the_period_grid_is_not_stretched(self):
+        """A series whose length does not match the period grid is a real early stop: keep the NaN tail."""
+        val = np.linspace(1.0, 0.5, 600)
+        h = {"m": {"train": np.linspace(1.0, 0.4, 50).tolist(), "val": val.tolist()}}
+        train = np.asarray(compose_training_curve_figure(h, metric_period=5).panels[0][0].y[0])
+        assert np.isnan(train[50:]).all()
+
+
+class TestLayout:
+    """Single-metric figures use the full width; the title does not repeat what the legend says."""
+
+    def test_single_panel_is_not_padded_to_two_columns(self, overfit_history):
+        """A lone panel must not share a 2-wide grid inside a 1-wide figure (half-width plot, shredded title)."""
+        spec = compose_training_curve_figure(overfit_history)
+        assert len(spec.panels) == 1 and len(spec.panels[0]) == 1
+        assert spec.figsize[0] == pytest.approx(9.0)
+
+    def test_two_metrics_fill_two_columns(self):
+        """Two metrics still share a row."""
+        h = {"a": {"train": [1.0, 0.5], "val": [1.0, 0.6]}, "b": {"train": [1.0, 0.5], "val": [1.0, 0.6]}}
+        spec = compose_training_curve_figure(h)
+        assert len(spec.panels[0]) == 2 and spec.figsize[0] == pytest.approx(18.0)
+
+    def test_early_stop_named_once_in_the_legend_not_the_title(self, overfit_history):
+        """The ES iteration lives in the vline legend label; the title no longer repeats it."""
+        panel = compose_training_curve_figure(overfit_history, es_iteration=70).panels[0][0]
+        assert "ES @" not in panel.title
+        assert panel.vlines[0][2] == "early stop @ 70"
