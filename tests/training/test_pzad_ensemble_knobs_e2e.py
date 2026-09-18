@@ -97,11 +97,11 @@ def _run(combo, tmp_path):
 
 def test_pzad_ensemble_knobs_run_end_to_end(tmp_path):
     """Suite runs with use_caruana_weights_in_ensemble + extra_ensembling_methods=('rank_average',) and produces a
-    non-empty model dict (the new behavior_config knobs are consumed by the ensembling phase without crashing), and a
-    rank_average-flavoured ensemble is stamped."""
+    non-empty model dict (the new behavior_config knobs are consumed by the ensembling phase without crashing). The target
+    is binary, where a rank blend is not a probability, so the flavour policy must drop rank_average: it is never built."""
     trained, _meta = _run(_combo(caruana=True, rank_average=True), tmp_path)
     assert trained, "suite produced no models with the PZAD ensemble knobs on"
-    # rank_average must appear among the built ensemble flavours (names carry the flavour token).
+    # Ensembles must still be built, but rank_average must NOT be among them (names carry the flavour token).
     names = []
     for _tt, per_name in trained.items() if isinstance(trained, dict) else []:
         if isinstance(per_name, dict):
@@ -109,7 +109,8 @@ def test_pzad_ensemble_knobs_run_end_to_end(tmp_path):
                 for e in entries if isinstance(entries, (list, tuple)) else [entries]:
                     nm = getattr(getattr(e, "model", e), "__mlframe_name__", "") or str(getattr(e, "name", "")) or repr(e)
                     names.append(nm.lower())
-    assert any("rank_average" in n for n in names), f"no rank_average ensemble stamped; saw {names[:8]}"
+    assert any(n.startswith("ens") or "arithm" in n for n in names), f"no ensemble stamped; saw {names[:8]}"
+    assert not any("rank_average" in n for n in names), f"rank_average built on a binary target; saw {names}"
 
 
 def test_pzad_ensemble_knobs_off_is_still_fine(tmp_path):

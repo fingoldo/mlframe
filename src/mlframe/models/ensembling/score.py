@@ -28,10 +28,12 @@ from .base import (
     compute_high_correlation_pairs,
 )
 from .process_method import _process_single_ensemble_method
+from .flavour_policy import filter_flavours_for_target_type
 from .score_validate import _validate_score_ensemble_inputs
 from .score_gate import (
     catastrophic_drop_k2,
     catastrophic_drop_kn,
+    realign_gate_preds,
     select_gate_source_split,
 )
 from .score_flavours import (
@@ -106,6 +108,8 @@ def score_ensemble(
     sample_weight: Optional[np.ndarray] = None,
     group_ids: Optional[np.ndarray] = None,
     rrf_k: int = 60,
+    # TargetTypes (or its value): rank-fusion flavours are built only for learning-to-rank (``flavour_policy``); None = infer from members.
+    target_type=None,
     # NO-GUARD-IDENTICAL: short-circuit when every member's predictions on the gate split match
     # numerically (Pearson corr == 1.0 AND elementwise close). One arithmetic-mean ensemble is
     # returned to skip every redundant flavour. Disabled by default so legacy reports keep their
@@ -206,6 +210,7 @@ def score_ensemble(
     )
     if res:
         return res
+    ensembling_methods = filter_flavours_for_target_type(ensembling_methods, target_type, is_regression, verbose) or list(SIMPLE_ENSEMBLING_METHODS)
 
     # Determine sample count for parallelization decision
     first_pred = level_models_and_predictions[0]
@@ -238,8 +243,7 @@ def score_ensemble(
     #
     # Source ordering: OOF preds/probs come FIRST -- the gate's job is to drop members whose preds are outliers vs
     # the ensemble median, and val_preds are already burned for early-stopping (gating on them double-dips val).
-    # OOF preds are the only honest train-side signal (cross_val_predict held-out rows). Fallback chain: oof_* ->
-    # val_* -> test_* -> train_* preserves the legacy behaviour for members trained without oof_n_splits.
+    # OOF / calib are the ES-free surfaces; else val at a coarse threshold only; never test (``select_gate_source_split``).
     (
         _gate_preds_for_check,
         _gate_source_split,
@@ -307,6 +311,7 @@ def score_ensemble(
     if _k2_early_return:
         return res
 
+    _pre_gate_members = level_models_and_predictions
     (
         level_models_and_predictions,
         _ensemble_member_tags,
@@ -334,6 +339,7 @@ def score_ensemble(
         res=res,
         verbose=verbose,
     )
+    _gate_preds_for_check = realign_gate_preds(_pre_gate_members, level_models_and_predictions, _gate_preds_for_check)
 
     # Observational diversity check: pairs of kept members whose val-pred Pearson correlation exceeds the threshold are
     # surfaced via WARN + persisted to the returned dict under ``_diversity.high_correlation_pairs``. Defaults to

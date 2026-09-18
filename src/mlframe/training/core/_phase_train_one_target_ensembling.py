@@ -91,6 +91,7 @@ def _finalize_per_target_ensembling(
     _ens_kwargs = dict(common_params or {})
     _ens_kwargs.pop("group_ids", None)
     _ens_kwargs.pop("sample_weight", None)
+    _ens_kwargs.pop("target_type", None)
     # W16D / A3#3: surface ``TrainingBehaviorConfig.use_ap12_calibrated_probs_in_ensemble`` as the
     # explicit ``use_ap12_calibrated_probs`` kwarg on ``score_ensemble``. Default True so the suite
     # default benefits from AP12-calibrated probs in arithm / harm / quad / qube / geo / median blends;
@@ -116,6 +117,8 @@ def _finalize_per_target_ensembling(
         group_ids=getattr(ctx, "group_ids", None),
         sample_weight=_ens_sample_weight,
         use_ap12_calibrated_probs=_use_ap12_cal,
+        # score_ensemble drops flavours invalid for this target type (rank fusion outside learning-to-rank) before building any.
+        target_type=target_type,
         **_ens_kwargs,
     )
     # Persist the ensemble outputs so finalize_suite can serialise them and downstream

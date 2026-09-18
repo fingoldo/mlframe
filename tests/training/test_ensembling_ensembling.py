@@ -702,6 +702,8 @@ def test_coarse_gate_drops_catastrophic_outlier_member(caplog):
     messages = " | ".join(rec.message for rec in caplog.records)
     assert "COARSE gate" in messages, f"Coarse gate did not run: {messages}"
     assert "kept 3/4" in messages, f"Expected catastrophic outlier dropped (3/4 kept), got: {messages}"
+    # The gate-source preds must be sliced to the survivors too; a stale 4-long list crashed the stacking-aware weight gate.
+    assert "stacking_aware_gate failed" not in messages, f"stacking gate saw unsliced gate preds: {messages}"
 
 
 # --------------------------- VOTENRANK ---------------------------

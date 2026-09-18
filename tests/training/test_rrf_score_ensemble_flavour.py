@@ -250,6 +250,49 @@ def test_rrf_skipped_for_regression_target_type(caplog):
 
     assert "rrf" not in res, f"rrf should NOT appear for regression, got keys {list(res.keys())!r}"
     assert "arithm" in res
-    # WARN line about skipping rrf was emitted.
-    skip_messages = [rec for rec in caplog.records if "skipping rrf candidate" in rec.getMessage()]
+    # INFO line naming the dropped flavour was emitted.
+    skip_messages = [rec for rec in caplog.records if "dropping ensemble flavour" in rec.getMessage() and "rrf" in rec.getMessage()]
     assert skip_messages, f"expected an INFO log about skipping rrf, got messages: {[r.getMessage() for r in caplog.records]!r}"
+
+
+def _run_score_ensemble_with_target_type(members, target_type, methods, clf):
+    """Runs score_ensemble with a patched member trainer and returns the built flavour keys."""
+    mock_result = MagicMock()
+    mock_result.metrics = {"test": {"mse": 0.1}, "val": {"mse": 0.15}}
+    for _split in ("train", "test", "val"):
+        setattr(mock_result, f"{_split}_probs", np.random.rand(30, 2).astype(np.float32) if clf else None)
+        setattr(mock_result, f"{_split}_preds", None if clf else np.random.rand(30).astype(np.float32))
+    _tgt = (lambda: pd.Series(np.random.randint(0, 2, 30))) if clf else (lambda: pd.Series(np.random.rand(30)))
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
+        res = score_ensemble(
+            models_and_predictions=members, ensemble_name="tt", train_target=_tgt(), test_target=_tgt(), val_target=_tgt(),
+            ensembling_methods=methods, uncertainty_quantile=0, verbose=True, target_type=target_type,
+        )
+    return [k for k in res if isinstance(k, str) and not k.startswith("_")]
+
+
+@pytest.mark.parametrize("target_type", ["binary_classification", "multiclass_classification", "multilabel_classification"])
+def test_rank_fusion_not_built_for_classification_target_types(target_type, caplog):
+    """A rank blend is not a probability, so with a classification target_type neither rank_average nor rrf is built (hence never choosable)."""
+    members = [_make_mock_classification_member(n_samples=30, seed=i) for i in range(3)]
+    with caplog.at_level(logging.INFO, logger="mlframe.models.ensembling"):
+        keys = _run_score_ensemble_with_target_type(members, target_type, ["arithm", "rrf", "rank_average"], clf=True)
+    assert "arithm" in keys
+    assert "rrf" not in keys and "rank_average" not in keys, keys
+    assert any("dropping ensemble flavour" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("target_type", ["regression", "quantile_regression", "multi_target_regression", None])
+def test_rank_average_not_built_for_regression(target_type):
+    """rank_average outputs ranks in [0, 1] (mean 0.5 whatever the target mean) -- never built for regression targets."""
+    members = [_make_mock_regression_member(n_samples=30, seed=i) for i in range(3)]
+    keys = _run_score_ensemble_with_target_type(members, target_type, ["arithm", "rank_average"], clf=False)
+    assert "arithm" in keys
+    assert "rank_average" not in keys, keys
+
+
+def test_rank_fusion_kept_for_learning_to_rank():
+    """Learning-to-rank consumes per-row scores whose ordering is the product, so rank fusion stays available there."""
+    members = [_make_mock_regression_member(n_samples=30, seed=i) for i in range(3)]
+    keys = _run_score_ensemble_with_target_type(members, "learning_to_rank", ["arithm", "rrf", "rank_average"], clf=False)
+    assert {"arithm", "rrf", "rank_average"} <= set(keys), keys

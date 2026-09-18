@@ -96,24 +96,11 @@ def test_validate_rejects_mixed_clf_reg(sibling_validate):
         )
 
 
-def test_validate_filters_rrf_on_regression(sibling_validate):
-    """RRF must be silently filtered when target inference picks regression."""
-    m1 = MagicMock()
-    m2 = MagicMock()
-    for m in (m1, m2):
-        m.oof_probs = None
-        m.val_probs = None
-        m.test_probs = None
-        m.train_probs = None
+def test_rank_fusion_dropped_on_regression_like_members_without_target_type():
+    """Without a target_type the flavour policy drops rank fusion for regression-like members (no probs) and keeps it for classifiers."""
+    from mlframe.models.ensembling.flavour_policy import filter_flavours_for_target_type
 
-    early_res, is_regression, methods, ensure_prob = sibling_validate._validate_score_ensemble_inputs(
-        level_models_and_predictions=[m1, m2],
-        ensembling_methods=["mean", "rrf", "median"],
-        ensure_prob_limits=True,
-        max_ensembling_level=1,
-        verbose=False,
-    )
-    assert early_res == {}
-    assert is_regression is True
-    assert "rrf" not in methods
-    assert ensure_prob is False
+    assert filter_flavours_for_target_type(["mean", "rrf", "rank_average", "median"], None, is_regression=True, verbose=False) == ["mean", "median"]
+    assert filter_flavours_for_target_type(["mean", "rrf"], None, is_regression=False, verbose=False) == ["mean", "rrf"]
+    assert filter_flavours_for_target_type(["mean", "rrf"], "binary_classification", is_regression=False, verbose=False) == ["mean"]
+    assert filter_flavours_for_target_type(["mean", "rrf"], "learning_to_rank", is_regression=True, verbose=False) == ["mean", "rrf"]
