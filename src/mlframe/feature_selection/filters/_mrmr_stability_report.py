@@ -46,6 +46,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._fe_stability_vote import _marginal_mi as _marginal_mi_codes
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -248,7 +250,8 @@ def _replay_recipe_survival(*, voted, rec_state, y_codes, n_boot, rng) -> dict:
         alt = bool(rs.get("alt", False))
         if eng.shape[0] != n:
             # The stored codes disagree with the target's length: the replay state is inconsistent with the fit, not merely absent.
-            logger.warning(
+            log_throttle(
+                logger, "stability_report_recipe_length_mismatch", logging.WARNING,
                 "selection_stability_report: recipe %r has %d stored engineered codes but y has %d rows; its survival frequency is omitted",
                 nm, int(eng.shape[0]), n,
             )

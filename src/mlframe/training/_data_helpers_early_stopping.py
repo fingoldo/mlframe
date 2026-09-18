@@ -96,12 +96,27 @@ def maybe_wrap_for_partial_fit_es(
 
     Parameters
     ----------
+    model_obj
+        The estimator to wrap; ``None`` is passed through.
+    model_category
+        Model family key; families in ``_NATIVE_ES_CATEGORIES`` are passed through.
+    X_val
+        Validation features the wrapper scores for early stopping.
+    y_val
+        Validation target matching ``X_val``.
+    is_classification
+        Selects the wrapper's classification or regression val metric.
     behavior_kwargs
         Optional dict carrying ``TrainingBehaviorConfig`` ES knobs (patience, min_delta,
         max_iter, budget bounds) forwarded to the wrapper.
     random_state
         Outer suite seed forwarded to the wrapper's internal train/val ES split so ES is
         reproducible per-seed and independent across seeds. ``None`` lets the split vary.
+
+    Returns
+    -------
+    tuple[Any, bool]
+        The model (wrapped or untouched) and whether it was wrapped.
     """
     if model_obj is None or X_val is None or y_val is None:
         return model_obj, False

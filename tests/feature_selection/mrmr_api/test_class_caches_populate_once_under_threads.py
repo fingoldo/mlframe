@@ -41,4 +41,4 @@ def test_fresh_instance_defaults_cache_populates_once_under_threads(monkeypatch)
     for t in threads:
         t.join()
     assert calls["n"] == 1, f"fresh MRMR() constructed {calls['n']} times under a concurrent cold cache"
-    assert all(r is results[0] for r in results)
+    assert len(results) == 8 and all(r is results[0] for r in results)

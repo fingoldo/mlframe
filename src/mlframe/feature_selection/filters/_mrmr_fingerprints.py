@@ -329,7 +329,7 @@ def _named_frame_signature(arr, col_names) -> tuple:
         if vals.dtype == object:
             h.update(repr(vals.tolist()).encode("utf-8"))
         else:
-            h.update(np.ascontiguousarray(vals).tobytes())
+            h.update(np.ascontiguousarray(vals).view(np.uint8).data)
     return ((n_rows, n_cols), dtypes, h.digest(), col_names)
 
 

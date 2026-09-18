@@ -78,4 +78,4 @@ def test_chunked_bias_fill_equals_full_comprehension(monkeypatch):
     got: dict = {}
     poa.fill_pair_bias(got, pa, pb, bias)
     assert got == expected
-    assert all(a <= b for a, b in got)
+    assert got and all(a <= b for a, b in got)

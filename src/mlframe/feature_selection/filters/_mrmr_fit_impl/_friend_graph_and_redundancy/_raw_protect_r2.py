@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 
@@ -18,7 +19,9 @@ def _well_conditioned(r: np.ndarray) -> bool:
     return bool(d.size) and bool(np.all(np.isfinite(d))) and float(d.min()) > _RCOND * float(d.max())
 
 
-def heldout_r2_scorer(base_mat, y: np.ndarray, train_mask: np.ndarray, val_mask: np.ndarray):
+def heldout_r2_scorer(
+    base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray, train_mask: np.ndarray, val_mask: np.ndarray
+) -> Callable[[Optional[np.ndarray]], float]:
     """Return ``r2(extra=None)``: the held-out R^2 of a least-squares fit of ``y`` on ``[base | extra]``, trained on ``train_mask`` rows.
 
     ``base_mat`` is an ``(n, p)`` array or a sequence of ``p`` length-n columns; a sequence is sliced per column, so the full-height design
