@@ -869,6 +869,13 @@ def run_composite_target_discovery(
                 _pending_composite.append({
                     "tt": _tt_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain,
                 })
+            # Each shipped spec costs a full model-zoo fit: drop ones whose T is equivalent to raw y or to a better spec's T.
+            from ._phase_composite_discovery_dedup import prune_equivalent_composite_specs
+            for _dropped_name in prune_equivalent_composite_specs(
+                specs=list(_disc.specs_), t_by_name=_t_by_spec_for_charts, y_full=_y_arr, train_idx=filtered_train_idx,
+                pending=_pending_composite, metadata=metadata, target_type=str(_tt_disc), target_name=_tname_disc,
+            ):
+                _t_by_spec_for_charts.pop(_dropped_name, None)
 
             # Render the winning-spec diagnostics (target-distribution + MI-gain) into the chart dir; the
             # discovery accept-path is the only point where the original y, the per-spec T column, and the

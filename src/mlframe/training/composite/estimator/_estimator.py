@@ -379,7 +379,14 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         # The gate counts FINITE values (``finite.sum()``), mirroring .fit(); using
         # ``finite.size`` let a mostly-NaN y_train estimate the band from ~2 points.
         t_clip_low, t_clip_high = float("-inf"), float("inf")
-        if int(finite.sum()) >= 10:
+        # Discovery stamps the exact T-train envelope into the spec (it has the base column there). Prefer it: the y_std proxy
+        # below assumes T lives on y's scale, false for SCALED residuals (quantile_residual divides by a per-bin IQR), where it
+        # clipped every test row to one bound and turned the prediction into a constant.
+        _env_lo = transform_fitted_params.get("t_train_envelope_low") if hasattr(transform_fitted_params, "get") else None
+        _env_hi = transform_fitted_params.get("t_train_envelope_high") if hasattr(transform_fitted_params, "get") else None
+        if _env_lo is not None and _env_hi is not None and np.isfinite(_env_lo) and np.isfinite(_env_hi) and _env_hi >= _env_lo:
+            t_clip_low, t_clip_high = float(_env_lo), float(_env_hi)
+        elif int(finite.sum()) >= 10:
             _transform = get_transform(transform_name)
             _t_train_recon: np.ndarray | None = None
             if not _transform.requires_base:

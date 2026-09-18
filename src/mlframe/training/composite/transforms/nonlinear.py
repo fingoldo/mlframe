@@ -242,6 +242,28 @@ def _quantile_residual_per_bin_stats(
     )
 
 
+def _robust_y_scale(y_clean: np.ndarray) -> float:
+    """Scale used to standardise quantile_residual T: IQR, falling back to 1.4826*MAD, then std, then 1.0.
+
+    A bare ``max(IQR, 1e-6)`` floor turns a zero-inflated target (>50% of rows at one value, so IQR == 0) into
+    T = (y - median) * 1e6: T values in the millions that no T-scale clip envelope or booster handles sanely, and the
+    inverse collapses predictions to a constant.
+    """
+    y_clean = np.asarray(y_clean, dtype=np.float64)
+    if y_clean.size == 0:
+        return 1.0
+    q25, q50, q75 = np.percentile(y_clean, [25, 50, 75])
+    ref = max(float(np.max(np.abs(y_clean))), 1.0)
+    iqr = float(q75 - q25)
+    if iqr > 1e-9 * ref:
+        return iqr
+    mad = 1.4826 * float(np.median(np.abs(y_clean - q50)))
+    if mad > 1e-9 * ref:
+        return mad
+    sd = float(np.std(y_clean))
+    return sd if sd > 1e-9 * ref else 1.0
+
+
 def _quantile_residual_fit(
     y: np.ndarray, base: np.ndarray,
     n_bins: int = _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
@@ -261,8 +283,7 @@ def _quantile_residual_fit(
     if finite.sum() < n_bins * 2:
         # Degenerate: fall back to global stats so the inverse is still safe.
         med = float(np.median(y_f[finite])) if finite.any() else 0.0
-        iqr_v = float(np.subtract(*np.percentile(y_f[finite], [75, 25]))) if finite.sum() >= 4 else 1.0
-        iqr_v = max(iqr_v, 1e-6)
+        iqr_v = _robust_y_scale(y_f[finite]) if finite.sum() >= 4 else 1.0
         return {
             "bin_edges": np.array([-np.inf, np.inf], dtype=np.float64),
             "bin_medians": np.array([med], dtype=np.float64),
@@ -282,7 +303,7 @@ def _quantile_residual_fit(
     if edges.size < 2:
         # All base values identical: degenerate single bucket.
         med = float(np.median(y_clean))
-        iqr_v = max(float(np.subtract(*np.percentile(y_clean, [75, 25]))), 1e-6)
+        iqr_v = _robust_y_scale(y_clean)
         return {
             "bin_edges": np.array([-np.inf, np.inf], dtype=np.float64),
             "bin_medians": np.array([med], dtype=np.float64),
@@ -297,7 +318,7 @@ def _quantile_residual_fit(
     actual_n_bins = edges.size - 1
     # Global stats: fallback for under-populated bins.
     global_median = float(np.median(y_clean))
-    global_iqr = max(float(np.subtract(*np.percentile(y_clean, [75, 25]))), 1e-6)
+    global_iqr = _robust_y_scale(y_clean)
     # Per-bin assignment via np.searchsorted (right-side: edges[i-1] <= x < edges[i]).
     bin_idx = np.clip(np.searchsorted(edges[1:-1], base_clean, side="right"), 0, actual_n_bins - 1)
     bin_medians, bin_iqrs, bin_sizes_arr = _quantile_residual_per_bin_stats(

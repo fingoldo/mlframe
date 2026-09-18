@@ -1,0 +1,70 @@
+"""Post-discovery pruning of redundant composite specs, run before any per-spec training.
+
+Lives beside ``_phase_composite_discovery`` (which is near the module-size limit); called once per original target after
+the full T columns are materialised.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import numpy as np
+
+from ..composite.discovery._t_equivalence import DEFAULT_R2_TOL, find_equivalent_composite_specs, t_train_envelope
+
+logger = logging.getLogger("mlframe.training.core._phase_composite_discovery")
+
+
+def _spec_name(s: Any):
+    return s.get("name") if isinstance(s, dict) else getattr(s, "name", None)
+
+
+def prune_equivalent_composite_specs(
+    *,
+    specs: list,
+    t_by_name: dict[str, np.ndarray],
+    y_full: np.ndarray,
+    train_idx,
+    pending: list[dict],
+    metadata: dict,
+    target_type: str,
+    target_name: str,
+    r2_tol: float = DEFAULT_R2_TOL,
+) -> dict[str, str]:
+    """Stamp each spec's T-train envelope, then drop specs equivalent to raw y / to a better-ranked spec.
+
+    Mutates ``pending`` (the global to-train buffer), ``metadata["composite_target_specs"]`` and ``_failures`` in place so a
+    dropped spec is neither trained nor shown in the verdict. Returns ``{dropped_name: reason}``.
+    """
+    y_full = np.asarray(y_full, dtype=np.float64).reshape(-1)
+    tr = np.arange(y_full.size) if train_idx is None else np.asarray(train_idx)
+    exported = (metadata.get("composite_target_specs", {}).get(str(target_type), {}) or {}).get(target_name) or []
+    exported_by_name = {_spec_name(s): s for s in exported}
+    t_train_by_name: dict[str, np.ndarray] = {}
+    for s in specs:
+        n = _spec_name(s)
+        if n not in t_by_name:
+            continue
+        t_tr = np.asarray(t_by_name[n], dtype=np.float64)[tr]
+        t_train_by_name[n] = t_tr
+        env = t_train_envelope(t_tr)
+        if env is None:
+            continue
+        # The end-of-target wrapper has no base column to rebuild T from; hand it the exact train envelope.
+        for holder in (getattr(s, "fitted_params", None), (exported_by_name.get(n) or {}).get("fitted_params")):
+            if isinstance(holder, dict):
+                holder["t_train_envelope_low"], holder["t_train_envelope_high"] = env
+    gain = {p["name"]: p.get("gain", float("-inf")) for p in pending if str(p.get("tt")) == str(target_type)}
+    priority = sorted(t_train_by_name, key=lambda n: -float(gain.get(n, float("-inf"))) if np.isfinite(gain.get(n, np.nan)) else float("inf"))
+    drops = find_equivalent_composite_specs(y_full[tr], t_train_by_name, priority, r2_tol=r2_tol)
+    if not drops:
+        return drops
+    for n, why in drops.items():
+        logger.info("[CompositeTargetDiscovery] dropped redundant composite '%s' before training: %s.", n, why)
+    pending[:] = [p for p in pending if not (str(p.get("tt")) == str(target_type) and p.get("name") in drops)]
+    if exported:
+        exported[:] = [s for s in exported if _spec_name(s) not in drops]
+    fails = metadata.setdefault("composite_target_failures", {}).setdefault(str(target_type), {}).setdefault(target_name, [])
+    fails.extend({"name": n, "kept": False, "rejected": True, "reason": f"redundant: {why}"} for n, why in drops.items())
+    metadata.setdefault("composite_target_equivalence_drops", {}).setdefault(str(target_type), {})[target_name] = dict(drops)
+    return drops
