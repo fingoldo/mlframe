@@ -170,3 +170,15 @@ class TestProductionRepro:
         assert rec["excess_kurt"] > 1.5, f"setup failed: kurt={rec['excess_kurt']:.2f}"
         assert rec["cb"] == "Huber:delta=1.345"
         assert rec["lgb"] == "huber"
+
+
+def test_lgb_huber_alpha_scales_with_target_mad() -> None:
+    """LightGBM's huber ``alpha`` is a raw-unit threshold; left at its 0.9 default on a wide target the loss is
+    L1-like with a tiny gradient and a 100-round fit barely leaves the median. It must track 1.345 * MAD."""
+    import numpy as np
+
+    y = 40.0 * np.random.default_rng(0).laplace(size=5000)
+    rec = recommend_boosting_regression_loss(y)
+    assert rec["lgb"] == "huber"
+    mad = float(np.median(np.abs(y - np.median(y))))
+    assert abs(rec["lgb_extra_params"]["alpha"] - 1.345 * mad) < 1e-3 * mad

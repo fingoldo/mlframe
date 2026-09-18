@@ -550,10 +550,13 @@ def _setup_per_target_mlframe_models(
     # the composite residual T for composite-target paths; in both
     # cases the inner boosting fits this distribution directly, so
     # the auto-switch matches the actual signal-vs-noise regime.
+    # The kurtosis is read from the rows the booster actually fits (post-OD train), not the full-length target:
+    # the full vector still carries the outliers the detector just removed (and the val / test rows), so a
+    # contaminated target picked Huber for a fit on already-cleaned rows.
     if _is_regression_target_type(target_type):
         _apply_loss_recommendation_in_place(
             models_params=models_params,
-            target_values=cur_target_values,
+            target_values=current_train_target if current_train_target is not None else cur_target_values,
             composite_name=cur_target_name,
             logger_=logger,
             verbose=verbose,
