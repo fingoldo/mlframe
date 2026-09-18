@@ -185,7 +185,8 @@ def test_biz_val_interaction_kernel_faster_than_shap():
     X, y, _ = make_regime_dataset(n_samples=1500, n_informative=6, n_noise=44, task="regression", interaction_order=2, interaction_strength=0.6, seed=5)
     model = lgb.LGBMRegressor(n_estimators=200, max_depth=4, num_leaves=15, learning_rate=0.2, random_state=0, verbose=-1, n_jobs=1).fit(X, y)
 
-    assert _interaction_tensor_numba(model, X.iloc[:16], classification=False) is not None  # JIT warmup
+    _warm = _interaction_tensor_numba(model, X.iloc[:16], classification=False)  # JIT warmup
+    assert _warm[0].shape == (16, X.shape[1], X.shape[1]), "LightGBM did not take the numba kernel path"
     ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
     Phi_ref = np.asarray(ex.shap_interaction_values(X), dtype=np.float64)
 
