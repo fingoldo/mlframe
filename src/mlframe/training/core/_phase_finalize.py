@@ -12,6 +12,7 @@ from pyutilz.strings import slugify
 from mlframe.reporting.renderers import chart_timings_snapshot, format_chart_timings
 
 from .._dataset_build_stats import dataset_build_snapshot, format_dataset_build_stats
+from .._format import unwrap_target_wrapper
 
 from ._process_flag_scope import restore_process_flags
 from ..io import save_mlframe_model
@@ -431,16 +432,31 @@ def _render_split_comparison_panels(ctx: "TrainingContext") -> None:
             if not isinstance(_entries, list):
                 continue
             for _i, _entry in enumerate(_entries):
-                _mn = str(getattr(_entry, "model_name", None) or type(getattr(_entry, "model", None)).__name__ or f"model_{_i}")
-                _base = join(
-                    data_dir,
-                    "charts",
-                    slugify(ctx.target_name),
-                    slugify(ctx.model_name),
-                    slugify(str(_tt).lower()),
-                    slugify(str(_tname)),
-                    slugify(_mn),
+                _mn = str(
+                    getattr(_entry, "model_name", None)
+                    or type(unwrap_target_wrapper(getattr(_entry, "model", None))).__name__
+                    or f"model_{_i}"
                 )
+                # The entry's own chart prefix (recorded by the trainer, unique per model, weight schema and ensemble
+                # method) so this panel sits beside the model's other charts. Naming by class name instead collided:
+                # every ensemble entry (model=None) wrote "NoneType_split_comparison", every composite-target model
+                # "CompositeTargetEstimator_split_comparison", and weight schemas of one model shared a file.
+                _prefix = getattr(_entry, "plot_file", None)
+                if _prefix and not _prefix.endswith(os.sep):
+                    _base = _prefix
+                    _mn = os.path.basename(_prefix) or _mn  # e.g. "EnsARITHM-cbxgblgb" rather than "NoneType"
+                elif _prefix:
+                    _base = join(_prefix, slugify(_mn))
+                else:
+                    _base = join(
+                        data_dir,
+                        "charts",
+                        slugify(ctx.target_name),
+                        slugify(ctx.model_name),
+                        slugify(str(_tt).lower()),
+                        slugify(str(_tname)),
+                        slugify(_mn) + (f"_{_i}" if _i else ""),
+                    )
                 try:
                     os.makedirs(os.path.dirname(_base), exist_ok=True)
                     if render_split_comparison_from_suite(
@@ -586,7 +602,7 @@ def finalize_suite(ctx: TrainingContext) -> dict:
                     for _split in ("test", "val", "train"):
                         _split_metrics = _m_metrics.get(_split)
                         if isinstance(_split_metrics, dict) and "fairness_report" in _split_metrics:
-                            _key = f"{_ttype}__{_tname}__{getattr(_entry, 'model_name', type(getattr(_entry, 'model', _entry)).__name__)}__{_split}"
+                            _key = f"{_ttype}__{_tname}__{getattr(_entry, 'model_name', type(unwrap_target_wrapper(getattr(_entry, 'model', _entry))).__name__)}__{_split}"
                             fairness_reports[_key] = _split_metrics["fairness_report"]
                 # Selected-features capture: entry.columns -> metadata + entry.selected_features_.
                 _cols = getattr(_entry, "columns", None)

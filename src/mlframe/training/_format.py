@@ -50,6 +50,29 @@ def strip_shim_suffix(name: str) -> str:
     return name
 
 
+# Wrappers that only transform the TARGET around one fitted inner model; for display the inner model is the identity.
+# An explicit list, not "anything with estimator_": meta-estimators such as bagging/stacking are models in their own right.
+_TARGET_WRAPPER_INNER_ATTRS = {
+    "CompositeTargetEstimator": ("estimator_", "base_estimator"),
+    "TransformedTargetRegressor": ("regressor_", "regressor"),
+}
+
+
+def unwrap_target_wrapper(obj: Any) -> Any:
+    """Return the fitted inner model behind target-only wrappers (CompositeTargetEstimator, TransformedTargetRegressor)."""
+    seen = 0
+    while seen < 4:  # bounded: wrappers nest at most a couple of levels
+        attrs = _TARGET_WRAPPER_INNER_ATTRS.get(type(obj).__name__)
+        if not attrs:
+            return obj
+        inner = next((getattr(obj, a) for a in attrs if getattr(obj, a, None) is not None), None)
+        if inner is None:
+            return obj
+        obj = inner
+        seen += 1
+    return obj
+
+
 def short_model_tag(name_or_obj: Any) -> str:
     """Map a model name (or instance / class) to the short tag used in
     ensemble headers: ``cb`` / ``xgb`` / ``lgb`` / ``hgb``. Falls back
@@ -60,8 +83,10 @@ def short_model_tag(name_or_obj: Any) -> str:
     if isinstance(name_or_obj, str):
         cls_name = strip_shim_suffix(name_or_obj)
     else:
-        # Object: try .__class__.__name__; fall back to repr.
-        cls_name = strip_shim_suffix(type(name_or_obj).__name__)
+        # Object: tag the fitted inner model, not a target wrapper around it. Composite-target entries are wrapped in
+        # CompositeTargetEstimator before ensembling, so every member tagged as the wrapper class and an ensemble of
+        # cb/xgb/lgb was named "CompositeTargetEstimatorCompositeTargetEstimator..." instead of "cbxgblgb".
+        cls_name = strip_shim_suffix(type(unwrap_target_wrapper(name_or_obj)).__name__)
     if cls_name.startswith("CatBoost"):
         return "cb"
     if cls_name.startswith("XGB"):
