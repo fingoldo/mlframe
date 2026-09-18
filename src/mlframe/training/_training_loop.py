@@ -270,7 +270,14 @@ from ._calibration_models import (  # noqa: F401
 )
 
 
-def _train_model_with_fallback(
+def _train_model_with_fallback(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+    """Fit under ``CatBoostGpuFitGuard`` (no callbacks + progress monitor for GPU CatBoost; a no-op otherwise), see below."""
+    from .cb._cb_gpu_monitor import CatBoostGpuFitGuard
+    with CatBoostGpuFitGuard(model, model_obj, model_type_name, fit_params):
+        return _train_model_with_fallback_unguarded(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose)
+
+
+def _train_model_with_fallback_unguarded(
     model: Any,
     model_obj: Any,
     model_type_name: str,
@@ -655,11 +662,9 @@ def _train_model_with_fallback(
         if "out of memory" in error_str:
             try_again = _handle_oom_error(model_obj, model_type_name)
 
-        elif "User defined callbacks are not supported for GPU" in error_str:
-            if "callbacks" in fit_params:
-                logger.warning(e)
-                try_again = True
-                del fit_params["callbacks"]
+        elif "User defined callbacks are not supported for GPU" in error_str and "callbacks" in fit_params:
+            logger.warning("%s; retrying without callbacks (backstop: CatBoostGpuFitGuard normally strips them before fit)", e)
+            try_again, _ = True, fit_params.pop("callbacks")
 
         elif "CUDA Tree Learner" in error_str:
             logger.warning("CUDA is not enabled in this LightGBM build. Falling back to CPU.")
