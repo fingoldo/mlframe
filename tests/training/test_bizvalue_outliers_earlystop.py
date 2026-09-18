@@ -418,7 +418,7 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
             f"patience ES overshot the monotonic-only baseline by more than its own {_patience}-round patience " f"window -- ES regression. {msg}"
         )
         # Run A has native ES disabled, so only the monotonic strict-decline detector can stop it. Its default
-        # patience was raised 7 -> 20 (cf7305eba) so it no longer pre-empts a configured native patience; twenty
+        # patience was raised 7 -> 20 (cf7305eba) so it no longer preempts a configured native patience; twenty
         # CONSECUTIVE strictly-worsening rounds rarely occur on this noisy val curve, so A legitimately runs to the
         # cap on some seeds (xgb 7/42/99, lgb 7 on CI). Reaching the cap is the expected no-ES outcome, not a
         # regression -- what must hold is that native patience ES, when configured, stops B far below the cap.
