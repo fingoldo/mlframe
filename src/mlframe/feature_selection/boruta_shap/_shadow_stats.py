@@ -56,12 +56,40 @@ def calculate_hits(self):
 
     padded_hits = np.zeros(self.ncols)
     hits = self.X_feature_import > shadow_threshold
+    # Record this trial's exact null hit rate for the accept-side binomial test (see ``finite_pool_null_hit_p``).
+    _m = int(np.isfinite(np.asarray(self.Shadow_feature_import, dtype=float)).sum())
+    self._null_hit_p_sum = float(getattr(self, "_null_hit_p_sum", 0.0)) + finite_pool_null_hit_p(_m, float(self.percentile))
+    self._null_hit_p_trials = int(getattr(self, "_null_hit_p_trials", 0)) + 1
 
     for index, col in enumerate(self.columns):
         map_index = self.order[col]
         padded_hits[map_index] += hits[index]
 
     return padded_hits
+
+def finite_pool_null_hit_p(m: int, percentile: float) -> float:
+    """Probability that a column exchangeable with the shadows beats ``np.percentile(shadows, percentile)`` of ``m`` shadows.
+
+    With order statistics X_(1) < ... < X_(m) and numpy's linear interpolation the threshold sits at rank h = (m-1)q/100;
+    a fresh exchangeable draw exceeds X_(k+1) with probability (m-k)/(m+1), so between ranks k+1 and k+2 the rate is
+    ((m-k) - frac)/(m+1). The legacy (100-q)/100 is the m -> infinity limit: at the default q=99 with ~10 shadows it
+    claims 0.01 while the real null rate is ~0.10, so a pure-noise column's ~3 hits in 30 trials looked significant
+    (binomial p~0.003, Bonferroni-surviving) and heavy-tailed noise was accepted."""
+    base = max(min((100.0 - float(percentile)) / 100.0, 1.0), 1e-9)
+    if m < 1:
+        return base
+    h = (m - 1) * float(percentile) / 100.0
+    k = int(np.floor(h))
+    frac = h - k
+    return float(min(1.0, max(base, ((m - k) - frac) / (m + 1.0))))
+
+
+def calibrated_null_hit_p(self) -> float:
+    """Mean per-trial finite-pool null hit rate recorded by ``calculate_hits`` (falls back to the asymptotic rate)."""
+    base = max(min((100.0 - float(self.percentile)) / 100.0, 1.0), 1e-9)
+    n = int(getattr(self, "_null_hit_p_trials", 0))
+    return max(base, float(getattr(self, "_null_hit_p_sum", 0.0)) / n) if n > 0 else base
+
 
 def _column_tie_fraction(values: np.ndarray) -> float:
     """Fraction of entries that share their value with at least one other entry (the "tied mass" of a column).
@@ -378,7 +406,7 @@ def test_features(self, iteration):
     # MAX-of-shadows gate (percentile=100) the true per-trial null hit rate is ~1/(m+1) for m shadows, far below 0.5, so
     # p=0.5 is grossly anti-conservative (accepts noise) on the accept side and over-conservative on the reject side.
     # Derive the calibrated p from self.percentile.
-    null_hit_p = max(min((100.0 - float(self.percentile)) / 100.0, 1.0), 1e-9)
+    null_hit_p = calibrated_null_hit_p(self)
 
     acceptance_p_values = self.binomial_H0_test(self.hits, n=iteration, p=null_hit_p, alternative="greater")
 
