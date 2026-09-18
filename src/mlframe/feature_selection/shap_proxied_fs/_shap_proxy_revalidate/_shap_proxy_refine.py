@@ -104,7 +104,7 @@ def revalidate_top_n(
     unit_to_members=None, cache=None, revalidation_n_estimators=None,
     ucb_enabled=False, ucb_min_eval_size=None, ucb_slack=None, ucb_stdev_multiplier=1.5,
     candidate_score=None, inner_n_jobs_cap=False, adaptive_n_models=False,
-    disk_cache_dir=None,
+    disk_cache_dir=None, parsimony_se=1.0,
 ):
     """Honestly retrain each candidate subset on X_search, evaluate on the disjoint X_holdout.
 
@@ -115,6 +115,9 @@ def revalidate_top_n(
     candidates whose stable score is within ``parsimony_tol`` (relative) of the best, pick the one
     with the FEWEST features (tie-break: lower stable score). This counters the proxy's bias toward
     larger subsets - a noise feature that buys <2% honest improvement should not be kept.
+    ``parsimony_se`` (default 1.0) then re-scores the winner against each smaller near-best candidate with paired
+    out-of-fold losses over search+holdout rows; the smallest one within ``parsimony_se`` standard errors wins (see
+    ``_shap_proxy_paired_parsimony``). 0 disables it.
 
     ``revalidation_n_estimators`` (iter28) caps the per-candidate booster's tree count for the
     PARSIMONY-RULE RANKING trials only. The selection criterion is "stable_score within parsimony_tol
@@ -376,8 +379,17 @@ def revalidate_top_n(
         eligible = [d for d in ranked if d["stable_score"] <= threshold]
         chosen = min(eligible, key=lambda d: (d["n_members"], d["stable_score"]))
         best_idx = chosen["features"]
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_paired_parsimony import paired_one_se_pick
+
+        chosen_ci = next(i for i, (_, ix) in enumerate(candidates) if tuple(ix) == tuple(best_idx))
+        best_idx, paired_info = paired_one_se_pick(
+            ranked, chosen, model_template, X_search, y_search, X_holdout, y_holdout, classification=classification, metric=metric,
+            unit_to_members=unit_to_members, seed=candidate_seeds[chosen_ci][0] if candidate_seeds[chosen_ci] else None,
+            n_estimators_cap=cap, n_se=parsimony_se,
+        )
     else:
         best_idx = ()
+        paired_info = dict(applied=False, tested=[])
 
     # Full-template re-evaluation of the WINNER so the user-visible honest_loss in the report stays
     # apples-to-apples with the trust-guard / ablation outputs (those use the full template). Only
@@ -436,6 +448,7 @@ def revalidate_top_n(
         baseline = dict(ucb=ucb_info)
     else:
         baseline["ucb"] = ucb_info
+    baseline["paired_one_se"] = paired_info
     return best_idx, ranked, baseline
 
 

@@ -420,6 +420,7 @@ def fit(self, X, y):
 
         self.features_to_remove = []
         self.hits = np.zeros(self.ncols)
+        self._null_hit_p_sum, self._null_hit_p_trials = 0.0, 0
         self.order = self.create_mapping_between_cols_and_indices()
         self.create_importance_history()
 
@@ -502,7 +503,9 @@ def fit(self, X, y):
                     _accepted_history.append(frozenset(_acc))
                     _decided = _acc | _rej
                     _tentative_idx = [idx for idx, col in enumerate(self.all_columns) if col not in _decided]
-                    _null_hit_p = max(min((100.0 - float(self.percentile)) / 100.0, 1.0), 1e-9)
+                    from ._shadow_stats import calibrated_null_hit_p
+
+                    _null_hit_p = calibrated_null_hit_p(self)
                     if _should_stop_tentative_tail(
                         _accepted_history, self.hits, _tentative_idx, iteration=trial + 1, n_tests=_n_total_cols,
                         pvalue=self.pvalue, patience=_early_stop_patience, margin=_early_stop_margin, null_p=_null_hit_p,
