@@ -552,8 +552,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # temporarily applies a fast profile and restores every knob in ``finally`` (so clone /
         # pickle / repeated-fit constructor-arg semantics stay stable, exactly like ``fe_auto``):
         #   * fe_max_steps 2 -> 1: skip the second augmented-pool pass whose ONLY product is FUSING
-        #     two already-found half-composites into one column (cosmetic for a linear/tree model -
-        #     the two separate halves give the identical fit). The dominant single lever.
+        #     two already-found half-composites into one column. This WAS the dominant lever; it is now
+        #     the package default (fe_max_steps=1), so the default fit already gets it and this override
+        #     is a no-op (an explicit fe_max_steps=2 is a user value and always wins).
         #   * fe_pair_prewarp_enable True -> False: drop the per-operand learned 1-D pre-warp sweep.
         #   * fe_stability_vote_enable / fe_escalation_underdelivery_enable True -> False: skip the
         #     post-discovery cross-fold confirmation + under-delivery escalation passes.
@@ -561,9 +562,10 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         #     MI/CMI screen is rank-stable under subsampling, so survivor identities are preserved and
         #     the FINAL survivor columns are still replayed at FULL n). Falls back to a safe default
         #     when no cached tuning exists.
-        # On the two canonical n=100k interaction synthetics (y=a**2/b + log(c)*sin(d) and its warped
-        # variant) this lands each fit < 60s (from ~130s / ~100s warm) with both interactions recovered
-        # and Ridge-holdout MAE within tolerance. BUT it is SELECTION-ALTERING and trades search
+        # The < 60s (from ~130s) figure on the n=100k interaction synthetics predates fe_max_steps=1
+        # becoming the default; against today's default the remaining overrides save little (n=20k,
+        # interleaved medians: default 55.4s, fast 55.7s - bench_fe_fast_search_vs_exhaustive.py), since
+        # most of a fit is shared work (supervised discretization, the pair screen). It is SELECTION-ALTERING and trades search
         # exhaustiveness for speed: dropping the step-2 fusion + stability-vote + escalation passes lets
         # EXTRA over-materialized columns through (spurious cross-group gate_mask / cross-signal / rint
         # composites alongside the genuine div(sqr(a),neg(b)) + mul(log(c),sin(d))). The exhaustive search
