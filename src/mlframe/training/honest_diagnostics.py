@@ -38,6 +38,7 @@ from typing import Any, Mapping, Optional
 
 import numpy as np
 
+from ._format import unwrap_target_wrapper
 from ._honest_decision_threshold import decision_threshold_block, format_decision_threshold_line
 
 logger = logging.getLogger(__name__)
@@ -478,7 +479,7 @@ def run_honest_diagnostics(
 
     # Block 1: bootstrap CI for every top-line metric, per (target_type, target_name, model).
     for tt_str, tname, entry in _walk_top_models(models):
-        key = f"{tt_str}/{tname}/{getattr(entry, 'model_name', type(getattr(entry, 'model', entry)).__name__)}"
+        key = f"{tt_str}/{tname}/{getattr(entry, 'model_name', type(unwrap_target_wrapper(getattr(entry, 'model', entry))).__name__)}"
         y_test = _safe_arr(getattr(entry, "test_target", None))
         p_test = _safe_arr(getattr(entry, "test_probs", None))
         if y_test is None or p_test is None:
@@ -495,7 +496,7 @@ def run_honest_diagnostics(
 
     # Block 3: calibration reliability + auto-pick verdict, per (target_type, target_name, model).
     for tt_str, tname, entry in _walk_top_models(models):
-        key = f"{tt_str}/{tname}/{getattr(entry, 'model_name', type(getattr(entry, 'model', entry)).__name__)}"
+        key = f"{tt_str}/{tname}/{getattr(entry, 'model_name', type(unwrap_target_wrapper(getattr(entry, 'model', entry))).__name__)}"
         payload["calibration"][key] = _calibration_block(
             entry, target_name=tname, out_dir=reports_dir, rng_seed=_derive_seed(master_seed, key + "/calib"),
         )
@@ -504,7 +505,7 @@ def run_honest_diagnostics(
     _rep_cfg = getattr(ctx, "reporting_config", None)
     _costs = getattr(_rep_cfg, "decision_costs", None) if _rep_cfg is not None else None
     for tt_str, tname, entry in _walk_top_models(models):
-        key = f"{tt_str}/{tname}/{getattr(entry, 'model_name', type(getattr(entry, 'model', entry)).__name__)}"
+        key = f"{tt_str}/{tname}/{getattr(entry, 'model_name', type(unwrap_target_wrapper(getattr(entry, 'model', entry))).__name__)}"
         try:
             _block = decision_threshold_block(
                 entry,

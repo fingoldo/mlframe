@@ -281,3 +281,33 @@ def test_real_lgb_fit_produces_curves(tmp_path):
     norm = normalize_history(hist)
     a_metric = next(iter(norm.values()))
     assert "train" in a_metric and "val" in a_metric
+
+
+def test_real_catboost_metric_period_curve_is_aligned():
+    """A real CatBoost fit with metric_period=5 logs learn 5x more sparsely than validation; the rendered train curve
+    must still span every iteration (it used to be drawn against its array index and 'end' at iteration n/5)."""
+    cb = pytest.importorskip("catboost")
+    from mlframe.reporting.charts.training_curve import compose_training_curve_figure
+    from mlframe.training.reporting._reporting_diagnostics import _booster_metric_period
+
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(1500, 4))
+    y = X[:, 0] + rng.normal(size=1500)
+    model = cb.CatBoostRegressor(iterations=200, metric_period=5, od_type="Iter", od_wait=150, use_best_model=True, verbose=0)
+    model.fit(X[:1000], y[:1000], eval_set=(X[1000:], y[1000:]))
+    hist, es_iter = _extract_training_history(model)
+    period = _booster_metric_period(model)
+    assert period == 5
+    spec = compose_training_curve_figure(hist, es_iteration=es_iter, metric_period=period)
+    panel = spec.panels[0][0]
+    train = np.asarray(panel.y[panel.series_labels.index("train")])
+    val = np.asarray(panel.y[panel.series_labels.index("val")])
+    assert train.shape == val.shape and np.isfinite(train).all()
+
+
+def test_metric_period_is_none_for_every_iteration_boosters():
+    """Boosters that log every iteration (lgb/xgb stubs, or catboost metric_period=1) report no period."""
+    from mlframe.training.reporting._reporting_diagnostics import _booster_metric_period
+
+    evals, es = _synthetic_evals()
+    assert _booster_metric_period(_FakeLGB(evals, es)) is None

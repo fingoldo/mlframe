@@ -185,18 +185,17 @@ def _interaction_batch(
     X, Phi, phi_main,
     children_left, children_right, children_default,
     features, thresholds, values, node_sample_weight,
-    tree_roots, max_path, cond_feats,
+    tree_roots, max_path, tree_feat_ptr, tree_feat_idx,
 ):
     """Fill ``Phi`` (n, P, P) and ``phi_main`` (n, P), parallel over rows. Excludes the base offset.
 
-    ``cond_feats`` is the sorted array of distinct split-feature indices in the ensemble: the only
-    features that need conditioning passes (conditioning on a feature the ensemble never splits on is a
-    no-op). For each such feature ``j`` we run an on-pass and an off-pass; ``Phi[:, i, j]`` for i != j
-    is half their difference. The diagonal is filled afterwards from the row-sum identity."""
+    ``tree_feat_idx[tree_feat_ptr[t]:tree_feat_ptr[t + 1]]`` are the distinct split features of tree ``t``
+    (CSR): the only features that need conditioning passes on that tree, and the only ones it attributes to.
+    For each such feature ``j`` we run an on-pass and an off-pass of tree ``t``; ``Phi[:, i, j]`` for i != j
+    accumulates half their difference over trees. The diagonal is filled afterwards from the row-sum identity."""
     n = X.shape[0]
     n_trees = tree_roots.shape[0]
     P = phi_main.shape[1]
-    n_cond = cond_feats.shape[0]
     width = max_path + 2
     n_levels = max_path + 3  # conditioned passes can reach one extra level via child_depth+1
     stack_size = 2 * (max_path + 3)
@@ -232,13 +231,15 @@ def _interaction_batch(
         for p in range(P):
             phi_main[i, p] = phi_unc[p]
 
-        # Conditioning passes: one (on, off) pair per distinct split feature.
-        for c in range(n_cond):
-            j = cond_feats[c]
-            for p in range(P):
-                phi_on[p] = 0.0
-                phi_off[p] = 0.0
-            for t in range(n_trees):
+        # Conditioning passes, PER TREE and only over that tree's own split features. A tree that never splits
+        # on ``j`` gives bit-identical on/off scans (the condition never fires), so conditioning every tree on
+        # every ensemble-wide split feature spent most of its time computing exact zeros. Likewise a tree only
+        # attributes to features on its own paths, so accumulating/clearing touches just those entries.
+        for t in range(n_trees):
+            f0 = tree_feat_ptr[t]
+            f1 = tree_feat_ptr[t + 1]
+            for c in range(f0, f1):
+                j = tree_feat_idx[c]
                 _treeshap_one_tree_conditioned(
                     xi, phi_on, children_left, children_right, children_default,
                     features, thresholds, values, node_sample_weight,
@@ -246,7 +247,6 @@ def _interaction_batch(
                     pf_feat, pf_zero, pf_one, pweight,
                     st_node, st_level, st_ud, st_zero, st_one, st_pfeat, st_cfrac,
                 )
-            for t in range(n_trees):
                 _treeshap_one_tree_conditioned(
                     xi, phi_off, children_left, children_right, children_default,
                     features, thresholds, values, node_sample_weight,
@@ -254,10 +254,13 @@ def _interaction_batch(
                     pf_feat, pf_zero, pf_one, pweight,
                     st_node, st_level, st_ud, st_zero, st_one, st_pfeat, st_cfrac,
                 )
-            # Off-diagonal Phi[i, p, j] = (phi_on[p] - phi_off[p]) / 2 for p != j.
-            for p in range(P):
-                if p != j:
-                    Phi[i, p, j] = 0.5 * (phi_on[p] - phi_off[p])
+                # Off-diagonal Phi[i, p, j] += (phi_on[p] - phi_off[p]) / 2 for p != j, p in this tree.
+                for cc in range(f0, f1):
+                    p = tree_feat_idx[cc]
+                    if p != j:
+                        Phi[i, p, j] += 0.5 * (phi_on[p] - phi_off[p])
+                    phi_on[p] = 0.0
+                    phi_off[p] = 0.0
 
         # Symmetrise the off-diagonal in place (the (i,j) vs (j,i) passes are numerically independent),
         # THEN fill the diagonal so the row-sum identity holds against the symmetrised matrix.
@@ -274,6 +277,24 @@ def _interaction_batch(
             Phi[i, j, j] = phi_main[i, j] - row_sum
 
 
+def _per_tree_split_features(ensemble):
+    """CSR (ptr, idx) of each tree's distinct split-feature indices, sorted within a tree.
+
+    Trees occupy contiguous node ranges starting at ``tree_roots[t]`` (``extract_ensemble`` concatenates them)."""
+    roots = np.asarray(ensemble.tree_roots, dtype=np.int64)
+    feats = np.asarray(ensemble.features)
+    bounds = np.append(roots, feats.shape[0])
+    ptr = np.zeros(roots.shape[0] + 1, dtype=np.int64)
+    parts = []
+    for t in range(roots.shape[0]):
+        f = feats[bounds[t]:bounds[t + 1]]
+        u = np.unique(f[f >= 0]).astype(np.int64)
+        parts.append(u)
+        ptr[t + 1] = ptr[t] + u.shape[0]
+    idx = np.concatenate(parts) if parts else np.empty(0, dtype=np.int64)
+    return ptr, idx
+
+
 def interaction_tensor_numba(ensemble, X: np.ndarray):
     """Run the numba path-dependent TreeSHAP interaction kernel.
 
@@ -288,14 +309,12 @@ def interaction_tensor_numba(ensemble, X: np.ndarray):
     Phi = np.zeros((n, P, P), dtype=np.float64)
     phi_main = np.zeros((n, P), dtype=np.float64)
 
-    # Only features that actually split need conditioning passes.
-    split_feats = ensemble.features[ensemble.features >= 0]
-    cond_feats = np.unique(split_feats).astype(np.int64) if split_feats.size else np.empty(0, dtype=np.int64)
+    tree_feat_ptr, tree_feat_idx = _per_tree_split_features(ensemble)
 
     _interaction_batch(
         Xf, Phi, phi_main,
         ensemble.children_left, ensemble.children_right, ensemble.children_default,
         ensemble.features, ensemble.thresholds, ensemble.values, ensemble.node_sample_weight,
-        ensemble.tree_roots, ensemble.max_depth, cond_feats,
+        ensemble.tree_roots, ensemble.max_depth, tree_feat_ptr, tree_feat_idx,
     )
     return Phi, phi_main, float(ensemble.base_offset)

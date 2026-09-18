@@ -306,11 +306,22 @@ def predict_mlframe_models_suite(
     _slug_to_tt = metadata.get("slug_to_original_target_type", {}) or {}
     _slug_to_tn = metadata.get("slug_to_original_target_name", {}) or {}
 
-    for model_file in model_files:
+    # One schema-hashed basename (e.g. ``lgb__sch_<hash>``) is reused by every target the same model was trained on
+    # (raw target + each composite target), so keying results by basename made later targets silently overwrite
+    # earlier ones and ``results["predictions"]`` held ONE arbitrary target's output. Colliding basenames are keyed
+    # by their path under ``models_path`` instead; unique basenames keep the plain name.
+    _basename_counts: dict[str, int] = {}
+    for _mf in model_files:
+        _bn = os.path.basename(_mf).replace(".dump", "")
+        _basename_counts[_bn] = _basename_counts.get(_bn, 0) + 1
+
+    for model_file in sorted(model_files):
         model_name = os.path.basename(model_file).replace(".dump", "")
 
         if model_names and model_name not in model_names:
             continue
+        if _basename_counts.get(model_name, 0) > 1:
+            model_name = os.path.relpath(model_file, models_path).replace(".dump", "").replace(os.sep, "/")
 
         # Recover (target_type, target_name) from the on-disk layout (mirrors load_mlframe_suite); used to key
         # per-target flavour replay below. Resolution to RAW target_type/target_name is the contract: keys leaking

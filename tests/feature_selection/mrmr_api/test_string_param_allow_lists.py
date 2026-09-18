@@ -7,6 +7,7 @@ The hybrid-orth consumers run inside a per-family try/except that turns their ow
 from __future__ import annotations
 
 import typing
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -63,7 +64,8 @@ def test_config_literal_matches_flat_allow_list(cls, field, allowed_name):
 
 def test_ensemble_scorers_config_accepts_every_allowed_scorer():
     """Every scorer the ensemble consumer knows is accepted by the config."""
-    HybridOrthScorersConfig(ensemble_scorers=pc._VALID_FE_HYBRID_ORTH_ENSEMBLE_SCORERS)
+    cfg = HybridOrthScorersConfig(ensemble_scorers=pc._VALID_FE_HYBRID_ORTH_ENSEMBLE_SCORERS)
+    assert set(cfg.ensemble_scorers) == set(pc._VALID_FE_HYBRID_ORTH_ENSEMBLE_SCORERS), "the config must keep every allowed scorer, not drop any"
 
 
 def test_allow_lists_match_their_consumers():
@@ -103,5 +105,9 @@ def test_flat_typo_raises_at_fit_start(name, bad):
 
 def test_defaults_and_case_insensitive_force_scorer_pass_validation():
     """Controls: the defaults are valid, and the meta force scorer keeps accepting any case, as its consumer lower-cases it."""
-    MRMR()._validate_string_params()
-    MRMR(fe_hybrid_orth_meta_force_scorer="CMIM")._validate_string_params()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # accepting with a warning would be a silent downgrade, not a pass
+        MRMR()._validate_string_params()
+        m = MRMR(fe_hybrid_orth_meta_force_scorer="CMIM")
+        m._validate_string_params()
+    assert m.fe_hybrid_orth_meta_force_scorer == "CMIM", "validation must not rewrite the caller's value"

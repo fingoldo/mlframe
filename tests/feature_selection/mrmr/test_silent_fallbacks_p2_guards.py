@@ -24,7 +24,7 @@ import pytest
 
 def _warned(caplog, *needles):
     """True when some WARNING-or-higher record contains every needle."""
-    return any(r.levelno >= logging.WARNING and all(n in r.getMessage() for n in needles) for r in caplog.records)
+    return any(r.levelno >= logging.WARNING and bool(needles) and all(n in r.getMessage() for n in needles) for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------------------------------------------- NUM-22

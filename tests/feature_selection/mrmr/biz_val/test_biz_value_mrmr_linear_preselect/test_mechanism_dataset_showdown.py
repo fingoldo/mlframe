@@ -571,6 +571,7 @@ def _all_mechanisms_on_kwargs() -> dict:
 class TestCombinedAllOnSmoke:
     """Every hybrid_orth*/scorer flag enabled at once stays fast and collision-free."""
 
+    @pytest.mark.hang_guard
     def test_combined_all_on_fit_under_300s_on_largest_dataset(self):
         """The largest L83 dataset is ``digits`` (subsampled to 600x64).
         With every mechanism flag on, fit + transform must complete in

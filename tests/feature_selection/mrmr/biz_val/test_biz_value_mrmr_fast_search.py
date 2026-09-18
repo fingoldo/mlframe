@@ -8,15 +8,14 @@ Asserts, on the two canonical interaction synthetics:
      engineered feature jointly covering (a,b) AND one covering (c,d) (a fused composite or a
      conditional-gate composite over (c,d) both count) -- and the Ridge-holdout MAE does NOT
      regress materially vs the exhaustive (fe_fast_search=False) selection.
-  2. SPEED: the fast path is materially faster than the exhaustive path.
+  2. WORK AVOIDED: the fast path skips the post-discovery cross-fold stability vote and the
+     under-delivery escalation scan that the default fit runs. Asserted by counting those passes,
+     not by a wall-clock ratio: see the note on the SPEED contract below.
 
-Tractable n (20_000) so the test is CI-runnable; the production target is n=100_000 (< 60s each,
-from ~130s / ~100s warm). Marked ``slow`` -- it fits MRMR four times.
+Tractable n (20_000) so the test is CI-runnable. Marked ``slow`` -- it fits MRMR twice.
 """
 
 from __future__ import annotations
-
-import time
 
 import numpy as np
 import pandas as pd
@@ -72,23 +71,45 @@ def _recovers_signal(case, names):
     return ab, cd
 
 
+def _spy_skippable_passes(monkeypatch):
+    """Count calls into the two post-discovery passes the fast profile switches off."""
+    from mlframe.feature_selection.filters import _fe_auto_escalation, _fe_stability_vote
+
+    calls = {"vote": 0, "escalation": 0}
+    real_vote = _fe_stability_vote.confirm_recipes_cross_fold
+    real_esc = _fe_auto_escalation.find_underdelivering_pairs
+
+    def _vote(*a, **k):
+        calls["vote"] += 1
+        return real_vote(*a, **k)
+
+    def _esc(*a, **k):
+        calls["escalation"] += 1
+        return real_esc(*a, **k)
+
+    monkeypatch.setattr(_fe_stability_vote, "confirm_recipes_cross_fold", _vote)
+    monkeypatch.setattr(_fe_auto_escalation, "find_underdelivering_pairs", _esc)
+    return calls
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("case", [1, 2])
-def test_fast_search_recovers_signal_and_is_faster(case):
-    """Fast search recovers signal and is faster."""
+def test_fast_search_recovers_signal_and_skips_the_cleanup_passes(case, monkeypatch):
+    """Fast search recovers signal and does less work than the default fit."""
     df, y = _make_case(case)
+    calls = _spy_skippable_passes(monkeypatch)
 
-    # Exhaustive reference (fast OFF) -- establishes the MAE bar + timing baseline.
-    t0 = time.time()
+    # Default reference (fast OFF) -- establishes the MAE bar and the passes the fast profile drops.
+    MRMR._FIT_CACHE.clear()
     m_ref = MRMR(verbose=0, random_seed=0, fe_fast_search=False).fit(df.copy(), y.copy())
-    t_ref = time.time() - t0
-    list(m_ref.get_feature_names_out())
+    ref_calls = dict(calls)
     mae_ref = _ridge_holdout_mae(m_ref, df, y)
 
-    # Fast path (default ON).
-    t0 = time.time()
+    # Fast path.
+    calls.update(vote=0, escalation=0)
+    MRMR._FIT_CACHE.clear()
     m_fast = MRMR(verbose=0, random_seed=0, fe_fast_search=True).fit(df.copy(), y.copy())
-    t_fast = time.time() - t0
+    fast_calls = dict(calls)
     names_fast = list(m_fast.get_feature_names_out())
     mae_fast = _ridge_holdout_mae(m_fast, df, y)
 
@@ -134,11 +155,18 @@ def test_fast_search_recovers_signal_and_is_faster(case):
     # unaffected) while not re-litigating an already-accepted, already-documented tradeoff.
     assert mae_fast <= mae_ref * 1.15 + 1e-9, f"CASE{case} fast-path MAE {mae_fast:.5f} regressed >15% vs reference {mae_ref:.5f}"
 
-    # SPEED: fast path is materially faster than exhaustive (>=20% wall reduction). The production
-    # target is < 60s at n=100k; at this tractable n we only assert the relative win to avoid
-    # hardware-coupling the absolute threshold.
-    assert t_fast < t_ref * 0.80, f"CASE{case} fast path not materially faster: fast={t_fast:.1f}s ref={t_ref:.1f}s"
-
+    # SPEED contract, reframed. This used to assert t_fast < 0.8 * t_ref on one wall-clock pair. The
+    # dominant lever of the fast profile was fe_max_steps 2 -> 1, and that became the package DEFAULT
+    # (commit f51cfca42), so the default fit already skips the step-2 fusion pass. What remains in the
+    # profile - stability vote, under-delivery escalation, operand pre-warp, and a screen subsample that is
+    # a no-op below ~90k rows - costs a few seconds out of a fit dominated by shared work (supervised
+    # discretization, the pair screen). Measured interleaved in one process at n=20k, 3 rounds, CASE1:
+    # default median 55.4s, fast 55.7s, fe_max_steps=2 59.7s, identical selections
+    # (bench_fe_fast_search_vs_exhaustive.py). A 20% wall gap therefore no longer exists to assert, and a
+    # single-shot ratio was measuring runner noise (CI saw fast=42.6s/ref=47.2s and 40.5s/38.5s). The
+    # deterministic contract is the work the profile avoids: the default ran the passes, the fast fit did not.
+    assert ref_calls["vote"] > 0, f"CASE{case}: the default fit never reached the stability vote, so this proves nothing: {ref_calls}"
+    assert fast_calls == {"vote": 0, "escalation": 0}, f"CASE{case}: fe_fast_search still ran the cleanup passes: {fast_calls}"
 
 @pytest.mark.slow
 def test_fast_search_toggle_restores_knobs():

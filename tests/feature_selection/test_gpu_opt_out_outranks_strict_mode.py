@@ -89,11 +89,22 @@ def test_strict_mode_does_not_override_the_opt_out(monkeypatch):
     refuses long before it reaches STRICT, so the test would pass for the wrong reason and prove nothing --
     which is what it did until these stubs were added.
     """
+    import sys
+    import types
+
+    from mlframe.feature_selection.filters import _fe_gpu_vram
     from mlframe.feature_selection.filters.info_theory import _cmi_cuda
 
     monkeypatch.setattr(_cmi_cuda, "cupy_available", lambda: True)
     monkeypatch.setattr(_cmi_cuda, "_CMI_GPU_FAILED", False)
     monkeypatch.setattr(_cmi_cuda, "_cmi_cuda_shmem_fits", lambda *a, **k: True)
+    # The VRAM guards sit between the cupy gate and STRICT, and a failed probe now refuses the GPU instead of
+    # falling through. Without a device (CI) `import cupy` fails there, so a fake cupy with a roomy
+    # memGetInfo and a passing cushion check are needed to get past them.
+    fake_cupy = types.ModuleType("cupy")
+    fake_cupy.cuda = types.SimpleNamespace(runtime=types.SimpleNamespace(memGetInfo=lambda: (64 * 1024**3, 64 * 1024**3)))
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+    monkeypatch.setattr(_fe_gpu_vram, "fe_gpu_has_vram_cushion", lambda *a, **k: True)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
 
     # Without the opt-out, STRICT is what decides -- establishing that the stubs really do reach it.

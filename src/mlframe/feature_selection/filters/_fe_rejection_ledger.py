@@ -226,7 +226,9 @@ def _resolve_index_columns(mrmr_self: Any, df: pd.DataFrame) -> None:
     what can be resolved and leave the rest visibly marked rather than silently ambiguous.
     """
     try:
-        names = list(getattr(mrmr_self, "feature_names_in_", None) or [])
+        # feature_names_in_ is an ndarray after fit; ``arr or []`` raised "truth value ... ambiguous".
+        _fni = getattr(mrmr_self, "feature_names_in_", None)
+        names = [] if _fni is None else [str(n) for n in _fni]
         if not names or "operands" not in df.columns:
             return
 
@@ -244,6 +246,8 @@ def _resolve_index_columns(mrmr_self: Any, df: pd.DataFrame) -> None:
             """The whole operand tuple, rendered."""
             if ops is None:
                 return ""
+            if isinstance(ops, np.ndarray):
+                ops = ops.tolist()
             if isinstance(ops, (list, tuple)):
                 return "(" + ", ".join(_name(o) for o in ops) + ")" if len(ops) else ""
             return _name(ops)

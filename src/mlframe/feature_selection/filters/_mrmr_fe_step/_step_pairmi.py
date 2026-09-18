@@ -562,6 +562,7 @@ def compute_pair_mis_and_floor(
                     _auto_failed_chunks += 1
                     _auto_failed_pairs += len(_auto_chunk)
                     _auto_last_err = f"{type(e).__name__}: {e}"
+                    logger.debug("prevalence auto-debias failed on a chunk of %d pair(s): %s", len(_auto_chunk), _auto_last_err, exc_info=True)
             if _auto_failed_chunks:
                 logger.warning(
                     "prevalence auto-debias failed on %d chunk(s) covering %d pair(s) (last error %s); those pairs are gated on raw joint MI, all others stay debiased",

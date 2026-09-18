@@ -20,6 +20,35 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.training.pipeline")
 
 
+def _operator_name(op) -> str:
+    """PySR operator name: ``"safe_log(x::T) where {T} = ..."`` -> ``"safe_log"``; plain names/symbols unchanged."""
+    return str(op).split("(", 1)[0].strip()
+
+
+def _prune_preset_operator_maps(merged_params: dict, user_params: dict) -> None:
+    """Drop preset ``complexity_of_operators`` / ``nested_constraints`` entries for operators absent from the final lists.
+
+    The operator preset supplies both the operator lists and these per-operator maps. A caller who overrides
+    ``binary_operators`` / ``unary_operators`` through ``pysr_params`` (e.g. ``["square"]``) kept the preset's maps
+    keyed on ``safe_log`` / ``exp`` / ..., which PySR rejects at fit; the fit exception was caught as best-effort and
+    the step silently added no columns. Maps the caller passed explicitly are left untouched.
+    """
+    ops = {_operator_name(o) for o in (merged_params.get("binary_operators") or [])}
+    ops |= {_operator_name(o) for o in (merged_params.get("unary_operators") or [])}
+    if "complexity_of_operators" not in user_params and isinstance(merged_params.get("complexity_of_operators"), dict):
+        _co = {k: v for k, v in merged_params["complexity_of_operators"].items() if _operator_name(k) in ops}
+        merged_params["complexity_of_operators"] = _co or None
+    if "nested_constraints" not in user_params and isinstance(merged_params.get("nested_constraints"), dict):
+        _nc = {}
+        for outer, inner in merged_params["nested_constraints"].items():
+            if _operator_name(outer) not in ops:
+                continue
+            _inner = {k: v for k, v in (inner or {}).items() if _operator_name(k) in ops} if isinstance(inner, dict) else inner
+            if _inner:
+                _nc[outer] = _inner
+        merged_params["nested_constraints"] = _nc or None
+
+
 def _apply_pysr_fe(
     *,
     train_df: pd.DataFrame,
@@ -130,6 +159,7 @@ def _apply_pysr_fe(
     defaults.update(pysr_params)
     # Use a shallow copy so underlying YAML/dict config isn't mutated.
     merged_params = dict(defaults)
+    _prune_preset_operator_maps(merged_params, pysr_params)
 
     _top_k_override = getattr(config, "pysr_top_k", None)
     top_k = int(_top_k_override) if _top_k_override is not None else min(5, merged_params.get("population_size", 20) // 2)
@@ -171,14 +201,10 @@ def _apply_pysr_fe(
             pysr_params_override=merged_params,
             random_state=pysr_random_state,
         )
-    except Exception:  # best-effort: symbolic feature engineering is an optional enhancement
-        if verbose:
-            logger.warning(
-                "PySR fit failed; skipping symbolic feature engineering.",
-                exc_info=True,
-            )
-        else:
-            logger.debug("PySR fit failed; skipping symbolic feature engineering.", exc_info=True)
+    except Exception as _fit_err:  # best-effort: symbolic feature engineering is an optional enhancement
+        # Always operator-visible: pysr_enabled=True that adds nothing must say why, whatever the verbosity.
+        logger.warning("PySR fit failed; skipping symbolic feature engineering: %s: %s", type(_fit_err).__name__, _fit_err)
+        logger.debug("PySR fit failure traceback", exc_info=True)
         return []
     finally:
         # Wrap drop in try/except so a pandas KeyError chain on a corrupted MultiIndex column or a read-only frame doesn't mask the in-flight exception (errors="ignore" covers the missing-column case but not deeper pandas-internal failures). Skip the drop when injection itself failed -- nothing to remove.

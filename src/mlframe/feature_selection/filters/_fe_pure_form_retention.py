@@ -488,8 +488,17 @@ def retain_usable_pure_forms(
         # downstream non-separability + class-relevance filter has the genuine form to keep; the filter
         # discards the rest, so the extra replay cost is bounded.
         _max_per_pair = 8 if is_clf else 3
+        # An explicit ``min_relevance_gain_mode='absolute'`` floor is a verbatim caller contract that every
+        # selection path honours; this pool is built outside the screen, so it applies the floor itself.
+        # The default relative mode keeps the pool's own 0.02 floor (retention exists to rescue forms the
+        # relative screen under-ranks).
+        _pool_mi_floor = 0.02
+        if getattr(mrmr, "min_relevance_gain_mode", None) == "absolute":
+            _abs_floor = getattr(mrmr, "_effective_min_relevance_gain_", None)
+            if _abs_floor is not None and np.isfinite(_abs_floor):
+                _pool_mi_floor = max(_pool_mi_floor, float(_abs_floor))
         pool = build_usability_candidate_pool(
-            X_fit, _yv, base_names, max_pairs=10, max_per_pair=_max_per_pair, rank_pairs_by_joint_mi=True,
+            X_fit, _yv, base_names, max_pairs=10, max_per_pair=_max_per_pair, rank_pairs_by_joint_mi=True, mi_floor=_pool_mi_floor,
         )
         # GPU-RESIDENT non-separability filter (MLFRAME_FE_GPU_STRICT + ..._RESIDENT, default OFF). The
         # per-candidate ``_adds_nonlinear_value`` gate (each call re-uploads the form column + both raw

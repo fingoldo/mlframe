@@ -26,6 +26,7 @@ import logging
 import os
 import textwrap
 from timeit import default_timer as timer
+from typing import Any, Iterable
 
 import numpy as np
 
@@ -649,7 +650,7 @@ def _finalise_fs_results(
     return self
 
 
-def surviving_recipe_operands(recipes, raw_names) -> set:
+def surviving_recipe_operands(recipes: Iterable[Any], raw_names: Iterable[str]) -> set[str]:
     """Raw columns that appear as operands in the column names of ``recipes`` (an ``_engineered_recipes_`` list).
 
     A token counts when it is a raw name, or when its ``__``-prefix is (a suffixed leg such as ``a__relu_gt``).
@@ -657,7 +658,7 @@ def surviving_recipe_operands(recipes, raw_names) -> set:
     from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT
 
     raw_set = set(raw_names)
-    out = set()
+    out: set[str] = set()
     for _r in recipes:
         for _tok in _PARENT_TOKEN_SPLIT.split(_engineered_recipe_name(_r)):
             if not _tok:
