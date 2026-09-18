@@ -397,8 +397,8 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
         # lgb / xgb keep every trained tree, so the boosting-round count is the deterministic ES signal.
         assert trees_a is not None and trees_b is not None, f"could not read tree counts. {msg}"
         # With the monotonic strict-decline stop DEFAULT-ON in the lgb / xgb shims (it governs training even
-        # when ``early_stopping_rounds=None``), the "no-ES" run no longer reaches the 2000-tree cap: the
-        # detector legitimately stops it early on this overfit-prone noisy fixture.
+        # when ``early_stopping_rounds=None``), the "no-ES" run MAY stop before the 2000-tree cap when the
+        # detector fires on this overfit-prone noisy fixture.
         #
         # ``trees_b <= trees_a`` was the wrong way to pin what survives. Run B adds native patience ES ON TOP
         # of the same monotonic stop, and patience=10 cannot trigger before ten non-improving rounds have
@@ -412,4 +412,12 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
         assert trees_b <= trees_a + _patience, (
             f"patience ES overshot the monotonic-only baseline by more than its own {_patience}-round patience " f"window -- ES regression. {msg}"
         )
-        assert trees_a < 2000 and trees_b < 1000, f"a stop mechanism should have fired well under the 2000-tree cap for both runs. {msg}"
+        # Run A has native ES disabled, so only the monotonic strict-decline detector can stop it. Its default
+        # patience was raised 7 -> 20 (cf7305eba) so it no longer pre-empts a configured native patience; twenty
+        # CONSECUTIVE strictly-worsening rounds rarely occur on this noisy val curve, so A legitimately runs to the
+        # cap on some seeds (xgb 7/42/99, lgb 7 on CI). Reaching the cap is the expected no-ES outcome, not a
+        # regression -- what must hold is that native patience ES, when configured, stops B far below the cap.
+        assert trees_a <= 2000, f"no-ES run exceeded the iteration cap. {msg}"
+        assert trees_b < 1000, f"patience ES did not stop the run well under the 2000-tree cap. {msg}"
+        if trees_a == 2000:
+            assert trees_b < trees_a // 10, f"patience ES saved too few rounds against the full-cap no-ES run. {msg}"
