@@ -267,6 +267,32 @@ def get_inline_display_mode():
     return None
 
 
+
+# Per-backend wait in ``render_and_save``'s multi-backend path; past it the render thread is abandoned.
+_BACKEND_RENDER_TIMEOUT_S = 60.0
+
+
+def _start_daemon_task(fn, *args):
+    """Run ``fn(*args)`` on a fresh DAEMON thread and return a ``Future`` for its result.
+
+    Unlike ``ThreadPoolExecutor``, nothing ever joins the thread: a caller that gives up on ``result(timeout=...)``
+    really does move on, and a wedged render cannot hold up interpreter exit."""
+    import threading
+    from concurrent.futures import Future
+
+    fut: Future = Future()
+
+    def _run():
+        if not fut.set_running_or_notify_cancel():
+            return
+        try:
+            fut.set_result(fn(*args))
+        except BaseException as exc:  # noqa: BLE001 -- handed to the waiting caller, which classifies it
+            fut.set_exception(exc)
+
+    threading.Thread(target=_run, name="mlframe-render", daemon=True).start()
+    return fut
+
 def render_and_save(
     spec: FigureSpec,
     output: PlotOutputSpec,
@@ -370,28 +396,32 @@ def render_and_save(
         return backend, fig
 
     if len(_backends) > 1:
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
-        # max_workers = backend count; each task = one render+save pipeline.
-        with ThreadPoolExecutor(max_workers=len(_backends)) as _ex:
-            _futures = [_ex.submit(_do_backend, backend, fmts) for backend, fmts in _backends]
-            _results = []
-            for f in _futures:
-                try:
-                    _results.append(f.result(timeout=60))
-                except _FutureTimeout:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                    _record_render_failure(timed_out=True)
-                    log_throttle(
-                        logger, "render_save_backend_future_timeout", logging.WARNING,
-                        "render_and_save: backend future exceeded 60s; the worker thread is abandoned and one "
-                        "chart is dropped. See get_render_failure_stats(). ", exc_info=True,
-                    )
-                except Exception:
-                    _record_render_failure(timed_out=False)
-                    log_throttle(
-                        logger, "render_save_backend_future_failed", logging.WARNING,
-                        "render_and_save: backend future failed; one render output dropped. " "See get_render_failure_stats().",
-                        exc_info=True,
-                    )
+        from concurrent.futures import TimeoutError as _FutureTimeout
+        # One DAEMON thread per backend, each = one render+save pipeline. This used to be a
+        # ``with ThreadPoolExecutor(...)`` block: its ``__exit__`` calls ``shutdown(wait=True)``, which JOINS
+        # the worker the 60s timeout below had just "abandoned", so a slow or wedged render still blocked the
+        # caller indefinitely. Deep-nightly shards 15/16 hung exactly there (main thread in
+        # ``_wait_for_tstate_lock`` under this block, 3.7h with no output until the job cap), and the
+        # non-daemon executor threads would also have held up interpreter exit.
+        _futures = [_start_daemon_task(_do_backend, backend, fmts) for backend, fmts in _backends]
+        _results = []
+        for f in _futures:
+            try:
+                _results.append(f.result(timeout=_BACKEND_RENDER_TIMEOUT_S))
+            except _FutureTimeout:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                _record_render_failure(timed_out=True)
+                log_throttle(
+                    logger, "render_save_backend_future_timeout", logging.WARNING,
+                    "render_and_save: backend future exceeded %ss; the worker thread is abandoned and one "
+                    "chart is dropped. See get_render_failure_stats(). ", _BACKEND_RENDER_TIMEOUT_S, exc_info=True,
+                )
+            except Exception:
+                _record_render_failure(timed_out=False)
+                log_throttle(
+                    logger, "render_save_backend_future_failed", logging.WARNING,
+                    "render_and_save: backend future failed; one render output dropped. " "See get_render_failure_stats().",
+                    exc_info=True,
+                )
     else:
         # Single-backend path: skip the thread pool overhead, but still go through the SAME try/except +
         # _record_render_failure bookkeeping the multi-backend path uses a few lines above -- this is the
