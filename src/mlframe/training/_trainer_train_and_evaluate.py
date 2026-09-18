@@ -1026,6 +1026,7 @@ def train_and_evaluate_model(
             train_od_idx=train_od_idx,
             val_od_idx=val_od_idx,
             trainset_features_stats=trainset_features_stats,
+            plot_file=plot_file or "",  # this model's chart prefix; charts rendered for it after the fit (composite y-scale) reuse it
         ),
         _orig_train_df,
         _orig_val_df,

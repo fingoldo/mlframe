@@ -244,12 +244,14 @@ def _run_per_model_post_train_tail(
                     test_idx=getattr(ctx, "test_idx", None),
                     test_df_pd=test_df_pd,
                     train_idx=_train_idx,
-                    # `ctx.output_config.plot_file`, not `ctx.plot_file` -- the latter is not a slot, so under
-                    # `slots=True` this read returned None on every run, `_plot_path` became "" downstream, and
-                    # the per-model composite y-scale TEST chart was never saved. The metric log line still
-                    # printed, so the run looked healthy and nothing warned.
+                    # The chart path comes from the entry's own recorded chart prefix (set by the trainer), NOT from
+                    # `output_config.plot_file`: that config field defaults to "" and the suite never fills it (the real
+                    # per-target chart dir is a local of the model setup), so reading it left the composite perfplot
+                    # unsaved on every run while the metric log line still printed. Kept only as a user-override fallback.
                     plot_file=getattr(getattr(ctx, "output_config", None), "plot_file", None),
                     reporting_config=getattr(ctx, "reporting_config", None),
+                    val_idx=getattr(ctx, "filtered_val_idx", None),
+                    val_df=getattr(ctx, "filtered_val_df", None),
                 )
     except Exception as _pmce:
         logger.warning(
