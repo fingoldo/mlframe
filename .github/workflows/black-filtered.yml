@@ -22,6 +22,6 @@ jobs:
   black:
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@da63ad7280a1724ddcbe0b9db9e827a6ede70556  # v1
     with:
       check-path: src/mlframe
