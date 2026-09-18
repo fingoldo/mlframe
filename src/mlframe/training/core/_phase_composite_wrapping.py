@@ -157,6 +157,20 @@ def _emit_yscale_composite_chart(
     )
 
 
+def record_composite_y_scale_metrics(*, metadata: dict, target_type, composite_name: str, model_name, scores: dict) -> None:
+    """Upsert one model's y-scale split metrics into ``metadata["composite_target_y_scale_metrics"][tt][composite]``.
+
+    Keyed by ``model_name`` so a re-run of the hook for the same model replaces its row instead of duplicating it.
+    """
+    _rows = metadata.setdefault("composite_target_y_scale_metrics", {}).setdefault(str(target_type), {}).setdefault(composite_name, [])
+    _row = {"model_name": model_name, "metrics": {k: dict(v) for k, v in scores.items()}, "source": "per_model_hook"}
+    for _i, _r in enumerate(_rows):
+        if isinstance(_r, dict) and model_name is not None and _r.get("model_name") == model_name:
+            _rows[_i] = _row
+            return
+    _rows.append(_row)
+
+
 def emit_per_model_composite_y_scale_test(
     *,
     entry: Any,
@@ -172,6 +186,8 @@ def emit_per_model_composite_y_scale_test(
     reporting_config: Any = None,
     val_idx=None,
     val_df=None,
+    metadata: dict | None = None,
+    target_type: str | None = None,
 ) -> None:
     """Wrap a freshly-fit composite-target inner model in
     CompositeTargetEstimator (IDEMPOTENT -- safe to call again at end-of-target)
@@ -238,6 +254,7 @@ def emit_per_model_composite_y_scale_test(
         _inner_for_label = _wrapper.estimator_ if hasattr(_wrapper, "estimator_") else _inner
         from mlframe.training.reporting import display_estimator_name
         _inner_cls = display_estimator_name(type(_inner_for_label).__name__)
+        _entry_scores: dict[str, dict[str, float]] = {}
         # VAL + TEST, like a raw-target model's `{prefix}_val_perfplot` / `{prefix}_test_perfplot` pair.
         for _split_name, _split_idx, _split_df in (("val", val_idx, val_df), ("test", test_idx, test_df_pd)):
             if _split_idx is None or _split_df is None:
@@ -259,6 +276,7 @@ def emit_per_model_composite_y_scale_test(
                 _split_name.upper(), _inner_cls, target_name, composite_name,
                 _mae, _rmse, _r2, int(_finite.sum()),
             )
+            _entry_scores[_split_name] = {"RMSE": _rmse, "MAE": _mae, "R2": _r2, "n_rows_finite": int(_finite.sum())}
             _emit_yscale_composite_chart(
                 y_target=_yt, y_pred=_yp,
                 inner_entry=entry,
@@ -269,6 +287,13 @@ def emit_per_model_composite_y_scale_test(
                 reporting_config=reporting_config,
                 rmse_y=_rmse, mae_y=_mae, r2_y=_r2,
                 split_name=_split_name,
+            )
+        # The end-of-target wrap pass may skip its metric block (skip_wrap_pass_predict=True), in which case these per-model
+        # numbers are the ONLY y-scale metrics the suite-end verdict can compare against raw-y models; record them.
+        if metadata is not None and target_type is not None and _entry_scores:
+            record_composite_y_scale_metrics(
+                metadata=metadata, target_type=target_type, composite_name=composite_name,
+                model_name=getattr(entry, "model_name", None) or _inner_cls, scores=_entry_scores,
             )
         # Mark the entry so the end-of-target wrap pass skips re-emitting the identical charts (same path -> overwrite + duplicate predict).
         try:

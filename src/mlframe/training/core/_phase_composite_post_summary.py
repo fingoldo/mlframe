@@ -165,8 +165,92 @@ def _run_suite_end_dummy_baselines_summary(
         )
         if _summary_text:
             logger.info(_summary_text)
+        _cvr_text = format_composite_vs_raw_block(models=models, metadata=metadata, best_metrics=_best_metrics, composite_to_raw=_composite_to_raw)
+        if _cvr_text:
+            logger.info(_cvr_text)
     except Exception as _db_summary_err:
         logger.warning(
             "[DUMMY_BASELINES] suite-end summary failed: %s",
             _db_summary_err,
         )
+
+
+def _metric_better(a: float, b: float, is_min: bool) -> bool:
+    return (a < b) if is_min else (a > b)
+
+
+def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics: dict, composite_to_raw: dict) -> str:
+    """Answer "did the composite (log / cbrt / residual ...) beat training on raw y?" per composite target.
+
+    One row per composite: its best model by y-scale VAL metric (never selected on test), that metric, the raw-y trivial dummy
+    and the best raw-target model of the same original target on the same val metric, the lifts vs both, and the composite's
+    test metric alongside. Composite models with no y-scale metric recorded (typically ensembles, which bypass the per-model
+    y-scale hook) are listed explicitly instead of being dropped.
+    """
+    from ..metrics_registry import metric_name_higher_is_better as _mhb
+
+    _dummies = metadata.get("dummy_baselines", {}) or {}
+    _yscale = metadata.get("composite_target_y_scale_metrics", {}) or {}
+    lines: list[str] = []
+    for (_tt, _comp), _raw in composite_to_raw.items():
+        _raw_rep = (_dummies.get(_tt) or {}).get(_raw) or (_dummies.get(_tt) or {}).get(str(_raw))
+        _pm = (_raw_rep or {}).get("primary_metric")
+        if not _pm or not _pm.startswith("val_"):
+            continue
+        _metric = _pm[len("val_"):]
+        _dir = _mhb(_metric)
+        _is_min = True if _dir is None else (not _dir)
+        _rows = (_yscale.get(str(_tt)) or {}).get(_comp) or []
+        _best = None
+        for _r in _rows:
+            _v = ((_r.get("metrics") or {}).get("val") or {}).get(_metric)
+            if _v is not None and np.isfinite(_v) and (_best is None or _metric_better(float(_v), _best[0], _is_min)):
+                _best = (float(_v), _r)
+        _have = {_r.get("model_name") for _r in _rows if (_r.get("metrics") or {})}
+        _entries = (models.get(_tt) or models.get(str(_tt)) or {}).get(_comp) or []
+        _missing = [str(getattr(_e, "model_name", None) or type(getattr(_e, "model", _e)).__name__) for _e in _entries
+                    if getattr(_e, "model_name", None) not in _have]
+        _dummy_val = None
+        _strongest = (_raw_rep or {}).get("strongest")
+        if _strongest:
+            _dummy_val = ((_raw_rep.get("data") or {}).get(_strongest) or {}).get(_pm)
+        _raw_best = best_metrics.get((str(_tt), str(_raw))) or {}
+        _raw_val = _raw_best.get(_pm)
+        _raw_name = str(_raw_best.get("model_name", "-"))
+
+        def _lift(ref, val):
+            if ref is None or val is None or not np.isfinite(ref) or not np.isfinite(val):
+                return None
+            if _is_min:
+                return ref / val if val > 0 else None
+            return val / ref if ref > 0 else None
+
+        _comp_val = _best[0] if _best else None
+        _comp_test = (((_best[1].get("metrics") or {}).get("test") or {}).get(_metric)) if _best else None
+        _l_dummy = _lift(_dummy_val, _comp_val)
+        _l_raw = _lift(_raw_val, _comp_val)
+        if _comp_val is None:
+            _verdict = "NO_Y_SCALE_METRIC"
+        elif _l_raw is None:
+            _verdict = "NO_RAW_MODEL_TO_COMPARE"
+        elif _l_raw > 1.005:
+            _verdict = "COMPOSITE_BEATS_RAW"
+        elif _l_raw < 0.995:
+            _verdict = "RAW_BEATS_COMPOSITE"
+        else:
+            _verdict = "TIE_WITH_RAW"
+        _f = lambda v: "-" if v is None or not np.isfinite(v) else f"{v:.4f}"  # noqa: E731
+        _fl = lambda v: "-" if v is None else f"{v:.3f}x"  # noqa: E731
+        lines.append(
+            f"{_comp[:40]:<40} {(str(_best[1].get('model_name')) if _best else '-')[:28]:<28} {_f(_comp_val):>11} {_f(_comp_test):>11} "
+            f"{_f(_dummy_val):>11} {_fl(_l_dummy):>9} {_raw_name[:24]:<24} {_f(_raw_val):>11} {_fl(_l_raw):>9} {_verdict}"
+            + (f"  [no y-scale metric: {', '.join(_missing)}]" if _missing else "")
+        )
+    if not lines:
+        return ""
+    header = (
+        "[DUMMY_BASELINES] COMPOSITE vs RAW (y-scale; best composite model picked on VAL, test shown alongside)" + chr(10)
+        + f"{'composite':<40} {'best_model':<28} {'val':>11} {'test':>11} {'raw_dummy':>11} {'vs_dummy':>9} {'raw_best_model':<24} "
+        f"{'raw_val':>11} {'vs_raw':>9} verdict"
+    )
+    return header + chr(10) + chr(10).join(lines)

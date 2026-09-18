@@ -252,6 +252,8 @@ def _run_per_model_post_train_tail(
                     reporting_config=getattr(ctx, "reporting_config", None),
                     val_idx=getattr(ctx, "filtered_val_idx", None),
                     val_df=getattr(ctx, "filtered_val_df", None),
+                    metadata=metadata,
+                    target_type=str(target_type),
                 )
     except Exception as _pmce:
         logger.warning(
