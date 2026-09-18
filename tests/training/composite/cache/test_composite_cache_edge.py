@@ -165,3 +165,17 @@ class TestS18EvictionAccountingAndSweep:
         cache.set("g" * 32, {"x": 1})
         cache.set("h" * 32, {"x": 1})
         assert os.path.exists(fresh), "sweep removed a fresh in-flight tmp (race hazard)"
+
+
+def test_get_on_absent_key_is_a_silent_miss(tmp_path, caplog) -> None:
+    """A never-written key is an ordinary miss: ``get`` returns the default without routing the absent path
+    through safe_pickle's sidecar verification, which logged an ERROR ("payload ... does not exist") plus a
+    "unreadable/unverifiable entry" WARNING on every first-run lookup."""
+    import logging
+
+    cache = DiscoveryCache(str(tmp_path))
+    sentinel = object()
+    with caplog.at_level(logging.WARNING):
+        assert cache.get("0" * 32, default=sentinel) is sentinel
+    noisy = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert not noisy, [f"{r.name}: {r.getMessage()}" for r in noisy]
