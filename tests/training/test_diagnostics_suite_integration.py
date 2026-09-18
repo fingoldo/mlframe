@@ -288,6 +288,14 @@ def test_regression_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
     assert html, f"combined HTML report not saved; files={files}"
     saved_acc = _collect_charts_acc(metadata) + _collect_charts_acc(models)
     assert saved_acc, "no charts accounting recorded in metadata/models"
+    # Every trained entry records the chart prefix its own charts were written under; charts rendered for the model
+    # after the fit (the composite-target y-scale perfplot, the split-comparison panel) are named from it.
+    for _entries in models[TargetTypes.REGRESSION].values():
+        for _e in _entries:
+            _prefix = os.path.basename(getattr(_e, "plot_file", "") or "")
+            assert _prefix, f"trained entry carries no chart prefix: {vars(_e).keys()}"
+            assert any(f.startswith(_prefix + "_") and "perfplot" in f for f in files), f"no perfplot named from {_prefix!r}; files={files}"
+            assert any(f.startswith(_prefix + "_split_comparison") for f in files), f"split_comparison not named from {_prefix!r}; files={files}"
 
 
 def _make_multiclass_frame(n: int, *, n_classes: int = 3, seed: int = 0) -> pd.DataFrame:

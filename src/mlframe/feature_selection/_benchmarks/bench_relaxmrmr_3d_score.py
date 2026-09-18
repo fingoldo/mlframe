@@ -2,7 +2,7 @@
 
 The score costs ``O(|S|^2)`` 3-D plug-in MIs per candidate (one CMI + one joint-CMI + one unconditional joint-MI per
 selected pair, plus ``|S|`` marginal MIs). This records the warmed, best-of-N wall time so the corrected path's cost is
-tracked. The corrected interaction term adds one ``_mi_x_pair_njit`` call per selected pair vs the pre-fix version, so
+tracked. The corrected interaction term adds one unconditional joint-MI (``_mi_mm_njit`` on the composite pair) call per selected pair vs the pre-fix version, so
 the pair loop does roughly one extra O(n) histogram pass per pair -- this bench quantifies that.
 
 Run:

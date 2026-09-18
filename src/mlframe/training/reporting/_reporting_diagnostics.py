@@ -87,6 +87,27 @@ def _extract_training_history(model: Any) -> tuple[dict | None, int | None]:
     return by_metric, es_iteration
 
 
+def _booster_metric_period(model: Any) -> int | None:
+    """The booster's metric-logging period (CatBoost ``metric_period``), or None when it logs every iteration / is unknown."""
+    est = _unwrap_booster(model)
+    for getter in ("get_all_params", "get_params"):
+        fn = getattr(est, getter, None)
+        if not callable(fn):
+            continue
+        try:
+            period = (fn() or {}).get("metric_period")
+        except Exception:
+            logger.debug("training-curve: %s() raised while reading metric_period.", getter, exc_info=True)
+            continue
+        if period is not None:
+            try:
+                period = int(period)
+            except (TypeError, ValueError):
+                return None
+            return period if period > 1 else None
+    return None
+
+
 def _render_training_curves(
     model: Any,
     *,
@@ -114,7 +135,10 @@ def _render_training_curves(
         from mlframe.reporting.output import parse_plot_output_dsl
         from mlframe.reporting.renderers import render_and_save
 
-        spec = compose_training_curve_figure(history, es_iteration=es_iteration, suptitle=f"{model_name} training curves")
+        spec = compose_training_curve_figure(
+            history, es_iteration=es_iteration, suptitle=f"{model_name} training curves",
+            metric_period=_booster_metric_period(model),
+        )
         if plot_dpi is not None:
             from dataclasses import replace
             spec = replace(spec, dpi=plot_dpi)

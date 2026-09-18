@@ -28,6 +28,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -189,7 +191,8 @@ def compute_mrmr_artifacts(
             if not (-1e-9 <= _su_raw <= 1.0 + 1e-9):
                 # SU outside [0, 1] is impossible for consistent inputs: the cached MI and these marginal entropies disagree (different
                 # binning, a stale cache entry, or estimator bias). Keep the clamp, but do not let it pass as a real 0 or 1.
-                logger.warning(
+                log_throttle(
+                    logger, "mrmr_artifacts_su_out_of_range", logging.WARNING,
                     "compute_mrmr_artifacts: SU for %r is %.6g, outside [0, 1] (cached MI %.6g vs H(X)+H(y)=%.6g); clamped",
                     name, _su_raw, mi_val, denom,
                 )

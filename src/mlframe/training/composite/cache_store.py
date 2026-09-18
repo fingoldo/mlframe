@@ -345,7 +345,10 @@ class DiscoveryCache:
         try:
             _file_size = os.path.getsize(path)
         except OSError:
-            _file_size = -1
+            # No payload on disk: a plain cache miss. safe_load would otherwise report it as a verification
+            # failure (ERROR log from verify_sidecar + PickleVerificationError), turning every first-run miss
+            # into an error-level log line and a "unreadable/unverifiable entry" warning.
+            return default
         if _file_size > _max_bytes:
             logger.warning(
                 "DiscoveryCache: skipping oversized entry at %s (%.2f GiB > %.2f GiB ceiling); "

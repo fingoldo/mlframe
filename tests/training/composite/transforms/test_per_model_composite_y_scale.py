@@ -133,3 +133,34 @@ def test_per_model_emit_swallows_missing_inputs() -> None:
     )
     # Inner was None -> no wrap, no crash.
     assert entry.model is None
+
+
+def test_per_model_emit_saves_val_and_test_perfplots_at_the_model_prefix(tmp_path) -> None:
+    """The hook must SAVE the composite model's regression charts, for val and test, under the model's own prefix.
+
+    It used to build the path from ``output_config.plot_file`` (always "" in a real suite), so no chart was ever
+    written for a composite target while the y-scale log line still printed.
+    """
+    import glob
+    import os
+
+    df, test_idx, y_full, spec, entry = _build_diff_setup()
+    val_idx = np.arange(15, 30)
+    entry.plot_file = os.path.join(str(tmp_path), "recency__Ridge")
+    emit_per_model_composite_y_scale_test(
+        entry=entry,
+        composite_spec=spec,
+        orig_target_name="TVT",
+        composite_name="TVT-diff-TVT_prev",
+        target_name="TVT-diff-TVT_prev",
+        y_full=y_full,
+        test_idx=test_idx,
+        test_df_pd=df.iloc[test_idx],
+        plot_file="",  # what a real suite passes (output_config.plot_file default)
+        reporting_config=types.SimpleNamespace(plot_outputs="matplotlib[png]", plot_dpi=50),
+        val_idx=val_idx,
+        val_df=df.iloc[val_idx],
+    )
+    for split in ("val", "test"):
+        hits = glob.glob(os.path.join(str(tmp_path), "**", f"recency__Ridge_{split}_perfplot*.png"), recursive=True)
+        assert hits, f"{split} perfplot not saved under the model prefix"

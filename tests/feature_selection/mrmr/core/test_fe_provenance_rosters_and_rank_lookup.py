@@ -54,6 +54,15 @@ def _fitted_stub(n_names: int):
     )
 
 
+def _scan_rank(name, predictors):
+    """Reference oracle: first index in the predictor log whose simplified name equals ``name``'s, else -1 (a plain per-name scan)."""
+    target = _recipe_name_simplify.simplify_fe_name(str(name))
+    for idx, entry in enumerate(predictors):
+        if _recipe_name_simplify.simplify_fe_name(str(entry["name"])) == target:
+            return idx
+    return -1
+
+
 def test_greedy_rank_lookup_is_hoisted(monkeypatch):
     """Simplifier calls grow linearly with the number of names, and the ranks equal the per-name scanning reference."""
     real = _recipe_name_simplify.simplify_fe_name
@@ -71,7 +80,8 @@ def test_greedy_rank_lookup_is_hoisted(monkeypatch):
         est = _fitted_stub(n)
         frame = prov_mod.compute_fe_provenance(est)
         counts[n] = calls["n"]
-        reference = [prov_mod._greedy_rank_for_name(nm, est._predictors_log_) for nm in frame["feature_name"]]
+        reference = [_scan_rank(nm, est._predictors_log_) for nm in frame["feature_name"]]
+        assert any(r >= 0 for r in reference), "precondition: the survivors are found in the predictor log"
         assert frame["support_rank"].tolist() == reference
     # A per-name scan costs ~n^2 simplifier calls (6400 at n=80); a hoisted index costs a small multiple of n.
     assert counts[80] < 20 * 80, f"simplifier calls not linear in names: {counts}"

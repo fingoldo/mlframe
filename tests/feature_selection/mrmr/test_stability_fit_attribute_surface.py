@@ -46,7 +46,7 @@ def test_ndarray_stability_fit_stores_string_feature_names(ndarray_stability_fit
     """sklearn's contract: feature_names_in_ is all strings, and the placeholders match the classic path's."""
     m, X = ndarray_stability_fit
     names = list(m.feature_names_in_)
-    assert all(isinstance(n, str) for n in names), f"feature_names_in_ holds non-strings: {names}"
+    assert names and all(isinstance(n, str) for n in names), f"feature_names_in_ is empty or holds non-strings: {names}"
     assert names == [f"feature_{i}" for i in range(X.shape[1])]
     assert m._feature_names_in_synthesized_ is True
 
