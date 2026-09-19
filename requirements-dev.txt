@@ -43,4 +43,7 @@
 # Bumped 2026-09-11 from v1.4.2 to da63ad7: test_pyutilz_pin imports git_dependency_pins' pins-agree and
 # installed-includes-pin checks, which do not exist before v1.14.0, and the source-text detector there sees two
 # claim shapes v1.4.2 missed, and its git calls ignore the GIT_DIR a hook exports; the source-text baseline moves in the same commit.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@da63ad7280a1724ddcbe0b9db9e827a6ede70556
+# Bumped 2026-09-19 from da63ad7 to 7809d32: test_shared_checks_wired wires identity_comparisons and
+# vacuous_loop_assertions (absent at da63ad7), relies on the ordinal floorless-loop keys and the faster
+# gpu_timing_sync scan; _vacuous_loop_baseline.json is added in the same commit.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@7809d32d05e15cd50a4765a9c0c3af9938703d94

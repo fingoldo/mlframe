@@ -499,6 +499,7 @@
   "src/mlframe/feature_selection/filters/discretization/_discretization_edges.py::_knuth_log_posterior",
   "src/mlframe/feature_selection/filters/discretization/_discretization_edges.py::discretize_sklearn",
   "src/mlframe/feature_selection/filters/discretization/_kernels.py::_quantile_codes_1d_njit",
+  "src/mlframe/feature_selection/filters/discretization/_kernels.py::_quantile_edges_2d_njit_partition",
   "src/mlframe/feature_selection/filters/estimators.py::ksg_mi_pair",
   "src/mlframe/feature_selection/filters/estimators.py::ksg_mi_with_significance",
   "src/mlframe/feature_selection/filters/estimators.py::nsb_mi",

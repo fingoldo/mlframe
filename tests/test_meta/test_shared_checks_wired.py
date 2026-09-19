@@ -343,3 +343,90 @@ def test_every_database_effect_is_asserted_by_an_importing_test():
     assert len(import_map) > 1000, f"only {len(import_map)} modules resolved -- the scan lost its subject and this gate would pass vacuously"
 
     assert_effects_are_asserted(REPO_ROOT, import_map, ())
+
+
+def _src_files() -> list[Path]:
+    """Production modules, minus frozen bench copies (kept in the shape they were measured with)."""
+    return sorted(p for p in (REPO_ROOT / "src").rglob("*.py") if "_benchmarks" not in p.parts and "_cpx36_baseline" not in p.parts)
+
+
+# `path::function` -> why the reported timer does not time GPU work. Both are loops the checker reads too widely.
+_GPU_TIMING_NOT_GPU_WORK: dict[str, str] = {
+    "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_score.py::_score_one_pair":
+        "times numpy transforms and the CPU numba discretizer; the stop sits in a nested else, so the checker treats the rest of the loop as timed",
+    "src/mlframe/feature_selection/filters/_screen_predictors.py::screen_predictors":
+        "start_time is a runtime-budget origin passed down to callees; nothing is timed here, the only GPU call is cp.random.seed()",
+}
+
+
+def test_gpu_timings_synchronize_the_device():
+    """A timer stopped right after a CUDA launch measures the launch, not the work.
+
+    The first run found 46 such timings: benchmark scripts, and the kernel-tuning-cache dispatch timings whose
+    numbers are persisted and pick backends on every later run. `mlframe.utils.gpu_sync.synchronize_gpu_if_available`
+    is the fix at each of them.
+    """
+    from py_ci_shared.gpu_timing_sync import assert_no_unsynchronized_gpu_timings
+
+    files = sorted(p for d in ("src", "tests", "benchmarks", "profiling") for p in (REPO_ROOT / d).rglob("*.py"))
+    assert len(files) > 1000, f"only {len(files)} files scanned -- the walk lost its subject"
+    assert_no_unsynchronized_gpu_timings(files, root=REPO_ROOT, allowlist=frozenset(_GPU_TIMING_NOT_GPU_WORK))
+
+
+def test_no_identity_comparison_of_string_constants():
+    """`x is SOME_STRING` holds only while CPython happens to intern both sides.
+
+    The sentinel in polynom_pair_fe is a string on purpose -- it crosses the loky process boundary, where an
+    `object()` sentinel loses its identity -- so it must be compared by value.
+    """
+    from py_ci_shared.identity_comparisons import assert_no_identity_comparisons
+
+    assert_no_identity_comparisons(_src_files(), root=REPO_ROOT, min_files=500)
+
+
+def test_no_naive_utcnow():
+    """`datetime.utcnow()` is deprecated for removal and returns a naive value."""
+    from py_ci_shared.naive_utcnow import assert_no_naive_utcnow
+
+    assert_no_naive_utcnow(REPO_ROOT / "src")
+
+
+def test_optional_numbers_are_tested_for_none():
+    """`if seed:` on an `int | None` reads 0 as absent.
+
+    Two of the 32 first reported were real: `best_desired_score=0.0` never stopped the search and
+    `min_relevance_gain=0.0` switched verbose candidate logging off. The rest now say `is not None`, or state
+    explicitly that 0 means disabled, so the accepted list is empty.
+    """
+    from py_ci_shared.optional_truthiness import assert_optionals_test_for_none
+
+    assert_optionals_test_for_none(files=_src_files(), repo_root=REPO_ROOT, baseline=(), min_subjects=100)
+
+
+_VACUOUS_LOOP_BASELINE = Path(__file__).resolve().parent / "_vacuous_loop_baseline.json"
+
+
+def _test_files() -> list[Path]:
+    return sorted((REPO_ROOT / "tests").rglob("test_*.py"))
+
+
+def test_no_new_floorless_assert_loop():
+    """A test whose only assertions sit inside a loop passes when the loop runs zero times.
+
+    Ratcheted: the loops that exist are recorded, a new one fails. Fix one by asserting the collection is
+    non-empty before the loop, then refresh via `python tests/test_meta/regen_baselines.py`.
+    """
+    from py_ci_shared.vacuous_loop_assertions import assert_no_new_floorless_loop
+
+    assert_no_new_floorless_loop(files=_test_files(), repo_root=REPO_ROOT, baseline_path=_VACUOUS_LOOP_BASELINE)
+
+
+def regenerate_vacuous_loop_baseline() -> None:
+    """Rewrite the floorless-loop baseline from the current tree. Called by `regen_baselines.py`."""
+    import orjson
+
+    from py_ci_shared.vacuous_loop_assertions import find_floorless_loops
+
+    found = {loop.key: "pre-existing, recorded when the check was wired; not yet individually triaged" for loop in find_floorless_loops(_test_files(), REPO_ROOT)}
+    payload = orjson.dumps(dict(sorted(found.items())), option=orjson.OPT_INDENT_2).decode("utf-8")
+    _VACUOUS_LOOP_BASELINE.write_text(payload + chr(10), encoding="utf-8")
