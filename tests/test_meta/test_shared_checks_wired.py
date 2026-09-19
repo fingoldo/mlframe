@@ -480,7 +480,6 @@ def regenerate_function_length_baseline() -> None:
 # Documents that legitimately name things the code does not contain.
 _DOC_PARITY_EXCLUDED = {
     "CHANGELOG.md",  # names symbols as they were when each entry was written
-    "CLAUDE.md",  # agent instructions: example flags and test names, not this repo's API
     "audits/",  # historical findings and dispositions
     "research/",  # design notes for things not built yet
     "docs/MRMR_RESEARCH.md",
@@ -498,6 +497,12 @@ _DOC_PARITY_IGNORED = {
     "test_log_loss_micro",  # f"{split_name}_log_loss_micro"
     "--python-backtrace",  # nsys CLI flags, documented as absent/present in nsys itself
     "--python-functions-trace",
+    # CLAUDE.md: flags of external tools, a deliberately bad example name, and a rename it records
+    "--write",  # py_ci_shared.black_filtered_apply
+    "--metrics",  # nvprof
+    "--events",  # nvprof
+    "test_thing_works",  # the name CLAUDE.md tells you NOT to use
+    "test_fused_bundle_returns_none_on_tied_scores",  # "was X, now Y" history
 }
 
 
