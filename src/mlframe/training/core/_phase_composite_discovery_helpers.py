@@ -67,11 +67,17 @@ def _render_composite_discovery_diagnostics(
             _save(plot_mi_gain_with_jitter(specs_export), "mi_gain")
         except Exception as _mi_err:
             logger.info("[CompositeTargetDiscovery] mi-gain diagnostic render failed for '%s': %s.", raw_target_name, _mi_err)
+    _spec_meta = {str(d.get("name")): d for d in (specs_export or []) if isinstance(d, dict)}
     for _spec_name, _t_full in t_by_spec.items():
         _safe_spec = "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(_spec_name))
         try:
             _save(
-                plot_target_distribution(y_full, _t_full, title=f"Target distribution: y vs T ({_spec_name})"),
+                plot_target_distribution(
+                    y_full, _t_full, title=f"Target distribution: y vs T ({_spec_name})",
+                    y_name=str(raw_target_name),
+                    transform_name=_spec_meta.get(_spec_name, {}).get("transform_name"),
+                    base_column=_spec_meta.get(_spec_name, {}).get("base_column") or None,
+                ),
                 f"tdist_{_safe_spec}",
             )
         except Exception as _td_err:

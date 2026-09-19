@@ -141,7 +141,10 @@ def plot_target_distribution(
     *,
     title: str = "Target distribution: y vs T",
     bins: int = 60,
-    figsize: tuple[float, float] = (13, 5.5),
+    figsize: tuple[float, float] = (13, 6.5),
+    y_name: str | None = None,
+    transform_name: str | None = None,
+    base_column: str | None = None,
 ):
     """Side-by-side distributions of ``y`` and ``T = transform(y, base)`` with a plain-language verdict.
 
@@ -149,6 +152,11 @@ def plot_target_distribution(
     smaller-spread T -- or did it barely change the shape? Each panel has its own asinh-scaled x axis (y and T generally
     live on different scales) and a log density axis, so both the spike and the tail are visible. The header states
     std / skew / excess kurtosis before and after, the change, and the most frequent value's share.
+
+    A footer explains what y and T are, since a reader seeing this chart without the discovery docs has no way to know:
+    y is the original target, T the substitute target the models train on, built from y and a base column and converted
+    back to y after prediction. ``y_name`` / ``transform_name`` / ``base_column`` make that footer concrete (the
+    transform's registry description is quoted when available).
     """
     plt = _lazy_pyplot()
     y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
@@ -190,9 +198,34 @@ def plot_target_distribution(
             )
         except Exception as e:  # nosec B110 - annotation only
             logger.debug("target-distribution verdict failed: %s", e)
+    fig.text(0.01, 0.01, _explain_y_and_t(y_name, transform_name, base_column), ha="left", va="bottom", fontsize=8, wrap=True,
+             bbox={"facecolor": "#f4f4f4", "edgecolor": "#bbbbbb"})
     fig.suptitle(f"{title}\n{verdict}" if verdict else title, fontsize=10)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.14, 1, 1))
     return fig
+
+
+def _explain_y_and_t(y_name: str | None, transform_name: str | None, base_column: str | None) -> str:
+    """Plain-language footer: what y is, what T is, and how the models use T."""
+    y_label = f"'{y_name}'" if y_name else "the target"
+    how = ""
+    if transform_name:
+        try:
+            from .transforms import get_transform
+
+            desc = str(getattr(get_transform(transform_name), "description", "") or "").strip()
+            how = f" Here T = {transform_name}(y{', ' + base_column if base_column else ''}): {desc.split('. ')[0].rstrip('.')}."
+        except Exception as e:  # nosec B110 - an unknown name just drops the formula line
+            logger.debug("transform description lookup failed for %r: %s", transform_name, e)
+            how = f" Here T = {transform_name}(y{', ' + base_column if base_column else ''})."
+    return (
+        f"y = the original target {y_label}, as it is in the data.   "
+        f"T = a substitute target the models are trained on INSTEAD of y, computed from y"
+        f"{' and the base column ' + repr(base_column) if base_column else ''}; each model's prediction of T is converted "
+        f"back to y, so the final forecast is still in y units.{how}\n"
+        "Why look: a model fits a compact, symmetric target more easily than a spiky, heavy-tailed one. "
+        "If T's panel is narrower and less lopsided than y's, the substitution helps."
+    )
 
 
 def _qq_decimation_indices(n: int, max_points: int = 2000, tail_keep: int = 20) -> np.ndarray:
