@@ -67,6 +67,7 @@ def _prewarp_pair_synergy_gain(vals_a, vals_b, spec_a, spec_b, y, apply_operand_
         yy = np.nan_to_num(np.asarray(y, dtype=np.float64))
 
         def _ac(u):
+            """Absolute Pearson correlation of ``u`` with y, or 0.0 when either side is constant."""
             if float(np.std(u)) < 1e-12 or float(np.std(yy)) < 1e-12:
                 return 0.0
             return abs(float(np.corrcoef(u, yy)[0, 1]))

@@ -572,8 +572,7 @@ def test_package_doctests_pass():
 
     from py_ci_shared.package_doctests import assert_package_doctests_pass
 
-    assert_package_doctests_pass("mlframe", skip_parts=("_benchmarks",), min_examples=100,
-                                 optionflags=doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE)
+    assert_package_doctests_pass("mlframe", skip_parts=("_benchmarks",), min_examples=100, optionflags=doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE)
 
 
 # Rounds whose findings carry a `**Disposition:** VERDICT. text` line. The older rounds record status only in their
@@ -638,8 +637,7 @@ _DECLARED_NARROWINGS: dict[str, str] = {
     r"deep-nightly.yml::run::--ignore=tests/training/test_core.py": "the RuntimeWarning census mirrors the per-push selection; test_core.py has its own job",
     r"numba-coverage.yml::run::--ignore=tests/feature_selection/biz_val": "business-value fits are slow and gate outcomes, not line coverage of numba bodies",
     r"numba-coverage.yml::run::--ignore=tests/training/test_core.py": "run by the dedicated serial test-heavy-serial job",
-    r"pre-commit::mypy::files=^(src/mlframe/calibration/|src/mlframe/utils/safe_pickle\.py$|src/mlframe/system/_gpu_guard\.py$|src/mlframe/metrics/(_numba_params|rank_correlation|_core_precision_mape)\.py$)":
-        "the strict-typed beachhead modules; pinned to pyproject's override list by test_precommit_mypy_beachhead_coverage",
+    r"pre-commit::mypy::files=^(src/mlframe/calibration/|src/mlframe/utils/safe_pickle\.py$|src/mlframe/system/_gpu_guard\.py$|src/mlframe/metrics/(_numba_params|rank_correlation|_core_precision_mape)\.py$)": "the strict-typed beachhead modules; pinned to pyproject's override list by test_precommit_mypy_beachhead_coverage",
     r"pyproject::[tool.ruff]::exclude": "tests use the tests ruff config via their own hook; the rest is not the shipped package",
     r"pyproject::[tool.mypy]::exclude": "frozen bench/profiling scripts, not the package",
 }

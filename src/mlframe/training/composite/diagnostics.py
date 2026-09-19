@@ -180,6 +180,7 @@ def plot_target_distribution(
             st, kt_skew, kt_kurt, _ = _moments(ft)
 
             def _chg(a: float, b: float) -> str:
+                """Relative change from ``a`` to ``b`` as a signed percentage, or ``n/a`` when ``a`` is zero."""
                 return f"{(b - a) / abs(a):+.0%}" if a else "n/a"
 
             tail_better = abs(kt_skew) < 0.5 * abs(ky_skew) and kt_kurt < 0.5 * ky_kurt

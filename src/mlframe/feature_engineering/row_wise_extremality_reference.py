@@ -96,6 +96,7 @@ def fit_extremality_reference(
     sorted_refs: List[np.ndarray] = [_EMPTY] * len(cols)
 
     def _fit(j: int) -> None:
+        """Store the sorted finite reference values of column ``j``, subsampled to ``max_reference_rows``."""
         vals = np.asarray(X[cols[j]].to_numpy(dtype=np.float64, na_value=np.nan))
         vals = vals[np.isfinite(vals)]
         vals.sort()
@@ -151,6 +152,7 @@ def extremality_matrix_from_reference(
     out_f = np.full((n_rows, n_cols), np.nan, dtype=np.float64, order="F")
 
     def _score(j: int) -> None:
+        """Fill column ``j`` of the output with each row's extremality against the stored reference."""
         ref = reference.get(cols[j], _EMPTY)
         if ref.size == 0:
             return

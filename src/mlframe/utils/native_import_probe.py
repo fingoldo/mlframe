@@ -30,10 +30,12 @@ _lock = threading.Lock()
 
 
 def _env_key(name: str) -> str:
+    """Environment variable that caches the probe verdict for module ``name``."""
     return _ENV_PREFIX + name.replace(".", "_").upper()
 
 
 def _describe_failure(returncode: int, stderr: str) -> str:
+    """Human-readable reason a probe subprocess failed to import the module."""
     # A Python-level failure always prints a traceback; an interpreter that died without one crashed in native code.
     if returncode in _ACCESS_VIOLATION or returncode in (-11, 139) or "Traceback (most recent call last)" not in (stderr or ""):
         return (

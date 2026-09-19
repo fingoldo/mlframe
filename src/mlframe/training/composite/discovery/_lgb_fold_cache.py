@@ -31,6 +31,7 @@ class LgbFoldCache:
         self._folds: Dict[int, Any] = {}
 
     def _fold_dataset(self, fold_id: int, x_tr: np.ndarray) -> Any:
+        """The LightGBM ``Dataset`` for fold ``fold_id``, built once from ``x_tr`` and reused."""
         ds = self._folds.get(fold_id)
         if ds is None:
             import lightgbm as lgb

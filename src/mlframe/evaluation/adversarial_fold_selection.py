@@ -97,6 +97,7 @@ def _oof_is_test_proba(
         from sklearn.base import clone
 
         def _rows(idx):
+            """Rows ``idx`` of the train+test union, by position, for a pandas frame or an array."""
             return union.iloc[idx] if isinstance(union, pd.DataFrame) else union[idx]
 
         oof_is_test_proba = np.empty(n_union, dtype=np.float64)
