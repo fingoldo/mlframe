@@ -474,3 +474,88 @@ def regenerate_function_length_baseline() -> None:
     from py_ci_shared.function_length import function_lengths, write_length_baseline
 
     write_length_baseline(_FUNCTION_LENGTH_BASELINE, function_lengths(_src_files(), REPO_ROOT), limit=150)
+
+
+# Documents that legitimately name things the code does not contain.
+_DOC_PARITY_EXCLUDED = {
+    "CHANGELOG.md",  # names symbols as they were when each entry was written
+    "CLAUDE.md",  # agent instructions: example flags and test names, not this repo's API
+    "audits/",  # historical findings and dispositions
+    "research/",  # design notes for things not built yet
+    "docs/MRMR_RESEARCH.md",
+    "docs/pysr_fe_upgrade_research.md",
+    "docs/date_features_kaggle_research.md",
+    "docs/BENCHMARK_PREREGISTRATION.md",  # binding pre-registration: frozen by design, never edited after the fact
+    "src/mlframe/feature_selection/_benchmarks/fs_hybrid/AGENT_IDEAS_ROUND4.md",  # idea backlog
+    "src/mlframe/feature_engineering/transformer/RESULTS.md",  # experiment log
+    "tests/perf/results/",  # measurement logs
+    "tests/feature_selection/MRMR_AUDIT_2026_06_22.md",  # audit record
+}
+# Names that exist only once formatted at runtime, or that belong to another tool.
+_DOC_PARITY_IGNORED = {
+    "rolling_mean_w30",  # f"rolling_mean_w{W} (ts)" for W in (7, 30)
+    "test_log_loss_micro",  # f"{split_name}_log_loss_micro"
+    "--python-backtrace",  # nsys CLI flags, documented as absent/present in nsys itself
+    "--python-functions-trace",
+}
+
+
+def test_docs_name_real_identifiers():
+    """A backticked flag or snake_case identifier in a document must occur somewhere in the code.
+
+    Its first run found a classification baseline table listing two time-series baselines that were never built,
+    a scenario name that had since gained a word, and a guide citing an internal note as if it were code.
+    """
+    from py_ci_shared.doc_identifier_parity import assert_doc_identifiers_exist
+
+    assert_doc_identifiers_exist(REPO_ROOT, exclude_docs=_DOC_PARITY_EXCLUDED, ignore=_DOC_PARITY_IGNORED)
+
+
+_EXTRAS_BULLET = r'(?m)mlframe\[([\w-]+)\]"\s+#\s*(.+)$'
+_ALL_EXTRAS_LINE = r'mlframe\[(all)\]"\s+#\s*all runtime extras: ([\w, ]+?) \('
+
+
+def test_readme_install_block_matches_the_extras():
+    """Every extras group has a README install line naming exactly its packages, and `[all]` names its groups.
+
+    Its first run found `[transformer_ann]` advertised as hnswlib while the group installs pynndescent, `[signal]`
+    advertised with antropy it does not contain, six groups missing packages, and nine groups with no line at all.
+    Aggregates (`all`, `transformer_full`, `gpu-cuda12`) are checked by member group instead; `dev` names its
+    headline tools only, the full list being pyproject's.
+    """
+    import re
+
+    from py_ci_shared.docs_inventory_parity import assert_no_inventory_drift, find_aggregate_group_drift, find_extras_documentation_drift
+
+    readme = REPO_ROOT / "README.md"
+    assert re.search(_ALL_EXTRAS_LINE, readme.read_text(encoding="utf-8")), "the [all] line no longer states its member groups"
+    problems = find_extras_documentation_drift(PYPROJECT, readme, _EXTRAS_BULLET, undocumented_groups=("all", "dev", "transformer_full", "gpu-cuda12"))
+    problems += find_aggregate_group_drift(PYPROJECT, readme, _ALL_EXTRAS_LINE)
+    assert_no_inventory_drift(problems, "README install block vs pyproject extras")
+
+
+def _user_docs() -> list[Path]:
+    """The maintained, user-facing prose: root docs plus docs/ guides and recipes, minus research and roadmap notes."""
+    docs = [REPO_ROOT / name for name in PROSE_FILES if (REPO_ROOT / name).exists()]
+    docs += sorted((REPO_ROOT / "docs").glob("*.md")) + sorted((REPO_ROOT / "docs" / "examples").glob("*.md"))
+    return [p for p in docs if not any(k in p.name for k in ("RESEARCH", "research", "PREREGISTRATION", "ROADMAP", "BACKLOG"))]
+
+
+def test_docs_name_real_paths():
+    """A backticked repo path in the docs must exist; paths may be written relative to the subpackage they sit in."""
+    from py_ci_shared.docs_inventory_parity import assert_no_inventory_drift, find_phantom_doc_paths
+
+    src = REPO_ROOT / "src" / "mlframe"
+    roots = [REPO_ROOT / "src", src, src / "training", src / "training" / "composite", src / "feature_selection", src / "feature_selection" / "filters"]
+    problems = find_phantom_doc_paths(
+        _user_docs(), REPO_ROOT, search_roots=roots,
+        ignore=("infer/my_featureset/lgb.dump", "infer/my_featureset/lgb.dump.sha256"),  # an example layout, not a repo path
+    )
+    assert_no_inventory_drift(problems, "backticked paths in the docs")
+
+
+def test_docs_use_only_declared_markers():
+    """A `@pytest.mark.<name>` shown in the docs is a collection error under --strict-markers if undeclared."""
+    from py_ci_shared.docs_inventory_parity import assert_no_inventory_drift, find_undeclared_markers
+
+    assert_no_inventory_drift(find_undeclared_markers(_user_docs() + [REPO_ROOT / "CLAUDE.md"], PYPROJECT), "pytest markers named in the docs")

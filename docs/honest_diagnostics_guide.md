@@ -17,7 +17,7 @@ For every trained estimator in the suite, the aggregator emits:
 
 The aggregator is opinionated about which numbers count: **only honest-holdout metrics drive verdicts**. Validation-set metrics are biased upward (the early-stopping detector saw them) and are stamped as such in the report but do not gate ensemble inclusion. OOF metrics are used only when no honest holdout exists (small-n regime, ``trainset_only`` mode).
 
-This mirrors the project memory rule ``feedback_ml_val_test_oof_terminology``: val=ES detector (biased), test/OOS/holdout=honest estimate (model never saw), OOF=CV test-analog.
+The terminology used throughout: val=ES detector (biased), test/OOS/holdout=honest estimate (model never saw), OOF=CV test-analog.
 
 ## Output shape
 
@@ -101,7 +101,7 @@ The ``WARN`` line is the actionable signal: the ensemble gate will drop this est
 - ``src/mlframe/evaluation/bootstrap.py`` — ``bootstrap_metric`` + ``delong_test``.
 - ``src/mlframe/calibration/policy.py`` — ``pick_best_calibrator``. See ``docs/calibration_policy.md``.
 - ``src/mlframe/training/provenance.py`` — provenance trail (AP14).
-- ``src/mlframe/training/dummy_baselines.py`` — dummy floor producers. See ``docs/dummy_baselines_guide.md``.
+- ``src/mlframe/training/baselines/dummy.py`` — dummy floor producers. See ``docs/dummy_baselines_guide.md``.
 
 ## Sensors
 

@@ -115,21 +115,27 @@ that are imported unconditionally at module load time -- see `pyproject.toml`'s
 pip install -e "./mlframe[all,dev]" -r ./mlframe/requirements-dev.txt   # full install (recommended)
 
 pip install -e "./mlframe[boosting]"             # catboost + lightgbm + xgboost
-pip install -e "./mlframe[calibration]"          # shap + venn-abers + netcal + betacal + pycalib
-pip install -e "./mlframe[neural]"               # torch + lightning + captum + transformers
+pip install -e "./mlframe[calibration]"          # shap + venn-abers + netcal + betacal + pycalib + uncertainty-calibration + properscoring
+pip install -e "./mlframe[neural]"               # torch + lightning + captum + transformers + sentencepiece + setuptools
 pip install -e "./mlframe[automl]"               # flaml (HPO)
-pip install -e "./mlframe[feature_engineering]"  # pysr (symbolic regression) + optbinning
+pip install -e "./mlframe[feature_engineering]"  # pysr (symbolic regression) + optbinning + optuna + cma + holidays + rapidfuzz
 pip install -e "./mlframe[sampling]"             # imbalanced-learn + iterative-stratification
 pip install -e "./mlframe[polars_ext]"           # polars-talib + polars-ds
-pip install -e "./mlframe[viz]"                  # matplotlib + plotly + seaborn + altair + hvplot
-pip install -e "./mlframe[mlflow]"               # mlflow experiment tracking
+pip install -e "./mlframe[viz]"                  # plotly + seaborn + altair + hvplot + vegafusion + vl-convert-python + anywidget + ipywidgets + tornado
+pip install -e "./mlframe[mlflow]"               # mlflow experiment tracking + aiohttp + cryptography + starlette (security floors)
 pip install -e "./mlframe[db]"                   # sqlalchemy + psycopg2 + duckdb + pymongo + zstandard
-pip install -e "./mlframe[signal]"               # antropy + astropy + pywavelets + ruptures
+pip install -e "./mlframe[signal]"               # astropy + entropy-estimators + pywavelets + ruptures
 pip install -e "./mlframe[unsupervised]"         # hdbscan + umap-learn
 pip install -e "./mlframe[stats]"                # statsmodels
-pip install -e "./mlframe[gpu,transformer_gpu]"  # cupy + gpu-info + cupy-cuda12x for the GPU stages (match your CUDA build)
-pip install -e "./mlframe[transformer,transformer_ann]"  # transformer-style FE (numba-only CPU path) + hnswlib for approximate-NN at N >= 500k
-pip install -e "./mlframe[all]"                  # runtime extras EXCEPT the CUDA-build-specific gpu / transformer_gpu (install those explicitly on a CUDA host)
+pip install -e "./mlframe[gpu]"                  # cupy-cuda12x + nvidia-cuda-nvcc-cu12 + gpu-info for the GPU stages (CUDA 12; alias: [gpu-cuda12])
+pip install -e "./mlframe[gpu-cuda11]"           # cupy-cuda11x + nvidia-cuda-nvcc-cu11 + gpu-info (CUDA 11 hosts)
+pip install -e "./mlframe[transformer]"          # transformer-style FE: nothing extra, the CPU path is numba-only
+pip install -e "./mlframe[transformer_ann]"      # pynndescent for approximate-NN at N >= 500k
+pip install -e "./mlframe[transformer_gpu]"      # cupy-cuda12x for the transformer GPU path (CUDA 12)
+pip install -e "./mlframe[transformer_gpu_cuda11]"  # cupy-cuda11x for the transformer GPU path (CUDA 11)
+pip install -e "./mlframe[transformer_full]"     # transformer_ann + transformer_gpu
+pip install -e "./mlframe[docs]"                 # mkdocs-material + mkdocs-jupyter
+pip install -e "./mlframe[all]"                  # all runtime extras: boosting, calibration, neural, automl, feature_engineering, sampling, polars_ext, viz, db, signal, unsupervised, stats, transformer_ann (not the CUDA-build-specific gpu / transformer_gpu: install those explicitly on a CUDA host)
 pip install -e "./mlframe[dev]"                  # pytest + coverage + ruff + black + mypy + bandit + pre-commit
 ```
 
