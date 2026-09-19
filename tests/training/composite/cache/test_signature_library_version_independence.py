@@ -20,6 +20,7 @@ _STRINGS = ["alpha", None, "beta", "gamma", "alpha", "", "delta"] * 30
 
 
 def _frame(strings_dtype=object) -> pd.DataFrame:
+    """Frame with a numeric and a string column, the string column in ``strings_dtype``."""
     n = len(_STRINGS)
     return pd.DataFrame(
         {
@@ -31,6 +32,7 @@ def _frame(strings_dtype=object) -> pd.DataFrame:
 
 
 def _sig(df) -> str:
+    """Discovery-cache data signature of ``df`` over the fixed target and feature columns."""
     return data_signature(df, "y", ["num", "s"], sample_n=50)
 
 
@@ -39,13 +41,16 @@ class TestStringRepresentationDoesNotMoveTheKey:
 
     @pytest.mark.parametrize("dtype", ["string[python]", "str"])
     def test_string_dtypes_key_like_object(self, dtype):
+        """pandas string dtypes produce the same key as object strings."""
         assert _sig(_frame(dtype)) == _sig(_frame(object))
 
     def test_pyarrow_strings_key_like_object(self):
+        """pyarrow-backed strings produce the same key as object strings."""
         pytest.importorskip("pyarrow")
         assert _sig(_frame("string[pyarrow]")) == _sig(_frame(object))
 
     def test_categorical_strings_key_like_polars_categorical(self):
+        """A pandas categorical and its polars conversion produce the same key."""
         df = _frame(object).astype({"s": "category"})
         assert _sig(df) == _sig(pl.from_pandas(df))
 
@@ -54,6 +59,7 @@ class TestFrameLibraryDoesNotMoveTheKey:
     """A polars frame of the same data keys like the pandas frame, so either caller hits the other's entries."""
 
     def test_mixed_frame_parity(self):
+        """A mixed-type pandas frame and its polars conversion produce the same key."""
         n = 400
         rng = np.random.default_rng(0)
         df = pd.DataFrame(
@@ -78,12 +84,14 @@ class TestDatetimeResolutionDoesNotMoveTheKey:
 
     @pytest.mark.parametrize("unit", ["s", "ms", "us"])
     def test_datetime_unit(self, unit):
+        """The datetime storage unit does not change the key."""
         base = pd.DataFrame({"y": np.arange(20.0), "t": pd.date_range("2026-01-01", periods=20, freq="D").astype("datetime64[ns]")})
         other = base.astype({"t": f"datetime64[{unit}]"})
         assert data_signature(other, "y", ["t"]) == data_signature(base, "y", ["t"])
 
     @pytest.mark.parametrize("unit", ["s", "ms", "us"])
     def test_timedelta_unit(self, unit):
+        """The timedelta storage unit does not change the key."""
         base = pd.DataFrame({"y": np.arange(20.0), "d": pd.to_timedelta(np.arange(20), unit="D").astype("timedelta64[ns]")})
         other = base.astype({"d": f"timedelta64[{unit}]"})
         assert data_signature(other, "y", ["d"]) == data_signature(base, "y", ["d"])
@@ -95,15 +103,18 @@ class TestNumericRepresentationRule:
     float32 holds different values; a null is a null whether stored as NaN or NA."""
 
     def test_int_width_does_not_move_the_key(self):
+        """int32 and int64 storage of the same integers give the same key."""
         a = pd.DataFrame({"y": np.arange(30.0), "i": np.arange(30, dtype=np.int32)})
         assert data_signature(a, "y", ["i"]) == data_signature(a.astype({"i": np.int64}), "y", ["i"])
 
     def test_nullable_without_nulls_keys_like_numpy(self):
+        """Nullable Int64 / Float64 / boolean without nulls key like their numpy counterparts."""
         a = pd.DataFrame({"y": np.arange(30.0), "i": np.arange(30), "f": np.linspace(0, 1, 30), "b": np.arange(30) % 2 == 0})
         b = a.astype({"i": "Int64", "f": "Float64", "b": "boolean"})
         assert data_signature(a, "y", ["i", "f", "b"]) == data_signature(b, "y", ["i", "f", "b"])
 
     def test_float_nan_and_na_are_the_same_null(self):
+        """A float NaN and a Float64 NA are the same null for the key."""
         a = pd.DataFrame({"y": np.arange(30.0), "f": np.linspace(0, 1, 30)})
         a.loc[4, "f"] = np.nan
         b = a.astype({"f": "Float64"})
@@ -111,10 +122,12 @@ class TestNumericRepresentationRule:
         assert data_signature(a, "y", ["f"]) == data_signature(b, "y", ["f"])
 
     def test_float_width_moves_the_key(self):
+        """float32 vs float64 storage changes the key (the values differ)."""
         a = pd.DataFrame({"y": np.arange(30.0), "f": np.linspace(0, 1, 30)})
         assert data_signature(a, "y", ["f"]) != data_signature(a.astype({"f": np.float32}), "y", ["f"])
 
     def test_int_vs_float_moves_the_key(self):
+        """Integer vs float storage of the same numbers changes the key."""
         a = pd.DataFrame({"y": np.arange(30.0), "v": np.arange(30)})
         assert data_signature(a, "y", ["v"]) != data_signature(a.astype({"v": np.float64}), "y", ["v"])
 
@@ -123,28 +136,33 @@ class TestSensitivityIsKept:
     """Canonicalising the representation must not blunt the key."""
 
     def test_head_swap_moves_the_key(self):
+        """Swapping the first two rows changes the key."""
         df = _frame(object)
         swapped = df.iloc[[1, 0, *list(range(2, len(df)))]].reset_index(drop=True)
         assert _sig(swapped) != _sig(df)
 
     def test_tail_swap_moves_the_key(self):
+        """Swapping the last two rows of a long frame changes the key."""
         n = 2000
         df = pd.DataFrame({"y": np.arange(n, dtype=np.float64), "num": np.arange(n, dtype=np.float64), "s": ["x"] * n})
         order = [*list(range(n - 2)), n - 1, n - 2]
         assert _sig(df.iloc[order].reset_index(drop=True)) != _sig(df)
 
     def test_appended_row_moves_the_key(self):
+        """Appending a row changes the key."""
         df = _frame(object)
         grown = pd.concat([df, df.iloc[[5]]], ignore_index=True)
         assert _sig(grown) != _sig(df)
 
     def test_changed_string_moves_the_key(self):
+        """Changing one string value changes the key."""
         df = _frame(object)
         changed = df.copy()
         changed.loc[len(df) // 2, "s"] = "zeta"
         assert _sig(changed) != _sig(df)
 
     def test_null_vs_empty_string_moves_the_key(self):
+        """A null and an empty string are different values for the key."""
         df = _frame(object)
         changed = df.copy()
         changed.loc[1, "s"] = ""
@@ -156,9 +174,11 @@ class TestNoLibraryHasherIsConsulted:
     unavailable, proving neither (both unstable across library versions) reaches it."""
 
     def test_signature_without_library_hashers(self, monkeypatch):
+        """The key is computed without pandas' or polars' own row hashers."""
         import pandas.util
 
         def _boom(*_a, **_k):
+            """Fail if a library row hasher is called."""
             raise AssertionError("library row hasher reached the cache key")
 
         expected_pd = _sig(_frame("str"))

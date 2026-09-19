@@ -46,6 +46,7 @@ _TEXT_TOKENS = ("string", "category", "object", "decimal", "other")
 
 
 def _is_temporal(token: str) -> bool:
+    """True for the date / time / datetime / timedelta logical type tokens."""
     return token.startswith("datetime") or token in ("timedelta", "date", "time")
 
 
@@ -83,7 +84,8 @@ def pandas_logical_type(s: pd.Series, probe: Optional[pd.Series] = None) -> str:
         if pa.types.is_string(pat) or pa.types.is_large_string(pat) or getattr(pa.types, "is_string_view", lambda _t: False)(pat):
             return "string"
         if pa.types.is_boolean(pat) or pa.types.is_integer(pat) or pa.types.is_floating(pat):
-            return _numpy_numeric_token(np.dtype(dt.numpy_dtype)) or "other"
+            tok = _numpy_numeric_token(np.dtype(dt.numpy_dtype))
+            return tok if tok is not None else "other"
         return "other"
     if isinstance(dt, np.dtype):
         tok = _numpy_numeric_token(dt)
@@ -136,6 +138,7 @@ def polars_logical_type(dt: Any) -> str:
 
 
 def _numeric_np_dtype(token: str, src: np.dtype | None = None) -> np.dtype:
+    """Canonical little-endian numpy dtype a numeric token is encoded as (uint64 kept unsigned so it does not wrap)."""
     if token == "bool":
         return np.dtype(np.bool_)
     if token == "int":
@@ -165,10 +168,12 @@ def canonical_scalar(v: Any) -> str:
 
 
 def format_stats(mn: Any, mx: Any, n_null: int) -> bytes:
+    """Canonical bytes for a column's (min, max, null count) summary."""
     return f"min={canonical_scalar(mn)};max={canonical_scalar(mx)};null={int(n_null)}".encode()
 
 
 def _encode_numeric(vals: np.ndarray, mask: np.ndarray, np_dt: np.dtype) -> bytes:
+    """Null bitmap plus the values cast to ``np_dt`` with nulls zeroed and -0.0 folded into 0.0."""
     out = np.array(vals, dtype=np_dt, copy=True)
     if mask.any():
         out[mask] = 0
@@ -179,6 +184,7 @@ def _encode_numeric(vals: np.ndarray, mask: np.ndarray, np_dt: np.dtype) -> byte
 
 def _encode_ints(vals: Sequence[int], mask: np.ndarray, factor: int) -> bytes:
     # Python ints: scaling a seconds-resolution value to ns can exceed int64, so widen to 16 bytes instead of wrapping.
+    """Null bitmap plus each value scaled by ``factor`` as a 16-byte signed integer (wide enough not to overflow at ns)."""
     parts = [b"T", np.packbits(mask).tobytes(), b"|"]
     for v, m in zip(vals, mask):
         parts.append((0 if m else int(v) * factor).to_bytes(16, "little", signed=True))
@@ -186,6 +192,7 @@ def _encode_ints(vals: Sequence[int], mask: np.ndarray, factor: int) -> bytes:
 
 
 def _encode_text(vals: Sequence[Any], mask: np.ndarray) -> bytes:
+    """Length-prefixed UTF-8 of each value's string form, with a distinct marker for null."""
     parts = [b"S"]
     for v, m in zip(vals, mask):
         if m:
@@ -241,11 +248,13 @@ def encode_polars_slice(small: Any, token: str) -> bytes:
 
 
 def _polars_ns_factor(dt: Any) -> int:
+    """Multiplier that converts a polars temporal dtype's physical integers to the canonical resolution."""
     if dt == pl.Date:
         return 1
     if dt == pl.Time:
         return 1  # polars Time is always ns since midnight.
-    return _UNIT_TO_NS[getattr(dt, "time_unit", None) or "ns"]
+    unit = getattr(dt, "time_unit", None)
+    return _UNIT_TO_NS[unit if unit is not None else "ns"]
 
 
 # ----------------------------------------------------------------------------------------------
@@ -283,6 +292,7 @@ if _numba is not None:
 
 
 def _float_stats(arr: np.ndarray) -> bytes:
+    """Canonical (min, max, null count) bytes of a float array, NaN counted as null (numba kernel for large arrays)."""
     if _numba is not None and arr.size >= _STATS_NUMBA_MIN_N and arr.dtype in (np.float32, np.float64):
         mn, mx, n_null, n_valid = _float_stats_nan_null_kernel(arr)
     else:
@@ -422,6 +432,7 @@ def row_order_fingerprint(df: Any, n_rows: int) -> Optional[bytes]:
             n_tail = min(height - n_rows, n_rows)
             windows.append(df.iloc[height - n_tail :])
         def encode(w, j):
+            """Canonical bytes of column ``j`` of the sampled pandas slice ``w``."""
             col = w.iloc[:, j]
             return encode_pandas_slice(col, pandas_logical_type(col, col))
     else:

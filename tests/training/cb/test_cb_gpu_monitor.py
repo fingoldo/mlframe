@@ -240,3 +240,15 @@ def test_monitor_poll_failure_is_logged_not_silent(tmp_path, caplog, monkeypatch
     with caplog.at_level(logging.WARNING, logger=m.logger.name):
         mon._safe_poll()
     assert any("poll exploded" in r.getMessage() for r in caplog.records)
+
+
+def test_guard_pickles_to_an_inactive_copy():
+    """The guard holds a threading.Lock; pickling it must yield a usable copy with a fresh lock instead of raising."""
+    import pickle
+
+    model = _RecordingGpuCatBoost(task_type="CPU", iterations=5)
+    guard = m.CatBoostGpuFitGuard(model, model, "CatBoostClassifier", {}, interval_s=0)
+    clone = pickle.loads(pickle.dumps(guard))
+    assert clone.monitor is None and clone.model_type_name == "CatBoostClassifier"
+    clone.set_fit_running(True)
+    assert clone._fit_running

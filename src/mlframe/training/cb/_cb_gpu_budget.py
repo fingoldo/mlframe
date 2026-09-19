@@ -30,6 +30,7 @@ _SNAPSHOT_NAME = "mlframe_fit.snap"
 
 
 def _float_env(name: str, default: float) -> float:
+    """Non-negative float from env var ``name``; ``default`` when unset or unparsable."""
     raw = os.environ.get(name, "").strip()
     if not raw:
         return default
@@ -40,7 +41,9 @@ def _float_env(name: str, default: float) -> float:
 
 
 def snapshot_interval_from_env() -> float:
-    return _float_env("MLFRAME_CB_GPU_SNAPSHOT_S", DEFAULT_SNAPSHOT_INTERVAL_S) or DEFAULT_SNAPSHOT_INTERVAL_S
+    """CatBoost snapshot interval in seconds from ``MLFRAME_CB_GPU_SNAPSHOT_S``; 0 or unset falls back to the default."""
+    value = _float_env("MLFRAME_CB_GPU_SNAPSHOT_S", DEFAULT_SNAPSHOT_INTERVAL_S)
+    return value if value > 0 else DEFAULT_SNAPSHOT_INTERVAL_S  # 0 would make CatBoost snapshot on every iteration
 
 
 def runaway_factor_from_env() -> float:
@@ -106,11 +109,21 @@ def resume_capped(guard: Any, refit: Callable[[], Any]) -> Any:
     return refit()
 
 
-def fit_with_cb_gpu_guard(unguarded_fit: Callable[..., Any], model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+def fit_with_cb_gpu_guard(
+    unguarded_fit: Callable[..., Any],
+    model: Any,
+    model_obj: Any,
+    model_type_name: str,
+    train_df: Any,
+    train_target: Any,
+    fit_params: dict,
+    verbose: bool = False,
+) -> Any:
     """Run one fit under ``CatBoostGpuFitGuard``; resume from the snapshot if the guard's monitor stopped it at a limit."""
     from ._cb_gpu_monitor import CatBoostGpuFitGuard
 
     def _fit():
+        """The unguarded fit with this call's arguments."""
         return unguarded_fit(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose)
 
     with CatBoostGpuFitGuard(model, model_obj, model_type_name, fit_params) as guard:

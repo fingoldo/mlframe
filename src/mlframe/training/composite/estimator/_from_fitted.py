@@ -18,7 +18,7 @@ logger = logging.getLogger("mlframe.training.composite.estimator._estimator")
 
 
 def from_fitted_inner(
-    cls,
+    cls: type,
     fitted_inner: Any,
     transform_name: str,
     base_column: str,
@@ -26,7 +26,7 @@ def from_fitted_inner(
     y_train: np.ndarray,
     fallback_predict: str = "y_train_median",
     base_columns: Sequence[str] | None = None,
-):
+) -> Any:
     """Body of ``CompositeTargetEstimator.from_fitted_inner`` (see its docstring)."""
     instance = cls(
         base_estimator=fitted_inner,

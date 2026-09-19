@@ -10,7 +10,6 @@ max_ctr_complexity from the planned iteration count, so a capped resume fails un
 from __future__ import annotations
 
 import threading
-import time
 from types import SimpleNamespace
 
 import numpy as np
@@ -23,19 +22,22 @@ from mlframe.training.cb._cb_gpu_budget import fit_with_cb_gpu_guard, snapshot_p
 
 
 def _data(n=40_000, seed=0):
+    """Train / validation regression split large enough that a deep CatBoost fit runs for many seconds."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 12))
     y = 2 * X[:, 0] + np.sin(X[:, 1]) + rng.normal(size=n)
-    return X[: int(n * 0.8)], y[: int(n * 0.8)], X[int(n * 0.8):], y[int(n * 0.8):]
+    return X[: int(n * 0.8)], y[: int(n * 0.8)], X[int(n * 0.8) :], y[int(n * 0.8) :]
 
 
 def _plain_fit(model, model_obj, name, X, y, fit_params, verbose=False):
+    """Stand-in for the unguarded training-loop fit: a plain ``model.fit``."""
     model.fit(X, y, **fit_params)
     return model
 
 
 @pytest.fixture
 def fake_gpu(monkeypatch):
+    """Treat every CatBoost fit as a GPU fit, with a fast monitor and 1 s snapshots."""
     monkeypatch.setattr(mon, "cb_model_is_gpu", lambda est: True)
     monkeypatch.setenv("MLFRAME_CB_GPU_MONITOR_S", "0.5")
     monkeypatch.setenv("MLFRAME_CB_GPU_SNAPSHOT_S", "1")
@@ -49,12 +51,11 @@ def test_time_budget_stops_fit_and_keeps_model(fake_gpu, caplog):
                                        use_best_model=True, verbose=0, thread_count=2)
     budget_cb = SimpleNamespace(time_budget_mins=5 / 60.0)  # 5 s; stripped by the guard, its budget is read
     fit_params = {"eval_set": (Xv, yv), "callbacks": [budget_cb]}
-    t0 = time.monotonic()
     out = fit_with_cb_gpu_guard(_plain_fit, model, model, "CatBoostRegressor", Xt, yt, fit_params)
-    took = time.monotonic() - t0
     assert out is model and model.is_fitted()
     assert 0 < model.tree_count_ < 100_000
-    assert took < 120, f"fit was not stopped ({took:.0f}s)"
+    # Stopped by the budget rather than by a fast machine: the resume log names the time budget as the reason.
+    assert any("resuming from its snapshot" in r.getMessage() and "time budget" in r.getMessage() for r in caplog.records)
     r2 = 1 - np.mean((model.predict(Xv) - yv) ** 2) / np.var(yv)
     assert r2 > 0.3, f"the kept model is not a usable fit (R2={r2:.3f})"
     p = model.get_params()
@@ -109,7 +110,6 @@ def test_snapshot_params_reads_catboost_serialised_params(tmp_path):
     """The resume pins max_ctr_complexity from the snapshot's own params: the reader must find them in a real snapshot."""
     Xt, yt, _, _ = _data(n=5_000)
     snap = str(tmp_path / "s.snap")
-    catboost.CatBoostRegressor(iterations=20, depth=4, verbose=0, save_snapshot=True, snapshot_file=snap,
-                               train_dir=str(tmp_path / "td")).fit(Xt, yt)
+    catboost.CatBoostRegressor(iterations=20, depth=4, verbose=0, save_snapshot=True, snapshot_file=snap, train_dir=str(tmp_path / "td")).fit(Xt, yt)
     params = snapshot_params(snap)
     assert params is not None and "max_ctr_complexity" in (params.get("cat_feature_params") or {})
