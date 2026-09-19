@@ -74,23 +74,31 @@ def _vnr_anchors(params: dict[str, Any]) -> tuple[float, float]:
 
 def _volatility_normalized_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    history_base: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Apply ``T = (y - EWMA_k(base)) / max(vol, floor)``."""
-    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    """Apply ``T = (y - EWMA_k(base)) / max(vol, floor)``. ``history_base``: base rows immediately preceding the batch; both EWMA traces warm up
+    on them first, so a batch scored with its full prefix equals the same rows inside one longer batch."""
+    from ._nonlinear_ewma_fracdiff import _with_history
+    base_f, h = _with_history(base, history_base)
     level, vol = _vol_traces(base_f, int(params["k"]), float(params["anchor"]), float(params["vol_anchor"]))
-    v = np.maximum(vol, float(params["floor"]))
-    return np.asarray((np.asarray(y, dtype=np.float64).reshape(-1) - level) / v)
+    v = np.maximum(vol[h:], float(params["floor"]))
+    return np.asarray((np.asarray(y, dtype=np.float64).reshape(-1) - level[h:]) / v)
 
 
 def _volatility_normalized_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    history_base: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Undo the transform: ``y = T_hat * max(vol, floor) + EWMA_k(base)`` with the same floored volatility as the forward."""
-    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    """Undo the transform: ``y = T_hat * max(vol, floor) + EWMA_k(base)`` with the same floored volatility as the forward; ``history_base`` as in
+    the forward."""
+    from ._nonlinear_ewma_fracdiff import _warn_cold_recurrence, _with_history
+    t_f = np.asarray(t_hat, dtype=np.float64).reshape(-1)
+    _warn_cold_recurrence("volatility_normalized_residual", t_f.size, int(params["k"]), params, history_base)
+    base_f, h = _with_history(base, history_base)
     anchor, vol_anchor = _vnr_anchors(params)
     level, vol = _vol_traces(base_f, int(params["k"]), anchor, vol_anchor)
-    v = np.maximum(vol, float(params["floor"]))
-    return np.asarray(np.asarray(t_hat, dtype=np.float64).reshape(-1) * v + level)
+    v = np.maximum(vol[h:], float(params["floor"]))
+    return np.asarray(t_f * v + level[h:])
 
 
 _volatility_normalized_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped

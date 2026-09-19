@@ -412,7 +412,9 @@ def _rolling_quantile_ratio_fit(
         finite = np.isfinite(base_f) & (base_f != 0)
     scale = float(np.median(np.abs(base_f[finite]))) if finite.any() else 1.0
     eps = max(scale * 1e-6, 1e-12)
-    return {"k": k, "eps": eps, "mode": mode}
+    # Last k-1 train base values: the window history a continuation batch (recurrence_continuation) starts from, instead of a truncated window.
+    tail_base = base_f[np.isfinite(base_f)][-(k - 1):] if k > 1 else base_f[:0]
+    return {"k": k, "eps": eps, "mode": mode, "tail_base": [float(v) for v in tail_base]}
 
 
 def _rolling_quantile_ratio_centered_fit(
@@ -423,31 +425,48 @@ def _rolling_quantile_ratio_centered_fit(
     return _rolling_quantile_ratio_fit(y, base, k=k, mode="centered", _finite_mask=_finite_mask)
 
 
-def _rolling_quantile_ratio_forward(
-    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
-) -> np.ndarray:
-    """Apply ``T = y / max(RollingQ50_k(base), eps)`` with the rolling median of ``base`` over window ``k`` in the fitted mode (params without a ``mode`` key predate the field and keep the historical centred window)."""
+def _rqr_prefixed_median(base: np.ndarray, params: dict[str, Any], history_base: np.ndarray | None, continuation: bool) -> np.ndarray:
+    """Rolling median of ``base`` whose window may reach back into the rows preceding the batch: ``history_base`` when supplied, preceded by the
+    stored train tail under recurrence continuation (inverse only). Without either, the window truncates at the batch start (a state reset)."""
     k = int(params["k"])
-    eps = float(params["eps"])
     mode = str(params.get("mode", "centered"))
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
-    roll_med = _rqr_rolling_median(base_f, k, mode)
+    parts = []
+    if continuation and params.get("recurrence_continuation") and params.get("tail_base"):
+        parts.append(np.asarray(params["tail_base"], dtype=np.float64))
+    if history_base is not None:
+        parts.append(np.asarray(history_base, dtype=np.float64).reshape(-1))
+    if not parts:
+        return _rqr_rolling_median(base_f, k, mode)
+    prefix = np.concatenate(parts)
+    return _rqr_rolling_median(np.concatenate([prefix, base_f]), k, mode)[prefix.size :]
+
+
+def _rolling_quantile_ratio_forward(
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    history_base: np.ndarray | None = None,
+) -> np.ndarray:
+    """Apply ``T = y / max(RollingQ50_k(base), eps)`` with the rolling median of ``base`` over window ``k`` in the fitted mode (params without a ``mode`` key predate the field and keep the historical centred window). ``history_base``: base rows immediately preceding the batch, read by the window."""
+    eps = float(params["eps"])
+    roll_med = _rqr_prefixed_median(base, params, history_base, continuation=False)
     safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
-    return np.asarray(np.asarray(y, dtype=np.float64) / safe)
+    return np.asarray(np.asarray(y, dtype=np.float64).reshape(-1) / safe)
 
 
 def _rolling_quantile_ratio_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    history_base: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Undo the transform: ``y = T_hat * max(RollingQ50_k(base), eps)`` with the same fitted window mode as the forward."""
-    k = int(params["k"])
-    mode = str(params.get("mode", "centered"))
-    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
-    roll_med = _rqr_rolling_median(base_f, k, mode)
+    """Undo the transform: ``y = T_hat * max(RollingQ50_k(base), eps)`` with the same fitted window mode as the forward; the window also reads
+    ``history_base`` and, under recurrence continuation, the stored train tail."""
+    from ._nonlinear_ewma_fracdiff import _warn_cold_recurrence
+    t_f = np.asarray(t_hat, dtype=np.float64).reshape(-1)
+    _warn_cold_recurrence("rolling_quantile_ratio", t_f.size, int(params["k"]), params, history_base)
+    roll_med = _rqr_prefixed_median(base, params, history_base, continuation=True)
     # Mirror the forward eps-floor so the round-trip is exact on near-zero rolling medians.
     eps = float(params["eps"])
     safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
-    return np.asarray(np.asarray(t_hat, dtype=np.float64) * safe)
+    return np.asarray(t_f * safe)
 
 
 _rolling_quantile_ratio_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped
