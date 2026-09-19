@@ -309,6 +309,31 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
         return None, None
 
 
+def _bounded_preprocess(basis: str, params: dict, z: np.ndarray) -> dict:
+    """Pin the fitted warp's replay domain to the fit-time basis axis range via the preprocess ``clip`` the apply functions honour.
+
+    A degree-4 orthogonal polynomial is only constrained where the operand had training data; past the fit range it grows like
+    ``z**4`` (Chebyshev ``T4(1.2) ~ 5.7`` against ``|T4| <= 1`` inside), so one unseen large operand value turns the warp - and every
+    engineered column built on it - into an extreme outlier a downstream linear model extrapolates on. Clamping the axis to the fit
+    range makes the warp constant beyond its data (the tree-model convention). The clip bounds contain every fit-time value, so the
+    fit-time column is unchanged; an existing (heavy-tail robust) clip is left as is. Hermite's z-score clip is symmetric, so it
+    uses the larger fit-time ``|z|``. The CPU and GPU apply paths both read ``clip``, so replay stays consistent."""
+    pp = dict(params)
+    if pp.get("clip") is not None:
+        return pp
+    zf = np.asarray(z, dtype=np.float64)
+    zf = zf[np.isfinite(zf)]
+    if zf.size == 0:
+        return pp
+    if basis in ("chebyshev", "legendre"):
+        pp["clip"] = 1.0
+    elif basis == "hermite":
+        pp["clip"] = float(np.max(np.abs(zf)))
+    elif basis == "laguerre":
+        pp["clip"] = float(np.max(zf))
+    return pp
+
+
 def fit_operand_prewarp(
     x: np.ndarray,
     y: np.ndarray,
@@ -368,7 +393,7 @@ def fit_operand_prewarp(
         "basis": str(basis),
         "degree": int(deg),
         "coef": np.ascontiguousarray(coef, dtype=np.float64),
-        "preprocess": dict(params),
+        "preprocess": _bounded_preprocess(basis, params, z),
     }
     if _robust_used:
         # Provenance for leak-safe replay / audit: the operand's MAD-anchored
@@ -441,8 +466,8 @@ def fit_pair_prewarp_als(
         return None, None
     if coef_a is None or coef_b is None:
         return None, None
-    spec_a = {"basis": str(basis), "degree": int(deg), "coef": np.ascontiguousarray(coef_a, dtype=np.float64), "preprocess": dict(pa)}
-    spec_b = {"basis": str(basis), "degree": int(deg), "coef": np.ascontiguousarray(coef_b, dtype=np.float64), "preprocess": dict(pb)}
+    spec_a = {"basis": str(basis), "degree": int(deg), "coef": np.ascontiguousarray(coef_a, dtype=np.float64), "preprocess": _bounded_preprocess(basis, pa, za)}
+    spec_b = {"basis": str(basis), "degree": int(deg), "coef": np.ascontiguousarray(coef_b, dtype=np.float64), "preprocess": _bounded_preprocess(basis, pb, zb)}
     return spec_a, spec_b
 
 
