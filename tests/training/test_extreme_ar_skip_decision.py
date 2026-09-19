@@ -86,3 +86,31 @@ def test_missing_lag1_does_not_fire() -> None:
     """Missing lag1 does not fire."""
     skip, fired = _decide("mlp", "TVT", lag1=None)
     assert skip is False and fired is False
+
+
+class TestDiscoverySkipNotFiredLogLevel:
+    """The discovery-level "skip did NOT fire" dump is a WARNING only when the skip was applicable but lacked data."""
+
+    @staticmethod
+    def _blocked(**kw):
+        from mlframe.training.core._ar_skip import _extreme_ar_skip_blocked_by_missing_info
+
+        args = dict(group_aware_active=True, bounded_only_zoo=True, lag1_ar=None, is_picked_target=True, threshold=0.99)
+        args.update(kw)
+        return _extreme_ar_skip_blocked_by_missing_info(**args)
+
+    def test_non_grouped_run_is_not_a_warning(self):
+        """No groups: the skip cannot fire by design and per-group lag1 is legitimately absent."""
+        assert self._blocked(group_aware_active=False) is False
+
+    def test_unbounded_zoo_is_not_a_warning(self):
+        assert self._blocked(bounded_only_zoo=False) is False
+
+    def test_missing_lag1_on_grouped_run_warns(self):
+        assert self._blocked(lag1_ar=None) is True
+
+    def test_measured_low_lag1_is_not_a_warning(self):
+        assert self._blocked(lag1_ar=0.3) is False
+
+    def test_high_lag1_on_another_target_warns(self):
+        assert self._blocked(lag1_ar=0.999, is_picked_target=False) is True

@@ -181,6 +181,13 @@ def _run_auto_chain(
     feat_cols = [c for c in usable_features if c != target_col]
     if not feat_cols:
         return []
+    # The chain search is tiny-model CV, the same work the tiny rerank does, so it gets the same row budget
+    # (``tiny_model_sample_n``) instead of the larger MI screen sample: 12 transforms x cv_folds fits per base scale
+    # linearly with rows, and the MI sample is sized for MI, not for 100+ GBM fits.
+    tiny_n = int(getattr(self.config, "tiny_model_sample_n", 0) or 0)
+    if 0 < tiny_n < screen_idx.size:
+        keep = np.sort(np.random.default_rng(int(self.config.random_state)).choice(screen_idx.size, size=tiny_n, replace=False))
+        screen_idx, y_screen = screen_idx[keep], y_screen[keep]
     # Build the screen-sample feature matrix ONCE (per-column pull from the Polars/pandas frame),
     # then derive each base's "all features except this base" matrix via np.delete on the in-RAM
     # matrix -- bit-identical to a per-base ``column_stack`` of ``feat_cols`` minus the base (the
@@ -206,6 +213,7 @@ def _run_auto_chain(
                 mi_estimator=self.config.mi_estimator,
                 mi_nbins=int(self.config.mi_nbins),
                 top_k=int(getattr(self.config, "auto_chain_top_k", 2)),
+                inner_n_jobs=inner_n_jobs,
             )
             return base_col, chains
         except Exception as exc:  # -- a degenerate base must not abort fit
@@ -219,6 +227,9 @@ def _run_auto_chain(
     # across physical cores. Workers stay mutation-free -- registry / provenance / diag writes all
     # happen on the main thread below so the shared ``_TRANSFORMS_REGISTRY`` is never raced.
     n_jobs = min(len(bases), cpu_count_physical())
+    # Bases run on n_jobs threads; the tiny-model fits inside each base share the remaining cores. They used to be pinned
+    # to one thread each, so a box with more cores than bases left the surplus idle.
+    inner_n_jobs = max(1, cpu_count_physical() // max(1, n_jobs))
     if n_jobs > 1:
         from joblib import Parallel, delayed
 

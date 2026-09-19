@@ -246,7 +246,9 @@ def row_wise_top_k_extreme_columns(
 
     data = {}
     for i in range(k):
-        data[f"top{i + 1}_column"] = top_cols[:, i]
+        # Explicit object dtype: pandas 3 infers ``str`` for an object array of names and turns the documented ``None``
+        # padding into NaN.
+        data[f"top{i + 1}_column"] = pd.Series(top_cols[:, i], index=X.index, dtype=object)
         data[f"top{i + 1}_score"] = top_scores[:, i]
 
     result = pd.DataFrame(data, index=X.index)

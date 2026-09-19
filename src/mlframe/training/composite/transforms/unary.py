@@ -277,6 +277,29 @@ def _yj_inverse_scalar(t: float, lam: float) -> float:
     return float(-(np.power(base, 1.0 / (2.0 - lam)) - 1.0))
 
 
+def _fitted_t_range(t: np.ndarray) -> Dict[str, float]:
+    """Train-time range of the forward-transformed target, stored so the inverse can clamp an inner prediction to it.
+
+    For lambda < 0 the power inverse has an asymptote at ``t = -1/lambda``; an inner model predicting past it hit the
+    base floor and saturated at ``floor**(1/lambda)`` (1e6 at lambda=-2), so one such row out of ~15k val rows made a
+    y-scale RMSE of ~8167 on two unrelated targets. Clamping to the train T range keeps the inverse inside the y range
+    the transform was fitted on, which is where it is invertible without saturation.
+    """
+    finite_t = t[np.isfinite(t)]
+    if finite_t.size == 0:
+        return {}
+    return {"t_lo": float(finite_t.min()), "t_hi": float(finite_t.max())}
+
+
+def _clamp_to_fitted_t_range(arr: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Clamp inner T predictions to the train T range recorded by ``_fitted_t_range``; params fitted before the range was recorded pass through unchanged."""
+    lo = params.get("t_lo")
+    hi = params.get("t_hi")
+    if lo is None or hi is None:
+        return arr
+    return np.clip(arr, lo, hi)
+
+
 def _yj_forward_numpy(y: np.ndarray, lam: float) -> np.ndarray:
     """Vectorised numpy reference implementation of the Yeo-Johnson forward transform (fancy-indexed split on sign(y)); used by ``_yj_forward`` below the numba size threshold or when numba is unavailable."""
     out = np.empty_like(y, dtype=np.float64)
@@ -360,7 +383,8 @@ def yeo_johnson_y_fit(y: np.ndarray) -> Dict[str, Any]:
     except Exception as e:
         logger.debug("Box-Cox lambda MLE optimization failed, defaulting to 1.0: %s", e)
         lam = 1.0
-    return {"lambda": float(np.clip(lam, -2.0, 4.0))}
+    lam = float(np.clip(lam, -2.0, 4.0))
+    return {"lambda": lam, **_fitted_t_range(_yj_forward(finite, lam))}
 
 
 def yeo_johnson_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
@@ -370,7 +394,8 @@ def yeo_johnson_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
 
 def yeo_johnson_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Closed-form inverse of the Yeo-Johnson transform for the fitted ``params["lambda"]``."""
-    return _yj_inverse(np.asarray(t, dtype=np.float64), float(params["lambda"]))
+    arr = _clamp_to_fitted_t_range(np.asarray(t, dtype=np.float64), params)
+    return _yj_inverse(arr, float(params["lambda"]))
 
 
 def yeo_johnson_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
@@ -407,7 +432,8 @@ def box_cox_y_fit(y: np.ndarray) -> Dict[str, Any]:
     except Exception as e:
         logger.debug("Box-Cox lambda computation failed, defaulting to 1.0: %s", e)
         lam = 1.0
-    return {"lambda": float(np.clip(lam, *_BOX_COX_LAMBDA_RANGE))}
+    lam = float(np.clip(lam, *_BOX_COX_LAMBDA_RANGE))
+    return {"lambda": lam, **_fitted_t_range(box_cox_y_forward(pos, {"lambda": lam}))}
 
 
 def box_cox_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
@@ -422,7 +448,7 @@ def box_cox_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
 def box_cox_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Closed-form Box-Cox inverse ``(t*lam + 1)**(1/lam)`` (``exp(t)`` at lam=0), flooring the power base at ``_BC_INV_BASE_FLOOR`` so out-of-range t saturates instead of producing NaN."""
     lam = float(params["lambda"])
-    arr = np.asarray(t, dtype=np.float64)
+    arr = _clamp_to_fitted_t_range(np.asarray(t, dtype=np.float64), params)
     if abs(lam) < 1e-12:
         return np.exp(arr)
     base = np.maximum(arr * lam + 1.0, _BC_INV_BASE_FLOOR)

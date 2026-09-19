@@ -68,6 +68,7 @@ from ..transforms.unary import (
     signed_power_y_forward as _sp_fwd,
     signed_power_y_inverse as _sp_inv,
 )
+from ._lgb_fold_cache import LgbFoldCache
 from ._screening_tiny import _build_tiny_model
 from .screening import _mi_to_target
 
@@ -218,6 +219,8 @@ def _y_scale_cv_rmse(
     n_estimators: int,
     num_leaves: int,
     learning_rate: float,
+    fold_cache: Optional[LgbFoldCache] = None,
+    inner_n_jobs: int = 1,
 ) -> Tuple[float, float]:
     """Tiny-CV RMSE on the ORIGINAL y-scale for one transform (``None`` = raw y).
 
@@ -247,7 +250,7 @@ def _y_scale_cv_rmse(
     kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
     sse = 0.0
     cnt = 0
-    for tr_idx, va_idx in kf.split(x_matrix):
+    for fold_id, (tr_idx, va_idx) in enumerate(kf.split(x_matrix)):
         x_tr, x_va = x_matrix[tr_idx], x_matrix[va_idx]
         y_tr, y_va = y[tr_idx], y[va_idx]
         b_tr, b_va = base[tr_idx], base[va_idx]
@@ -265,13 +268,16 @@ def _y_scale_cv_rmse(
                 fit_mask = dom_tr & np.isfinite(t_tr)
             if fit_mask.sum() < cv_folds * 5:
                 return float("inf"), valid_frac
-            model = _build_tiny_model(
-                family, n_estimators=n_estimators, num_leaves=num_leaves,
-                learning_rate=learning_rate, random_state=random_state,
-                inner_n_jobs=1,
-            )
-            model.fit(x_tr[fit_mask], target_tr[fit_mask])
-            pred = np.asarray(model.predict(x_va), dtype=np.float64)
+            if fold_cache is not None:
+                pred = fold_cache.fit_predict(fold_id, x_tr, target_tr, fit_mask, x_va)
+            else:
+                model = _build_tiny_model(
+                    family, n_estimators=n_estimators, num_leaves=num_leaves,
+                    learning_rate=learning_rate, random_state=random_state,
+                    inner_n_jobs=inner_n_jobs,
+                )
+                model.fit(x_tr[fit_mask], target_tr[fit_mask])
+                pred = np.asarray(model.predict(x_va), dtype=np.float64)
             if transform is None:
                 y_hat = pred
             else:
@@ -341,6 +347,7 @@ def discover_chains(
     mi_nbins: int = 16,
     mi_n_neighbors: int = 3,
     top_k: int = 3,
+    inner_n_jobs: int = 1,
 ) -> List[ChainCandidate]:
     """Search ``residual x unary`` chains; return those that beat BOTH single stages.
 
@@ -364,7 +371,10 @@ def discover_chains(
     min_valid_domain_frac : chains whose residual stage is valid on fewer than
         this fraction of rows are dropped (mirrors discovery's domain gate).
     family : tiny-model family for the CV scorer (``"lgb"`` / ``"cb"`` /
-        ``"ridge"``), passed to :func:`_build_tiny_model`.
+        ``"ridge"``), passed to :func:`_build_tiny_model`. For ``"lgb"`` every
+        candidate shares one binned dataset per fold (:class:`LgbFoldCache`).
+    inner_n_jobs : threads per tiny-model fit. The caller runs bases in parallel
+        and hands each base its share of the cores.
 
     Returns the ``top_k`` winning ``ChainCandidate`` objects sorted by ASCENDING
     ``rmse`` (best first). Empty list = no chain beat its singles -> caller keeps
@@ -378,10 +388,17 @@ def discover_chains(
     res_names = tuple(residual_names) if residual_names else _RESIDUAL_STAGE_NAMES
     un_names = tuple(unary_names) if unary_names else tuple(_TAIL_UNARIES)
 
+    fold_cache = None
+    if family.lower() in ("lgb", "lightgbm"):
+        fold_cache = LgbFoldCache(
+            n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate,
+            random_state=random_state, n_jobs=inner_n_jobs,
+        )
     cv_kw: Dict[str, Any] = dict(
         y=y, base=base, x_matrix=x_matrix, cv_folds=cv_folds,
         random_state=random_state, family=family, n_estimators=n_estimators,
         num_leaves=num_leaves, learning_rate=learning_rate,
+        fold_cache=fold_cache, inner_n_jobs=inner_n_jobs,
     )
 
     raw_rmse, _ = _y_scale_cv_rmse(None, **cv_kw)

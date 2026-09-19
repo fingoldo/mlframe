@@ -322,6 +322,47 @@ class TestBug1SpatialDemoterFalsePositive:
             top = disc.specs_[0].base_column
             assert top == "x_real", f"regression: tight spatial triplet detector failed; top base picked '{top}' instead of 'x_real'"
 
+    def test_biz_value_tight_synonym_group_is_not_demoted(self, caplog) -> None:
+        """A tight cluster of synonyms (text lengths, budget variants) correlates like X/Y/Z but is not spatial. A
+        production run demoted budget_amount -- the top-MI feature -- as a "spatial coord"; synonym groups are the
+        dedup step's job, so the spatial demoter must leave them alone."""
+        import logging
+
+        rng = np.random.default_rng(0)
+        n = 2000
+        budget = rng.lognormal(size=n)
+        feats = {
+            "budget_amount": budget,
+            "budget_per_position": budget * (1.0 + 0.05 * rng.normal(size=n)),
+            "budget_per_week": budget * (1.0 + 0.05 * rng.normal(size=n)),
+            "noise": rng.normal(size=n),
+        }
+        feats["y"] = 3.0 * budget + rng.normal(scale=0.2, size=n)
+        df = pd.DataFrame(feats)
+        cfg = _disc_kwargs(
+            screening="mi",
+            base_candidates="auto",
+            auto_base_top_k=2,
+            auto_base_demote_spatial_coords=True,
+            transforms=["diff"],
+            require_beats_raw_baseline=False,
+        )
+        with caplog.at_level(logging.INFO):
+            CompositeTargetDiscovery(cfg).fit(df, target_col="y", feature_cols=[c for c in feats if c != "y"], train_idx=np.arange(1600))
+        assert not any("spatial-coord block" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        "name, expected",
+        [
+            ("X", True), ("coord_z", True), ("latitude", True), ("well_lon", True), ("Easting", True), ("posX", True), ("depth_md", True),
+            ("desc_len", False), ("budget_amount", False), ("hourly_budget_max", False), ("taxonomy", False), ("index", False),
+        ],
+    )
+    def test_unit_coordinate_like_name(self, name, expected) -> None:
+        from mlframe.training.composite.discovery._coord_names import is_coordinate_like_name
+
+        assert is_coordinate_like_name(name) is expected
+
 
 # ======================================================================
 # Bug #2: Hint immunity from dedup + spatial / time demoters

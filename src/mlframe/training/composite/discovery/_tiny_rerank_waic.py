@@ -68,33 +68,48 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     # default, silently pinning this K-fold split to seed 0 regardless of the caller's random_state.
     rs = int(getattr(self.config, "random_state", 0) or 0)
     yb = np.asarray(y_screen, dtype=np.float64).ravel()
-    waic: dict[int, float] = {}
-    for i, spec in enumerate(kept_specs):
+
+    def _waic_for(i: int):
+        """WAIC of spec ``i`` on the screen sample, or None when it cannot be scored."""
+        spec = kept_specs[i]
         cached = per_base_cache.get(getattr(spec, "base_column", None))
         if cached is None:
-            continue
+            return None
         base_screen, x_mat = cached
         try:
             transform = get_transform(spec.transform_name)
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
-            continue
+            return None
         bb = np.asarray(base_screen, dtype=np.float64).ravel()
         valid = np.isfinite(yb) & np.isfinite(bb)
         if int(valid.sum()) < 2 * n_folds:
-            continue
+            return None
         try:
             target = np.asarray(transform.forward(yb[valid], bb[valid], spec.fitted_params), dtype=np.float64).ravel()
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
-            continue
+            return None
         xv = np.asarray(x_mat, dtype=np.float64)[valid]
         fin = np.isfinite(target)
         if int(fin.sum()) < 2 * n_folds or xv.shape[0] != target.shape[0]:
-            continue
+            return None
         score = compute_transform_waic(target[fin], xv[fin], n_folds=n_folds, random_state=rs)
         if getattr(score, "valid", False) and math.isfinite(score.waic):
-            waic[i] = float(score.waic)
+            return float(score.waic)
+        return None
+
+    # Specs are independent and each runs 4 single-threaded tiny-GBM folds (LightGBM releases the GIL), so they go on
+    # threads: the serial loop was 73s of a 139s discovery on a 300k-row tie-heavy target.
+    from joblib import Parallel, delayed
+    from pyutilz.parallel import cpu_count_physical
+
+    n_jobs = max(1, min(len(kept_specs), cpu_count_physical()))
+    if n_jobs > 1:
+        results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_waic_for)(i) for i in range(len(kept_specs)))
+    else:
+        results = [_waic_for(i) for i in range(len(kept_specs))]
+    waic: dict[int, float] = {i: v for i, v in enumerate(results) if v is not None}
     self._tiny_rerank_waic_scores = {kept_specs[i].name: v for i, v in waic.items()}
     if not waic:
         return order

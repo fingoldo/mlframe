@@ -40,7 +40,7 @@ def _capture_fitter_inputs(X_train, X_test, **kwargs):
 
     captured: dict = {}
 
-    def _fake_oof(train_arr, test_arr, n_splits, seed, need_importance, feature_names=None):
+    def _fake_oof(train_arr, test_arr, n_splits, seed, need_importance, feature_names=None, max_fit_rows=0):
         """Record what the fitter receives, then return a valid-shaped dummy OOF."""
         captured["train"], captured["test"], captured["names"] = train_arr, test_arr, feature_names
         captured["need_importance"] = need_importance

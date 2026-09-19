@@ -243,3 +243,36 @@ def test_opt_in_steps_parallel_matches_serial_specs(monkeypatch):
     assert _spec_keys(serial.specs_) == _spec_keys(parallel.specs_)
     ra_keys = lambda specs: [(s.name, s.base_column, s.edges) for s in specs]
     assert ra_keys(serial.region_adaptive_specs_) == ra_keys(parallel.region_adaptive_specs_)
+
+
+def test_auto_chain_uses_the_tiny_model_row_budget(monkeypatch):
+    """Auto-chain is tiny-model CV (12 transforms x folds per base), so it runs on ``tiny_model_sample_n`` rows, not on the
+    larger MI screen sample: one production target spent 55s in this step on a 26k-row screen sample."""
+    import mlframe.training.composite.discovery._opt_in_steps as ois_mod  # codespell:ignore
+
+    seen = []
+    orig = ois_mod.discover_chains
+
+    def _spy(**kw):
+        seen.append(kw["y"].shape[0])
+        return orig(**kw)
+
+    monkeypatch.setattr(ois_mod, "discover_chains", _spy)
+    _fit(_base_config(auto_chain_discovery_enabled=True, tiny_model_sample_n=500))
+    assert seen and max(seen) <= 500
+
+
+def test_lgb_fold_cache_matches_per_fit_lightgbm():
+    """Sharing one binned dataset per fold across candidates must score like a fresh LGBMRegressor per candidate."""
+    from mlframe.training.composite.discovery._auto_chain import _y_scale_cv_rmse, build_chain_transform
+    from mlframe.training.composite.discovery._lgb_fold_cache import LgbFoldCache
+
+    df = _synthetic(n=3000)
+    y, base = df["y"].to_numpy(), df["base"].to_numpy()
+    x = df[["x1", "x2", "x3"]].to_numpy()
+    kw = dict(y=y, base=base, x_matrix=x, cv_folds=3, random_state=0, family="lgb", n_estimators=40, num_leaves=15, learning_rate=0.1)
+    for tf in (None, build_chain_transform("linear_residual", "cbrt")):
+        plain, _ = _y_scale_cv_rmse(tf, **kw)
+        cache = LgbFoldCache(n_estimators=40, num_leaves=15, learning_rate=0.1, random_state=0)
+        cached, _ = _y_scale_cv_rmse(tf, fold_cache=cache, **kw)
+        assert cached == pytest.approx(plain, rel=1e-6)

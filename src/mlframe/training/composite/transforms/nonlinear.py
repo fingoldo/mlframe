@@ -5,6 +5,7 @@ Bound back into the parent's namespace via re-export at the parent's module bott
 from __future__ import annotations
 
 from ._domain_shared import residual_domain_reshaped
+from .._quantile_edges import quantile_bin_edges
 
 import logging
 from typing import (
@@ -296,10 +297,8 @@ def _quantile_residual_fit(
     y_clean = y_f[finite]
     base_clean = base_f[finite]
     # Quantile edges on train base; ``np.quantile`` with linspace covers the open-open envelope, and the outermost edges become +/-inf below so predict-time digitize never produces an out-of-range bucket.
-    inner_qs = np.linspace(0.0, 1.0, n_bins + 1)
-    edges = np.quantile(base_clean, inner_qs)
-    # Deduplicate edges (ties at one quantile collapse several edges, else empty bins emerge); tolerate up to n_bins-1 unique edges, clip n_bins downstream.
-    edges = np.unique(edges)
+    # Tie-safe edges; a discrete base with <= n_bins values gets one bin per value (a binary base used to collapse to one bin).
+    edges = quantile_bin_edges(base_clean, n_bins)
     if edges.size < 2:
         # All base values identical: degenerate single bucket.
         med = float(np.median(y_clean))

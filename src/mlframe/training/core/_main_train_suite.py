@@ -537,6 +537,7 @@ def train_mlframe_models_suite(
                 train_df_polars_pre=train_df_polars_pre,
                 val_df_polars_pre=val_df_polars_pre,
                 test_df_polars_pre=test_df_polars_pre,
+                align_categorical_dicts=bool(getattr(behavior_config, "align_polars_categorical_dicts", True)),
             )
 
         metadata["text_features"] = text_features

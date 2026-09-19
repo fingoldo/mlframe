@@ -15,6 +15,10 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
+from .._quantile_edges import quantile_bin_edges
+
 logger = logging.getLogger("mlframe.training.composite_transforms")
 
 
@@ -180,16 +184,15 @@ def _median_residual_fit(
     y_f = y[finite].astype(np.float64)
     b_f = base[finite].astype(np.float64)
     n_bins = int(_MEDIAN_RESIDUAL_N_BINS)
-    quantiles = np.linspace(0.0, 1.0, n_bins + 1)
-    bin_edges = np.quantile(b_f, quantiles)
-    bin_edges = np.unique(bin_edges)
-    # Heavily-discretised base (e.g. integer counts with <20 distinct values) causes ``np.unique`` to collapse the n_bins+1 quantile edges to fewer slots. ``np.digitize`` then routes most rows to bin 0 and the per-bin median lookup defeats the residual residual modelling. Warn so downstream callers know the granularity collapsed before treating the residual as a useful signal.
-    if bin_edges.size - 1 < n_bins:
-        import warnings as _w
-        _w.warn(
-            f"_median_residual_fit: base has only {bin_edges.size - 1} distinct quantile edges (requested n_bins={n_bins}); residual granularity collapsed. Transform falls back to a coarse per-bin median - consider a different base or transform when this fires.",
-            RuntimeWarning,
-            stacklevel=2,
+    # A discrete base with <= n_bins values gets one bin per value (a binary base used to collapse to ONE bin, i.e. the
+    # global median). Only a base whose ties merge MORE distinct values than bins formed loses granularity; that is
+    # logged (not ``warnings.warn``, which bypassed the run log and printed a source line to stderr).
+    bin_edges = quantile_bin_edges(b_f, n_bins)
+    if bin_edges.size - 1 < n_bins and np.unique(b_f).size > bin_edges.size - 1:
+        log_throttle(
+            logger, "median_residual_edges_collapsed", logging.INFO,
+            "_median_residual_fit: tied base values merge into %d quantile bin(s) (requested n_bins=%d); the residual is a coarse per-bin median.",
+            bin_edges.size - 1, n_bins,
         )
     if bin_edges.size < 2:
         bin_edges = np.array([bin_edges[0], bin_edges[0] + 1e-9])

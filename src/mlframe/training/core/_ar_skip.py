@@ -64,6 +64,23 @@ def _extreme_ar_discovery_skip(
     return bool(skip_enabled and group_aware_active and bounded_only_zoo and lag1_ar is not None and is_picked_target and float(lag1_ar) >= threshold)
 
 
+def _extreme_ar_skip_blocked_by_missing_info(
+    *, group_aware_active: bool, bounded_only_zoo: bool, lag1_ar, is_picked_target: bool, threshold: float,
+) -> bool:
+    """True when the extreme-AR skip was applicable but could not decide for lack of information.
+
+    Applicable means a group-aware split and a bounded-only zoo; blocked means the per-group lag-1 was never measured, or
+    it was above threshold but attributed to a different target. That case is a missed optimisation worth a WARNING.
+    Without groups the skip cannot fire by design and ``lag1_autocorr_per_group`` is legitimately absent, so the not-fired
+    dump belongs at DEBUG: a production log printed it at WARNING for every regression target of a non-grouped run.
+    """
+    if not (group_aware_active and bounded_only_zoo):
+        return False
+    if lag1_ar is None:
+        return True
+    return float(lag1_ar) >= threshold and not is_picked_target
+
+
 def _recompute_lag1_ar_per_group(y_full, group_ids, train_idx) -> Optional[float]:
     """Per-group lag-1 autocorrelation of the TARGET on the train rows, reusing the analyzer's Fisher-z kernel.
 

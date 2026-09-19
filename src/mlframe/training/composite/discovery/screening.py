@@ -926,18 +926,33 @@ def _sample_indices(
     np.clip(stratum, 0, n_strata - 1, out=stratum)
     stratum[~finite_mask] = n_strata  # extra "non-finite" bin
 
-    per_stratum = max(1, sample_n // n_strata)
+    # Water-fill the budget: an equal share per non-empty stratum, then hand what small strata cannot use to the ones that
+    # still have rows. A tie-heavy y (mostly-zero hourly rates) collapses the quantile cuts into a couple of strata; the
+    # old fixed ``sample_n // n_strata`` share then screened 6666 rows out of a 100_000 budget on a 498k-row train.
+    bins = [np.where(stratum == s)[0] for s in range(n_strata + 1)]
+    bins = [b for b in bins if b.size]
+    sizes = np.array([b.size for b in bins], dtype=np.int64)
+    quota = np.zeros_like(sizes)
+    remaining = int(min(sample_n, sizes.sum()))
+    open_bins = sizes > 0
+    while remaining > 0 and open_bins.any():
+        share = max(1, remaining // int(open_bins.sum()))
+        for i in np.flatnonzero(open_bins):
+            add = min(share, int(sizes[i] - quota[i]), remaining)
+            quota[i] += add
+            remaining -= add
+            if quota[i] == sizes[i]:
+                open_bins[i] = False
+            if remaining == 0:
+                break
     picked: list[np.ndarray] = []
-    for s in range(n_strata + 1):
-        bin_rows = np.where(stratum == s)[0]
-        if bin_rows.size == 0:
+    for bin_rows, take in zip(bins, quota.tolist()):
+        if take == 0:
             continue
-        take = min(bin_rows.size, per_stratum)
         if take == bin_rows.size:
             picked.append(bin_rows)
         else:
-            chosen = rng.choice(bin_rows, size=take, replace=False)
-            picked.append(chosen)
+            picked.append(rng.choice(bin_rows, size=take, replace=False))
     out = np.concatenate(picked) if picked else np.arange(min(n, sample_n))
     # Downsample the per-stratum overshoot uniformly with the seeded rng; truncating after sort would excise only the largest (latest) indices, a systematic temporal bias against the sort-for-temporal-fidelity rationale.
     if out.size > sample_n:

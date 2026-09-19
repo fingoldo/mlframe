@@ -31,6 +31,7 @@ except ImportError:
 
 from ._causal_lag import is_causal_base_name
 from ._collinear_numba import block_shuffle_gather
+from ._coord_names import is_coordinate_like_name
 from ._structural_hints import boost_for_features
 from .screening import (
     _mi_from_binned_pair,
@@ -353,7 +354,11 @@ def _auto_base(
         #   3. Mean within-block |corr| > 0.80 (catches X/Y/Z
         #      typical corr range while rejecting lower-corr
         #      industrial feature groups).
-        # All three must hold; otherwise the group is preserved.
+        #   4. At least two members carry coordinate-like names (see
+        #      ``_coord_names``): correlation alone also matches synonym
+        #      groups such as text lengths or budget variants, which the
+        #      dedup step already reduces to one representative.
+        # All four must hold; otherwise the group is preserved.
         X_screen = x_matrix[finite]
         n_feats = X_screen.shape[1]
         # Vectorised |corr|: centre each column, normalise to unit-L2, then take Gram matrix
@@ -372,6 +377,8 @@ def _auto_base(
                 np.fill_diagonal(gram, 0.0)
                 corr_matrix[np.ix_(live_idx, live_idx)] = gram
         spatial_demoted: list[str] = []
+        spatial_block_sizes: list[int] = []
+        seen_blocks: set[tuple[int, ...]] = set()
         # For each feature j, find its "tight neighbourhood":
         # features k where |corr(j, k)| > 0.75. If that
         # neighbourhood (including j) is size 3-6 AND has mean
@@ -395,6 +402,12 @@ def _auto_base(
             # cluster).
             if float(upper.min()) < 0.75:
                 continue
+            if sum(is_coordinate_like_name(usable_features[k]) for k in block_idx) < 2:
+                continue
+            block_key = tuple(int(k) for k in block_idx)
+            if block_key not in seen_blocks:
+                seen_blocks.add(block_key)
+                spatial_block_sizes.append(len(block_idx))
             # Cluster qualifies -- demote every member EXCEPT
             # those on the hint list (BD ablation already proved
             # they predict y; demoting them silently is the same
@@ -409,10 +422,11 @@ def _auto_base(
                     spatial_demoted.append(name_k)
         if spatial_demoted:
             logger.info(
-                "[CompositeTargetDiscovery] auto-base detected "
-                "spatial-coord block of %d feature(s) (tight "
-                "cluster, |pair-corr| > 0.75, mean > 0.80, size "
-                "3-6): %s. Demoted in MI ranking.",
+                "[CompositeTargetDiscovery] auto-base detected %d spatial-coord block(s) of size(s) %s "
+                "(coordinate-like names, |pair-corr| > 0.75, mean > 0.80, 3-6 members each); demoted %d "
+                "feature(s) in MI ranking: %s",
+                len(spatial_block_sizes),
+                spatial_block_sizes,
                 len(spatial_demoted),
                 sorted(spatial_demoted)[:8],
             )

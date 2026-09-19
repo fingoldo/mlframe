@@ -26,6 +26,7 @@ from ._achievable_ceiling import run_achievable_ceiling_precheck
 from ._ar_skip import (
     _RERANK_SKIP_RATIO_BOUNDED_DEFAULT,
     _extreme_ar_discovery_skip,
+    _extreme_ar_skip_blocked_by_missing_info,
     _recompute_lag1_ar_per_group,
     _zoo_is_bounded_only,
 )
@@ -329,12 +330,19 @@ def run_composite_target_discovery(
                 continue
             elif _extreme_ar_skip:
                 # The skip is enabled but did NOT fire. On a strongly-AR group-aware target this is a missed
-                # optimisation (discovery + composite-train wall wasted). Log EVERY input UNCONDITIONALLY so the
-                # blocking precondition is visible in one shot -- in particular whether the target_distribution_report
-                # (which carries lag1_autocorr_per_group / picked_target_name / prefer_group_aware) actually reached
-                # discovery: an empty ``_td_report`` makes lag1=None + recommended=False, silently disabling the skip.
+                # optimisation (discovery + composite-train wall wasted). Log EVERY input so the blocking precondition
+                # is visible in one shot -- in particular whether the target_distribution_report (which carries
+                # lag1_autocorr_per_group / picked_target_name / prefer_group_aware) actually reached discovery: an
+                # empty ``_td_report`` makes lag1=None + recommended=False, silently disabling the skip.
+                # WARNING only when the skip was applicable but blocked by missing information (see the helper).
+                _skip_blocked_by_missing_info = _extreme_ar_skip_blocked_by_missing_info(
+                    group_aware_active=_grp_active_eff, bounded_only_zoo=_bounded_only_zoo, lag1_ar=_lag1_eff,
+                    is_picked_target=_is_picked_eff, threshold=_extreme_ar_threshold,
+                )
                 log_throttle(
-                    logger, "composite_discovery_extreme_ar_skip_not_fired", logging.WARNING,
+                    logger,
+                    "composite_discovery_extreme_ar_skip_not_fired" if _skip_blocked_by_missing_info else "composite_discovery_extreme_ar_skip_not_applicable",
+                    logging.WARNING if _skip_blocked_by_missing_info else logging.DEBUG,
                     "[CompositeTargetDiscovery] extreme-AR skip did NOT fire for target=%r: skip_enabled=%s "
                     "lag1_report=%r lag1_eff=%r recomputed=%s (threshold=%.2f) group_aware_active=%s (recommended=%s "
                     "splitter=%s use_groups=%s gid=%s) bounded_only_zoo=%s zoo=%s picked_target_name=%r is_picked_eff=%s "

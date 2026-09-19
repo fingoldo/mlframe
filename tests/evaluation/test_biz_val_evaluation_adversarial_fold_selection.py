@@ -84,3 +84,28 @@ def test_build_test_like_validation_fold_empty_train_raises():
 
     with pytest.raises(ValueError):
         build_test_like_validation_fold(pd.DataFrame({"x": []}), pd.DataFrame({"x": [1.0]}))
+
+
+def test_biz_value_capped_fits_select_the_same_test_like_rows():
+    """Capping each fold's fit rows (what the suite does on large frames) must pick the drifted rows as well as full-size
+    fits do: the fold's purpose is to surface the test-like part of train, and a cheaper classifier must not lose it."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.evaluation.adversarial_fold_selection import build_test_like_validation_fold
+
+    rng = np.random.default_rng(0)
+    n_train, n_test = 20_000, 4_000
+    train = pd.DataFrame(rng.standard_normal((n_train, 4)), columns=list("abcd"))
+    drifted = rng.random(n_train) < 0.2
+    train.loc[drifted, "a"] += 2.0
+    test = pd.DataFrame(rng.standard_normal((n_test, 4)), columns=list("abcd"))
+    test["a"] += 2.0
+
+    full_val, _ = build_test_like_validation_fold(train, test)
+    # 16_000 of the 19_200 rows each fold would fit (0.83), close to the production ratio (400k of a 447k fold fit).
+    # Measured: precision 0.701 capped vs 0.700 full here; at a 0.21 ratio it is 0.656, still far better than the skip
+    # the budget used to apply.
+    capped_val, _ = build_test_like_validation_fold(train, test, max_fit_rows=16_000)
+    assert drifted[capped_val].mean() >= drifted[full_val].mean() - 0.01
+    assert len(np.intersect1d(full_val, capped_val)) / len(full_val) >= 0.85

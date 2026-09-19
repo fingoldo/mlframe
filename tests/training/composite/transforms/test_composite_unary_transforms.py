@@ -121,6 +121,45 @@ class TestYeoJohnsonY:
         lam = float(params["lambda"])
         assert -2.0 <= lam <= 4.0, f"lambda={lam} outside the clipped range"
 
+    @pytest.mark.parametrize("n", [500, 60_000])  # numpy path and numba path of the inverse
+    def test_inner_prediction_past_asymptote_stays_in_train_range(self, n) -> None:
+        """For lambda < 0 the inverse has an asymptote at t = -1/lambda. An inner prediction past it used to hit the base
+        floor and come back as ~1e6 (lambda=-2), turning one row into a y-scale RMSE of thousands. It must now stay
+        inside the y range the transform was fitted on."""
+        rng = np.random.default_rng(6)
+        y = np.where(rng.random(n) < 0.8, 0.0, rng.lognormal(mean=2.0, sigma=2.0, size=n))
+        params = yeo_johnson_y_fit(y)
+        lam = float(params["lambda"])
+        assert lam < 0.0, f"fixture must fit a negative lambda, got {lam}"
+        t = np.full(n, -1.0 / lam + 5.0)
+        t[0] = -50.0
+        y_back = yeo_johnson_y_inverse(t, params)
+        assert np.all(np.isfinite(y_back))
+        assert y_back.max() <= y.max() * (1 + 1e-9)
+        assert y_back.min() >= y.min() - 1e-9
+
+    def test_params_without_range_still_invert(self) -> None:
+        """Params fitted before the T range was recorded (only ``lambda``) keep inverting unchanged."""
+        t = np.array([0.0, 0.3, 1.2])
+        np.testing.assert_allclose(yeo_johnson_y_inverse(t, {"lambda": 0.5}), yeo_johnson_y_inverse(t, {"lambda": 0.5, "t_lo": -9.0, "t_hi": 9.0}))
+
+
+class TestBoxCoxYInverseRange:
+    """Box-Cox shares the lambda < 0 asymptote of the Yeo-Johnson inverse."""
+
+    def test_inner_prediction_past_asymptote_stays_in_train_range(self) -> None:
+        from mlframe.training.composite.transforms.unary import box_cox_y_fit, box_cox_y_inverse
+
+        rng = np.random.default_rng(7)
+        y = rng.lognormal(mean=0.0, sigma=2.5, size=2000) + 1e-3
+        params = box_cox_y_fit(y)
+        lam = float(params["lambda"])
+        assert lam < 0.0, f"fixture must fit a negative lambda, got {lam}"
+        y_back = box_cox_y_inverse(np.array([-1.0 / lam + 3.0, -1e3]), params)
+        assert np.all(np.isfinite(y_back))
+        assert y_back.max() <= y.max() * (1 + 1e-9)
+        assert y_back.min() >= y.min() * (1 - 1e-9)
+
 
 class TestQuantileNormalY:
     """Groups tests covering quantile normal y."""
