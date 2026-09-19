@@ -99,6 +99,7 @@ history.
 
 ### Fixed
 
+- CatBoost GPU fits that exceed the configured time budget, or run away (elapsed > `MLFRAME_CB_GPU_RUNAWAY_FACTOR`, default 3, x what the whole iteration budget would take at the fit's own early rate), are now stopped **without losing the model**: the fit runs with CatBoost snapshots on and is resumed from the last snapshot with the iterations capped at those already done. `MLFRAME_CB_GPU_RUNAWAY_FACTOR=0` keeps runaway fits warn-only; `MLFRAME_CB_GPU_SNAPSHOT_S` (default 120) sets the snapshot interval.
 - **Default change:** the five slowest per-model diagnostics (`pdp_ice`, `shap_panels`, `slice_finder`, `model_card`, `risk_coverage_charts`) are now opt-in. In a production run they took ~3 h, about as long as all model fitting; set them to `True` on `ReportingConfig` to get them back.
 - Rank-fusion ensemble flavours (`rank_average`, `rrf`) output ranks, not predictions on the target scale, yet `rank_average` was built for every target type: on regression it predicted ~0.5 against a target mean of 2.8 and could look best when test labels sit near zero. They are now built only for learning-to-rank targets.
 - The ensemble member gate never selects on the test split any more (it fell back to test when val predictions were missing), and prefers the calibration slice over val when one exists. When the gate excluded a member, the NNLS/Caruana blend weights were silently discarded (an `IndexError` caught as "stacking_aware_gate failed"); they are kept now.
