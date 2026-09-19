@@ -43,48 +43,48 @@ fixed, how, and any deferred items with their reasons) lives in each cluster's o
 (`project_mlframe_full_audit_2026_07_21`), not duplicated here to avoid a second, driftable copy of the
 same information.
 
-| Report | Files | LOC | P0 | P1 | P2 | Proposals | Disposition |
-|---|---:|---:|---:|---:|---:|---:|---|
-| [training_composite_discovery.md](implemented/training_composite_discovery.md) | 47 | 15715 | 0 | 2 | 4 | 6 | CLOSED |
-| [training_composite_blocks.md](implemented/training_composite_blocks.md) | 54 | 14606 | 1 | 3 | 3 | 7 | CLOSED |
-| [training_composite_loose_a.md](implemented/training_composite_loose_a.md) | 39 | 11619 | 0 | 4 | 14 | 10 | CLOSED |
-| [training_composite_loose_b.md](implemented/training_composite_loose_b.md) | 38 | 11599 | 1 | 6 | 7 | 8 | CLOSED |
-| [training_loose_a.md](implemented/training_loose_a.md) | 27 | 11283 | 0 | 4 | 7 | 5 | CLOSED |
-| [training_loose_b.md](implemented/training_loose_b.md) | 27 | 11273 | 0 | 3 | 7 | 7 | CLOSED |
-| [training_loose_c.md](implemented/training_loose_c.md) | 27 | 11277 | 0 | 7 | 11 | 7 | CLOSED |
-| [training_core_a.md](implemented/training_core_a.md) | 36 | 13201 | 0 | 1 | 3 | 4 | CLOSED |
-| [training_core_b.md](implemented/training_core_b.md) | 30 | 11227 | 1 | 2 | 6 | 5 | CLOSED |
-| [training_neural.md](implemented/training_neural.md) | 44 | 12501 | 1 | 6 | 9 | 8 | CLOSED |
-| [training_feature_handling.md](implemented/training_feature_handling.md) | 31 | 8564 | 0 | 8 | 9 | 8 | CLOSED |
-| [training_baselines.md](implemented/training_baselines.md) | 24 | 6693 | 1 | 2 | 7 | 7 | CLOSED |
-| [training_pipeline.md](implemented/training_pipeline.md) | 22 | 5522 | 0 | 4 | 5 | 7 | CLOSED |
-| [training_targets.md](implemented/training_targets.md) | 16 | 4275 | 1 | 3 | 7 | 6 | CLOSED |
-| [training_reporting_infra.md](implemented/training_reporting_infra.md) | 28 | 9087 | 1 | 2 | 6 | 6 | CLOSED |
-| [reporting_charts.md](implemented/reporting_charts.md) | 40 | 14081 | 0 | 2 | 6 | 5 | CLOSED |
-| [training_misc_small.md](implemented/training_misc_small.md) | 34 | 9434 | 1 | 4 | 3 | 8 | CLOSED |
-| [fe_transformer_a.md](implemented/fe_transformer_a.md) | 40 | 6965 | 0 | 7 | 7 | 4 | CLOSED |
-| [fe_transformer_b.md](implemented/fe_transformer_b.md) | 39 | 6912 | 0 | 16 | 13 | 8 | CLOSED |
-| [fe_transformer_c.md](implemented/fe_transformer_c.md) | 40 | 6967 | 1 | 8 | 6 | 6 | CLOSED |
-| [fe_top_a.md](implemented/fe_top_a.md) | 39 | 10911 | 3 | 12 | 9 | 9 | CLOSED |
-| [fe_top_b.md](implemented/fe_top_b.md) | 39 | 10939 | 1 | 2 | 10 | 6 | CLOSED |
-| [feature_selection_nonmrmr.md](implemented/feature_selection_nonmrmr.md) | 32 | 8285 | 1 | 2 | 7 | 7 | CLOSED |
-| [feature_selection_wrappers.md](implemented/feature_selection_wrappers.md) | 38 | 9475 | 0 | 4 | 5 | 8 | CLOSED |
-| [metrics_all.md](implemented/metrics_all.md) | 39 | 14086 | 2 | 6 | 3 | 6 | CLOSED |
-| [calibration.md](implemented/calibration.md) | 18 | 4823 | 0 | 2 | 7 | 7 | CLOSED |
-| [evaluation.md](implemented/evaluation.md) | 21 | 4759 | 0 | 3 | 7 | 7 | CLOSED |
-| [models_all.md](implemented/models_all.md) | 41 | 9266 | 0 | 2 | 6 | 6 | CLOSED |
-| [preprocessing.md](implemented/preprocessing.md) | 23 | 4155 | 2 | 8 | 6 | 10 | CLOSED |
-| [competition.md](implemented/competition.md) | 34 | 3795 | 0 | 7 | 4 | 9 | CLOSED |
-| [votenrank.md](implemented/votenrank.md) | 36 | 4226 | 0 | 3 | 12 | 5 | CLOSED |
-| [core_infra_a.md](implemented/core_infra_a.md) | 35 | 5990 | 1 | 4 | 5 | 7 | CLOSED |
-| [core_infra_b.md](implemented/core_infra_b.md) | 56 | 6878 | 0 | 3 | 8 | 6 | CLOSED |
-| [x_oss_hygiene_packaging.md](implemented/x_oss_hygiene_packaging.md) | 22 | 2255 | 0 | 1 | 6 | 5 | CLOSED |
-| [x_cicd_dependencies.md](implemented/x_cicd_dependencies.md) | 20 | 3222 | 0 | 4 | 3 | 4 | CLOSED |
-| [x_test_suite_architecture.md](x_test_suite_architecture.md) | 27 | 2831 | 0 | 4 | 6 | 7 | CLOSED |
-| [x_architecture_api_consistency.md](x_architecture_api_consistency.md) | 17 | 7345 | 0 | 0 | 9 | 4 | CLOSED |
-| [x_security_robustness.md](implemented/x_security_robustness.md) | 27 | 3737 | 0 | 1 | 4 | 4 | CLOSED |
-| [x_ml_correctness_meta.md](implemented/x_ml_correctness_meta.md) | 23 | 6729 | 1 | 3 | 6 | 5 | CLOSED |
-| **Total** | **1270** | **326508** | **20** | **165** | **263** | **254** | **39/39 CLOSED** |
+| Disposition | Report | Files | LOC | P0 | P1 | P2 | Proposals |
+|---|---|---|---|---|---|---|---|
+| **CLOSED** | [training_composite_discovery.md](implemented/training_composite_discovery.md) | 47 | 15715 | 0 | 2 | 4 | 6 |
+| **CLOSED** | [training_composite_blocks.md](implemented/training_composite_blocks.md) | 54 | 14606 | 1 | 3 | 3 | 7 |
+| **CLOSED** | [training_composite_loose_a.md](implemented/training_composite_loose_a.md) | 39 | 11619 | 0 | 4 | 14 | 10 |
+| **CLOSED** | [training_composite_loose_b.md](implemented/training_composite_loose_b.md) | 38 | 11599 | 1 | 6 | 7 | 8 |
+| **CLOSED** | [training_loose_a.md](implemented/training_loose_a.md) | 27 | 11283 | 0 | 4 | 7 | 5 |
+| **CLOSED** | [training_loose_b.md](implemented/training_loose_b.md) | 27 | 11273 | 0 | 3 | 7 | 7 |
+| **CLOSED** | [training_loose_c.md](implemented/training_loose_c.md) | 27 | 11277 | 0 | 7 | 11 | 7 |
+| **CLOSED** | [training_core_a.md](implemented/training_core_a.md) | 36 | 13201 | 0 | 1 | 3 | 4 |
+| **CLOSED** | [training_core_b.md](implemented/training_core_b.md) | 30 | 11227 | 1 | 2 | 6 | 5 |
+| **CLOSED** | [training_neural.md](implemented/training_neural.md) | 44 | 12501 | 1 | 6 | 9 | 8 |
+| **CLOSED** | [training_feature_handling.md](implemented/training_feature_handling.md) | 31 | 8564 | 0 | 8 | 9 | 8 |
+| **CLOSED** | [training_baselines.md](implemented/training_baselines.md) | 24 | 6693 | 1 | 2 | 7 | 7 |
+| **CLOSED** | [training_pipeline.md](implemented/training_pipeline.md) | 22 | 5522 | 0 | 4 | 5 | 7 |
+| **CLOSED** | [training_targets.md](implemented/training_targets.md) | 16 | 4275 | 1 | 3 | 7 | 6 |
+| **CLOSED** | [training_reporting_infra.md](implemented/training_reporting_infra.md) | 28 | 9087 | 1 | 2 | 6 | 6 |
+| **CLOSED** | [reporting_charts.md](implemented/reporting_charts.md) | 40 | 14081 | 0 | 2 | 6 | 5 |
+| **CLOSED** | [training_misc_small.md](implemented/training_misc_small.md) | 34 | 9434 | 1 | 4 | 3 | 8 |
+| **CLOSED** | [fe_transformer_a.md](implemented/fe_transformer_a.md) | 40 | 6965 | 0 | 7 | 7 | 4 |
+| **CLOSED** | [fe_transformer_b.md](implemented/fe_transformer_b.md) | 39 | 6912 | 0 | 16 | 13 | 8 |
+| **CLOSED** | [fe_transformer_c.md](implemented/fe_transformer_c.md) | 40 | 6967 | 1 | 8 | 6 | 6 |
+| **CLOSED** | [fe_top_a.md](implemented/fe_top_a.md) | 39 | 10911 | 3 | 12 | 9 | 9 |
+| **CLOSED** | [fe_top_b.md](implemented/fe_top_b.md) | 39 | 10939 | 1 | 2 | 10 | 6 |
+| **CLOSED** | [feature_selection_nonmrmr.md](implemented/feature_selection_nonmrmr.md) | 32 | 8285 | 1 | 2 | 7 | 7 |
+| **CLOSED** | [feature_selection_wrappers.md](implemented/feature_selection_wrappers.md) | 38 | 9475 | 0 | 4 | 5 | 8 |
+| **CLOSED** | [metrics_all.md](implemented/metrics_all.md) | 39 | 14086 | 2 | 6 | 3 | 6 |
+| **CLOSED** | [calibration.md](implemented/calibration.md) | 18 | 4823 | 0 | 2 | 7 | 7 |
+| **CLOSED** | [evaluation.md](implemented/evaluation.md) | 21 | 4759 | 0 | 3 | 7 | 7 |
+| **CLOSED** | [models_all.md](implemented/models_all.md) | 41 | 9266 | 0 | 2 | 6 | 6 |
+| **CLOSED** | [preprocessing.md](implemented/preprocessing.md) | 23 | 4155 | 2 | 8 | 6 | 10 |
+| **CLOSED** | [competition.md](implemented/competition.md) | 34 | 3795 | 0 | 7 | 4 | 9 |
+| **CLOSED** | [votenrank.md](implemented/votenrank.md) | 36 | 4226 | 0 | 3 | 12 | 5 |
+| **CLOSED** | [core_infra_a.md](implemented/core_infra_a.md) | 35 | 5990 | 1 | 4 | 5 | 7 |
+| **CLOSED** | [core_infra_b.md](implemented/core_infra_b.md) | 56 | 6878 | 0 | 3 | 8 | 6 |
+| **CLOSED** | [x_oss_hygiene_packaging.md](implemented/x_oss_hygiene_packaging.md) | 22 | 2255 | 0 | 1 | 6 | 5 |
+| **CLOSED** | [x_cicd_dependencies.md](implemented/x_cicd_dependencies.md) | 20 | 3222 | 0 | 4 | 3 | 4 |
+| **CLOSED** | [x_test_suite_architecture.md](x_test_suite_architecture.md) | 27 | 2831 | 0 | 4 | 6 | 7 |
+| **CLOSED** | [x_architecture_api_consistency.md](x_architecture_api_consistency.md) | 17 | 7345 | 0 | 0 | 9 | 4 |
+| **CLOSED** | [x_security_robustness.md](implemented/x_security_robustness.md) | 27 | 3737 | 0 | 1 | 4 | 4 |
+| **CLOSED** | [x_ml_correctness_meta.md](implemented/x_ml_correctness_meta.md) | 23 | 6729 | 1 | 3 | 6 | 5 |
+| 39/39 closed | **Total** | **1270** | **326508** | **20** | **165** | **263** | **254** |
 
 ### Notable deliberately-deferred items (not silently dropped)
 

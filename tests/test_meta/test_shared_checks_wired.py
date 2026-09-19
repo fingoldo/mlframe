@@ -691,3 +691,55 @@ def test_marked_tests_are_selected_by_some_ci_run(marker, min_marked):
 
     assert_every_marked_test_is_selected(REPO_ROOT / "tests", REPO_ROOT, marker=marker, commands=_pytest_runner_commands(),
                                          addopts=_pytest_addopts(), min_marked=min_marked)
+
+
+# Every status word a tracker row in audits/ uses. Wider than the checker's default four because the rounds were
+# written weeks apart with their own words (DONE in the mrmr rounds, CLOSED per report in 2026-07-21, FIXED /
+# CONSOLIDATED in 2026-09-05, COMPLETE per cluster in 2026-08-28); mapping them onto four would change what the
+# rows say. A new word has to be added here, which is the point: a typo'd status is otherwise uncounted.
+_TRACKER_STATUSES = (
+    "RESOLVED", "WON'T FIX", "DEFERRED", "NOT A DEFECT", "TODO", "DONE", "FIXED", "CLOSED", "COMPLETE", "REJECTED",
+    "DOC", "FUTURE", "PARTIAL", "PARTIALLY RESOLVED", "CONSOLIDATED", "NOT CONSOLIDATED", "SUPERSEDED", "CHECKED",
+    "UNRESOLVED",
+)
+_TRACKERS = sorted((REPO_ROOT / "audits").glob("*/_TRACKER.md"))
+# The eleven rounds that exist today; the floor stops a moved or renamed audits/ tree from parametrising to nothing.
+_MIN_TRACKERS = 11
+
+
+def test_audit_trackers_exist():
+    """The tracker glob still finds the rounds, so the parametrised check below is not silently empty."""
+    assert len(_TRACKERS) >= _MIN_TRACKERS, f"only {len(_TRACKERS)} audits/*/_TRACKER.md found; expected at least {_MIN_TRACKERS}"
+
+
+@pytest.mark.parametrize("tracker", _TRACKERS, ids=lambda p: p.parent.name)
+def test_audit_tracker_statuses_are_countable(tracker):
+    """Every tracker row that names a status names it as the first cell in the one `**WORD**` spelling.
+
+    Its first run found no tracker in that form: every status was free text in the LAST column
+    (``RESOLVED (base_seed forwarded; ...)``), so nothing could count a round. Converting them surfaced ten
+    2026-08-05 rows in a table with no header that no count had ever included, one round (2026-09-01) whose
+    tracker carried no status at all, and one (reporting 2026-09-06) with no tracker.
+    """
+    from py_ci_shared.audit_round_format import assert_tracker_statuses_countable
+
+    assert_tracker_statuses_countable(tracker, statuses=_TRACKER_STATUSES, min_rows=5)
+
+
+# Trackers carrying a `| File | Findings | <STATUS> ... |` summary over `### `<file>`` sections of rows. The older
+# rounds keep their counts in prose and per-severity headings, which this check does not parse; they were
+# recounted by hand when their rows were converted.
+_SUMMARISED_TRACKERS = ("audits/reporting_audit_2026-09-06/_TRACKER.md",)
+
+
+@pytest.mark.parametrize("tracker", _SUMMARISED_TRACKERS)
+def test_audit_tracker_summaries_agree_with_rows(tracker):
+    """A tracker's summary counts are recomputed from its rows and must match.
+
+    Its first run was on a summary written for it. The hand recount that preceded it found three stale summaries:
+    2026-08-05 said 67 P1 over 68 rows, 2026-08-28's per-cluster dispositions predated the reconciliation its own
+    prose describes (13 FUTURE against 3), and 2026-09-05's 124 findings sit on 125 rows.
+    """
+    from py_ci_shared.tracker_summary_parity import assert_tracker_summaries_agree
+
+    assert_tracker_summaries_agree(REPO_ROOT / "audits", REPO_ROOT / tracker, statuses=_TRACKER_STATUSES)
