@@ -18,6 +18,7 @@ N = 400
 
 
 def _frame():
+    """Frame with one all-NaN column and one column whose distribution shifts halfway."""
     rng = np.random.default_rng(7)
     return pd.DataFrame({
         "empty": np.full(N, np.nan),
@@ -26,6 +27,7 @@ def _frame():
 
 
 def test_all_nan_feature_renders_without_all_nan_warning():
+    """An all-NaN feature gets a non-finite PSI row and the heatmap renders without an All-NaN slice warning."""
     ts = np.arange(N, dtype=np.int64)
     matrix, rows, _ = compute_psi_matrix(_frame(), ts, n_time_buckets=4)
     assert "empty" in list(rows) and not np.isfinite(matrix[list(rows).index("empty")]).any()

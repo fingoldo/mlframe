@@ -44,7 +44,8 @@ def fake_gpu(monkeypatch):
     monkeypatch.setattr(mon, "_NOTICE_LOGGED", False)
 
 
-def test_time_budget_stops_fit_and_keeps_model(fake_gpu, caplog):
+@pytest.mark.usefixtures("fake_gpu")
+def test_time_budget_stops_fit_and_keeps_model(caplog):
     """Budget exceeded -> interrupted -> resumed from snapshot: a FITTED model, far fewer trees, original params restored."""
     Xt, yt, Xv, yv = _data()
     model = catboost.CatBoostRegressor(iterations=100_000, learning_rate=0.02, depth=8, od_type="Iter", od_wait=90_000,
@@ -65,7 +66,8 @@ def test_time_budget_stops_fit_and_keeps_model(fake_gpu, caplog):
     assert any("resuming from its snapshot" in r.getMessage() for r in caplog.records)
 
 
-def test_genuine_keyboard_interrupt_still_propagates(fake_gpu, monkeypatch):
+@pytest.mark.usefixtures("fake_gpu")
+def test_genuine_keyboard_interrupt_still_propagates(monkeypatch):
     """A Ctrl+C that the monitor did not issue must not be swallowed as a budget stop."""
     import _thread
 

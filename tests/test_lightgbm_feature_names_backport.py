@@ -64,10 +64,12 @@ class _Lgbm46Like:
 
     @property
     def feature_names_in_(self):
+        """Stored feature names, auto-generated ones included, as LightGBM 4.6 returns them."""
         return np.array(self.feature_name_)
 
     @feature_names_in_.deleter
     def feature_names_in_(self):
+        """No-op deleter mirroring the one LightGBM defines."""
         pass
 
 
@@ -86,6 +88,7 @@ def test_patch_hides_auto_names_and_keeps_real_ones():
 @pytest.mark.parametrize("version,expected", [("4.4.0", False), ("4.5.0", True), ("4.6.0", True), ("4.6.0.99", True),
                                               ("4.7.0", False), ("5.0.0", False), ("garbage", False)])
 def test_backport_only_targets_affected_releases(version, expected):
+    """The backport activates only for the LightGBM releases that report auto names (4.5.x-4.6.x)."""
     assert needs_backport(version) is expected
 
 
@@ -103,7 +106,6 @@ def test_achievable_ceiling_precheck_emits_no_feature_names_warning():
     df["t"] = y
     with warnings.catch_warnings(record=True) as rec:
         warnings.simplefilter("always")
-        verdict = run_achievable_ceiling_precheck(config=CompositeTargetDiscoveryConfig(), df=df, target_col="t",
-                                                  feature_cols=["a", "b", "c"], y_train=y)
+        verdict = run_achievable_ceiling_precheck(config=CompositeTargetDiscoveryConfig(), df=df, target_col="t", feature_cols=["a", "b", "c"], y_train=y)
     assert verdict is not None
     assert not [w for w in rec if _FEATURE_NAMES_MSG in str(w.message)]

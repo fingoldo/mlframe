@@ -22,20 +22,24 @@ _SPLITTER_FIELDS = {"test_size", "val_size", "shuffle_val", "shuffle_test", "val
 
 
 def _frame(n=600, start="2024-01-01", id_offset=0, seed=0):
+    """Hourly frame with a unique ``row_id``, a ``ts`` column and one random feature."""
     rng = np.random.default_rng(seed)
     ts = pd.date_range(start, periods=n, freq="h")
     return pd.DataFrame({"row_id": np.arange(id_offset, id_offset + n), "ts": ts, "x": rng.normal(size=n)})
 
 
 def _kwargs(cfg):
+    """Subset of the split config's fields that ``make_train_test_split`` accepts."""
     return {k: v for k, v in cfg.model_dump().items() if k in _SPLITTER_FIELDS}
 
 
 def _fraction_split(df, cfg):
+    """Plain fraction-based split of ``df`` using the config's splitter settings."""
     return make_train_test_split(df=df, timestamps=df["ts"], return_calib=True, **_kwargs(cfg))
 
 
 def _pinned(df, cfg, groups=None):
+    """Run ``pinned_train_val_test_split`` on ``df`` with the fraction splitter as fallback."""
     return pinned_train_val_test_split(
         n_rows=len(df), row_ids=df["row_id"].to_numpy(), timestamps=df["ts"], split_config=cfg,
         stratify_y=None, groups=groups, splitter=make_train_test_split, splitter_kwargs=_kwargs(cfg),
@@ -43,6 +47,7 @@ def _pinned(df, cfg, groups=None):
 
 
 def _run1(tmp_path, cfg, df):
+    """First run: fraction split, record membership to ``tmp_path``, return the entry and per-split id sets."""
     tr, va, te, _, _, _, ca, _ = _fraction_split(df, cfg)
     entry = record_split_membership(row_ids=df["row_id"].to_numpy(), id_column="row_id", train_idx=tr, val_idx=va, test_idx=te,
                                     calib_idx=ca, timestamps=df["ts"], split_dir=str(tmp_path))
@@ -54,6 +59,7 @@ _USER_CFG = dict(shuffle_val=True, shuffle_test=False, test_size=0.1, val_size=0
 
 
 def test_run1_writes_membership_file_and_metadata(tmp_path):
+    """Run 1 writes the id/split parquet plus metadata matching the split it made."""
     df = _frame()
     entry, sets = _run1(tmp_path, TrainingSplitConfig(id_column="row_id", **_USER_CFG), df)
     stored = pd.read_parquet(tmp_path / SPLIT_IDS_FILENAME)
@@ -67,6 +73,7 @@ def test_run1_writes_membership_file_and_metadata(tmp_path):
 
 
 def test_run2_larger_frame_reuses_test_and_val_exactly(tmp_path, caplog):
+    """Run 2 on a frame with extra history reuses run 1's val and test ids exactly."""
     df1 = _frame()
     _, sets = _run1(tmp_path, TrainingSplitConfig(id_column="row_id", **_USER_CFG), df1)
     history = _frame(n=300, start="2023-12-01", id_offset=100_000)
@@ -74,7 +81,7 @@ def test_run2_larger_frame_reuses_test_and_val_exactly(tmp_path, caplog):
     cfg2 = TrainingSplitConfig(id_column="row_id", split_ids_path=str(tmp_path / SPLIT_IDS_FILENAME), **_USER_CFG)
     assert has_pinned_splits(cfg2)
     with caplog.at_level(logging.INFO):
-        tr, va, te, trd, vad, ted, ca, _, info = _pinned(df2, cfg2)
+        tr, va, te, _trd, _vad, ted, _ca, _, _info = _pinned(df2, cfg2)
     ids = df2["row_id"].to_numpy()
     assert set(ids[te]) == sets["test"] and set(ids[va]) == sets["val"]
     # Train = every non-holdout row older than the sequential val start, incl. all new history; nothing newer leaks in.
@@ -85,12 +92,13 @@ def test_run2_larger_frame_reuses_test_and_val_exactly(tmp_path, caplog):
 
 
 def test_run2_future_rows_excluded_from_train(tmp_path):
+    """New rows falling inside the pinned val/test period never land in train."""
     df1 = _frame()
-    _, sets = _run1(tmp_path, TrainingSplitConfig(id_column="row_id", **_USER_CFG), df1)
+    _, _sets = _run1(tmp_path, TrainingSplitConfig(id_column="row_id", **_USER_CFG), df1)
     newer = _frame(n=50, start="2024-01-24", id_offset=200_000)  # falls inside the old val/test period
     df2 = pd.concat([df1, newer], ignore_index=True)
     cfg2 = TrainingSplitConfig(id_column="row_id", split_ids_path=str(tmp_path / SPLIT_IDS_FILENAME), **_USER_CFG)
-    tr, va, te, *_rest, info = _pinned(df2, cfg2)
+    tr, _va, _te, *_rest, info = _pinned(df2, cfg2)
     ids = df2["row_id"].to_numpy()
     cutoff = pd.Timestamp(info["cutoff"])
     n_new_after = int((newer["ts"] >= cutoff).sum())
@@ -103,11 +111,11 @@ def test_run2_future_rows_excluded_from_train(tmp_path):
 
 
 def test_reuse_test_only_carves_val_from_rest(tmp_path):
+    """Reusing only test pins it and carves a fresh val from the remaining rows."""
     df1 = _frame()
     _, sets = _run1(tmp_path, TrainingSplitConfig(id_column="row_id", **_USER_CFG), df1)
     df2 = pd.concat([_frame(n=300, start="2023-12-01", id_offset=100_000), df1], ignore_index=True)
-    cfg = TrainingSplitConfig(id_column="row_id", split_ids_path=str(tmp_path / SPLIT_IDS_FILENAME), reuse_splits=("test",),
-                              calib_size=0.05, **_USER_CFG)
+    cfg = TrainingSplitConfig(id_column="row_id", split_ids_path=str(tmp_path / SPLIT_IDS_FILENAME), reuse_splits=("test",), calib_size=0.05, **_USER_CFG)
     tr, va, te, _, _, _, ca, _, info = _pinned(df2, cfg)
     ids = df2["row_id"].to_numpy()
     assert set(ids[te]) == sets["test"]
@@ -119,10 +127,10 @@ def test_reuse_test_only_carves_val_from_rest(tmp_path):
 
 
 def test_date_windows_select_exact_rows():
+    """Explicit val/test date windows select exactly the rows inside them."""
     df = _frame()
-    cfg = TrainingSplitConfig(test_start="2024-01-22", test_end="2024-01-24", val_start="2024-01-20", val_end="2024-01-22",
-                              wholeday_splitting=False)
-    tr, va, te, _, vad, ted, *_ = _pinned(df, cfg)
+    cfg = TrainingSplitConfig(test_start="2024-01-22", test_end="2024-01-24", val_start="2024-01-20", val_end="2024-01-22", wholeday_splitting=False)
+    tr, va, te, _, _vad, ted, *_ = _pinned(df, cfg)
     ts = df["ts"]
     assert np.array_equal(te, np.flatnonzero((ts >= "2024-01-22") & (ts < "2024-01-24")))
     assert np.array_equal(va, np.flatnonzero((ts >= "2024-01-20") & (ts < "2024-01-22")))
@@ -131,11 +139,12 @@ def test_date_windows_select_exact_rows():
 
 
 def test_window_and_ids_combined(tmp_path):
+    """A reused test id file combines with a val date window."""
     df = _frame()
     _, sets = _run1(tmp_path, TrainingSplitConfig(id_column="row_id", **_USER_CFG), df)
     cfg = TrainingSplitConfig(id_column="row_id", split_ids_path=str(tmp_path / SPLIT_IDS_FILENAME), reuse_splits=("test",),
                               val_start="2024-01-18", val_end="2024-01-20", wholeday_splitting=False)
-    tr, va, te, *_ = _pinned(df, cfg)
+    _tr, va, te, *_ = _pinned(df, cfg)
     ids = df["row_id"].to_numpy()
     assert set(ids[te]) == sets["test"]
     ts = df["ts"]
@@ -154,11 +163,13 @@ def test_window_and_ids_combined(tmp_path):
     ],
 )
 def test_config_validation(kwargs, msg):
+    """Invalid split configs raise ValueError with the expected message."""
     with pytest.raises(ValueError, match=msg):
         TrainingSplitConfig(**kwargs)
 
 
 def test_window_clash_with_file_rows_raises(tmp_path):
+    """A date window overlapping rows pinned by the id file raises."""
     df = _frame()
     _run1(tmp_path, TrainingSplitConfig(id_column="row_id", **_USER_CFG), df)
     cfg = TrainingSplitConfig(id_column="row_id", split_ids_path=str(tmp_path / SPLIT_IDS_FILENAME), reuse_splits=("test",),
@@ -168,6 +179,7 @@ def test_window_clash_with_file_rows_raises(tmp_path):
 
 
 def test_missing_ids_warn_per_split(tmp_path, caplog):
+    """Pinned ids absent from the new frame produce a warning naming the split."""
     df = _frame()
     _, sets = _run1(tmp_path, TrainingSplitConfig(id_column="row_id", **_USER_CFG), df)
     dropped = sorted(sets["test"])[:7]
@@ -180,6 +192,7 @@ def test_missing_ids_warn_per_split(tmp_path, caplog):
 
 
 def test_no_ids_matched_raises(tmp_path):
+    """An id file matching no row of the frame raises."""
     df = _frame()
     _run1(tmp_path, TrainingSplitConfig(id_column="row_id", **_USER_CFG), df)
     df2 = df.assign(row_id=df["row_id"] + 10_000_000)
@@ -189,6 +202,7 @@ def test_no_ids_matched_raises(tmp_path):
 
 
 def test_duplicate_or_null_ids_raise():
+    """Duplicate or null ids in the key column raise."""
     from mlframe.training._fixed_splits import extract_row_ids
 
     df = _frame(n=20)
@@ -204,18 +218,20 @@ def test_duplicate_or_null_ids_raise():
 
 
 def test_group_spanning_pinned_holdout_warns(tmp_path, caplog):
+    """Groups spanning pinned holdout and train trigger a leakage warning."""
     df = _frame()
     _, sets = _run1(tmp_path, TrainingSplitConfig(id_column="row_id", **_USER_CFG), df)
     groups = (df["row_id"] % 10).to_numpy()  # every group spans every split
     cfg = TrainingSplitConfig(id_column="row_id", split_ids_path=str(tmp_path / SPLIT_IDS_FILENAME), **_USER_CFG)
     with caplog.at_level(logging.WARNING):
-        tr, va, te, *_rest, info = _pinned(df, cfg, groups=groups)
+        _tr, _va, te, *_rest, info = _pinned(df, cfg, groups=groups)
     ids = df["row_id"].to_numpy()
     assert set(ids[te]) == sets["test"]  # rows not moved
     assert info["groups_spanning"]["test"] == 10 and "group(s) have rows in both train" in caplog.text
 
 
 def test_default_config_is_not_pinned():
+    """Default configs and an id column alone do not enable pinned splits."""
     assert not has_pinned_splits(TrainingSplitConfig())
     assert not has_pinned_splits(TrainingSplitConfig(id_column="row_id"))
 
@@ -227,6 +243,7 @@ def test_default_config_is_not_pinned():
 
 @pytest.mark.parametrize("frame_kind", ["pandas", "polars"])
 def test_e2e_suite_uses_pinned_test_and_writes_membership(tmp_path, frame_kind):
+    """The full suite honours a pinned test set and writes the membership file."""
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import BaselineDiagnosticsConfig, DummyBaselinesConfig, OutputConfig, ReportingConfig
     from .shared import SimpleFeaturesAndTargetsExtractor
@@ -248,8 +265,7 @@ def test_e2e_suite_uses_pinned_test_and_writes_membership(tmp_path, frame_kind):
         mlframe_models=["linear"],
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        split_config=TrainingSplitConfig(id_column="row_id", test_start="2024-01-30", test_end="2024-02-02", val_size=0.1,
-                                         wholeday_splitting=False),
+        split_config=TrainingSplitConfig(id_column="row_id", test_start="2024-01-30", test_end="2024-02-02", val_size=0.1, wholeday_splitting=False),
         baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
         dummy_baselines_config=DummyBaselinesConfig(enabled=False),
         reporting_config=ReportingConfig(honest_estimator_diagnostics=False),
@@ -272,8 +288,7 @@ def test_e2e_id_column_also_listed_for_dropping(tmp_path, drop_via):
     """The key may also be listed as a column to drop (the natural place for an id): it is still read before being
     dropped, the membership is recorded, it never becomes a feature, and predict accepts a frame that still has it."""
     from mlframe.training.core import predict_from_models, train_mlframe_models_suite
-    from mlframe.training.configs import (BaselineDiagnosticsConfig, DummyBaselinesConfig, OutputConfig, PreprocessingConfig,
-                                          ReportingConfig)
+    from mlframe.training.configs import BaselineDiagnosticsConfig, DummyBaselinesConfig, OutputConfig, PreprocessingConfig, ReportingConfig
     from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
     n = 800
@@ -310,7 +325,6 @@ def test_e2e_id_column_also_listed_for_dropping(tmp_path, drop_via):
     assert mem["counts"]["test"] > 0 and mem["counts"]["val"] > 0
     assert "row_id" not in metadata["columns"]
 
-    result = predict_from_models(df=df.head(50), models=models, metadata=metadata, features_and_targets_extractor=fte,
-                                 return_probabilities=False, verbose=0)
+    result = predict_from_models(df=df.head(50), models=models, metadata=metadata, features_and_targets_extractor=fte, return_probabilities=False, verbose=0)
     preds = next(iter(result["predictions"].values()))
     assert np.asarray(preds).shape[0] == 50

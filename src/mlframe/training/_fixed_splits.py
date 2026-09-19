@@ -99,6 +99,7 @@ def _ts_series(timestamps: Any) -> Optional[pd.Series]:
 
 
 def _is_datetime(ts: pd.Series) -> bool:
+    """True when ``ts`` has a datetime64 dtype (tz-aware or naive)."""
     return pd.api.types.is_datetime64_any_dtype(ts.dtype)
 
 
@@ -116,6 +117,7 @@ def _align_bound(bound: Any, ts: pd.Series) -> Any:
 
 
 def _to_jsonable(v: Any) -> Any:
+    """Convert a scalar (timestamp, numpy number, NaN) into a JSON-serialisable value; missing becomes None."""
     if v is None or (not isinstance(v, str) and pd.isna(v)):
         return None
     if isinstance(v, (pd.Timestamp, np.datetime64)):
@@ -126,6 +128,7 @@ def _to_jsonable(v: Any) -> Any:
 
 
 def _from_jsonable(v: Any, ts: Optional[pd.Series]) -> Any:
+    """Inverse of ``_to_jsonable``: parse a stored bound back into a timestamp aligned with ``ts`` when it is datetime."""
     if v is None:
         return None
     if ts is not None and _is_datetime(ts):
@@ -149,6 +152,7 @@ def _sequential_start(ts: Optional[pd.Series], split_idx: np.ndarray, earlier_id
 
 
 def _write_json(path: str, payload: dict) -> None:
+    """Write ``payload`` as sorted, indented JSON, via orjson when installed else the stdlib."""
     try:
         import orjson
 
@@ -162,6 +166,7 @@ def _write_json(path: str, payload: dict) -> None:
 
 
 def _read_json(path: str) -> Optional[dict]:
+    """Read a JSON sidecar, returning None when the file does not exist."""
     if not os.path.exists(path):
         return None
     try:
@@ -210,7 +215,7 @@ def record_split_membership(
     ts = _ts_series(timestamps)
     _parts = {k: (np.asarray(v, dtype=np.int64) if v is not None else np.array([], dtype=np.int64)) for k, v in
               (("train", train_idx), ("val", val_idx), ("test", test_idx), ("calib", calib_idx))}
-    counts = {k: int(len(v)) for k, v in _parts.items()}
+    counts = {k: len(v) for k, v in _parts.items()}
     _train_like = np.concatenate([_parts["train"], _parts["calib"]])
     holdout_starts = {
         "val": _to_jsonable(_sequential_start(ts, _parts["val"], _train_like)),
@@ -254,6 +259,7 @@ def load_split_ids(path: str, id_column: str) -> tuple:
 
 
 def _details(ts: Optional[pd.Series], idx: np.ndarray, tag: str) -> str:
+    """Human-readable date-range summary of rows ``idx`` of ``ts``, suffixed with ``[tag]`` when given."""
     from ._splitting_helpers import _build_details
 
     _d = _build_details(ts, idx, None, 0, "") if ts is not None else ""
@@ -401,7 +407,7 @@ def pinned_train_val_test_split(
         _tr_groups = np.unique(_g[np.concatenate([idx["train"], idx["calib"]])])
         for _s in ("val", "test"):
             if _s in source and len(idx[_s]):
-                _n_span = int(len(np.intersect1d(_tr_groups, np.unique(_g[idx[_s]]))))
+                _n_span = len(np.intersect1d(_tr_groups, np.unique(_g[idx[_s]])))
                 if _n_span:
                     logger.warning("Pinned split: %d group(s) have rows in both train and the pinned %s set; rows were NOT moved "
                                    "(the pinned membership wins). Expect group leakage in %s metrics.", _n_span, _s, _s)

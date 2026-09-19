@@ -223,7 +223,7 @@ def test_monitor_pickles_to_a_stopped_copy(tmp_path):
     import pickle
 
     mon = m.CatBoostGpuFitMonitor(str(tmp_path), interval_s=0)
-    clone = pickle.loads(pickle.dumps(mon))
+    clone = pickle.loads(pickle.dumps(mon))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert clone.train_dir == str(tmp_path)
     assert clone._stop.is_set() and not clone.alive
 
@@ -248,7 +248,7 @@ def test_guard_pickles_to_an_inactive_copy():
 
     model = _RecordingGpuCatBoost(task_type="CPU", iterations=5)
     guard = m.CatBoostGpuFitGuard(model, model, "CatBoostClassifier", {}, interval_s=0)
-    clone = pickle.loads(pickle.dumps(guard))
+    clone = pickle.loads(pickle.dumps(guard))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert clone.monitor is None and clone.model_type_name == "CatBoostClassifier"
     clone.set_fit_running(True)
     assert clone._fit_running

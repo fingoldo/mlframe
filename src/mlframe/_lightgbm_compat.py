@@ -79,9 +79,11 @@ class _PatchingLoader(importlib.abc.Loader):
         self._inner = inner
 
     def create_module(self, spec):
+        """Delegate module creation to the wrapped real loader."""
         return self._inner.create_module(spec)
 
     def exec_module(self, module) -> None:
+        """Execute the module with the real loader, then apply the backport (failures are logged, never raised)."""
         self._inner.exec_module(module)
         try:
             _apply(module)
@@ -93,6 +95,7 @@ class _LightGBMSklearnFinder(importlib.abc.MetaPathFinder):
     """Intercepts the import of ``lightgbm.sklearn`` once to wrap its loader."""
 
     def find_spec(self, fullname, path, target=None):
+        """Return the real spec for ``lightgbm.sklearn`` with its loader wrapped; the finder uninstalls itself on first hit."""
         if fullname != _TARGET_MODULE:
             return None
         _remove_finder()
@@ -103,6 +106,7 @@ class _LightGBMSklearnFinder(importlib.abc.MetaPathFinder):
 
 
 def _remove_finder() -> None:
+    """Drop every installed ``_LightGBMSklearnFinder`` from ``sys.meta_path``."""
     sys.meta_path[:] = [f for f in sys.meta_path if not isinstance(f, _LightGBMSklearnFinder)]
 
 

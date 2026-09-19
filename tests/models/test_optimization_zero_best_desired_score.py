@@ -8,9 +8,11 @@ from mlframe.models import optimization as opt_mod
 
 
 def _run(best_desired_score):
+    """Run the one-dimensional search with a constant-0 objective and return how many evaluations it made."""
     calls = {"n": 0}
 
     def evalfn(x):
+        """Count the call and return a constant score of 0.0."""
         calls["n"] += 1
         return 0.0
 
@@ -30,6 +32,7 @@ def _run(best_desired_score):
 
 
 def test_zero_best_desired_score_stops_search_early():
+    """A 0.0 target reached by the objective stops the search before the unbounded run does."""
     unbounded = _run(None)
     with_zero_target = _run(0.0)
     assert with_zero_target < unbounded, (with_zero_target, unbounded)
