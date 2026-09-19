@@ -119,7 +119,7 @@ def test_low_cardinality_aligned_drift_is_reported_as_handled(caplog):
     """A production log warned "XGB/CB may crash" and told the user to add an ``__UNSEEN__`` bucket for one unseen
     value of a 4-level column, which the shared train+val Enum domain already handles. That case is INFO now."""
     reset_throttle_counts()
-    cat = lambda v: pl.Series(v, dtype=pl.Categorical)  # noqa: E731
+    cat = lambda v: pl.Series(v, dtype=pl.Categorical)
     train = pl.DataFrame({"job_post_type": cat([f"t{i % 4}" for i in range(400)])})
     val = pl.DataFrame({"job_post_type": cat([f"t{i % 4}" for i in range(80)] + ["brand_new"] * 20)})
     test = pl.DataFrame({"job_post_type": cat([f"t{i % 4}" for i in range(100)])})

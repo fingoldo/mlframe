@@ -7,7 +7,6 @@ polars answers in milliseconds. The report must be the same as the pandas route'
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 pl = pytest.importorskip("polars")
