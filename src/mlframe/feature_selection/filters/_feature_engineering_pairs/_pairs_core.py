@@ -150,6 +150,7 @@ from ._pairs_gates import (
     _GATE_MED_UNARY,
     _PREWARP_SPECS_RESULT_KEY,
     _PREWARP_UNARY,
+    _prewarp_pair_spec_key,
     mi_tie_band,
 )
 from ._pairs_materialise import _njit_binary_op_codes
@@ -1436,6 +1437,11 @@ def check_prospective_fe_pairs(
         # results). The reserved key is a private 3-tuple that can never collide with
         # a real ``raw_vars_pair`` (which is always length 2).
         _fitted_specs = {_v: _s for _v, _s in _prewarp_spec_by_var.items() if _s is not None}
+        # Pair-scoped copies: the spec each prospective pair of THIS call actually materialised with (see _prewarp_pair_spec_key).
+        for _rvp, _ in prospective_pairs.keys():
+            for _v in _rvp:
+                if _prewarp_spec_by_var.get(_v) is not None:
+                    _fitted_specs[_prewarp_pair_spec_key(_rvp, _v)] = _prewarp_spec_by_var[_v]
         if _fitted_specs:
             if prewarp_specs_out is not None:
                 prewarp_specs_out.update(_fitted_specs)

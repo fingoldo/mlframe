@@ -724,8 +724,11 @@ def materialise_and_finalise_fe_candidates(
                         # Per-operand pre-warp: when a side used the learned
                         # ``prewarp`` pseudo-unary, hand its fitted spec to the
                         # recipe so replay reproduces the closed-form warp.
-                        _pw_a = _prewarp_specs.get(var_a_idx) if unary_a_name == "prewarp" else None
-                        _pw_b = _prewarp_specs.get(var_b_idx) if unary_b_name == "prewarp" else None
+                        # Pair-scoped spec first (the warp this pair's column was actually built with); var key is the legacy fallback.
+                        from .._feature_engineering_pairs._pairs_gates import _prewarp_pair_spec_key
+
+                        _pw_a = _prewarp_specs.get(_prewarp_pair_spec_key(raw_vars_pair, var_a_idx), _prewarp_specs.get(var_a_idx)) if unary_a_name == "prewarp" else None
+                        _pw_b = _prewarp_specs.get(_prewarp_pair_spec_key(raw_vars_pair, var_b_idx), _prewarp_specs.get(var_b_idx)) if unary_b_name == "prewarp" else None
                         # Per-operand median gate: when a side used the
                         # ``gate_med`` pseudo-unary, hand its fitted TRAIN
                         # median to the recipe so replay reproduces the
