@@ -320,11 +320,14 @@ class TestSeasonalResidual:
         assert p["period"] == 12 and len(p["phase_means"]) == 12
 
     def test_period_grid_capped_at_n_over_3(self) -> None:
-        """With a short series the candidate period grid is capped at n//3, so the selected period never exceeds it."""
+        """With a short series the candidate period grid is capped at n//3, so the selected period never exceeds it.
+
+        Period 1 (no seasonality) is also a candidate and is the right answer on this pure-noise fixture; the cap is what this pins.
+        """
         rng = np.random.default_rng(1)
-        y = rng.normal(size=30)  # n//3 = 10 -> candidates {4, 5, 7}
+        y = rng.normal(size=30)  # n//3 = 10 -> candidates {1, 4, 5, 7}
         t = get_transform("seasonal_residual")
-        assert t.fit(y, None)["period"] in (4, 5, 7)
+        assert t.fit(y, None)["period"] in (1, 4, 5, 7)
 
     def test_round_trip_exact(self) -> None:
         """forward followed by inverse recovers y exactly for seasonal_residual."""

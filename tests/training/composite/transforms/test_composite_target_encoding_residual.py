@@ -98,15 +98,23 @@ class TestFit:
         assert abs(enc_a - raw_a) < 0.05, "large category keeps ~its own mean"
 
     def test_round_trip_y_to_T_to_y(self) -> None:
-        """Round trip y to t to y."""
+        """Round trip y to T to y on rows that are not the fit batch (the predict-time path, which uses the full-train encoding both ways).
+
+        A forward on the fit's OWN rows is out-of-fold by default, so it deliberately does not invert to those rows: no train row's y may be folded
+        into its own encoding. The in-sample encoding is still available via ``oof_folds=None`` and round-trips exactly (asserted below).
+        """
         rng = np.random.default_rng(11)
         n = 2000
         cats = np.asarray([f"c{i}" for i in rng.integers(0, 50, size=n)])
         y = rng.normal(size=n) + rng.normal(size=n)
         p = _target_encoding_residual_fit(y, np.zeros(n), groups=cats)
-        T = _target_encoding_residual_forward(y, np.zeros(n), p, groups=cats)
-        y_back = _target_encoding_residual_inverse(T, np.zeros(n), p, groups=cats)
-        np.testing.assert_allclose(y, y_back, rtol=1e-7, atol=1e-7)
+        held_y, held_cats = y[:200], cats[:200]
+        T = _target_encoding_residual_forward(held_y, np.zeros(200), p, groups=held_cats)
+        y_back = _target_encoding_residual_inverse(T, np.zeros(200), p, groups=held_cats)
+        np.testing.assert_allclose(held_y, y_back, rtol=1e-7, atol=1e-7)
+        p_in = _target_encoding_residual_fit(y, np.zeros(n), groups=cats, oof_folds=None)
+        t_in = _target_encoding_residual_forward(y, np.zeros(n), p_in, groups=cats)
+        np.testing.assert_allclose(_target_encoding_residual_inverse(t_in, np.zeros(n), p_in, groups=cats), y, rtol=1e-7, atol=1e-7)
 
     def test_unseen_category_uses_global_mean(self) -> None:
         """Unseen category uses global mean."""
