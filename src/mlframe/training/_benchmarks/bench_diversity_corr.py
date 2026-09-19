@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 import time
 import numpy as np
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def _pair_loop(M: np.ndarray) -> np.ndarray:
@@ -63,10 +64,12 @@ def _bench(shape: tuple, n_repeats: int = 3) -> dict:
 
         M_gpu = cp.asarray(M)
         cp.corrcoef(M_gpu)  # warm-up
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         for _ in range(n_repeats):
             c_gpu = cp.corrcoef(M_gpu)
             cp.asnumpy(c_gpu)
+        synchronize_gpu_if_available()
         t_cp = (time.perf_counter() - t0) * 1000 / n_repeats
     except Exception as e:
         logger.debug("cupy backend failed: %s", e)

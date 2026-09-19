@@ -434,6 +434,7 @@ from ._param_oracle_store import (  # noqa: F401
     _stable_json,
     stable_json,
 )
+from .gpu_sync import synchronize_gpu_if_available
 
 # ---------------------------------------------------------------------------
 # ParamOracle
@@ -808,8 +809,10 @@ class ParamOracle:
         call_kwargs = dict(kwargs)
         call_kwargs.update(combo)
         rss_before = _rss_mb()
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         out = fn(*args, **call_kwargs)
+        synchronize_gpu_if_available()
         elapsed = time.perf_counter() - t0
         rss_after = _rss_mb()
         rss_delta = (rss_after - rss_before) if (rss_before is not None and rss_after is not None) else None

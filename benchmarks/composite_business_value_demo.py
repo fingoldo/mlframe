@@ -32,6 +32,7 @@ from typing import Any, Callable, Dict, List
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 sys.path.insert(0, "D:/Upd/Programming/PythonCodeRepository/mlframe")
 sys.path.insert(0, "D:/Upd/Programming/PythonCodeRepository")
@@ -1029,8 +1030,10 @@ def main() -> int:
     for name in selected:
         print(f"--- {name} ---")
         try:
+            synchronize_gpu_if_available()
             t0 = time.perf_counter()
             r = FEATURES[name]()
+            synchronize_gpu_if_available()
             r["elapsed_s"] = time.perf_counter() - t0
             results.append(r)
             print(f"  feature: {r['feature']}")

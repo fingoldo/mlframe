@@ -40,6 +40,7 @@ from itertools import combinations
 from typing import Optional
 
 import numpy as np
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 # Wave 87 (2026-05-21): module-level filter removed; gated under __main__ below.
 
@@ -346,12 +347,15 @@ def main():
     print(f"  model={args.model}, n_splits={args.n_splits}, top_k={args.top_k}, " f"n_trials={args.n_trials}, max_degree={args.max_degree}")
     print(f"  datasets: {', '.join(datasets)}\n")
 
+    synchronize_gpu_if_available()
     overall_t0 = time.perf_counter()
     summary_rows = []
+    synchronize_gpu_if_available()
     for d_name in datasets:
         if d_name not in _DATASETS:
             print(f"  unknown dataset {d_name!r}, skipping")
             continue
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         X, y, discrete_target, name = _DATASETS[d_name]()
         if not args.quiet:
@@ -366,6 +370,7 @@ def main():
         agg, metric_keys = _aggregate(results, discrete_target)
         baseline_ref = agg["baseline"]
         _print_table(name, agg, metric_keys, baseline_ref)
+        synchronize_gpu_if_available()
         dt = time.perf_counter() - t0
         print(f"  ({dt:.1f}s; pairs picked across folds: {pair_log})")
         summary_rows.append((name, discrete_target, agg))

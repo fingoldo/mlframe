@@ -11,14 +11,17 @@ import cProfile, pstats, io, time
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def _profile_one(fn: Any, vals: np.ndarray, gids: np.ndarray, method: str, tiebreak_values: Optional[np.ndarray], name: str, n_groups: int, causal: bool = False) -> None:
     pr = cProfile.Profile()
+    synchronize_gpu_if_available()
     t0 = time.perf_counter()
     pr.enable()
     fn(vals, gids, method=method, tiebreak_values=tiebreak_values, causal=causal)
     pr.disable()
+    synchronize_gpu_if_available()
     wall = time.perf_counter() - t0
     print(f"=== {name} wall={wall:.3f}s (n_groups={n_groups}) ===")
     s = io.StringIO()

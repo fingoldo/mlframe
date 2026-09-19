@@ -23,6 +23,7 @@ from typing import Callable
 import numpy as np
 
 from mlframe.feature_engineering.transformer import compute_rff_features
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def _time_one(fn: Callable[[], None], *, warmup: int, measured: int) -> tuple[float, float]:
@@ -31,8 +32,10 @@ def _time_one(fn: Callable[[], None], *, warmup: int, measured: int) -> tuple[fl
         fn()
     times = []
     for _ in range(measured):
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         fn()
+        synchronize_gpu_if_available()
         times.append((time.perf_counter() - t0) * 1000.0)
     times.sort()
     n = len(times)

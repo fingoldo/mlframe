@@ -495,7 +495,7 @@ def evaluate_candidate(
             # identical permutation for every seed, so a caller varying random_seed to probe selection stability
             # got a null that never changed - the one component that was supposed to vary. Derived per candidate
             # so two candidates in the same fit do not share a draw, mirroring the CMI component's own seed.
-            _baseline_seed = hash((int(random_seed or 0), int(cand_idx))) & 0xFFFFFFFF
+            _baseline_seed = hash(((int(random_seed) if random_seed is not None else 0), int(cand_idx))) & 0xFFFFFFFF
             if use_gpu:
                 # Wrapped in try/except: this call previously had NO exception handling, unlike
                 # every sibling GPU dispatch point in this codebase (_cmi_cuda.py's circuit breaker, mi_direct's
@@ -822,7 +822,7 @@ def evaluate_candidate(
     # hash of the current ``selected_vars`` content into the seed makes each round's null draw independent of
     # the others for the same candidate. ``random_seed`` is now also threaded in end-to-end (screen_predictors ->
     # confirm_predictor -> evaluate_candidate), so the ``random_seed=`` knob actually moves this component's draws.
-    _cmi_cpt_seed = hash((int(random_seed or 0), int(cand_idx), tuple(sorted(int(v) for v in selected_vars)))) & 0xFFFFFFFF
+    _cmi_cpt_seed = hash(((int(random_seed) if random_seed is not None else 0), int(cand_idx), tuple(sorted(int(v) for v in selected_vars)))) & 0xFFFFFFFF
 
     # CMI permutation early-stop (Yu & Principe 2019). Default off -> skipped (byte-identical). When active, permute the candidate (preserving its marginal) and re-estimate
     # ``I(X; Y | selected)``; if the observed conditional MI is NOT significant at alpha (p >= alpha), the candidate carries no conditional signal given the selected set and is

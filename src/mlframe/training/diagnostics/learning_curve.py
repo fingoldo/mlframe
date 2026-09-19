@@ -392,7 +392,7 @@ def compute_learning_curve(
         if skipped:
             logger.info(
                 "compute_learning_curve: time budget %.1fs hit (warm-start); skipped %d size(s) %s",
-                float(time_budget_s or 0.0), len(skipped), [round(f, 3) for f in skipped],
+                float(time_budget_s if time_budget_s is not None else 0.0), len(skipped), [round(f, 3) for f in skipped],
             )
         return LearningCurveResult(
             train_sizes=train_sizes, train_scores=train_scores, holdout_scores=holdout_scores,
@@ -424,7 +424,7 @@ def compute_learning_curve(
         if skipped_fracs:
             logger.info(
                 "compute_learning_curve: time budget %.1fs hit; skipped %d size(s) %s",
-                float(time_budget_s or 0.0), len(skipped_fracs), [round(f, 3) for f in skipped_fracs],
+                float(time_budget_s if time_budget_s is not None else 0.0), len(skipped_fracs), [round(f, 3) for f in skipped_fracs],
             )
     else:
         run_counts = counts.tolist()

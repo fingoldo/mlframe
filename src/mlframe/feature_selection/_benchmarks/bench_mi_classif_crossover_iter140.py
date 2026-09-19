@@ -14,6 +14,7 @@ import time
 import warnings
 
 import numpy as np
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 warnings.filterwarnings("ignore")
 
@@ -23,8 +24,10 @@ def _best(fn, *args, iters=9, warmup=2):
         fn(*args)
     ts = []
     for _ in range(iters):
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         fn(*args)
+        synchronize_gpu_if_available()
         ts.append(time.perf_counter() - t0)
     return float(np.median(ts) * 1000.0)
 

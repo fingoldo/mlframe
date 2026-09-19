@@ -17,6 +17,7 @@ import numpy as np
 from mlframe.training.composite.ranking import (
     _within_group_residual, _residual_to_gains, _ndcg_at_k, _rank01,
 )
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def _old_within_group_residual(y, base, group, mode):
@@ -66,8 +67,10 @@ def _old_ndcg_at_k(y_true, scores, group, k):
 def best_of(fn, n=5):
     ts = []
     for _ in range(n):
+        synchronize_gpu_if_available()
         t = time.perf_counter()
         r = fn()
+        synchronize_gpu_if_available()
         ts.append(time.perf_counter() - t)
     return min(ts), r
 

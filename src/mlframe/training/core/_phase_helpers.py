@@ -46,7 +46,7 @@ _FORCED_GC_MIN_DF_MB = float(os.environ.get("MLFRAME_FORCED_GC_MIN_DF_MB", "256"
 def _should_force_post_pipeline_gc(df_size_mb: Optional[float]) -> bool:
     """Whether the post-pipeline forced 2x gc.collect is worth its ~0.85s cost: only once the released Polars frame
     is large enough that downstream commit-charge pressure is real (gate ``_FORCED_GC_MIN_DF_MB``)."""
-    return (df_size_mb or 0) >= _FORCED_GC_MIN_DF_MB
+    return (df_size_mb if df_size_mb is not None else 0) >= _FORCED_GC_MIN_DF_MB
 _DEFAULT_VAL_SIZE = 0.15
 _DEFAULT_LTR_ITER = 200
 _DEFAULT_LTR_LR = 0.1

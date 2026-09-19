@@ -461,11 +461,15 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
             t_njit, t_par, t_cuda = [], [], []
             try:
                 for _ in range(n_iters):
+                    synchronize_gpu_if_available()
                     t0 = time.perf_counter()
                     _NJIT_FUNCS[basis](x, coef)
+                    synchronize_gpu_if_available()
                     t_njit.append(time.perf_counter() - t0)
+                    synchronize_gpu_if_available()
                     t0 = time.perf_counter()
                     _NJIT_PAR_FUNCS[basis](x, coef)
+                    synchronize_gpu_if_available()
                     t_par.append(time.perf_counter() - t0)
                     if _CUDA_AVAILABLE and _polyeval_cuda_fn is not None:
                         t0 = time.perf_counter()
@@ -950,6 +954,7 @@ def ensure_batch_pair_mi_tuning(force: bool = False) -> Optional[list[dict]]:
 # retune_all / mlframe-tune-kernels discover + batch-tune them. The dispatch
 # (dispatch.py) already READS these regions via the cache; this only adds
 # discovery. tuner = the compute-only _run_sweep_* (returns regions, no
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 # self-update -> no double-write). The grid lives inside each sweep, so only the
 # axis KEYS are declared; the spec fallback is unused (retune ignores the
 # get_or_tune return) -- the real per-call fallback is dispatch.py's _hw_aware_fallback.

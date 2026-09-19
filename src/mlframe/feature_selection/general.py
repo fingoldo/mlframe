@@ -33,6 +33,7 @@ from mlframe.feature_selection.mi import grok_compute_mutual_information, chatgp
 # ``estimate_features_relevancy`` selection driver is calibrated to a nominal significance level with a
 # genuine multiple-comparison (Benjamini-Hochberg) correction instead of ad-hoc raw-MI exceedances.
 from mlframe.feature_selection.filters import analytic_mi_null_batch
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def _occupied_bins(codes: np.ndarray) -> int:
@@ -247,7 +248,9 @@ def estimate_features_relevancy(
             current_permuted_mis[target_name].append(target_mis)
             all_permuted_mis[target_name].append(np.delete(target_mis, target_col_idx))  # for DM at next steps in future
 
-        if max_runtime_mins and not ran_out_of_time:
+        if max_runtime_mins is not None and max_runtime_mins != 0 and not ran_out_of_time:
+            # MI backends may be cupy-based; wait for queued kernels so the budget counts compute, not launches.
+            synchronize_gpu_if_available()
             delta = timer() - start_time
             ran_out_of_time = delta > max_runtime_mins * 60
             if ran_out_of_time:

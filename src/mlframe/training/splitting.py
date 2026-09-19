@@ -339,7 +339,7 @@ def make_train_test_split(
         # Apply aging limit BEFORE computing train_idx / train_details,
         # so the printed train date range reflects the actually-used rows
         # (consistent with the row-timestamp branch below).
-        if trainset_aging_limit:
+        if trainset_aging_limit is not None:
             n_dates_to_keep = int(len(train_dates) * trainset_aging_limit)
             if n_dates_to_keep > 0:
                 train_dates = np.sort(train_dates)[-n_dates_to_keep:]
@@ -461,7 +461,7 @@ def make_train_test_split(
                 )
 
         # Apply aging limit
-        if trainset_aging_limit:
+        if trainset_aging_limit is not None:
             train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
 
         # Build detail strings (same NaT-on-empty guard as above; also
@@ -678,7 +678,7 @@ def make_train_test_split(
         else:
             val_idx = np.array([], dtype=np.intp)
 
-        if trainset_aging_limit:
+        if trainset_aging_limit is not None:
             train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
 
         train_details, val_details, test_details = "", "", ""

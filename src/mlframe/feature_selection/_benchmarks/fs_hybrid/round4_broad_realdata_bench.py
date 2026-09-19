@@ -40,6 +40,7 @@ from hybrid_selector import HybridSelector
 from _downstream_shared import mrmr_sel_transform
 
 import re
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 _SAFE = re.compile(r"^[A-Za-z0-9_]+$")
 
 PROGRESS = r"D:/Temp/broad_val_progress.txt"
@@ -252,6 +253,7 @@ def _prod_weighted(a):
 
 def eval_strategy(nm, mk, Xtr, Xte, ytr, yte):
     """Fit one strategy + score downstream AUC. Returns a result dict (or an error dict on failure)."""
+    synchronize_gpu_if_available()
     t0 = time.time()
     sel = mk()
     if sel is None:
@@ -264,6 +266,7 @@ def eval_strategy(nm, mk, Xtr, Xte, ytr, yte):
     Ztr, Zte = Ztr[common], Zte[common]
     a = downstream(Ztr, Zte, ytr, yte)
     am = round(float(np.nanmean(list(a.values()))), 4)
+    synchronize_gpu_if_available()
     return dict(strategy=nm, n=int(Ztr.shape[1]), fit_s=round(time.time() - t0, 1), auc_mean=am, auc_prod=_prod_weighted(a), **a)
 
 

@@ -316,9 +316,11 @@ def _run_sweep_unary_elementwise(n_iters: int = 5) -> list[dict]:
                 # Include H2D+D2H in the GPU wall (real consumer path).
                 t_gp = []
                 for _ in range(n_iters):
+                    synchronize_gpu_if_available()
                     t0 = time.perf_counter()
                     d_v = cp.asarray(vals)
                     _ = cp.asnumpy(cp_fn(d_v))
+                    synchronize_gpu_if_available()
                     t_gp.append(time.perf_counter() - t0)
                 m_np = float(np.median(t_np) * 1000)
                 m_gp = float(np.median(t_gp) * 1000)
@@ -802,6 +804,7 @@ def ensure_fe_mi_split_tuning(force: bool = False) -> Optional[list[dict]]:
 
 # Register rmse_partial_sum (CUDA block-size tuning) with the unified registry --
 # discovery only; the dispatch reads its regions via the cache. tuner = the
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 # compute-only _run_sweep_rmse_partial_sum (no self-update).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner as _ktuner
 

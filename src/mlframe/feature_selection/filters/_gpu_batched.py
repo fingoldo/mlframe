@@ -111,7 +111,7 @@ def mi_direct_gpu_batched(
             npermutations=npermutations, dtype=dtype,
             classes_y=classes_y, freqs_y=freqs_y,
             min_nonzero_confidence=min_nonzero_confidence, prefer_gpu=False,
-            base_seed=int(base_seed or 0),
+            base_seed=int(base_seed) if base_seed is not None else 0,
         )
     # OOM guard: cap batch_size to half of available free GPU memory.
     free_bytes, _ = cp.cuda.runtime.memGetInfo()
@@ -355,7 +355,7 @@ def mi_direct_gpu_batched_streamed(
             npermutations=npermutations, dtype=dtype,
             classes_y=classes_y, freqs_y=freqs_y,
             min_nonzero_confidence=min_nonzero_confidence, prefer_gpu=False,
-            base_seed=int(base_seed or 0),
+            base_seed=int(base_seed) if base_seed is not None else 0,
         )
 
     free_bytes, _ = cp.cuda.runtime.memGetInfo()

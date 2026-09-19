@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import torch
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 try:
     import psutil
@@ -53,8 +54,10 @@ def _bench(fn, n_warmup: int = 5, n_iter: int = 200) -> float:
         fn()
     times = []
     for _ in range(n_iter):
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         fn()
+        synchronize_gpu_if_available()
         times.append(time.perf_counter() - t0)
     return float(np.median(times)) * 1000
 

@@ -20,6 +20,7 @@ Run: ``python profiling/bench_ranker_loss_wrapper_overhead.py``
 import time
 import torch
 import torch.nn.functional as F
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 @torch.jit.script
@@ -41,9 +42,11 @@ def bench(fn, *args, n_iter=20_000):
         fn(*args)
     times = []
     for _ in range(5):
+        synchronize_gpu_if_available()
         t = time.perf_counter()
         for _ in range(n_iter):
             fn(*args)
+        synchronize_gpu_if_available()
         times.append((time.perf_counter() - t) / n_iter)
     return min(times) * 1e6
 
