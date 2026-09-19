@@ -558,4 +558,4 @@ def test_docs_use_only_declared_markers():
     """A `@pytest.mark.<name>` shown in the docs is a collection error under --strict-markers if undeclared."""
     from py_ci_shared.docs_inventory_parity import assert_no_inventory_drift, find_undeclared_markers
 
-    assert_no_inventory_drift(find_undeclared_markers(_user_docs() + [REPO_ROOT / "CLAUDE.md"], PYPROJECT), "pytest markers named in the docs")
+    assert_no_inventory_drift(find_undeclared_markers([*_user_docs(), REPO_ROOT / "CLAUDE.md"], PYPROJECT), "pytest markers named in the docs")

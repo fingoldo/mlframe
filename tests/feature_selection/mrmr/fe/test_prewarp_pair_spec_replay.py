@@ -29,7 +29,7 @@ def _california():
 
 
 def test_prewarp_feature_replays_fit_time_values(monkeypatch):
-    X_tr, X_te, y_tr, y_te = _california()
+    X_tr, _X_te, y_tr, _y_te = _california()
     import mlframe.feature_selection.filters._fe_raw_redundancy_drop as rd
 
     captured: dict = {}
