@@ -91,6 +91,8 @@ history.
 
 ### Changed
 
+- Composite-discovery cache keys (`data_signature`) no longer depend on the installed pandas / polars / numpy. The key is built from mlframe's own canonical encoding of the data (logical type tokens, NaN/NA/None as one null, datetimes as UTC nanoseconds whatever the stored resolution, ints by value whatever their width, strings as UTF-8 whatever their dtype) instead of `str(dtype)`, `hash_pandas_object` and polars `hash_rows`. pandas and polars frames of the same data now share keys. One-time change: every existing discovery-cache entry misses once and is recomputed.
+
 - MRMR CPU conditional-MI redundancy loop: the serial-vs-parallel threshold `_CMI_PARALLEL_MIN_CANDS` lowered 32 -> 8 (override `MLFRAME_CMI_PARALLEL_MIN_CANDS`). At the default 30k screen-subsample size the `prange` loop beats the serial loop 2.4-7.8x for every candidate count `p>=4`, so small candidate pools no longer run single-core. Both branches are exact CMI (selection-equivalent).
 
 - MRMR GPU-resident FE (`MLFRAME_FE_GPU_STRICT`) now has an AUTO size-gated default: on fits at/above `MLFRAME_FE_GPU_STRICT_AUTO_MIN_N` rows (default 100 000, the production regime) with a usable CUDA device, STRICT engages automatically (~2.5x faster FE and measured selection-equivalent to the CPU path at that scale). Below the threshold, or with no GPU, the exact CPU path runs unchanged (byte-identical legacy). Set `MLFRAME_FE_GPU_STRICT=0` to pin the CPU path at any n, or `=1` to force STRICT. The small-n divergence that keeps STRICT gated below the threshold is finite-sample MI-estimation variance (features with near-tied relevance), which fades as n grows — verified converged across scenarios by ~50k; the 100k default sits comfortably above that.

@@ -92,30 +92,20 @@ class TestSignatureDeterministicAcrossProcesses:
 
 class TestRowOrderFingerprintBounded:
     """Groups tests covering row order fingerprint bounded."""
-    def test_slice_first_digest_identical(self) -> None:
-        """P8 + S3: slicing each edge BEFORE hash_rows must give the same digest
-        as hashing the whole frame then slicing (hash_rows is row-local). S3
-        extended the polars path from prefix-only to head + tail, so the
-        reference now folds a bounded tail slice too."""
+    def test_fingerprint_reads_only_the_bounded_edges(self) -> None:
+        """P8 + S3: the fingerprint must depend on the head and tail windows only (bounded cost on huge
+        frames): rewriting every middle row leaves it unchanged, touching one head or one tail row moves it."""
         rng = np.random.default_rng(3)
         n = 5000
         df = pl.DataFrame({"a": rng.normal(size=n), "b": rng.integers(0, 100, n)})
-        # Current (fixed) implementation.
         got = _row_order_fingerprint(df)
-        # Reference: hash whole frame, slice each edge after (the slow pre-fix
-        # shape, now head + tail). Mirrors the production payload assembly.
-        whole = df.hash_rows()
-        n_take = min(df.height, 256)
-        head_hashes = whole.slice(0, n_take).to_numpy()
-        import hashlib
-
-        payload = np.ascontiguousarray(head_hashes).tobytes()
-        if df.height > n_take:
-            n_tail = min(df.height - n_take, 256)
-            tail_hashes = whole.slice(df.height - n_tail, n_tail).to_numpy()
-            payload += b"|" + np.ascontiguousarray(tail_hashes).tobytes()
-        ref = hashlib.blake2b(payload, digest_size=8).hexdigest()
-        assert got == ref, "slice-edges fingerprint diverged from whole-frame"
+        middle_rewritten = df.with_columns(
+            pl.when(pl.int_range(pl.len()).is_between(256, n - 257)).then(-1.0).otherwise(pl.col("a")).alias("a")
+        )
+        assert _row_order_fingerprint(middle_rewritten) == got, "fingerprint read rows outside the head/tail windows"
+        for row in (0, n - 1):
+            edged = df.with_columns(pl.when(pl.int_range(pl.len()) == row).then(-1.0).otherwise(pl.col("a")).alias("a"))
+            assert _row_order_fingerprint(edged) != got, f"edge row {row} did not reach the fingerprint"
 
     def test_polars_tail_reorder_bursts_fingerprint(self) -> None:
         """S3: a reorder confined to the TAIL of a polars frame must change the
