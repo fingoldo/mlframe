@@ -78,16 +78,39 @@ def test_second_diff_forward_algebra_matches_definition():
     np.testing.assert_allclose(T, y - 2.0 * b1 + b2, atol=1e-12)
 
 
-def test_second_diff_one_d_base_degenerates_to_single_lag():
-    """A 1-D base (no lag-2) => T = y - 2*b1 with exact additive inverse."""
+def test_second_diff_one_d_base_degrades_to_diff():
+    """A 1-D base (no lag-2) degrades to diff: T = y - b1 with exact additive inverse.
+
+    The previous contract here, T = y - 2*b1, is not a detrend: with b1 ~ y it is ~ -y, the full level with the sign flipped,
+    so a user who forgot the lag-2 column silently got a harder target than raw y.
+    """
     rng = np.random.default_rng(2)
     b1 = rng.standard_normal(800)
     y = rng.standard_normal(800)
     t = get_transform("second_diff")
     p = t.fit(y, b1)
     T = t.forward(y, b1, p)
-    np.testing.assert_allclose(T, y - 2.0 * b1, atol=1e-12)
+    np.testing.assert_allclose(T, y - b1, atol=1e-12)
     np.testing.assert_allclose(t.inverse(T, b1, p), y, atol=1e-12)
+
+
+def test_second_diff_one_d_base_detrends_a_level_series():
+    """On a trending level series with b1 = lag-1, the 1-D fallback must remove the level (T ~ the step), never keep it negated."""
+    y = np.linspace(100.0, 200.0, 50)
+    b1 = y - 2.0
+    t = get_transform("second_diff")
+    T = t.forward(y, b1, t.fit(y, b1))
+    np.testing.assert_allclose(T, 2.0, atol=1e-9)
+
+
+def test_second_diff_legacy_params_keep_their_algebra():
+    """Params fitted before the single-lag flag ({}) keep T = y - 2*b1, so a model saved on the old algebra still inverts consistently."""
+    rng = np.random.default_rng(4)
+    b1 = rng.standard_normal(50)
+    y = rng.standard_normal(50)
+    t = get_transform("second_diff")
+    np.testing.assert_allclose(t.forward(y, b1, {}), y - 2.0 * b1, atol=1e-12)
+    np.testing.assert_allclose(t.inverse(t.forward(y, b1, {}), b1, {}), y, atol=1e-12)
 
 
 def test_second_diff_ignores_extra_base_columns():

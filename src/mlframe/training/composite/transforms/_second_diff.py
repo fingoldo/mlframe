@@ -20,10 +20,13 @@ Base contract. ``base`` is the ``linear_residual_multi``-style ``(n, K)`` matrix
 column 0 is the lag-1 anchor ``b1`` (``y`` shifted by one causal step) and column
 1 is the lag-2 anchor ``b2`` (shifted by two). Only the first two columns are
 consulted; extra columns are ignored. A 1-D base (or a single-column matrix)
-carries no lag-2 term, so the transform degenerates to ``T = y - 2*b1`` with the
-exact additive inverse ``y = T_hat + 2*b1`` (still a valid, if weaker, detrend).
-There are NO fitted parameters -- ``fit`` returns ``{}`` -- so the transform is
-free of any train/predict scale drift.
+carries no lag-2 term. Treating the missing lag as zero would give ``T = y - 2*b1``,
+which is NOT a detrend: with ``b1 ~ y`` it is ``~ -y``, the full level with the sign
+flipped. So a fit on a single lag column degrades to ``diff`` (``T = y - b1``, exact
+additive inverse), records that in params (``single_lag_as_diff``) and logs a warning
+naming the missing ``extra_base_columns=[lag2]`` wiring. There are no other fitted
+parameters, so the transform is free of any train/predict scale drift. Params
+fitted before the flag existed (``{}``) keep their original ``y - 2*b1`` algebra.
 
 cProfile (see ``_benchmarks/bench_second_diff.py``). fit / forward / inverse are
 each a single fused AXPY over the ``(n, 2)`` base at the representative shape
@@ -40,33 +43,49 @@ from typing import Any
 import numpy as np
 
 
-def _second_diff_bases(base: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _has_second_lag(base: np.ndarray) -> bool:
+    """True when the base carrier has a lag-2 column (a 2-D base with at least two columns)."""
+    base_f = np.asarray(base)
+    return base_f.ndim == 2 and base_f.shape[1] >= 2
+
+
+def _second_diff_bases(base: np.ndarray, params: dict[str, Any] | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Split the base carrier into (b1 = lag-1, b2 = lag-2) float64 columns.
 
-    A 1-D base / single-column matrix has no lag-2 term, so ``b2`` is all-zero
-    (the transform degenerates to ``y - 2*b1`` with the same additive inverse).
+    Without a lag-2 column, ``b2 = b1`` when the fit recorded ``single_lag_as_diff`` (so ``y - 2*b1 + b2 = y - b1``, the ``diff`` detrend), else
+    all-zero (the legacy ``y - 2*b1`` algebra, kept for params fitted before the flag).
     """
     base_f = np.asarray(base, dtype=np.float64)
-    if base_f.ndim == 1:
-        return base_f, np.zeros_like(base_f)
-    b1 = base_f[:, 0]
-    b2 = base_f[:, 1] if base_f.shape[1] >= 2 else np.zeros_like(b1)
-    return b1, b2
+    b1 = base_f if base_f.ndim == 1 else base_f[:, 0]
+    if _has_second_lag(base_f):
+        return b1, base_f[:, 1]
+    if params is not None and params.get("single_lag_as_diff"):
+        return b1, b1
+    return b1, np.zeros_like(b1)
 
 
 def _second_diff_fit(
     y: np.ndarray, base: np.ndarray,
     sample_weight: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    """No fitted parameters: the two lag columns fully define the algebra."""
-    return {}
+    """No fitted parameters when both lag columns are present; a single lag column degrades to ``diff`` with a warning (see module docstring)."""
+    if _has_second_lag(base):
+        return {}
+    import logging
+    from mlframe.utils.log_throttle import log_throttle
+    log_throttle(
+        logging.getLogger(__name__), "second_diff_single_lag", logging.WARNING,
+        "second_diff: fit got a single base column (no lag-2); degrading to diff (T = y - b1). Wire base_column=lag1 plus "
+        "extra_base_columns=[lag2] for the second difference.",
+    )
+    return {"single_lag_as_diff": True}
 
 
 def _second_diff_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     """Second-difference target transform: ``T = y - 2*b1 + b2``, cancelling both level and linear-drift so the residual is stationary."""
-    b1, b2 = _second_diff_bases(base)
+    b1, b2 = _second_diff_bases(base, params)
     return np.asarray(np.asarray(y, dtype=np.float64) - 2.0 * b1 + b2)
 
 
@@ -74,7 +93,7 @@ def _second_diff_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     """Additive inverse of the second-difference transform: ``y = T_hat + 2*b1 - b2``; bounded by construction since ``b1``/``b2`` are real observed lags."""
-    b1, b2 = _second_diff_bases(base)
+    b1, b2 = _second_diff_bases(base, params)
     return np.asarray(np.asarray(t_hat, dtype=np.float64) + 2.0 * b1 - b2)
 
 
