@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 _ENV_PREFIX = "MLFRAME_NATIVE_IMPORT_OK_"
 _PROBE_TIMEOUT_S = 120.0
-_ACCESS_VIOLATION = {0xC0000005, -1073741819, 3221225477}
+_ACCESS_VIOLATION = {0xC0000005, -1073741819}  # 0xC0000005 is 3221225477 unsigned; -1073741819 is the signed form Windows also reports
 
 _verdicts: dict = {}
 _lock = threading.Lock()
