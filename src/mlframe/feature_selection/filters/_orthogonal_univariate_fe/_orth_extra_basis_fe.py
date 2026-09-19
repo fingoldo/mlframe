@@ -21,6 +21,7 @@ import numpy as np
 from numba import prange
 
 from ..hermite_fe import _detect_heavy_tail, _robust_axis_enabled, _robust_lo_hi
+from ._fourier_core_cycles import core_span, freq_is_tail_aliased
 
 logger = logging.getLogger(__name__)
 
@@ -716,6 +717,9 @@ def _detect_fourier_freqs_for_col(
     # ``min_val_corr`` is honoured as a LOWER bound a caller can RAISE; the
     # built-in 0.30 is the anti-false-positive guard the small-n regime needs.
     _eff_min_val_corr = max(float(min_val_corr), 0.30)
+    # Tail-aliasing guard (see _fourier_core_cycles): a frequency that completes < MIN_CORE_CYCLES over the inner-quantile core
+    # is a sub-cycle ramp in the bulk whose oscillation lives only in the sparse tail -> not admitted. Span from the FULL axis.
+    _core_span = core_span(z01)
     # Precompute the coarse-grid sin/cos bases on TRAIN once: they depend only
     # on z, not y, so deflation iterations reuse them (cProfile: the per-freq
     # np.sin/np.cos + np.corrcoef was the dominant cost at p=200; this drops
@@ -778,6 +782,10 @@ def _detect_fourier_freqs_for_col(
         if any(abs(refined_f - g) < 0.25 for g in out):
             # Deflate at the coarse peak anyway so the loop can advance, then
             # continue searching the remaining spectrum.
+            y_tr = _deflate_sincos(z_tr, y_tr, refined_f)
+            y_va = _deflate_sincos(z_va, y_va, refined_f)
+            continue
+        if freq_is_tail_aliased(refined_f, _core_span):
             y_tr = _deflate_sincos(z_tr, y_tr, refined_f)
             y_va = _deflate_sincos(z_va, y_va, refined_f)
             continue

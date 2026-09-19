@@ -63,6 +63,18 @@ _PREWARP_UNARY = "prewarp"
 # ``raw_vars_pair`` 2-tuples. Lets the caller recover specs across the loky path.
 _PREWARP_SPECS_RESULT_KEY = ("__prewarp_specs__", -1, -1)
 
+
+def _prewarp_pair_spec_key(raw_vars_pair, var):
+    """Key of the pre-warp spec ACTUALLY used for operand ``var`` inside pair ``raw_vars_pair``.
+
+    A var's joint ALS warp is fit per pair and "first pairing wins" only WITHIN one ``check_prospective_fe_pairs`` call. The pairs
+    are processed in several chunks (and FE iterations), each fitting its own spec for a shared var, and the caller merges the
+    per-var dicts with ``update`` - so the var-keyed entry is whichever chunk merged LAST, not the spec that produced a given pair's
+    engineered column. Recipes built from the var key then replay a DIFFERENT warp than the one the feature was scored and selected
+    with (california_housing: ``sub(prewarp(MedInc),reciproc(AveOccup))`` fit-time values ~-1.5 on high-MedInc rows, replayed as
+    -4.8 on the SAME training rows). The pair-scoped key pins each pair's spec; the var key stays as the legacy fallback."""
+    return ("__prewarp_pair__", tuple(raw_vars_pair), var)
+
 # MEDIAN-GATE pseudo-unary. Mirrors ``_PREWARP_UNARY`` exactly: it
 # lives in the same namespace as the real unary names (``identity``, ``sqr``, ...)
 # so it flows through combination generation, naming, and survivor packing
