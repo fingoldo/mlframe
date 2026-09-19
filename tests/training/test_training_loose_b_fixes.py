@@ -22,15 +22,29 @@ import pytest
 
 
 def test_f1_training_loop_catboost_nan_fill_uses_shallow_copy():
-    """F1: training loop catboost nan fill uses shallow copy."""
-    import inspect
+    """The CatBoost cat-feature NaN fill hands fit a filled frame without mutating the caller's, and without deep-copying the
+    columns it does not touch (frames here can be 100+ GB)."""
+    from mlframe.training._training_loop import _train_model_with_fallback
 
-    from mlframe.training import _training_loop
+    received = {}
 
-    src = inspect.getsource(_training_loop._train_model_with_fallback)
-    # Every bare `.copy()` in this function's NaN-fill blocks must be deep=False (not asserting via
-    # string search for its own sake -- see the behavioral check below for the real regression guard).
-    assert "train_df.copy(deep=False)" in src or "_eval_df_filled.copy(deep=False)" in src
+    class _RecordingCatBoost:
+        """Estimator stand-in recording the frame handed to fit."""
+        def fit(self, X, y=None, **kwargs):
+            """Record ``X`` and return self."""
+            received["X"] = X
+            return self
+
+    n = 50
+    X = pd.DataFrame({"num": np.arange(n, dtype=np.float64), "cat": pd.Categorical(["a", None] * (n // 2))})
+    model = _RecordingCatBoost()
+    _train_model_with_fallback(model, model, "CatBoostClassifier", X, np.arange(n) % 2, {"cat_features": ["cat"]}, verbose=False)
+
+    fitted = received["X"]
+    assert not fitted["cat"].isna().any(), "NaN in a cat feature reached CatBoost"
+    assert (fitted["cat"] == "__MISSING__").sum() == n // 2
+    assert X["cat"].isna().sum() == n // 2, "the caller's frame was mutated by the fill"
+    assert np.shares_memory(fitted["num"].to_numpy(), X["num"].to_numpy()), "untouched column was deep-copied"
 
 
 def test_f1_degradation_augment_match_noise_level_shares_memory_for_non_numeric_cols():

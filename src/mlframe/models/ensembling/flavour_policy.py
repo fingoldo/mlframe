@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from .base import RANK_FUSION_METHODS
+from .base import RANK_FUSION_METHODS, SIMPLE_ENSEMBLING_METHODS
 
 logger = logging.getLogger("mlframe.models.ensembling")
 
@@ -58,3 +58,15 @@ def filter_flavours_for_target_type(ensembling_methods: Any, target_type: Any, i
     if _dropped and verbose:
         logger.info("[ensemble] dropping ensemble flavour(s) %s (%s); kept %s.", _dropped, _reason, _kept)
     return _kept
+
+
+def resolve_flavours_for_target_type(ensembling_methods: Any, target_type: Any, is_regression: bool, verbose: bool = True) -> Any:
+    """:func:`filter_flavours_for_target_type`, falling back to the simple flavours only when it removed EVERY requested one.
+
+    A request made only of rank-fusion flavours for a non-ranking target leaves nothing valid, so the simple flavours stand in. An
+    explicitly empty request is kept empty: it means "no ensembles", and must not be rewritten into the full simple set.
+    """
+    kept = filter_flavours_for_target_type(ensembling_methods, target_type, is_regression, verbose)
+    if ensembling_methods and not kept:
+        return list(SIMPLE_ENSEMBLING_METHODS)
+    return kept

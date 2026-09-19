@@ -11,6 +11,7 @@ PAYLOAD = {"specs_export": [{"name": "a"}], "failures": [], "filter_drops": {"x"
 
 
 def _deep_dir(tmp_path):
+    """A cache directory path longer than 260 characters."""
     # > 260 chars so the Windows extended-length prefix path is actually exercised.
     d = tmp_path
     for i in range(12):
@@ -19,6 +20,7 @@ def _deep_dir(tmp_path):
 
 
 def test_set_then_get_from_fresh_instance_long_path(tmp_path, caplog):
+    """An entry written by one cache instance is read back by a fresh instance on a >260-char path."""
     cache_dir = _deep_dir(tmp_path)
     assert len(cache_dir) > 260
     writer = DiscoveryCache(cache_dir)
@@ -34,6 +36,7 @@ def test_set_then_get_from_fresh_instance_long_path(tmp_path, caplog):
 
 
 def test_plain_miss_is_not_error(tmp_path, caplog):
+    """A plain cache miss returns the default without logging a warning or error."""
     cache = DiscoveryCache(str(tmp_path / "dc"))
     with caplog.at_level(logging.DEBUG):
         assert cache.get("ab" * 16, default="MISS") == "MISS"
@@ -41,6 +44,7 @@ def test_plain_miss_is_not_error(tmp_path, caplog):
 
 
 def test_del_is_silent_when_logging_torn_down(tmp_path, monkeypatch, capsys):
+    """__del__ with a failing flush and a torn-down logger neither raises nor prints."""
     import mlframe.training.composite.cache_store as cs
 
     cache = DiscoveryCache(str(tmp_path / "dc"))
@@ -48,12 +52,25 @@ def test_del_is_silent_when_logging_torn_down(tmp_path, monkeypatch, capsys):
     cache._lru_dirty = True
 
     class _BrokenLogger:
+        """Logger whose debug raises the TypeError seen at interpreter shutdown."""
         def debug(self, *a, **k):
+            """Raise like a torn-down logging module."""
             raise TypeError("'NoneType' object is not callable")
 
     def _boom(*a, **k):
+        """Flush that fails like a vanished disk."""
         raise OSError("disk gone")
 
     monkeypatch.setattr(cs, "logger", _BrokenLogger())
-    monkeypatch.setattr(cache, "_flush_lru", _boom)
+    flush_calls = []
+
+    def _boom_recorded(*a, **k):
+        """Record the flush attempt, then fail."""
+        flush_calls.append(1)
+        _boom()
+
+    monkeypatch.setattr(cache, "_flush_lru", _boom_recorded)
     cache.__del__()  # must not raise
+    assert flush_calls, "__del__ did not attempt the LRU flush"
+    captured = capsys.readouterr()
+    assert captured.err == "" and captured.out == "", captured

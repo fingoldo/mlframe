@@ -15,27 +15,33 @@ from mlframe.reporting.spec import FigureSpec
 
 
 class _Renderer:
+    """Renderer stand-in whose matplotlib instance blocks in render until the test releases it."""
     def __init__(self, name, release):
         self.name = name
         self.release = release
         self.saved = []
 
     def render(self, spec, **kw):
+        """Return a dummy figure; the matplotlib instance first waits on the release event."""
         if self.name == "matplotlib":
             self.release.wait()  # wedged until the test lets it go
         return object()
 
     def save(self, fig, path, fmt):
+        """Record the saved path."""
         self.saved.append(path)
 
     def show(self, fig):
+        """No-op show."""
         pass
 
     def close(self, fig):
+        """No-op close."""
         pass
 
 
 def test_wedged_backend_times_out_and_the_other_backend_still_saves(monkeypatch, tmp_path):
+    """A backend wedged in render times out and the other backend's file is still saved."""
     release = threading.Event()
     renderers = {b: _Renderer(b, release) for b in ("plotly", "matplotlib")}
     monkeypatch.setattr(S, "get_renderer", lambda b: renderers[b])

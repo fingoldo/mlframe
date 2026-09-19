@@ -141,7 +141,9 @@ def select_gate_source_split(
     )
 
 
-def realign_gate_preds(pre_gate_members, post_gate_members, gate_preds):
+def realign_gate_preds(
+    pre_gate_members: List[Any], post_gate_members: List[Any], gate_preds: Optional[List[np.ndarray]]
+) -> Optional[List[np.ndarray]]:
     """Slice the gate-source preds to the members that survived ``apply_quality_gate_kn``.
 
     That gate slices members / tags but not the gate preds; the stale full-length list then fed the stacking-aware weight gate, which

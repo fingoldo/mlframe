@@ -16,6 +16,7 @@ logger = logging.getLogger("mlframe.training.core._phase_composite_discovery")
 
 
 def _spec_name(s: Any):
+    """Name of a composite spec given either as a dict or as an object with a ``name`` attribute."""
     return s.get("name") if isinstance(s, dict) else getattr(s, "name", None)
 
 
@@ -24,7 +25,7 @@ def prune_equivalent_composite_specs(
     specs: list,
     t_by_name: dict[str, np.ndarray],
     y_full: np.ndarray,
-    train_idx,
+    train_idx: Any,
     pending: list[dict],
     metadata: dict,
     target_type: str,

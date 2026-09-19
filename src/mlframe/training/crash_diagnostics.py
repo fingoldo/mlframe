@@ -51,6 +51,7 @@ def windows_commit_status() -> Optional[Dict[str, float]]:
         import ctypes
 
         class _MS(ctypes.Structure):
+            """ctypes mirror of the Win32 ``MEMORYSTATUSEX`` struct filled by ``GlobalMemoryStatusEx``."""
             _fields_ = [
                 ("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
                 ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
@@ -69,7 +70,8 @@ def windows_commit_status() -> Optional[Dict[str, float]]:
             "commit_limit_gb": ms.ullTotalPageFile / g, "commit_avail_gb": ms.ullAvailPageFile / g,
             "pagefile_gb": max(0.0, (ms.ullTotalPageFile - ms.ullTotalPhys) / g),
         }
-    except Exception:
+    except Exception as e:
+        logger.debug("GlobalMemoryStatusEx probe failed: %s", e)
         return None
 
 
@@ -86,7 +88,8 @@ def memory_line() -> str:
             parts.append(f"private_commit={private / 1024**3:.1f}GB")
         vm = psutil.virtual_memory()
         parts.append(f"sys_avail={vm.available / 1024**3:.1f}/{vm.total / 1024**3:.1f}GB")
-    except Exception:
+    except Exception as e:
+        logger.debug("psutil memory probe failed: %s", e)
         parts.append("mem=n/a")
     cs = windows_commit_status()
     if cs:
@@ -116,8 +119,8 @@ def resolve_crash_dir(crash_dir: Optional[str] = None) -> str:
                     if fn and os.path.basename(fn).lower() not in ("nul", "null") and os.path.abspath(fn) != os.path.abspath(os.devnull):
                         return os.path.dirname(os.path.abspath(fn))
                 cur = cur.parent if getattr(cur, "propagate", False) else None
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("could not derive crash dir from logging handlers: %s", e)
     import tempfile
 
     return tempfile.gettempdir()
@@ -134,10 +137,14 @@ def open_faulthandler_file(crash_dir: Optional[str] = None, all_threads: bool = 
         d = resolve_crash_dir(crash_dir)
         os.makedirs(d, exist_ok=True)
         path = os.path.join(d, f"mlframe_faulthandler_{time.strftime('%Y%m%d_%H%M%S')}_pid{os.getpid()}.log")
-        f = open(path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115 - must outlive this call
-        f.write(f"mlframe faulthandler file; pid={os.getpid()} started={time.strftime('%Y-%m-%d %H:%M:%S')} argv={sys.argv!r}\n")
-        f.flush()
-        faulthandler.enable(file=f, all_threads=all_threads)
+        f = open(path, "a", encoding="utf-8", buffering=1)  # must outlive this call: faulthandler keeps only the fd
+        try:
+            f.write(f"mlframe faulthandler file; pid={os.getpid()} started={time.strftime('%Y-%m-%d %H:%M:%S')} argv={sys.argv!r}\n")
+            f.flush()
+            faulthandler.enable(file=f, all_threads=all_threads)
+        except BaseException:
+            f.close()  # the handle is only kept on success; a half-initialised one would leak and hold the file lock
+            raise
         _FAULT_FILE, _FAULT_PATH = f, path
         return path
     except Exception as e:
@@ -151,22 +158,24 @@ def open_faulthandler_file(crash_dir: Optional[str] = None, all_threads: bool = 
 
 
 def _sys_excepthook(exc_type, exc, tb, _prev=None):
+    """``sys.excepthook`` replacement: log the uncaught exception with its traceback, remember it for the exit line, then chain to ``_prev``."""
     try:
         if not issubclass(exc_type, KeyboardInterrupt):
             _UNCAUGHT["exc"] = f"{exc_type.__name__}: {exc}"
             logger.critical("Uncaught exception in main thread:\n%s", "".join(traceback.format_exception(exc_type, exc, tb)))
         else:
             _UNCAUGHT["exc"] = "KeyboardInterrupt"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("crash-diagnostics sys.excepthook could not log the exception: %s", e)
     prev = _prev or sys.__excepthook__
     try:
         prev(exc_type, exc, tb)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("chained sys.excepthook raised: %s", e)
 
 
 def _thread_excepthook(args, _prev=None):
+    """``threading.excepthook`` replacement: log a thread's uncaught exception with its traceback, then chain to ``_prev``."""
     try:
         if args.exc_type is not SystemExit:
             tname = getattr(args.thread, "name", "?")
@@ -174,13 +183,13 @@ def _thread_excepthook(args, _prev=None):
                 "Uncaught exception in thread %s:\n%s", tname,
                 "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)),
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("crash-diagnostics threading.excepthook could not log the exception: %s", e)
     prev = _prev or threading.__excepthook__
     try:
         prev(args)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("chained threading.excepthook raised: %s", e)
 
 
 def install_exception_hooks() -> None:
@@ -196,22 +205,24 @@ def install_exception_hooks() -> None:
 
 
 def _atexit_handler() -> None:
+    """Log the process exit line (normal or after an uncaught exception) with uptime and memory, then stop the heartbeat."""
     try:
         up = time.time() - _START_TIME
         if _UNCAUGHT["exc"]:
             logger.warning("mlframe suite process exiting after an uncaught exception (%s); uptime %.0fs. %s", _UNCAUGHT["exc"], up, memory_line())
         else:
             logger.info("mlframe suite process exiting normally; uptime %.0fs. %s", up, memory_line())
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("atexit exit line failed: %s", e)
     try:
         if _HEARTBEAT is not None:
             _HEARTBEAT.stop(join=False)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("atexit heartbeat stop failed: %s", e)
 
 
 def register_atexit() -> None:
+    """Register the exit-line handler once per process; its absence from a log then proves an abrupt kill."""
     global _ATEXIT_REGISTERED
     if not _ATEXIT_REGISTERED:
         atexit.register(_atexit_handler)
@@ -230,13 +241,15 @@ def heartbeat_line() -> str:
 
         ph = all_active_phases()
         phase_s = "; ".join(f"{k}: {v}" for k, v in ph.items()) if ph else "(no active phase)"
-    except Exception:
+    except Exception as e:
+        logger.debug("heartbeat phase lookup failed: %s", e)
         phase_s = "?"
     try:
         from ._gpu_state_probe import format_gpu_snapshot, gpu_snapshot
 
         gpu_s = format_gpu_snapshot(gpu_snapshot(), exclude_pid=None, max_procs=0)
-    except Exception:
+    except Exception as e:
+        logger.debug("heartbeat GPU probe failed: %s", e)
         gpu_s = "gpu=?"
     return f"[heartbeat] phase={phase_s} | {memory_line()} | {gpu_s}"
 
@@ -246,35 +259,59 @@ class Heartbeat:
 
     def __init__(self, interval_s: float, log: Optional[logging.Logger] = None, line_fn=heartbeat_line):
         self.interval_s = float(interval_s)
-        self._log = log or logger
+        self.logger = log or logger
         self._line_fn = line_fn
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="mlframe-heartbeat", daemon=True)
         self.beats = 0
 
+    def __getstate__(self) -> Dict[str, Any]:
+        # The stop Event, the thread and the logger are live process resources; a pickled copy is a stopped heartbeat.
+        state = self.__dict__.copy()
+        state["_stop"] = None
+        state["_thread"] = None
+        state["logger"] = None
+        return state
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._stop = threading.Event()
+        self._stop.set()
+        self.logger = logger
+        self._thread = threading.Thread(target=self._run, name="mlframe-heartbeat", daemon=True)
+
     def start(self) -> "Heartbeat":
+        """Start the heartbeat thread and return ``self``."""
         self._thread.start()
         return self
 
     def _run(self) -> None:
+        """Thread body: one beat per ``interval_s`` until :meth:`stop` sets the event."""
         while not self._stop.wait(self.interval_s):
-            try:
-                self._log.info(self._line_fn())
-                self.beats += 1
-            except Exception:
-                pass
+            self._beat()
+
+    def _beat(self) -> None:
+        """Log one heartbeat line; a failing line producer is logged as a warning and never ends the thread."""
+        try:
+            self.logger.info(self._line_fn())
+            self.beats += 1
+        except Exception as e:
+            self.logger.warning("heartbeat line failed: %s", e)
 
     def stop(self, join: bool = True, timeout: float = 5.0) -> None:
+        """Signal the thread to stop and, when ``join`` is set, wait up to ``timeout`` seconds (never joins from inside the thread)."""
         self._stop.set()
         if join and self._thread.is_alive() and threading.current_thread() is not self._thread:
             self._thread.join(timeout)
 
     @property
     def alive(self) -> bool:
+        """True while the heartbeat thread is running."""
         return self._thread.is_alive()
 
 
 def heartbeat_interval_from_env(default: float = DEFAULT_HEARTBEAT_S) -> float:
+    """Heartbeat period in seconds from ``MLFRAME_CRASH_HEARTBEAT_S`` (``0`` disables); ``default`` when unset or unparsable."""
     raw = os.environ.get("MLFRAME_CRASH_HEARTBEAT_S", "").strip()
     if not raw:
         return default
@@ -319,7 +356,7 @@ def install_crash_diagnostics(crash_dir: Optional[str] = None, all_threads: bool
         logger.info(
             "Crash diagnostics: faulthandler file=%s; uncaught exceptions -> log; exit line on normal exit "
             "(its absence means an abrupt kill); heartbeat every %ss.",
-            info["faulthandler_file"], info["heartbeat_s"] or "off",
+            info["faulthandler_file"], info["heartbeat_s"] if info["heartbeat_s"] else "off",
         )
     except Exception as e:
         logger.warning("install_crash_diagnostics partially failed: %s", e)

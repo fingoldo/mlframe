@@ -283,11 +283,13 @@ def _start_daemon_task(fn, *args):
     fut: Future = Future()
 
     def _run():
+        """Run ``fn`` on the daemon thread and settle ``fut`` with its result or exception (skipped if the future was cancelled first)."""
         if not fut.set_running_or_notify_cancel():
             return
         try:
             fut.set_result(fn(*args))
         except Exception as exc:  # handed to the waiting caller, which classifies it; anything else leaves the
+            logger.debug("render worker raised %s: %s", type(exc).__name__, exc)
             fut.set_exception(exc)  # future pending, and the caller's per-backend timeout already covers that
 
     threading.Thread(target=_run, name="mlframe-render", daemon=True).start()

@@ -711,6 +711,7 @@
   "possibly_dead_import::training/ranking/__init__.py::973be69e5fd3",
   "possibly_dead_import::training/ranking/__init__.py::b39287b1058a",
   "resource_handle_safety::training/composite/cache_store.py::490bf2411795",
+  "resource_handle_safety::training/crash_diagnostics.py::064c9e3f5539",
   "resource_handle_safety::training/io.py::4024f21ed595",
   "sentinel_cached_as_answer::feature_selection/filters/_feature_engineering_pairs/_pairs_core.py::93385e52b2cf",
   "sentinel_cached_as_answer::feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py::df2f90b96f00",

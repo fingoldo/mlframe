@@ -17,6 +17,7 @@ Metrics without a per-row decomposition (AUC, multiclass) keep the relative-tole
 from __future__ import annotations
 
 import logging
+from typing import Any, Optional
 
 import numpy as np
 from sklearn.base import clone
@@ -79,9 +80,22 @@ def _oof_predictions(model_template, X_parts, y_all, cols, folds, classification
 
 
 def paired_one_se_pick(
-    ranked, chosen, model_template, X_search, y_search, X_holdout, y_holdout, *, classification, metric, unit_to_members,
-    seed=None, n_estimators_cap=None, n_se: float = 1.0, n_folds: int = 5,
-):
+    ranked: list[dict[str, Any]],
+    chosen: dict[str, Any],
+    model_template: Any,
+    X_search: Any,
+    y_search: Any,
+    X_holdout: Any,
+    y_holdout: Any,
+    *,
+    classification: bool,
+    metric: Any,
+    unit_to_members: Any,
+    seed: Optional[int] = None,
+    n_estimators_cap: Optional[int] = None,
+    n_se: float = 1.0,
+    n_folds: int = 5,
+) -> tuple[Any, dict[str, Any]]:
     """Return ``(features, info)``: the smallest near-best ranked candidate whose paired OOF loss excess over ``chosen``
     is within ``n_se`` standard errors, or ``chosen`` itself when none qualifies / the metric does not decompose."""
     info = dict(applied=False, tested=[])

@@ -227,7 +227,7 @@ def test_catastrophic_drop_k2_uses_calib_target_for_calib_source(gate_sibling):
     bad = target + 100.0
     members = [SimpleNamespace(calib_target=target), SimpleNamespace(calib_target=target)]
     res = {}
-    _lvl, out_tags, _short, _name, early = gate_sibling.catastrophic_drop_k2(
+    _lvl, _out_tags, _short, _name, early = gate_sibling.catastrophic_drop_k2(
         level_models_and_predictions=members, _gate_preds_for_check=[good, bad], _gate_source_split="calib",
         _ensemble_member_tags=["good_model", "bad_model"], _ensemble_short_tags=["g", "b"], ensemble_name="e",
         train_target_arr=None, val_target_arr=None, test_target_arr=None, k2_catastrophic_mae_ratio=20.0, verbose=False, res=res,

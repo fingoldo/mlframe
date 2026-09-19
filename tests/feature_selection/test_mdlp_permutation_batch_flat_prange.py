@@ -18,6 +18,7 @@ from tests._perf_paired import assert_paired_speedup
 
 @pytest.mark.parametrize("n_nodes", [1, 2, 7, 32])
 def test_flat_prange_accepts_match_per_node_layout(n_nodes):
+    """The flat-prange batch kernel returns exactly the per-node kernel's accept/reject verdicts."""
     x, y, sizes, gains, ncls, seeds = _level(n_nodes, 4000, 6, np.random.default_rng(n_nodes))
     # Mix of gains around the null so both verdicts occur.
     gains = np.linspace(0.0, 0.02, n_nodes)
@@ -27,6 +28,7 @@ def test_flat_prange_accepts_match_per_node_layout(n_nodes):
 
 @pytest.mark.skipif(numba.get_num_threads() < 2, reason="needs >= 2 numba threads to parallelise anything")
 def test_single_node_level_uses_more_than_one_thread():
+    """biz_value: a single-node level is parallelised over permutations, beating the per-node prange layout."""
     x, y, sizes, gains, ncls, seeds = _level(1, 20_000, 10, np.random.default_rng(0))
     call = (x, y, sizes, gains, ncls, 5, 30, seeds, 0.05)
     assert_paired_speedup(

@@ -280,10 +280,10 @@ class DiscoveryCache:
         # debug log inside close()'s handler can raise TypeError; any failure here must stay silent ("Exception ignored in __del__").
         try:
             self.close()
-        except Exception:
+        except Exception as e:
             try:
-                logger.debug("DiscoveryCache.__del__ flush failed")
-            except Exception:
+                logger.debug("DiscoveryCache.__del__ flush failed: %s", e)
+            except (TypeError, AttributeError, NameError):  # logging internals already torn down at interpreter shutdown
                 pass
 
     def _touch_lru(self, key: str) -> None:

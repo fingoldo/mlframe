@@ -15,6 +15,7 @@ from mlframe.feature_selection.forward_select import forward_select
 
 
 def _frame(seed=0, n=600):
+    """Frame whose third column is an exact linear identity of the first two (x3 = 2*x1 - x2)."""
     rng = np.random.default_rng(seed)
     x1, x2 = rng.normal(size=n), rng.normal(size=n)
     X = pd.DataFrame({"x1": x1, "x2": x2, "x3": 2.0 * x1 - x2})
@@ -23,6 +24,7 @@ def _frame(seed=0, n=600):
 
 
 def test_linear_r2_detects_identity_and_ignores_independent():
+    """linear_r2 sees the exact identity and not an independent column; the masking keeps the most important member."""
     X, _ = _frame()
     a = X.to_numpy()
     assert linear_r2(a[:, :2], a[:, 2]) > 0.999999
@@ -32,6 +34,7 @@ def test_linear_r2_detects_identity_and_ignores_independent():
 
 
 def test_ace_does_not_keep_rank_deficient_triple():
+    """ACE never returns a rank-deficient subset such as the full x1/x2/x3 identity triple."""
     X, y = _frame()
     est = RandomForestClassifier(n_estimators=40, random_state=0, n_jobs=1)
     res = ace_select(X, y, estimator=est, n_replicates=5, n_masking_rounds=1)
@@ -41,6 +44,7 @@ def test_ace_does_not_keep_rank_deficient_triple():
 
 
 def test_forward_select_skips_near_duplicate_of_selected():
+    """forward_select does not add a near-duplicate of a column it already selected."""
     rng = np.random.default_rng(0)
     n = 400
     a = rng.normal(size=n)

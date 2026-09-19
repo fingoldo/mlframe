@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters._fe_rejection_ledger import _resolve_inde
 
 
 def _frame(n: int = 300, seed: int = 0):
+    """Regression frame with a pairwise interaction x0*x1 plus a linear x2 term."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.standard_normal((n, 5)), columns=[f"x{i}" for i in range(5)])
     y = 2.0 * X["x0"] * X["x1"] + X["x2"] + 0.1 * rng.standard_normal(n)
@@ -30,6 +31,7 @@ def test_absolute_floor_reaches_retention_pool(monkeypatch):
     real = _uas.build_usability_candidate_pool
 
     def spy(*a, **k):
+        """Record the mi_floor each engineered-candidate pool build receives, then delegate."""
         if k.get("max_pairs", 1) != 0:  # the raw-only pool (max_pairs=0) builds no engineered forms
             seen.append(float(k.get("mi_floor", 0.02)))
         return real(*a, **k)
@@ -42,7 +44,9 @@ def test_absolute_floor_reaches_retention_pool(monkeypatch):
 
 
 def test_ledger_resolves_names_from_ndarray_feature_names():
+    """The ledger maps operand indices to names from an ndarray ``feature_names_in_`` and marks engineered indices."""
     class _M:
+        """Fitted-selector stand-in exposing only ``feature_names_in_``."""
         feature_names_in_ = np.array(["a", "b", "c"], dtype=object)
 
     df = pd.DataFrame({"operands": [(0, 2), np.array([1, 5]), None]})

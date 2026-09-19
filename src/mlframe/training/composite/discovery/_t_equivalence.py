@@ -34,6 +34,7 @@ def t_train_envelope(t_train: np.ndarray) -> tuple[float, float] | None:
 
 
 def _standardise(col: np.ndarray) -> np.ndarray | None:
+    """Zero-mean, unit-RMS copy of ``col``; ``None`` when the column is (numerically) constant."""
     c = col - col.mean()
     sd = float(np.sqrt(np.mean(c * c)))
     if not np.isfinite(sd) or sd <= 1e-12 * max(1.0, float(np.max(np.abs(col)))):

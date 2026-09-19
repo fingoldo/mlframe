@@ -22,22 +22,25 @@ _SMI_TIMEOUT_S = 5.0
 
 
 def _resolve_backend() -> str:
+    """Pick the probe backend once per process: ``"nvml"`` when pynvml initialises, else ``"smi"`` when nvidia-smi is on PATH, else ``"none"``."""
     global _BACKEND, _NVML
     with _LOCK:
         if _BACKEND is not None:
             return _BACKEND
         try:
-            import pynvml  # type: ignore
+            import pynvml  # type: ignore[import-not-found]
 
             pynvml.nvmlInit()
             _NVML = pynvml
             _BACKEND = "nvml"
-        except Exception:
+        except Exception as e:
+            logger.debug("pynvml unavailable, falling back to nvidia-smi if present: %s", e)
             _BACKEND = "smi" if shutil.which("nvidia-smi") else "none"
         return _BACKEND
 
 
 def _probe_nvml() -> Dict[str, Any]:
+    """Per-GPU utilisation / memory and the compute processes on each GPU, read in-process through NVML."""
     nv = _NVML
     gpus: List[Dict[str, Any]] = []
     procs: List[Dict[str, Any]] = []
@@ -48,7 +51,8 @@ def _probe_nvml() -> Dict[str, Any]:
         gpus.append({"index": i, "util_pct": float(util.gpu), "mem_used_mb": mem.used / 2**20, "mem_total_mb": mem.total / 2**20})
         try:
             plist = nv.nvmlDeviceGetComputeRunningProcesses(h)
-        except Exception:
+        except Exception as e:
+            logger.debug("nvmlDeviceGetComputeRunningProcesses failed on gpu%d: %s", i, e)
             plist = []
         for p in plist:
             used = getattr(p, "usedGpuMemory", None)
@@ -57,15 +61,18 @@ def _probe_nvml() -> Dict[str, Any]:
 
 
 def _proc_name(pid: int) -> str:
+    """Executable name of ``pid`` via psutil, ``"?"`` when it cannot be read (process gone, no permission, psutil missing)."""
     try:
         import psutil
 
         return psutil.Process(pid).name()
-    except Exception:
+    except Exception as e:
+        logger.debug("process name lookup failed for pid %s: %s", pid, e)
         return "?"
 
 
 def _num(s: str) -> Optional[float]:
+    """``float(s)``, or ``None`` for nvidia-smi placeholders such as ``[N/A]``."""
     try:
         return float(s)
     except (TypeError, ValueError):
@@ -73,7 +80,10 @@ def _num(s: str) -> Optional[float]:
 
 
 def _probe_smi() -> Dict[str, Any]:
-    exe = shutil.which("nvidia-smi") or "nvidia-smi"
+    """Same snapshot as :func:`_probe_nvml`, parsed from two ``nvidia-smi --query-*`` CSV calls (the process query is optional)."""
+    exe = shutil.which("nvidia-smi")
+    if exe is None:
+        exe = "nvidia-smi"
     out = subprocess.run(  # nosec B603
         [exe, "--query-gpu=index,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
         capture_output=True, text=True, timeout=_SMI_TIMEOUT_S, check=True,
@@ -108,7 +118,7 @@ def gpu_snapshot() -> Optional[Dict[str, Any]]:
         if backend == "smi":
             return _probe_smi()
     except Exception as e:
-        logger.debug("GPU probe failed (%s); disabling it for this process: %s", _BACKEND, e)
+        logger.warning("GPU probe failed (%s); disabling it for this process: %s", _BACKEND, e)
         _BACKEND = "none"
     return None
 
@@ -135,7 +145,8 @@ def format_gpu_snapshot(snap: Optional[Dict[str, Any]], *, exclude_pid: Optional
             more = f" (+{len(others) - max_procs} more)" if len(others) > max_procs else ""
             parts.append(f"other GPU processes: {shown}{more}")
         return "; ".join(parts) if parts else "gpu=n/a"
-    except Exception:
+    except Exception as e:
+        logger.warning("format_gpu_snapshot failed on %r: %s", snap, e)
         return "gpu=?"
 
 

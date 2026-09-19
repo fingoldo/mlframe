@@ -1342,7 +1342,6 @@
   "source_text_assertion::training/test_precomputed_bundle_deepcopy.py::c23441f47cba",
   "source_text_assertion::training/test_precomputed_bundle_deepcopy.py::cf3f1ae3819d",
   "source_text_assertion::training/test_reporting_verdicts_say_what_they_measured.py::b6d3cf5d6849",
-  "source_text_assertion::training/test_training_loose_b_fixes.py::5a25da17515a",
   "source_text_assertion::training/test_training_loose_b_fixes.py::dd99a6511ad8",
   "source_text_assertion::training/test_training_loose_c_fixes.py::a1fa9ced7a68",
   "source_text_assertion::training/test_training_loose_c_fixes.py::e7a16c58b45a",

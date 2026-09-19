@@ -74,7 +74,8 @@ def main() -> None:
         call = (x, y, sizes, gains, ncls, 5, args.perms, seeds, 0.05)
         a_old = _batch_prange_over_nodes(*call)
         a_new = _mdlp_permutation_batch_njit(*call)
-        assert np.array_equal(a_old, a_new), (n_nodes, a_old, a_new)
+        if not np.array_equal(a_old, a_new):
+            raise AssertionError(f"flat-prange result differs from the per-node kernel at n_nodes={n_nodes}: {a_old} vs {a_new}")
         t_old, t_new = [], []
         for _ in range(args.repeats):
             t = time.perf_counter(); _batch_prange_over_nodes(*call); t_old.append(time.perf_counter() - t)

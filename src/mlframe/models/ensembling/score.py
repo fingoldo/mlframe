@@ -28,7 +28,7 @@ from .base import (
     compute_high_correlation_pairs,
 )
 from .process_method import _process_single_ensemble_method
-from .flavour_policy import filter_flavours_for_target_type
+from .flavour_policy import resolve_flavours_for_target_type
 from .score_levels import run_ensembling_levels
 from .score_validate import _validate_score_ensemble_inputs
 from .score_gate import (
@@ -208,7 +208,7 @@ def score_ensemble(
     )
     if res:
         return res
-    ensembling_methods = filter_flavours_for_target_type(ensembling_methods, target_type, is_regression, verbose) or list(SIMPLE_ENSEMBLING_METHODS)
+    ensembling_methods = resolve_flavours_for_target_type(ensembling_methods, target_type, is_regression, verbose)
 
     # Determine sample count for parallelization decision
     first_pred = level_models_and_predictions[0]

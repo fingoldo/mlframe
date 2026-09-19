@@ -93,17 +93,18 @@ def forward_select(
     significance_level
         Pre-correction p-value threshold for the ``patience`` noise test (default 0.05). Unused when
         ``patience`` is None.
-    mask_redundant, masking_r2
-        Skip a candidate whose values the currently-selected columns explain linearly with R^2 >= ``masking_r2``
-        (default 0.95, i.e. VIF >= 20). A CV-score gain cannot see redundancy: the second member of a
-        near-duplicate pair (or the third column of an exact identity ``x3 = 2*x1 - x2``) adds the same fold-level
-        jitter as any noise column, so the greedy loop admitted it and the returned subset was near-singular. Only
-        numeric columns are tested; a column that cannot be read as float is never masked.
     return_report
         When True, return ``(selected, report)`` instead of just ``selected``. ``report`` is a
         ``ForwardSelectReport`` with one ``MarginalGainStep`` per round (the round's best candidate, its
         mean CV-score improvement, and - when computable - the paired-t-test p-value/significance flag
         used by ``patience``). Default False preserves the original ``List[Any]`` return type exactly.
+    mask_redundant
+        Skip a candidate whose values the currently-selected columns explain linearly with R^2 >= ``masking_r2``.
+    masking_r2
+        R^2 threshold for ``mask_redundant`` (default 0.95, i.e. VIF >= 20). A CV-score gain cannot see redundancy: the second member of a
+        near-duplicate pair (or the third column of an exact identity ``x3 = 2*x1 - x2``) adds the same fold-level
+        jitter as any noise column, so the greedy loop admitted it and the returned subset was near-singular. Only
+        numeric columns are tested; a column that cannot be read as float is never masked.
 
     Returns
     -------

@@ -16,6 +16,7 @@ from mlframe.feature_selection.boruta_shap._shadow_stats import finite_pool_null
 
 @pytest.mark.parametrize("m,q", [(10, 99.0), (10, 100.0), (5, 99.0), (40, 95.0), (3, 50.0)])
 def test_finite_pool_rate_matches_monte_carlo(m, q):
+    """The closed-form finite-pool null hit rate matches a Monte-Carlo estimate."""
     rng = np.random.default_rng(0)
     draws = rng.random((200_000, m + 1))
     thr = np.percentile(draws[:, :m], q, axis=1)
@@ -24,12 +25,15 @@ def test_finite_pool_rate_matches_monte_carlo(m, q):
 
 
 def test_limit_and_max_gate():
+    """The null rate is 1/(m+1) at the max gate and tends to 1 - q/100 for a large shadow pool."""
     assert finite_pool_null_hit_p(10, 100.0) == pytest.approx(1 / 11)
     assert finite_pool_null_hit_p(100_000, 99.0) == pytest.approx(0.01, abs=1e-4)
 
 
 def _run_test_features(hits, n_trials, recorded_p):
+    """Run the Boruta hit test on ``hits`` with the recorded null rate ``recorded_p`` and return how many features it accepts."""
     def _binom(array, n, p, alternative):
+        """Per-feature binomial-test p-values, the shape Boruta's ``binomial_H0_test`` returns."""
         from scipy.stats import binomtest
 
         return [binomtest(int(x), n, p, alternative=alternative).pvalue for x in array]
@@ -44,6 +48,7 @@ def _run_test_features(hits, n_trials, recorded_p):
 
 
 def test_exchangeable_noise_not_accepted_with_ten_shadows():
+    """With ten shadows, pure-noise features are not accepted under the finite-pool null (the infinite-pool null accepts several)."""
     n_features, n_trials, m = 10, 30, 10
     p_true = finite_pool_null_hit_p(m, 99.0)
     hits = np.random.default_rng(1).binomial(n_trials, p_true, size=n_features).astype(float)

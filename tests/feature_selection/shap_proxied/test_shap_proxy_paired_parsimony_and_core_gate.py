@@ -19,6 +19,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_prox
 
 
 def _bed(seed=0, n=1200):
+    """Search / holdout halves of a binary target driven by columns 0 and 1."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 5))
     y = ((X[:, 0] + X[:, 1] + 0.5 * rng.normal(size=n)) > 0).astype(int)
@@ -27,6 +28,7 @@ def _bed(seed=0, n=1200):
 
 
 def test_paired_pick_prefers_smaller_equivalent_subset():
+    """The paired one-SE rule picks the smaller subset whose loss is statistically indistinguishable from the winner's."""
     Xs, ys, Xh, yh = _bed()
     ranked = [
         dict(features=(0, 1, 2, 3), n_members=4, stable_score=0.100),
@@ -41,6 +43,7 @@ def test_paired_pick_prefers_smaller_equivalent_subset():
 
 
 def test_paired_pick_disabled_or_undecomposable_keeps_winner():
+    """n_se=0 or a metric without a per-row decomposition keeps the original winner."""
     Xs, ys, Xh, yh = _bed()
     ranked = [dict(features=(0, 1, 2, 3), n_members=4, stable_score=0.1), dict(features=(0, 1), n_members=2, stable_score=0.1)]
     common = dict(classification=True, unit_to_members=None)
@@ -51,6 +54,7 @@ def test_paired_pick_disabled_or_undecomposable_keeps_winner():
 @pytest.mark.slow
 @pytest.mark.parametrize("seed", [0, 2])
 def test_spfs_binary_bed_drops_noise(seed):
+    """On a binary bed with three informative and nine noise columns, the selector drops the noise."""
     pytest.importorskip("xgboost")
     from mlframe.feature_selection.registry import get
 
@@ -71,6 +75,7 @@ def test_spfs_binary_bed_drops_noise(seed):
 
 @pytest.mark.slow
 def test_core_refine_never_worse_than_greedy_on_real_bed():
+    """The core refine mode never ends with a worse honest loss than the greedy mode on a real dataset."""
     pytest.importorskip("shap")
     from sklearn.datasets import load_breast_cancer
     from sklearn.ensemble import RandomForestClassifier
@@ -88,6 +93,7 @@ def test_core_refine_never_worse_than_greedy_on_real_bed():
     df = pd.DataFrame(cols)
 
     def _fit(mode):
+        """Fit with ``refine_mode=mode`` and return (number selected, honest full-set loss)."""
         sel = ShapProxiedFS(
             model=RandomForestClassifier(n_estimators=10, random_state=0), classification=True, n_splits=3, n_models=1, max_features=None,
             top_n=10, holdout_size=0.25, revalidate=False, trust_guard=False, prefilter_top=None, cluster_features=False, random_state=0,

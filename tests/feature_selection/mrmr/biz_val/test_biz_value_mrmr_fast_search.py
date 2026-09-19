@@ -80,10 +80,12 @@ def _spy_skippable_passes(monkeypatch):
     real_esc = _fe_auto_escalation.find_underdelivering_pairs
 
     def _vote(*a, **k):
+        """Count a cross-fold stability vote call and delegate to the real one."""
         calls["vote"] += 1
         return real_vote(*a, **k)
 
     def _esc(*a, **k):
+        """Count an auto-escalation call and delegate to the real one."""
         calls["escalation"] += 1
         return real_esc(*a, **k)
 

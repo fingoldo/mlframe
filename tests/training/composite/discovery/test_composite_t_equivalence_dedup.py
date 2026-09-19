@@ -16,6 +16,7 @@ from mlframe.training.core._phase_composite_discovery_dedup import prune_equival
 
 
 def _data(n=5000, seed=0):
+    """Positive target ``y`` and a correlated base column."""
     rng = np.random.default_rng(seed)
     base = rng.normal(10, 3, n)
     y = 2.0 * base + rng.gamma(2.0, 2.0, n)
@@ -23,6 +24,7 @@ def _data(n=5000, seed=0):
 
 
 def test_affine_equivalents_are_dropped_and_distinct_specs_kept() -> None:
+    """Specs whose T is an affine map of raw y or of a better-ranked spec are dropped; distinct specs are kept."""
     y, base = _data()
     t = {
         "diff": y - base,
@@ -38,12 +40,14 @@ def test_affine_equivalents_are_dropped_and_distinct_specs_kept() -> None:
 
 
 def test_constant_t_is_dropped() -> None:
+    """A spec whose T is constant is dropped."""
     y, _ = _data()
     drops = find_equivalent_composite_specs(y, {"const": np.full_like(y, 380.0)}, ["const"])
     assert "constant" in drops["const"]
 
 
 def test_prune_removes_from_pending_and_metadata_and_logs(caplog) -> None:
+    """Pruning removes the dropped specs from pending and metadata and logs each drop."""
     y, base = _data()
     specs = [types.SimpleNamespace(name=n, fitted_params={}) for n in ("diff", "addres", "linres")]
     t = {"diff": y - base, "addres": y - base + 1.0, "linres": y - 2.0 * base}
@@ -64,6 +68,7 @@ def test_prune_removes_from_pending_and_metadata_and_logs(caplog) -> None:
 
 
 def test_quantile_residual_zero_inflated_target_has_sane_t_scale() -> None:
+    """The quantile-residual transform on a zero-inflated target yields a finite, sensibly scaled T."""
     rng = np.random.default_rng(1)
     n = 4000
     base = rng.normal(0, 1, n)
@@ -77,6 +82,7 @@ def test_quantile_residual_zero_inflated_target_has_sane_t_scale() -> None:
 
 
 def test_from_fitted_inner_uses_discovery_t_envelope() -> None:
+    """from_fitted_inner reuses the T envelope recorded at discovery time."""
     rng = np.random.default_rng(2)
     n = 500
     base = rng.normal(0, 1, n)

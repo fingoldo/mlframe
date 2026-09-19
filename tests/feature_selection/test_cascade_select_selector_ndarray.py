@@ -14,6 +14,7 @@ from mlframe.feature_selection.functional_adapters import CascadeSelectSelector
 
 
 def _xy():
+    """Binary target driven by columns 0 and 2 of a 5-column normal matrix."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(300, 5))
     y = (X[:, 0] + 0.8 * X[:, 2] + 0.3 * rng.normal(size=300) > 0).astype(int)
@@ -21,6 +22,7 @@ def _xy():
 
 
 def test_ndarray_fit_selects_same_positions_as_dataframe_fit():
+    """Fitting on an ndarray selects the same column positions as fitting on the equivalent DataFrame."""
     X, y = _xy()
     kw = dict(n_boruta_iterations=5, cv=3, random_state=0)
 

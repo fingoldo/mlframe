@@ -21,10 +21,12 @@ from mlframe.training.core._phase_composite_wrapping import _emit_yscale_composi
 
 
 class CatBoostRegressor:  # stand-in carrying the inner class name used in the chart title
+    """Stand-in inner model whose class name is used in the chart title."""
     pass
 
 
 def _emit(entry, split, plot_file=""):
+    """Emit the y-scale composite charts for ``entry`` on ``split`` with synthetic targets and predictions."""
     rng = np.random.default_rng(0)
     y = rng.normal(10.0, 2.0, 400)
     p = y + rng.normal(0.0, 0.5, 400)
@@ -45,6 +47,7 @@ def _emit(entry, split, plot_file=""):
 
 
 def _saved(root, pattern):
+    """Files under ``root`` (recursively) matching ``pattern``."""
     return glob.glob(os.path.join(str(root), "**", pattern), recursive=True)
 
 

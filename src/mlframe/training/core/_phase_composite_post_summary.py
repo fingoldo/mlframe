@@ -176,7 +176,17 @@ def _run_suite_end_dummy_baselines_summary(
 
 
 def _metric_better(a: float, b: float, is_min: bool) -> bool:
+    """True when metric value ``a`` beats ``b`` (lower is better when ``is_min``)."""
     return (a < b) if is_min else (a > b)
+
+
+def _get_key_or_str(d: Any, key: Any) -> Any:
+    """``d[key]``, else ``d[str(key)]`` (metadata round-trips through JSON stringify keys), else ``None``."""
+    if not d:
+        return None
+    if key in d:
+        return d[key]
+    return d.get(str(key))
 
 
 def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics: dict, composite_to_raw: dict) -> str:
@@ -193,7 +203,7 @@ def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics:
     _yscale = metadata.get("composite_target_y_scale_metrics", {}) or {}
     lines: list[str] = []
     for (_tt, _comp), _raw in composite_to_raw.items():
-        _raw_rep = (_dummies.get(_tt) or {}).get(_raw) or (_dummies.get(_tt) or {}).get(str(_raw))
+        _raw_rep = _get_key_or_str(_dummies.get(_tt), _raw)
         _pm = (_raw_rep or {}).get("primary_metric")
         if not _pm or not _pm.startswith("val_"):
             continue
@@ -207,7 +217,7 @@ def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics:
             if _v is not None and np.isfinite(_v) and (_best is None or _metric_better(float(_v), _best[0], _is_min)):
                 _best = (float(_v), _r)
         _have = {_r.get("model_name") for _r in _rows if (_r.get("metrics") or {})}
-        _entries = (models.get(_tt) or models.get(str(_tt)) or {}).get(_comp) or []
+        _entries = (_get_key_or_str(models, _tt) or {}).get(_comp) or []
         _missing = [str(getattr(_e, "model_name", None) or type(getattr(_e, "model", _e)).__name__) for _e in _entries
                     if getattr(_e, "model_name", None) not in _have]
         _dummy_val = None
@@ -218,7 +228,8 @@ def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics:
         _raw_val = _raw_best.get(_pm)
         _raw_name = str(_raw_best.get("model_name", "-"))
 
-        def _lift(ref, val):
+        def _lift(ref, val, _is_min=_is_min):
+            """Improvement factor of ``val`` over reference ``ref`` (>1 means better); ``None`` when either is missing, non-finite or non-positive."""
             if ref is None or val is None or not np.isfinite(ref) or not np.isfinite(val):
                 return None
             if _is_min:

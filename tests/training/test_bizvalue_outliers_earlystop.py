@@ -137,7 +137,7 @@ def _train_and_score_regression(train_df, test_df, tmp_path, *, model_name, outl
     _raw_keys = [k for k in _preds_by_key if len(_preds_by_key) == 1 or str(k).split("/")[-2:-1] == ["target"]]
     assert len(_raw_keys) == 1, f"expected exactly one raw-target prediction, got keys {list(_preds_by_key)}"
     preds = np.asarray(_preds_by_key[_raw_keys[0]], dtype=float)
-    rmse =float(np.sqrt(mean_squared_error(test_df["target"].values, preds)))
+    rmse = float(np.sqrt(mean_squared_error(test_df["target"].values, preds)))
     return rmse, metadata
 
 

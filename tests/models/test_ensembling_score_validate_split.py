@@ -104,3 +104,13 @@ def test_rank_fusion_dropped_on_regression_like_members_without_target_type():
     assert filter_flavours_for_target_type(["mean", "rrf"], None, is_regression=False, verbose=False) == ["mean", "rrf"]
     assert filter_flavours_for_target_type(["mean", "rrf"], "binary_classification", is_regression=False, verbose=False) == ["mean"]
     assert filter_flavours_for_target_type(["mean", "rrf"], "learning_to_rank", is_regression=True, verbose=False) == ["mean", "rrf"]
+
+
+def test_flavour_resolution_keeps_an_explicit_empty_request_empty():
+    """An explicit ``[]`` means no ensembles; only a request the target-type filter emptied falls back to the simple flavours."""
+    from mlframe.models.ensembling.base import SIMPLE_ENSEMBLING_METHODS
+    from mlframe.models.ensembling.flavour_policy import resolve_flavours_for_target_type
+
+    assert resolve_flavours_for_target_type([], "regression", is_regression=True, verbose=False) == []
+    assert resolve_flavours_for_target_type(["rrf"], "regression", is_regression=True, verbose=False) == list(SIMPLE_ENSEMBLING_METHODS)
+    assert resolve_flavours_for_target_type(["mean", "rrf"], "regression", is_regression=True, verbose=False) == ["mean"]

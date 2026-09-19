@@ -13,6 +13,7 @@ import mlframe.training.crash_diagnostics as cd
 
 
 def test_sys_excepthook_routes_traceback_to_logger(caplog):
+    """An uncaught main-thread exception is logged with its traceback and chained to the previous hook."""
     try:
         raise ValueError("boom-main")
     except ValueError:
@@ -27,10 +28,12 @@ def test_sys_excepthook_routes_traceback_to_logger(caplog):
 
 
 def test_thread_excepthook_routes_to_logger(caplog, monkeypatch):
+    """An uncaught thread exception is logged and chained to the previous threading hook."""
     prev_seen = []
     monkeypatch.setattr(threading, "excepthook", lambda a: cd._thread_excepthook(a, _prev=lambda x: prev_seen.append(x)))
 
     def _worker():
+        """Thread body that raises."""
         raise RuntimeError("boom-thread")
 
     with caplog.at_level(logging.CRITICAL, logger=cd.logger.name):
@@ -43,6 +46,7 @@ def test_thread_excepthook_routes_to_logger(caplog, monkeypatch):
 
 
 def test_atexit_line_normal_and_after_exception(caplog):
+    """The exit line says 'normally' on a clean exit and names the exception after an uncaught one."""
     cd._UNCAUGHT["exc"] = None
     with caplog.at_level(logging.INFO, logger=cd.logger.name):
         cd._atexit_handler()
@@ -56,6 +60,7 @@ def test_atexit_line_normal_and_after_exception(caplog):
 
 
 def test_heartbeat_emits_and_stops(caplog):
+    """The heartbeat logs its line repeatedly and its thread ends after stop."""
     with caplog.at_level(logging.INFO, logger=cd.logger.name):
         hb = cd.Heartbeat(0.05, line_fn=lambda: "[heartbeat] test-line").start()
         deadline = time.time() + 5
@@ -68,11 +73,13 @@ def test_heartbeat_emits_and_stops(caplog):
 
 
 def test_heartbeat_line_reports_phase_from_other_thread():
+    """heartbeat_line reports a phase entered in another thread."""
     from mlframe.training.phases import phase
 
     entered, release = threading.Event(), threading.Event()
 
     def _worker():
+        """Hold a named phase open until the test has read the heartbeat line."""
         with phase("unit_test_phase_xyz"):
             entered.set()
             release.wait(5)
@@ -90,12 +97,14 @@ def test_heartbeat_line_reports_phase_from_other_thread():
 
 
 def test_heartbeat_disabled_by_env(monkeypatch):
+    """MLFRAME_CRASH_HEARTBEAT_S=0 disables the heartbeat."""
     monkeypatch.setenv("MLFRAME_CRASH_HEARTBEAT_S", "0")
     monkeypatch.setattr(cd, "_HEARTBEAT", None)
     assert cd.start_heartbeat() is None
 
 
 def test_faulthandler_file_created(tmp_path, monkeypatch):
+    """open_faulthandler_file creates the per-process file with its header line."""
     import faulthandler
 
     monkeypatch.setattr(cd, "_FAULT_FILE", None)
@@ -114,6 +123,7 @@ def test_faulthandler_file_created(tmp_path, monkeypatch):
 
 
 def test_resolve_crash_dir_prefers_log_file_dir(tmp_path, monkeypatch):
+    """Without an explicit dir or env var, the crash dir is the directory of the active log file."""
     monkeypatch.delenv("MLFRAME_CRASH_LOG_DIR", raising=False)
     h = logging.FileHandler(str(tmp_path / "run.log"), delay=True)
     root = logging.getLogger()
@@ -127,5 +137,29 @@ def test_resolve_crash_dir_prefers_log_file_dir(tmp_path, monkeypatch):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows commit accounting")
 def test_windows_commit_status_sane():
+    """On Windows the commit status is present and internally consistent."""
     cs = cd.windows_commit_status()
     assert cs and cs["commit_limit_gb"] >= cs["phys_total_gb"] * 0.5 and cs["commit_avail_gb"] > 0
+
+
+def test_heartbeat_pickles_to_a_stopped_copy():
+    """A Heartbeat reached by pickling (e.g. an object graph shipped to a worker) must not raise on its Event / thread."""
+    import pickle
+
+    hb = cd.Heartbeat(3600.0)
+    clone = pickle.loads(pickle.dumps(hb))
+    assert clone.interval_s == 3600.0
+    assert clone._stop.is_set() and not clone.alive
+
+
+def test_heartbeat_logs_a_failing_line_instead_of_dropping_it(caplog):
+    """A heartbeat line producer that raises is logged at WARNING and does not count as a beat."""
+    def _bad_line():
+        """Line producer that always fails."""
+        raise RuntimeError("probe exploded")
+
+    hb = cd.Heartbeat(3600.0, line_fn=_bad_line)
+    with caplog.at_level(logging.WARNING, logger=cd.logger.name):
+        hb._beat()
+    assert hb.beats == 0
+    assert any("probe exploded" in r.getMessage() for r in caplog.records)

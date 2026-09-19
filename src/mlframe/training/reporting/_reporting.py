@@ -601,7 +601,7 @@ def report_model_perf(
             _render_training_curves(
                 model,
                 # The booster's iteration history is the same whichever split this report is for, so the split
-                # heading (e.g. "TEST 2026-08-11/2026-08-31") is left off: it made a split-independent chart claim a split.
+                # heading (e.g. "TEST <start date>/<end date>") is left off: it made a split-independent chart claim a split.
                 model_name=str(model_name).strip(),
                 plot_file=plot_file,
                 plot_outputs=plot_outputs,

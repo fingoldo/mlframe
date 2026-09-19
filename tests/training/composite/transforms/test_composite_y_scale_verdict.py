@@ -18,6 +18,7 @@ from mlframe.training.core._phase_composite_wrapping import emit_per_model_compo
 
 
 def _fit_entry(name: str, seed: int):
+    """A fitted model entry named ``name`` on a small synthetic regression."""
     rng = np.random.default_rng(seed)
     n = 90
     x = rng.normal(0, 1, n)
@@ -30,6 +31,7 @@ def _fit_entry(name: str, seed: int):
 
 
 def test_hook_records_val_and_test_and_verdict_compares_with_raw(caplog) -> None:
+    """The hook records y-scale val and test metrics and the summary verdict compares the composite with the raw model."""
     comp = "y-logY"
     spec = {"name": comp, "transform_name": "log_y", "base_column": None, "fitted_params": {"offset": 1.0}}
     metadata: dict = {"composite_target_specs": {"regression": {"y": [spec]}}}

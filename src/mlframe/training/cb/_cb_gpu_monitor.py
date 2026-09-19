@@ -58,20 +58,20 @@ def cb_model_is_gpu(model: Any) -> bool:
             return False
         params = est.get_params()
         return str(params.get("task_type") or "").upper() == "GPU"
-    except Exception:
+    except Exception as e:
+        logger.warning("cb_model_is_gpu could not inspect %s, treating it as not a GPU fit: %s", type(model).__name__, e)
         return False
 
 
 def _native_es_summary(est: Any) -> str:
-    try:
-        p = est.get_params()
-    except Exception:
-        return "unknown"
+    """Human-readable summary of the estimator's native early-stopping params, or a loud ``NONE`` when none is configured."""
+    p = est.get_params()  # only reached after cb_model_is_gpu read the same params, inside the guard's own handler
     parts = [f"{k}={p[k]}" for k in ("early_stopping_rounds", "od_type", "od_wait", "od_pval") if p.get(k) is not None]
     return ", ".join(parts) if parts else "NONE (no early_stopping_rounds / od_wait set: the fit runs the full iteration budget)"
 
 
 def _time_budget_from_callbacks(callbacks: Any) -> Optional[float]:
+    """Time budget in seconds from the first stripped callback that carries ``time_budget_mins``, else ``None``."""
     for cb in callbacks or []:
         tb = getattr(cb, "time_budget_mins", None)
         if tb:
@@ -83,12 +83,15 @@ def _time_budget_from_callbacks(callbacks: Any) -> Optional[float]:
 
 
 def _log_notice_once(model_type_name: str, stripped: List[Any], es_summary: str, budget_s: Optional[float]) -> None:
+    """Warn once per process which mlframe callback features a CatBoost GPU fit loses and what native early stopping remains."""
     global _NOTICE_LOGGED
     with _ONCE_LOCK:
         if _NOTICE_LOGGED:
             return
         _NOTICE_LOGGED = True
-    names = sorted({type(c).__name__ for c in stripped}) or ["none wired"]
+    names = sorted({type(c).__name__ for c in stripped})
+    if not names:
+        names = ["none wired"]
     logger.warning(
         "CatBoost GPU fits run WITHOUT mlframe Python callbacks (CatBoost rejects callbacks on GPU). Disabled for every "
         "CatBoost GPU fit in this process: UniversalCallback time budget / patience / progress + RAM logging, monotonic-decline "
@@ -100,12 +103,8 @@ def _log_notice_once(model_type_name: str, stripped: List[Any], es_summary: str,
     )
 
 
-def _reset_notice_for_tests() -> None:
-    global _NOTICE_LOGGED
-    _NOTICE_LOGGED = False
-
-
 def monitor_interval_from_env(default: float = DEFAULT_MONITOR_INTERVAL_S) -> float:
+    """Monitor poll period in seconds from ``MLFRAME_CB_GPU_MONITOR_S`` (``0`` disables); ``default`` when unset or unparsable."""
     raw = os.environ.get("MLFRAME_CB_GPU_MONITOR_S", "").strip()
     if not raw:
         return default
@@ -144,6 +143,7 @@ def read_time_left_tail(train_dir: str) -> Optional[Tuple[int, float, float]]:
 
 
 def _fmt_s(s: Optional[float]) -> str:
+    """Compact duration: seconds under 90 s, minutes under 90 min, hours beyond; ``"?"`` for ``None``."""
     if s is None:
         return "?"
     s = max(0.0, float(s))
@@ -178,7 +178,7 @@ class CatBoostGpuFitMonitor:
         self.time_budget_s = time_budget_s
         self._clock = clock
         self._gpu_probe = gpu_probe
-        self._log = log or logger
+        self.logger = log or logger
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._t0 = clock()
@@ -196,8 +196,23 @@ class CatBoostGpuFitMonitor:
         self.polls = 0
         self.warnings: List[str] = []
 
+    def __getstate__(self) -> Dict[str, Any]:
+        # The stop Event, the thread and the logger are live process resources; a pickled copy is a stopped monitor.
+        state = self.__dict__.copy()
+        state["_stop"] = None
+        state["_thread"] = None
+        state["logger"] = None
+        return state
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._stop = threading.Event()
+        self._stop.set()
+        self.logger = logger
+
     # -- lifecycle ------------------------------------------------------------------------------------------------------
     def start(self) -> "CatBoostGpuFitMonitor":
+        """Reset the fit clock and start the polling thread (no thread when ``interval_s`` is 0); returns ``self``."""
         self._t0 = self._clock()
         if self.interval_s > 0:
             self._thread = threading.Thread(target=self._run, name="mlframe-cb-gpu-monitor", daemon=True)
@@ -205,6 +220,7 @@ class CatBoostGpuFitMonitor:
         return self
 
     def stop(self, timeout: float = 5.0) -> None:
+        """Signal the polling thread to stop and wait up to ``timeout`` seconds (never joins from inside the thread)."""
         self._stop.set()
         t = self._thread
         if t is not None and t.is_alive() and threading.current_thread() is not t:
@@ -212,35 +228,41 @@ class CatBoostGpuFitMonitor:
 
     @property
     def alive(self) -> bool:
+        """True while the polling thread is running."""
         return self._thread is not None and self._thread.is_alive()
 
     def _run(self) -> None:
+        """Thread body: :meth:`_safe_poll` every ``interval_s`` until :meth:`stop`."""
         while not self._stop.wait(self.interval_s):
-            try:
-                self.poll_once()
-            except Exception as e:  # best-effort: a monitoring bug must never reach the fit
-                try:
-                    self._log.debug("cb-gpu-monitor poll failed: %s", e)
-                except Exception:
-                    pass
+            self._safe_poll()
+
+    def _safe_poll(self) -> None:
+        """One :meth:`poll_once`; a failure is logged as a warning and never propagates into the fit."""
+        try:
+            self.poll_once()
+        except Exception as e:  # best-effort: a monitoring bug must never reach the fit
+            self.logger.warning("cb-gpu-monitor poll failed: %s", e)
 
     # -- one observation --------------------------------------------------------------------------------------------------
     def _gpu(self) -> Tuple[Any, str]:
+        """GPU snapshot from the injected or default probe plus its one-line summary (this process excluded from 'other processes')."""
         probe = self._gpu_probe
         if probe is None:
             from .._gpu_state_probe import gpu_snapshot as probe  # lazy: keeps import cheap when no GPU fit happens
         try:
             snap = probe()
-        except Exception:
+        except Exception as e:
+            self.logger.debug("cb-gpu-monitor GPU probe failed: %s", e)
             snap = None
         from .._gpu_state_probe import format_gpu_snapshot
 
         return snap, format_gpu_snapshot(snap, exclude_pid=os.getpid())
 
     def _warn(self, msg: str, *args: Any) -> None:
+        """Record a %-formatted warning in :attr:`warnings` and log it at WARNING."""
         text = msg % args if args else msg
         self.warnings.append(text)
-        self._log.warning(text)
+        self.logger.warning(text)
 
     def poll_once(self) -> Optional[Dict[str, Any]]:
         """Read progress, log one status line, run the collapse / stall / budget checks. Returns the computed stats."""
@@ -250,7 +272,7 @@ class CatBoostGpuFitMonitor:
         row = read_time_left_tail(self.train_dir)
         snap, gpu_s = self._gpu()
         if row is None:
-            self._log.info("[cb-gpu-monitor] %s: no progress file yet in %s after %s | %s", self.label, self.train_dir, _fmt_s(elapsed), gpu_s)
+            self.logger.info("[cb-gpu-monitor] %s: no progress file yet in %s after %s | %s", self.label, self.train_dir, _fmt_s(elapsed), gpu_s)
             self._check_budget(elapsed, None, gpu_s)
             return None
         it, _passed_s, remaining_s = row
@@ -274,7 +296,7 @@ class CatBoostGpuFitMonitor:
         self._last = (now, it)
         early = max(self._early_rates) if self._early_rates else None
         total = f"/{self.total_iterations}" if self.total_iterations else ""
-        self._log.info(
+        self.logger.info(
             "[cb-gpu-monitor] %s: iter=%d%s it/s=%s (early %s) elapsed=%s cb-ETA=%s | %s",
             self.label, it, total,
             f"{cur_rate:.2f}" if cur_rate is not None else "?", f"{early:.2f}" if early else "?",
@@ -287,6 +309,7 @@ class CatBoostGpuFitMonitor:
 
     # -- checks ---------------------------------------------------------------------------------------------------------
     def _causes(self, snap: Any) -> str:
+        """Likely causes of a slow fit read off the GPU snapshot (contention, VRAM pressure, low utilisation), or the generic list."""
         causes = []
         try:
             from .._gpu_state_probe import other_gpu_processes
@@ -301,13 +324,14 @@ class CatBoostGpuFitMonitor:
                 util = g.get("util_pct")
                 if util is not None and util < 30:
                     causes.append(f"gpu{g.get('index')} utilisation only {util:.0f}%: the fit is starved (host-side bottleneck, paging, or CPU contention)")
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug("cb-gpu-monitor cause analysis failed: %s", e)
         if not causes:
             causes.append("GPU contention by another process, VRAM spill to host memory, host RAM paging, or thermal / power throttling")
         return "; ".join(causes)
 
     def _check_collapse(self, stats: Dict[str, Any], snap: Any, gpu_s: str) -> None:
+        """Warn on a stall (no new iteration for 2+ polls), a throughput collapse vs the fit's early rate, or an overrun of the projected duration."""
         early, rate = stats["early_rate"], stats["rate"]
         if self._stall_polls >= 1:
             # Zero progress is a stall, not a collapse; one empty interval can be a long metric evaluation, two is a signal.
@@ -350,9 +374,10 @@ class CatBoostGpuFitMonitor:
         try:
             self._limit_done = bool(self.on_limit(reason))
         except Exception as e:  # never raise into the fit
-            self._log.debug("cb-gpu-monitor on_limit failed: %s", e)
+            self.logger.debug("cb-gpu-monitor on_limit failed: %s", e)
 
     def _check_budget(self, elapsed: float, it: Optional[int], gpu_s: str) -> None:
+        """Warn once when elapsed time passes the configured time budget, and ask ``on_limit`` to stop the fit (from the snapshot) on every poll past it."""
         if self.time_budget_s and elapsed > self.time_budget_s:
             if not self._budget_warned:
                 self._budget_warned = True
@@ -394,6 +419,7 @@ class CatBoostGpuFitGuard:
         self.limit_reason: Optional[str] = None
         self._fit_running = False
         self._lock = threading.Lock()
+        self.errors: List[str] = []
 
     def __enter__(self) -> "CatBoostGpuFitGuard":
         try:
@@ -411,15 +437,16 @@ class CatBoostGpuFitGuard:
                 runaway = runaway_factor_from_env()
                 enforce = bool(budget_s or runaway > 0) and enable_snapshots(self)
                 params = self.est.get_params()
-                total = params.get("iterations") or params.get("n_estimators") or params.get("num_boost_round")
+                total = next((params[k] for k in ("iterations", "n_estimators", "num_boost_round") if params.get(k) is not None), None)
+                train_dir = params.get("train_dir")
                 self.monitor = CatBoostGpuFitMonitor(
-                    params.get("train_dir") or "catboost_info",
+                    train_dir if train_dir else "catboost_info",  # CatBoost's own default when train_dir is unset / empty
                     interval_s=self.interval_s, label=self.model_type_name,
                     total_iterations=int(total) if total else None, time_budget_s=budget_s,
                     on_limit=self._request_interrupt if enforce else None, runaway_factor=runaway if enforce else 0.0,
                 ).start()
         except Exception as e:  # best-effort: the guard must never prevent the fit
-            logger.debug("CatBoostGpuFitGuard enter failed: %s", e)
+            logger.warning("CatBoostGpuFitGuard enter failed, fitting without the GPU guard: %s", e)
         return self
 
     @property
@@ -462,6 +489,7 @@ class CatBoostGpuFitGuard:
         return True
 
     def _redirect_train_dir(self) -> None:
+        """Point CatBoost's ``train_dir`` at a fresh temp dir so its progress file can be read, remembering the params to restore after the fit."""
         params = self.est.get_params()
         if params.get("allow_writing_files") is not False and params.get("train_dir"):
             return  # the caller chose a train_dir explicitly: read it, leave it alone
@@ -473,12 +501,10 @@ class CatBoostGpuFitGuard:
             if self.monitor is not None:
                 self.monitor.stop()
                 if exc_type is None:
-                    try:
-                        self.monitor.poll_once()  # final line: iterations actually run, elapsed
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    self.monitor.poll_once()  # final line: iterations actually run, elapsed
+        except Exception as e:
+            self.errors.append(f"monitor stop / final poll: {e}")
+            logger.warning("CatBoostGpuFitGuard could not stop the monitor / log its final line: %s", e)
         try:
             if self._restore is not None:
                 # Edits _init_params directly: set_params raises "You can't change params of fitted model" once the fit

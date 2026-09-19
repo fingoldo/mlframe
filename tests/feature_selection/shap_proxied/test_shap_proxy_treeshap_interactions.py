@@ -187,7 +187,10 @@ def test_biz_val_interaction_kernel_faster_than_shap():
 
     _warm = _interaction_tensor_numba(model, X.iloc[:16], classification=False)  # JIT warmup
     assert _warm[0].shape == (16, X.shape[1], X.shape[1]), "LightGBM did not take the numba kernel path"
-    ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _maybe_patch_shap_xgb_base_score
+
+    with _maybe_patch_shap_xgb_base_score():
+        ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
     Phi_ref = np.asarray(ex.shap_interaction_values(X), dtype=np.float64)
 
     _, (Phi_n, _base) = assert_paired_speedup(
@@ -213,6 +216,7 @@ def test_auto_routes_xgboost_to_native_and_lightgbm_to_numba(monkeypatch):
     real = SI._interaction_tensor_numba
 
     def _spy(est, X, classification):
+        """Record which estimator type reached the numba kernel, then delegate."""
         calls.append(type(est).__name__)
         return real(est, X, classification=classification)
 

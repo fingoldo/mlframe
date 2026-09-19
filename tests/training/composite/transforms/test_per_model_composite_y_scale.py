@@ -177,6 +177,7 @@ def test_per_model_chart_is_plotted_on_the_original_target_scale(monkeypatch) ->
     captured = {}
 
     def spy(**kw):
+        """Capture the targets and predictions the chart is drawn with."""
         captured.setdefault("calls", []).append((np.asarray(kw["targets"], dtype=float), np.asarray(kw["preds"], dtype=float)))
         return None, None
 

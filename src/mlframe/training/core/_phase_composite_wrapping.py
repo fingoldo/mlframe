@@ -157,7 +157,7 @@ def _emit_yscale_composite_chart(
     )
 
 
-def record_composite_y_scale_metrics(*, metadata: dict, target_type, composite_name: str, model_name, scores: dict) -> None:
+def record_composite_y_scale_metrics(*, metadata: dict, target_type: Any, composite_name: str, model_name: Any, scores: dict) -> None:
     """Upsert one model's y-scale split metrics into ``metadata["composite_target_y_scale_metrics"][tt][composite]``.
 
     Keyed by ``model_name`` so a re-run of the hook for the same model replaces its row instead of duplicating it.

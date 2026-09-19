@@ -18,10 +18,12 @@ from mlframe.training._format import short_model_tag, unwrap_target_wrapper
 
 
 class CatBoostRegressor:  # stand-in inner model (only the class name matters to the tagger)
+    """Stand-in inner model: only its class name matters to the tagger."""
     pass
 
 
 class CompositeTargetEstimator:  # stand-in carrying the real wrapper's inner-model attribute
+    """Stand-in composite wrapper carrying the real wrapper's ``estimator_`` attribute."""
     def __init__(self, inner):
         self.estimator_ = inner
 
@@ -57,6 +59,7 @@ def test_split_comparison_uses_each_entry_chart_prefix(tmp_path, monkeypatch):
     seen = []
 
     def spy(*, entry, target_type, plot_outputs, base_path, metrics_dict, model_name):
+        """Record the base path and model name each split-comparison chart is rendered with."""
         seen.append((base_path, model_name))
         return True
 
