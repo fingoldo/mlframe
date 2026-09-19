@@ -285,10 +285,11 @@ def pinned_train_val_test_split(
             raise ValueError("split_ids_path is set but the row ids were not extracted (id_column missing from the frame).")
         _fids, _fsplits, _sidecar = load_split_ids(_path, _id_col)
         _row_ids = pd.Series(row_ids)
+        _notes: list = []  # one WARNING after the loop instead of one per reused split
         for _s in split_config.reuse_splits:
             _sel = _fids[_fsplits == _s]
             if len(_sel) == 0:
-                logger.warning("split_ids_path %s lists no %r rows; %r is carved normally instead.", _path, _s, _s)
+                _notes.append(f"it lists no {_s!r} rows, so {_s!r} is carved normally instead")
                 continue
             _mask = _row_ids.isin(pd.Index(_sel)).to_numpy()
             _matched = int(_mask.sum())
@@ -299,8 +300,7 @@ def pinned_train_val_test_split(
                 )
             if _matched < len(_sel):
                 info["missing_ids"][_s] = len(_sel) - _matched
-                logger.warning("split_ids_path: %d of %d %r ids are absent from the current frame; the pinned %s set has %d rows.",
-                               len(_sel) - _matched, len(_sel), _s, _s, _matched)
+                _notes.append(f"{len(_sel) - _matched} of {len(_sel)} {_s!r} ids are absent from the current frame; the pinned {_s} set has {_matched} rows")
             labels[_mask] = SPLIT_CODES[_s]
             source[_s] = "file"
             if _s in ("val", "test") and ts is not None:
@@ -309,8 +309,9 @@ def pinned_train_val_test_split(
                     starts[_s] = _from_jsonable(_recorded, ts)
                 elif _s == "test":
                     starts[_s] = ts[_mask].min()
-                    logger.warning("split_ids_path has no %s sidecar; using the pinned test min timestamp %s as the train cutoff.",
-                                   SPLIT_IDS_SIDECAR, starts[_s])
+                    _notes.append(f"it has no {SPLIT_IDS_SIDECAR} sidecar, so the pinned test min timestamp {starts[_s]} is the train cutoff")
+        if _notes:
+            logger.warning("split_ids_path %s: %s.", _path, "; ".join(_notes))
 
     for _s in ("test", "val"):
         _lo, _hi = getattr(split_config, f"{_s}_start", None), getattr(split_config, f"{_s}_end", None)
