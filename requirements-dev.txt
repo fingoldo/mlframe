@@ -47,4 +47,5 @@
 # vacuous_loop_assertions (absent at da63ad7), relies on the ordinal floorless-loop keys and the faster
 # gpu_timing_sync scan; _vacuous_loop_baseline.json is added in the same commit.
 # Bumped 2026-09-19 from 7809d32 to 65fb0a9: package_doctests gains skip_parts and imports only modules with examples.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@65fb0a9340fecde33a7868bdc317671f444cb825
+# Bumped 2026-09-19 from 65fb0a9 to b6622b1: audit_disposition_parity reads **Disposition:** lines and takes search_roots.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@b6622b195d0e48b62c01b32048353e981b7ea1e1

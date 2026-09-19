@@ -574,3 +574,33 @@ def test_package_doctests_pass():
 
     assert_package_doctests_pass("mlframe", skip_parts=("_benchmarks",), min_examples=100,
                                  optionflags=doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE)
+
+
+# Rounds whose findings carry a `**Disposition:** VERDICT. text` line. The older rounds record status only in their
+# tracker table, which this check does not read; listing the rounds keeps a format change from passing vacuously.
+_DISPOSITION_ROUNDS = ("audits/ci_review_2026-09-08", "audits/full_audit_2026-09-01")
+
+
+@pytest.mark.parametrize("round_dir", _DISPOSITION_ROUNDS)
+def test_resolved_dispositions_name_real_files(round_dir):
+    """A finding marked RESOLVED/PARTIAL that names a file must name one that exists (repo- or package-relative)."""
+    from py_ci_shared.audit_disposition_parity import assert_dispositions_name_real_artefacts
+
+    src = REPO_ROOT / "src" / "mlframe"
+    roots = [REPO_ROOT / "src", src, *sorted(p for p in src.iterdir() if p.is_dir())]
+    assert_dispositions_name_real_artefacts(REPO_ROOT / round_dir, REPO_ROOT, search_roots=roots)
+
+
+# Names the reference detector reads as tests but that are not test functions.
+_DISPOSITION_TEST_NAMES_KNOWN = (
+    "xcut_nondiscriminating_asserts.md: `test_preds`: no test of that name in tests/",  # a dict key, not a test
+    "xcut_test_quality.md: `test_no_single_shot_timing_assertion`: no test of that name in tests/",  # a meta-test module name
+)
+
+
+def test_tests_named_by_audits_exist():
+    """A disposition saying "covered by test_x" must name a test that exists."""
+    from py_ci_shared.disposition_test_references import assert_disposition_tests_exist
+
+    files = sorted((REPO_ROOT / "audits").rglob("*.md"))
+    assert_disposition_tests_exist(files, REPO_ROOT, known=_DISPOSITION_TEST_NAMES_KNOWN, min_files=100)
