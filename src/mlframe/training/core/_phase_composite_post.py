@@ -149,6 +149,7 @@ def run_composite_post_processing(
             target_name=target_name,
             plot_file=plot_file,
             reporting_config=reporting_config,
+            group_column=getattr(composite_target_discovery_config, "group_column", None),
         )
 
     # Cross-target ensemble (opt-in). Stored as a SimpleNamespace under models[type][f"_CT_ENSEMBLE__{original_target}"].

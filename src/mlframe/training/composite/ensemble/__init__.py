@@ -40,11 +40,15 @@ from mlframe.utils.log_throttle import log_throttle
 def _unwrap_shim(model: Any) -> tuple[Any, Any]:
     """Return ``(inner, pre_pipeline)`` for a possibly shim-wrapped component.
 
-    For ``PrePipelinePredictShim`` returns its fitted ``pre_pipeline`` and the inner model (which may itself be a ``CompositeTargetEstimator``); for any other estimator pre_pipeline is ``None`` and the model is returned unchanged. The OOF refit path uses this to detect shim wrappers and apply ``pre_pipeline.transform`` to stack/holdout slices before refitting -- without it the OOF path would call ``sklearn.clone(shim)``, which raises ``Cannot clone object ... not a scikit-learn estimator`` for every shim-wrapped component.
+    For ``PrePipelinePredictShim`` returns its fitted ``pre_pipeline`` and the inner model (which may itself be a ``CompositeTargetEstimator``); for any other estimator pre_pipeline is ``None`` and the model is returned unchanged, except that a ``CompositeTargetEstimator`` owning its inner's pipeline (``inner_pre_pipeline_``) reports that pipeline. The OOF refit path uses this to detect shim wrappers and apply ``pre_pipeline.transform`` to stack/holdout slices before refitting -- without it the OOF path would call ``sklearn.clone(shim)``, which raises ``Cannot clone object ... not a scikit-learn estimator`` for every shim-wrapped component.
     """
     if isinstance(model, PrePipelinePredictShim):
-        return model.model, model.pre_pipeline
-    return model, None
+        inner, pp = model.model, model.pre_pipeline
+    else:
+        inner, pp = model, None
+    if pp is None and isinstance(inner, CompositeTargetEstimator):
+        pp = getattr(inner, "inner_pre_pipeline_", None)
+    return inner, pp
 
 
 logger = logging.getLogger(__name__)
@@ -362,7 +366,7 @@ def _compute_oof_with_external_holdout(
                     transform_fitted_params=spec["fitted_params"],
                     y_train=y_train_full[valid],
                 )
-                preds = wrapped.predict(X_holdout_t)
+                preds = wrapped.predict(external_holdout_X, inner_X=X_holdout_t)
             else:
                 inner_clone = clone(inner)
                 _X_fit_r, _y_fit_r, _X_ev_r, _y_ev_r, _fm_r = (
@@ -629,7 +633,7 @@ def compute_oof_holdout_predictions(
                             transform_fitted_params=_fold_params,
                             y_train=y_stack[valid],
                         )
-                        preds = wrapped.predict(X_holdout_t)
+                        preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
                     else:
                         inner_clone = clone(inner)
                         _sw_stack = None if sample_weight is None else sample_weight[fold_train_idx]
@@ -872,7 +876,7 @@ def compute_oof_holdout_predictions(
                     transform_fitted_params=_fold_params,
                     y_train=y_stack[valid],
                 )
-                preds = wrapped.predict(X_holdout_t)
+                preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
             else:
                 # Raw-target component. Re-fit the inner on (X_stack, y_stack) and predict on X_holdout.
                 inner_clone = clone(inner)

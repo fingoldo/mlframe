@@ -19,6 +19,7 @@ import numpy as np
 # reference but Python resolves it from function-local scope.
 from ..composite import CompositeTargetEstimator, get_transform, _extract_base_matrix
 from .._format import format_metric as _fmt, strip_shim_suffix as _strip
+from ._composite_wrap_helpers import build_composite_wrapper
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -206,6 +207,8 @@ def emit_per_model_composite_y_scale_test(
     val_df=None,
     metadata: dict | None = None,
     target_type: str | None = None,
+    train_df=None,
+    group_column: str | None = None,
 ) -> None:
     """Wrap a freshly-fit composite-target inner model in
     CompositeTargetEstimator (IDEMPOTENT -- safe to call again at end-of-target)
@@ -232,8 +235,6 @@ def emit_per_model_composite_y_scale_test(
         if isinstance(_inner, CompositeTargetEstimator):
             _wrapper = _inner
         else:
-            _extra = tuple(composite_spec.get("extra_base_columns") or ())
-            _base_columns = (composite_spec["base_column"], *_extra) if _extra else None
             _y_full_arr = np.asarray(y_full)
             # y-clip envelope MUST be train-only: this wrapper persists (the
             # end-of-target pass skips already-wrapped entries for idempotency),
@@ -250,13 +251,9 @@ def emit_per_model_composite_y_scale_test(
                     _y_train_arr = _y_full_arr
             else:
                 _y_train_arr = _y_full_arr
-            _wrapper = CompositeTargetEstimator.from_fitted_inner(
-                fitted_inner=_inner,
-                transform_name=composite_spec["transform_name"],
-                base_column=composite_spec["base_column"],
-                base_columns=_base_columns,
-                transform_fitted_params=composite_spec["fitted_params"],
-                y_train=_y_train_arr,
+            _wrapper = build_composite_wrapper(
+                entry=entry, inner=_inner, spec=composite_spec, y_train=_y_train_arr,
+                train_df=train_df, target_name=orig_target_name, group_column=group_column,
             )
             # Mutate the entry so downstream callers (and the end-of-target
             # wrap-pass idempotency check) see the wrapped form.
@@ -344,6 +341,7 @@ def _run_composite_target_wrapping(
     target_name: str | None = None,
     plot_file: str | None = None,
     reporting_config: Any = None,
+    group_column: str | None = None,
 ) -> dict[tuple, np.ndarray]:
     """Wrap T-scale inner models in CompositeTargetEstimator so predict() returns y-scale; record y-scale RMSE/MAE/R2 per split.
 
@@ -403,24 +401,12 @@ def _run_composite_target_wrapping(
                 if isinstance(_inner, CompositeTargetEstimator):
                     continue
                 try:
-                    # Multi-base specs (linear_residual_multi / future
-                    # multi-base transforms) carry extra base columns
-                    # alongside the primary. Build the full base_columns
-                    # tuple so the wrapper's predict() reconstructs the
-                    # (n, K) base matrix to match the K alphas saved in
-                    # fitted_params. Without this the wrapper defaults to
-                    # base_columns=None and _resolve_base_columns()
-                    # falls back to (base_column,) -> predict raises
-                    # "base has 1 columns but fitted alphas has K entries".
-                    _extra = tuple(_spec.get("extra_base_columns") or ())
-                    _base_columns = (_spec["base_column"], *_extra) if _extra else None
-                    _wrapper = CompositeTargetEstimator.from_fitted_inner(
-                        fitted_inner=_inner,
-                        transform_name=_spec["transform_name"],
-                        base_column=_spec["base_column"],
-                        base_columns=_base_columns,
-                        transform_fitted_params=_spec["fitted_params"],
-                        y_train=_y_train_for_wrap,
+                    # Multi-base specs (linear_residual_multi / future multi-base transforms) carry extra base columns alongside the
+                    # primary; the builder passes the full base_columns tuple so predict() reconstructs the (n, K) base matrix matching
+                    # the K alphas in fitted_params (else it raises "base has 1 columns but fitted alphas has K entries").
+                    _wrapper = build_composite_wrapper(
+                        entry=_entry, inner=_inner, spec=_spec, y_train=_y_train_for_wrap,
+                        train_df=filtered_train_df, target_name=_orig_tname, group_column=group_column,
                     )
                 except Exception as _wrap_err:
                     log_throttle(
