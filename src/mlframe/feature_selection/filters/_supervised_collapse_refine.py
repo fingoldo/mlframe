@@ -15,6 +15,8 @@ missing resolution is restored. Columns whose supervised bins are reasonably bal
 """
 from __future__ import annotations
 
+from typing import Optional
+
 import numpy as np
 
 
@@ -29,7 +31,9 @@ def _fallback_edges(finite: np.ndarray, base: str, n_bins: int) -> np.ndarray:
     return np.unique(full[1:-1])
 
 
-def refine_near_collapsed_supervised_edges(edges, finite: np.ndarray, base: str, fallback_nbins: int):
+def refine_near_collapsed_supervised_edges(
+    edges: Optional[np.ndarray], finite: np.ndarray, base: str, fallback_nbins: int
+) -> Optional[np.ndarray]:
     """Return ``edges`` unchanged unless one bin dominates (see module docstring), else ``edges`` united with the
     unsupervised fallback edges. ``finite`` is the column's finite values; ``edges`` are inner cuts."""
     if edges is None or not hasattr(edges, "size") or edges.size == 0 or finite.size == 0 or fallback_nbins < 2:

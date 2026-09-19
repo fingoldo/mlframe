@@ -462,16 +462,22 @@ class ParamOracle:
         ``"benchmark"`` (run every combo, record each), ``"inference"``
         (recommend only, no sweep), or ``"hybrid"`` (epsilon-greedy:
         exploit best w.p. 1-epsilon, explore a random combo w.p. epsilon).
-    minimize / maximize:
-        Name of the objective metric to optimise. Exactly one of the two
-        should be set; ``minimize`` wins if both/neither given (safe
-        default for the common ``elapsed_s`` case).
+    minimize:
+        Name of the objective metric to minimise. Exactly one of
+        ``minimize``/``maximize`` should be set; ``minimize`` wins if
+        both/neither given (safe default for the common ``elapsed_s`` case).
+    maximize:
+        Name of the objective metric to maximise (used only when
+        ``minimize`` is not given).
     epsilon:
         Exploration probability for ``hybrid`` mode.
     min_observations:
         Confidence gate -- a recommendation is only trusted if the chosen
         combo has at least this many observations; otherwise we fall back
         (k-NN -> global best -> caller default).
+    rng:
+        Random generator for hybrid-mode exploration; a fresh
+        ``random.Random()`` when None.
     """
 
     def __init__(
@@ -488,7 +494,6 @@ class ParamOracle:
         min_observations: int = 3,
         rng: Optional[random.Random] = None,
     ):
-        """Bind the oracle to its store (resolving a bare filename under :func:`default_store_dir`) and validate its mode/objective settings."""
         if os.path.basename(store_path) == store_path:
             store_path = os.path.join(default_store_dir(), store_path)
         self.store = _ParquetStore(store_path)
