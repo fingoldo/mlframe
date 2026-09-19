@@ -148,6 +148,7 @@ class TestBoxCoxYInverseRange:
     """Box-Cox shares the lambda < 0 asymptote of the Yeo-Johnson inverse."""
 
     def test_inner_prediction_past_asymptote_stays_in_train_range(self) -> None:
+        """Box-Cox inverse of predictions past the negative-lambda asymptote stays finite and inside the training range."""
         from mlframe.training.composite.transforms.unary import box_cox_y_fit, box_cox_y_inverse
 
         rng = np.random.default_rng(7)

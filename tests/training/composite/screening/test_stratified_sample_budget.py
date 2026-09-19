@@ -13,6 +13,7 @@ from mlframe.training.composite.discovery.screening import _sample_indices
 
 
 def test_tie_heavy_target_uses_full_budget():
+    """A zero-heavy tied target still yields exactly the requested number of unique, sorted indices."""
     rng = np.random.default_rng(0)
     n = 200_000
     y = np.where(rng.random(n) < 0.85, 0.0, rng.lognormal(size=n))
@@ -33,6 +34,7 @@ def test_tail_is_still_oversampled():
 
 
 def test_small_population_returns_all_rows():
+    """A population smaller than the budget returns every row."""
     y = np.zeros(50)
     idx = _sample_indices(50, 100, 0, strategy="stratified_quantile", y=y, n_strata=10)
     np.testing.assert_array_equal(idx, np.arange(50))

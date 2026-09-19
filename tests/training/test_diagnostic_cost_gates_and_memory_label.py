@@ -54,10 +54,12 @@ class TestTheAdversarialFoldBudget:
         orig_fit, orig_predict = lgb.LGBMClassifier.fit, lgb.LGBMClassifier.predict_proba
 
         def _fit(self, X, y, *a, **k):
+            """Record the fit size, then delegate to the original LGBMClassifier.fit."""
             fit_sizes.append(len(X))
             return orig_fit(self, X, y, *a, **k)
 
         def _predict(self, X, *a, **k):
+            """Record the number of predicted rows, then delegate to the original predict_proba."""
             predicted.append(len(X))
             return orig_predict(self, X, *a, **k)
 

@@ -405,6 +405,7 @@ _VACUOUS_LOOP_BASELINE = Path(__file__).resolve().parent / "_vacuous_loop_baseli
 
 
 def _test_files() -> list[Path]:
+    """Return every test_*.py file under tests/, sorted."""
     return sorted((REPO_ROOT / "tests").rglob("test_*.py"))
 
 
@@ -671,6 +672,7 @@ def _pytest_runner_commands() -> list:
 
 
 def _pytest_addopts() -> str:
+    """Return the pytest addopts from pyproject.toml as a single string."""
     from py_ci_shared._toml_compat import tomllib
 
     addopts = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"].get("addopts", "")

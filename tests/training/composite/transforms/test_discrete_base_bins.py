@@ -15,6 +15,7 @@ from mlframe.training.composite.transforms.simple import _median_residual_fit, _
 
 
 def _binary_fixture(n=5000, seed=0):
+    """Return a target y and a binary base whose value shifts y from about 1 to about 10."""
     rng = np.random.default_rng(seed)
     base = (rng.random(n) < 0.3).astype(np.float64)
     y = np.where(base == 1.0, 10.0, 1.0) + rng.normal(scale=0.1, size=n)
@@ -22,6 +23,7 @@ def _binary_fixture(n=5000, seed=0):
 
 
 def test_binary_base_median_residual_uses_one_bin_per_value():
+    """Median-residual fit on a binary base uses one bin per value without warnings and recovers both medians."""
     y, base = _binary_fixture()
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -31,6 +33,7 @@ def test_binary_base_median_residual_uses_one_bin_per_value():
 
 
 def test_quantile_residual_binary_base_has_two_bins():
+    """Quantile-residual fit on a binary base yields exactly two bins with the per-value medians."""
     from mlframe.training.composite.transforms.nonlinear import _quantile_residual_fit
 
     y, base = _binary_fixture()
@@ -40,6 +43,7 @@ def test_quantile_residual_binary_base_has_two_bins():
 
 
 def test_edges_helper():
+    """quantile_bin_edges collapses duplicate edges for discrete input and keeps n_bins+1 edges for continuous input."""
     np.testing.assert_array_equal(quantile_bin_edges(np.array([0.0, 0.0, 1.0, 1.0]), 20), [0.0, 0.5, 1.0])
     np.testing.assert_array_equal(quantile_bin_edges(np.array([3.0, 3.0]), 20), [3.0])
     continuous = np.linspace(0.0, 1.0, 1001)

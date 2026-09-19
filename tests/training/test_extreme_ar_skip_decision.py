@@ -93,6 +93,7 @@ class TestDiscoverySkipNotFiredLogLevel:
 
     @staticmethod
     def _blocked(**kw):
+        """Call the missing-info blocker with grouped, bounded-zoo defaults overridden by kw."""
         from mlframe.training.core._ar_skip import _extreme_ar_skip_blocked_by_missing_info
 
         args = dict(group_aware_active=True, bounded_only_zoo=True, lag1_ar=None, is_picked_target=True, threshold=0.99)
@@ -104,13 +105,17 @@ class TestDiscoverySkipNotFiredLogLevel:
         assert self._blocked(group_aware_active=False) is False
 
     def test_unbounded_zoo_is_not_a_warning(self):
+        """A zoo with unbounded models does not warn about the skip being blocked."""
         assert self._blocked(bounded_only_zoo=False) is False
 
     def test_missing_lag1_on_grouped_run_warns(self):
+        """A grouped run with no measured lag-1 autocorrelation warns that the skip is blocked."""
         assert self._blocked(lag1_ar=None) is True
 
     def test_measured_low_lag1_is_not_a_warning(self):
+        """A measured low lag-1 autocorrelation is a legitimate reason not to skip, not a warning."""
         assert self._blocked(lag1_ar=0.3) is False
 
     def test_high_lag1_on_another_target_warns(self):
+        """High lag-1 on a target other than the picked one still warns."""
         assert self._blocked(lag1_ar=0.999, is_picked_target=False) is True

@@ -15,6 +15,7 @@ from mlframe.training.targets import analyze_feature_distribution
 
 
 def _frame(n=3000):
+    """Return a polars frame with continuous, near-duplicate, boolean, constant, high-cardinality text and categorical columns."""
     rng = np.random.default_rng(0)
     base = rng.normal(size=n)
     return pl.DataFrame(
@@ -30,6 +31,7 @@ def _frame(n=3000):
 
 
 def test_polars_report_matches_pandas_report():
+    """The polars report agrees with the pandas report on pathologies, drop candidates and categorical counts."""
     df = _frame()
     y = df["x"].to_numpy() * 2.0
     rep_pl = analyze_feature_distribution(df, y=y, high_cardinality_max=100)
@@ -42,12 +44,14 @@ def test_polars_report_matches_pandas_report():
 
 
 def test_categoricals_are_not_converted(monkeypatch):
+    """Text and categorical columns are never converted to a pandas view during analysis."""
     import mlframe.training.utils as utils
 
     seen = []
     orig = utils.get_pandas_view_of_polars_df
 
     def _spy(frame, *a, **k):
+        """Record the columns converted to a pandas view, then delegate."""
         seen.append(list(frame.columns))
         return orig(frame, *a, **k)
 

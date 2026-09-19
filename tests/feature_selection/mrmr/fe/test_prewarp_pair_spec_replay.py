@@ -16,6 +16,7 @@ from tests.feature_selection.conftest import make_fast_mrmr
 
 
 def _california():
+    """Return a train/test split of the first 1500 California housing rows, skipping when the dataset is unavailable."""
     datasets = pytest.importorskip("sklearn.datasets")
     try:
         c = datasets.fetch_california_housing(as_frame=True)
@@ -29,6 +30,7 @@ def _california():
 
 
 def test_prewarp_feature_replays_fit_time_values(monkeypatch):
+    """A prewarp-engineered feature replayed at transform time equals the values computed during fit."""
     X_tr, _X_te, y_tr, _y_te = _california()
     import mlframe.feature_selection.filters._fe_raw_redundancy_drop as rd
 
@@ -36,6 +38,7 @@ def test_prewarp_feature_replays_fit_time_values(monkeypatch):
     orig = rd.drop_redundant_raw_operands
 
     def _spy(*args, **kwargs):
+        """Record the engineered continuous columns passed to the redundancy drop, then delegate."""
         ec = kwargs.get("engineered_continuous") or {}
         for k, v in ec.items():
             captured[k] = np.asarray(v, dtype=np.float64).copy()

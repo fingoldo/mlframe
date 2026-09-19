@@ -231,6 +231,7 @@ class TestV2KernelMatchesV1:
 
     @pytest.mark.parametrize("n_rows", [50, 20_000])  # serial path and threaded path
     def test_bit_identical_with_ties_nans_and_out_of_range(self, n_rows):
+        """The v2 kernel reproduces v1 bit-for-bit on columns with ties, NaNs and values outside the fit range."""
         from mlframe.feature_engineering._benchmarks.bench_extremality_reference import run_v1
 
         rng = np.random.default_rng(3)

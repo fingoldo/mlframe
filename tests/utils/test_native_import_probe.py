@@ -26,11 +26,13 @@ def fresh_probe(monkeypatch, tmp_path):
 
 
 def _write(dirpath, name, body):
+    """Write a module named name with the dedented body into dirpath."""
     (dirpath / f"{name}.py").write_text(textwrap.dedent(body), encoding="ascii")
 
 
 def test_module_that_crashes_on_import_is_reported_unusable_and_parent_survives(fresh_probe, monkeypatch, caplog):
     # A real native crash during import: no Python exception reaches the caller, the interpreter dies.
+    """A module that segfaults on import is reported unusable, the parent survives, and the verdict is exported to the env."""
     _write(fresh_probe, "mlframe_probe_crasher", "import faulthandler\nfaulthandler._sigsegv()\n")
     monkeypatch.delenv(probe._env_key("mlframe_probe_crasher"), raising=False)
     with caplog.at_level(logging.WARNING, logger=probe.__name__):
@@ -41,11 +43,13 @@ def test_module_that_crashes_on_import_is_reported_unusable_and_parent_survives(
 
 
 def test_importable_module_is_usable_and_cached(fresh_probe, monkeypatch):
+    """An importable module is reported usable and the verdict is cached so no second probe runs."""
     _write(fresh_probe, "mlframe_probe_fine", "VALUE = 1\n")
     monkeypatch.delenv(probe._env_key("mlframe_probe_fine"), raising=False)
     assert probe.native_module_importable("mlframe_probe_fine") is True
 
     def _no_second_probe(*a, **k):
+        """Fail if a second probe subprocess is launched."""
         raise AssertionError("the verdict is cached per process")
 
     monkeypatch.setattr(probe.subprocess, "run", _no_second_probe)
@@ -53,6 +57,7 @@ def test_importable_module_is_usable_and_cached(fresh_probe, monkeypatch):
 
 
 def test_missing_module_is_unusable_without_a_warning(fresh_probe, monkeypatch, caplog):
+    """A missing module is reported unusable without logging an unusable-module warning."""
     monkeypatch.delenv(probe._env_key("mlframe_probe_missing_xyz"), raising=False)
     with caplog.at_level(logging.WARNING, logger=probe.__name__):
         assert probe.native_module_importable("mlframe_probe_missing_xyz") is False
@@ -60,7 +65,9 @@ def test_missing_module_is_unusable_without_a_warning(fresh_probe, monkeypatch, 
 
 
 def test_already_imported_module_is_never_probed(fresh_probe, monkeypatch):
+    """A module already in sys.modules is reported usable without launching a probe."""
     def _boom(*a, **k):
+        """Fail if a probe subprocess is launched."""
         raise AssertionError("an imported module needs no probe")
 
     import csv  # noqa: F401
@@ -70,9 +77,11 @@ def test_already_imported_module_is_never_probed(fresh_probe, monkeypatch):
 
 
 def test_inherited_negative_verdict_is_trusted(fresh_probe, monkeypatch):
+    """A negative verdict inherited through the environment is trusted without a probe."""
     monkeypatch.setenv(probe._env_key("mlframe_probe_inherited"), "0")
 
     def _boom(*a, **k):
+        """Fail if a probe subprocess is launched."""
         raise AssertionError("an inherited verdict needs no probe")
 
     monkeypatch.setattr(probe.subprocess, "run", _boom)
@@ -80,6 +89,7 @@ def test_inherited_negative_verdict_is_trusted(fresh_probe, monkeypatch):
 
 
 def test_knn_search_falls_back_to_exact_sklearn_when_hnswlib_is_unusable(monkeypatch):
+    """knn_search falls back to exact sklearn neighbours when hnswlib is reported unusable."""
     import mlframe.feature_engineering.transformer._knn_helper as kh
 
     monkeypatch.setattr(kh, "_HNSW_AVAILABLE", None)

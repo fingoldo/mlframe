@@ -135,6 +135,7 @@ def test_target_distribution_heavy_tail_is_not_one_bar():
 
 
 def _suptitle(fig) -> str:
+    """Return the figure's suptitle text, or an empty string when it has none."""
     return fig._suptitle.get_text() if fig._suptitle is not None else ""
 
 

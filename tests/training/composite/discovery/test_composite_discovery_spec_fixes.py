@@ -359,6 +359,7 @@ class TestBug1SpatialDemoterFalsePositive:
         ],
     )
     def test_unit_coordinate_like_name(self, name, expected) -> None:
+        """is_coordinate_like_name classifies each parametrized name as expected."""
         from mlframe.training.composite.discovery._coord_names import is_coordinate_like_name
 
         assert is_coordinate_like_name(name) is expected

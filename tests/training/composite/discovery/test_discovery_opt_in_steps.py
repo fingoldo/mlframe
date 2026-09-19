@@ -254,6 +254,7 @@ def test_auto_chain_uses_the_tiny_model_row_budget(monkeypatch):
     orig = ois_mod.discover_chains
 
     def _spy(**kw):
+        """Record the row count handed to discover_chains, then delegate."""
         seen.append(kw["y"].shape[0])
         return orig(**kw)
 

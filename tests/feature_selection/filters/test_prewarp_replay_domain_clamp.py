@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters.hermite_fe import apply_operand_prewarp, 
 
 
 def _data(seed=0, n=1500):
+    """Return operands a, b and a noisy polynomial-interaction target y."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(0.5, 12.0, n)
     b = rng.uniform(1.0, 5.0, n)
@@ -23,6 +24,7 @@ def _data(seed=0, n=1500):
 
 @pytest.mark.parametrize("basis", ["chebyshev", "legendre", "hermite", "laguerre"])
 def test_pair_prewarp_is_constant_beyond_fit_range(basis):
+    """A fitted operand prewarp holds a bounded plateau beyond the fit range instead of extrapolating the polynomial."""
     a, b, y = _data()
     spec_a, spec_b = fit_pair_prewarp_als(a, b, y, basis=basis, max_degree=4)
     assert spec_a is not None and spec_b is not None
