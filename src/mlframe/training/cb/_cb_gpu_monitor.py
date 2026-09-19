@@ -17,9 +17,10 @@ What this module does instead, decided from the model's resolved params right be
   disables) logs iteration, it/s, elapsed and CatBoost's ETA plus GPU utilisation / memory / other GPU processes, and
   WARNs on a throughput collapse or a stall, naming likely causes (GPU contention, VRAM pressure / spill).
 
-Time budget: CatBoost has no native wall-clock limit. Interrupting a running fit IS possible (CatBoost honours a
-``KeyboardInterrupt`` raised in the fitting thread), but it leaves the estimator UNFITTED -- the whole fit is lost -- so
-the monitor only warns loudly when a configured ``time_budget_mins`` is exceeded; it never interrupts or kills anything.
+Time budget / runaway fits: CatBoost has no native wall-clock limit, and an interrupted fit is left UNFITTED. The guard
+therefore runs the fit with CatBoost snapshots on, and when the monitor sees the configured ``time_budget_mins`` exceeded
+or a runaway fit, it interrupts and the fit is resumed from the snapshot with ``iterations`` capped: the model trained so
+far is kept. See ``_cb_gpu_budget`` (and ``MLFRAME_CB_GPU_RUNAWAY_FACTOR`` / ``MLFRAME_CB_GPU_SNAPSHOT_S``).
 """
 from __future__ import annotations
 
@@ -167,6 +168,8 @@ class CatBoostGpuFitMonitor:
         clock: Callable[[], float] = time.monotonic,
         gpu_probe: Optional[Callable[[], Any]] = None,
         log: Optional[logging.Logger] = None,
+        on_limit: Optional[Callable[[str], bool]] = None,
+        runaway_factor: float = 0.0,
     ):
         self.train_dir = train_dir
         self.interval_s = float(interval_s)
@@ -186,6 +189,10 @@ class CatBoostGpuFitMonitor:
         self._stall_warned_at = -10**9
         self._budget_warned = False
         self._overrun_warned = False
+        # Called on a time-budget / runaway breach until it returns True (it declines while no snapshot exists yet).
+        self.on_limit = on_limit
+        self.runaway_factor = float(runaway_factor or 0.0)
+        self._limit_done = False
         self.polls = 0
         self.warnings: List[str] = []
 
@@ -320,6 +327,13 @@ class CatBoostGpuFitMonitor:
                     "elapsed %s. Likely causes: %s. | %s",
                     self.label, rate, early, early / max(rate, 1e-9), stats["iter"], _fmt_s(stats["elapsed"]), self._causes(snap), gpu_s,
                 )
+        if early and self.total_iterations and self.runaway_factor > 0:
+            projected = self.total_iterations / early
+            if stats["elapsed"] > self.runaway_factor * projected and stats["elapsed"] > 300:
+                self._request_limit(
+                    f"runaway: elapsed {_fmt_s(stats['elapsed'])} > {self.runaway_factor:g}x the {_fmt_s(projected)} the full "
+                    f"{self.total_iterations}-iteration budget would take at this fit's early rate"
+                )
         if early and self.total_iterations and not self._overrun_warned:
             projected = self.total_iterations / early
             if stats["elapsed"] > OVERRUN_FACTOR * projected and stats["elapsed"] > 300:
@@ -330,14 +344,26 @@ class CatBoostGpuFitMonitor:
                     self.label, _fmt_s(stats["elapsed"]), stats["elapsed"] / projected, _fmt_s(projected), self.total_iterations, self._causes(snap),
                 )
 
+    def _request_limit(self, reason: str) -> None:
+        if self._limit_done or self.on_limit is None:
+            return
+        try:
+            self._limit_done = bool(self.on_limit(reason))
+        except Exception as e:  # never raise into the fit
+            self._log.debug("cb-gpu-monitor on_limit failed: %s", e)
+
     def _check_budget(self, elapsed: float, it: Optional[int], gpu_s: str) -> None:
-        if self.time_budget_s and not self._budget_warned and elapsed > self.time_budget_s:
-            self._budget_warned = True
-            self._warn(
-                "[cb-gpu-monitor] %s EXCEEDED the configured time budget (%s > %s) at iter=%s. CatBoost GPU fits cannot take the "
-                "mlframe time-budget callback and interrupting the fit would discard the model, so it keeps running. | %s",
-                self.label, _fmt_s(elapsed), _fmt_s(self.time_budget_s), it if it is not None else "?", gpu_s,
-            )
+        if self.time_budget_s and elapsed > self.time_budget_s:
+            if not self._budget_warned:
+                self._budget_warned = True
+                self._warn(
+                    "[cb-gpu-monitor] %s EXCEEDED the configured time budget (%s > %s) at iter=%s. %s | %s",
+                    self.label, _fmt_s(elapsed), _fmt_s(self.time_budget_s), it if it is not None else "?",
+                    "Stopping it and keeping the model trained so far (resume from snapshot)." if self.on_limit is not None
+                    else "It cannot be stopped without losing the model here (no snapshot / not on the main thread), so it keeps running.",
+                    gpu_s,
+                )
+            self._request_limit(f"time budget {_fmt_s(self.time_budget_s)} exceeded")
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -364,6 +390,10 @@ class CatBoostGpuFitGuard:
         self.monitor: Optional[CatBoostGpuFitMonitor] = None
         self._tmp_dir: Optional[str] = None
         self._restore: Optional[Dict[str, Any]] = None
+        self.snapshot_file: Optional[str] = None
+        self.limit_reason: Optional[str] = None
+        self._fit_running = False
+        self._lock = threading.Lock()
 
     def __enter__(self) -> "CatBoostGpuFitGuard":
         try:
@@ -376,25 +406,67 @@ class CatBoostGpuFitGuard:
             _log_notice_once(self.model_type_name, self.stripped, _native_es_summary(self.est), budget_s)
             if self.interval_s > 0:
                 self._redirect_train_dir()
+                from ._cb_gpu_budget import enable_snapshots, runaway_factor_from_env
+
+                runaway = runaway_factor_from_env()
+                enforce = bool(budget_s or runaway > 0) and enable_snapshots(self)
                 params = self.est.get_params()
                 total = params.get("iterations") or params.get("n_estimators") or params.get("num_boost_round")
                 self.monitor = CatBoostGpuFitMonitor(
                     params.get("train_dir") or "catboost_info",
                     interval_s=self.interval_s, label=self.model_type_name,
                     total_iterations=int(total) if total else None, time_budget_s=budget_s,
+                    on_limit=self._request_interrupt if enforce else None, runaway_factor=runaway if enforce else 0.0,
                 ).start()
         except Exception as e:  # best-effort: the guard must never prevent the fit
             logger.debug("CatBoostGpuFitGuard enter failed: %s", e)
         return self
 
+    @property
+    def tmp_dir(self) -> Optional[str]:
+        return self._tmp_dir
+
+    def ensure_tmp_dir(self) -> str:
+        if self._tmp_dir is None:
+            # A unique dir per fit: concurrent fits in one cwd would otherwise interleave rows in the shared catboost_info/.
+            self._tmp_dir = tempfile.mkdtemp(prefix="mlframe_cb_gpu_")
+        return self._tmp_dir
+
+    def remember_original(self, keys: Any) -> None:
+        """Record the current values of ``keys`` (first time only) so ``__exit__`` restores them on the estimator."""
+        params = self.est.get_params()
+        if self._restore is None:
+            self._restore = {}
+        for k in keys:
+            self._restore.setdefault(k, params.get(k))
+
+    def set_fit_running(self, running: bool) -> None:
+        with self._lock:
+            self._fit_running = bool(running)
+
+    def stop_monitor(self) -> None:
+        if self.monitor is not None:
+            self.monitor.stop()
+
+    def _request_interrupt(self, reason: str) -> bool:
+        """Monitor callback on a limit breach: interrupt the (main-thread) fit, only while it runs and once a snapshot exists."""
+        import _thread
+
+        if not (self.snapshot_file and os.path.exists(self.snapshot_file)):
+            return False  # nothing to resume from yet: interrupting now would lose the model; retried at the next poll
+        with self._lock:
+            if not self._fit_running or self.limit_reason:
+                return self.limit_reason is not None
+            self.limit_reason = reason
+            _thread.interrupt_main()
+        return True
+
     def _redirect_train_dir(self) -> None:
         params = self.est.get_params()
         if params.get("allow_writing_files") is not False and params.get("train_dir"):
             return  # the caller chose a train_dir explicitly: read it, leave it alone
-        self._restore = {"allow_writing_files": params.get("allow_writing_files"), "train_dir": params.get("train_dir")}
-        # A unique dir per fit: concurrent fits in one cwd would otherwise interleave rows in the shared catboost_info/.
-        self._tmp_dir = tempfile.mkdtemp(prefix="mlframe_cb_gpu_")
-        self.est.set_params(allow_writing_files=True, train_dir=self._tmp_dir)
+        self.remember_original(("allow_writing_files", "train_dir"))
+        self.est.set_params(allow_writing_files=True, train_dir=self.ensure_tmp_dir())
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         try:

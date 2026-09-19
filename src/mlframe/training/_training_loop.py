@@ -271,10 +271,9 @@ from ._calibration_models import (  # noqa: F401
 
 
 def _train_model_with_fallback(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
-    """Fit under ``CatBoostGpuFitGuard`` (no callbacks + progress monitor for GPU CatBoost; a no-op otherwise), see below."""
-    from .cb._cb_gpu_monitor import CatBoostGpuFitGuard
-    with CatBoostGpuFitGuard(model, model_obj, model_type_name, fit_params):
-        return _train_model_with_fallback_unguarded(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose)
+    """Fit under ``CatBoostGpuFitGuard`` (GPU CatBoost: no callbacks, progress monitor, time budget / runaway stop that keeps the model; else a no-op)."""
+    from .cb._cb_gpu_budget import fit_with_cb_gpu_guard
+    return fit_with_cb_gpu_guard(_train_model_with_fallback_unguarded, model, model_obj, model_type_name, train_df, train_target, fit_params, verbose)
 
 
 def _train_model_with_fallback_unguarded(
