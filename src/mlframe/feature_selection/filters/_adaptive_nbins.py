@@ -801,6 +801,10 @@ def per_feature_edges(
                 edges = _edges_from_quantiles(col, _fallback_nb)
             else:
                 edges = _edges_from_uniform(col, _fallback_nb)
+        elif method_resolved in ("fayyad_irani", "fayyad_irani_validated", "optimal_joint", "mah"):
+            from ._supervised_collapse_refine import refine_near_collapsed_supervised_edges
+
+            edges = refine_near_collapsed_supervised_edges(edges, _finite, base, int(kwargs.get("collapsed_fallback_nbins", 5)))
         # SPARSE-AWARE secondary fallback. For TF-IDF /
         # one-hot / bag-of-words style columns (>50% mass at a single
         # value, e.g. zero for sparse tokens) the unsupervised quantile
