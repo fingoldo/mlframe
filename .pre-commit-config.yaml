@@ -368,7 +368,7 @@ repos:
     hooks:
       - id: bandit-blocking
         name: "bandit security scan (blocking)"
-        entry: python -m bandit -ll
+        entry: python -m bandit -c pyproject.toml -ll
         language: system
         types: [python]
         pass_filenames: true
@@ -482,7 +482,7 @@ repos:
 
       - id: bandit-tests-blocking
         name: "bandit security scan tests/ (blocking)"
-        entry: python -m bandit -ll
+        entry: python -m bandit -c pyproject.toml -ll
         language: system
         types: [python]
         pass_filenames: true
