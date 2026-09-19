@@ -136,26 +136,18 @@ def _infer_ts_step_periods(ts_train: np.ndarray) -> tuple[str, list[int]]:
 def _detect_acf_periods(y_train: np.ndarray, n_train: int, random_state: int = 42) -> list[int]:
     """ACF-based period detection (differencing + stratified sample).
 
-    Uses statsmodels.tsa.stattools.acf on first-differenced y_train.
-    Returns top-2 peaks above 2/sqrt(n) threshold, filtered to
-    ``2 <= P <= n_train // 4``.
-
-    statsmodels imported lazily inside the function (D17): import
-    failure -> empty list + INFO log, not module-load failure.
+    ACF of first-differenced y_train via mlframe's own FFT estimator (``reporting.charts._acf.acf_fft``: demeaned,
+    biased 1/n, i.e. the statsmodels ``acf(fft=True)`` default -- numerically equal, pinned by a test). It used
+    statsmodels, whose import broke under pandas 3 with a TypeError that the ``except ImportError`` guard did not
+    catch; a numpy-only estimator cannot be broken by any pandas/statsmodels version pairing.
+    Returns top-2 peaks above 2/sqrt(n) threshold, filtered to ``2 <= P <= n_train // 4``.
 
     ``random_state`` (default 42, preserving the prior hardcoded behavior when the caller doesn't thread
     ``config.random_state`` through) seeds the stratified-window sampling used when ``n_train > 50_000`` --
     without it, two suite runs configured with different seeds always sampled the identical ACF windows,
     silently ignoring the caller's own reproducibility knob.
     """
-    try:
-        from statsmodels.tsa.stattools import acf
-    except ImportError as e:
-        logger.info(
-            "[dummy-baselines] statsmodels unavailable (%s); ACF period " "detection skipped, using step-size defaults only",
-            e,
-        )
-        return []
+    from mlframe.reporting.charts._acf import acf_fft
 
     # Stratified sample: for very large n_train, take a
     # uniform-random sample of contiguous-windowed sub-segments
@@ -181,7 +173,10 @@ def _detect_acf_periods(y_train: np.ndarray, n_train: int, random_state: int = 4
         nlags = min(int(10 * np.log10(len(y_diff))), len(y_diff) // 2)
         if nlags < 2:
             return []
-        acf_vals = acf(y_diff, nlags=nlags, fft=True)
+        _lags, _ = acf_fft(y_diff, nlags=nlags)
+        if _lags.size == 0:
+            return []
+        acf_vals = np.concatenate([[1.0], _lags])  # index == lag, like statsmodels' acf (lag 0 == 1)
     except Exception as e:
         logger.info("[dummy-baselines] ACF computation failed (%s); skipping ACF peaks", e)
         return []
