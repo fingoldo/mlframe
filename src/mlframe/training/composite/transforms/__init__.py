@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 # Soft-cap MAD floor: when MAD(T_train) is below
-# ``_MAD_FLOOR_FRAC * std(y_train)``, we substitute the latter to keep
+# ``_MAD_FLOOR_FRAC * std(T_train)`` (unitless, like T itself; never
+# std(y), whose raw units made the cap scale-dependent), we substitute
+# the latter (or an absolute log-scale floor) to keep
 # the soft-cap bound numerically meaningful even if the transform
 # produced a degenerate (near-constant) T on train. Without this,
 # logratio's MAD-cap collapses to zero on degenerate train and every
@@ -211,6 +213,23 @@ def _canonical_group_key(label: Any) -> str:
     return str(label)
 
 
+def _unique_group_labels(groups: Any) -> Tuple[np.ndarray, np.ndarray]:
+    """``np.unique(groups, return_inverse=True)`` that also works on an object column mixing strings with ``None`` / ``NaN`` missing markers.
+
+    ``np.unique`` sorts, and sorting ``["a", None]`` or ``["a", nan]`` raises ``TypeError``, which crashed every grouped / categorical transform at
+    fit or predict on a nullable categorical column. On that failure the labels are canonicalised through :func:`_canonical_group_key` first, so a
+    missing marker becomes its own level (``'None'`` / ``'nan'``) at fit and an unseen missing level at predict routes to the global fallback. Clean
+    columns keep the direct (fast, bit-identical) path.
+    """
+    arr = np.asarray(groups).reshape(-1)
+    try:
+        uniq, inv = np.unique(arr, return_inverse=True)
+    except TypeError:
+        keys = np.array([_canonical_group_key(g) for g in arr.tolist()], dtype=object)
+        uniq, inv = np.unique(keys, return_inverse=True)
+    return uniq, np.asarray(inv).reshape(-1)
+
+
 # ----------------------------------------------------------------------
 # Pack J: unary y-only transforms (no base column required).
 # Re-export of unary raw helpers; the wrapping into the registry's
@@ -348,6 +367,8 @@ from .registry import (
 from .naming import (
     TRANSFORM_NAME_SHORT,
     _COMPOSITE_NAME_FRAGMENTS,
+    call_transform,
+    callable_accepts,
     compose_target_name,
     get_transform,
     is_composite_target_name,

@@ -66,9 +66,11 @@ def _ecdf_knots(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     knots = xs[keep]
     u = u_full[keep]
     if knots.size == 1:
-        # Constant column: a degenerate 2-knot ramp keeps ``interp`` invertible
-        # without dividing by a zero span.
-        knots = np.array([knots[0], knots[0] + 1.0])
+        # Constant column: a degenerate 2-knot ramp keeps ``interp`` invertible without dividing by a zero span. The span is scale-relative: an
+        # absolute ``+1.0`` knot made any recovered u above 0.5 + 1e-9 invert to ``v + 1``, a value never seen in train (a 1e6x error for y ~ 1e-6).
+        v = float(knots[0])
+        span = max(abs(v) * 1e-12, 1e-300)
+        knots = np.array([v, v + span])
         u = np.array([0.5, 0.5 + 1e-9])
     return knots, u
 

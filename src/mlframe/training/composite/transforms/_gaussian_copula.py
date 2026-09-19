@@ -6,8 +6,8 @@ any monotone marginal distortion of either side collapses to the identity (like 
 scale that RMSE-trained downstream models fit cleanly (unlike the bounded uniform rank residual). Inverse maps back through the stored y-ECDF knots:
 ``y_hat = quantile_y(Phi(T_hat + alpha * z_b + beta))``, so reconstructions cannot leave the train y-support (edge-knot clamping via ``np.interp``).
 
-ECDF knots reuse the ``_rank_ecdf`` helper; the normal-score clip mirrors ``quantile_normal_y`` (u clipped to ``[eps, 1-eps]`` with eps from the knot
-count so ``Phi^-1`` stays finite at the tails -- this makes the round-trip lossy only on the extreme tail rows, like ``quantile_normal_y``).
+ECDF knots reuse the ``_rank_ecdf`` helper; the normal-score clip mirrors ``quantile_normal_y`` (u clipped to ``[eps, 1-eps]`` with eps the tail mass
+beyond the extreme knots, so ``Phi^-1`` stays finite and every train value, including the extremes and each level of a discrete target, round-trips).
 """
 from __future__ import annotations
 
@@ -24,7 +24,11 @@ def _copula_z(x: np.ndarray, knots: np.ndarray, cdf: np.ndarray) -> np.ndarray:
     """Normal score of ``x`` under the fitted ECDF knots: ``Phi^-1(clip(ecdf(x), eps, 1-eps))``."""
     from scipy.special import ndtri
     u = np.interp(np.asarray(x, dtype=np.float64), knots, cdf)
-    eps = 1.0 / (2.0 * max(len(cdf), 2))
+    # Clip at the extreme knots' own tail mass. An eps from the knot count (= number of UNIQUE values) clipped a binary target's top knot
+    # u = (n-0.5)/n down to 0.75, so every y=1 row inverted to ~0.52 even with a perfect inner model.
+    eps = float(min(cdf[0], 1.0 - cdf[-1])) if len(cdf) else 0.25
+    if not (0.0 < eps < 0.5):
+        eps = 1.0 / (2.0 * max(len(cdf), 2))
     return np.asarray(ndtri(np.clip(u, eps, 1.0 - eps)))
 
 
