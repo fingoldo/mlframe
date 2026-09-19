@@ -69,7 +69,7 @@ def native_module_importable(name: str) -> bool:
             )
         except (OSError, subprocess.SubprocessError) as exc:
             # A probe that cannot run says nothing about the module; importing directly is what happened before the probe existed.
-            logger.debug("native import probe for %s could not run (%s); importing without it.", name, exc)
+            logger.warning("native import probe for %s could not run (%s); importing without it.", name, exc)
             _verdicts[name] = True
             return True
         ok = proc.returncode == 0

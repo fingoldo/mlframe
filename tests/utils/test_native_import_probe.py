@@ -63,10 +63,10 @@ def test_already_imported_module_is_never_probed(fresh_probe, monkeypatch):
     def _boom(*a, **k):
         raise AssertionError("an imported module needs no probe")
 
-    import json  # noqa: F401
+    import csv  # noqa: F401
 
     monkeypatch.setattr(probe.subprocess, "run", _boom)
-    assert "json" in sys.modules and probe.native_module_importable("json") is True
+    assert "csv" in sys.modules and probe.native_module_importable("csv") is True
 
 
 def test_inherited_negative_verdict_is_trusted(fresh_probe, monkeypatch):

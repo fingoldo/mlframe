@@ -351,35 +351,58 @@ def discover_chains(
 ) -> List[ChainCandidate]:
     """Search ``residual x unary`` chains; return those that beat BOTH single stages.
 
-    Scoring is tiny-CV RMSE on the ORIGINAL y-scale (see module docstring for why
-    MI-gain cannot rank tail-compression chains). A chain surfaces only when its
-    y-scale RMSE beats ``min(residual_rmse, unary_rmse)`` by at least
-    ``min_rmse_margin``.
+    Scoring is tiny-CV RMSE on the ORIGINAL y-scale (see module docstring for why MI-gain cannot rank tail-compression
+    chains). A chain surfaces only when its y-scale RMSE beats ``min(residual_rmse, unary_rmse)`` by at least
+    ``min_rmse_margin``. NEVER removes single-stage candidates; it only proposes.
 
     Parameters
     ----------
-    y, base : 1-D arrays, same length. ``base`` is the single base column the
-        residual stage regresses ``y`` on (the kept single-stage spec's base).
-    x_matrix : (n, F) feature matrix the tiny model + MI use. The SAME matrix +
-        CV folds score every candidate, so the RMSEs are directly comparable.
-    residual_names : restrict the first-stage menu (default: ``linear_residual`` +
-        ``monotonic_residual``). Pass the kept single-stage residual specs' names
-        to search only what survived screening.
-    unary_names : restrict the second-stage menu (default: cbrt / yj / sp).
-    min_rmse_margin : a chain must beat the better single's RMSE by at least this
-        absolute amount. ``0.0`` = strictly better.
-    min_valid_domain_frac : chains whose residual stage is valid on fewer than
-        this fraction of rows are dropped (mirrors discovery's domain gate).
-    family : tiny-model family for the CV scorer (``"lgb"`` / ``"cb"`` /
-        ``"ridge"``), passed to :func:`_build_tiny_model`. For ``"lgb"`` every
-        candidate shares one binned dataset per fold (:class:`LgbFoldCache`).
-    inner_n_jobs : threads per tiny-model fit. The caller runs bases in parallel
-        and hands each base its share of the cores.
+    y
+        Target, 1-D.
+    base
+        The single base column the residual stage regresses ``y`` on, same length as ``y``.
+    x_matrix
+        (n, F) feature matrix for the tiny model and MI. The same matrix and CV folds score every candidate.
+    residual_names
+        First-stage menu (default: ``linear_residual`` + ``monotonic_residual``).
+    unary_names
+        Second-stage menu (default: cbrt / yj / sp).
+    min_rmse_margin
+        A chain must beat the better single's RMSE by at least this absolute amount; ``0.0`` = strictly better.
+    min_valid_domain_frac
+        Chains valid on fewer than this fraction of rows are dropped.
+    cv_folds
+        Folds of the tiny-model CV.
+    random_state
+        Seed for the folds and the tiny models.
+    family
+        Tiny-model family (``"lgb"`` / ``"cb"`` / ``"ridge"``). For ``"lgb"`` every candidate shares one binned
+        dataset per fold (:class:`LgbFoldCache`).
+    n_estimators
+        Tiny-model boosting rounds.
+    num_leaves
+        Tiny-model leaves per tree.
+    learning_rate
+        Tiny-model learning rate.
+    compute_mi_gain
+        Also compute the informational MI gain of each winner.
+    mi_estimator
+        MI estimator name.
+    mi_nbins
+        Bins for the binned MI estimator.
+    mi_n_neighbors
+        Neighbours for the kNN MI estimator.
+    top_k
+        Maximum number of winners returned.
+    inner_n_jobs
+        Threads per tiny-model fit; the caller runs bases in parallel and hands each base its share of the cores.
 
-    Returns the ``top_k`` winning ``ChainCandidate`` objects sorted by ASCENDING
-    ``rmse`` (best first). Empty list = no chain beat its singles -> caller keeps
-    the best single. NEVER removes single-stage candidates; it only proposes.
+    Returns
+    -------
+    List[ChainCandidate]
+        Up to ``top_k`` winning chains sorted by ascending ``rmse``; empty when no chain beat its singles.
     """
+
     y = np.asarray(y, dtype=np.float64)
     base = np.asarray(base, dtype=np.float64)
     x_matrix = np.asarray(x_matrix, dtype=np.float64)

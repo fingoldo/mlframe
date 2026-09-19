@@ -109,58 +109,50 @@ def test_qq_large_n_caps_plotted_points_but_keeps_extremes():
 # ---------------------------------------------------------------------------
 
 
-def test_target_distribution_bar_heights_match_np_histogram():
-    """Target distribution bar heights match np histogram."""
+def test_target_distribution_bars_are_row_shares_of_each_series():
+    """Each panel's bars are that series' row share per bin: they sum to the share of rows inside the shown 0.1-99.9% range."""
     rng = np.random.default_rng(2)
     y = rng.normal(loc=10, scale=3, size=20_000)
     t = y - 9.5
-    bins = 60
-    fig = plot_target_distribution(y, t, bins=bins)
-    ax = fig.axes[0]
-    # Shared edges over the combined min..max; recompute the reference the same way.
-    finite_y = y[np.isfinite(y)]
-    finite_t = t[np.isfinite(t)]
-    lo = min(finite_y.min(), finite_t.min())
-    hi = max(finite_y.max(), finite_t.max())
-    edges = np.linspace(lo, hi, bins + 1)
-    width = edges[1] - edges[0]
-    counts_y, _ = np.histogram(finite_y, bins=edges)
-    expected_y = counts_y / (finite_y.size * width)
-    # bar patches: first `bins` rectangles are the y series (drawn first).
-    heights = np.array([p.get_height() for p in ax.patches[:bins]])
-    assert np.allclose(heights, expected_y, rtol=1e-10, atol=1e-12)
-    # density bars integrate to ~1
-    assert abs(np.sum(heights * width) - (counts_y.sum() / finite_y.size)) < 1e-9
+    fig = plot_target_distribution(y, t, bins=60)
+    for ax, arr in zip(fig.axes[:2], (y, t)):
+        lo, hi = np.quantile(arr, [0.001, 0.999])
+        inside = float(((arr >= lo) & (arr <= hi)).mean())
+        heights = np.array([p.get_height() for p in ax.patches])
+        assert heights.size == 60
+        assert abs(heights.sum() - inside) < 1e-9
     plt.close(fig)
+
+
+def test_target_distribution_heavy_tail_is_not_one_bar():
+    """A heavy-tailed target spread over 0..90k used to land in a single visible bar; the asinh axis must spread it."""
+    rng = np.random.default_rng(5)
+    y = np.where(rng.random(200_000) < 0.3, 0.0, rng.lognormal(4, 2, 200_000))
+    fig = plot_target_distribution(y, y * 0.9)
+    heights = np.array([p.get_height() for p in fig.axes[0].patches])
+    assert (heights > 1e-3).sum() >= 20
+    plt.close(fig)
+
+
+def _suptitle(fig) -> str:
+    return fig._suptitle.get_text() if fig._suptitle is not None else ""
 
 
 def test_target_distribution_annotates_subsample_above_cap():
     """Target distribution annotates subsample above cap."""
     rng = np.random.default_rng(3)
-    y = rng.normal(size=250_000)
-    t = rng.normal(size=250_000)
-    fig = plot_target_distribution(y, t)
-    ax = fig.axes[0]
-    texts = " ".join(txt.get_text() for txt in ax.texts)
-    assert "subsample" in texts.lower()
+    fig = plot_target_distribution(rng.normal(size=250_000), rng.normal(size=250_000))
+    assert "moments on" in _suptitle(fig)
+    assert "Verdict" in _suptitle(fig)
     plt.close(fig)
 
 
 def test_target_distribution_no_subsample_note_below_cap():
     """Target distribution no subsample note below cap."""
     rng = np.random.default_rng(4)
-    y = rng.normal(size=5_000)
-    t = rng.normal(size=5_000)
-    fig = plot_target_distribution(y, t)
-    ax = fig.axes[0]
-    texts = " ".join(txt.get_text() for txt in ax.texts)
-    assert "subsample" not in texts.lower()
+    fig = plot_target_distribution(rng.normal(size=5_000), rng.normal(size=5_000))
+    assert "moments on" not in _suptitle(fig)
     plt.close(fig)
-
-
-# ---------------------------------------------------------------------------
-# plot_pr_curve / plot_roc_curve vertex decimation
-# ---------------------------------------------------------------------------
 
 
 def test_decimate_curve_vertices_caps_and_keeps_endpoints():

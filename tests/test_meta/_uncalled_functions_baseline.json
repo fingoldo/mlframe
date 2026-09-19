@@ -710,7 +710,6 @@
   "src/mlframe/testing/parametric.py::constant_series",
   "src/mlframe/testing/parametric.py::high_card_text_column",
   "src/mlframe/testing/parametric.py::high_card_text_series",
-  "src/mlframe/testing/parametric.py::id_column",
   "src/mlframe/testing/parametric.py::inf_heavy_float_series",
   "src/mlframe/testing/parametric.py::prod_like_frame",
   "src/mlframe/testing/parametric.py::prod_like_frame_small",
