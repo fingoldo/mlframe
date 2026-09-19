@@ -18,8 +18,8 @@ import pytest
 
 catboost = pytest.importorskip("catboost")
 
-import mlframe.training.cb._cb_gpu_monitor as mon  # noqa: E402
-from mlframe.training.cb._cb_gpu_budget import fit_with_cb_gpu_guard, snapshot_params  # noqa: E402
+import mlframe.training.cb._cb_gpu_monitor as mon
+from mlframe.training.cb._cb_gpu_budget import fit_with_cb_gpu_guard, snapshot_params
 
 
 def _data(n=40_000, seed=0):
@@ -39,7 +39,7 @@ def fake_gpu(monkeypatch):
     monkeypatch.setattr(mon, "cb_model_is_gpu", lambda est: True)
     monkeypatch.setenv("MLFRAME_CB_GPU_MONITOR_S", "0.5")
     monkeypatch.setenv("MLFRAME_CB_GPU_SNAPSHOT_S", "1")
-    mon._reset_notice_for_tests()
+    monkeypatch.setattr(mon, "_NOTICE_LOGGED", False)
 
 
 def test_time_budget_stops_fit_and_keeps_model(fake_gpu, caplog):

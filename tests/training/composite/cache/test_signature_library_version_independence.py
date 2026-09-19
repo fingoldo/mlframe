@@ -124,13 +124,13 @@ class TestSensitivityIsKept:
 
     def test_head_swap_moves_the_key(self):
         df = _frame(object)
-        swapped = df.iloc[[1, 0] + list(range(2, len(df)))].reset_index(drop=True)
+        swapped = df.iloc[[1, 0, *list(range(2, len(df)))]].reset_index(drop=True)
         assert _sig(swapped) != _sig(df)
 
     def test_tail_swap_moves_the_key(self):
         n = 2000
         df = pd.DataFrame({"y": np.arange(n, dtype=np.float64), "num": np.arange(n, dtype=np.float64), "s": ["x"] * n})
-        order = list(range(n - 2)) + [n - 1, n - 2]
+        order = [*list(range(n - 2)), n - 1, n - 2]
         assert _sig(df.iloc[order].reset_index(drop=True)) != _sig(df)
 
     def test_appended_row_moves_the_key(self):

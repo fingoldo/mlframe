@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import os
-from typing import Any, Dict, List, NewType, Optional, Sequence
+from typing import Any, Dict, NewType, Optional, Sequence
 
 # The disk-backed ``DiscoveryCache`` store (which owns the pickle / filelock / tempfile / glob
 # machinery and the ``mlframe.utils.safe_pickle`` imports) lives in the sibling

@@ -165,7 +165,7 @@ def canonical_scalar(v: Any) -> str:
 
 
 def format_stats(mn: Any, mx: Any, n_null: int) -> bytes:
-    return f"min={canonical_scalar(mn)};max={canonical_scalar(mx)};null={int(n_null)}".encode("utf-8")
+    return f"min={canonical_scalar(mn)};max={canonical_scalar(mx)};null={int(n_null)}".encode()
 
 
 def _encode_numeric(vals: np.ndarray, mask: np.ndarray, np_dt: np.dtype) -> bytes:
