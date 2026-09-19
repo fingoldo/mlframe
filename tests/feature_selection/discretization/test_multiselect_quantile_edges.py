@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters.discretization._multiselect import multis
 
 
 def _kths(n: int, quantiles: np.ndarray) -> np.ndarray:
+    """Sorted order-statistic indices np.percentile's linear interpolation reads for ``quantiles`` on ``n`` values."""
     lo = np.floor((quantiles / 100.0) * (n - 1)).astype(np.int64)
     ks = set()
     for l in lo.tolist():
@@ -25,6 +26,7 @@ def _kths(n: int, quantiles: np.ndarray) -> np.ndarray:
 
 
 def _column(kind: str, n: int, rng) -> np.ndarray:
+    """Test column of shape ``kind`` (normal, ties, constant, sorted, reversed, heavy_tail)."""
     if kind == "normal":
         return rng.standard_normal(n)
     if kind == "ties":
@@ -43,6 +45,7 @@ def _column(kind: str, n: int, rng) -> np.ndarray:
 @pytest.mark.parametrize("kind", ["normal", "ties", "constant", "sorted", "reversed", "heavy_tail"])
 @pytest.mark.parametrize("n", [2, 3, 25, 31, 450, 5000])
 def test_multiselect_places_exact_order_statistics(kind, n):
+    """multiselect_inplace puts the exact sorted value at every requested order-statistic index."""
     rng = np.random.default_rng(n)
     col = _column(kind, n, rng)
     for n_bins in (2, 10, 37):
@@ -56,6 +59,7 @@ def test_multiselect_places_exact_order_statistics(kind, n):
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("n", [5, 450, 3000])
 def test_quantile_edges_kernel_bit_identical_to_percentile_and_partition_kernel(dtype, n):
+    """The multiselect quantile-edge kernel is bit-identical to np.percentile and to the partition kernel."""
     rng = np.random.default_rng(7)
     cols = [_column(k, n, rng) for k in ("normal", "ties", "constant", "sorted", "reversed", "heavy_tail")]
     arr = np.ascontiguousarray(np.column_stack(cols * 5).astype(dtype))
@@ -73,6 +77,7 @@ def test_quantile_edges_kernel_bit_identical_to_percentile_and_partition_kernel(
 @pytest.mark.parametrize("parallel", [False, True])
 @pytest.mark.parametrize("n_bins", [2, 10, 32, 33])
 def test_count_le_codes_identical_to_binary_search_incl_nan_and_ties(parallel, n_bins):
+    """Count-less-or-equal bin codes equal binary-search codes, including NaN and tied values."""
     from mlframe.feature_selection.filters.discretization._kernels import (
         _count_le_2d_njit,
         _count_le_2d_njit_parallel,
@@ -96,6 +101,7 @@ def test_count_le_codes_identical_to_binary_search_incl_nan_and_ties(parallel, n
 
 @pytest.mark.parametrize("parallel", [False, True])
 def test_discretize_2d_batch_matches_per_column_1d_path(parallel):
+    """The 2-D batch quantile discretizer matches the per-column 1-D path."""
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch, discretize_array
 
     rng = np.random.default_rng(3)

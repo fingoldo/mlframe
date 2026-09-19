@@ -11,6 +11,7 @@ from mlframe.feature_selection.filters._supervised_collapse_refine import refine
 
 
 def test_sliver_split_gets_fallback_edges_and_keeps_the_supervised_cut():
+    """A sliver supervised split gets fallback edges while keeping the supervised cut, and no bin holds over 30% of rows."""
     x = np.random.default_rng(0).standard_normal(2000)
     cut = np.sort(x)[9] + 1e-9  # 10 rows on the left
     out = refine_near_collapsed_supervised_edges(np.array([cut]), x, "quantile", 5)
@@ -21,6 +22,7 @@ def test_sliver_split_gets_fallback_edges_and_keeps_the_supervised_cut():
 
 
 def test_balanced_supervised_split_is_untouched():
+    """A balanced supervised split is returned unchanged (same object)."""
     x = np.random.default_rng(1).standard_normal(2000)
     edges = np.array([0.0])
     assert refine_near_collapsed_supervised_edges(edges, x, "quantile", 5) is edges

@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters.info_theory._batch_kernels import (
 
 
 def _dense_inputs(seed: int, n: int = 400, k: int = 60):
+    """Discretized columns (every fifth informative, the rest noise), a 3-class target and its class frequencies."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, 3, n)
     cols = []
@@ -29,6 +30,7 @@ def _dense_inputs(seed: int, n: int = 400, k: int = 60):
 
 @pytest.mark.parametrize("npermutations", [1, 3, 10, 40])
 def test_early_stop_preserves_every_verdict(npermutations):
+    """Stopping the permutation loop once the failure budget is spent gives the same verdict as the full count."""
     disc, y, freqs_y = _dense_inputs(npermutations)
     n, k = disc.shape
     rng = np.random.default_rng(1)
@@ -52,6 +54,7 @@ def test_early_stop_preserves_every_verdict(npermutations):
 @pytest.mark.parametrize("kernel", [batch_mi_with_noise_gate, batch_mi_with_noise_gate_v2])
 @pytest.mark.parametrize("confidence", [0.5, 0.9, 0.99])
 def test_gated_mi_matches_ungated_reference(kernel, confidence):
+    """The gated MI kernel's accept/reject verdicts match an uncapped count over the same shuffle stream."""
     disc, y, freqs_y = _dense_inputs(11)
     nbins = np.full(disc.shape[1], 10, dtype=np.int64)
     npermutations = 12
