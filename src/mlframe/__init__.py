@@ -70,6 +70,12 @@ def _autoconfigure_macos_omp_threads() -> None:
 
 _autoconfigure_macos_omp_threads()
 
+# LightGBM 4.5/4.6 report auto column names as real ones, so every numpy fit/predict warns about feature names; the
+# backport (LightGBM 4.7's fix) is applied when lightgbm.sklearn is first imported.
+from mlframe import _lightgbm_compat
+
+_lightgbm_compat.install()
+
 
 def _autoconfigure_cuda_home() -> None:
     """Point CUDA_HOME/CUDA_PATH at the pip-installed nvidia NVVM when nothing else has.
