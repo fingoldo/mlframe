@@ -137,7 +137,12 @@ def _psi_one(baseline_props: np.ndarray, bucket_props: np.ndarray, eps: float = 
 
 def _psi_verdict(matrix, noise_floor: float, row_labels) -> str:
     """One-line pass/fail over the whole PSI grid: how many features drift, and which is worst."""
-    per_feature = np.nanmax(matrix, axis=1) if matrix.size else np.empty(0)
+    matrix = np.asarray(matrix, dtype=np.float64)
+    per_feature = np.full(matrix.shape[0] if matrix.ndim == 2 else 0, np.nan)
+    # Rows with no computable PSI stay NaN; nanmax over them would only emit "All-NaN slice encountered".
+    _has = np.isfinite(matrix).any(axis=1) if per_feature.size else np.zeros(0, dtype=bool)
+    if _has.any():
+        per_feature[_has] = np.nanmax(matrix[_has], axis=1)
     real = per_feature[np.isfinite(per_feature)]
     if real.size == 0:
         return " -- no feature has a computable PSI"

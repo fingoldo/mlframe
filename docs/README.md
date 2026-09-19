@@ -24,7 +24,8 @@ deeper material in the docs root.
 | [`visualization.md`](visualization.md) | Reference for the charts `train_mlframe_models_suite` emits and how to tune them |
 | [`gallery/index.md`](gallery/index.md) | Rendered example gallery of every chart type |
 
-See also [`docs/examples/composite_targets.md`](examples/composite_targets.md) for the tiered composite-target recipes.
+See also [`docs/examples/composite_targets.md`](examples/composite_targets.md) for the tiered composite-target recipes and
+[`docs/examples/fixed_splits.md`](examples/fixed_splits.md) for exact, reusable train/val/test splits.
 
 ## Internal / research notes
 

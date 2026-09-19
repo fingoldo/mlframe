@@ -265,3 +265,52 @@ def test_e2e_suite_uses_pinned_test_and_writes_membership(tmp_path, frame_kind):
     entry = next(e for by_name in models.values() for es in by_name.values() if isinstance(es, list) for e in es)
     y_test = np.asarray(entry.test_target.values if hasattr(entry.test_target, "values") else entry.test_target).ravel()
     assert np.allclose(np.sort(y_test), np.sort(df.loc[df["row_id"].isin(expected_test), "target"].to_numpy()))
+
+
+@pytest.mark.parametrize("drop_via", ["extractor_columns_to_drop", "preprocessing_drop_columns"])
+def test_e2e_id_column_also_listed_for_dropping(tmp_path, drop_via):
+    """The key may also be listed as a column to drop (the natural place for an id): it is still read before being
+    dropped, the membership is recorded, it never becomes a feature, and predict accepts a frame that still has it."""
+    from mlframe.training.core import predict_from_models, train_mlframe_models_suite
+    from mlframe.training.configs import (BaselineDiagnosticsConfig, DummyBaselinesConfig, OutputConfig, PreprocessingConfig,
+                                          ReportingConfig)
+    from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
+
+    n = 800
+    rng = np.random.default_rng(11)
+    x0 = rng.normal(size=n)
+    df = pd.DataFrame({"row_id": np.arange(n) * 5 + 1, "ts": pd.date_range("2024-01-01", periods=n, freq="h"),
+                       "f0": x0, "target": 2.0 * x0 + 0.1 * rng.normal(size=n)})
+    extra = {}
+    if drop_via == "extractor_columns_to_drop":
+        fte = SimpleFeaturesAndTargetsExtractor(ts_field="ts", regression_targets=["target"], columns_to_drop={"row_id"})
+    else:
+        fte = SimpleFeaturesAndTargetsExtractor(ts_field="ts", regression_targets=["target"])
+        extra["preprocessing_config"] = PreprocessingConfig(drop_columns=["row_id"])
+    models, metadata = train_mlframe_models_suite(
+        df=df,
+        target_name="pin_drop",
+        model_name=f"pin_{drop_via}",
+        features_and_targets_extractor=fte,
+        mlframe_models=["linear"],
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        split_config=TrainingSplitConfig(id_column="row_id", test_size=0.1, val_size=0.1, wholeday_splitting=False),
+        baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
+        dummy_baselines_config=DummyBaselinesConfig(enabled=False),
+        reporting_config=ReportingConfig(honest_estimator_diagnostics=False),
+        enable_target_distribution_analyzer=False,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        verbose=0,
+        **extra,
+    )
+    mem = metadata["split_membership"]
+    stored = pd.read_parquet(mem["path"])
+    assert set(stored["row_id"]) == set(df["row_id"]) and len(stored) == n
+    assert mem["counts"]["test"] > 0 and mem["counts"]["val"] > 0
+    assert "row_id" not in metadata["columns"]
+
+    result = predict_from_models(df=df.head(50), models=models, metadata=metadata, features_and_targets_extractor=fte,
+                                 return_probabilities=False, verbose=0)
+    preds = next(iter(result["predictions"].values()))
+    assert np.asarray(preds).shape[0] == 50
