@@ -51,6 +51,7 @@ from ..utils import (
     maybe_clean_ram_and_gpu,
 )
 from ..splitting import make_train_test_split
+from .._fixed_splits import has_pinned_splits, pinned_train_val_test_split, record_split_membership, split_dir_for
 from ._setup_helpers import _compute_fairness_subgroups
 
 
@@ -201,6 +202,7 @@ def _phase_train_val_test_split(
     model_name: str,
     df_size_mb: float,
     verbose: bool,
+    row_ids: np.ndarray | None = None,
 ) -> "TrainValTestSplitResult":
     """Train/val/test splitting with auto-stratification + group-aware splitting.
 
@@ -437,14 +439,23 @@ def _phase_train_val_test_split(
         _splitter_kwargs = set(_inspect.signature(make_train_test_split).parameters)
         _explicit_kwargs = {"df", "timestamps", "stratify_y", "groups", "return_calib"}
         _cfg_dict = {k: v for k, v in split_config.model_dump().items() if k in _splitter_kwargs and k not in _explicit_kwargs}
-        train_idx, val_idx, test_idx, train_details, val_details, test_details, calib_idx, calib_details = make_train_test_split(
-            df=df,
-            timestamps=timestamps,
-            stratify_y=_stratify_y,
-            groups=_groups,
-            return_calib=True,
-            **_cfg_dict,
-        )
+        if has_pinned_splits(split_config):
+            # Some splits are fixed by an id file / date windows; the rest is carved by the same splitter on the remaining rows.
+            (train_idx, val_idx, test_idx, train_details, val_details, test_details, calib_idx, calib_details,
+             _pin_info) = pinned_train_val_test_split(
+                n_rows=len(df), row_ids=row_ids, timestamps=timestamps, split_config=split_config,
+                stratify_y=_stratify_y, groups=_groups, splitter=make_train_test_split, splitter_kwargs=_cfg_dict,
+            )
+            metadata["split_pinning"] = _pin_info
+        else:
+            train_idx, val_idx, test_idx, train_details, val_details, test_details, calib_idx, calib_details = make_train_test_split(
+                df=df,
+                timestamps=timestamps,
+                stratify_y=_stratify_y,
+                groups=_groups,
+                return_calib=True,
+                **_cfg_dict,
+            )
         # E2 embargo: for cv_strategy="purged", trim the newest train rows adjacent to the future holdout.
         if getattr(split_config, "cv_strategy", "random") == "purged" and getattr(split_config, "cv_purge", 0):
             _n_before = len(train_idx) if train_idx is not None else 0
@@ -473,6 +484,13 @@ def _phase_train_val_test_split(
             models_dir=models_dir,
             target_name=target_name,
             model_name=model_name,
+        )
+
+    _id_column = getattr(split_config, "id_column", None)
+    if _id_column and row_ids is not None:
+        metadata["split_membership"] = record_split_membership(
+            row_ids=row_ids, id_column=_id_column, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, calib_idx=calib_idx,
+            timestamps=timestamps, split_dir=split_dir_for(data_dir, models_dir, target_name, model_name) if data_dir else None,
         )
 
     metadata.update(

@@ -434,12 +434,13 @@ def train_mlframe_models_suite(
             model_name=model_name,
             df_size_mb=df_size_mb,
             verbose=bool(verbose),
+            row_ids=ctx.split_row_ids,
         )
         # ``del df`` drops the local rebound name so the only remaining strong reference
         # is ``ctx.df``; nulling that lets the GC reclaim the now-unreferenced source frame.
         # Without both, the post-split full dataframe lingers in memory until the suite ends.
         del df
-        ctx.df = None
+        ctx.df = ctx.split_row_ids = None  # the split keys are consumed too
         # Mirror locals into ctx in a single bulk loop. This is the in-progress migration from
         # the legacy "phase returns big tuple, caller fans out into locals" form to a pure
         # ctx-form where phases write straight to ctx. Until every phase is converted the

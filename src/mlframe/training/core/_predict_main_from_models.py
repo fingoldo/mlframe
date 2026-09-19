@@ -21,6 +21,7 @@ from .utils import (
     _validate_input_columns_against_metadata,
 )
 from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
+from .._fixed_splits import split_id_columns_from_metadata
 from ..utils import _dtype_family
 from mlframe.utils.log_throttle import log_throttle
 
@@ -140,6 +141,8 @@ def predict_from_models(
     if features_and_targets_extractor is not None:
         df, _, _, _predict_group_ids, _predict_timestamps, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
         df = _drop_cols_df(df, columns_to_drop)
+    # The training split key (TrainingSplitConfig.id_column) is not a model feature.
+    df = _drop_cols_df(df, split_id_columns_from_metadata(metadata))
 
     # Polars fastpath probe (Fix 1). If every in-memory model is CB / XGB sklearn-API AND the input is polars,
     # keep polars all the way; non-native models on the same source frame share one cached pandas view.

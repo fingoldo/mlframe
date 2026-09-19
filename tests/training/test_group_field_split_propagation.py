@@ -16,6 +16,16 @@ import pandas as pd
 import pytest
 
 
+def _splitter_kwargs(cfg):
+    """The config fields the suite forwards to the splitter: the same signature filter the split phase applies."""
+    import inspect
+
+    from mlframe.training.splitting import make_train_test_split
+
+    accepted = set(inspect.signature(make_train_test_split).parameters) - {"df", "timestamps", "stratify_y", "groups", "return_calib"}
+    return {k: v for k, v in cfg.model_dump().items() if k in accepted}
+
+
 class TestGroupFieldEndToEnd:
     """``group_field`` from extractor must reach the splitter and prevent
     per-row group leakage."""
@@ -72,19 +82,7 @@ class TestGroupFieldEndToEnd:
             timestamps=None,
             stratify_y=None,
             groups=group_ids,
-            **cfg.model_dump(
-                exclude={
-                    "use_groups",
-                    "calib_size",
-                    "conformal_size",
-                    # config-only fields consumed in the phase-helper before the splitter
-                    "composite_cardinality_cap",
-                    "bucket_stratify",
-                    "time_column",
-                    "cv_strategy",
-                    "cv_purge",
-                }
-            ),
+            **_splitter_kwargs(cfg),
         )
 
         # Confirm: no well_id appears in more than one split.
@@ -132,19 +130,7 @@ class TestGroupFieldEndToEnd:
             timestamps=None,
             stratify_y=None,
             groups=_groups,
-            **cfg.model_dump(
-                exclude={
-                    "use_groups",
-                    "calib_size",
-                    "conformal_size",
-                    # config-only fields consumed in the phase-helper before the splitter
-                    "composite_cardinality_cap",
-                    "bucket_stratify",
-                    "time_column",
-                    "cv_strategy",
-                    "cv_purge",
-                }
-            ),
+            **_splitter_kwargs(cfg),
         )
         # With use_groups=False the IID path is used; with 1000 rows
         # across 20 wells, wells very likely leak across splits.

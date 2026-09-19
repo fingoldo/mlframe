@@ -94,6 +94,11 @@ class TrainingSplitConfig(BaseConfig):
         2024). Backward testing gives a better proxy of deployment error
         under drift but conflicts with recency weighting -- see the field
         comments below for the full trade-off analysis.
+    id_column, split_ids_path, reuse_splits, train_before_holdout : optional
+        Exact, reusable splits keyed on a stable row id: record the realised membership
+        (``split_ids.parquet``) and replay chosen splits on a later, e.g. larger, frame.
+    test_start, test_end, val_start, val_end : datetime-like, optional
+        Pin test / val by half-open ``[start, end)`` windows on the suite timestamps.
 
     Raises
     ------
@@ -207,6 +212,95 @@ class TrainingSplitConfig(BaseConfig):
     # holdout (Lopez de Prado). Default 0 -> no gap (purged == timeseries until set); applied post-split as a
     # pure train-index trim (train only shrinks), so it never reorders or touches val/test.
     cv_purge: int = Field(default=0, ge=0)
+
+    # ---- Exact, reusable splits (implementation: ``training/_fixed_splits.py``) ----
+    # Stable row key in the INPUT frame (read right after the features/targets extractor, then dropped so it never
+    # becomes a model feature). When set, every run with a data_dir writes ``<split_dir>/split_ids.parquet``
+    # ([id_column, "split"], split in train/val/test/calib) plus a ``split_ids.json`` sidecar holding counts and the
+    # start timestamp of each holdout's sequential block; ``metadata["split_membership"]`` gets
+    # {id_column, path, counts, holdout_starts}. Ids must be unique and non-null (ValueError otherwise), because a
+    # duplicated key cannot identify one row when the membership is replayed on another frame.
+    id_column: Optional[str] = None
+    # A ``split_ids.parquet`` written by an earlier run. Rows whose id is listed under a split named in
+    # ``reuse_splits`` go to exactly that split; ids absent from the current frame are WARNed per split (a reused
+    # split matching zero rows raises). Everything else forms the pool: unpinned val/test/calib are carved from it by
+    # the normal splitter (val_size stays a fraction of the non-test pool, as in the fraction path), the rest is train.
+    split_ids_path: Optional[str] = None
+    reuse_splits: Tuple[str, ...] = ("test", "val")
+    # Leakage guard for pinned holdouts: pool rows whose timestamp is >= the earliest pinned holdout START are
+    # excluded from train (INFO count). The start of a file-pinned split is its sequential block's first timestamp
+    # recorded in the sidecar (so the random part of a shuffled val, drawn from the train period, never moves the
+    # cutoff); without a sidecar the pinned test's min timestamp is used. For date windows it is the window start.
+    train_before_holdout: bool = True
+    # Half-open [start, end) date windows on the suite timestamps; either bound may be None (unbounded). Rows in the
+    # test window -> test, val window -> val. A split may be pinned by ids OR by a window, not both (ValueError).
+    test_start: Optional[Any] = None
+    test_end: Optional[Any] = None
+    val_start: Optional[Any] = None
+    val_end: Optional[Any] = None
+
+    @field_validator("test_start", "test_end", "val_start", "val_end", mode="before")
+    @classmethod
+    def _coerce_window_bound(cls, v: Any) -> Any:
+        """Parse window bounds into pandas Timestamps so comparisons and ordering checks are well-defined."""
+        if v is None:
+            return None
+        import pandas as pd
+
+        try:
+            ts = pd.Timestamp(v)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"split window bound {v!r} is not datetime-like: {e}") from e
+        if pd.isna(ts):
+            raise ValueError(f"split window bound {v!r} parsed to NaT")
+        return ts
+
+    @field_validator("reuse_splits", mode="before")
+    @classmethod
+    def _validate_reuse_splits(cls, v: Any) -> Any:
+        """reuse_splits must be a non-empty, duplicate-free subset of the four split names."""
+        if isinstance(v, str):
+            v = (v,)
+        v = tuple(v)
+        _allowed = {"train", "val", "test", "calib"}
+        _bad = [s for s in v if s not in _allowed]
+        if _bad:
+            raise ValueError(f"reuse_splits entries must be in {sorted(_allowed)}, got invalid {_bad}")
+        if not v or len(set(v)) != len(v):
+            raise ValueError(f"reuse_splits must be non-empty without duplicates, got {v}")
+        return v
+
+    @model_validator(mode="after")
+    def validate_fixed_splits(self) -> "TrainingSplitConfig":
+        """Cross-field checks for the exact-split fields: id_column requirement, window ordering and overlap."""
+        if self.split_ids_path is not None and not self.id_column:
+            raise ValueError("split_ids_path requires id_column (the row key the membership file is keyed on).")
+        if self.id_column == "split":
+            raise ValueError("id_column='split' collides with the membership file's 'split' column; use another key.")
+        _windows = {}
+        for _name in ("test", "val"):
+            _s, _e = getattr(self, f"{_name}_start"), getattr(self, f"{_name}_end")
+            if _s is not None and _e is not None:
+                if (_s.tz is None) != (_e.tz is None):
+                    raise ValueError(f"{_name}_start and {_name}_end mix tz-aware and tz-naive values.")
+                if not _e > _s:
+                    raise ValueError(f"{_name}_end ({_e}) must be > {_name}_start ({_s}); windows are half-open [start, end).")
+            if _s is not None or _e is not None:
+                _windows[_name] = (_s, _e)
+                if self.split_ids_path is not None and _name in self.reuse_splits:
+                    raise ValueError(
+                        f"split {_name!r} is defined twice: by split_ids_path (reuse_splits={self.reuse_splits}) and by "
+                        f"{_name}_start/{_name}_end. Pick one source per split."
+                    )
+        if len(_windows) == 2:
+            (_ts, _te), (_vs, _ve) = _windows["test"], _windows["val"]
+            try:
+                _overlap = (_ts is None or _ve is None or _ts < _ve) and (_vs is None or _te is None or _vs < _te)
+            except TypeError as e:
+                raise ValueError(f"test and val windows mix tz-aware and tz-naive bounds: {e}") from e
+            if _overlap:
+                raise ValueError(f"test window [{_ts}, {_te}) overlaps val window [{_vs}, {_ve}); pinned holdouts must be disjoint.")
+        return self
 
     @model_validator(mode="after")
     def validate_split_sizes(self) -> "TrainingSplitConfig":

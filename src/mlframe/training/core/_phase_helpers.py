@@ -748,6 +748,17 @@ def _phase_load_and_preprocess(
     if verbose:
         log_ram_usage()
 
+    # The split key is read here (after the extractor, which may reshape the frame) and then dropped with the other
+    # non-feature columns so it can never become a model feature.
+    _split_id_column = getattr(ctx.split_config, "id_column", None)
+    if _split_id_column:
+        from .._fixed_splits import extract_row_ids
+
+        ctx.split_row_ids = extract_row_ids(df, _split_id_column)
+        additional_columns_to_drop = list(additional_columns_to_drop or [])
+        if _split_id_column not in additional_columns_to_drop:
+            additional_columns_to_drop.append(_split_id_column)
+
     # Drop columns AFTER the extractor: it may consume or create columns.
     df = drop_columns_from_dataframe(
         df,
