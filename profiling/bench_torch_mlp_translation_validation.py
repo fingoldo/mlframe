@@ -210,7 +210,7 @@ def main():
 
     out_dir = _HERE / "_results"
     out_dir.mkdir(exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     out_path = out_dir / f"bench_torch_mlp_translation_validation_{stamp}.csv"
     with open(out_path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=sorted(rows[0].keys()))

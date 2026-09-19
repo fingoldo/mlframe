@@ -234,7 +234,7 @@ def main():
     # Save CSV.
     out_dir = _HERE / "_results"
     out_dir.mkdir(exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     out_path = out_dir / f"bench_drift_fi_vs_model_harm_{stamp}.csv"
     if rows:
         with open(out_path, "w", newline="") as f:

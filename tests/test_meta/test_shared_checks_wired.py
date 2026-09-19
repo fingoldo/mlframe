@@ -430,3 +430,49 @@ def regenerate_vacuous_loop_baseline() -> None:
     found = {loop.key: "pre-existing, recorded when the check was wired; not yet individually triaged" for loop in find_floorless_loops(_test_files(), REPO_ROOT)}
     payload = orjson.dumps(dict(sorted(found.items())), option=orjson.OPT_INDENT_2).decode("utf-8")
     _VACUOUS_LOOP_BASELINE.write_text(payload + chr(10), encoding="utf-8")
+
+
+# Synthetic timestamps for generated benchmark data: naive on purpose, like the user frames they stand in for.
+_TIMEZONE_ALLOWED: dict = {
+    ("profiling/profile_metrics_blocks.py", "DTZ001"): "synthetic naive timestamps for a generated benchmark frame",
+    ("profiling/profile_training.py", "DTZ001"): "synthetic naive timestamps for a generated benchmark frame",
+}
+
+
+def test_timezone_honest(monkeypatch, tmp_path):
+    """Non-test code states its time frame: no naive `datetime.now()` / `datetime(...)`, elapsed time is monotonic.
+
+    Runs ruff's DTZ rules over every directory that holds Python, including ones `[tool.ruff] exclude` drops.
+    pyproject's ruff config `extend`s `$PY_CI_SHARED_DIR/configs/ruff-base.toml`; the DTZ rules are selected
+    explicitly, so when no checkout is configured an empty base stands in for it.
+    """
+    import os
+
+    from py_ci_shared.timezone_honest import assert_timezone_honest
+
+    if not os.environ.get("PY_CI_SHARED_DIR"):
+        (tmp_path / "configs").mkdir()
+        (tmp_path / "configs" / "ruff-base.toml").write_text("", encoding="utf-8")
+        monkeypatch.setenv("PY_CI_SHARED_DIR", str(tmp_path))
+    assert_timezone_honest(REPO_ROOT, scan_paths=("src", "profiling", "scripts", "benchmarks"), allowed=_TIMEZONE_ALLOWED)
+
+
+_FUNCTION_LENGTH_BASELINE = Path(__file__).resolve().parent / "_function_length_baseline.json"
+
+
+def test_long_functions_do_not_grow():
+    """No new function over 150 lines, and the long ones already there may not get longer.
+
+    Ratcheted per `path::qualname`, so moving a function does not reset it. A function that shrinks must have its
+    ceiling lowered: refresh via `python tests/test_meta/regen_baselines.py`.
+    """
+    from py_ci_shared.function_length import assert_functions_do_not_grow
+
+    assert_functions_do_not_grow(_src_files(), REPO_ROOT, _FUNCTION_LENGTH_BASELINE, limit=150, min_functions=5000)
+
+
+def regenerate_function_length_baseline() -> None:
+    """Rewrite the function-length ceilings from the current tree. Called by `regen_baselines.py`."""
+    from py_ci_shared.function_length import function_lengths, write_length_baseline
+
+    write_length_baseline(_FUNCTION_LENGTH_BASELINE, function_lengths(_src_files(), REPO_ROOT), limit=150)
