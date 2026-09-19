@@ -38,6 +38,7 @@ import threading
 from typing import Sequence
 
 import numpy as np
+from ._fourier_core_cycles import core_span, freq_is_tail_aliased
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +297,7 @@ def detect_fourier_freqs_for_col_gpu(
         return []
 
     _eff_min_val_corr = max(float(min_val_corr), 0.30)
+    _core_span = core_span(z01)  # tail-aliasing guard, identical to the CPU detector
 
     # Coarse-grid sin/cos plane on TRAIN, built ONCE (depends only on z). Resident (nf, n).
     grid_dev = cp.asarray(np.asarray(grid, dtype=np.float64))  # tiny H2D (grid is O(48))
@@ -329,6 +331,10 @@ def detect_fourier_freqs_for_col_gpu(
         best_f = grid[best_gi]
         refined_f = _refine_peak_freq_gpu(cp, z_tr, yc, y_ss, best_f)
         if any(abs(refined_f - g) < 0.25 for g in out):
+            y_tr = _deflate_sincos_gpu(cp, z_tr, y_tr, refined_f)
+            y_va = _deflate_sincos_gpu(cp, z_va, y_va, refined_f)
+            continue
+        if freq_is_tail_aliased(refined_f, _core_span):
             y_tr = _deflate_sincos_gpu(cp, z_tr, y_tr, refined_f)
             y_va = _deflate_sincos_gpu(cp, z_va, y_va, refined_f)
             continue
