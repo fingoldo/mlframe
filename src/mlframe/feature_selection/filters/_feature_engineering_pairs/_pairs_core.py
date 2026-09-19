@@ -1009,7 +1009,7 @@ def check_prospective_fe_pairs(
                 return 0.0
             # One-pass njit |corr| over jointly-finite rows - replaces isfinite-mask + boolean-index copies + two
             # np.std + a 2x2 np.corrcoef (~23-35x on the 8k+ noise-wrap-gate calls); FP-equivalent to ~1e-15.
-            return float(_abs_corr_finite_njit(_a, _corr_y_cont, _corr_y_cont_finite))
+            return float(_abs_corr_finite_njit(_a, _corr_y_cont, _corr_y_cont_finite, 8))
         except Exception as e:
             logger.debug("_safe_abs_corr: |corr| computation failed, treating as uncorrelated (0.0): %s", e)
             return 0.0

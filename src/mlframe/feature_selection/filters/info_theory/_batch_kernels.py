@@ -402,7 +402,7 @@ def batch_triple_mi_perm_batched(
 def _perm_failcount_col(
     classes_dense: np.ndarray, k: int, freqs_dense: np.ndarray, K_x: int,
     locals_mat: np.ndarray, freqs_y: np.ndarray, n: int, npermutations: int,
-    original_mi_k: float, use_su: bool, dtype,
+    original_mi_k: float, use_su: bool, dtype, stop_at: int = 0,
 ) -> int:
     """Permutation fail-count for ONE densified column ``k`` against all ``npermutations`` pre-shuffled
     ``locals_mat[i]`` y-vectors. BIT-IDENTICAL to looping ``_relevance_from_dense(..., locals_mat[i], ...)``
@@ -411,6 +411,9 @@ def _perm_failcount_col(
     CONTIGUOUS buffer ONCE (unit-stride vs the strided classes_dense[r,k] gather re-read per perm) and ONE
     ``joint`` histogram is reused across perms (re-zeroed) instead of a fresh np.zeros per (perm,col). Called
     from a prange over k, so each thread owns its column -> no cross-thread races (nfk is returned, not shared).
+    ``stop_at > 0`` returns as soon as ``stop_at`` permutations have failed: the batch callers only test
+    ``nfailed >= max_failed``, so the remaining shuffles cannot change the verdict (a noise candidate usually fails
+    the first one). ``stop_at == 0`` counts every permutation.
     """
     K_y = len(freqs_y)
     col_codes = np.empty(n, dtype=classes_dense.dtype)
@@ -454,6 +457,8 @@ def _perm_failcount_col(
             mi_perm = 0.0 if su_denom <= 1e-12 else 2.0 * mi_perm / su_denom
         if mi_perm >= original_mi_k:
             nfk += 1
+            if stop_at > 0 and nfk >= stop_at:
+                return nfk
     return nfk
 
 
@@ -607,7 +612,7 @@ def batch_mi_with_noise_gate(
             continue
         nfailed[k] = _perm_failcount_col(
             classes_dense, k, freqs_dense, int(kx[k]), locals_mat, freqs_y, n,
-            npermutations, original_mi[k], use_su, dtype,
+            npermutations, original_mi[k], use_su, dtype, max_failed,
         )
 
     for k in range(K):
@@ -721,7 +726,7 @@ def batch_mi_with_noise_gate_v2(
             continue
         nfailed[k] = _perm_failcount_col(
             classes_dense, k, freqs_dense, int(kx[k]), locals_mat, freqs_y, n,
-            npermutations, original_mi[k], use_su, dtype,
+            npermutations, original_mi[k], use_su, dtype, max_failed,
         )
 
     for k in range(K):
