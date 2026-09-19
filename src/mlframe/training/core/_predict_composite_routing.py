@@ -56,6 +56,38 @@ def composite_stage_frame(model: Any, df: Any, df_pre_pipeline: Any, to_pandas: 
     return chosen
 
 
+def composite_predict(model: Any, model_obj: Any, df: Any, df_pre_pipeline: Any, to_pandas: Callable[[Any], Any]) -> Any:
+    """Predict with a composite wrapper from the suite-stage frame.
+
+    A wrapper that does not carry its inner's pipeline (built before the suite stamped it, or by a caller of
+    ``from_fitted_inner``) still needs the inner fed through the entry's fitted ``pre_pipeline``, so that stage is computed here
+    and passed as ``inner_X`` while the base stays on the raw frame.
+    """
+    import numpy as np
+
+    stage = composite_stage_frame(model, df, df_pre_pipeline, to_pandas)
+    inner_X = None
+    if getattr(model, "inner_pre_pipeline_", None) is None:
+        pp = getattr(model_obj, "pre_pipeline", None)
+        if pp is not None and _is_fitted_pipeline(pp):
+            from ..composite.post_shim import subset_to_fit_columns
+
+            inner_X = subset_to_fit_columns(pp.transform(subset_to_fit_columns(stage, pp)), getattr(model, "estimator_", None))
+    return np.asarray(model.predict(stage) if inner_X is None else model.predict(stage, inner_X=inner_X))
+
+
+def _is_fitted_pipeline(pp: Any) -> bool:
+    """Whether ``pp`` is a fitted transformer (an unfitted placeholder means the inner was trained on the frame as it stands)."""
+    from sklearn.utils.validation import check_is_fitted
+
+    try:
+        check_is_fitted(pp)
+        return True
+    except Exception as exc:
+        logger.debug("check_is_fitted(pre_pipeline) says unfitted: %s", exc)
+        return False
+
+
 def _is_polars_native(inner: Any) -> bool:
     """Whether the inner estimator accepts a polars frame directly (CatBoost / XGBoost sklearn API)."""
     if inner is None:

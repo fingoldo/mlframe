@@ -24,7 +24,7 @@ from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_c
 from .._fixed_splits import split_id_columns_from_metadata
 from ..utils import _dtype_family
 from mlframe.utils.log_throttle import log_throttle
-from ._predict_composite_routing import composite_stage_frame, is_composite_wrapper, register_spec_transforms
+from ._predict_composite_routing import composite_predict, is_composite_wrapper, register_spec_transforms
 
 logger = logging.getLogger("mlframe.training.core.predict")
 
@@ -357,8 +357,7 @@ def predict_from_models(
                     if is_composite_wrapper(model):
                         # The wrapper reads its base from the suite-stage frame and applies its own inner pipeline to it, so it
                         # skips the per-model subset + pre_pipeline step raw models get below.
-                        _stage = composite_stage_frame(model, df, df_pre_pipeline, lambda _f: _ensure_pandas_view(_f, _pandas_view_cache))
-                        preds = np.asarray(model.predict(_stage))
+                        preds = composite_predict(model, model_obj, df, df_pre_pipeline, lambda _f: _ensure_pandas_view(_f, _pandas_view_cache))
                         results["predictions"][model_name] = preds
                         all_preds.append(preds)
                         per_target_preds.setdefault((target_type, target_name), []).append(preds)
