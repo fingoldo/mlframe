@@ -423,9 +423,19 @@ def plot_mi_gain_with_jitter(
     ax.axhline(0, color="black", lw=0.5)
     ax.set_xticks(x)
     ax.set_xticklabels(names, rotation=30, ha="right", fontsize=8)
-    ax.set_ylabel("mi_gain (T-vs-y MI delta)")
+    ax.set_ylabel("mi_gain (MI with T - MI with y)")
     ax.set_title(title)
-    fig.tight_layout()
+    fig.text(
+        0.01, 0.01,
+        "Each bar is one composite target that survived discovery (name = target-transform-base column). mi_gain is how "
+        "much MORE mutual information the features carry about the substitute target T than about the original y: "
+        "positive means T is easier to predict from the features than y is. The absolute values are small by nature; "
+        "compare bars with each other, not with 1. Error bars are a visual noise cue (5% jitter), not a confidence "
+        "interval. The final keep/drop decision is made on holdout RMSE in y units, not on this number.",
+        ha="left", va="bottom", fontsize=8, wrap=True,
+        bbox={"facecolor": "#f4f4f4", "edgecolor": "#bbbbbb"},
+    )
+    fig.tight_layout(rect=(0, 0.16, 1, 1))
     return fig
 
 

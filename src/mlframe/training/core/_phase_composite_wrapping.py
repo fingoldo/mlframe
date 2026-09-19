@@ -85,6 +85,7 @@ def _emit_yscale_composite_chart(
     mae_y: float,
     r2_y: float,
     split_name: str = "test",
+    y_train_mean: float | None = None,
 ) -> None:
     """Emit a y-scale chart for a composite-target model on one split.
 
@@ -112,6 +113,23 @@ def _emit_yscale_composite_chart(
     _mttr = float(np.mean(y_target))
     _mtts = float(np.std(y_target))
     chart_model_name = f"{_inner_class} {target_name} [y-scale] {_split}_mean/{_split}_std={_mttr:.2f}/{_mtts:.2f}"
+    _report_title = _split.upper()
+    # Same header as the raw-target model's own charts (dates, trained-on rows, @iter, feature count): reuse the title the
+    # trainer recorded for this model and swap its T-scale token (MTRESID = mean of the transformed train target) for the
+    # y-scale train mean, then let the shared helper append this split's mean exactly as it does for every other chart.
+    _native_title = getattr(inner_entry, "chart_model_name", None)
+    if _native_title and y_train_mean is not None and np.isfinite(y_train_mean):
+        from .._eval_helpers import _MTTR_RE, _append_split_rate_suffix
+        from .._format import format_metric as _fmt
+
+        _t = _MTTR_RE.sub(f"MTTR={_fmt(float(y_train_mean))}", str(_native_title), count=1)
+        if _MTTR_RE.search(_t):
+            _t = _t.replace(f" {target_name} ", f" {target_name} [y-scale] ", 1)
+            if "[y-scale]" not in _t:
+                _t = _MTTR_RE.sub(lambda m: "[y-scale] " + m.group(0), _t, count=1)
+            chart_model_name = _append_split_rate_suffix(_t, split_name=_split, target=y_target)
+            _details = (getattr(inner_entry, "chart_split_details", None) or {}).get(_split, "")
+            _report_title = " ".join([_split.upper(), _details]).strip()
     # Preferred: the model's own chart prefix (recorded on the entry by the trainer), joined to the split exactly like the
     # regular eval path (_eval_helpers: a trailing os.sep is a directory -> join, else underscore-join). The composite model's
     # T-scale chart is never written, so there is nothing to collide with and no disambiguating suffix is needed.
@@ -142,7 +160,7 @@ def _emit_yscale_composite_chart(
         columns=(),
         model_name=chart_model_name,
         model=None,
-        report_title=_split.upper(),
+        report_title=_report_title,
         print_report=True,
         show_perf_chart=True,
         plot_file=_plot_path,
@@ -459,6 +477,10 @@ def _run_composite_target_wrapping(
                                 continue
                             try:
                                 _wrap_chart = getattr(_entry, "model", None) or _entry
+                                if not callable(getattr(_wrap_chart, "predict", None)):
+                                    # Ensemble pseudo-entries carry predictions, not a model: there is nothing to predict with
+                                    # (a production log warned "'SimpleNamespace' object has no attribute 'predict'" per entry).
+                                    continue
                                 _y_split_chart = _y_arr_chart[test_idx]
                                 _y_pred_chart = np.asarray(
                                     _wrap_chart.predict(test_df_pd),
@@ -503,6 +525,8 @@ def _run_composite_target_wrapping(
             _y_arr_metric = np.asarray(_y_full_metric)
             for _entry in _entries:
                 _wrapper_for_score = getattr(_entry, "model", None) or _entry
+                if not callable(getattr(_wrapper_for_score, "predict", None)):
+                    continue  # ensemble pseudo-entry without a model (see the chart loop above)
                 _entry_y_scores: dict[str, dict[str, float]] = {}
                 for _split_name, _split_idx, _split_df in (
                     ("train", filtered_train_idx, filtered_train_df),
@@ -602,6 +626,11 @@ def _run_composite_target_wrapping(
                                     reporting_config=reporting_config,
                                     rmse_y=_rmse_wrapped, mae_y=_mae_wrapped, r2_y=_r2,
                                     split_name=_split_name,
+                                    y_train_mean=(
+                                        float(np.nanmean(_y_arr_metric[filtered_train_idx].astype(np.float64)))
+                                        if filtered_train_idx is not None and len(filtered_train_idx)
+                                        else None
+                                    ),
                                 )
                             except Exception as _chart_err:
                                 log_throttle(

@@ -539,11 +539,13 @@ def test_target_dist_overlay_heavy_tail_crops_visible_xlim_and_labels_density_cl
     fig = target_dist_overlay(y, task="regression")
     panel = next(p for row in fig.panels for p in row if p is not None)
     assert isinstance(panel, LinePanelSpec)
-    assert panel.ylabel == "Probability density"
-    assert panel.xlim is not None, "a heavy-tailed target's density panel must crop its visible x-range"
-    _lo, hi = panel.xlim
-    assert hi < 100, f"xlim should crop out the long tail (>=500), got hi={hi}"
-    assert "cropped" in fig.caption.lower() or "tail" in fig.caption.lower()
+    # The heavy tail is now handled by asinh-spaced bins on an asinh axis instead of a cropped linear view: the bulk
+    # gets many bins, the tail stays on the chart, and the y label says what the numbers are.
+    assert panel.xscale == "asinh"
+    assert "share of rows" in panel.ylabel
+    x = np.asarray(panel.x)
+    assert (x < 5).sum() >= 10, "the bulk in [0, 5] must be resolved into many bins (equal-width bins gave it one)"
+    assert x.max() > 500, "the tail must stay on the chart, not be cropped away"
 
 
 def test_target_dist_overlay_well_behaved_target_is_not_cropped():
@@ -691,3 +693,43 @@ def test_render_smoke_all_figures(reg_clean, fairness_frame, tmp_path, backend):
         base = os.path.join(str(tmp_path), name)
         render_and_save(fig, parse_plot_output_dsl(backend), base)
     assert any(os.scandir(str(tmp_path)))
+
+
+def test_heavy_tail_split_overlay_keeps_splits_apart():
+    """A mostly-zero target with a tail past 1 000 used to land in one equal-width bin (width ~17): the curves started
+    at 17 and every split looked identical. asinh-spaced bins must keep the splits distinguishable."""
+    from mlframe.reporting.charts._error_analysis_splits import target_dist_overlay
+
+    rng = np.random.default_rng(0)
+
+    def mk(n, m):
+        return np.where(rng.random(n) < 0.6, 0.0, rng.lognormal(np.log(m * 4), 1.5, n))
+
+    spec = target_dist_overlay({"train": mk(40000, 2.1), "val": mk(5000, 1.2), "test": mk(6000, 0.3)})
+    panel = spec.panels[0][0]
+    assert panel.xscale == "asinh"
+    assert float(np.min(panel.x)) < 1.0
+    train, test = (np.asarray(s) for s in (panel.y[0], panel.y[2]))
+    assert np.abs(train - test).sum() > 0.2
+
+
+def test_drift_verdict_not_hidden_by_heavy_tail():
+    """Mean 2.11 -> 0.26 on a mostly-zero heavy-tailed target was reported "No material drift": a quarter of the std
+    (inflated by the tail) was the bar. The bar now uses a robust spread."""
+    from mlframe.reporting.charts._error_analysis_splits import _target_drift_verdict
+
+    rng = np.random.default_rng(0)
+
+    def mk(n, m):
+        return np.where(rng.random(n) < 0.7, 0.0, rng.lognormal(np.log(m / 0.3) - 2.0, 2.0, n))
+
+    verdict = _target_drift_verdict({"train": mk(200000, 2.1), "test": mk(60000, 0.26)}, train_key="train", task="regression")
+    assert "WARNING" in verdict and "test" in verdict.split("WARNING")[1]
+
+
+def test_drift_verdict_quiet_on_same_distribution():
+    from mlframe.reporting.charts._error_analysis_splits import _target_drift_verdict
+
+    rng = np.random.default_rng(1)
+    v = _target_drift_verdict({"train": rng.lognormal(0, 2, 200000), "test": rng.lognormal(0, 2, 60000)}, train_key="train", task="regression")
+    assert "No material drift" in v

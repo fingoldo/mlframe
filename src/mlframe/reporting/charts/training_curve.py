@@ -68,17 +68,24 @@ _HIGHER_IS_BETTER_METRICS = frozenset({"auc", "roc_auc", "aucpr", "pr_auc", "ave
 def _sampled_positions(length: int, n_iter: int, metric_period: Optional[int]) -> Optional[np.ndarray]:
     """Iteration positions of a series the booster recorded only every ``metric_period`` iterations, else None.
 
-    CatBoost with ``metric_period=k`` logs the learn metric at iterations 0, k, 2k, ... plus the final one, while the
-    validation metric is logged EVERY iteration (early stopping needs it), so the two arrays have different lengths.
-    Returns the positions only when ``length`` matches that sampling grid exactly; a series that is short for another
-    reason (an eval set that genuinely stopped early) returns None and must not be stretched over the full range.
+    CatBoost with ``metric_period=k`` logs the learn metric at iterations 0, k, 2k, ... (plus, in some versions, the
+    final one), while the validation metric is logged EVERY iteration (early stopping needs it), so the two arrays have
+    different lengths. The positions are returned only when ``length`` matches that grid exactly, with or without the
+    final iteration; a series that is short for another reason (an eval set that genuinely stopped early) returns None
+    and must not be stretched. A production CatBoost chart (metric_period=5, 259 iterations) drew the train curve
+    ending at iteration 51 because its 52 points lacked the final iteration and only the 53-point grid was accepted.
     """
-    if not metric_period or metric_period <= 1 or length < 2 or n_iter < 2:
+    if length < 2 or n_iter < 2:
         return None
-    pos = list(range(0, n_iter, int(metric_period)))
-    if pos[-1] != n_iter - 1:
-        pos.append(n_iter - 1)
-    return np.asarray(pos, dtype=np.float64) if len(pos) == length else None
+    if not metric_period or metric_period <= 1:
+        return None
+    for k in (int(metric_period),):
+        pos = list(range(0, n_iter, k))
+        if len(pos) == length:
+            return np.asarray(pos, dtype=np.float64)
+        if pos[-1] != n_iter - 1 and len(pos) + 1 == length:
+            return np.asarray(pos + [n_iter - 1], dtype=np.float64)
+    return None
 
 
 def _metric_panel(

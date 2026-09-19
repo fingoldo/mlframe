@@ -77,3 +77,32 @@ def test_composite_yscale_chart_without_any_path_is_skipped_quietly(tmp_path):
     entry = SimpleNamespace(model=CatBoostRegressor())
     _emit(entry, "test", plot_file="")
     assert not _saved(tmp_path, "*.png")
+
+
+def test_composite_chart_header_matches_the_native_format(tmp_path, monkeypatch):
+    """The composite y-scale chart used a hand-built short header (``test_mean/test_std=...``) without the dates, trained-on
+    rows, @iter and feature count every other chart carries. It now reuses the model's recorded title with y-scale MTTR."""
+    import mlframe.training.evaluation as ev
+
+    seen = {}
+
+    def _capture(**kw):
+        seen.update(kw)
+
+    monkeypatch.setattr(ev, "report_regression_model_perf", _capture)
+    native = "CatBoostRegressor notext run target_hourly_rate-logY MTRESID=0.1234\n trained on 498.0K rows 2026-03-01/2026-08-01 @iter=8"
+    entry = SimpleNamespace(
+        model=CatBoostRegressor(), plot_file=os.path.join(str(tmp_path), "m"), chart_model_name=native,
+        chart_split_details={"test": "2026-08-10/2026-09-13"},
+    )
+    rng = np.random.default_rng(0)
+    y = rng.normal(10.0, 2.0, 400)
+    _emit_yscale_composite_chart(
+        y_target=y, y_pred=y, inner_entry=entry, composite_name="c", orig_tname="target_hourly_rate",
+        target_name="target_hourly_rate-logY", plot_file="", reporting_config=None, rmse_y=0.0, mae_y=0.0, r2_y=1.0,
+        split_name="test", y_train_mean=2.11,
+    )
+    assert seen["report_title"] == "TEST 2026-08-10/2026-09-13"
+    name = seen["model_name"]
+    assert "MTTR/MTTS=2.11/" in name and "MTRESID" not in name
+    assert "trained on 498.0K rows" in name and "@iter=8" in name and "[y-scale]" in name

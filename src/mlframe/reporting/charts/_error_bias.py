@@ -137,6 +137,13 @@ def error_bias_per_feature(
             # silently produces NaN/inf densities downstream via divide-by-zero in np.histogram's
             # normalization instead of raising. Skip this feature's panel the same way as above.
             continue
+        # Heavy-tailed feature: equal-width bins put nearly every row in the first bin and the three group curves
+        # overlap at 0 (a production budget column spanning 0..1e6). asinh-spaced bins spread the bulk and the tail.
+        from mlframe.reporting.charts.regression import _asinh_edges_if_heavy, asinh_linear_width
+
+        heavy = _asinh_edges_if_heavy(cf, float(cf.min()), float(cf.max()), nbins)
+        if heavy is not None:
+            edges = heavy
         centers = (edges[:-1] + edges[1:]) / 2.0
         series: List[np.ndarray] = []
         labels: List[str] = []
@@ -144,7 +151,8 @@ def error_bias_per_feature(
         for g in ("OVER", "UNDER", "MAJORITY"):
             gvals = col[masks[g] & finite]
             dens, _ = np.histogram(gvals, bins=edges, density=True)
-            series.append(dens)
+            # Uneven bins: plot each group's share of rows per bin so narrow and wide bins are comparable.
+            series.append(dens * np.diff(edges) if heavy is not None else dens)
             labels.append(g)
             cols.append(group_colors[g])
             rows[g].append(float(gvals.mean()) if gvals.size else float("nan"))
@@ -157,8 +165,11 @@ def error_bias_per_feature(
         nbin = len(centers)
         cnt = np.bincount(bin_idx, minlength=nbin).astype(np.float64)
         ssum = np.bincount(bin_idx, weights=resid_signed[finite], minlength=nbin)
+        # A segment must hold enough rows for its mean residual to mean something: the tail bins of a heavy feature held a
+        # handful of rows and won "worst segment" on noise (a production chart named hourly_budget_mid in [476, 501]).
+        min_rows = max(30, int(0.005 * finite.sum()))
         with np.errstate(invalid="ignore", divide="ignore"):
-            seg_bias = np.where(cnt > 0, ssum / np.where(cnt > 0, cnt, 1.0), np.nan)
+            seg_bias = np.where(cnt >= min_rows, ssum / np.where(cnt > 0, cnt, 1.0), np.nan)
         worst_b = int(np.nanargmax(np.where(np.isfinite(seg_bias), np.abs(seg_bias), -np.inf))) if np.isfinite(seg_bias).any() else -1
         if worst_b >= 0:
             wb = float(seg_bias[worst_b])
@@ -178,8 +189,10 @@ def error_bias_per_feature(
             colors=tuple(cols),
             line_styles=("-", "-", "--"),
             title=f"{names[j]} value distribution by error group\n{worst_note}",
-            xlabel=names[j],
-            ylabel="Density",
+            xlabel=names[j] + (" (asinh scale)" if heavy is not None else ""),
+            ylabel="share of rows per bin" if heavy is not None else "Density",
+            xscale="asinh" if heavy is not None else "linear",
+            xscale_linear_width=asinh_linear_width(cf) if heavy is not None else 1.0,
         ))
 
     group_means = pd.DataFrame(
@@ -202,8 +215,9 @@ def error_bias_per_feature(
             f"Rows are split by signed residual (y_true - y_pred) into the bottom {tail_fraction:.0%} where the model "
             f"OVER-predicts, the top {tail_fraction:.0%} where it UNDER-predicts, and the middle MAJORITY. Each panel "
             "overlays those three groups' value distributions for one feature: wherever the tail curves pull away "
-            "from the majority, that feature's values are what drive the extreme errors. y is a density, so each "
-            "curve integrates to 1 and the three groups' heights are NOT comparable as counts."
+            "from the majority, that feature's values are what drive the extreme errors. y is each group's density "
+            "(on an asinh axis, its share of rows per bin), so each curve integrates or sums to 1 and the three groups' "
+            "heights are NOT comparable as counts. Worst-bias segments must hold at least 30 rows (0.5% of the split)."
         ),
     )
     return ErrorBiasResult(fig, group_means, masks)

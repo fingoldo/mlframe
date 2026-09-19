@@ -366,10 +366,33 @@ def render_target_drift_diagnostics(
 
     has_time = timestamps is not None and len(np.asarray(timestamps)) > 0
 
+    # Calendar encodings of the timestamp (day/weekday/hour sin-cos, ...) differ between time buckets and between an
+    # earlier and a later split BY CONSTRUCTION; left in, they dominate both the PSI heatmap and the adversarial ranking.
+    _calendar: list = []
+    if has_time and test_frame is not None:
+        try:
+            from mlframe.reporting.charts._calendar_features import calendar_feature_names
+
+            _calendar = calendar_feature_names(test_frame, np.asarray(timestamps)[: _row_count(test_frame)], feature_names)
+        except Exception:
+            logger.debug("calendar-feature detection failed; drift charts keep every feature.", exc_info=True)
+    _all_names = list(feature_names) if feature_names is not None else None
+    if _calendar:
+        if _all_names is None:
+            from mlframe.reporting.charts._drift_shared import _frame_columns
+
+            _all_names = [str(n) for n in _frame_columns(test_frame, None)[1]]
+        _non_calendar = [n for n in _all_names if str(n) not in set(_calendar)]
+        logger.info("drift charts: excluding %d calendar feature(s) derived from the timestamp: %s", len(_calendar), ", ".join(_calendar))
+    else:
+        _non_calendar = _all_names
+
     if has_time and test_frame is not None:
         ts = np.asarray(timestamps)
         try:
-            spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=feature_names)
+            spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=_non_calendar)
+            if _calendar:
+                spec = _with_caption_note(spec, f"Excluded {len(_calendar)} calendar feature(s) derived from the timestamp (they differ between time buckets by construction): {', '.join(_calendar)}.")
             ok = _save_spec(spec, plot_outputs, base_path + "_psi")
             _record(charts, "psi_heatmap", ok)
             if ok:
@@ -454,7 +477,7 @@ def render_target_drift_diagnostics(
             # underlying frame-reader already narrows to exactly the given names, so no extra frame slicing
             # is needed. Traced to a production profile alongside the (separately fixed) PDP categorical-
             # sweep cost -- the same "cost scales with an unbounded dimension" bug class.
-            _adv_names = list(feature_names) if feature_names is not None else _column_names(train_frame)
+            _adv_names = list(_non_calendar) if _non_calendar is not None else _column_names(train_frame)
             if _adv_names is not None and len(_adv_names) > DIAG_MAX_FEATURES:
                 _adv_names = _adv_names[:DIAG_MAX_FEATURES]
             spec = _adversarial_validation_fn(
@@ -462,6 +485,8 @@ def render_target_drift_diagnostics(
                 val_frame=val_frame if test_frame is not None else None,
                 feature_names=_adv_names, seed=seed,
             )
+            if _calendar:
+                spec = _with_caption_note(spec, f"Excluded {len(_calendar)} calendar feature(s) derived from the timestamp (an earlier and a later period differ in them by construction): {', '.join(_calendar)}.")
             ok = _save_spec(spec, plot_outputs, base_path + "_adversarial")
             _record(charts, "adversarial", ok)
             if ok:
@@ -469,6 +494,17 @@ def render_target_drift_diagnostics(
         except Exception:
             logger.exception("diagnostics_dispatch: adversarial_validation failed; continuing.")
             _record(charts, "adversarial", False)
+
+
+def _with_caption_note(spec: Any, note: str) -> Any:
+    """Return ``spec`` with ``note`` appended to its caption (FigureSpec is a frozen dataclass)."""
+    import dataclasses
+
+    try:
+        cap = getattr(spec, "caption", "") or ""
+        return dataclasses.replace(spec, caption=(cap + " " + note).strip())
+    except Exception:
+        return spec
 
 
 def _record_path(charts: Optional[dict], path: str) -> None:

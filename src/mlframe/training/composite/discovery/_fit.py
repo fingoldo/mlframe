@@ -33,6 +33,7 @@ from .screening import (
     _sample_indices,
 )
 from ..transforms import UnknownTransformError, get_transform
+from ._skew_gate import left_skewed_right_tail_skips
 from ._fit_ram import _phase_ram_report, _process_mem_mb  # noqa: F401 -- _process_mem_mb re-exported for back-compat
 from ._eval import build_unary_base_context, eval_one_transform
 from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidates_report_entry
@@ -547,11 +548,19 @@ def fit(
     # dedups so each unary appears once. Keeping the build serial outside the
     # parallel dispatch preserves deterministic (base, transform) ordering.
     _unary_context_available = _UNARY_BASE_SENTINEL in _base_contexts
+    _skip_right_tail = left_skewed_right_tail_skips(y_train)
+    if _skip_right_tail:
+        logger.info(
+            "[CompositeTargetDiscovery] target is left-skewed; skipping right-tail compressors %s (they would deepen the "
+            "skew). yeo_johnson_y stays: it fits lambda > 1 for a left tail.", sorted(_skip_right_tail),
+        )
     _work_items: list[tuple[str, str, Any]] = []
     for base in base_candidates:
         if base not in _base_contexts:
             continue
         for transform_name in self.config.transforms:
+            if transform_name in _skip_right_tail:
+                continue
             try:
                 transform = get_transform(transform_name)
             except UnknownTransformError as exc:
