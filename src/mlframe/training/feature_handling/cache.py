@@ -71,6 +71,7 @@ from mlframe.training.feature_handling.fingerprint import (
 )
 from mlframe.training.feature_handling.system import long_path_safe
 from mlframe.training.io import atomic_write_bytes
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 logger = logging.getLogger(__name__)
 
@@ -217,8 +218,10 @@ class FeatureCache:
         # 3. Compute fresh
         with self._lock:
             self._misses += 1
+        synchronize_gpu_if_available()
         t0 = time.monotonic()
         value = compute_fn()
+        synchronize_gpu_if_available()
         recompute_time_s = max(0.001, time.monotonic() - t0)
 
         # 4. Store

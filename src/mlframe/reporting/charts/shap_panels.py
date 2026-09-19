@@ -569,7 +569,7 @@ def _dependence_grid_figs(
         return []
     # All requested panels go in ONE figure by default (a top_k of 4-6 is a clean 2x2 / 2x3); callers wanting a
     # hard cap per figure pass ``panels_per_fig``.
-    chunk = panels_per_fig if panels_per_fig and panels_per_fig > 0 else len(cols)
+    chunk = panels_per_fig if panels_per_fig is not None and panels_per_fig > 0 else len(cols)
     figs: List[Any] = []
     for start in range(0, len(cols), chunk):
         block = list(cols[start : start + chunk])

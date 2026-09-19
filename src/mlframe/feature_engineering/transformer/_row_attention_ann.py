@@ -40,13 +40,16 @@ def _ensure_ann_available(backend: Literal["pynndescent", "hnswlib"]) -> Any:
             ) from exc
         return pynndescent
     if backend == "hnswlib":
+        from mlframe.utils.native_import_probe import native_module_importable
+
+        _hint = ("Note: on Windows an hnswlib wheel can crash at import (a numpy ABI mismatch, or an MSVC runtime next to python.exe "
+                 "older than the wheel's). Default ann_backend='auto' uses pynndescent which avoids this issue.")
+        if not native_module_importable("hnswlib"):
+            raise ImportError(f"hnswlib is required when ann_backend='hnswlib' but cannot be imported in this environment. {_hint}")
         try:
             import hnswlib
         except ImportError as exc:  # pragma: no cover - environment-dependent
-            raise ImportError(
-                "hnswlib is required when ann_backend='hnswlib'. Note: hnswlib wheels on Windows with numpy 2 frequently segfault at import "
-                "(the C extension is built against numpy 1.x). Default ann_backend='auto' uses pynndescent which avoids this issue."
-            ) from exc
+            raise ImportError(f"hnswlib is required when ann_backend='hnswlib'. {_hint}") from exc
         return hnswlib
     raise ValueError(f"Unknown ANN backend: {backend!r}")
 

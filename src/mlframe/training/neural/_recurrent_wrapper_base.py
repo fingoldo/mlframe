@@ -364,7 +364,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             _pin_memory = _env_pin if _env_pin is not None else (torch.cuda.is_available() and self._cfg.accelerator in ("auto", "gpu", "cuda"))
         return DataLoader(
             dataset,
-            batch_size=batch_size or self._cfg.batch_size,
+            batch_size=batch_size if batch_size is not None and batch_size != 0 else self._cfg.batch_size,
             shuffle=shuffle,
             sampler=sampler,
             num_workers=self._cfg.num_workers,

@@ -50,6 +50,12 @@ def _check_hnsw_available() -> bool:
             _HNSW_AVAILABLE = False
             logger.info("[_knn_helper] MLFRAME_DISABLE_HNSW set; using exact sklearn NearestNeighbors " "(hnswlib import skipped).")
             return _HNSW_AVAILABLE
+        from mlframe.utils.native_import_probe import native_module_importable
+
+        # Probed out of process first: a broken hnswlib DLL crashes the interpreter instead of raising ImportError.
+        if not native_module_importable("hnswlib"):
+            _HNSW_AVAILABLE = False
+            return _HNSW_AVAILABLE
         try:
             import hnswlib  # noqa: F401
             _HNSW_AVAILABLE = True

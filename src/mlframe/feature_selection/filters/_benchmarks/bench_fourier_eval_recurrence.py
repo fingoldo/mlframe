@@ -30,6 +30,7 @@ import time
 
 import numpy as np
 from numba import njit
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 @njit(fastmath=True, cache=True)
@@ -70,8 +71,10 @@ def main():
             def best(f):
                 m = 1e9
                 for _ in range(20):
+                    synchronize_gpu_if_available()
                     t = time.perf_counter()
                     f(z, c)
+                    synchronize_gpu_if_available()
                     m = min(m, time.perf_counter() - t)
                 return m * 1e6
 

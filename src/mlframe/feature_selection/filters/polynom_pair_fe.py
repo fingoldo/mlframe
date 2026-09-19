@@ -559,7 +559,7 @@ def run_polynom_pair_fe(
         # baseline already saturated the joint-MI ceiling). Count it for the
         # summary log; the always-on unary/binary path materialises the trivial
         # feature, so nothing is lost - only the expensive search was spared.
-        if best_res is _POLY_CHEAP_SKIP or (isinstance(best_res, str) and best_res == _POLY_CHEAP_SKIP):
+        if isinstance(best_res, str) and best_res == _POLY_CHEAP_SKIP:
             _n_cheap_skipped += 1
             continue
         if best_res is not None and verbose:

@@ -18,6 +18,7 @@ from mlframe.training.baselines._dummy_timeseries import _detect_acf_periods
 
 
 def _seasonal(n=3000, period=7, seed=0):
+    """Noisy sine series with the given period."""
     rng = np.random.default_rng(seed)
     t = np.arange(n)
     return 10.0 * np.sin(2 * np.pi * t / period) + rng.normal(0, 1.0, n)
@@ -27,7 +28,7 @@ def test_acf_fft_equals_statsmodels_default():
     """mlframe's ACF equals statsmodels acf(fft=True) (demeaned, biased 1/n)."""
     try:
         from statsmodels.tsa.stattools import acf
-    except Exception as e:  # any import failure (incl. version clashes) -> nothing to compare against
+    except (ImportError, AttributeError, ValueError) as e:  # missing, or a version clash with numpy/scipy -> nothing to compare against
         pytest.skip(f"statsmodels not importable: {e}")
     y = np.diff(_seasonal())
     ours, _ = acf_fft(y, nlags=40)

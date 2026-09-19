@@ -633,6 +633,10 @@ def test_f15_muon_triton_ktc_lookup_invoked_when_cache_available(monkeypatch):
     monkeypatch.setattr(mtk, "_get_kernel_tuning_cache", lambda: _FakeCache())
     monkeypatch.setattr(mtk, "get_triton_ns_fn", lambda: (lambda G, steps: G))
     monkeypatch.setattr(mtk, "_env_force", lambda: None)
+    # The pre-Ampere gate returns before the cache lookup, so on an older GPU the path under test is never reached;
+    # a verdict memoised by an earlier test in the process would also short-circuit it.
+    monkeypatch.setattr(mtk.torch.cuda, "get_device_capability", lambda *a, **k: (8, 0))
+    monkeypatch.setattr(mtk, "_TRITON_VERDICT", {})
     G = torch.randn(256, 256, device="cuda")
     mtk.maybe_newton_schulz_triton(G, steps=2)
     assert calls, "KTC's get_or_tune was never consulted for the Triton-vs-eager verdict"

@@ -34,6 +34,7 @@ import time
 import numpy as np
 
 from .._orth_dedup import _pairwise_complete_abs_corr, _pc_corr_njit
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def _cupy_pc(Q, R):
@@ -64,9 +65,11 @@ def _cupy_pc(Q, R):
 
 def _time(fn, M, rep=3):
     fn(M, M)  # warm
+    synchronize_gpu_if_available()
     t = time.perf_counter()
     for _ in range(rep):
         out = fn(M, M)
+    synchronize_gpu_if_available()
     return (time.perf_counter() - t) / rep, out
 
 

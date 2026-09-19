@@ -20,6 +20,7 @@ import time
 import warnings
 
 import numpy as np
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 warnings.filterwarnings("ignore")
 
@@ -45,8 +46,10 @@ def _bench():
     def timeit(fn, x):
         ts = []
         for _ in range(REPEATS):
+            synchronize_gpu_if_available()
             t0 = time.perf_counter()
             fn(x, c)
+            synchronize_gpu_if_available()
             ts.append(time.perf_counter() - t0)
         return float(np.median(ts))
 

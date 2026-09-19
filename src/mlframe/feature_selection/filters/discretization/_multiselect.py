@@ -57,32 +57,32 @@ def multiselect_inplace(a: np.ndarray, kths: np.ndarray) -> None:
             continue
         kmid = (klo + khi) // 2
         k = kths[kmid]
-        l = lo
+        left = lo
         h = hi
         budget = 2 * int(np.log2(hi - lo + 1)) + 8
-        while h > l:
-            if h - l < _SMALL:
-                _insertion_sort_range(a, l, h)
+        while h > left:
+            if h - left < _SMALL:
+                _insertion_sort_range(a, left, h)
                 break
             if budget <= 0:
-                a[l:h + 1].sort()
+                a[left:h + 1].sort()
                 break
             budget -= 1
-            m = (l + h) // 2
-            if a[m] < a[l]:
+            m = (left + h) // 2
+            if a[m] < a[left]:
                 t = a[m]
-                a[m] = a[l]
-                a[l] = t
-            if a[h] < a[l]:
+                a[m] = a[left]
+                a[left] = t
+            if a[h] < a[left]:
                 t = a[h]
-                a[h] = a[l]
-                a[l] = t
+                a[h] = a[left]
+                a[left] = t
             if a[h] < a[m]:
                 t = a[h]
                 a[h] = a[m]
                 a[m] = t
             p = a[m]
-            i = l
+            i = left
             j = h
             while i <= j:
                 while a[i] < p:
@@ -95,11 +95,11 @@ def multiselect_inplace(a: np.ndarray, kths: np.ndarray) -> None:
                     a[j] = t
                     i += 1
                     j -= 1
-            # [l..j] <= p <= [i..h] with j < i; anything strictly between equals p and is already final.
+            # [left..j] <= p <= [i..h] with j < i; anything strictly between equals p and is already final.
             if k <= j:
                 h = j
             elif k >= i:
-                l = i
+                left = i
             else:
                 break
         stack[sp, 0] = lo

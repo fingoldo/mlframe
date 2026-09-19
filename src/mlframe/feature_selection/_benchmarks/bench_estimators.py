@@ -31,6 +31,7 @@ import time
 import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 logger = logging.getLogger("bench_estimators")
 
@@ -69,8 +70,10 @@ def _bench_method(name, fn, X, y, informative, n_runs: int = 3):
     times = []
     last_support = out
     for _ in range(n_runs):
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         out = fn(X, y)
+        synchronize_gpu_if_available()
         times.append(time.perf_counter() - t0)
         last_support = out
 

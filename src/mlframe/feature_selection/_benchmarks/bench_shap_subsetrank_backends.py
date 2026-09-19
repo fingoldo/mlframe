@@ -32,6 +32,7 @@ import numpy as np
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_subsetrank import brute_force_top_n_cpu_ref
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 _RESULTS = Path(__file__).parent / "_results" / "shap_subsetrank_backends.json"
 
@@ -43,8 +44,10 @@ def _data(n, f, seed=0):
 
 def _time(fn, *a, **k):
     fn(*a, **k)  # warm (njit compile / nvrtc)
+    synchronize_gpu_if_available()
     t = time.perf_counter()
     out = fn(*a, **k)
+    synchronize_gpu_if_available()
     return out, time.perf_counter() - t
 
 

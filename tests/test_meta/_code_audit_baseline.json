@@ -364,7 +364,7 @@
   "effect_flag_outside_its_effect::preprocessing/temporal_drift_augment.py::dfe52b038a03",
   "effect_flag_outside_its_effect::training/_training_loop.py::6145fe938aec",
   "effect_flag_outside_its_effect::training/_training_loop.py::6145fe938aec#1",
-  "effect_flag_outside_its_effect::training/composite/estimator/_estimator.py::082ceeaf6ab5",
+  "effect_flag_outside_its_effect::training/composite/estimator/_from_fitted.py::082ceeaf6ab5",
   "effect_flag_outside_its_effect::training/extractors/_extractors_simple.py::cd6bca4a1d47",
   "getattr_unknown_attribute::feature_selection/shap_proxied_fs/_shap_proxied_fit.py::f46bc63b1079",
   "getattr_unknown_attribute::feature_selection/wrappers/rfecv/__init__.py::8770bd4a7b97",

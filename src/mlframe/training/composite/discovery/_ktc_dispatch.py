@@ -53,6 +53,7 @@ import os
 import time
 
 import numpy as np
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +76,10 @@ def _median_call_ms(callable_no_args, n_iters: int) -> float:
     """Median wall time (ms) of ``n_iters`` calls to the zero-arg ``callable_no_args``."""
     times = []
     for _ in range(n_iters):
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         callable_no_args()
+        synchronize_gpu_if_available()
         times.append((time.perf_counter() - t0) * 1000.0)
     times.sort()
     return times[len(times) // 2]

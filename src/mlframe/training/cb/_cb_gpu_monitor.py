@@ -369,6 +369,7 @@ class CatBoostGpuFitMonitor:
                 )
 
     def _request_limit(self, reason: str) -> None:
+        """Ask ``on_limit`` to stop the fit, until it accepts once; a failing callback is logged and never reaches the fit."""
         if self._limit_done or self.on_limit is None:
             return
         try:
@@ -421,6 +422,17 @@ class CatBoostGpuFitGuard:
         self._lock = threading.Lock()
         self.errors: List[str] = []
 
+    def __getstate__(self) -> Dict[str, Any]:
+        # The lock and the monitor thread are live process resources; a pickled guard is an inactive one.
+        state = self.__dict__.copy()
+        state["_lock"] = None
+        state["monitor"] = None
+        return state
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
+
     def __enter__(self) -> "CatBoostGpuFitGuard":
         try:
             if not (cb_model_is_gpu(self.est) or (self.model is not self.est and cb_model_is_gpu(self.model))):
@@ -451,9 +463,11 @@ class CatBoostGpuFitGuard:
 
     @property
     def tmp_dir(self) -> Optional[str]:
+        """Temp ``train_dir`` created for this fit, or ``None`` when none was needed."""
         return self._tmp_dir
 
     def ensure_tmp_dir(self) -> str:
+        """Create this fit's unique temp ``train_dir`` on first use and return it."""
         if self._tmp_dir is None:
             # A unique dir per fit: concurrent fits in one cwd would otherwise interleave rows in the shared catboost_info/.
             self._tmp_dir = tempfile.mkdtemp(prefix="mlframe_cb_gpu_")
@@ -468,10 +482,12 @@ class CatBoostGpuFitGuard:
             self._restore.setdefault(k, params.get(k))
 
     def set_fit_running(self, running: bool) -> None:
+        """Mark whether the guarded fit is currently running (an interrupt is only raised while it is)."""
         with self._lock:
             self._fit_running = bool(running)
 
     def stop_monitor(self) -> None:
+        """Stop the progress monitor thread if one was started."""
         if self.monitor is not None:
             self.monitor.stop()
 

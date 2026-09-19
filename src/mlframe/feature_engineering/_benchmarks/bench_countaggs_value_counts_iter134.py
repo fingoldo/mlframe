@@ -38,6 +38,7 @@ import time
 
 import numpy as np
 import pandas as pd
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 sys.modules.setdefault("cupy", None)  # avoid py3.14 cold-import segfault under contention
 
@@ -46,8 +47,10 @@ def _bench(fn, reps: int = 5) -> float:
     fn()  # warm
     ts = []
     for _ in range(reps):
+        synchronize_gpu_if_available()
         t = time.perf_counter()
         fn()
+        synchronize_gpu_if_available()
         ts.append(time.perf_counter() - t)
     return float(np.median(ts) * 1000.0)
 

@@ -151,7 +151,7 @@ def _row_order_fingerprint(df: Any, n_edge: int = _ROW_ORDER_PREFIX_ROWS) -> str
         fp = _canonical.row_order_fingerprint(df, int(n_edge))
         return "" if fp is None else fp.decode("ascii")
     except Exception as exc:
-        logger.debug("cache: head/tail row-hash signature failed, returning empty signature: %s", exc)
+        logger.warning("cache: head/tail row-order fingerprint failed, so this signature is NOT sensitive to row order: %s", exc)
         return ""
 
 
@@ -188,8 +188,10 @@ def data_signature(
     ----------
     df
         pandas / polars frame.
-    target_col, feature_cols
-        Column identifiers used to scope the signature; changes here invalidate the cache.
+    target_col
+        Target column; part of the signature, so a different target invalidates the cache.
+    feature_cols
+        Feature columns used to scope the signature; changes here invalidate the cache.
     sample_n
         Rows sampled for the hash; lower is faster, higher is more discriminating.
     random_state

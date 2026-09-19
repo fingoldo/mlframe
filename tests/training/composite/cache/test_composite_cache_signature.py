@@ -99,9 +99,7 @@ class TestRowOrderFingerprintBounded:
         n = 5000
         df = pl.DataFrame({"a": rng.normal(size=n), "b": rng.integers(0, 100, n)})
         got = _row_order_fingerprint(df)
-        middle_rewritten = df.with_columns(
-            pl.when(pl.int_range(pl.len()).is_between(256, n - 257)).then(-1.0).otherwise(pl.col("a")).alias("a")
-        )
+        middle_rewritten = df.with_columns(pl.when(pl.int_range(pl.len()).is_between(256, n - 257)).then(-1.0).otherwise(pl.col("a")).alias("a"))
         assert _row_order_fingerprint(middle_rewritten) == got, "fingerprint read rows outside the head/tail windows"
         for row in (0, n - 1):
             edged = df.with_columns(pl.when(pl.int_range(pl.len()) == row).then(-1.0).otherwise(pl.col("a")).alias("a"))

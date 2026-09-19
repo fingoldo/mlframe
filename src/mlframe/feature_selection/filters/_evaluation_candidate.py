@@ -120,10 +120,10 @@ def handle_best_candidate(
                 get_candidate_name(best_candidate, factors_names=factors_names), ndigits, best_gain,
             )
     else:
-        if min_relevance_gain and verbose > 2 and current_gain > min_relevance_gain:
+        if min_relevance_gain is not None and verbose > 2 and current_gain > min_relevance_gain:
             logger.info("\t\t%s current_gain=%.*f", get_candidate_name(X, factors_names=factors_names), ndigits, current_gain)
 
-    if max_runtime_mins and start_time is not None and not run_out_of_time:
+    if max_runtime_mins is not None and max_runtime_mins != 0 and start_time is not None and not run_out_of_time:
         run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
 
     return best_gain, best_candidate, run_out_of_time

@@ -110,8 +110,8 @@ def exact_ceiling(true_prob: np.ndarray, metric: str = "auc") -> Ceiling:
         value = float(np.mean(binary_entropy(p)))
         if np.any((p == 0.0) | (p == 1.0)):
             caveats += (
-                "the law is deterministic on some rows, so the log-loss ceiling is zero there and is attainable "
-                "only in the limit; a model that never predicts exactly 0 or 1 cannot reach it",
+                ("the law is deterministic on some rows, so the log-loss ceiling is zero there and is attainable "
+                "only in the limit; a model that never predicts exactly 0 or 1 cannot reach it"),
             )
     elif metric == "auc":
         from mlframe.data.datasets._target import bayes_auc

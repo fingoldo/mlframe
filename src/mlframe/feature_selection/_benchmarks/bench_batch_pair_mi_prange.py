@@ -39,6 +39,7 @@ import time
 logger = logging.getLogger(__name__)
 
 import numpy as np
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def _build(n_rows: int, n_features: int, n_bins: int, n_classes_y: int, seed: int):
@@ -75,8 +76,10 @@ def _time_one(label, fn, *args, n_warmup: int = 1, n_repeats: int = 2):
     gc.collect()
     best = float("inf")
     for _ in range(n_repeats):
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         out = fn(*args)
+        synchronize_gpu_if_available()
         dt = time.perf_counter() - t0
         best = min(best, dt)
     return {"label": label, "wall_s": round(best, 4), "out": out}

@@ -35,14 +35,14 @@ WHITELIST: set[str] = {
     "src/mlframe/feature_selection/_benchmarks/fs_hybrid/test_hybrid_tree_member.py",
 }
 
-# Per-call line whitelist for ``pickle.loads`` (in-memory buffer form, not file load) where
-# verification happens upstream via ``verify_sidecar`` on the source path before the in-memory
-# decompress / loads. Format: (relpath, lineno) tuples; the AST scanner skips matches here.
-WHITELIST_LINES: set[tuple[str, int]] = {
+# Per-call whitelist for ``pickle.loads`` (in-memory buffer form, not file load) where verification happens upstream
+# via ``verify_sidecar`` on the source path before the in-memory decompress / loads. Keyed on (relpath, enclosing
+# function) rather than a line number, so an unrelated edit above the call cannot silently un-whitelist it.
+WHITELIST_FUNCTIONS: set[tuple[str, str]] = {
     # pkl.zst metadata loaders verify the on-disk sidecar via verify_sidecar(file, allow_unverified=True)
     # immediately above the loads() of the in-memory zstd-decompressed bytes.
-    ("src/mlframe/training/core/predict.py", 710),
-    ("src/mlframe/training/core/_predict_main_suite.py", 168),
+    ("src/mlframe/training/core/predict.py", "load_mlframe_suite"),
+    ("src/mlframe/training/core/_predict_main_suite.py", "predict_mlframe_models_suite"),
 }
 
 # TODO(next-PR): migrate to safe_pickle.safe_load + write_sidecar on writers; tracked by W7 scope-out.
@@ -54,8 +54,8 @@ TODO_DEFERRED: set[str] = {
 }
 
 
-def _find_pickle_load_calls(path: Path) -> list[tuple[int, str]]:
-    """Return list of (line_no, kind) for each ``pickle.load(...)`` / ``pickle.loads(...)`` call.
+def _find_pickle_load_calls(path: Path) -> list[tuple[int, str, str]]:
+    """Return list of (line_no, kind, enclosing function) for each ``pickle.load(...)`` / ``pickle.loads(...)`` call.
 
     Detects both attribute-form ``pickle.load(f)`` and ``from pickle import load`` ->
     bare ``load(f)``. We err on the side of false positives for the attribute form
@@ -74,7 +74,17 @@ def _find_pickle_load_calls(path: Path) -> list[tuple[int, str]]:
                 if alias.name in ("pickle", "_pickle"):
                     pickle_aliases.add(alias.asname or alias.name)
 
-    hits: list[tuple[int, str]] = []
+    # Innermost enclosing function per call, so the whitelist can name a function instead of a line.
+    enclosing: dict[int, str] = {}
+    for fn in ast.walk(tree):
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for inner in ast.walk(fn):
+                if isinstance(inner, ast.Call):
+                    prev = enclosing.get(id(inner))
+                    if prev is None or fn.lineno > prev[0]:
+                        enclosing[id(inner)] = (fn.lineno, fn.name)
+
+    hits: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -82,7 +92,7 @@ def _find_pickle_load_calls(path: Path) -> list[tuple[int, str]]:
         # pickle.load(...) / pickle.loads(...) -- attribute on an aliased pickle module
         if isinstance(func, ast.Attribute) and func.attr in ("load", "loads"):
             if isinstance(func.value, ast.Name) and func.value.id in pickle_aliases:
-                hits.append((node.lineno, f"{func.value.id}.{func.attr}"))
+                hits.append((node.lineno, f"{func.value.id}.{func.attr}", enclosing.get(id(node), (0, "<module>"))[1]))
     return hits
 
 
@@ -119,8 +129,8 @@ def test_no_bare_pickle_load_outside_safe_pickle() -> None:
             # rest of the surface stays gated. Remove the entry from TODO_DEFERRED when migrated.
             continue
         hits = _find_pickle_load_calls(path)
-        for ln, kind in hits:
-            if (rel, ln) in WHITELIST_LINES:
+        for ln, kind, fn_name in hits:
+            if (rel, fn_name) in WHITELIST_FUNCTIONS:
                 continue
             offenders.append(f"{rel}:{ln} ({kind})")
 

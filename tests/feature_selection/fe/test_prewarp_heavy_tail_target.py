@@ -9,6 +9,7 @@ from mlframe.feature_selection.filters.hermite_fe._hermite_prewarp import apply_
 
 
 def _case2(n=30000):
+    """Two operands and a heavy-tailed target containing a log(c) * sin(d) factor."""
     rng = np.random.default_rng(0)
     a, b, c, d, f = (rng.random(n) for _ in range(5))
     return c, d, 0.2 * a**2 / b + f / 5.0 + np.log(c * 2) * np.sin(d / 3)
@@ -22,6 +23,7 @@ def test_light_tailed_target_is_returned_unchanged():
 
 
 def test_heavy_tailed_target_is_clipped_to_its_1_99_quantiles():
+    """A heavy-tailed target is clipped exactly to its 1st and 99th percentiles."""
     _, _, y = _case2()
     out = winsorize_heavy_tailed_target(y)
     lo, hi = np.quantile(y, [0.01, 0.99])

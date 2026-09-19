@@ -147,7 +147,7 @@ def test_heartbeat_pickles_to_a_stopped_copy():
     import pickle
 
     hb = cd.Heartbeat(3600.0)
-    clone = pickle.loads(pickle.dumps(hb))
+    clone = pickle.loads(pickle.dumps(hb))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert clone.interval_s == 3600.0
     assert clone._stop.is_set() and not clone.alive
 

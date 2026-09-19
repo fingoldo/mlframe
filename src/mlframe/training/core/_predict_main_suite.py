@@ -19,6 +19,7 @@ import polars as pl
 
 from ..extractors import FeaturesAndTargetsExtractor
 from ..io import load_mlframe_model
+from .._fixed_splits import split_id_columns_from_metadata
 from ..cb import _predict_with_fallback
 from ..utils import get_pandas_view_of_polars_df
 from .utils import (
@@ -194,6 +195,8 @@ def predict_mlframe_models_suite(
     if features_and_targets_extractor is not None:
         df, _, _, _predict_group_ids, _predict_timestamps, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
         df = _drop_cols_df(df, columns_to_drop)
+    # The training split key (TrainingSplitConfig.id_column) is not a model feature.
+    df = _drop_cols_df(df, split_id_columns_from_metadata(metadata))
 
     # Polars fastpath: decide BEFORE the eager pandas materialisation. If every loaded model is CB / XGB sklearn-API
     # (polars-native) and the input is polars, keep the polars frame all the way through; non-native models pay a

@@ -27,6 +27,7 @@ sys.modules.setdefault("cupy", None)  # avoid py3.14 cold-import segfault under 
 import time
 import numpy as np
 import pandas as pd
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 _NB = 20
 
@@ -94,8 +95,10 @@ def _timeit(fn, args, reps=5):
     fn(*args)  # warm
     best = float("inf")
     for _ in range(reps):
+        synchronize_gpu_if_available()
         t = time.perf_counter()
         fn(*args)
+        synchronize_gpu_if_available()
         best = min(best, time.perf_counter() - t)
     return best
 

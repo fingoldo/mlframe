@@ -72,6 +72,7 @@ nav:
   - Examples:
       - Overview: examples/README.md
       - Composite targets: examples/composite_targets.md
+      - Exact, reusable splits: examples/fixed_splits.md
   - Guides:
       - Baseline diagnostics: baseline_diagnostics_guide.md
       - Dummy baselines: dummy_baselines_guide.md

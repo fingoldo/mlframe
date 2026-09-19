@@ -211,16 +211,9 @@ def _hnswlib_importable() -> bool:
     extension); a ``try / except ImportError`` in the parent process
     won't catch that. Run the probe out-of-process so the parent stays
     alive when the wheel is broken."""  # nosec B404 - module used safely in this file, see call sites below (no untrusted input reaches it)
-    import subprocess, sys  # nosec B404 - subprocess used below with list args only, no shell=True
-    try:  # nosec B603 - fixed/trusted executable, args are not attacker-controlled
-        r = subprocess.run(  # nosec B603 - fixed, trusted executable and args below, no untrusted input reaches this call
-            [sys.executable, "-c", "import hnswlib"],
-            capture_output=True, timeout=15,
-        )
-    except Exception as exc:
-        logger.info("auto_tune knn_hnsw_crossover probe failed: %s", exc)
-        return False
-    return r.returncode == 0
+    from mlframe.utils.native_import_probe import native_module_importable
+
+    return native_module_importable("hnswlib")
 
 
 # ----------------------------------------------------------------------------

@@ -16,6 +16,7 @@ import time
 
 import numpy as np
 import polars as pl
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 N = 10_000_000
 RNG = np.random.default_rng(0)
@@ -65,8 +66,10 @@ def new_numeric_loop(df, cat_features, text_features):
 def bestof(fn, df, reps=9):
     ts = []
     for _ in range(reps):
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         fn(df, [], [])
+        synchronize_gpu_if_available()
         ts.append(time.perf_counter() - t0)
     return min(ts), float(np.median(ts))
 

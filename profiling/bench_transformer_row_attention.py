@@ -27,6 +27,7 @@ from mlframe.feature_engineering.transformer import (
     build_key_bank,
     compute_row_attention,
 )
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def _gpu_sync():
@@ -42,8 +43,10 @@ def _time_one(fn, *, warmup: int, measured: int) -> tuple[float, float]:
         fn()
     times = []
     for _ in range(measured):
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         fn()
+        synchronize_gpu_if_available()
         times.append(time.perf_counter() - t0)
     times.sort()
     median = statistics.median(times)
