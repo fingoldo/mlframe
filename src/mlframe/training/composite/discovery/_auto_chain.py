@@ -327,6 +327,38 @@ def _mi_gain_of(
     return float(mi_t - mi_y)
 
 
+def _single_stage_rmses(res_names: Sequence[str], un_names: Sequence[str], cv_kw: Dict[str, Any]) -> tuple:
+    """Y-scale CV RMSE of each single residual and each single unary, scored ONCE and reused by every chain.
+
+    The "beats both singles" gate needs both numbers for every chain; a name missing from the registry is left out.
+    """
+    residual_rmse: Dict[str, float] = {}
+    for res in res_names:
+        rtf = TRANSFORMS_REGISTRY.get(res)
+        if rtf is not None:
+            residual_rmse[res], _ = _y_scale_cv_rmse(rtf, **cv_kw)
+    unary_rmse: Dict[str, float] = {}
+    for un in un_names:
+        utf = TRANSFORMS_REGISTRY.get(_UNARY_REGISTRY_NAME.get(un, un))
+        if utf is not None:
+            unary_rmse[un], _ = _y_scale_cv_rmse(utf, **cv_kw)
+    return residual_rmse, unary_rmse
+
+
+def _fitted_chain_candidate(chain_tf: Transform, res: str, un: str, *, y: np.ndarray, base: np.ndarray, **scores: float) -> ChainCandidate:
+    """A winning chain fitted once on all in-domain rows, so the candidate carries usable params."""
+    dom = np.asarray(chain_tf.domain_check(y, base), dtype=bool)
+    try:
+        params = chain_tf.fit(y[dom], base[dom])
+    except Exception as e:
+        logger.debug("chain transform fit failed: %s", e)
+        params = {}
+    return ChainCandidate(
+        chain_name=chain_tf.name, short_name=_short(res, un), residual_name=res, unary_name=un,
+        transform=chain_tf, fitted_params=params, **scores,
+    )
+
+
 def discover_chains(
     *,
     y: np.ndarray,
@@ -426,20 +458,7 @@ def discover_chains(
 
     raw_rmse, _ = _y_scale_cv_rmse(None, **cv_kw)
 
-    # Score each single residual + single unary ONCE; reuse for every chain that
-    # contains them (the "beats both singles" gate needs both numbers).
-    residual_rmse: Dict[str, float] = {}
-    for res in res_names:
-        rtf = TRANSFORMS_REGISTRY.get(res)
-        if rtf is None:
-            continue
-        residual_rmse[res], _ = _y_scale_cv_rmse(rtf, **cv_kw)
-
-    unary_rmse: Dict[str, float] = {}
-    for un in un_names:
-        utf = TRANSFORMS_REGISTRY.get(_UNARY_REGISTRY_NAME.get(un, un))
-        if utf is not None:
-            unary_rmse[un], _ = _y_scale_cv_rmse(utf, **cv_kw)
+    residual_rmse, unary_rmse = _single_stage_rmses(res_names, un_names, cv_kw)
 
     mi_y = float("nan")
     if compute_mi_gain:
@@ -471,29 +490,9 @@ def discover_chains(
                     mi_estimator=mi_estimator, mi_nbins=mi_nbins,
                     mi_n_neighbors=mi_n_neighbors, random_state=random_state,
                 )
-            # Fit once on all in-domain rows so the candidate carries usable params.
-            dom = np.asarray(chain_tf.domain_check(y, base), dtype=bool)
-            try:
-                params = chain_tf.fit(y[dom], base[dom])
-            except Exception as e:
-                logger.debug("chain transform fit failed: %s", e)
-                params = {}
-            candidates.append(
-                ChainCandidate(
-                    chain_name=chain_tf.name,
-                    short_name=_short(res, un),
-                    residual_name=res,
-                    unary_name=un,
-                    transform=chain_tf,
-                    fitted_params=params,
-                    rmse=cr,
-                    residual_rmse=rr,
-                    unary_rmse=ur,
-                    raw_rmse=raw_rmse,
-                    margin=margin,
-                    mi_gain=mg,
-                    valid_domain_frac=vf,
-                )
-            )
+            candidates.append(_fitted_chain_candidate(
+                chain_tf, res, un, y=y, base=base, rmse=cr, residual_rmse=rr, unary_rmse=ur,
+                raw_rmse=raw_rmse, margin=margin, mi_gain=mg, valid_domain_frac=vf,
+            ))
     candidates.sort(key=lambda c: c.rmse)
     return candidates[:top_k]
