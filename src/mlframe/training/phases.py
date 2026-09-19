@@ -10,8 +10,10 @@ Usage
 >>> from mlframe.training.phases import phase, reset_phase_registry, format_phase_summary
 >>> reset_phase_registry()
 >>> with phase("predict_proba", model="cb", split="test", n_rows=900_000):
-...     probs = model.predict_proba(df)
+...     probs = [0.5] * 10  # stands in for model.predict_proba(df)
 >>> print(format_phase_summary())
+phase...total...calls...
+predict_proba...1...
 
 Design notes
 ------------

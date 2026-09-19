@@ -559,3 +559,18 @@ def test_docs_use_only_declared_markers():
     from py_ci_shared.docs_inventory_parity import assert_no_inventory_drift, find_undeclared_markers
 
     assert_no_inventory_drift(find_undeclared_markers([*_user_docs(), REPO_ROOT / "CLAUDE.md"], PYPROJECT), "pytest markers named in the docs")
+
+
+def test_package_doctests_pass():
+    """The examples in docstrings run and print what they say.
+
+    Nothing ran them before: the first run failed 26 of 80, every one a documentation error (undefined names,
+    stale API, missing expected output, a `>>>` where `...` belonged). Modules under `_benchmarks` are skipped:
+    they are scripts that execute on import. The floor keeps deleting examples from turning this green.
+    """
+    import doctest
+
+    from py_ci_shared.package_doctests import assert_package_doctests_pass
+
+    assert_package_doctests_pass("mlframe", skip_parts=("_benchmarks",), min_examples=100,
+                                 optionflags=doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE)

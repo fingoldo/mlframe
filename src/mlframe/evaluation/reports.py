@@ -93,8 +93,8 @@ def get_predicted_classes(predictions: np.ndarray, thresholds: Optional[np.ndarr
     ...     predictions=np.array([0.83157152, 0.91605568, 0.34691267, 0.01739674]),
     ...     thresholds=np.array([0.0, 0.1, 0.5, 1.0]),
     ... )
-    >>> list(preds)
-    [np.int64(3), np.int64(3), np.int64(2), np.int64(0)]
+    >>> [int(p) for p in preds]
+    [3, 3, 2, 0]
     """
     if thresholds is None:
         thresholds = np.array([0.0, 0.1, 0.5, 1.0])

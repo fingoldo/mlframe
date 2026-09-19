@@ -351,7 +351,8 @@ def train_automl_models_suite(
     ...     autogluon_init_params=dict(eval_metric='log_loss'),
     ...     autogluon_fit_params=dict(time_limit=3600, presets='best_quality'),
     ... )
-    >>> models = train_automl_models_suite(
+    >>> # Needs AutoGluon installed plus real train/test frames and an hour-long fit, so it is not executed as a doctest.
+    >>> models = train_automl_models_suite(  # doctest: +SKIP
     ...     train_df=train_df,  # Must include target column
     ...     test_df=test_df,    # Must include target column
     ...     target_name="target",

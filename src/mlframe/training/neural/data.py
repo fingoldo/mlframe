@@ -655,8 +655,13 @@ class TorchDataModule(LightningDataModule):
             batch_size: Optional batch size override
 
         Example:
-            >>> datamodule.setup_predict(X, batch_size=2048)
-            >>> predictions = trainer.predict(model, datamodule=datamodule)
+            >>> import numpy as np
+            >>> datamodule = TorchDataModule(dataloader_params={"num_workers": 0})
+            >>> X = np.arange(30, dtype=np.float32).reshape(10, 3)
+            >>> datamodule.setup_predict(X, batch_size=4)
+            >>> [tuple(batch.shape) for batch in datamodule.predict_dataloader()]
+            [(4, 3), (4, 3), (2, 3)]
+            >>> # then: predictions = trainer.predict(model, datamodule=datamodule)
         """
         self.predict_features = X
 

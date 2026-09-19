@@ -46,4 +46,5 @@
 # Bumped 2026-09-19 from da63ad7 to 7809d32: test_shared_checks_wired wires identity_comparisons and
 # vacuous_loop_assertions (absent at da63ad7), relies on the ordinal floorless-loop keys and the faster
 # gpu_timing_sync scan; _vacuous_loop_baseline.json is added in the same commit.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@7809d32d05e15cd50a4765a9c0c3af9938703d94
+# Bumped 2026-09-19 from 7809d32 to 65fb0a9: package_doctests gains skip_parts and imports only modules with examples.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@65fb0a9340fecde33a7868bdc317671f444cb825

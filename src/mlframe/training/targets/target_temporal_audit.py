@@ -167,9 +167,18 @@ class TemporalAuditResult:
         across N segments" and "let me actually train on the right
         subset". Common pattern:
 
-            >>> result = audit_target_over_time(df, "ts", "y", ...)
+            >>> import numpy as np, pandas as pd
+            >>> rng = np.random.default_rng(0)
+            >>> n = 4000
+            >>> df = pd.DataFrame({
+            ...     "ts": pd.date_range("2020-01-01", periods=n, freq="6h"),
+            ...     "y": (rng.random(n) < np.where(np.arange(n) < n // 2, 0.1, 0.5)).astype(int),
+            ... })
+            >>> result = audit_target_over_time(df, "ts", "y")
             >>> mask = result.recommended_filter_mask(df["ts"])
-            >>> df_clean = df.filter(mask) if isinstance(df, pl.DataFrame) else df[mask]
+            >>> df_clean = df[mask]
+            >>> len(mask) == len(df), str(df_clean["ts"].min().date())
+            (True, '2021-05-01')
 
         Parameters
         ----------
@@ -447,6 +456,15 @@ def audit_targets_over_time(
 
     Examples
     --------
+    >>> import numpy as np, pandas as pd
+    >>> rng = np.random.default_rng(0)
+    >>> n = 4000
+    >>> shifted = np.arange(n) >= n // 2
+    >>> df = pd.DataFrame({
+    ...     "job_posted_at": pd.date_range("2020-01-01", periods=n, freq="6h"),
+    ...     "cl_act_total_hired": (rng.random(n) < np.where(shifted, 0.5, 0.1)).astype(int),
+    ...     "amount_spent": rng.normal(size=n) + np.where(shifted, 5.0, 0.0),
+    ... })
     >>> result = audit_targets_over_time(
     ...     df, timestamp_col="job_posted_at",
     ...     targets={
@@ -454,10 +472,10 @@ def audit_targets_over_time(
     ...         "spent_amount":  ("amount_spent", "regression"),
     ...     },
     ... )
-    >>> result["hired_above_1"].segments
-    [...]
-    >>> result["spent_amount"].segments
-    [...]
+    >>> [len(result[k].segments) for k in ("hired_above_1", "spent_amount")]
+    [2, 2]
+    >>> result["hired_above_1"].segments[1]["start_label"]
+    '2021-05'
     """
     if not targets:
         return {}

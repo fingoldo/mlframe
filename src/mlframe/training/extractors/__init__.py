@@ -184,12 +184,19 @@ class FeaturesAndTargetsExtractor:
             or None if sequence_columns is not configured.
 
         Example:
+            >>> import polars as pl
+            >>> df = pl.DataFrame({  # one row per entity, list columns hold the sequence
+            ...     "object_id": [1, 2],
+            ...     "flux": [[1.0, 2.0, 3.0], [4.0, 5.0]],
+            ...     "flux_err": [[0.1, 0.1, 0.2], [0.3, 0.3]],
+            ... })
             >>> extractor = FeaturesAndTargetsExtractor(
             ...     sequence_columns=("flux", "flux_err"),
             ...     sequence_group_column="object_id",
             ... )
             >>> sequences = extractor.get_sequences(df)
-            >>> # sequences[0].shape = (seq_len_0, 2)
+            >>> [s.shape for s in sequences]
+            [(3, 2), (2, 2)]
         """
         if self.sequence_columns is None:
             return None
