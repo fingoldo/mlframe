@@ -54,6 +54,29 @@ def winsorize_heavy_tailed_target(y: np.ndarray) -> np.ndarray:
     return np.clip(y, q_lo, q_hi)
 
 
+def _prewarp_pair_synergy_gain(vals_a, vals_b, spec_a, spec_b, y, apply_operand_prewarp) -> float:
+    """``|corr(wa*wb, y)| - max(|corr(wa, y)|, |corr(wb, y)|)`` for a pair's jointly fitted warps; ``-inf`` when unmeasurable.
+
+    How much target alignment the rank-1 product adds over its better single factor, i.e. how much the joint fit captured an
+    interaction rather than one operand's marginal effect. Used to pick which pairing a shared var's warp is bound to."""
+    if spec_a is None or spec_b is None:
+        return -np.inf
+    try:
+        wa = np.nan_to_num(np.asarray(apply_operand_prewarp(np.asarray(vals_a, dtype=np.float64), spec_a), dtype=np.float64))
+        wb = np.nan_to_num(np.asarray(apply_operand_prewarp(np.asarray(vals_b, dtype=np.float64), spec_b), dtype=np.float64))
+        yy = np.nan_to_num(np.asarray(y, dtype=np.float64))
+
+        def _ac(u):
+            if float(np.std(u)) < 1e-12 or float(np.std(yy)) < 1e-12:
+                return 0.0
+            return abs(float(np.corrcoef(u, yy)[0, 1]))
+
+        return _ac(wa * wb) - max(_ac(wa), _ac(wb))
+    except Exception as e:
+        log_throttle(_module_logger, "prewarp_synergy_gain_failed", logging.WARNING, "prewarp pair synergy gain failed (%s: %s); keeping the earlier binding.", type(e).__name__, e)
+        return -np.inf
+
+
 def _fit_prewarp_and_gate_med(
     *,
     prospective_pairs,
@@ -214,10 +237,15 @@ def _fit_prewarp_and_gate_med(
         # tighter one would risk pruning the retained case. The whole lstsq/ALS stage is only ~2.8s
         # of a ~128s canonical n=100k fit (~2.2%), and only a fraction is safely skippable, so the
         # bounded, selection-risky win does not clear the bar. Left as the exact per-pair fit.
+        # A var's warp is fit JOINTLY with one partner, but the var-keyed column is shared by every pair it enters, so the binding
+        # decides which interaction the warp can express. Binding to the first (most-prospective) pairing let a strong but
+        # additive partner claim the var: on y = 0.2*a**2/b + f/5 + log(2c)*sin(d/3) pair (a,c) ranks before (c,d), and the
+        # c-warp fit against a gives prewarp(c)*prewarp(d) MI 0.23 about y, against 0.31 with the c-warp fit against d. Each
+        # var now binds to the pair whose rank-1 product carries the most |corr(y)| BEYOND its own two factors (the synergy the
+        # joint fit exists for); the first pairing still wins ties, so a var with no synergistic partner keeps its legacy warp.
+        _pw_bind_gain: dict = {}
         for raw_vars_pair, _ in prospective_pairs.keys():
             _va, _vb = raw_vars_pair[0], raw_vars_pair[1]
-            if _va in _prewarp_spec_by_var and _vb in _prewarp_spec_by_var:
-                continue
             _vals_a = _operand_vals(_va)
             _vals_b = _operand_vals(_vb)
             if _vals_a is None or _vals_b is None:
@@ -231,10 +259,11 @@ def _fit_prewarp_and_gate_med(
                 _vals_a, _vals_b, _prewarp_y_eff,
                 basis=prewarp_basis, max_degree=prewarp_max_degree,
             )
-            if _va not in _prewarp_spec_by_var:
-                _prewarp_spec_by_var[_va] = _sa
-            if _vb not in _prewarp_spec_by_var:
-                _prewarp_spec_by_var[_vb] = _sb
+            _gain = _prewarp_pair_synergy_gain(_vals_a, _vals_b, _sa, _sb, _prewarp_y_eff, apply_operand_prewarp)
+            for _v, _s in ((_va, _sa), (_vb, _sb)):
+                if _v not in _prewarp_spec_by_var or (_s is not None and _gain > _pw_bind_gain.get(_v, -np.inf)):
+                    _prewarp_spec_by_var[_v] = _s
+                    _pw_bind_gain[_v] = _gain
 
     # PER-OPERAND MEDIAN GATE setup. When enabled, fit ONE TRAIN
     # median per raw operand (on the subsample-aligned slice, exactly like the

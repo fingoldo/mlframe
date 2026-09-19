@@ -39,3 +39,24 @@ def test_prewarp_recovers_log_factor_under_heavy_tailed_target():
     raw_corr = abs(np.corrcoef(apply_operand_prewarp(c, raw_a), truth)[0, 1])
     win_corr = abs(np.corrcoef(apply_operand_prewarp(c, win_a), truth)[0, 1])
     assert win_corr > raw_corr + 0.03 and win_corr > 0.95, (raw_corr, win_corr)
+
+
+def test_shared_var_warp_binds_to_its_synergistic_pair_not_the_first_pairing():
+    """``c`` is shared by (a, c) and (c, d); (a, c) ranks first but only (c, d) interacts. The c-warp fit against ``a`` gives
+    ``prewarp(c)*prewarp(d)`` binned MI 0.23 about y (below raw c's 0.245); c must bind to the (c, d) joint warp instead."""
+    from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_setup import _fit_prewarp_and_gate_med
+
+    rng = np.random.default_rng(0)
+    n = 30000
+    a, b, c, d, f = (rng.random(n) for _ in range(5))
+    y = 0.2 * a**2 / b + f / 5.0 + np.log(c * 2) * np.sin(d / 3)
+    cols = {0: a, 2: c, 3: d}
+    _, specs, _, _ = _fit_prewarp_and_gate_med(
+        prospective_pairs={((0, 2), 0.56): 1.0, ((2, 3), 0.35): 1.0},
+        prewarp_enable=True, prewarp_y=y, prewarp_y_continuous=y, prewarp_basis="chebyshev", prewarp_max_degree=4,
+        prewarp_min_val_corr=0.08, fe_gate_med_enable=False, original_cols=list(cols), _use_subsample=False,
+        _full_n_rows=n, _sample_idx=None, _extval_raw_col=cols.get,
+    )
+    sc, sd = fit_pair_prewarp_als(c, d, winsorize_heavy_tailed_target(y))
+    np.testing.assert_allclose(apply_operand_prewarp(c, specs[2]), apply_operand_prewarp(c, sc))
+    np.testing.assert_allclose(apply_operand_prewarp(d, specs[3]), apply_operand_prewarp(d, sd))
