@@ -698,6 +698,13 @@ def compute_mi_from_codes(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.nansum(np.where(pj > 0, term, 0.0)))
 
 
+def _family_wise_null_z(n_candidates: int, alpha: float = 0.05, min_z: float = 2.0) -> float:
+    """One-sided normal quantile at the Bonferroni level ``alpha / n_candidates``, floored at ``min_z``."""
+    from scipy.stats import norm
+
+    return max(float(min_z), float(norm.isf(float(alpha) / max(1, int(n_candidates)))))
+
+
 def binned_numeric_agg_with_recipes(
     X: pd.DataFrame, y: np.ndarray, *,
     group_num_cols: Sequence[str] | None = None, agg_num_cols: Sequence[str] | None = None,
@@ -877,7 +884,12 @@ def binned_numeric_agg_with_recipes(
         # of the null upper tail that does not depend on catching the single luckiest permutation. Genuine signal
         # sits far above the null so this does not suppress it; it collapses the borderline noise FPs to zero.
         _n_perm = 30
-        _NULL_Z = 2.0
+        # Family-wise z: the ceiling is applied to EVERY surviving (group, agg, stat) candidate (up to max_pairs x
+        # stats = 256 at the defaults), so a fixed per-candidate z=2 (~2.3% one-sided) lets ~6 pure-noise columns
+        # through on a wide noise frame (measured: binagg_std(noise_48|qbin(x5)) survived on the wide-synergy
+        # fixture and fed spurious engineered composites). Bonferroni over the tested candidates at alpha=0.05,
+        # never below the old per-candidate z.
+        _NULL_Z = _family_wise_null_z(int(feat_df.shape[1]))
         _rng = np.random.default_rng(int(random_state))
 
         def _src_bins(col: str) -> np.ndarray:
