@@ -81,6 +81,25 @@ def knn_search(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Find k nearest neighbours of each X_query row in X_subset.
 
+    Parameters
+    ----------
+    X_subset
+        Reference rows to search, shape (n_subset, d).
+    X_query
+        Rows whose neighbours are wanted, shape (n_query, d).
+    k
+        Neighbours per query row; capped at n_subset.
+    metric
+        Distance for the hnswlib path ("l2" = Euclidean); the sklearn path is always Euclidean.
+    prefer_hnsw_at_n
+        n_subset from which hnswlib is used. The default defers to the per-host tuned crossover.
+    hnsw_M
+        hnswlib graph degree.
+    hnsw_ef_construction
+        hnswlib build-time candidate list size.
+    hnsw_ef_search
+        hnswlib query-time candidate list size (raised to at least k + 8).
+
     Returns
     -------
     dists : (n_query, min(k, n_subset)) float32, EUCLIDEAN distances (sqrt of squared L2)

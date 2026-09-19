@@ -30,6 +30,7 @@ from typing import Any
 import numpy as np
 
 from mlframe.training.composite._composite_report_shared import as1d, ascii_safe, num, pct
+from mlframe.training.composite._quantile_edges import quantile_bin_edges
 
 try:
     import numba
@@ -88,9 +89,7 @@ def _quantile_bin_codes(axis: np.ndarray, valid: np.ndarray, n_bins: int) -> tup
     if idx.size == 0:
         return codes, np.asarray([], dtype=np.float64)
     av = axis[idx]
-    qs = np.linspace(0.0, 1.0, n_bins + 1)
-    raw_edges = np.quantile(av, qs)
-    edges = np.unique(raw_edges)  # collapse degenerate/duplicate edges -> fewer, well-defined bins
+    edges = quantile_bin_edges(av, n_bins)  # tie-safe; a discrete axis with <= n_bins values keeps one bin per value
     if edges.shape[0] < 2:  # constant axis -> a single bin holding every valid row
         codes[idx] = 0
         lo = float(edges[0]) if edges.shape[0] else float(av[0])
@@ -147,8 +146,12 @@ def regime_headroom_map(
 
     Parameters
     ----------
-    y, y_pred_raw, y_pred_composite
-        True target, raw-y model prediction, composite ``y_hat`` prediction (aligned 1-D).
+    y
+        True target (1-D).
+    y_pred_raw
+        Raw-y model prediction, aligned with ``y``.
+    y_pred_composite
+        Composite ``y_hat`` prediction, aligned with ``y``.
     y_pred_lag
         Optional AR-failsafe / lag baseline. When given, the failsafe reference per bin is ``min(rmse_raw, rmse_lag)``;
         otherwise it is ``rmse_raw`` alone.
