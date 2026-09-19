@@ -28,6 +28,31 @@ from mlframe.utils.log_throttle import log_throttle
 
 _module_logger = logging.getLogger(__name__)
 
+# Tail-heaviness gate for the prewarp ALS target, as std / (IQR / 1.349): ~1 Gaussian, 1.5 Student-t(3), 1.9 lognormal,
+# 5.5 for a polynomial product P(a)*Q(b) of Gaussians (whose tail IS the pair signal, and clipping it cost the F-POLY
+# prewarp fit 0.996 -> 0.948 downstream R^2), 116-141 for a target with an additive ``a**2/b`` term (b ~ U(0,1)). 20
+# only fires when the variance is carried by a sliver of rows unrelated to the typical pair.
+_PREWARP_Y_TAIL_RATIO = 20.0
+_PREWARP_Y_CLIP_Q = 0.01
+
+
+def winsorize_heavy_tailed_target(y: np.ndarray) -> np.ndarray:
+    """Clip a heavy-tailed prewarp ALS target to its [1%, 99%] quantiles; return light-tailed targets unchanged.
+
+    The rank-1 ALS warp is a least-squares fit, so a target whose variance sits in a thin tail (``0.2*a**2/b`` with
+    ``b ~ U(0,1)`` reaches 3.5e3 while the median is 0.2) makes every pair's warp chase those few rows: on
+    ``y = 0.2 a**2/b + f/5 + log(2c) sin(d/3)`` the fitted ``g(c)*h(d)`` carried MI 0.13 about y instead of 0.31 with the
+    tail clipped, so the genuine (c, d) interaction was never engineered. The warps only need to track y's shape
+    (the pair search scores them by MI, which the clipping of 2% of rows barely moves)."""
+    finite = y[np.isfinite(y)]
+    if finite.size < 20:
+        return y
+    q_lo, q25, q75, q_hi = np.quantile(finite, [_PREWARP_Y_CLIP_Q, 0.25, 0.75, 1.0 - _PREWARP_Y_CLIP_Q])
+    iqr_sd = (q75 - q25) / 1.349
+    if not iqr_sd > 0.0 or float(np.std(finite)) <= _PREWARP_Y_TAIL_RATIO * iqr_sd:
+        return y
+    return np.clip(y, q_lo, q_hi)
+
 
 def _fit_prewarp_and_gate_med(
     *,
@@ -75,7 +100,7 @@ def _fit_prewarp_and_gate_med(
         _pw_y = np.asarray(_pw_y_src)
         if _use_subsample and _pw_y.shape[0] == _full_n_rows:
             _pw_y = _pw_y[_sample_idx]
-        _prewarp_y_eff = np.ascontiguousarray(_pw_y, dtype=np.float64)
+        _prewarp_y_eff = winsorize_heavy_tailed_target(np.ascontiguousarray(_pw_y, dtype=np.float64))
 
         # JOINT per-pair ALS pre-fit. For each prospective pair fit BOTH operand
         # warps together (rank-1 ALS); an independent 1-D fit cannot recover the
