@@ -184,6 +184,17 @@ def _finalize_per_target_ensembling(
         # affecting predict (which only reads rrf_k for the rrf flavour). Detection: look at
         # ``ensembling_methods`` in common_params AND the keys actually emitted into
         # ``_ensembles`` -- a flavour is in the iteration when it appears in either.
+        # Blend weights must survive into predict. Training used to fit NNLS/Caruana weights, score a WEIGHTED blend,
+        # stamp that flavour as the winner -- and persist nothing, so deployment replayed the same members as an
+        # unweighted mean. That is a different estimator from the one whose metrics were reported.
+        try:
+            _saw = _ensembles.get("_stacking_gate") if isinstance(_ensembles, dict) else None
+            if isinstance(_saw, dict) and _saw.get("applied_to_blend") and _saw.get("aligned_weights"):
+                metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(
+                    str(cur_target_name), {}
+                )["blend_weights"] = [float(w) for w in _saw["aligned_weights"]]
+        except Exception as _w_err:
+            logger.warning("blend-weight stamp failed for %s/%s: %s", target_type, cur_target_name, _w_err)
         _ens_methods_used = common_params.get("ensembling_methods") if isinstance(common_params, dict) else None
         _rrf_in_iter = False
         if isinstance(_ens_methods_used, (list, tuple)):
@@ -195,9 +206,9 @@ def _finalize_per_target_ensembling(
                 _rrf_k_used = int(common_params.get("rrf_k", 60))
             except (TypeError, ValueError):
                 _rrf_k_used = 60
-            metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {})[str(cur_target_name)] = {
-                "rrf_k": _rrf_k_used,
-            }
+            metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(
+                str(cur_target_name), {}
+            )["rrf_k"] = _rrf_k_used
 
     # Per-target binary decision-threshold tuning on val (NEVER test). Tri-state behavior_config.tune_decision_threshold:
     # "auto" (default) tunes only when the val target is imbalanced and leaves 0.5 otherwise, True always tunes, False forces 0.5.

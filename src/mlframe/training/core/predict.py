@@ -192,6 +192,7 @@ def _combine_probs(
     metadata: dict | None = None,
     target_label: str | None = None,
     target_type: Any = None,
+    precomputed_weights: Sequence[float] | None = None,
 ) -> np.ndarray:
     """Combine per-model prediction probabilities using the training-time-selected ``flavour``.
 
@@ -241,10 +242,25 @@ def _combine_probs(
     # ``ensure_prob_limits`` flag stays the source of truth in non-quantile
     # (classification) paths.
     _effective_ensure_prob_limits = ensure_prob_limits and (quantile_alphas is None)
+    # Train-time blend weights, when the run persisted any. A length mismatch means the deployed member set is not the
+    # one the weights were fitted for (a model failed to load, or the artefact predates the stamp), and silently
+    # applying them would map each weight to the wrong model; the blend degrades to the unweighted mean with a WARN.
+    _weights = None
+    if precomputed_weights is not None:
+        _w = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
+        if _w.shape[0] == len(all_probs) and np.isfinite(_w).all() and _w.sum() > 0:
+            _weights = _w
+        else:
+            logger.warning(
+                "[_combine_probs] persisted blend weights (%s) do not match the %d loaded members%s; "
+                "falling back to an unweighted blend.",
+                _w.shape[0], len(all_probs), f" for target={target_label!r}" if target_label else "",
+            )
     combined = _shared_combine_probs(
         stacked, flavour or "arithm",
         rrf_k=int(rrf_k),
         ensure_prob_limits=_effective_ensure_prob_limits,
+        precomputed_weights=_weights,
     )
 
     if quantile_alphas is not None and combined.ndim == 2:
@@ -435,7 +451,7 @@ def _resolve_chosen_ensemble_params(metadata: dict, target_type: Any = None, tar
 
     C-P1-11: predict-side blend math must use the SAME rrf_k the train side recorded; pre-fix the
     predict path hard-coded k=60 which silently drifted when a user changed it at train time.
-    ``metadata["ensembles_chosen_params"][tt][tname] = {"rrf_k": ...}`` is written by the per-target
+    ``metadata["ensembles_chosen_params"][tt][tname] = {"rrf_k": ..., "blend_weights": [...]}`` is written by the per-target
     stamper in ``_phase_train_one_target``; this helper tolerates the absence (legacy models) and
     returns ``{}`` -- callers should treat that as "use defaults".
     """

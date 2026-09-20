@@ -655,6 +655,7 @@ def predict_from_models(
                     metadata=metadata,
                     target_label=f"{_tt}/{_tname}",
                     target_type=_tt,
+                    precomputed_weights=_ens_params.get("blend_weights"),
                 )
             else:
                 _combined = _probs_list[0]

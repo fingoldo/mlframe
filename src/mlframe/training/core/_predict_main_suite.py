@@ -532,6 +532,7 @@ def predict_mlframe_models_suite(
                     metadata=metadata,
                     target_label=f"{_tt_k}/{_tn_k}",
                     target_type=_tt_k,
+                    precomputed_weights=_ens_params.get("blend_weights"),
                 )
             else:
                 _combined = _probs_list[0]
