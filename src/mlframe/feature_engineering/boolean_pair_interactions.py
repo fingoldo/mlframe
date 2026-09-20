@@ -20,7 +20,9 @@ from typing import Dict, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
+# ``mlframe.feature_selection`` is imported lazily inside the one function that uses it: importing it at module scope
+# pulled the whole filters stack (and, through it, cupy and the numba warm-up) into every process that merely touches
+# feature engineering, e.g. ``import mlframe.reporting``.
 
 
 def is_binary_column(series: pd.Series) -> bool:
@@ -109,6 +111,8 @@ def boolean_pair_interactions(
     if prune_against_target is not None and result.shape[1] > 0:
         y, tolerance = prune_against_target
         y_arr = np.asarray(y)
+        from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
+
         dropped = drop_near_noise_univariate_auc(result, y_arr, columns=list(result.columns), tolerance=tolerance)
         if dropped:
             result = result.drop(columns=dropped)

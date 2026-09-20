@@ -26,4 +26,11 @@ Checked and found **clean** (no finding raised, recorded so the next audit does 
 - `_phase_train_one_target_pre_screen.py:33` is correctly gated by `ctx._pre_screen_done` to run once per suite, not once per target.
 - `feature_engineering/panel_pivot.py:95` already pivots all value columns in one call (bench note in place).
 
-- **Disposition**: TODO
+- **Disposition**: PARTIAL - PRF-01, PRF-02 RESOLVED, the remaining 4 are TODO.
+
+## Dispositions
+
+| ID | Status | Note |
+|---|---|---|
+| PRF-01 | RESOLVED | `warmup_typed_dict()` runs at the entry of `screen_predictors` instead of at module import, so a process that never screens (every loky FE worker, anything importing `mlframe.preprocessing`) no longer pays it; a screening process still warms up before any fit work, unchanged. |
+| PRF-02 | RESOLVED | `reporting/charts/fuzzy_membership.py`, `feature_engineering/boolean_pair_interactions.py` and `preprocessing/auto_transform_select.py` import their feature-selection / feature-engineering dependencies inside the functions that use them. Measured on this host after both fixes: `import mlframe.reporting` 12.3 s -> 5.6 s and `import mlframe.preprocessing` 10.1 s -> 6.0 s. Pinned by `tests/test_meta/test_import_graph_stays_light.py`, which asserts neither package leaves anything from `feature_selection.filters` in `sys.modules` and that the warm-up has not run. |

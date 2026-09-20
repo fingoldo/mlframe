@@ -28,10 +28,10 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `predict_persistence.md` | 18 | 3 | 0 | 15 | 0 | 0 |
 | `ensembling_models.md` | 14 | 3 | 0 | 11 | 0 | 0 |
 | `evaluation_reporting.md` | 16 | 3 | 0 | 13 | 0 | 0 |
-| `performance.md` | 6 | 0 | 0 | 6 | 0 | 0 |
+| `performance.md` | 6 | 2 | 0 | 4 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 1 | 0 | 11 | 0 | 0 |
 | `config_contracts.md` | 32 | 0 | 0 | 32 | 0 | 0 |
-| **Total** | **163** | **19** | **1** | **143** | **0** | **0** |
+| **Total** | **163** | **21** | **1** | **141** | **0** | **0** |
 
 ## Per-report status
 
@@ -48,7 +48,7 @@ least one of its findings moves).
 | **PARTIAL** | [predict_persistence.md](predict_persistence.md) | 18 | serving path and artifact round-trip (PRD-02, PRD-04, PRD-05 fixed) |
 | **PARTIAL** | [ensembling_models.md](ensembling_models.md) | 14 | model zoo, blends, thresholds, votenrank (ENS-01, ENS-02, ENS-04 fixed) |
 | **PARTIAL** | [evaluation_reporting.md](evaluation_reporting.md) | 16 | diagnostic verdicts (EVR-01, EVR-02, EVR-03 fixed) |
-| **TODO** | [performance.md](performance.md) | 6 | measured performance |
+| **PARTIAL** | [performance.md](performance.md) | 6 | measured performance (PRF-01, PRF-02 fixed) |
 | **PARTIAL** | [concurrency_resources.md](concurrency_resources.md) | 12 | concurrency and resources (CNC-01 fixed) |
 | **TODO** | [config_contracts.md](config_contracts.md) | 32 | config contracts |
 

@@ -33,7 +33,9 @@ class _Probe(Protocol):
         """Return the probe model's predicted class probabilities for ``X``."""
         ...
 
-from mlframe.feature_selection.filters import generate_rankgauss_features
+# ``feature_selection.filters`` is imported lazily at its two use sites below: at module scope it made
+# ``import mlframe.preprocessing`` pull in the whole filters stack (measured ~20 s, most of it the numba typed-dict
+# warm-up and cupy) for callers that never rank-gauss anything.
 from mlframe.preprocessing.scalers import make_all_scalers
 
 
@@ -55,6 +57,8 @@ def _apply_transform(x: np.ndarray, transform_name: str) -> Optional[np.ndarray]
     if transform_name == "log1p_signed":
         return np.asarray(np.sign(x) * np.log1p(np.abs(x)), dtype=np.float64)
     if transform_name == "rankgauss":
+        from mlframe.feature_selection.filters import generate_rankgauss_features
+
         enc_df, _ = generate_rankgauss_features(pd.DataFrame({"c": x}), ["c"])
         return np.asarray(enc_df.iloc[:, 0].to_numpy(), dtype=np.float64)
     for name, scaler in make_all_scalers():
@@ -102,6 +106,8 @@ def _fit_transform_fold(x: np.ndarray, transform_name: str, train_idx: np.ndarra
         return f(x_train), f(x_test)
     if transform_name == "rankgauss":
         from mlframe.feature_selection.filters import apply_rankgauss, engineered_name_rankgauss
+
+        from mlframe.feature_selection.filters import generate_rankgauss_features
 
         enc_df, recipes = generate_rankgauss_features(pd.DataFrame({"c": x_train}), ["c"])
         train_out = np.asarray(enc_df.iloc[:, 0].to_numpy(), dtype=np.float64)
