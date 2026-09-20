@@ -256,6 +256,9 @@ class CompositeCrossTargetEnsemble:
         # Same for ``y[finite]``. Keep a reference instead of a copy of a copy.
         instance._linear_stack_train_preds = component_predictions[finite]
         instance._linear_stack_train_y = y[finite]
+        # Per-component OOF column means: the neutral stand-in predict uses for a component that drops out, so the
+        # surviving columns keep the weights they were solved with instead of summing to a smaller prediction.
+        instance._component_col_means = component_predictions[finite].mean(axis=0).tolist()
         instance._linear_stack_ridge_alpha = chosen_alpha
         return instance
 
@@ -342,6 +345,8 @@ class CompositeCrossTargetEnsemble:
         # 256-MB-per-pickle duplicate. Keep the bool-indexed view directly.
         instance._nnls_stack_train_preds = component_predictions[finite]
         instance._nnls_stack_train_y = y[finite]
+        # See the linear_stack builder: column means stand in for a component that fails at predict time.
+        instance._component_col_means = component_predictions[finite].mean(axis=0).tolist()
         return instance
 
     @classmethod
@@ -560,7 +565,7 @@ class CompositeCrossTargetEnsemble:
                     logger,
                     "cross_target_ensemble_component_predict_failed",
                     logging.WARNING,
-                    "[CompositeCrossTargetEnsemble] component '%s' predict failed: " "%s. Excluding from this batch's ensemble (re-normalising).",
+                    "[CompositeCrossTargetEnsemble] component '%s' predict failed: " "%s. Excluding it from this batch's ensemble; how the rest are combined is logged below.",
                     name,
                     exc,
                 )
@@ -625,15 +630,32 @@ class CompositeCrossTargetEnsemble:
                 _raw = (preds_matrix * full_weights[None, :]).sum(axis=1) + full_intercept
                 return self._apply_output_calibration(_raw)
 
-            surviving_weights = full_weights[surviving_idx]
             _intercept = full_intercept if self.strategy == "linear_stack" else 0.0
+            _col_means = getattr(self, "_component_col_means", None)
+            if _col_means is None:  # models pickled before the means were stored keep the stashed OOF design
+                _stash = getattr(self, "_linear_stack_train_preds", None)
+                if _stash is None:
+                    _stash = getattr(self, "_nnls_stack_train_preds", None)
+                if _stash is not None and np.asarray(_stash).size:
+                    _col_means = np.asarray(_stash, dtype=np.float64).mean(axis=0).tolist()
             logger.warning(
-                "[CompositeCrossTargetEnsemble] %s: %d of %d components dropped out at predict time; "
-                "combining surviving columns with their original weights (no refit, deterministic).",
-                self.strategy, len(self.component_models) - len(surviving_idx),
-                len(self.component_models),
+                "[CompositeCrossTargetEnsemble] %s: %d of %d components dropped out at predict time; %s "
+                "(no refit, deterministic).",
+                self.strategy, len(self.component_models) - len(surviving_idx), len(self.component_models),
+                "filling their columns with the per-component OOF means" if _col_means is not None else "combining the surviving columns with their original weights",
             )
-            _raw = (preds_matrix * surviving_weights[None, :]).sum(axis=1) + _intercept
+            if _col_means is None:
+                # Nothing to stand in with: the sum is short by the dropped components' contribution.
+                _raw = (preds_matrix * full_weights[surviving_idx][None, :]).sum(axis=1) + _intercept
+                return self._apply_output_calibration(_raw)
+            # The weights are the raw solver output for the FULL design, so dropping a column shrinks the prediction by
+            # that component's whole contribution (a 0.5-weight dropout halved the served forecast). Rebuilding the design
+            # with the component's own mean keeps every surviving weight the one it was solved with, and stays a pure
+            # function of the inputs.
+            full = np.empty((preds_matrix.shape[0], len(self.component_models)), dtype=np.float64)
+            for col, p in enumerate(per_component):
+                full[:, col] = p if p is not None else float(_col_means[col]) if col < len(_col_means) else 0.0
+            _raw = (full * full_weights[None, :]).sum(axis=1) + _intercept
             return self._apply_output_calibration(_raw)
 
         # Convex strategies (mean / oof_weighted): re-normalise across surviving components.

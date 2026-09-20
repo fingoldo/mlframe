@@ -61,7 +61,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 
   Make the log text branch-specific. Consider raising when the dropped weight mass is above a threshold (for example 20%), instead of serving a biased blend.
 - **Test to add**: For an NNLS ensemble with one of two equal-weight components raising, assert that the prediction mean stays within 5% of the surviving component's mean. Reframe the three dropout tests to that contract.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - a dropped component's column is rebuilt from its own OOF mean so every surviving weight stays the one it was solved with (no refit, still deterministic); models pickled before the means were stored derive them from the stashed OOF design, and the component-failure log no longer claims to re-normalise (test_composite_ensemble_linear_stack_dropout.py: at origin/master all 3 rows are off by up to 25.5, 26%)
 
 ### EST-04 [P1] At predict time the recurrent inverses get `1.0` in place of an out-of-domain (NaN/inf) base, which corrupts the EWMA/rolling state of every later row in the batch
 

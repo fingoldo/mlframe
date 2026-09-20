@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 0 | 0 | 30 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 3 | 0 | 19 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
 | `suite_integration.md` | 19 | 4 | 0 | 15 | 0 | 0 |
 | `performance.md` | 24 | 0 | 0 | 24 | 0 | 0 |
 | `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **33** | **0** | **146** | **0** | **0** |
+| **Total** | **179** | **34** | **0** | **145** | **0** | **0** |
 
 ### `transforms.md`
 
@@ -96,7 +96,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|
 | **RESOLVED** | P0 | `EST-01` | One `X` is used both for the inner model's features and for the raw base, so every call path gives wrong y-scale predictions for composite models trained behind a value-transforming pre_pipeline | the wrapper owns inner_pre_pipeline_ and derives the inner frame from the suite-stage frame, with an inner_X override for callers that already applied it; PipelineCache now carries the fitted pipeline (dbe77db39; a8d1f9b06 pins both stages against an oracle at every predict entry point, test_composite_suite_persistence.py) |
 | **RESOLVED** | P1 | `EST-02` | The default-ON MoE gate routes every row of a group it did not see at fit time to `lag_predict`, so on group-disjoint val/test splits it replaces the deployed ensemble with lag everywhere | the unseen/low-data fallback is the pooled-best expert over the matched selection rows with lag among the candidates, since such a group contributes no rows to the pooled sums the vs-lag guarantee is proved on (test_biz_val_moe_gate.py::test_global_fallback_for_unseen_group_is_the_pooled_best_expert, which fails at origin/master with 'lag' == 'composite'; the companion test keeps lag when lag is pooled-best) |
-| **TODO** | P1 | `EST-03` | When a component fails at predict time, `CompositeCrossTargetEnsemble.predict` drops it but keeps the other components' raw weights, which biases predictions toward 0 by the dropped weight mass | |
+| **RESOLVED** | P1 | `EST-03` | When a component fails at predict time, `CompositeCrossTargetEnsemble.predict` drops it but keeps the other components' raw weights, which biases predictions toward 0 by the dropped weight mass | a dropped component's column is rebuilt from its own OOF mean so every surviving weight stays the one it was solved with (no refit, still deterministic); models pickled before the means were stored derive them from the stashed OOF design, and the component-failure log no longer claims to re-normalise (test_composite_ensemble_linear_stack_dropout.py: at origin/master all 3 rows are off by up to 25.5, 26%) |
 | **RESOLVED** | P1 | `EST-04` | At predict time the recurrent inverses get `1.0` in place of an out-of-domain (NaN/inf) base, which corrupts the EWMA/rolling state of every later row in the batch | a recurrent inverse carry-forward-fills an out-of-domain base instead of substituting 1.0, matching what fit does for its own dropped rows (test_recurrent_predict_out_of_domain_base.py: at origin/master one blanked row moved 73 of 239 other rows by up to 75.9) |
 | **TODO** | P2 | `EST-05` | The CT-ensemble "honest OOF gate" can never fire for the default `nnls_stack` (and in practice for `linear_stack`), because the stack weights are fit on the same OOF matrix the gate scores | |
 | **TODO** | P2 | `EST-06` | `cap_inference_components` trims non-convex stacks without refitting or renormalising, after the gate has already accepted the full stack | |
