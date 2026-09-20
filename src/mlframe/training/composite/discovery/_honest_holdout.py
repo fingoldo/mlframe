@@ -35,6 +35,8 @@ from ..transforms import UnknownTransformError, get_transform
 from .screening import (
     _extract_column_array,
     _mi_to_target,
+    _mi_to_target_prebinned,
+    _prebin_feature_columns,
 )
 
 logger = logging.getLogger(__name__)
@@ -261,6 +263,20 @@ def rescore_specs_on_holdout(
     if holdout_idx is None or holdout_idx.size == 0 or not kept_specs:
         return
     cfg = self.config
+    # Cap the re-scored rows the same way the in-screen MI is capped. The holdout is a fraction of train with no cap of
+    # its own, so on a multi-million-row frame every spec pulled the full feature block for all holdout rows, twice, in
+    # parallel threads. The honest gain is an MI difference, which saturates at the same sample size the screen uses;
+    # above the cap a seeded draw is taken, below it every row is kept and the stamped numbers are unchanged.
+    _mi_cap = getattr(cfg, "mi_sample_n", None)
+    holdout_idx = np.asarray(holdout_idx)
+    if _mi_cap is not None and int(_mi_cap) > 0 and holdout_idx.size > int(_mi_cap):
+        _draw = np.random.default_rng(int(getattr(cfg, "random_state", 0))).choice(holdout_idx.size, size=int(_mi_cap), replace=False)
+        logger.info(
+            "[CompositeTargetDiscovery.honest_holdout] re-scoring on a seeded %d-row draw of the %d-row holdout "
+            "(mi_sample_n cap); the honest gain is an MI difference and saturates well below this size.",
+            int(_mi_cap), holdout_idx.size,
+        )
+        holdout_idx = np.sort(holdout_idx[_draw])
     estimator = getattr(cfg, "mi_estimator", "bin")
     nbins = int(getattr(cfg, "mi_nbins", 16))
     aggregation = getattr(cfg, "mi_aggregation", "mean")
@@ -273,6 +289,44 @@ def rescore_specs_on_holdout(
     # Lock-guarded -- the per-spec re-scores run from a thread pool below.
     _mi_y_memo: dict[tuple, float] = {}
     _mi_y_memo_lock = threading.Lock()
+    # X-remaining depends only on the spec's base-column set, so specs sharing a base rebuilt the identical matrix --
+    # once per spec, concurrently, each a full holdout-rows x features copy. Build one per base set instead.
+    _x_remaining_cache: dict[tuple, np.ndarray] = {}
+    _x_remaining_lock = threading.Lock()
+
+    _prebinned_cache: dict[tuple, np.ndarray] = {}
+    _prebinned_lock = threading.Lock()
+
+    def _x_remaining_for(base_columns: Sequence[str]) -> np.ndarray:
+        """The holdout X-remaining matrix for this base set, built once and shared across the specs that need it."""
+        key = tuple(sorted(base_columns))
+        # The lock is held across the build, not just around the dict: the re-scores start together, so a
+        # check-then-build would have every thread miss the empty cache and build its own copy, which is the
+        # duplication this cache exists to remove.
+        with _x_remaining_lock:
+            cached = _x_remaining_cache.get(key)
+            if cached is None:
+                cached = _build_x_remaining_holdout(df, usable_features, base_columns, holdout_idx)
+                _x_remaining_cache[key] = cached
+        return cached
+
+    def _prebinned_for(base_columns: Sequence[str]) -> np.ndarray:
+        """The bin codes of this base set's X-remaining matrix, quantile-binned once and shared across specs.
+
+        The bin estimator re-quantiles every feature column on each call, twice per spec. The codes depend only on the
+        columns and the row set, so binning once per base set makes each later MI a pure histogram pass; the aggregated
+        MI is the same number the per-call binning produced.
+        """
+        key = tuple(sorted(base_columns))
+        # The matrix is fetched BEFORE the lock: taking it inside would re-enter the same non-reentrant lock that
+        # ``_x_remaining_for`` holds across its own build, and every re-score thread would stop there.
+        matrix = _x_remaining_for(base_columns)
+        with _prebinned_lock:
+            cached = _prebinned_cache.get(key)
+            if cached is None:
+                cached = _prebin_feature_columns(matrix, nbins=nbins)
+                _prebinned_cache[key] = cached
+        return cached
 
     def _rescore_one(spec) -> None:
         """Recompute one spec's honest MI gain on the held-out rows and write it back onto the frozen spec in place via ``object.__setattr__``; any failure (unknown transform, empty remaining-feature matrix) leaves the spec's honest fields untouched."""
@@ -281,7 +335,7 @@ def rescore_specs_on_holdout(
         except UnknownTransformError:
             return
         base_columns = spec_base_columns(spec)
-        x_remaining = _build_x_remaining_holdout(df, usable_features, base_columns, holdout_idx)
+        x_remaining = _x_remaining_for(base_columns)
         if x_remaining.shape[1] == 0:
             return
         # Materialise the base argument shape the transform.forward expects:
@@ -327,22 +381,31 @@ def rescore_specs_on_holdout(
         except Exception as exc:  # -- transform raised on holdout rows
             logger.debug("honest-holdout forward failed for %s: %s", spec.name, exc)
             return
-        x_valid = x_remaining[valid]
+        # The shared bin codes are only usable when this spec keeps every holdout row: the bin edges are quantiles of
+        # the rows actually scored, so a spec whose domain filter drops rows must bin its own subset, as before.
+        _codes = _prebinned_for(base_columns) if (estimator == "bin" and bool(valid.all())) else None
+        x_valid = x_remaining if _codes is not None else x_remaining[valid]
         _mi_kwargs: dict[str, Any] = dict(nbins=nbins, aggregation=aggregation)
-        mi_t = _mi_to_target(
-            x_valid, t_holdout,
-            n_neighbors=n_neighbors, random_state=random_state,
-            estimator=estimator, **_mi_kwargs,
-        )
+        if _codes is not None:
+            mi_t = _mi_to_target_prebinned(_codes, t_holdout, nbins=nbins, aggregation=aggregation)
+        else:
+            mi_t = _mi_to_target(
+                x_valid, t_holdout,
+                n_neighbors=n_neighbors, random_state=random_state,
+                estimator=estimator, **_mi_kwargs,
+            )
         _memo_key = (tuple(base_columns), hash(valid.tobytes()))
         with _mi_y_memo_lock:
             _mi_y_cached = _mi_y_memo.get(_memo_key)
         if _mi_y_cached is None:
-            mi_y = _mi_to_target(
-                x_valid, y_h[valid],
-                n_neighbors=n_neighbors, random_state=random_state,
-                estimator=estimator, **_mi_kwargs,
-            )
+            if _codes is not None:
+                mi_y = _mi_to_target_prebinned(_codes, y_h[valid], nbins=nbins, aggregation=aggregation)
+            else:
+                mi_y = _mi_to_target(
+                    x_valid, y_h[valid],
+                    n_neighbors=n_neighbors, random_state=random_state,
+                    estimator=estimator, **_mi_kwargs,
+                )
             with _mi_y_memo_lock:
                 _mi_y_memo[_memo_key] = float(mi_y)
         else:
