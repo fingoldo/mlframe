@@ -118,7 +118,14 @@ def test_detect_expanding_window_feature_leakage_auto_remediate_default_off_is_b
     explicit_off = detect_expanding_window_feature_leakage(
         df, "t", y, _frequency_count_fit_transform, lambda: LinearRegression(), n_splits=4, scoring="r2", auto_remediate=False
     )
-    assert set(default_call.keys()) == {"leaky_scores", "honest_scores", "leaky_mean", "honest_mean", "inflation", "leak_detected"}
+    # The contract under test is that ``auto_remediate`` adds the remediation keys and nothing else; the detection
+    # keys themselves grew when the verdict stopped being an absolute threshold in score units (``leak_pvalue`` /
+    # ``leak_tolerance`` report how it was reached), so they are listed here rather than pinning an old key set.
+    assert set(default_call.keys()) == {
+        "leaky_scores", "honest_scores", "leaky_mean", "honest_mean", "inflation",
+        "leak_tolerance", "leak_pvalue", "leak_detected",
+    }
+    assert not {"remediated_feature", "leaky_row_positions", "remediation_inflation", "remediation_verified"} & set(default_call)
     assert default_call["leaky_scores"] == explicit_off["leaky_scores"]
     assert default_call["honest_scores"] == explicit_off["honest_scores"]
     assert default_call["inflation"] == explicit_off["inflation"]

@@ -32,8 +32,13 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-# A leaky CV score can land at or below the honest one by chance; only a materially higher one is the tell.
-_LEAK_TOLERANCE = 0.02
+# A leaky CV score can land at or below the honest one by chance; only a materially higher one is the tell. The
+# default band is derived from the fold scores themselves rather than fixed in score units: ``scoring`` is an
+# arbitrary caller-chosen sklearn scorer, so 0.02 was simultaneously unreachable on a neg_MSE target of variance 1e6
+# (a 30 000-unit inflation reported no leak) and unclearable on a 0.001-scale loss (every clean feature reported one).
+_LEAK_TOLERANCE = 0.02  # last resort only: the honest mean AND the fold spread are both zero, so there is no scale
+_LEAK_RELATIVE_TOLERANCE = 0.02  # 2% of the honest score's own magnitude
+_LEAK_BAND_ALPHA = 0.05
 
 
 def _score_expanding_folds(
@@ -100,6 +105,7 @@ def detect_expanding_window_feature_leakage(
     n_splits: int = 5,
     scoring: Optional[str] = None,
     auto_remediate: bool = False,
+    leak_tolerance: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Compare CV scores between full-dataset ("leaky") and per-fold-train-only ("honest") feature
     computation over expanding time-ordered folds.
@@ -124,6 +130,11 @@ def detect_expanding_window_feature_leakage(
         train window; each subsequent fold's train window expands to include all previously-validated rows).
     scoring
         sklearn scorer name; None uses the estimator's default ``.score``.
+    leak_tolerance
+        How much higher the leaky mean must be before the verdict fires, IN THE UNITS OF ``scoring``. ``None``
+        (the default) derives it from the fold scores themselves - the two-sample noise band of the difference of
+        the two means at alpha=0.05 - so the verdict travels across scorers of any scale. A fixed number was
+        unreachable on a large-scale loss and unclearable on a small-scale one. Reported back as ``leak_tolerance``.
     auto_remediate
         Opt-in (default False, output bit-identical to the pre-existing detection-only behavior when
         omitted). When True, additionally builds a leakage-safe replacement feature by stitching together
@@ -136,9 +147,11 @@ def detect_expanding_window_feature_leakage(
     -------
     dict
         ``leaky_scores``, ``honest_scores`` (one per fold), ``leaky_mean``, ``honest_mean``,
-        ``inflation`` (``leaky_mean - honest_mean``), ``leak_detected`` (True if ``inflation`` exceeds a
-        small tolerance -- a leaky CV score can be equal to or even below honest by chance, but a
-        MATERIALLY higher leaky score across folds is the tell).
+        ``inflation`` (``leaky_mean - honest_mean``), ``leak_tolerance`` (the band the inflation was judged
+        against), ``leak_pvalue`` (one-sided signed-rank p-value of the per-fold differences, reported as
+        consistency evidence rather than as the verdict) and ``leak_detected`` (True if ``inflation`` exceeds
+        the band -- a leaky CV score can be equal to or even
+        below honest by chance, but a MATERIALLY higher leaky score across folds is the tell).
 
         When ``auto_remediate=True``, three additional keys are present:
 
@@ -193,13 +206,42 @@ def detect_expanding_window_feature_leakage(
     honest_mean = float(np.mean(honest_scores))
     inflation = leaky_mean - honest_mean
 
+    # Tolerance in the metric's own units: the fold-to-fold noise band of the difference of the two means, or the
+    # caller's explicit ``leak_tolerance``. With one fold there is no spread to estimate and the historical constant
+    # is the only thing left.
+    _diffs = np.asarray(leaky_scores, dtype=float) - np.asarray(honest_scores, dtype=float)
+    leak_pvalue = np.nan
+    if leak_tolerance is not None:
+        tolerance = float(leak_tolerance)
+        leak_detected = bool(inflation > tolerance)
+    else:
+        # RELATIVE to the honest score's own magnitude, because ``scoring`` is an arbitrary caller-chosen scorer: a
+        # fixed 0.02 in score units was unreachable on a neg_MSE target of variance 1e6 (a 30 000-unit inflation
+        # reported no leak) and unclearable on a 0.001-scale loss (every clean feature reported one). When the honest
+        # mean sits at zero - an r2 of a useless feature, say - the spread of the fold scores stands in for the scale,
+        # and only if that is zero too does the historical constant remain.
+        _scale = abs(honest_mean)
+        if _scale <= 0.0:
+            _scale = float(np.std(np.asarray(honest_scores, dtype=float))) if len(honest_scores) > 1 else 0.0
+        tolerance = _LEAK_RELATIVE_TOLERANCE * _scale if _scale > 0.0 else _LEAK_TOLERANCE
+        # Reported alongside: how consistently leaky beat honest, fold by fold. It does not gate the verdict - with
+        # four or five folds a rank test cannot reach p < 0.05 at all - but it distinguishes "one lucky fold" from
+        # "every fold", which is what a reader wants next after the verdict.
+        if _diffs.size >= 2 and not np.allclose(_diffs, 0.0):
+            from scipy.stats import wilcoxon
+
+            leak_pvalue = float(wilcoxon(_diffs, alternative="greater", zero_method="zsplit").pvalue)
+        leak_detected = bool(inflation > tolerance)
+
     result: Dict[str, Any] = {
         "leaky_scores": leaky_scores,
         "honest_scores": honest_scores,
         "leaky_mean": leaky_mean,
         "honest_mean": honest_mean,
         "inflation": inflation,
-        "leak_detected": bool(inflation > _LEAK_TOLERANCE),
+        "leak_tolerance": tolerance,
+        "leak_pvalue": leak_pvalue,
+        "leak_detected": leak_detected,
     }
 
     if auto_remediate:
@@ -224,7 +266,11 @@ def detect_expanding_window_feature_leakage(
         result["remediated_feature"] = remediated_feature
         result["leaky_row_positions"] = leaky_row_positions
         result["remediation_inflation"] = remediation_inflation
-        result["remediation_verified"] = bool(remediation_inflation <= _LEAK_TOLERANCE)
+        # The remediation is verified when what is left is no longer distinguishable from the honest refit: the same
+        # paired band, applied to the post-remediation difference.
+        _verif_diffs = np.asarray(verif_leaky, dtype=float) - np.asarray(verif_honest, dtype=float)
+        # Same band as the detection verdict: what remains must be inside the tolerance the leak had to exceed.
+        result["remediation_verified"] = bool(remediation_inflation <= tolerance)
 
     return result
 

@@ -40,4 +40,12 @@ Scope: `src/mlframe/feature_selection/` - `filters/` (mrmr, `_mrmr_fit_impl/`, `
 - The many `np.nan_to_num(..., nan=0.0, posinf=0.0, neginf=0.0)` calls under `_feature_engineering_pairs/` and `engineered_recipes/` scrub data buffers before discretization, not score arrays.
 - `filters/permutation.py:841,884,900,975` (`original_mi = 0.0`) is intended null-rejection semantics, not a failure fallback.
 
-- **Disposition**: TODO
+- **Disposition**: PARTIAL - FS-01, FS-02, FS-03 RESOLVED, the remaining 18 are TODO.
+
+## Dispositions
+
+| ID | Status | Note |
+|---|---|---|
+| FS-01 | RESOLVED | Stability selection measures importance on each bootstrap's out-of-bag complement, so a memorised high-cardinality column no longer scores large in every bootstrap. Pinned by `tests/feature_selection/test_stability_selection_oob_importance.py`, which asserts the fitted and scored row sets are disjoint. |
+| FS-02 | RESOLVED | A failed conditioning fit records NaN, not a rank-competitive 0.0. Pinned by `tests/feature_selection/test_importance_failure_is_not_neutral.py`. |
+| FS-03 | RESOLVED | A failed drop-column evaluation records NaN. The stability-selection consumer keeps mapping NaN to 0.0 locally, which is correct THERE: it counts a feature as selected only on a strictly positive aggregate, so an unmeasured feature simply gets no vote. Pinned by the same test file. |

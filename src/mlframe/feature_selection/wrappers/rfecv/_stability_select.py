@@ -195,6 +195,17 @@ def _fit_stability_selection(self, X, y, signature):
         y_arr = np.asarray(y)
         y_sub = y_arr[idx]
         sw_sub = _fit_sw_arr[idx] if _fit_sw_arr is not None else None
+        # Out-of-bag complement of this bootstrap. Permutation importance measured on the SAME rows the estimator was
+        # just fit on rewards memorisation: a high-cardinality noise column is memorised on every subsample, permuting
+        # it destroys the memorised mapping, its importance is large in every bootstrap, and selection_freq = 1.0
+        # clears the stability threshold while weak true signals drop out. ``importance_getter='auto'`` is documented
+        # as held-out, and the CV-fold path already passes a held-out split.
+        oob_idx = np.setdiff1d(np.arange(n_samples), idx, assume_unique=False)
+        if oob_idx.size == 0:
+            X_eval, y_eval = X_sub, y_sub  # sub_size == n_samples: nothing is held out, so this is all there is
+        else:
+            X_eval = X.iloc[oob_idx] if is_df else X[oob_idx]
+            y_eval = y_arr[oob_idx]
 
         # Aggregate FI across estimators within this bootstrap.
         per_feature_score_sum = np.zeros(n_features, dtype=float)
@@ -222,7 +233,7 @@ def _fit_stability_selection(self, X, y, signature):
             try:
                 fi_dict = get_feature_importances(
                     model=est_clone, current_features=feature_names,
-                    data=X_sub, target=y_sub,
+                    data=X_eval, target=y_eval,
                     importance_getter=importance_getter,
                     n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5) or 5),
                     # W3: same fix as the main RFECV fold path - derive a per-bootstrap seed from the
@@ -243,6 +254,9 @@ def _fit_stability_selection(self, X, y, signature):
                 continue
             # Align with feature_names.
             fi_arr = np.array([float(fi_dict.get(n, 0.0)) for n in feature_names])
+            # A NaN importance means "could not be measured". 0.0 is the right substitute HERE and only here: this
+            # consumer counts a feature as selected by the bootstrap only when its aggregate is strictly positive, so
+            # an unmeasured feature simply does not get a vote.
             fi_arr = np.where(np.isnan(fi_arr), 0.0, fi_arr)
             per_feature_score_sum += fi_arr
 
