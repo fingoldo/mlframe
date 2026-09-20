@@ -728,9 +728,10 @@ def fit(
     if kept_specs and getattr(self.config, "honest_rmse_gate_enabled", True):
         from ._honest_rmse_gate import apply_honest_rmse_gate
 
+        # The SELECTION half: this gate drops specs, so it must not read the rows the reported honest number comes from.
         kept_specs = apply_honest_rmse_gate(
             self, df, target_col, kept_specs, usable_features,
-            train_idx, _honest_holdout_idx, y_full,
+            train_idx, getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx), y_full,
         )
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "honest_rmse_gate_done")
@@ -740,9 +741,11 @@ def fit(
     if kept_specs and _honest_holdout_idx is not None and _honest_holdout_idx.size:
         from ._honest_holdout import apply_honest_holdout
 
+        # The REPORT half: no gate or ranking reads these rows, so the stamped gain is free of the winner's curse the
+        # carve exists to remove (with a holdout too small to halve, both roles share it and this is the old behaviour).
         apply_honest_holdout(
             self, df, target_col, kept_specs, usable_features,
-            train_idx, _honest_holdout_idx, y_full,
+            train_idx, getattr(self, "honest_holdout_report_idx_", _honest_holdout_idx), y_full,
         )
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "honest_holdout_rescore_done")

@@ -580,7 +580,8 @@ def _tiny_model_rerank(
 
         _honest_oof = honest_oof_reconstruction_rmse(
             self, df, target_col, kept_specs, usable_features,
-            train_idx, getattr(self, "honest_holdout_idx_", None), y_full,
+            # Selection half: this score is a ranking key, so it must not be measured on the reported rows.
+            train_idx, getattr(self, "honest_holdout_select_idx_", None) if getattr(self, "honest_holdout_select_idx_", None) is not None else getattr(self, "honest_holdout_idx_", None), y_full,
         )
         if _honest_oof:
             self._honest_oof_rmse = dict(_honest_oof)

@@ -152,8 +152,33 @@ def carve_screening_holdout(self, train_idx: np.ndarray) -> tuple[np.ndarray, np
         group_ids=getattr(self, "_group_ids_for_rerank", None),
     )
     self.honest_holdout_idx_ = holdout_idx
+    self.honest_holdout_select_idx_, self.honest_holdout_report_idx_ = split_holdout_select_report(
+        holdout_idx, int(getattr(self.config, "random_state", 0)),
+    )
     self.train_idx_ = screen_idx
     return screen_idx, holdout_idx
+
+
+def split_holdout_select_report(holdout_idx: np.ndarray | None, random_state: int, *, min_side_rows: int = 50) -> tuple:
+    """Halve the honest holdout into ``(selection_rows, report_rows)``.
+
+    The carve promises rows no decision ever saw, but the drop gate, the honest-OOF rank key and the cross-target budget
+    all read the holdout, and the number stamped on each surviving spec is then measured on those same rows. That number
+    is a maximum over the survivors of a comparison made on the very rows it reports, so it carries the winner's curse
+    the carve exists to remove, and it gets more optimistic the more candidates the gates reject.
+
+    Splitting the holdout keeps both jobs honest: the selection half feeds every gate and ranking, the report half is
+    read only by the final re-score. Below ``2 * min_side_rows`` there is nothing to split -- both halves would be too
+    small to estimate anything -- so both roles keep the whole holdout and the reported number stays as it was.
+    """
+    if holdout_idx is None:
+        return None, None
+    idx = np.asarray(holdout_idx)
+    if idx.size < 2 * min_side_rows:
+        return idx, idx
+    order = np.random.default_rng(random_state).permutation(idx.size)
+    cut = idx.size // 2
+    return np.sort(idx[order[:cut]]), np.sort(idx[order[cut:]])
 
 
 def _build_x_remaining_holdout(

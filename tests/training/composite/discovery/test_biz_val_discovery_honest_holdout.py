@@ -119,7 +119,9 @@ def test_biz_val_honest_holdout_debiases_pure_noise_winner():
     inscreen, honest_vals, honest_below = [], [], 0
     seeds = list(range(7, 17))
     for s in seeds:
-        df = _pure_noise_df(n=6000, seed=s)
+        # 2x the rows: the holdout is now halved into a selection side and a report side, so the reported gain is
+        # measured on half as many rows as before. Same claim, same thresholds, the sample size that supports them.
+        df = _pure_noise_df(n=12000, seed=s)
         disc = _run(
             df,
             _make_config(random_state=s, base_candidates=base_cands, mi_sample_n=3000, honest_holdout_frac=0.35),
@@ -160,7 +162,7 @@ def test_biz_val_honest_holdout_preserves_real_signal_gain():
     pos = 0
     seeds = list(range(7, 13))
     for s in seeds:
-        df = _real_signal_df(n=3000, seed=s)
+        df = _real_signal_df(n=6000, seed=s)  # see the noise test: the report half needs the rows the full holdout used to have
         disc = _run(df, _make_config(random_state=s, transforms=("linear_residual", "diff", "ratio")), feat)
         specs = disc.export_specs()
         assert specs
