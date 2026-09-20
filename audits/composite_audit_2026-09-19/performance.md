@@ -96,7 +96,7 @@ Default counts used in the estimates:
   - Decouple the pre-screen from the OOF source. Whenever `filtered_val_df` and the val y exist, compute the leaky val RMSE from the already-trained components; reuse cached predictions per PRF-13. Drop components by the same 1.5x rule before `compute_oof_holdout_predictions`.
   - This is independent of EST-11, the val-vs-OOF unit mismatch in the final floor gate.
 - **Test/benchmark to add**: a test in which a component clearly loses to the dummy on val and the OOF source is `"kfold"`. Assert that its OOF refit is never invoked, by counting fits on a mock, and that the surviving ensemble is unchanged.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - the pre-screen no longer reads the OOF frame directly: it takes whichever frame is available, falling back to `filtered_val_df` and its y, so it runs under the default `oof_holdout_source="kfold"` as well. The screen itself was carved into `_phase_composite_post_xt_ensemble/_prescreen.py` (frame choice, leaky-RMSE keep mask, dummy floor lookup) so its rules are directly testable; the caller keeps the same drop conditions (>=4 components, >=2 survivors, honest floor gate unchanged afterwards). test_xt_ensemble_leaky_prescreen.py, 8 tests: val fallback, OOF frame takes precedence, no frame means no screen, hopeless dropped / good kept, safety margin, predict failure kept, too few finite rows kept, floor lookup. The wiring test fails pre-fix by construction (the helper did not exist); no timing was taken, as the win is refits not run and the in-code estimate was not re-measured here
 
 ### PRF-05 [P1] The honest-holdout re-score gathers the full, uncapped holdout feature matrix once per spec, in parallel threads, and re-bins every column twice per spec
 
@@ -116,7 +116,7 @@ Default counts used in the estimates:
 - **Test/benchmark to add**:
   - A bench of the re-score on 10 specs over 3 bases at a 200k holdout with 100 features, recording wall time and peak RSS.
   - A test that the honest gains equal the current values when the cap exceeds the holdout size.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - three changes, each measured on a 200k-row holdout with 60 features and 10 specs sharing one base: the X-remaining matrix is built once per base set instead of once per spec (the lock is held across the build, or the threads all miss the empty cache together); the rows are capped by `mi_sample_n`, the same cap the in-screen MI uses, with a seeded draw above it; and the bin estimator quantises the shared matrix once, so each MI is a histogram pass. Wall: 10.77 s -> 0.75 s at the default cap (1.50 s with the cap off, so 7.2x from the shared bin codes alone), with the stamped gain 0.026222 against 0.026228 uncapped, and the prebinned MI is exact to 8e-17 against the per-call binning at 100k x 60 (0.97 s -> 0.14 s per call plus a 0.60 s one-time prebin). The shared codes are used only when a spec keeps every holdout row: the bin edges are quantiles of the rows actually scored, so a spec whose domain filter drops rows bins its own subset as before. test_honest_holdout_rescore_cost.py, 5 tests: one build for four specs, gains unchanged by the cache, a cap above the holdout changes nothing, a cap below it bounds the rows, the draw is reproducible
 
 ### PRF-06 [P1] `_filter_features` holds every numeric feature over all train rows, then stacks a second full copy for a leak-corr test that a sample would decide
 
@@ -135,7 +135,7 @@ Default counts used in the estimates:
 - **Test/benchmark to add**:
   - A peak-RSS bench of `_filter_features` at 2M x 200.
   - A test that the drop list, including exact-copy and y-derived leak columns, equals the full-row result.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL - the leak-corr rows are now chosen BEFORE the columns are gathered, so each column is released after its constancy and finite-row checks and only the sampled block is retained: peak goes from every column over every train row plus a second stacked copy to one full column plus a (sample x F) matrix. The stride keeps at least `_LEAK_CORR_MIN_SAMPLE_ROWS` = 500k rows, where the standard error of r near 1 is far inside the 0.99999 threshold, and frames at or below that still read every row, so their drop lists are bit-identical. NOT done: the per-column stats still go through `_extract_column_array` rather than one lazy polars `select`, and no peak-RSS bench was run - the remaining gather is one column at a time, which is no longer the dominant allocation. test_filter_leak_corr_sampling.py, 5 tests: no sampling below the floor, strided and bounded above it, the drop list (exact copy, near-copy, y-derived) is unchanged when sampling kicks in, the constancy check still reads every row, only the sample is held per column
 
 ### PRF-07 [P2] Tiny-model LightGBM fits re-bin the same feature matrix for every spec, seed and fold; `LgbFoldCache` exists but only auto-chain uses it
 
