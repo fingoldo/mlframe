@@ -95,7 +95,7 @@ def test_composite_dumps_hold_the_y_scale_wrapper(composite_suite):
     from mlframe.training.composite import CompositeTargetEstimator
     from mlframe.training.io import load_mlframe_model
 
-    models, metadata, models_path, _df = composite_suite
+    _models, metadata, models_path, _df = composite_suite
     for name in _composite_names(metadata):
         dumps = glob.glob(os.path.join(models_path, "regression", name, "*.dump"))
         assert dumps, f"no dump written for composite target {name!r}"
@@ -158,7 +158,7 @@ def test_additive_composite_y_error_equals_inner_t_error(composite_suite):
         name = spec["name"]
         path = glob.glob(os.path.join(models_path, "regression", name, "*.dump"))[0]
         wrapper = load_mlframe_model(path).model
-        y_pred = np.asarray(result["predictions"][[k for k in result["predictions"] if name in k][0]], dtype=np.float64)
+        y_pred = np.asarray(result["predictions"][next(k for k in result["predictions"] if name in k)], dtype=np.float64)
         transform = get_transform(spec["transform_name"])
         base = np.asarray(stage[spec["base_column"]], dtype=np.float64)
         t_true = np.asarray(transform.forward(y, base, spec["fitted_params"]), dtype=np.float64)
