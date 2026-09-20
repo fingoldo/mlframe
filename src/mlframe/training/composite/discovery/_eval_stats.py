@@ -256,6 +256,76 @@ def benjamini_yekutieli_reject(p_values: np.ndarray, alpha: float) -> np.ndarray
     return out
 
 
+def _alpha_drift_stats_for_spec(self, df, spec, train_idx, half, y_train_for_drift, drift_order, extract_column_array):
+    """The two half-window slopes of one ``linear_residual`` spec, its drift z and its effect size, or ``None``.
+
+    ``None`` means the spec cannot be judged here - a degenerate base, a non-finite half-fit, or a solver failure -
+    and the caller keeps it, since an unmeasurable drift is not evidence of drift.
+    """
+    base_pool = self._auto_base_pool.get(spec.base_column)
+    if base_pool is not None and drift_order is not None:
+        base_pool = np.asarray(base_pool)[drift_order]  # the pool is aligned to the caller's train_idx order
+    if base_pool is not None:
+        base_t = base_pool
+        base_h1 = base_pool[:half]
+        base_h2 = base_pool[half:]
+    else:
+        base_full = extract_column_array(df, spec.base_column)
+        base_t = base_full[train_idx]
+        base_h1 = base_full[train_idx[:half]]
+        base_h2 = base_full[train_idx[half:]]
+    try:
+        # Batched closed-form: the two half-fits are independent single-base
+        # OLS systems; solving them in one pass via
+        # _linear_residual_fit_batched pays the per-call dispatch ONCE
+        # instead of two lstsq/SVD launches. Bit-identical to applying the
+        # scalar closed-form per half (see the batched solver's contract).
+        from ..transforms.linear import _linear_residual_fit_batched
+        _alphas, _betas = _linear_residual_fit_batched(
+            [np.asarray(base_h1), np.asarray(base_h2)],
+            [np.asarray(y_train_for_drift[:half]), np.asarray(y_train_for_drift[half:])],
+        )
+        # A non-finite base/y half makes the closed-form sums NaN; mirror the
+        # legacy lstsq-raises-on-NaN behaviour by skipping the spec.
+        if not (np.isfinite(_alphas).all() and np.isfinite(_betas).all()):
+            return None
+        params1 = {"alpha": float(_alphas[0]), "beta": float(_betas[0])}
+        params2 = {"alpha": float(_alphas[1]), "beta": float(_betas[1])}
+    except Exception as e:
+        logger.debug("split-window param extraction failed for drift check: %s", e)
+        return None
+    a1 = float(params1.get("alpha", 0.0))
+    a2 = float(params2.get("alpha", 0.0))
+    # Residual-based OLS slope SE: SE(alpha) = sqrt(SSE/(n-2)) / (sqrt(n)*base_std); the marginal y_std form overstates SE when the regressor explains most variance.
+    finite_pair = np.isfinite(base_t) & np.isfinite(y_train_for_drift)
+    base_finite = base_t[finite_pair]
+    base_std = float(base_finite.std()) if base_finite.size > 1 else 1.0
+    if base_std < 1e-12 or half < 2:
+        return None
+    y_finite = y_train_for_drift[finite_pair]
+    n_pair = int(finite_pair.sum())
+    if n_pair > 2:
+        # Pooled OLS estimate (mean of the two half-fits) to compute residuals for the pooled residual scale.
+        b1 = float(params1.get("beta", 0.0))
+        b2 = float(params2.get("beta", 0.0))
+        alpha_pool = 0.5 * (a1 + a2)
+        beta_pool = 0.5 * (b1 + b2)
+        residuals = y_finite - (alpha_pool * base_finite + beta_pool)
+        sse = float(np.sum(residuals * residuals))
+        sigma_resid = float(np.sqrt(max(sse / (n_pair - 2), 0.0)))
+    else:
+        sigma_resid = float(y_finite.std()) if y_finite.size > 1 else 1.0
+    # a1-a2 is a difference of two independent half-fits, so Var(a1-a2)=2*sigma^2/(half*var_base); the sqrt(2) keeps the drift z from being inflated ~1.41x.
+    se_alpha = sigma_resid * np.sqrt(2.0) / (np.sqrt(half) * base_std)
+    z = abs(a1 - a2) / max(se_alpha, 1e-12)
+    # Effect size: the half-to-half slope change scaled into y-units as a fraction of y_std. The z-test is
+    # sample-size sensitive (SE ~ 1/sqrt(n)), so at multi-million-row train a negligible slope shift trips z >> 3;
+    # requiring a practically-meaningful effect alongside z stops the cascade-drop of every spec on a base.
+    y_std_drift = float(y_finite.std()) if y_finite.size > 1 else 1.0
+    effect_size = abs(a1 - a2) * base_std / max(y_std_drift, 1e-12)
+    return {"a1": a1, "a2": a2, "z": float(z), "effect_size": float(effect_size)}
+
+
 def apply_alpha_drift_gate(
     self,
     kept_specs: list,
@@ -303,70 +373,11 @@ def apply_alpha_drift_gate(
             drift_kept.append(s)
             continue
         # ``self._auto_base_pool[base]`` already holds ``base_full[train_idx]`` (set during per-base setup); ``pool[:half]/pool[half:]/pool`` are bit-identical to re-extracting the column and indexing it.
-        base_pool = self._auto_base_pool.get(s.base_column)
-        if base_pool is not None and _drift_order is not None:
-            base_pool = np.asarray(base_pool)[_drift_order]  # the pool is aligned to the caller's train_idx order
-        if base_pool is not None:
-            base_t = base_pool
-            base_h1 = base_pool[:half]
-            base_h2 = base_pool[half:]
-        else:
-            base_full = extract_column_array(df, s.base_column)
-            base_t = base_full[train_idx]
-            base_h1 = base_full[train_idx[:half]]
-            base_h2 = base_full[train_idx[half:]]
-        try:
-            # Batched closed-form: the two half-fits are independent single-base
-            # OLS systems; solving them in one pass via
-            # _linear_residual_fit_batched pays the per-call dispatch ONCE
-            # instead of two lstsq/SVD launches. Bit-identical to applying the
-            # scalar closed-form per half (see the batched solver's contract).
-            from ..transforms.linear import _linear_residual_fit_batched
-            _alphas, _betas = _linear_residual_fit_batched(
-                [np.asarray(base_h1), np.asarray(base_h2)],
-                [np.asarray(y_train_for_drift[:half]), np.asarray(y_train_for_drift[half:])],
-            )
-            # A non-finite base/y half makes the closed-form sums NaN; mirror the
-            # legacy lstsq-raises-on-NaN behaviour by skipping the spec.
-            if not (np.isfinite(_alphas).all() and np.isfinite(_betas).all()):
-                drift_kept.append(s)
-                continue
-            params1 = {"alpha": float(_alphas[0]), "beta": float(_betas[0])}
-            params2 = {"alpha": float(_alphas[1]), "beta": float(_betas[1])}
-        except Exception as e:
-            logger.debug("split-window param extraction failed for drift check: %s", e)
+        _drift_stats = _alpha_drift_stats_for_spec(self, df, s, train_idx, half, y_train_for_drift, _drift_order, extract_column_array)
+        if _drift_stats is None:
             drift_kept.append(s)
             continue
-        a1 = float(params1.get("alpha", 0.0))
-        a2 = float(params2.get("alpha", 0.0))
-        # Residual-based OLS slope SE: SE(alpha) = sqrt(SSE/(n-2)) / (sqrt(n)*base_std); the marginal y_std form overstates SE when the regressor explains most variance.
-        finite_pair = np.isfinite(base_t) & np.isfinite(y_train_for_drift)
-        base_finite = base_t[finite_pair]
-        base_std = float(base_finite.std()) if base_finite.size > 1 else 1.0
-        if base_std < 1e-12 or half < 2:
-            drift_kept.append(s)
-            continue
-        y_finite = y_train_for_drift[finite_pair]
-        n_pair = int(finite_pair.sum())
-        if n_pair > 2:
-            # Pooled OLS estimate (mean of the two half-fits) to compute residuals for the pooled residual scale.
-            b1 = float(params1.get("beta", 0.0))
-            b2 = float(params2.get("beta", 0.0))
-            alpha_pool = 0.5 * (a1 + a2)
-            beta_pool = 0.5 * (b1 + b2)
-            residuals = y_finite - (alpha_pool * base_finite + beta_pool)
-            sse = float(np.sum(residuals * residuals))
-            sigma_resid = float(np.sqrt(max(sse / (n_pair - 2), 0.0)))
-        else:
-            sigma_resid = float(y_finite.std()) if y_finite.size > 1 else 1.0
-        # a1-a2 is a difference of two independent half-fits, so Var(a1-a2)=2*sigma^2/(half*var_base); the sqrt(2) keeps the drift z from being inflated ~1.41x.
-        se_alpha = sigma_resid * np.sqrt(2.0) / (np.sqrt(half) * base_std)
-        z = abs(a1 - a2) / max(se_alpha, 1e-12)
-        # Effect size: the half-to-half slope change scaled into y-units as a fraction of y_std. The z-test is
-        # sample-size sensitive (SE ~ 1/sqrt(n)), so at multi-million-row train a negligible slope shift trips z >> 3;
-        # requiring a practically-meaningful effect alongside z stops the cascade-drop of every spec on a base.
-        y_std_drift = float(y_finite.std()) if y_finite.size > 1 else 1.0
-        effect_size = abs(a1 - a2) * base_std / max(y_std_drift, 1e-12)
+        a1, a2, z, effect_size = _drift_stats["a1"], _drift_stats["a2"], _drift_stats["z"], _drift_stats["effect_size"]
         _min_effect = float(getattr(self.config, "alpha_drift_min_effect_size", 0.01))
         self._alpha_drift_flags[s.name] = {
             "alpha_first_half": a1,

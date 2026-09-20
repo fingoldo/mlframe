@@ -121,6 +121,66 @@ def _fit_accepts_groups(fit_fn) -> bool:
     return "groups" in params
 
 
+def _bootstrap_gain_replicates(boot_gains, bootstrap_n, boot_rng, n_screen, t_screen, _y_screen_valid, _x_pb_valid_const, x_screen_valid, _mi_kwargs, config, failures):
+    """Fill ``boot_gains`` with one resampled ``MI(T, X) - MI(y, X)`` per replicate, recording any that fail.
+
+    A replicate that raises leaves NaN and appends its message to ``failures``; the caller decides whether enough
+    survived to report a confidence bound.
+    """
+    _boot_fail_count = 0
+    for b in range(bootstrap_n):
+        idx_b = boot_rng.integers(0, n_screen, size=n_screen)
+        t_boot = t_screen[idx_b]
+        y_boot = _y_screen_valid[idx_b]
+        try:
+            if _x_pb_valid_const is not None:
+                _x_pb_boot = _x_pb_valid_const[idx_b]
+                mi_t_b = _mi_to_target_prebinned(
+                    _x_pb_boot, t_boot, **_mi_kwargs,
+                )
+                mi_y_b = _mi_to_target_prebinned(
+                    _x_pb_boot, y_boot, **_mi_kwargs,
+                )
+            else:
+                # Non-prebinned path is the only consumer of the float slice.
+                assert x_screen_valid is not None
+                x_boot = x_screen_valid[idx_b]
+                mi_t_b = _mi_to_target(
+                    x_boot, t_boot,
+                    n_neighbors=config.mi_n_neighbors,
+                    random_state=config.random_state,
+                    estimator=config.mi_estimator,
+                    **_mi_kwargs,
+                )
+                mi_y_b = _mi_to_target(
+                    x_boot, y_boot,
+                    n_neighbors=config.mi_n_neighbors,
+                    random_state=config.random_state,
+                    estimator=config.mi_estimator,
+                    **_mi_kwargs,
+                )
+            boot_gains[b] = mi_t_b - mi_y_b
+        except Exception as _e_boot:
+            # Silent NaN on failure shifts the CI toward well-behaved bootstraps; warn on the FIRST failure (any replicate, not just b==0)
+            # so operators see when the CI is computed over a reduced bootstrap sample. The `>= bootstrap_n // 2` guard below only
+            # protects against extreme under-sampling, not the partial-bias case.
+            _boot_fail_count += 1
+            failures.append(f"replicate {b}: {type(_e_boot).__name__}: {_e_boot}")
+            if _boot_fail_count == 1:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "composite_discovery: MI-bootstrap iteration "
+                    "failed (%s); per-bootstrap result reported "
+                    "as NaN. Bootstrap CI will use surviving "
+                    "samples; with sparse failures the LCB is "
+                    "biased toward well-behaved bootstraps "
+                    "(failures so far: %d).",
+                    _e_boot, _boot_fail_count,
+                )
+            boot_gains[b] = float("nan")
+    return _boot_fail_count
+
+
 def refit_transform_on_fold(
     transform,
     y_fold: np.ndarray,
@@ -597,58 +657,11 @@ def _eval_one_transform_impl(
         # per-column MI walk wants, but this loop does ``[idx_b]`` ROW gathers once per replicate -- 102 ms against
         # 14 ms at 100k x 100 on this host. One transpose-copy here pays for itself from the second replicate on.
         _x_pb_valid_const = np.ascontiguousarray(_x_prebinned[valid_screen]) if _x_prebinned is not None else None
-        _boot_fail_count = 0
         failures: list = []  # per-replicate failure messages, surfaced in the returned entry below
-        for b in range(bootstrap_n):
-            idx_b = boot_rng.integers(0, n_screen, size=n_screen)
-            t_boot = t_screen[idx_b]
-            y_boot = _y_screen_valid[idx_b]
-            try:
-                if _x_pb_valid_const is not None:
-                    _x_pb_boot = _x_pb_valid_const[idx_b]
-                    mi_t_b = _mi_to_target_prebinned(
-                        _x_pb_boot, t_boot, **_mi_kwargs,
-                    )
-                    mi_y_b = _mi_to_target_prebinned(
-                        _x_pb_boot, y_boot, **_mi_kwargs,
-                    )
-                else:
-                    # Non-prebinned path is the only consumer of the float slice.
-                    assert x_screen_valid is not None
-                    x_boot = x_screen_valid[idx_b]
-                    mi_t_b = _mi_to_target(
-                        x_boot, t_boot,
-                        n_neighbors=self.config.mi_n_neighbors,
-                        random_state=self.config.random_state,
-                        estimator=self.config.mi_estimator,
-                        **_mi_kwargs,
-                    )
-                    mi_y_b = _mi_to_target(
-                        x_boot, y_boot,
-                        n_neighbors=self.config.mi_n_neighbors,
-                        random_state=self.config.random_state,
-                        estimator=self.config.mi_estimator,
-                        **_mi_kwargs,
-                    )
-                boot_gains[b] = mi_t_b - mi_y_b
-            except Exception as _e_boot:
-                # Silent NaN on failure shifts the CI toward well-behaved bootstraps; warn on the FIRST failure (any replicate, not just b==0)
-                # so operators see when the CI is computed over a reduced bootstrap sample. The `>= bootstrap_n // 2` guard below only
-                # protects against extreme under-sampling, not the partial-bias case.
-                _boot_fail_count += 1
-                failures.append(f"replicate {b}: {type(_e_boot).__name__}: {_e_boot}")
-                if _boot_fail_count == 1:
-                    import logging as _logging
-                    _logging.getLogger(__name__).warning(
-                        "composite_discovery: MI-bootstrap iteration "
-                        "failed (%s); per-bootstrap result reported "
-                        "as NaN. Bootstrap CI will use surviving "
-                        "samples; with sparse failures the LCB is "
-                        "biased toward well-behaved bootstraps "
-                        "(failures so far: %d).",
-                        _e_boot, _boot_fail_count,
-                    )
-                boot_gains[b] = float("nan")
+        _boot_fail_count = _bootstrap_gain_replicates(
+            boot_gains, bootstrap_n, boot_rng, n_screen, t_screen, _y_screen_valid,
+            _x_pb_valid_const, x_screen_valid, _mi_kwargs, self.config, failures,
+        )
         boot_finite = boot_gains[np.isfinite(boot_gains)]
         # `boot_finite.size >= bootstrap_n // 2` is trivially true (0 >= 0) whenever
         # bootstrap_n <= 1 and that lone replicate failed -- np.percentile on an empty

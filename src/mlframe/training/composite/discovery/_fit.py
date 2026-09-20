@@ -52,6 +52,45 @@ logger = logging.getLogger(__name__)
 _UNARY_BASE_SENTINEL = ""
 
 
+def _apply_honest_holdout_stages(self, df, target_col, kept_specs, usable_features, train_idx, y_full, _honest_holdout_idx, _ram_profiler_on, _ram_state, _phase_ram_report):
+    """Run the holdout RMSE gate on the selection rows, then stamp the honest gain from the report rows.
+
+    The gate drops specs, so it reads only the selection half; the stamped number comes from rows no gate saw, which
+    is what keeps it free of the winner's curse. A holdout too small to halve gives both stages the whole of it.
+    """
+    # Honest-holdout OOS predictive-error gate. MI (and the MI-based honest re-score below) is
+    # monotone-invariant, so a spec can raise MI while WORSENING the y-scale OOS RMSE (canonical case:
+    # a ratio dividing by a small noisy base amplifies noise). Replicate the real prediction objective
+    # on the never-touched holdout with a tiny model and DROP specs whose y-scale holdout RMSE loses to
+    # raw y. This is the only OOS predictive gate on the ``screening="mi"`` path. Runs before the MI
+    # re-score so the heavier per-spec MI pass only touches survivors (``honest_rmse_gate_enabled``).
+    if kept_specs and getattr(self.config, "honest_rmse_gate_enabled", True):
+        from ._honest_rmse_gate import apply_honest_rmse_gate
+
+        # The SELECTION half: this gate drops specs, so it must not read the rows the reported honest number comes from.
+        kept_specs = apply_honest_rmse_gate(
+            self, df, target_col, kept_specs, usable_features,
+            train_idx, getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx), y_full,
+        )
+        if _ram_profiler_on:
+            _phase_ram_report(_ram_state, "honest_rmse_gate_done")
+
+    # Honest holdout re-score (SA27). The winner set is now FINAL; re-score ONLY these
+    # survivors on the holdout the discovery never touched (see ``apply_honest_holdout``).
+    if kept_specs and _honest_holdout_idx is not None and _honest_holdout_idx.size:
+        from ._honest_holdout import apply_honest_holdout
+
+        # The REPORT half: no gate or ranking reads these rows, so the stamped gain is free of the winner's curse the
+        # carve exists to remove (with a holdout too small to halve, both roles share it and this is the old behaviour).
+        apply_honest_holdout(
+            self, df, target_col, kept_specs, usable_features,
+            train_idx, getattr(self, "honest_holdout_report_idx_", _honest_holdout_idx), y_full,
+        )
+        if _ram_profiler_on:
+            _phase_ram_report(_ram_state, "honest_holdout_rescore_done")
+    return kept_specs
+
+
 def fit(
     self: "CompositeTargetDiscovery",
     df: Any,
@@ -719,36 +758,10 @@ def fit(
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "yscale_holdout_gate_done")
 
-    # Honest-holdout OOS predictive-error gate. MI (and the MI-based honest re-score below) is
-    # monotone-invariant, so a spec can raise MI while WORSENING the y-scale OOS RMSE (canonical case:
-    # a ratio dividing by a small noisy base amplifies noise). Replicate the real prediction objective
-    # on the never-touched holdout with a tiny model and DROP specs whose y-scale holdout RMSE loses to
-    # raw y. This is the only OOS predictive gate on the ``screening="mi"`` path. Runs before the MI
-    # re-score so the heavier per-spec MI pass only touches survivors (``honest_rmse_gate_enabled``).
-    if kept_specs and getattr(self.config, "honest_rmse_gate_enabled", True):
-        from ._honest_rmse_gate import apply_honest_rmse_gate
-
-        # The SELECTION half: this gate drops specs, so it must not read the rows the reported honest number comes from.
-        kept_specs = apply_honest_rmse_gate(
-            self, df, target_col, kept_specs, usable_features,
-            train_idx, getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx), y_full,
-        )
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "honest_rmse_gate_done")
-
-    # Honest holdout re-score (SA27). The winner set is now FINAL; re-score ONLY these
-    # survivors on the holdout the discovery never touched (see ``apply_honest_holdout``).
-    if kept_specs and _honest_holdout_idx is not None and _honest_holdout_idx.size:
-        from ._honest_holdout import apply_honest_holdout
-
-        # The REPORT half: no gate or ranking reads these rows, so the stamped gain is free of the winner's curse the
-        # carve exists to remove (with a holdout too small to halve, both roles share it and this is the old behaviour).
-        apply_honest_holdout(
-            self, df, target_col, kept_specs, usable_features,
-            train_idx, getattr(self, "honest_holdout_report_idx_", _honest_holdout_idx), y_full,
-        )
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "honest_holdout_rescore_done")
+    kept_specs = _apply_honest_holdout_stages(
+        self, df, target_col, kept_specs, usable_features, train_idx, y_full,
+        _honest_holdout_idx, _ram_profiler_on, _ram_state, _phase_ram_report,
+    )
 
     elapsed = timer() - t0
     logger.info(

@@ -163,6 +163,44 @@ def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, tar
     return dropped
 
 
+def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_dir):
+    """The discovery cache, its key and any cached payload for this target; a failed key build yields no cache.
+
+    The key carries the data fingerprint, the target column and the config signature (which embeds the library
+    versions, so a poisoned entry cannot survive an upgrade). A hit skips the whole MI / rerank path.
+    """
+    cache = None
+    cache_key = None
+    try:
+        cache = DiscoveryCache(cache_dir)
+        # ``random_state=0`` is a legitimate sklearn seed and MUST
+        # reach the row-sampler verbatim. The previous ``or 42`` form
+        # silently rewrote 0->42, collapsing seed=0 and seed=42 to
+        # the same data_signature and breaking reproducibility for
+        # any caller that passed 0. ``None`` (no attribute / unset)
+        # still folds to 42 (the historical default).
+        _rs_raw = getattr(disc_cfg, "random_state", 42)
+        _df_sig = data_signature(
+            disc_df, target_name, feature_cols,
+            random_state=int(42 if _rs_raw is None else _rs_raw),
+        )
+        _cfg_sig = _discovery_config_signature(disc_cfg)
+        # random_state is already folded into _df_sig (seeds the row-sample) and into _cfg_sig (via the dataclass dump). Passing it again to make_discovery_cache_key would be a double-fold (DISC-RANDOM-STATE-DBL): the same data + same config but with random_state mutated would produce three independent hash mixes. We rename the kwarg here to ``_legacy_random_state_sentinel=0`` so a future reader cannot misread "random_state=0" as the actual seed in use.
+        cache_key = make_discovery_cache_key(
+            _df_sig, target_name, _cfg_sig,
+            _legacy_random_state_sentinel=0,
+        )
+        payload = cache.get(cache_key)
+    except Exception as _cache_err:
+        logger.info(
+            "[CompositeTargetDiscovery] cache key build failed for " "target='%s' (%s); proceeding without cache.",
+            target_name,
+            _cache_err,
+        )
+        payload = None
+    return cache, cache_key, payload
+
+
 def run_composite_target_discovery(
     *,
     composite_target_discovery_config,
@@ -587,33 +625,9 @@ def run_composite_target_discovery(
                     len(_cached_payload["specs_export"]), _tname_disc,
                 )
             elif discovery_cache_dir is not None:
-                try:
-                    _disc_cache = DiscoveryCache(discovery_cache_dir)
-                    # ``random_state=0`` is a legitimate sklearn seed and MUST
-                    # reach the row-sampler verbatim. The previous ``or 42`` form
-                    # silently rewrote 0->42, collapsing seed=0 and seed=42 to
-                    # the same data_signature and breaking reproducibility for
-                    # any caller that passed 0. ``None`` (no attribute / unset)
-                    # still folds to 42 (the historical default).
-                    _rs_raw = getattr(_disc_cfg, "random_state", 42)
-                    _df_sig = data_signature(
-                        _disc_df, _tname_disc, _disc_feature_cols,
-                        random_state=int(42 if _rs_raw is None else _rs_raw),
-                    )
-                    _cfg_sig = _discovery_config_signature(_disc_cfg)
-                    # random_state is already folded into _df_sig (seeds the row-sample) and into _cfg_sig (via the dataclass dump). Passing it again to make_discovery_cache_key would be a double-fold (DISC-RANDOM-STATE-DBL): the same data + same config but with random_state mutated would produce three independent hash mixes. We rename the kwarg here to ``_legacy_random_state_sentinel=0`` so a future reader cannot misread "random_state=0" as the actual seed in use.
-                    _disc_cache_key = make_discovery_cache_key(
-                        _df_sig, _tname_disc, _cfg_sig,
-                        _legacy_random_state_sentinel=0,
-                    )
-                    _cached_payload = _disc_cache.get(_disc_cache_key)
-                except Exception as _cache_err:
-                    logger.info(
-                        "[CompositeTargetDiscovery] cache key build failed for " "target='%s' (%s); proceeding without cache.",
-                        _tname_disc,
-                        _cache_err,
-                    )
-                    _cached_payload = None
+                _disc_cache, _disc_cache_key, _cached_payload = _discovery_cache_lookup(
+                    _disc_cfg, _disc_df, _tname_disc, _disc_feature_cols, discovery_cache_dir,
+                )
             else:
                 _cached_payload = None
 
