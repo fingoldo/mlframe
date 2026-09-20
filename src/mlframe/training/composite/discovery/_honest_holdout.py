@@ -204,6 +204,97 @@ def _build_x_remaining_holdout(
     return np.column_stack(arrays)
 
 
+def _rescore_one_spec(spec, *, df, holdout_idx, y_holdout, x_remaining_for, prebinned_for, estimator, nbins, aggregation, n_neighbors, random_state, mi_y_memo, mi_y_memo_lock) -> None:
+    """Recompute one spec's honest MI gain on the held-out rows and write it back onto the frozen spec in place via
+    ``object.__setattr__``; any failure (unknown transform, empty remaining-feature matrix) leaves the spec's honest
+    fields untouched."""
+    try:
+        transform = get_transform(spec.transform_name)
+    except UnknownTransformError:
+        return
+    base_columns = spec_base_columns(spec)
+    x_remaining = x_remaining_for(base_columns)
+    if x_remaining.shape[1] == 0:
+        return
+    # Materialise the base argument shape the transform.forward expects:
+    # a (n,) vector for single-base / a (n, k) matrix for multi-base /
+    # a zeros placeholder for unary (forward ignores it).
+    if not base_columns:
+        base_arg = np.zeros(holdout_idx.size, dtype=np.float64)
+    elif len(base_columns) == 1:
+        base_arg = _extract_column_array(df, base_columns[0], rows=holdout_idx).astype(np.float64)
+    else:
+        base_arg = np.column_stack([_extract_column_array(df, c, rows=holdout_idx).astype(np.float64) for c in base_columns])
+    y_h = y_holdout.astype(np.float64)
+    # Domain filter on holdout, then the fitted-domain refinement -- the SAME
+    # two-stage gate eval_one_transform applies, so T and y are scored on the
+    # identical row population (else mi_t / mi_y compare different rows).
+    try:
+        valid = np.asarray(transform.domain_check(y_h, base_arg), dtype=bool)
+    except Exception as exc:  # -- degenerate holdout for this spec
+        logger.debug("honest-holdout domain_check failed for %s: %s", spec.name, exc)
+        return
+    if valid.shape != y_h.shape:
+        return
+    params = dict(spec.fitted_params)
+    _dcf = getattr(transform, "domain_check_fitted", None)
+    if _dcf is not None:
+        try:
+            valid_fitted = np.asarray(_dcf(y_h, base_arg, params), dtype=bool)
+            if valid_fitted.shape == valid.shape:
+                valid = valid & valid_fitted
+        except Exception as e:  # -- treat as no refinement
+            logger.debug("swallowed exception in _honest_holdout.py: %s", e)
+            pass
+    n_valid = int(valid.sum())
+    if n_valid < 50:
+        logger.debug(
+            "honest-holdout: spec %s has only %d valid holdout rows (<50); "
+            "leaving honest_holdout_gain=None.", spec.name, n_valid,
+        )
+        return
+    base_valid = base_arg[valid] if base_arg.ndim == 1 else base_arg[valid, :]
+    try:
+        t_holdout = transform.forward(y_h[valid], base_valid, params)
+    except Exception as exc:  # -- transform raised on holdout rows
+        logger.debug("honest-holdout forward failed for %s: %s", spec.name, exc)
+        return
+    # The shared bin codes are only usable when this spec keeps every holdout row: the bin edges are quantiles of
+    # the rows actually scored, so a spec whose domain filter drops rows must bin its own subset, as before.
+    _codes = prebinned_for(base_columns) if (estimator == "bin" and bool(valid.all())) else None
+    x_valid = x_remaining if _codes is not None else x_remaining[valid]
+    _mi_kwargs: dict[str, Any] = dict(nbins=nbins, aggregation=aggregation)
+    if _codes is not None:
+        mi_t = _mi_to_target_prebinned(_codes, t_holdout, nbins=nbins, aggregation=aggregation)
+    else:
+        mi_t = _mi_to_target(
+            x_valid, t_holdout,
+            n_neighbors=n_neighbors, random_state=random_state,
+            estimator=estimator, **_mi_kwargs,
+        )
+    _memo_key = (tuple(base_columns), hash(valid.tobytes()))
+    with mi_y_memo_lock:
+        _mi_y_cached = mi_y_memo.get(_memo_key)
+    if _mi_y_cached is None:
+        if _codes is not None:
+            mi_y = _mi_to_target_prebinned(_codes, y_h[valid], nbins=nbins, aggregation=aggregation)
+        else:
+            mi_y = _mi_to_target(
+                x_valid, y_h[valid],
+                n_neighbors=n_neighbors, random_state=random_state,
+                estimator=estimator, **_mi_kwargs,
+            )
+        with mi_y_memo_lock:
+            mi_y_memo[_memo_key] = float(mi_y)
+    else:
+        mi_y = _mi_y_cached
+    honest_gain = float(mi_t - mi_y)
+    object.__setattr__(spec, "honest_holdout_gain", honest_gain)
+    object.__setattr__(spec, "honest_holdout_mi_t", float(mi_t))
+    object.__setattr__(spec, "honest_holdout_mi_y", float(mi_y))
+    object.__setattr__(spec, "honest_holdout_n_rows", n_valid)
+
+
 def apply_honest_holdout(
     self,
     df: Any,
@@ -329,92 +420,14 @@ def rescore_specs_on_holdout(
         return cached
 
     def _rescore_one(spec) -> None:
-        """Recompute one spec's honest MI gain on the held-out rows and write it back onto the frozen spec in place via ``object.__setattr__``; any failure (unknown transform, empty remaining-feature matrix) leaves the spec's honest fields untouched."""
-        try:
-            transform = get_transform(spec.transform_name)
-        except UnknownTransformError:
-            return
-        base_columns = spec_base_columns(spec)
-        x_remaining = _x_remaining_for(base_columns)
-        if x_remaining.shape[1] == 0:
-            return
-        # Materialise the base argument shape the transform.forward expects:
-        # a (n,) vector for single-base / a (n, k) matrix for multi-base /
-        # a zeros placeholder for unary (forward ignores it).
-        if not base_columns:
-            base_arg = np.zeros(holdout_idx.size, dtype=np.float64)
-        elif len(base_columns) == 1:
-            base_arg = _extract_column_array(df, base_columns[0], rows=holdout_idx).astype(np.float64)
-        else:
-            base_arg = np.column_stack([_extract_column_array(df, c, rows=holdout_idx).astype(np.float64) for c in base_columns])
-        y_h = y_holdout.astype(np.float64)
-        # Domain filter on holdout, then the fitted-domain refinement -- the SAME
-        # two-stage gate eval_one_transform applies, so T and y are scored on the
-        # identical row population (else mi_t / mi_y compare different rows).
-        try:
-            valid = np.asarray(transform.domain_check(y_h, base_arg), dtype=bool)
-        except Exception as exc:  # -- degenerate holdout for this spec
-            logger.debug("honest-holdout domain_check failed for %s: %s", spec.name, exc)
-            return
-        if valid.shape != y_h.shape:
-            return
-        params = dict(spec.fitted_params)
-        _dcf = getattr(transform, "domain_check_fitted", None)
-        if _dcf is not None:
-            try:
-                valid_fitted = np.asarray(_dcf(y_h, base_arg, params), dtype=bool)
-                if valid_fitted.shape == valid.shape:
-                    valid = valid & valid_fitted
-            except Exception as e:  # -- treat as no refinement
-                logger.debug("swallowed exception in _honest_holdout.py: %s", e)
-                pass
-        n_valid = int(valid.sum())
-        if n_valid < 50:
-            logger.debug(
-                "honest-holdout: spec %s has only %d valid holdout rows (<50); "
-                "leaving honest_holdout_gain=None.", spec.name, n_valid,
-            )
-            return
-        base_valid = base_arg[valid] if base_arg.ndim == 1 else base_arg[valid, :]
-        try:
-            t_holdout = transform.forward(y_h[valid], base_valid, params)
-        except Exception as exc:  # -- transform raised on holdout rows
-            logger.debug("honest-holdout forward failed for %s: %s", spec.name, exc)
-            return
-        # The shared bin codes are only usable when this spec keeps every holdout row: the bin edges are quantiles of
-        # the rows actually scored, so a spec whose domain filter drops rows must bin its own subset, as before.
-        _codes = _prebinned_for(base_columns) if (estimator == "bin" and bool(valid.all())) else None
-        x_valid = x_remaining if _codes is not None else x_remaining[valid]
-        _mi_kwargs: dict[str, Any] = dict(nbins=nbins, aggregation=aggregation)
-        if _codes is not None:
-            mi_t = _mi_to_target_prebinned(_codes, t_holdout, nbins=nbins, aggregation=aggregation)
-        else:
-            mi_t = _mi_to_target(
-                x_valid, t_holdout,
-                n_neighbors=n_neighbors, random_state=random_state,
-                estimator=estimator, **_mi_kwargs,
-            )
-        _memo_key = (tuple(base_columns), hash(valid.tobytes()))
-        with _mi_y_memo_lock:
-            _mi_y_cached = _mi_y_memo.get(_memo_key)
-        if _mi_y_cached is None:
-            if _codes is not None:
-                mi_y = _mi_to_target_prebinned(_codes, y_h[valid], nbins=nbins, aggregation=aggregation)
-            else:
-                mi_y = _mi_to_target(
-                    x_valid, y_h[valid],
-                    n_neighbors=n_neighbors, random_state=random_state,
-                    estimator=estimator, **_mi_kwargs,
-                )
-            with _mi_y_memo_lock:
-                _mi_y_memo[_memo_key] = float(mi_y)
-        else:
-            mi_y = _mi_y_cached
-        honest_gain = float(mi_t - mi_y)
-        object.__setattr__(spec, "honest_holdout_gain", honest_gain)
-        object.__setattr__(spec, "honest_holdout_mi_t", float(mi_t))
-        object.__setattr__(spec, "honest_holdout_mi_y", float(mi_y))
-        object.__setattr__(spec, "honest_holdout_n_rows", n_valid)
+        """Score one spec against the shared per-base caches."""
+        _rescore_one_spec(
+            spec, df=df, holdout_idx=holdout_idx, y_holdout=y_holdout,
+            x_remaining_for=_x_remaining_for, prebinned_for=_prebinned_for,
+            estimator=estimator, nbins=nbins, aggregation=aggregation,
+            n_neighbors=n_neighbors, random_state=random_state,
+            mi_y_memo=_mi_y_memo, mi_y_memo_lock=_mi_y_memo_lock,
+        )
 
     # Per-spec re-scores are independent (each writes only its OWN frozen spec via object.__setattr__,
     # reads shared read-only arrays). The MI kernels release the GIL, so thread across physical cores.

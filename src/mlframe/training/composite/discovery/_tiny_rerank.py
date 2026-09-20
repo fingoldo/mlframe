@@ -59,6 +59,79 @@ def _tiny_rerank_ram_checkpoint(label: str) -> None:
     )
 
 
+def _honest_oof_prepass(self, df, target_col, kept_specs, usable_features, train_idx, y_full, *, will_run: bool, per_bin_enabled: bool, use_wilcoxon: bool) -> dict[str, float]:
+    """Honest group-OOF reconstruction RMSE measured BEFORE the CV sweep, or ``{}`` when the sweep must run anyway.
+
+    Honest-OOF REPLACES the group-internal CV-RMSE of every spec it can measure, so computing those scores first was
+    pure waste: on a 16-spec grouped run the sweep cost 11.6 s of model fits against 0.26 s for this measurement, and
+    all 16 results were overwritten. Measuring it first lets the covered specs skip the sweep. That is only safe when
+    nothing else consumes the sweep -- the per-bin regime gate reuses its first-pass breakdown and the Wilcoxon gate
+    needs its per-seed vectors -- so with either enabled this returns nothing and every spec is fitted as before.
+    """
+    if not (will_run and not per_bin_enabled and not use_wilcoxon):
+        return {}
+    from ._honest_oof_select import honest_oof_reconstruction_rmse
+
+    select_idx = getattr(self, "honest_holdout_select_idx_", None)
+    if select_idx is None:
+        select_idx = getattr(self, "honest_holdout_idx_", None)
+    return dict(honest_oof_reconstruction_rmse(self, df, target_col, kept_specs, usable_features, train_idx, select_idx, y_full) or {})
+
+
+def _apply_honest_oof_ordering(self, df, target_col, kept_specs, agg_scores, usable_features, train_idx, y_full, _honest_oof_pre):
+    """Re-rank the survivors by honest group-OOF reconstruction RMSE and enforce its floor, in place of the CV order.
+
+    Returns ``(kept_specs, agg_scores, baseline)``; without group ids and a holdout this is a no-op and the
+    baseline is ``nan``, so the CV ordering stands exactly as it did.
+    """
+    # Honest group-OOF reconstruction RMSE becomes the load-bearing ORDERING key (and the raw-baseline gate reference)
+    # when a group-disjoint honest holdout exists. The group-internal CV-RMSE above stays as the fallback for any spec
+    # whose holdout measurement degenerated (too few valid rows) -- a degenerate MEASUREMENT must not auto-kill a spec;
+    # only a genuine COLLAPSE returns +inf and sinks the spec. No-op (ordering bit-identical) without group ids + holdout.
+    _honest_oof_baseline = float("nan")
+    if (
+        bool(getattr(self.config, "honest_oof_selection", True))
+        and getattr(self, "_group_ids_for_rerank", None) is not None
+        and getattr(self, "honest_holdout_idx_", None) is not None
+    ):
+        from ._honest_oof_select import honest_oof_reconstruction_rmse
+
+        # Reuse the pre-sweep measurement when it was taken (same inputs, same selection half); otherwise measure now.
+        _honest_oof = _honest_oof_pre or honest_oof_reconstruction_rmse(
+            self, df, target_col, kept_specs, usable_features,
+            # Selection half: this score is a ranking key, so it must not be measured on the reported rows.
+            train_idx, getattr(self, "honest_holdout_select_idx_", None) if getattr(self, "honest_holdout_select_idx_", None) is not None else getattr(self, "honest_holdout_idx_", None), y_full,
+        )
+        if _honest_oof:
+            self._honest_oof_rmse = dict(_honest_oof)
+            # Floor the gate against min(raw-y, AR-failsafe): a spec that reconstructs worse than the lag_predict
+            # failsafe we would deploy anyway is worthless even if it beats the raw-y model. On non-AR data (no lag
+            # column) the lag floor is nan and this reduces to the raw floor -- bit-identical to the prior behaviour.
+            _honest_raw = float(getattr(self, "_honest_oof_raw_rmse", float("nan")))
+            _honest_lag = float(getattr(self, "_honest_oof_lag_rmse", float("nan")))
+            _floor_candidates = [v for v in (_honest_raw, _honest_lag) if math.isfinite(v)]
+            _honest_oof_baseline = min(_floor_candidates) if _floor_candidates else float("nan")
+            for i, _spec in enumerate(kept_specs):
+                _hv = _honest_oof.get(_spec.name)
+                if _hv is not None:
+                    agg_scores[i] = float(_hv)
+                    object.__setattr__(_spec, "honest_oof_rmse", float(_hv))
+            self._tiny_rerank_scores = {kept_specs[i].name: float(agg_scores[i]) for i in range(len(kept_specs))}
+            logger.info(
+                "[CompositeTargetDiscovery.honest_oof_select] ranking %d spec(s) by honest group-OOF "
+                "reconstruction RMSE (floor=%.4g = min(raw-y=%.4g, AR-lag=%.4g)); %d measured, rest fall back to "
+                "group-internal CV.",
+                len(kept_specs), _honest_oof_baseline, _honest_raw, _honest_lag, len(_honest_oof),
+            )
+
+            # Enforce the honest-OOF floor as a REJECTION (carved to _tiny_rerank_waic for the 1k-LOC limit): drop specs
+            # whose measured honest reconstruction cannot beat min(raw-y, AR-lag); otherwise honest-OOF only reorders.
+            kept_specs, agg_scores = apply_honest_oof_floor(
+                self, kept_specs, agg_scores, _honest_oof, _honest_oof_baseline,
+            )
+    return kept_specs, agg_scores, _honest_oof_baseline
+
+
 def _tiny_model_rerank(
     self,
     kept_specs: list[CompositeSpec],
@@ -363,24 +436,10 @@ def _tiny_model_rerank(
         and getattr(self, "_group_ids_for_rerank", None) is not None
         and getattr(self, "honest_holdout_idx_", None) is not None
     )
-    # Honest group-OOF, when it will run, REPLACES the group-internal CV-RMSE of every spec it can measure (the
-    # overwrite loop below the sweep). Measuring it FIRST lets those specs skip the CV sweep entirely instead of
-    # computing a score that is thrown away: on a 16-spec grouped run the sweep cost 11.6 s of model fits against
-    # 0.26 s for the honest measurement, and all 16 scores were overwritten. Only safe when the sweep has no OTHER
-    # consumer -- the per-bin regime gate reuses its first-pass breakdown and the Wilcoxon gate needs its per-seed
-    # vectors -- so with either enabled every spec still runs the full sweep, exactly as before.
-    _honest_oof_pre: dict[str, float] = {}
-    if _honest_oof_will_run and not per_bin_enabled_pre and not use_wilcoxon:
-        from ._honest_oof_select import honest_oof_reconstruction_rmse as _honest_oof_fn
-
-        _honest_oof_pre = dict(
-            _honest_oof_fn(
-                self, df, target_col, kept_specs, usable_features, train_idx,
-                getattr(self, "honest_holdout_select_idx_", None) if getattr(self, "honest_holdout_select_idx_", None) is not None else getattr(self, "honest_holdout_idx_", None),
-                y_full,
-            )
-            or {}
-        )
+    _honest_oof_pre = _honest_oof_prepass(
+        self, df, target_col, kept_specs, usable_features, train_idx, y_full,
+        will_run=_honest_oof_will_run, per_bin_enabled=per_bin_enabled_pre, use_wilcoxon=use_wilcoxon,
+    )
     # Spec names whose CV score would be discarded: the worker returns immediately for these.
     _skip_cv_names = set(_honest_oof_pre)
 
@@ -590,51 +649,9 @@ def _tiny_model_rerank(
     # discovery instance instead of mutating the spec.
     self._tiny_rerank_scores = {kept_specs[i].name: float(agg_scores[i]) for i in range(len(kept_specs))}
 
-    # Honest group-OOF reconstruction RMSE becomes the load-bearing ORDERING key (and the raw-baseline gate reference)
-    # when a group-disjoint honest holdout exists. The group-internal CV-RMSE above stays as the fallback for any spec
-    # whose holdout measurement degenerated (too few valid rows) -- a degenerate MEASUREMENT must not auto-kill a spec;
-    # only a genuine COLLAPSE returns +inf and sinks the spec. No-op (ordering bit-identical) without group ids + holdout.
-    _honest_oof_baseline = float("nan")
-    if (
-        bool(getattr(self.config, "honest_oof_selection", True))
-        and getattr(self, "_group_ids_for_rerank", None) is not None
-        and getattr(self, "honest_holdout_idx_", None) is not None
-    ):
-        from ._honest_oof_select import honest_oof_reconstruction_rmse
-
-        # Reuse the pre-sweep measurement when it was taken (same inputs, same selection half); otherwise measure now.
-        _honest_oof = _honest_oof_pre or honest_oof_reconstruction_rmse(
-            self, df, target_col, kept_specs, usable_features,
-            # Selection half: this score is a ranking key, so it must not be measured on the reported rows.
-            train_idx, getattr(self, "honest_holdout_select_idx_", None) if getattr(self, "honest_holdout_select_idx_", None) is not None else getattr(self, "honest_holdout_idx_", None), y_full,
-        )
-        if _honest_oof:
-            self._honest_oof_rmse = dict(_honest_oof)
-            # Floor the gate against min(raw-y, AR-failsafe): a spec that reconstructs worse than the lag_predict
-            # failsafe we would deploy anyway is worthless even if it beats the raw-y model. On non-AR data (no lag
-            # column) the lag floor is nan and this reduces to the raw floor -- bit-identical to the prior behaviour.
-            _honest_raw = float(getattr(self, "_honest_oof_raw_rmse", float("nan")))
-            _honest_lag = float(getattr(self, "_honest_oof_lag_rmse", float("nan")))
-            _floor_candidates = [v for v in (_honest_raw, _honest_lag) if math.isfinite(v)]
-            _honest_oof_baseline = min(_floor_candidates) if _floor_candidates else float("nan")
-            for i, _spec in enumerate(kept_specs):
-                _hv = _honest_oof.get(_spec.name)
-                if _hv is not None:
-                    agg_scores[i] = float(_hv)
-                    object.__setattr__(_spec, "honest_oof_rmse", float(_hv))
-            self._tiny_rerank_scores = {kept_specs[i].name: float(agg_scores[i]) for i in range(len(kept_specs))}
-            logger.info(
-                "[CompositeTargetDiscovery.honest_oof_select] ranking %d spec(s) by honest group-OOF "
-                "reconstruction RMSE (floor=%.4g = min(raw-y=%.4g, AR-lag=%.4g)); %d measured, rest fall back to "
-                "group-internal CV.",
-                len(kept_specs), _honest_oof_baseline, _honest_raw, _honest_lag, len(_honest_oof),
-            )
-
-            # Enforce the honest-OOF floor as a REJECTION (carved to _tiny_rerank_waic for the 1k-LOC limit): drop specs
-            # whose measured honest reconstruction cannot beat min(raw-y, AR-lag); otherwise honest-OOF only reorders.
-            kept_specs, agg_scores = apply_honest_oof_floor(
-                self, kept_specs, agg_scores, _honest_oof, _honest_oof_baseline,
-            )
+    kept_specs, agg_scores, _honest_oof_baseline = _apply_honest_oof_ordering(
+        self, df, target_col, kept_specs, agg_scores, usable_features, train_idx, y_full, _honest_oof_pre,
+    )
 
     # Regime-aware gate. In addition to the
     # global mean RMSE, compute per-quintile-of-base RMSE for each
