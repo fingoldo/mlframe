@@ -63,7 +63,7 @@ Overlap notes: DSC-12 (cache key contents), DSC-18 (verdict split), DSC-20 (auto
 - **Why it matters**: A documented reuse path silently discards the feature it is meant to speed up.
 - **Suggested fix**: On the precomputed path, still run the forward-apply + dedup + global-cap section of discovery (the same code the cache-replay branch uses, including `reregister_auto_chain_transforms`), and run `_init_composite_discovery_metadata`. Alternatively, route precomputed specs through the existing `_CacheReplay` branch.
 - **Test to add**: Train once, feed `metadata["composite_target_specs"]` into `TrainMlframeSuitePrecomputed` for a second run, and assert that the same composite target names appear in the returned `models`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - caller-supplied specs are now replayed through the discovery phase exactly like a cache hit (same forward-applier, auto-chain re-registration, dedup and global cap) instead of only seeding metadata, and the replay runs even with enabled=False since reuse means skipping the search, not the training (test_precomputed_composite_specs_train.py, 4 tests; they fail at origin/master, where the phase has no such parameter)
 
 ### INT-07 [P2] `transforms=[...]` does not restrict auto-chain: chain specs are added outside the user's whitelist
 - **Where**: `composite/discovery/_opt_in_steps.py:303,332` (gated only on `auto_chain_discovery_enabled`, default True in `_composite_target_discovery_config_base.py:156`) and `:157-180` (builds chains from any kept `linear_residual` / `monotonic_residual` spec).

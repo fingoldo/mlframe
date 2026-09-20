@@ -18,11 +18,11 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 5 | 0 | 25 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
-| `suite_integration.md` | 19 | 5 | 0 | 14 | 0 | 0 |
+| `suite_integration.md` | 19 | 6 | 0 | 13 | 0 | 0 |
 | `performance.md` | 24 | 0 | 0 | 24 | 0 | 0 |
 | `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **40** | **0** | **139** | **0** | **0** |
+| **Total** | **179** | **41** | **0** | **138** | **0** | **0** |
 
 ### `transforms.md`
 
@@ -126,7 +126,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `INT-03` | Every y-scale consumer feeds `CompositeTargetEstimator` a frame from the wrong pipeline stage | the predict entry points hand the wrapper the suite-stage frame instead of the per-model subset; recorded y-scale test RMSE 0.607 -> 0.334, equal to the inner T-scale error (dbe77db39; test_additive_composite_y_error_equals_inner_t_error) |
 | **RESOLVED** | P1 | `INT-04` | Auto-enabled discovery is not propagated: post-processing still sees `enabled=False` and skips the cross-target ensemble and lag failsafe | the discovery phase publishes metadata['composite_discovery_effective_enabled'] and the three post-processing gates (value report, lag failsafe, cross-target ensemble) read config.enabled OR that flag, so an auto-enabled heavy-tail suite gets the same pipeline as an explicit opt-in; an explicit enabled=False still publishes nothing and stays off (test_auto_enabled_discovery_reaches_postprocessing.py, 4 tests) |
 | **RESOLVED** | P1 | `INT-05` | Auto-chain transforms exist only in the training process's registry, so a pickled composite model fails in a fresh process | the wrapper re-registers its own auto-chain transform on unpickle and the loaders re-register every transform named by the saved specs (dbe77db39; test_fresh_process_serves_every_composite_target) |
-| **TODO** | P1 | `INT-06` | The documented precomputed `composite_target_specs` fast path never trains any composite target | |
+| **RESOLVED** | P1 | `INT-06` | The documented precomputed `composite_target_specs` fast path never trains any composite target | caller-supplied specs are now replayed through the discovery phase exactly like a cache hit (same forward-applier, auto-chain re-registration, dedup and global cap) instead of only seeding metadata, and the replay runs even with enabled=False since reuse means skipping the search, not the training (test_precomputed_composite_specs_train.py, 4 tests; they fail at origin/master, where the phase has no such parameter) |
 | **TODO** | P2 | `INT-07` | `transforms=[...]` does not restrict auto-chain: chain specs are added outside the user's whitelist | |
 | **TODO** | P2 | `INT-08` | Suite logic identifies composite targets by a name heuristic that misses auto-chain names and matches dashed raw targets | |
 | **TODO** | P2 | `INT-09` | Listing any grouped transform in `transforms` makes discovery raise, which removes every composite for that target | |

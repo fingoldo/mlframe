@@ -185,6 +185,7 @@ def run_composite_target_discovery(
     split_config: Any = None,
     data_dir: Any = None,
     save_charts: bool = False,
+    precomputed_specs: dict | None = None,
 ) -> tuple[dict, dict]:
     """Run composite-target discovery for regression targets.
 
@@ -208,7 +209,9 @@ def run_composite_target_discovery(
         mlframe_models=mlframe_models,
         metadata=metadata,
     )
-    if not (composite_target_discovery_config.enabled and TargetTypes.REGRESSION in target_by_type):
+    # Caller-supplied specs are an explicit request to train those targets, so they run the replay even when discovery
+    # itself is off: the reuse path exists precisely to skip the search, not the training.
+    if not ((composite_target_discovery_config.enabled or precomputed_specs) and TargetTypes.REGRESSION in target_by_type):
         return target_by_type, metadata
 
     target_by_type = _defensive_copy_and_expand_multilabel_regression(
@@ -571,7 +574,19 @@ def run_composite_target_discovery(
             # multi-million-row frames.
             _disc_cache: DiscoveryCache | None = None
             _disc_cache_key: str | None = None
-            if discovery_cache_dir is not None:
+            # A caller-supplied spec set (a prior run's metadata, the documented reuse path) replays exactly like a cache
+            # hit: the same forward-applier builds the T columns, the same auto-chain re-registration runs, and the same
+            # dedup and global cap apply. Seeding only metadata, as the old fast path did, trained nothing at all.
+            _pre_specs = None
+            if precomputed_specs:
+                _pre_specs = (precomputed_specs.get(str(_tt_disc)) or {}).get(_tname_disc)
+            if _pre_specs:
+                _cached_payload = {"specs_export": list(_pre_specs), "failures": [], "filter_drops": {}}
+                logger.info(
+                    "[CompositeTargetDiscovery] replaying %d caller-supplied spec(s) for target='%s'; skipping discovery.",
+                    len(_cached_payload["specs_export"]), _tname_disc,
+                )
+            elif discovery_cache_dir is not None:
                 try:
                     _disc_cache = DiscoveryCache(discovery_cache_dir)
                     # ``random_state=0`` is a legitimate sklearn seed and MUST
