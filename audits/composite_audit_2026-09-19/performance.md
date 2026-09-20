@@ -37,7 +37,7 @@ Default counts used in the estimates:
 - **Test/benchmark to add**:
   - `_benchmarks/bench_near_collinear_gemm.py`: kernel vs GEMM at (80k, 120) and (100k, 500), all-finite and 5% NaN, plus 3-base amortisation.
   - A parity test: the GEMM mask equals the reference `_near_collinear_keep_mask_numpy` across seeds, exact duplicates, a constant column, NaN holes and a pair placed exactly on the threshold.
-- **Disposition**: OPEN
+- **Disposition**: REJECTED as specified - the 70x does not reproduce on this host. Measured medians (2 threads, shared box, _benchmarks/bench_near_collinear_gemm.py, masks identical everywhere): 80k x 120 all-finite kernel 239 ms vs matrix 163 ms (1.5x), 20k x 60 30.2 vs 16.1 ms (1.9x), 80k x 300 624 vs 476 ms (1.3x), 100k x 500 1115 vs 1034 ms (1.1x), and with 5% NaN the masked-GEMM path is SLOWER (31.9 vs 41.7 ms, 0.8x). The report's 11.5 s per call is 48x the kernel time measured here, so the premise of the win is absent; swapping a tuned njit kernel for a path that loses on holed matrices is a tradeoff, not a free win. The benchmark is committed with the numbers; the one idea still worth pursuing (amortise ONE matrix per target across its bases) would save about 0.5 s per target at b=120, which is noise against a minutes-long discovery, and is recorded here rather than implemented.
 
 ### PRF-02 [P1] The prebinned code matrix is C-order, so every per-feature MI call reads strided columns; F-order is 8.7x faster and bit-identical
 
