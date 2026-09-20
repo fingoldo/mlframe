@@ -47,7 +47,7 @@ Overlap notes: DSC-12 (cache key contents), DSC-18 (verdict split), DSC-20 (auto
 - **Why it matters**: The default path for heavy-tail/skew targets silently gets a different, weaker pipeline than an explicit opt-in. A corrective mechanism is off in exactly the regime that auto-enable targets.
 - **Suggested fix**: Return the effective config from `run_composite_target_discovery` (or stamp `ctx.composite_target_discovery_config` / `metadata["composite_discovery_effective_enabled"]`) and use it in `run_recurrent_finalize_and_composite_post`.
 - **Test to add**: Heavy-tail fixture with `enabled` unset. Assert that `_CT_ENSEMBLE__<target>` exists and matches the explicit-`enabled=True` run.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - the discovery phase publishes metadata['composite_discovery_effective_enabled'] and the three post-processing gates (value report, lag failsafe, cross-target ensemble) read config.enabled OR that flag, so an auto-enabled heavy-tail suite gets the same pipeline as an explicit opt-in; an explicit enabled=False still publishes nothing and stays off (test_auto_enabled_discovery_reaches_postprocessing.py, 4 tests)
 
 ### INT-05 [P1] Auto-chain transforms exist only in the training process's registry, so a pickled composite model fails in a fresh process
 - **Where**: `composite/discovery/_opt_in_steps.py:248` (`_TRANSFORMS_REGISTRY.setdefault(cand.chain_name, ...)` at discovery time). `composite/estimator/_predict.py:216` (`get_transform(self.transform_name)` at predict time). `composite/discovery/_auto_chain.py:177` `reregister_auto_chain_transforms` is called only on the discovery cache-replay path (`core/_phase_composite_discovery.py:591-592`), never on load or unpickle.

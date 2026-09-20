@@ -152,12 +152,15 @@ def run_composite_post_processing(
             group_column=getattr(composite_target_discovery_config, "group_column", None),
         )
 
+    # Discovery may have been auto-enabled for a heavy-tail target on a config that still reads enabled=False here (the
+    # copy stays inside the discovery phase), so take the effective decision it published.
+    _discovery_enabled = bool(composite_target_discovery_config.enabled or metadata.get("composite_discovery_effective_enabled"))
     # Cross-target ensemble (opt-in). Stored as a SimpleNamespace under models[type][f"_CT_ENSEMBLE__{original_target}"].
     _ce_strategy = getattr(
         composite_target_discovery_config, "cross_target_ensemble_strategy", "off",
     )
     # Unconditional banner when discovery is enabled so "no log lines" remains a debuggable signal.
-    if composite_target_discovery_config.enabled:
+    if _discovery_enabled:
         _n_specs_total = sum(sum(len(v) for v in _tt_specs.values()) for _tt_specs in (composite_specs_by_target_type or {}).values())
         logger.info(
             "[CompositeCrossTargetEnsemble] entry: strategy='%s', " "target_types=%d, composite_specs=%d",
@@ -192,7 +195,7 @@ def run_composite_post_processing(
         composite_target_discovery_config,
         "always_build_ct_ensemble_for_raw", True,
     ))
-    if (composite_target_discovery_config.enabled
+    if (_discovery_enabled
             and _ce_strategy != "off"
             and _build_for_raw_only):
         from ..configs import TargetTypes
@@ -231,7 +234,7 @@ def run_composite_post_processing(
                 "+ AR(1)-failsafe gates for each.",
                 _n_synth,
             )
-    if composite_target_discovery_config.enabled and _ce_strategy != "off" and composite_specs_by_target_type:
+    if _discovery_enabled and _ce_strategy != "off" and composite_specs_by_target_type:
         from ._phase_composite_post_xt_ensemble import _build_cross_target_ensemble_for_target
 
         for _tt_e, _tt_specs in composite_specs_by_target_type.items():

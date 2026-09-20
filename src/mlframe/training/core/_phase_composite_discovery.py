@@ -197,6 +197,10 @@ def run_composite_target_discovery(
         composite_target_discovery_config = _maybe_auto_enable_discovery(
             composite_target_discovery_config, target_by_type=target_by_type, train_idx=train_idx, metadata=metadata,
         )
+        # The auto-enabled copy is local to this phase, while post-processing is handed the caller's original config and
+        # would read enabled=False there: the cross-target ensemble and the lag failsafe would be skipped for exactly the
+        # heavy-tail targets auto-enable exists for. Publish the effective decision so those gates see it.
+        metadata["composite_discovery_effective_enabled"] = bool(composite_target_discovery_config.enabled)
 
     _gpu_families, _kept_spec_total = _init_composite_discovery_metadata(
         composite_target_discovery_config=composite_target_discovery_config,
