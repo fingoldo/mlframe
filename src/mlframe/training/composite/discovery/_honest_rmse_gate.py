@@ -40,6 +40,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from ..estimator._smearing import N_SMEAR_QUANTILES, SMEARED_TRANSFORMS, smeared_inverse
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array
 from ._rejection_ledger import RejectStage, ledger_append
@@ -111,6 +112,9 @@ def apply_honest_rmse_gate(
     learning_rate = float(getattr(cfg, "tiny_model_learning_rate", 0.1))
     rs = int(getattr(cfg, "random_state", 0))
 
+    # Residual quantiles of the last tiny-model fit on its own fit rows, for the smearing correction (``_smearing``).
+    _last_residual_q: dict = {"q": None}
+
     def _fit_predict(target_fit: np.ndarray, row_mask: np.ndarray | None = None) -> np.ndarray:
         """Fit a fresh tiny model on ``target_fit`` (optionally masked to the transform's valid fit rows) and predict on the shared holdout matrix."""
         xf = x_fit if row_mask is None else x_fit[row_mask]
@@ -120,6 +124,9 @@ def apply_honest_rmse_gate(
             learning_rate=learning_rate, random_state=rs,
         )
         model.fit(xf, tf)
+        _res = np.asarray(tf, dtype=np.float64) - np.asarray(model.predict(xf), dtype=np.float64)
+        _res = _res[np.isfinite(_res)]
+        _last_residual_q["q"] = np.quantile(_res, (np.arange(N_SMEAR_QUANTILES) + 0.5) / N_SMEAR_QUANTILES) if _res.size >= 4 * N_SMEAR_QUANTILES else None
         return np.asarray(model.predict(x_eval), dtype=np.float64)
 
     try:
@@ -168,7 +175,10 @@ def apply_honest_rmse_gate(
         try:
             t_fit = np.asarray(transform.forward(y_fit[valid], base_fit_v, params), dtype=np.float64)
             t_hat = _fit_predict_masked(_fit_predict, t_fit, valid)
-            y_hat = np.asarray(transform.inverse(t_hat, base_eval, params), dtype=np.float64)
+            # Score the spec the way the trained composite will predict: with smearing for the curved unary inverses,
+            # so a log/cbrt target is judged on the conditional mean of y, not on the (lower) geometric mean.
+            _q = _last_residual_q["q"] if spec.transform_name in SMEARED_TRANSFORMS else None
+            y_hat = smeared_inverse(lambda t: transform.inverse(t, base_eval, params), t_hat, _q)
         except Exception as exc:  # -- a spec the tiny pipeline cannot evaluate keeps its MI verdict
             logger.debug("honest_rmse_gate fit/inverse failed for %s: %s", spec.name, exc)
             survivors.append(spec)

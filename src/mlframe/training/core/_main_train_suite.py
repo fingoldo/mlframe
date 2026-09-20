@@ -783,3 +783,9 @@ def train_mlframe_models_suite(
         # boundary snapshot, which survives a phase replacing that dict.
         restore_process_flags(getattr(ctx, "artifacts", None))
         restore_process_flags(_flag_snapshot)
+        # The heartbeat watches a RUNNING suite. In a notebook the process outlives the suite, and a production log kept
+        # printing "[heartbeat] phase=(no active phase)" every 5 min for 3.5 h after the run finished. The next suite
+        # call starts it again.
+        from mlframe.training.crash_diagnostics import stop_heartbeat
+
+        stop_heartbeat()

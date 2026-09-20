@@ -7,7 +7,7 @@ The base-side domain mask, the T-scale clip, the domain-aware inverse-with-fallb
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 from sklearn.exceptions import NotFittedError
@@ -102,9 +102,12 @@ def _inverse_with_fallback(
     NaN/out-of-domain bases identically.
     """
     if domain_ok.all():
-        y_hat = np.asarray(
-            transform.inverse(t_hat, base_arr, params, **inverse_kwargs),
-            dtype=np.float64,
+        # Smearing (see ``_smearing``): average the inverse over the inner model's residual quantiles so a curved inverse
+        # returns the conditional MEAN of y, not the inverse of the mean of T. Absent quantiles -> the plain inverse.
+        from ._smearing import smeared_inverse
+
+        y_hat = smeared_inverse(
+            lambda t: transform.inverse(t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles")
         ).reshape(-1)
     else:
         y_hat = np.full_like(t_hat, fill_value=np.nan, dtype=np.float64)
@@ -204,7 +207,7 @@ def _record_runtime_stats(
             )
 
 
-def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
+def _predict_unclipped(self, X: Any, t_hat_override: Optional[np.ndarray] = None) -> tuple[np.ndarray, int, dict[str, Any]]:
     """Internal: compute the pre-clip y-scale prediction plus the row count and the params dict.
 
     Pulled out of ``predict`` so callers that need the raw (un-clipped) y-hat for diagnostics (e.g. honest pre-clip train
@@ -268,10 +271,14 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
     # For grouped transforms: strip group_column from X before
     # predict so the inner doesn't see the (typically string)
     # plumbing column -- same logic as fit().
-    X_for_inner = self._drop_columns(X, [self.group_column]) if transform.requires_groups and self.group_column else X
-    t_hat = np.asarray(
-        self.estimator_.predict(X_for_inner), dtype=np.float64,
-    ).reshape(-1)
+    if t_hat_override is not None:
+        # T-scale predictions made elsewhere (an ensemble of this composite's members): skip the inner, keep the rest.
+        t_hat = np.asarray(t_hat_override, dtype=np.float64).reshape(-1)
+    else:
+        X_for_inner = self._drop_columns(X, [self.group_column]) if transform.requires_groups and self.group_column else X
+        t_hat = np.asarray(
+            self.estimator_.predict(X_for_inner), dtype=np.float64,
+        ).reshape(-1)
 
     # T-scale clip BEFORE inverse (shared with predict_quantile). The hit
     # counts are returned so predict() can surface them in runtime_stats_ /
@@ -321,6 +328,18 @@ def predict_pre_clip(self, X: Any) -> np.ndarray:
     """
     y_hat_unclipped, _, _ = self._predict_unclipped(X)
     return np.asarray(y_hat_unclipped)
+
+
+def predict_from_t(self, X: Any, t_hat: np.ndarray) -> np.ndarray:
+    """Map T-scale predictions made outside this wrapper (e.g. an ensemble of its composite's members) to y-scale.
+
+    Same T-clip, inverse (with smearing), soft base-shrink, fallback and y-clip as :func:`predict`; ``X`` supplies the base
+    column. Composite ensembles carry T-scale predictions only, so without this they had no y-scale metric and never
+    entered the composite-vs-raw verdict.
+    """
+    y_hat, _, meta = self._predict_unclipped(X, t_hat_override=t_hat)
+    params = meta["params"]
+    return np.asarray(np.clip(y_hat, params["y_clip_low"], params["y_clip_high"]))
 
 
 def predict(self, X: Any) -> np.ndarray:

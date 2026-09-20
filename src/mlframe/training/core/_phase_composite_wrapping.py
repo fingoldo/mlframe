@@ -175,6 +175,54 @@ def _emit_yscale_composite_chart(
     )
 
 
+def _record_ensemble_y_scale_metrics(*, entries: list, y_full: np.ndarray, metadata: dict, target_type: Any, composite_name: str, splits: tuple) -> None:
+    """y-scale val/test metrics for ensemble entries of a composite target, recorded like a single model's.
+
+    Ensembles carry T-scale ``val_preds`` / ``test_preds`` and no model, so they never got a y-scale metric and never
+    entered the composite-vs-raw verdict ("no y-scale metric: EnsARITHM ..." for every composite in a production log).
+    Their predictions are mapped to y with a member's wrapper (``predict_from_t``): members share the transform and
+    its fitted params, and the wrapper supplies the base column from the split frame.
+    """
+    _sibling = next(
+        (getattr(e, "model", None) for e in entries if callable(getattr(getattr(e, "model", None), "predict_from_t", None))),
+        None,
+    )
+    if _sibling is None:
+        return
+    for _entry in entries:
+        _m = getattr(_entry, "model", None)
+        if _m is not None and callable(getattr(_m, "predict", None)):
+            continue  # a real model: scored by the per-model hook
+        _scores: dict[str, dict[str, float]] = {}
+        for _split, _idx, _df in splits:
+            _t = getattr(_entry, f"{_split}_preds", None)
+            if _idx is None or _df is None or _t is None:
+                continue
+            _t = np.asarray(_t, dtype=np.float64).reshape(-1)
+            _y = np.asarray(y_full, dtype=np.float64)[_idx]
+            if _t.shape[0] != _y.shape[0]:
+                continue
+            try:
+                _yp = np.asarray(_sibling.predict_from_t(_df, _t), dtype=np.float64)
+            except Exception as e:
+                logger.debug("ensemble y-scale mapping failed for %s: %s", getattr(_entry, "model_name", "?"), e)
+                continue
+            _ok = np.isfinite(_yp) & np.isfinite(_y)
+            if not _ok.any():
+                continue
+            _d = _yp[_ok] - _y[_ok]
+            _ss = float(np.sum((_y[_ok] - _y[_ok].mean()) ** 2))
+            _scores[_split] = {
+                "RMSE": float(np.sqrt(np.mean(_d * _d))), "MAE": float(np.mean(np.abs(_d))),
+                "R2": (1.0 - float(np.sum(_d * _d)) / _ss) if _ss > 0 else float("nan"), "n_rows_finite": int(_ok.sum()),
+            }
+        if _scores:
+            record_composite_y_scale_metrics(
+                metadata=metadata, target_type=target_type, composite_name=composite_name,
+                model_name=getattr(_entry, "model_name", None) or "ensemble", scores=_scores,
+            )
+
+
 def record_composite_y_scale_metrics(*, metadata: dict, target_type: Any, composite_name: str, model_name: Any, scores: dict) -> None:
     """Upsert one model's y-scale split metrics into ``metadata["composite_target_y_scale_metrics"][tt][composite]``.
 
@@ -449,6 +497,14 @@ def _run_composite_target_wrapping(
                 _n_wrapped,
                 _composite_name,
             )
+            if metadata is not None:
+                _y_full_ens = target_by_type.get(_tt_w, {}).get(_orig_tname)
+                if _y_full_ens is not None:
+                    _record_ensemble_y_scale_metrics(
+                        entries=_entries, y_full=np.asarray(_y_full_ens), metadata=metadata, target_type=_tt_w,
+                        composite_name=_composite_name,
+                        splits=(("val", filtered_val_idx, filtered_val_df), ("test", test_idx, test_df_pd)),
+                    )
             # Compute y-scale RMSE/MAE/R2 per split so composite is comparable to raw (per-target metrics were T-scale).
             # ``skip_predict``: bypass the per-split predict + metric block; wrap step above already ran so downstream
             # predict-path callers see y-scale predictions. Pack G watchdog on additive transforms (T-MAE == y-MAE) is
@@ -518,7 +574,12 @@ def _run_composite_target_wrapping(
             _metrics_dict = metadata.setdefault(
                 "composite_target_y_scale_metrics", {},
             ).setdefault(str(_tt_w), {}).setdefault(_composite_name, [])
-            _metrics_dict.clear()
+            # Re-scored below per real model; ensemble rows (no model, scored by _record_ensemble_y_scale_metrics) stay.
+            _ens_names = {
+                getattr(e, "model_name", None) for e in _entries
+                if not callable(getattr(getattr(e, "model", None), "predict", None))
+            }
+            _metrics_dict[:] = [row for row in _metrics_dict if row.get("model_name") in _ens_names]
             _y_full_metric = target_by_type.get(_tt_w, {}).get(_orig_tname)
             if _y_full_metric is None:
                 continue

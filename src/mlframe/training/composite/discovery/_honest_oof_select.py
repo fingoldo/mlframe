@@ -21,6 +21,7 @@ group-internal CV-RMSE rather than auto-killing the spec.
 """
 from __future__ import annotations
 
+from ..estimator._smearing import smeared_prediction
 from ._spec_shared import spec_base_columns, rmse
 
 import logging
@@ -156,7 +157,8 @@ def honest_oof_reconstruction_rmse(
             model = _new_model(inner_n_jobs=_inner_n_jobs)
             model.fit(x_fit[valid], t_fit)
             t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
-            y_hat = np.asarray(transform.inverse(t_hat, base_eval, params), dtype=np.float64)
+            # Smearing for curved unary inverses: score the conditional mean of y, as the trained composite predicts.
+            y_hat = smeared_prediction(spec.transform_name, model, x_fit[valid], t_fit, t_hat, lambda t: transform.inverse(t, base_eval, params))
         except Exception as exc:  # -- fit/inverse blew up -> fall back
             logger.debug("[honest_oof_select] fit/inverse failed for %s: %s", spec.name, exc)
             return spec.name, None

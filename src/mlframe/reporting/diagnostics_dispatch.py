@@ -480,11 +480,20 @@ def render_target_drift_diagnostics(
             _adv_names = list(_non_calendar) if _non_calendar is not None else _column_names(train_frame)
             if _adv_names is not None and len(_adv_names) > DIAG_MAX_FEATURES:
                 _adv_names = _adv_names[:DIAG_MAX_FEATURES]
-            spec = _adversarial_validation_fn(
-                train_frame, test_frame if test_frame is not None else val_frame,
-                val_frame=val_frame if test_frame is not None else None,
-                feature_names=_adv_names, seed=seed,
-            )
+            # The adversarial classifier depends only on the feature frames, not on the target: every target of a run
+            # (raw and composite alike) re-fitted the same 3-fold LightGBM, ~15 s x 32 targets in one production log.
+            _adv_key = _adversarial_cache_key(train_frame, test_frame, val_frame, _adv_names, seed)
+            spec = _ADVERSARIAL_CACHE.get(_adv_key) if _adv_key is not None else None
+            if spec is None:
+                spec = _adversarial_validation_fn(
+                    train_frame, test_frame if test_frame is not None else val_frame,
+                    val_frame=val_frame if test_frame is not None else None,
+                    feature_names=_adv_names, seed=seed,
+                )
+                if _adv_key is not None:
+                    while len(_ADVERSARIAL_CACHE) >= 8:
+                        _ADVERSARIAL_CACHE.pop(next(iter(_ADVERSARIAL_CACHE)))
+                    _ADVERSARIAL_CACHE[_adv_key] = spec
             if _calendar:
                 spec = _with_caption_note(spec, f"Excluded {len(_calendar)} calendar feature(s) derived from the timestamp (an earlier and a later period differ in them by construction): {', '.join(_calendar)}.")
             ok = _save_spec(spec, plot_outputs, base_path + "_adversarial")
@@ -494,6 +503,20 @@ def render_target_drift_diagnostics(
         except Exception:
             logger.exception("diagnostics_dispatch: adversarial_validation failed; continuing.")
             _record(charts, "adversarial", False)
+
+
+_ADVERSARIAL_CACHE: dict = {}
+
+
+def _adversarial_cache_key(train_frame: Any, test_frame: Any, val_frame: Any, names: Any, seed: int) -> Optional[tuple]:
+    """Content key for an adversarial-validation figure: frame signatures (columns, shape, row-sample hash) + features."""
+    try:
+        from mlframe.training._dataset_cache_fingerprint import compute_signature
+
+        sig = tuple(compute_signature(f)[:4] if f is not None else None for f in (train_frame, test_frame, val_frame))
+        return sig + (tuple(str(n) for n in names) if names is not None else None, int(seed))
+    except Exception:
+        return None
 
 
 def _with_caption_note(spec: Any, note: str) -> Any:

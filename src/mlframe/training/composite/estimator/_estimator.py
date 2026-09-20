@@ -231,6 +231,12 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         from . import _predict as _pred
         return _pred.predict_quantile(self, X, alpha)
 
+    def predict_from_t(self, X: Any, t_hat: "np.ndarray") -> "np.ndarray":
+        """Map externally made T-scale predictions (e.g. a composite ensemble's) to y-scale. See ``_predict.predict_from_t``."""
+        from . import _predict as _pred
+
+        return _pred.predict_from_t(self, X, t_hat)
+
     def predict_pre_clip(self, X: Any) -> "np.ndarray":
         """Inverse-of-transform y-prediction WITHOUT the train-envelope clip. See ``_predict.predict_pre_clip``.
 
@@ -713,6 +719,13 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             t_clip_low, t_clip_high = float("-inf"), float("inf")
 
         self.estimator_ = estimator
+        from ._smearing import SMEARED_TRANSFORMS, residual_quantiles
+
+        _smear_q = (
+            residual_quantiles(estimator, X_valid, t_train)
+            if self.transform_name in SMEARED_TRANSFORMS and getattr(self, "smearing", True)
+            else None
+        )
         self.fitted_params_ = {
             **transform_params,
             "y_clip_low": y_clip_low,
@@ -722,6 +735,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             "t_clip_high": t_clip_high,
             "n_train_valid": int(y_train.size),
             "n_train_invalid": n_invalid,
+            "smearing_quantiles": _smear_q,
         }
         # Soft base-shrink: capture the base calibration range (min/max + robust IQR per base column) so
         # predict can gently soft-clip an out-of-range base toward the seen boundary instead of the

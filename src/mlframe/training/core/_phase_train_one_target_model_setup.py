@@ -337,6 +337,12 @@ def _setup_per_target_mlframe_models(
 
     # Audits are precomputed once for all targets via the batch API; this lookup is the per-target render.
     _audit = _all_target_audits.get(target_type, {}).get(cur_target_name)
+    # A composite target is a residual / transform of a raw target whose own audit is already logged: its "mean rate"
+    # per week and the advice to "train on the most recent stable segment" describe the residual, not anything to act on.
+    from ..composite.transforms import is_composite_target_name
+
+    if _audit is not None and is_composite_target_name(str(cur_target_name)):
+        _audit = None
     if _audit is not None:
         try:
             logger.info(_format_temporal_audit_report(_audit))

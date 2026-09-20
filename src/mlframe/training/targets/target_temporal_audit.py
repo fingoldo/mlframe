@@ -584,9 +584,13 @@ def format_temporal_audit_report(result: TemporalAuditResult) -> str:
     )
     if result.warnings:
         lines.append("")
+        _listed = {line.strip() for line in lines}
         for w in result.warnings:
             if w.startswith("  "):
-                lines.append(w)
+                # Indented continuation lines of a warning repeat the per-segment lines already printed above; a
+                # production log showed every segment twice.
+                if w.strip() not in _listed:
+                    lines.append(w)
             else:
                 lines.append(f"  WARN: {w}")
     if result.actionable.get("recommendation"):

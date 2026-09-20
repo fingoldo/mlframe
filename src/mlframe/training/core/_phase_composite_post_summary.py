@@ -218,6 +218,10 @@ def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics:
                 _best = (float(_v), _r)
         _have = {_r.get("model_name") for _r in _rows if (_r.get("metrics") or {})}
         _entries = (_get_key_or_str(models, _tt) or {}).get(_comp) or []
+        if not _rows and not _entries:
+            # Never trained (dropped by the composite budget / honest-gain floor, which the discovery log already lists):
+            # a NO_Y_SCALE_METRIC row here read as if the model had been trained and lost its metrics.
+            continue
         _missing = [str(getattr(_e, "model_name", None) or type(getattr(_e, "model", _e)).__name__) for _e in _entries
                     if getattr(_e, "model_name", None) not in _have]
         _dummy_val = None

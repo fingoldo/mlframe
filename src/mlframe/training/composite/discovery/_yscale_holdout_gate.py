@@ -29,6 +29,7 @@ are materialised; no frame copy.
 """
 from __future__ import annotations
 
+from ..estimator._smearing import smeared_prediction
 from ._spec_shared import spec_base_columns, rmse
 
 import logging
@@ -391,7 +392,8 @@ def apply_yscale_holdout_gate(
             )
             model.fit(x_fit[valid], t_fit)
             t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
-            y_hat = np.asarray(transform.inverse(t_hat, base_eval, params), dtype=np.float64)
+            # Smearing for curved unary inverses (see ``estimator._smearing``): judge the conditional mean of y.
+            y_hat = smeared_prediction(spec.transform_name, model, x_fit[valid], t_fit, t_hat, lambda t: transform.inverse(t, base_eval, params))
         except Exception as exc:
             logger.debug("[yscale_gate] fit/inverse failed for %s: %s", spec.name, exc)
             survivors.append(spec)

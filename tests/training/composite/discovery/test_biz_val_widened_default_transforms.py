@@ -83,8 +83,16 @@ def test_biz_val_widened_transforms_gaussian_copula_beats_narrow_old_list():
         f"spec (honest y-RMSE={best_old_rmse}) -- the widened pool must find comparable lift the "
         f"old-style narrow list misses"
     )
-    new_best = min(s.honest_holdout_rmse for s in disc_new.specs_ if s.honest_holdout_rmse is not None)
-    assert new_best == pytest.approx(gc_rmse), "gaussian_copula_residual must be the overall best spec in the widened run"
+    # The overall winner on this DGP is ``box_cox_y``: y is exp(linear + noise), so a power transform IS the generating
+    # law, and since the smearing correction the inverse returns the conditional MEAN instead of the geometric mean, which
+    # is what the y-scale RMSE gate measures. gaussian_copula_residual is the runner-up (35.82 vs 35.53 measured).
+    _ranked = sorted(
+        ((s.honest_holdout_rmse, s.transform_name) for s in disc_new.specs_ if s.honest_holdout_rmse is not None),
+    )
+    assert _ranked[0][1] in ("box_cox_y", "gaussian_copula_residual"), f"unexpected winner in the widened run: {_ranked[:3]}"
+    assert gc_rmse == pytest.approx(_ranked[0][0], rel=0.02), (
+        f"gaussian_copula_residual must stay within 2% of the best widened spec; ranked: {_ranked[:3]}"
+    )
 
 
 def _wide_range_linear_frame(n: int = 3000, seed: int = 1):

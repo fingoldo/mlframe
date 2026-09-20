@@ -31,6 +31,7 @@ import numpy as np
 # the second thread -- the lazy import silently raised NameError, the outer ``except Exception`` swallowed
 # it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module level so there
 # is no circular-dep concern.
+from ..estimator._smearing import smeared_prediction
 from ..estimator import _y_train_clip_bounds
 
 logger = logging.getLogger(__name__)
@@ -321,7 +322,11 @@ def _tiny_cv_rmse_y_scale(
             else:
                 _val_valid = None
                 _base_for_inverse = base_clean[val_fold]
-            y_hat = transform.inverse(t_hat, _base_for_inverse, fitted_params)
+            # Smearing for curved unary inverses (see ``estimator._smearing``), as the trained composite predicts.
+            y_hat = smeared_prediction(
+                getattr(transform, "name", ""), model, x_clean[_fit_rows], t_clean[_fit_rows], t_hat,
+                lambda t: transform.inverse(t, _base_for_inverse, fitted_params),
+            )
             # Wrapper-aware clipping. The
             # production CompositeTargetEstimator.predict applies
             # the same y-clip on inverse output to keep predictions

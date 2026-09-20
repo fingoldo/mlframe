@@ -116,11 +116,16 @@ def select_gate_source_split(
                 break
         if verbose:
             if _coarse_gate_active:
-                logger.warning(
+                # Once per process at INFO: it describes the run's configuration, not an event, and a production log
+                # printed it as a WARNING for every ensemble of every target (32 times).
+                from mlframe.utils.log_throttle import log_throttle
+
+                log_throttle(
+                    logger, "ensemble_member_gate_val_coarse", logging.INFO,
                     "[ensemble] member gate source=%s: no OOF preds (oof_n_splits<2) and no calib slice (calib_size unset), and test is never "
                     "used for selection, so running a COARSE gate on the early-stopping val split at %.1fx median MAE / %.1fx median STD (catches "
                     "catastrophic outliers only; set oof_n_splits>=2 or calib_size>0 for a fine, ES-free gate).",
-                    _gate_source_split, max_mae_relative, max_std_relative,
+                    _gate_source_split, max_mae_relative, max_std_relative, max_count=1,
                 )
             else:
                 logger.warning(

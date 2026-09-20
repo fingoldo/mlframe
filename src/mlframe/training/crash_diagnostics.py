@@ -337,6 +337,17 @@ def start_heartbeat(interval_s: Optional[float] = None) -> Optional[Heartbeat]:
         return None
 
 
+def stop_heartbeat() -> None:
+    """Stop the process heartbeat if it runs; ``start_heartbeat`` restarts it on the next suite call."""
+    global _HEARTBEAT
+    hb, _HEARTBEAT = _HEARTBEAT, None
+    if hb is not None:
+        try:
+            hb.stop(join=False)
+        except Exception as e:
+            logger.debug("heartbeat stop failed: %s", e)
+
+
 def install_crash_diagnostics(crash_dir: Optional[str] = None, all_threads: bool = True, heartbeat_s: Optional[float] = None) -> Dict[str, Any]:
     """Install everything above; returns what got enabled. Never raises."""
     info: Dict[str, Any] = {}
