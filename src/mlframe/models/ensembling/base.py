@@ -26,6 +26,7 @@ from __future__ import annotations
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import logging
+import warnings
 
 logger = logging.getLogger("mlframe.models.ensembling")
 
@@ -765,7 +766,20 @@ def combine_probs(
         # recomputed an UNWEIGHTED mean even when the main flavour reduction had used weights_arr,
         # so any row that fell into this fallback silently reverted to unweighted arithmetic mean
         # for that row only, while every other row stayed correctly weighted.
-        _arith = np.average(stacked, axis=0, weights=weights_arr) if weights_arr is not None else np.mean(stacked, axis=0)
+        # The fallback must IGNORE the non-finite members, not average them in: `np.mean`/`np.average` over a stack
+        # containing one NaN member is NaN everywhere, so the documented "fallback to arithmetic mean" reproduced the
+        # exact value it was supposed to repair. Weights are renormalised over the members finite at each cell.
+        _finite_cells = np.isfinite(stacked)
+        if weights_arr is not None:
+            _w = np.asarray(weights_arr, dtype=np.float64).reshape((-1,) + (1,) * (stacked.ndim - 1))
+            _w_eff = np.where(_finite_cells, _w, 0.0)
+            _wsum = _w_eff.sum(axis=0)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                _arith = np.where(_wsum > 0, (np.where(_finite_cells, stacked, 0.0) * _w_eff).sum(axis=0) / _wsum, np.nan)
+        else:
+            with warnings.catch_warnings():  # an all-NaN cell stays NaN; there is nothing to fall back to for it
+                warnings.simplefilter("ignore", RuntimeWarning)
+                _arith = np.nanmean(stacked, axis=0)
         # Wave 78 (2026-05-21): hard-assert shape contract -- np.where broadcasts
         # silently on shape mismatch, which would silently produce wrong-shape
         # ensemble output if a future flavour returns a different reduce shape.

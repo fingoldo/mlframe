@@ -203,6 +203,13 @@ def compute_member_quality_gate(
     for i in range(n):
         tot_mae = float(per_member_mae[i])
         tot_std = float(per_member_std[i])
+        # A member whose distance to the cross-member median is not a number produced non-finite predictions on at
+        # least part of the frame. Every `tot_mae > threshold` comparison against NaN is False, so such a member used
+        # to pass both gates untouched and then turn the whole blend into NaN. It is excluded outright.
+        if not (np.isfinite(tot_mae) and np.isfinite(tot_std)):
+            excluded.append((i, f"mae={tot_mae}, std={tot_std} [non-finite member statistic: predictions contain NaN/inf]"))
+            logger.warning("Ensemble member #%s excluded: its predictions are non-finite (mae=%s, std=%s).", i, tot_mae, tot_std)
+            continue
         abs_violation = (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std)
         rel_violation = (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold) or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
         if abs_violation or rel_violation:
@@ -221,9 +228,13 @@ def compute_member_quality_gate(
     # ensemble_probabilistic_predictions returns a degenerate empty
     # ensemble downstream).
     if not kept:
+        # The filter is too tight for this data; restore the members, but never a member excluded for being
+        # non-finite -- restoring one of those reinstates exactly the all-NaN blend this gate exists to stop.
+        _finite = [i for i in range(n) if np.isfinite(per_member_mae[i]) and np.isfinite(per_member_std[i])]
+        _restored = _finite or list(range(n))
         return (
-            list(range(n)),
-            [],
+            _restored,
+            [row for row in excluded if row[0] not in set(_restored)],
             {
                 "median_mae": median_mae,
                 "median_std": median_std,
