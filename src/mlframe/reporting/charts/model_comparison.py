@@ -184,7 +184,14 @@ def _leaderboard_panel(
     vals = np.array([float(per_model[n].get("metrics", {}).get(metric, np.nan)) for n in names], dtype=np.float64)
     finite = np.isfinite(vals)
     if not finite.any():
-        return AnnotationPanelSpec(text=f"Leaderboard: metric '{metric}' missing on all models", title="Leaderboard")
+        # An empty ``metric`` means _headline_metric found no metrics to choose from at all, so quoting it read as
+        # "metric '' missing on all models" -- a panel spent naming a metric nobody ever picked.
+        text = (
+            f"Leaderboard: metric '{metric}' is missing on all models"
+            if metric
+            else "Leaderboard: none of the models carry metrics, so there is nothing to rank"
+        )
+        return AnnotationPanelSpec(text=text, title="Leaderboard")
     order = np.argsort(vals)
     if higher_is_better:
         order = order[::-1]

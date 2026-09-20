@@ -134,7 +134,9 @@ def _reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
         x=a_arr,
         y=tuple([diag, emp]),
         series_labels=("perfect", "empirical"),
-        title=(f"Reliability: empirical vs nominal coverage (max deviation {dev[w]:+.3f} at alpha={a_arr[w]:g}, " f"empirical {emp[w]:.3f})"),
+        # The axis labels already say the curve is empirical vs nominal coverage, so the title spends its width on
+        # the statistics instead: repeating the axes pushed it to three wrapped lines.
+        title=f"Reliability: worst gap {dev[w]:+.3f} at alpha={a_arr[w]:g} (empirical {emp[w]:.3f})",
         xlabel="Nominal alpha",
         ylabel="Empirical P(y <= q_alpha)",
         line_styles=(":", "-"),
@@ -264,7 +266,8 @@ def _width_dist_panel(y_true, preds_NK, alphas) -> PanelSpec:
         bins=bins,
         bin_centers=centers,
         bin_width=width,
-        title=(f"Interval width (span across all {P.shape[1]} alpha columns, q_{a_lo}..q_{a_hi}) " f"(mean={mean_w:.3f}, max={max_w:.3f})"),
+        # The xlabel carries the definition (max - min across the alpha columns), so the title keeps the numbers.
+        title=f"Interval width q_{a_lo}..q_{a_hi} ({P.shape[1]} alphas): mean={mean_w:.3f}, max={max_w:.3f}",
         xlabel=f"max - min across the alpha columns (q_{a_lo}..q_{a_hi})",
         ylabel="Density",
         density=True,

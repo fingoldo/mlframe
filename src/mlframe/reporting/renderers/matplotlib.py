@@ -353,13 +353,16 @@ class MatplotlibRenderer:
         axes_grid: list[list] = []
         for r, row in enumerate(spec.panels):
             row_axes: list = []
+            # An odd panel count leaves the last row holding one panel and (cols - 1) empty cells, which rendered as a
+            # lone half-width panel against blank space. It spans the row instead, so no cell of the grid is empty.
+            _lone_trailing = r == len(spec.panels) - 1 and cols > 1 and sum(p is not None for p in row) == 1 and row[0] is not None
             for c, panel in enumerate(row):
                 if panel is None:
                     row_axes.append(None)
                     continue
                 share_x = axes_grid[0][c] if (spec.sharex and r > 0 and c < len(axes_grid[0]) and axes_grid[0][c] is not None) else None
                 share_y = row_axes[0] if (spec.sharey and c > 0 and row_axes and row_axes[0] is not None) else None
-                ax = fig.add_subplot(gs[r, c], sharex=share_x, sharey=share_y)
+                ax = fig.add_subplot(gs[r, :] if _lone_trailing else gs[r, c], sharex=share_x, sharey=share_y)
                 row_axes.append(ax)
                 col_axes.setdefault(c, []).append(ax)
             axes_grid.append(row_axes)

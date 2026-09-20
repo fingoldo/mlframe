@@ -102,3 +102,30 @@ def test_the_extra_height_is_roughly_what_the_labels_project():
     short, long = _segments(30, 6), _segments(30, 40)
     grew = long.figsize[1] - short.figsize[1]
     assert grew < 40 * math.sin(math.radians(45.0)) / 6.0, f"the figure grew {grew:.2f}in, more than the labels can project"
+
+
+def test_a_lone_trailing_panel_spans_its_row():
+    """An odd panel count left the last row as one half-width panel beside blank space.
+
+    The walkthrough reported it as a ragged grid. The panel now spans the row, so no cell is empty. Two full rows
+    are unaffected: their panels keep equal width.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import numpy as np
+
+    from mlframe.reporting.charts._layout import pack_panels
+    from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+    from mlframe.reporting.spec import FigureSpec, LinePanelSpec
+
+    def _widths(n_panels: int) -> list:
+        panels = [LinePanelSpec(x=np.arange(5), y=(np.arange(5, dtype=float),), title=f"p{i}") for i in range(n_panels)]
+        fig = MatplotlibRenderer().render(FigureSpec(suptitle="t", panels=pack_panels(panels, max_cols=2), figsize=(8.0, 6.0)))
+        return [round(ax.get_position().width, 3) for ax in fig.axes]
+
+    odd = _widths(3)
+    assert len(odd) == 3
+    assert odd[2] > odd[0] * 1.5, odd
+    even = _widths(4)
+    assert len(set(even)) == 1, even

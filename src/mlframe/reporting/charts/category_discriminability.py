@@ -274,7 +274,7 @@ def category_discriminability_panel(
                 "Lower min_support to inspect rarer levels (accepting noisier WoE), or group rare levels\n"
                 "into an 'other' bucket upstream."
             ),
-            title="Category discriminability (|WoE|): nothing to show",
+            title="Nothing cleared min_support",
             fontsize=10,
         )
     cats = tuple(f"{feat}={lbl}  (n={support:_}, p={p_rate:.2f})" for feat, lbl, _woe, support, p_rate in rows)
@@ -299,7 +299,9 @@ def category_discriminability_panel(
         categories=cats,
         values=vals,
         value_err=(np.clip(vals - lo_woe, 0.0, None), np.clip(hi_woe - vals, 0.0, None)),
-        title=("Category discriminability (signed |WoE|; green=>y=1, red=>y=0; label = support n + P(y=1|level))" + _sel_note),
+        # The figure's suptitle already names the chart; repeating it here spends the panel's one title line on a
+        # word the reader has just read, instead of on what the bars encode.
+        title=("Signed |WoE|: green => y=1, red => y=0; label = support n + P(y=1|level)" + _sel_note),
         xlabel="Weight of Evidence  ln[ (p/(1-p)) / (base/(1-base)) ]",
         ylabel="feature=level",
         orientation="horizontal",
