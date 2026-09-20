@@ -362,6 +362,8 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         requires_groups=True,
         requires_base=False,
+        # A forward on the fit's own rows returns out-of-fold T (no row's own y in its encoding), so it does not invert to those rows.
+        oof_train_forward=True,
     ),
     # Grouped variants of the recurrent trio: recurrence state resets at every group boundary (rows of one group need not be contiguous; each group is
     # processed in its stable original order). For stacked panels where the ungrouped recurrences bleed one entity's level into the next entity's first rows.

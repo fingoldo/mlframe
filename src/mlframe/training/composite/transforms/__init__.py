@@ -134,6 +134,15 @@ class Transform:
     # ``rolling_quantile_ratio`` (+ centered) / ``frac_diff`` /
     # ``volatility_normalized_residual`` and their ``*_grouped`` variants.
     recurrent: bool = False
+    # Out-of-fold train forward: ``forward`` returns a DIFFERENT T for the exact
+    # rows the params were fitted on than for any other rows, because a fitted
+    # statistic would otherwise include each train row's own y (the classic
+    # target-encoding leak; the same split sklearn's TargetEncoder draws between
+    # ``fit_transform`` and ``transform``). For such a transform
+    # ``inverse(forward(y_train)) != y_train`` by design -- round-trip contracts
+    # must use rows outside the fit batch. Default False: every other transform's
+    # forward depends only on its arguments' values.
+    oof_train_forward: bool = False
 
 
 # ----------------------------------------------------------------------
