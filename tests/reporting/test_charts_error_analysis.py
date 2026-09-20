@@ -338,6 +338,8 @@ def test_worst_k_table_pruned_pull_matches_full_matrix():
     fi_cols = [int(j) for j in np.argsort(np.asarray(fi, float))[::-1][:6]]
 
     assert np.array_equal(res.indices, sel.astype(np.int64))
+    # top_fi=6 was requested over 25 columns, so exactly 6 columns must be compared.
+    assert len(fi_cols) == 6, f"expected the 6 top-importance columns, got {fi_cols}"
     for j in fi_cols:
         assert np.array_equal(res.table[names[j]].to_numpy(), mat[sel, j]), f"col {names[j]} diverged"
 
@@ -421,7 +423,11 @@ def test_error_bias_pruned_pull_matches_full_matrix():
                     continue
                 for lab, y in zip(p.series_labels, p.y):
                     got[(p.xlabel, lab)] = y
-        for key, dens in expected.items():
+        expected_items = sorted(expected.items())
+        # One density series per (selected column, error group): 3 groups per column, and
+        # every selected column here is finite-valued so none is skipped above.
+        assert len(expected_items) == 3 * len(sel), f"expected 3 series for each of {len(sel)} columns, got {sorted(expected)}"
+        for key, dens in expected_items:
             assert np.array_equal(got[key], dens, equal_nan=True), f"series {key} diverged"
 
 

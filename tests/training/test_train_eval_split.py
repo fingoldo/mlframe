@@ -43,6 +43,7 @@ def test_smoke_select_target_callable(parent_module):
     # Required first 4 positional params per public signature contract.
     required = ["model_name", "target", "target_type", "df"]
     params = list(sig.parameters)
+    assert len(required) > 0
     for name in required:
         assert name in params, f"select_target lost parameter {name} after carve"
 

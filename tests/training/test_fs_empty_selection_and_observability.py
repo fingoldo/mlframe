@@ -420,5 +420,6 @@ def test_report_rfecv_scores_read_dict_valued_feature_importances_not_ndarray(in
 
     scores = report["scores"]
     assert isinstance(scores, dict) and scores, "report['scores'] None means the dict-valued FI surface was not read"
+    assert len(kept) > 0
     for c in kept:
         assert c in scores and isinstance(scores[c], float)

@@ -86,6 +86,7 @@ def test_biz_val_interaction_base_default_on_fires_on_pure_interaction():
     disc = _fit(df, ["a", "b", "c"])
     assert disc.interaction_bases_, "interaction-base default-ON surfaced ZERO synthetics on a pure interaction y=a*b target (silent no-op)"
     assert len(disc.interaction_base_records_) == len(disc.interaction_bases_)
+    assert disc.interaction_bases_.items()
     for name, arr in disc.interaction_bases_.items():
         assert isinstance(name, str)
         assert np.asarray(arr).ndim == 1

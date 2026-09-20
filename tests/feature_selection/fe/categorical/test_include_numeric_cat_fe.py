@@ -102,17 +102,31 @@ def test_include_numeric_transform_is_leak_safe_no_skew():
 
 def test_include_numeric_skips_nan_bearing_numeric_columns():
     """A NaN-bearing numeric column must not seed an (unreplayable) numeric cross in v1."""
-    df, y = _rotated_xor(3000, seed=3)
-    df = df.copy()
+    df_clean, y = _rotated_xor(3000, seed=3)
+
+    def _fit(frame):
+        """Fit the include_numeric cat-FE MRMR on *frame* and return the fitted selector."""
+        m = MRMR(
+            cat_fe_config=CatFEConfig(enable=True, include_numeric=True, numeric_nbins=8),
+            fe_max_steps=0,
+            verbose=0,
+        )
+        m.fit(frame, y)
+        return m
+
+    # Precondition: on the SAME frame without NaN, x0 is a cross source. Without this the
+    # exclusion check below would pass on a frame that never produced an x0 cross anyway.
+    clean_crosses = _numeric_cross_recipes(_fit(df_clean))
+    assert [r for r in clean_crosses if "x0" in r.src_names], f"fixture must cross x0 when it is NaN-free; got {[r.src_names for r in clean_crosses]}"
+
+    df = df_clean.copy()
     df.loc[df.index[:50], "x0"] = np.nan  # inject NaN into a signal column
-    mrmr = MRMR(
-        cat_fe_config=CatFEConfig(enable=True, include_numeric=True, numeric_nbins=8),
-        fe_max_steps=0,
-        verbose=0,
-    )
-    mrmr.fit(df, y)
-    for r in _numeric_cross_recipes(mrmr):
-        assert "x0" not in r.src_names, "NaN-bearing x0 must be excluded from include_numeric crosses"
+    mrmr = _fit(df)
+    nan_crosses = _numeric_cross_recipes(mrmr)
+    # Measured: dropping the NaN-bearing x0 removes every numeric cross on this fixture (the
+    # surviving columns carry no crossable interaction), so the contract is stated as a list
+    # equality rather than a per-recipe loop that a zero-length list would satisfy silently.
+    assert [r.src_names for r in nan_crosses if "x0" in r.src_names] == [], "NaN-bearing x0 must be excluded from include_numeric crosses"
     # Transform must not raise and must be finite-or-handled (no crash on the NaN column).
     out = mrmr.transform(df)
     assert out is not None

@@ -30,6 +30,7 @@ _ORDER = ("median", "trimmed_mean", "q10", "q90", "iqr", "min", "max")
 
 def test_order_stats_are_supported():
     """Order stats are supported."""
+    assert len(_ORDER) > 0
     for s in _ORDER:
         assert s in TE_SUPPORTED_STATS
         assert s in ORDER_STATS
@@ -94,6 +95,7 @@ def test_transform_replay_reproduces_stored_stat():
     # Replay each recipe on held-out rows: one row per known category + one unseen category.
     known = sorted(set(cat))
     X_test = pd.DataFrame({"c": [*known, "ZZZ_unseen"]})
+    assert len(recipes) > 0
     for rec in recipes:  # recipe-dispatch replay path must be finite on known + unseen categories
         assert np.all(np.isfinite(apply_recipe(rec, X_test)))
     # Stored full-data lookups reproduce exactly at transform time; unseen -> global.
@@ -102,6 +104,7 @@ def test_transform_replay_reproduces_stored_stat():
         sl = raw["c"]["stat_lookups"][stat]
         gm = raw["c"]["global_stats"][stat]
         enc = apply_target_encoding(X_test, "c", {"lookup": sl, "global_mean": gm})
+        assert list(enumerate(known))
         for i, k in enumerate(known):
             assert enc[i] == pytest.approx(sl[k])
         assert enc[-1] == pytest.approx(gm)  # unseen -> global

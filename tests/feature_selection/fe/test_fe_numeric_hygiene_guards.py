@@ -247,6 +247,7 @@ class TestPairCrossBasisScrub:
         X = pd.DataFrame({"a": rng.standard_normal(n), "b": rng.standard_normal(n)})
         out = generate_pair_cross_basis_features(X, [("a", "b")], max_degree=2, min_degree=1)
         assert not out.empty
+        assert len(out.columns) > 0
         for col in out.columns:
             assert np.all(np.isfinite(out[col].to_numpy()))
 
@@ -460,6 +461,7 @@ class TestTripletQuadrupletBasisProductScrub:
         runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
         assert not runtime_warnings, [str(x.message) for x in runtime_warnings]
         assert not out.empty
+        assert len(out.columns) > 0
         for col in out.columns:
             assert np.all(np.isfinite(out[col].to_numpy())), f"{col} not scrubbed"
 
@@ -515,6 +517,7 @@ class TestTripletQuadrupletBasisProductScrub:
         runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
         assert not runtime_warnings, [str(x.message) for x in runtime_warnings]
         assert not out.empty
+        assert len(out.columns) > 0
         for col in out.columns:
             assert np.all(np.isfinite(out[col].to_numpy())), f"{col} not scrubbed"
 

@@ -145,6 +145,7 @@ class TestClusterMembersAccessor:
         diag = m.dcd_.get("cluster_diagnostics", {})
         eff_tau = float(m.dcd_.get("tau_cluster", tau))
         assert diag, f"cluster_diagnostics must be populated on this fixture; got empty/missing diag={diag!r}"
+        assert diag.items()
         for anchor_name, info in diag.items():
             assert info["size"] >= 2, f"cluster {anchor_name!r} reports size {info['size']} < 2; a one-element 'cluster' should not be reported."
             assert info["n_pairs_evaluated"] >= 1, f"cluster {anchor_name!r} has no SU pairs evaluated"

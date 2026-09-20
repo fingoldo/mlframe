@@ -50,6 +50,7 @@ def test_configure_training_params_known_no_op_knobs_dont_raise():
         "pre_pipeline_cache_max": 4,
     }
     if not accepts_kw:
+        assert len(candidates) > 0
         for name in candidates:
             assert name in sig.parameters, f"configure_training_params missing kw '{name}' and no **kwargs to catch it"
     # Binding with these kwargs must not raise TypeError-on-bind. (We bind to a partial via

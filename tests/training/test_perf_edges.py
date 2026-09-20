@@ -97,6 +97,7 @@ def test_agg_path_concurrent_threads(tmp_path, calib_inputs):
     with ThreadPoolExecutor(max_workers=4) as ex:
         results = list(ex.map(_one, files))
 
+    assert len(results) > 0
     for p in results:
         assert p.exists() and p.stat().st_size > 0
         assert p.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"

@@ -81,6 +81,7 @@ def test_checkpoint_path_persists_every_result_incrementally(tmp_path):
     assert checkpoint.exists()
     reloaded = load_jsonl_results(str(checkpoint))
     assert len(reloaded) == len(results) == 2
+    assert list(zip(results, reloaded))
     for original, reloaded_r in zip(results, reloaded):
         assert reloaded_r.method == original.method
         assert reloaded_r.seed == original.seed

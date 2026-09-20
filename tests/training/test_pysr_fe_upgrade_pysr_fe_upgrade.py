@@ -106,6 +106,7 @@ def test_complexity_dict_values_are_positive_ints(preset):
     from mlframe.feature_engineering.pysr_operators import _complexity_for_preset
 
     comp = _complexity_for_preset(preset)
+    assert comp.items()
     for op_name, weight in comp.items():
         assert isinstance(weight, int) and weight >= 1, f"{preset}: complexity[{op_name!r}]={weight!r} must be int >= 1"
 
@@ -119,6 +120,7 @@ def test_nested_constraints_block_self_nesting(preset):
 
     nc = _nested_constraints_for_preset(preset)
     # Every operator listed in nested_constraints must forbid itself nested.
+    assert nc.items()
     for op_name, inner_constraints in nc.items():
         if op_name in inner_constraints:
             assert inner_constraints[op_name] == 0, f"{preset}: {op_name!r} self-nesting should be 0 (blocked), got {inner_constraints[op_name]!r}"
@@ -216,6 +218,7 @@ def test_extra_sympy_mappings_cover_every_custom_unary():
     )
 
     mappings = _make_extra_sympy_mappings()
+    assert len(OPERATOR_JULIA_SIGNATURES) > 0
     for op_name in OPERATOR_JULIA_SIGNATURES:
         assert op_name in mappings, f"{op_name!r} declared in OPERATOR_JULIA_SIGNATURES but has no sympy mapping; predict-time equation replay will fail."
 

@@ -134,6 +134,7 @@ def test_low_stacking_gate_uniform_fallback_on_degenerate_input() -> None:
     y = np.array([1.0, 2.0, np.nan, np.nan, np.nan])
     survivors, weights = stacking_aware_gate(preds, y)
     assert sorted(survivors) == ["t1", "t2", "t3"]
+    assert weights.values()
     for v in weights.values():
         assert v == pytest.approx(1.0 / 3.0, abs=1e-6)
 

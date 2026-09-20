@@ -92,6 +92,7 @@ def test_expanding_mean_long_group_matches_running_mean_of_past():
     out = engineer_grouped_causal_bases(df, "y", "g", "md", ops=("expanding_mean",))
     exp = out["y__gcausal_expmean"]
     assert exp[0] == y[0]  # first-row fill
+    assert list(range(1, 20))
     for i in range(1, 20):
         assert exp[i] == pytest.approx(y[:i].mean())
 

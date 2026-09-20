@@ -301,6 +301,7 @@ def test_threshold_semantics_group_path():
     assert res.stable_specs == ["always"]
     assert res.frequencies.get("sometimes", 0.0) == pytest.approx(3 / 8)
     assert res.frequencies["sometimes"] < 0.6
+    assert res.frequencies.values()
     for f in res.frequencies.values():
         assert 0.0 <= f <= 1.0
 

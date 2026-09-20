@@ -50,6 +50,7 @@ def test_rolling_window_is_causal_excludes_current_row():
     assert rm[3] == pytest.approx(2.0)
     assert rm[4] == pytest.approx(3.0)  # y[1:4]=2,3,4
     # explicit no-current-row check: removing current value never changes the mean
+    assert list(range(3, len(y)))
     for i in range(3, len(y)):
         assert rm[i] == pytest.approx(y[i - 3 : i].mean())
 

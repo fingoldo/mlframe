@@ -274,6 +274,7 @@ class TestSkipNoUplift:
         ), f"seed={seed}: adaptive on noise should emit <= n_sources={n_sources} columns; got {eng.shape[1]}: {list(eng.columns)}"
         # Engineered MI must remain at the noise floor (well below any
         # real-signal MI which is typically >= 0.05 nats at n=2000).
+        assert meta.items()
         for name, info in meta.items():
             assert (
                 info["engineered_mi"] < 0.05

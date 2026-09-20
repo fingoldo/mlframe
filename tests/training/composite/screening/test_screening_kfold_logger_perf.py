@@ -47,6 +47,7 @@ def test_cached_splits_equal_fresh_kfold(n_rows, cv_folds, seed):
     x = np.random.default_rng(123).normal(size=(n_rows, 6)) + 50.0
     fresh = list(KFold(n_splits=cv_folds, shuffle=True, random_state=seed).split(x))
     assert len(cached) == len(fresh) == cv_folds
+    assert list(zip(cached, fresh))
     for (c_tr, c_va), (f_tr, f_va) in zip(cached, fresh):
         assert np.array_equal(c_tr, f_tr)
         assert np.array_equal(c_va, f_va)

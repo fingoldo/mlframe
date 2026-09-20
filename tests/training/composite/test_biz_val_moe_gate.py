@@ -51,6 +51,7 @@ def test_gate_never_selects_worse_than_lag_on_selection_split():
     assert gate.guarantee_["not_worse_than_lag"] is True
     assert gate.guarantee_["not_worse_than_best_single"] is True
     gate_rmse = gate.guarantee_["pooled_rmse_gate"]
+    assert gate.guarantee_['pooled_rmse_per_expert'].items()
     for name, r in gate.guarantee_["pooled_rmse_per_expert"].items():
         assert gate_rmse <= r * (1.0 + 1e-9), f"gate {gate_rmse} > expert {name} {r}"
 

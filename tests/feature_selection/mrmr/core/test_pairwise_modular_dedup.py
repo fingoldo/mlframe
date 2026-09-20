@@ -83,6 +83,7 @@ def test_cols_prefiltered_matches_default_filtering():
     hits_prefiltered = cheap_modular_scan(df, y, int_cols, seed=0, _cols_prefiltered=True)
 
     assert len(hits_default) == len(hits_prefiltered)
+    assert list(zip(hits_default, hits_prefiltered))
     for h0, h1 in zip(hits_default, hits_prefiltered):
         assert h0.op == h1.op
         assert h0.cols == h1.cols

@@ -207,6 +207,7 @@ class TestResidualDedupContract:
         resid = np.column_stack([_redundant_block(base, rng), _redundant_block(base, rng), rng.normal(size=n)])
         oof = np.array([0.5, 0.4, 0.6])
         keep, drop = residual_dedup_indices(resid, oof, corr_threshold=0.95, min_keep=2)
+        assert list(keep + drop)
         for idx in keep + drop:
             assert int(idx) == idx
             assert 0 <= int(idx) < resid.shape[1]

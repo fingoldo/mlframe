@@ -27,6 +27,7 @@ def test_state_dict_round_trips_under_weights_only_true(tmp_path):
 
     target = torch.nn.Linear(4, 2)
     target.load_state_dict(loaded)
+    assert model.state_dict().items()
     for k, v in model.state_dict().items():
         assert torch.equal(v, target.state_dict()[k])
 

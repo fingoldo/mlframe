@@ -282,6 +282,7 @@ class TestLayer51_CacheReuse:
         pairs = [(0, 1), (2, 3), (4, 5), (7, 9), (1, 10)]
         unique_cols = {c for ab in pairs for c in ab}
         _ = pair_su_batch(st, pairs)
+        assert len(unique_cols) > 0
         for c in unique_cols:
             assert c in st.column_entropy_cache, f"column {c} marginal entropy was not warmed by the batch"
 

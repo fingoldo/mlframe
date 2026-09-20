@@ -2202,6 +2202,7 @@ def test_regression_gradient_seeder_exceptions_logged_unconditionally():
 
     src = inspect.getsource(mod.propose_gradient_interaction_pairs)
     lines = src.splitlines()
+    assert list(enumerate(lines))
     for i, line in enumerate(lines):
         if "not array-coercible" in line or "gradient-interaction seeder failed" in line:
             assert lines[i - 1].strip() != "if verbose:", f"still gated behind verbose: {line!r}"

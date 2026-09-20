@@ -99,6 +99,7 @@ class TestScoreInteractionPairs:
         scored = score_interaction_pairs(cand, y, ops=("mul",), top_k=2)
         # a__mul__k is constant*a (not constant) but k__mul__a same; the pure
         # constant a*const is non-constant so just assert no crash + finite mi.
+        assert len(scored) > 0
         for rec in scored:
             assert np.isfinite(rec["mi_z"])
 

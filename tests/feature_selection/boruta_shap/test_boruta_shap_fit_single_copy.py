@@ -128,5 +128,6 @@ def test_boruta_fit_selection_unchanged_after_copy_reduction():
     # ``Subset`` (reads ``starting_X``) returns the ORIGINAL-dtype columns.
     subset = sel_a.Subset()
     assert df["cat_obj"].dtype == subset.get("cat_obj", df["cat_obj"]).dtype
+    assert len(subset.columns) > 0
     for col in subset.columns:
         assert subset[col].dtype == df[col].dtype

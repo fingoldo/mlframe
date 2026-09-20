@@ -135,6 +135,7 @@ class TestDiscoveryCache:
             cache.set(f"key{i}", f"value{i}")
         removed = cache.clear()
         assert removed == 5
+        assert list(range(5))
         for i in range(5):
             assert f"key{i}" not in cache
 

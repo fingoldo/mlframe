@@ -500,6 +500,7 @@ class TestApplyFwerCorrection:
         )
         # All three keys present, valid confidences
         assert set(out.keys()) == {(0, 1), (0, 2), (0, 3)}
+        assert out.values()
         for v in out.values():
             assert 0.0 <= v <= 1.0
 

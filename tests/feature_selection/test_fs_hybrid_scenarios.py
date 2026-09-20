@@ -14,6 +14,7 @@ Three families of assertion:
 
 from __future__ import annotations
 
+import itertools
 from functools import cache
 
 import numpy as np
@@ -65,7 +66,7 @@ def _discretize(values: np.ndarray, n_bins: int = 8) -> np.ndarray:
 
 def _mutual_information(labels: np.ndarray, y: np.ndarray) -> float:
     """Plug-in mutual information in nats between an integer-labelled variable and a binary target."""
-    joint = pd.crosstab(labels, y).to_numpy(dtype=float)
+    joint = pd.crosstab(labels, y).to_numpy(dtype=float, copy=True)
     joint /= joint.sum()
     px = joint.sum(axis=1, keepdims=True)
     py = joint.sum(axis=0, keepdims=True)
@@ -226,9 +227,10 @@ def test_xor3_is_blind_marginally_and_pairwise() -> None:
     operands = list(truth["base"])
     for name in operands:
         assert _marginal_mi(frame[name].to_numpy(), y) < 4e-3
-    for i in range(len(operands)):
-        for j in range(i + 1, len(operands)):
-            assert _joint_mi(frame, [operands[i], operands[j]], y) < 4e-3
+    pairs = list(itertools.combinations(operands, 2))
+    assert len(pairs) == 3
+    for a, b in pairs:
+        assert _joint_mi(frame, [a, b], y) < 4e-3
     assert _joint_mi(frame, operands, y) > 0.30
 
 

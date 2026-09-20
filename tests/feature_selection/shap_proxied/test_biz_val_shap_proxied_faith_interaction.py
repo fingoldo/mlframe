@@ -275,6 +275,7 @@ def test_faith_shap_order2_recovers_analytic_coefficients_on_hand_game():
     a_lin_exact, a_pair_exact = _analytic_faith_shap_order2(v, n_features)
 
     np.testing.assert_allclose(a_lin, a_lin_exact, atol=1e-2)
+    assert len(candidate_pairs) > 0
     for pair in candidate_pairs:
         assert abs(a_pair[pair] - a_pair_exact[pair]) < 1e-2, f"pair {pair}: estimated {a_pair[pair]:.4f} vs analytic {a_pair_exact[pair]:.4f}"
 

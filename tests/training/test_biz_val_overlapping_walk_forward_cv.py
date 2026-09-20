@@ -157,6 +157,7 @@ def test_overlapping_walk_forward_cv_adaptive_gap_off_by_default_is_bit_identica
     folds_b = list(implicit_default.split(y))
 
     assert len(folds_a) == len(folds_b) == explicit_default.get_n_splits(X=y) == implicit_default.get_n_splits(X=y)
+    assert list(zip(folds_a, folds_b))
     for (train_a, test_a), (train_b, test_b) in zip(folds_a, folds_b):
         assert np.array_equal(train_a, train_b)
         assert np.array_equal(test_a, test_b)

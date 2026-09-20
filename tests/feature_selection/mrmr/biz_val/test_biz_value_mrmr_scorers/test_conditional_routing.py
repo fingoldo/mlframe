@@ -231,6 +231,7 @@ class TestHeavyTailSignal:
         # The chosen pre-transform for the x source must be log_abs (or any
         # non-raw transform that handles heavy-tail) -- raw Hermite on a
         # log-normal input is the failure mode this layer fixes.
+        assert meta.values()
         for info in meta.values():
             if info["src"] == "x":
                 assert info["pre_transform"] == "log_abs", (

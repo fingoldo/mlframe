@@ -96,6 +96,7 @@ def test_pickle_round_trip_preserves_weights():
     emb2.eval()
     out2 = emb2(x)
     assert torch.allclose(out1, out2, atol=0.0)
+    assert list(zip(emb.embeddings, emb2.embeddings))
     for e1, e2 in zip(emb.embeddings, emb2.embeddings):
         assert torch.allclose(e1.weight, e2.weight, atol=0.0)
 

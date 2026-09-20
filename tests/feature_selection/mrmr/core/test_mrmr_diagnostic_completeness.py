@@ -218,6 +218,7 @@ def test_w6_cluster_basis_floor_records_abs_floor_kill():
     # Byte-identical survivor set.
     assert list(eng.columns) == list(eng_ns.columns)
     if sink.records:
+        assert len(sink.records) > 0
         for rec in sink.records:
             assert rec["gate"] == "marginal_uplift_floor"
             assert rec["observed"] < rec["threshold"]
@@ -242,6 +243,7 @@ def test_w6_unified_local_mi_gate_records_floor_kill():
     keep = local_mi_gate(enc, y, raw_X=raw, reject_sink=sink)
     keep_ns = local_mi_gate(enc, y, raw_X=raw)
     assert keep == keep_ns  # byte-identical
+    assert len(sink.records) > 0
     for rec in sink.records:
         assert rec["gate"] == "marginal_uplift_floor"
         assert rec["operator"] == "unified_local_mi_gate"

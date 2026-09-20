@@ -111,6 +111,7 @@ class TestValOnlyNullDetection:
         val_f = _polars_fill_null_in_categorical(val, union)
         test_f = _polars_fill_null_in_categorical(test, union)
 
+        assert len(cats) > 0
         for col in cats:
             assert train_f[col].null_count() == 0, f"train {col} still has nulls"
             assert val_f[col].null_count() == 0, f"val {col} still has nulls — round-17 bug regressed"

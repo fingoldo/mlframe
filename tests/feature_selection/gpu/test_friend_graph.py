@@ -135,6 +135,7 @@ def test_layout_positions_cover_all_nodes():
     data, nbins, tgt, names, sel, _ = _redundant_hub_dataset(n=3000, seed=5)
     g = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1)
     assert set(g.pos) == {n.idx for n in g.nodes}
+    assert g.pos.values()
     for xy in g.pos.values():
         assert len(xy) == 2 and all(np.isfinite(c) for c in xy)
 

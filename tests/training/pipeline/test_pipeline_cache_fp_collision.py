@@ -38,6 +38,7 @@ def _make_collision_pair_series(n: int = 1000) -> tuple[pd.Series, pd.Series]:
     mid_hi = n - 1
     other[mid_lo:mid_hi] = 1.0 - other[mid_lo:mid_hi]
     sample_positions = (0, min(8, n - 1), n // 2, n - 1)
+    assert len(sample_positions) > 0
     for pos in sample_positions:
         assert base[pos] == other[pos], "fixture broken: sampled cells must coincide"
     assert not np.array_equal(base, other), "fixture broken: full arrays must differ"
@@ -93,6 +94,7 @@ def test_pre_pipeline_cache_key_distinguishes_numpy_targets_with_shared_boundary
     diverge_idx = [i for i in range(n) if i not in sampled]
     flip_slice = diverge_idx[len(diverge_idx) // 3 : 2 * len(diverge_idx) // 3]
     other[flip_slice] = 1.0 - other[flip_slice]
+    assert len(np_positions) > 0
     for pos in np_positions:
         assert base[pos] == other[pos]
     assert not np.array_equal(base, other)
@@ -140,6 +142,7 @@ def test_full_target_content_hash_bit_identical_to_tobytes_reference():
         rng.integers(0, 2, 257).astype(np.int8),
         rng.standard_normal((1_000, 6))[:, ::2],  # non-contiguous view
     ]
+    assert len(cases) > 0
     for arr in cases:
         assert _full_target_content_hash(arr) == _reference(arr), f"digest drift on shape={arr.shape} dtype={arr.dtype}"
     # Content sensitivity is preserved: a single flipped cell changes the digest.

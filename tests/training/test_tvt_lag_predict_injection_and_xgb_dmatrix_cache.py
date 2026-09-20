@@ -240,6 +240,7 @@ class TestXGBModuleLevelCache:
         assert xgb_shim._xgb_cache_get(("k1",)) is None
         assert xgb_shim._xgb_cache_get(("k2",)) is None
         # Last cap entries still present.
+        assert list(range(3, cap + 3))
         for i in range(3, cap + 3):
             assert xgb_shim._xgb_cache_get((f"k{i}",)) is not None
 

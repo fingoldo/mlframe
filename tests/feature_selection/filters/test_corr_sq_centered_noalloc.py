@@ -114,6 +114,7 @@ def test_power_centered_parallel_path_bitidentical_across_thread_counts(n):
         numba.set_num_threads(prev)
 
     ref = results[1]
+    assert results.items()
     for nthreads, b in results.items():
         assert b == ref, (
             f"_power_centered_fused_par_njit not bit-identical at n={n}: thread count {nthreads} differs "

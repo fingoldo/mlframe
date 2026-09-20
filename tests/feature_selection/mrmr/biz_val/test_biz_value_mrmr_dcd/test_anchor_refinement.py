@@ -251,6 +251,7 @@ class TestLayer45_ScenarioB_MemberSwap:
         # behaviour on this fixture), or - if none does - no aggregate
         # swap demotes a better member either.
         if member_entries:
+            assert len(member_entries) > 0
             for entry in member_entries:
                 assert entry.get("aggregate_name", "") == "", "member-swap entry must have empty aggregate_name"
                 assert "member_relevance" in entry, "member-swap entry must record member_relevance"
@@ -410,6 +411,7 @@ class TestLayer45_ScenarioC_AggregateSwap:
         """
         m = _scenario_C_pca_pc1_fit()
         swap_log = (m.dcd_ or {}).get("swap_log", [])
+        assert len(swap_log) > 0
         for entry in swap_log:
             assert "branch" in entry, f"every swap_log entry must record 'branch'; got {entry}"
             assert entry["branch"] in {"aggregate", "member"}, f"unknown branch label {entry['branch']!r}"

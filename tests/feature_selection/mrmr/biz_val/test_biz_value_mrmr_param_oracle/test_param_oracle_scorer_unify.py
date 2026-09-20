@@ -271,9 +271,11 @@ class TestStatOnlyPersistence:
         rows = sel.oracle.store.read_rows()
         assert rows, "expected recorded rows"
         for r in rows:
+            assert r.items()
             for col, val in r.items():
                 assert not isinstance(val, (list, tuple, dict, np.ndarray)), f"non-scalar persisted in {col}: {type(val)}"
             fp_bucket = orjson.loads(r["fp_bucket_json"])
+            assert fp_bucket.values()
             for v in fp_bucket.values():
                 assert isinstance(v, (int, float, str)), f"non-scalar in fp_bucket: {v!r}"
         store_bytes = os.path.getsize(sel.oracle.store._path)

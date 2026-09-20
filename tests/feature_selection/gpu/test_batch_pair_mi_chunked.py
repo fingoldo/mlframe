@@ -104,6 +104,7 @@ def test_dispatch_batch_pair_mi_chunked_matches_unchunked_dispatch(max_pairs_per
 
     assert a_out.shape[0] == n_cols * (n_cols - 1) // 2
     assert sum(backend_counts.values()) >= 1
+    assert list(zip(a_out.tolist(), b_out.tolist(), mi_out.tolist()))
     for a, b, mi in zip(a_out.tolist(), b_out.tolist(), mi_out.tolist()):
         assert mi == pytest.approx(ref_map[(a, b)], abs=1e-9)
 

@@ -198,6 +198,7 @@ class TestCatFEEnabled:
         engineered_recipe_names = [r.name for r in mrmr._engineered_recipes_]
         if engineered_recipe_names:
             # Some engineered name lives in support; must be in transform output
+            assert len(engineered_recipe_names) > 0
             for name in engineered_recipe_names:
                 assert name in out.columns, f"Engineered recipe '{name}' missing from transform output"
 

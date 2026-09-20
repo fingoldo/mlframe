@@ -61,6 +61,7 @@ def test_three_failures_in_a_row_still_exhaust_the_budget(always_failing, monkey
     """The persistent-breakage case must keep giving up, or this fix would just remove the ceiling."""
     monkeypatch.setattr(kt, "time", _FakeClock())
 
+    assert list(range(5))
     for _ in range(5):
         assert kt.get_kernel_tuning_cache() is None
     assert _attempts_made(always_failing) == kt._MAX_INIT_ATTEMPTS, (

@@ -340,6 +340,7 @@ def test_iter501_new_coverage_axes_flow_to_kwargs():
         "recurrent_hidden_size_cfg",
     )
     # (a) all 11 axes present in AXES.
+    assert len(new_axes) > 0
     for ax in new_axes:
         assert ax in AXES, f"missing fuzz axis {ax}"
         assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
@@ -547,6 +548,7 @@ def test_iter502_audit_pass_2_axes_flow_to_kwargs():
         "shap_proxied_trust_guard_n_estimators_cfg",
     )
     # (a) Presence in AXES with >=2 candidates.
+    assert len(new_axes) > 0
     for ax in new_axes:
         assert ax in AXES, f"missing fuzz axis {ax}"
         assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
@@ -734,6 +736,7 @@ def test_iter503_audit_pass_3_axes_flow_to_kwargs():
         "shap_proxied_prefilter_n_estimators_cfg",
     )
     # (a) Presence in AXES with >=2 candidates.
+    assert len(new_axes) > 0
     for ax in new_axes:
         assert ax in AXES, f"missing fuzz axis {ax}"
         assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
@@ -915,6 +918,7 @@ def test_iter556_audit_pass_4_safe_axes_flow_to_kwargs():
         "behavior_model_file_hash_suffix_cfg",
     )
     # (a) Presence in AXES with >=2 candidates.
+    assert len(new_axes) > 0
     for ax in new_axes:
         assert ax in AXES, f"missing fuzz axis {ax}"
         assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
@@ -1110,6 +1114,7 @@ def test_iter558_audit_pass_5_axes_flow_to_kwargs():
         "shap_proxied_oof_shap_n_estimators_cfg",
     )
     # (a) Presence in AXES with >=2 candidates.
+    assert len(new_axes) > 0
     for ax in new_axes:
         assert ax in AXES, f"missing fuzz axis {ax}"
         assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
@@ -1245,6 +1250,7 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
     )
 
     # (a) Presence in AXES with >=2 candidates.
+    assert len(new_axes) > 0
     for ax in new_axes:
         assert ax in AXES, f"missing fuzz axis {ax}"
         assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
@@ -3261,6 +3267,7 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
         "mrmr_shap_proxy_align_mode_cfg",
     )
     # (a) Presence in AXES with >=2 candidates.
+    assert len(new_axes) > 0
     for ax in new_axes:
         assert ax in AXES, f"missing fuzz axis {ax}"
         assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
@@ -3757,6 +3764,7 @@ def test_iter627_audit_pass_14_axes_flow_to_kwargs():
         "mrmr_dcd_swap_method_cfg",
     )
     # (a) Presence in AXES with >=2 candidates.
+    assert len(new_axes) > 0
     for ax in new_axes:
         assert ax in AXES, f"missing fuzz axis {ax}"
         assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"

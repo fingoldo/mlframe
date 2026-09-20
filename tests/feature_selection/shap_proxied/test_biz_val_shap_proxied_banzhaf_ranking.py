@@ -119,6 +119,7 @@ def test_biz_val_banzhaf_ranking_seed_stability_low_snr():
     )
 
     n_proxy_cols = X.shape[1]  # noise-floor rescue must never balloon to a large fraction of all columns
+    assert len(rescued_banzhaf) > 0
     for c in rescued_banzhaf:
         assert 0 <= c <= n_proxy_cols // 2, f"banzhaf shifted-importance noise_floor_rescued={c} looks unbounded (n_proxy={n_proxy_cols})"
 

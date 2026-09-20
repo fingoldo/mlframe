@@ -174,6 +174,7 @@ def test_recurrent_skipped_gracefully_when_predict_fails(monkeypatch, tmp_path):
     for by_name in rec_meta.values():
         if not isinstance(by_name, dict):
             continue
+        assert by_name.values()
         for info in by_name.values():
             assert "lstm" not in [
                 str(n).lower() for n in (info or {}).get("recurrent_members") or []

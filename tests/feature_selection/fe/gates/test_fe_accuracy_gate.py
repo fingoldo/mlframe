@@ -205,6 +205,7 @@ def test_sibling_baseline_cv_is_cached_and_equivalent():
             ups_uncached.append(measure_feature_uplift(X_base, eng, y, classification=True, seed=0))
     calls_uncached = fit_calls["n"]
 
+    assert list(zip(ups_cached, ups_uncached))
     for a, b in zip(ups_cached, ups_uncached):
         assert a is not None and b is not None
         assert a == pytest.approx(b, abs=1e-12), "cached sibling baseline must be bit-identical to uncached"

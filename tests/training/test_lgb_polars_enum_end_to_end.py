@@ -65,6 +65,7 @@ def test_lgb_directly_handles_polars_enum_via_pandas_bridge():
 
     cat_cols = ["budget_type", "contractor_tier", "workload"]
     # Sanity: bridge must keep cat columns as pd.Categorical
+    assert len(cat_cols) > 0
     for c in cat_cols:
         assert pd_df[c].dtype.name == "category", f"Bridge dropped pd.Categorical for {c}; got {pd_df[c].dtype}"
 

@@ -126,6 +126,7 @@ class TestDiagnostics:
             max_k=3,
         )
         # Each entry has the expected fields.
+        assert len(diag) > 0
         for entry in diag:
             assert {"step", "candidate_added", "rmse_before", "rmse_after", "marginal_gain", "accepted"}.issubset(entry.keys())
 

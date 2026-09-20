@@ -186,6 +186,7 @@ def test_fallback_decategorizes_text_columns_before_retry(polars_frame_with_text
         verbose=False,
     )
     retry = model.calls[1]
+    assert retry['text_dtypes'].items()
     for col, dtype_str in retry["text_dtypes"].items():
         assert (
             "category" not in dtype_str.lower()

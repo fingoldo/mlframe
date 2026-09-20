@@ -71,6 +71,7 @@ def test_f1_get_params_matches_real_init_signature():
     clf = PytorchLightningClassifier(**_classifier_kwargs())
     params = clf.get_params()
     real_params = [n for n in inspect.signature(PytorchLightningClassifier.__init__).parameters if n != "self"]
+    assert len(real_params) > 0
     for name in real_params:
         assert name in params, f"get_params() missing {name}"
 

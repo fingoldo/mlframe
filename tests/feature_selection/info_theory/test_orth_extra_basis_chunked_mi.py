@@ -31,6 +31,7 @@ def test_chunked_engineered_mi_bit_identical_to_full():
     got_map = dict(zip(out["engineered_col"], out["engineered_mi"]))
 
     assert set(got_map) == set(ref_map)
+    assert ref_map.items()
     for name, ref_mi in ref_map.items():
         assert got_map[name] == ref_mi, f"chunked MI != full MI for {name}: {got_map[name]} vs {ref_mi}"
 
@@ -88,6 +89,7 @@ def test_pair_cross_chunked_engineered_mi_bit_identical_to_full():
     out = score_pair_cross_basis_by_mi_uplift(raw, eng, y, nbins=10)
     got_map = dict(zip(out["engineered_col"], out["engineered_mi"]))
     assert set(got_map) == set(ref_map)
+    assert ref_map.items()
     for name, ref_mi in ref_map.items():
         assert got_map[name] == ref_mi, f"pair chunked MI != full MI for {name}"
 

@@ -292,6 +292,7 @@ class TestModelStrategies:
     def test_tree_models_registered(self):
         """Test tree models are in registry."""
         tree_models = ["cb", "lgb", "xgb"]
+        assert len(tree_models) > 0
         for model in tree_models:
             assert model in MODEL_STRATEGIES
             assert isinstance(MODEL_STRATEGIES[model], TreeModelStrategy)
@@ -299,6 +300,7 @@ class TestModelStrategies:
     def test_hgb_models_registered(self):
         """Test HGB models are in registry."""
         hgb_models = ["hgb"]
+        assert len(hgb_models) > 0
         for model in hgb_models:
             assert model in MODEL_STRATEGIES
             assert isinstance(MODEL_STRATEGIES[model], HGBStrategy)
@@ -306,6 +308,7 @@ class TestModelStrategies:
     def test_neural_models_registered(self):
         """Test neural models are in registry."""
         neural_models = ["mlp", "ngb"]
+        assert len(neural_models) > 0
         for model in neural_models:
             assert model in MODEL_STRATEGIES
             assert isinstance(MODEL_STRATEGIES[model], NeuralNetStrategy)
@@ -313,6 +316,7 @@ class TestModelStrategies:
     def test_linear_models_registered(self):
         """Test linear models are in registry."""
         linear_models = ["linear", "ridge", "lasso", "elasticnet", "huber", "ransac", "sgd", "logistic"]
+        assert len(linear_models) > 0
         for model in linear_models:
             assert model in MODEL_STRATEGIES
             assert isinstance(MODEL_STRATEGIES[model], LinearModelStrategy)

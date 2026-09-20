@@ -75,6 +75,7 @@ def test_cluster_aggregate_replay_matches_fit_on_nan_rows():
     assert np.allclose(agg_fit, agg_replay, atol=1e-12), f"fit/replay parity broken. Max |diff|={np.max(np.abs(agg_fit - agg_replay)):.6f}"
     # Specifically the NaN rows: each must produce the fit-time value
     # (not the post-fix-trivial zero produced by the pre-fix path).
+    assert len(nan_rows) > 0
     for r in nan_rows:
         assert abs(agg_fit[r] - agg_replay[r]) < 1e-12, f"row {r} (NaN in m0): fit={agg_fit[r]:.6f} != replay={agg_replay[r]:.6f}"
 

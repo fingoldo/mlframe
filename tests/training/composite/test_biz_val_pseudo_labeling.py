@@ -205,6 +205,7 @@ def test_pseudo_labeling_loop_default_static_threshold_bit_identical_without_new
     old_pred = old_style.predict(X_unlabeled)
     new_pred = new_defaults.predict(X_unlabeled)
     assert np.array_equal(old_pred, new_pred), "default static-threshold path must be bit-identical to the pre-extension implementation"
+    assert list(zip(old_style.pseudo_labels_history_, new_defaults.pseudo_labels_history_))
     for (a1, m1, c1), (a2, m2, c2) in zip(old_style.pseudo_labels_history_, new_defaults.pseudo_labels_history_):
         assert np.array_equal(a1, a2) and np.array_equal(m1, m2) and np.array_equal(c1, c2)
 

@@ -331,6 +331,7 @@ class TestPartB_AutoMethod:
         )
         s1 = m1.dcd_["swap_log"][0].get("kfold_scores", {})
         s2 = m2.dcd_["swap_log"][0].get("kfold_scores", {})
+        assert list(set(s1) & set(s2))
         for k in set(s1) & set(s2):
             assert abs(s1[k] - s2[k]) < 1e-9, f"kfold_scores[{k!r}] differ across seeds: {s1[k]} vs {s2[k]}"
 
@@ -713,19 +714,27 @@ class TestLayer44_PinnedFitSmoke:
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        X, y = _two_latent_correlated_frame(n=1200, seed=1)
+        # The swap-forcing 3-dups fixture, not the two-latent one: on the latter NO pinned
+        # method swaps at all, so every per-entry check below was a silent pass.
+        X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
             dcd_swap_method=method,
-            full_npermutations=20,
+            full_npermutations=50,
             verbose=0,
             random_seed=0,
         ).fit(X, y)
         assert hasattr(m, "support_")
         # If a swap fired, the swap_log must record the pinned method.
         log = m.dcd_["swap_log"] if m.dcd_ else []
+        if method == "pca_pc2":
+            # PC2 of three near-duplicate members is noise, so the uplift gate rejects the
+            # aggregate and no swap fires (measured) -- the emptiness is the honest outcome.
+            assert log == [], f"pca_pc2 must not swap on near-duplicate members; got {log}"
+        else:
+            assert len(log) == 1, f"pinned method {method!r} must fire exactly one swap on the 3-dups fixture; got {log}"
         for entry in log:
             assert entry.get("method") == method, f"pinned method {method!r} not recorded in swap_log entry: {entry}"
             # Pinned method must NOT carry bake-off keys.
@@ -949,7 +958,7 @@ class TestLayer44_LegacyPinByteIdentity:
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        X, y = _two_latent_correlated_frame(n=1500, seed=4)
+        X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
             dcd_tau_cluster=0.5,
@@ -960,7 +969,8 @@ class TestLayer44_LegacyPinByteIdentity:
             random_seed=0,
         ).fit(X, y)
         log = m.dcd_["swap_log"] if m.dcd_ else []
-        # If a swap fired, every entry must be method-pure (no bake-off keys).
+        # The three-duplicate cluster provokes a swap under every legacy method; each entry must be method-pure.
+        assert len(log) > 0
         for entry in log:
             assert entry.get("method") == method
             assert "kfold_scores" not in entry, f"legacy pinned method must not carry kfold_scores: {entry}"

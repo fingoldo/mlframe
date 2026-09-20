@@ -94,6 +94,7 @@ def test_biz_value_sam_does_not_catastrophically_regress():
     of SAM-off across 2 seeds (single-seed is too noisy)."""
     plain_seeds = [_fit_mlp(seed=s) for s in (0, 1)]
     sam_seeds = [_fit_mlp(use_sam=True, sam_rho=0.05, seed=s) for s in (0, 1)]
+    assert list(enumerate(zip(plain_seeds, sam_seeds)))
     for s, (p, s_) in enumerate(zip(plain_seeds, sam_seeds)):
         assert s_ > p - 0.05, f"F-63 seed={s}: SAM R^2={s_:.4f} regressed >0.05 vs plain R^2={p:.4f}"
     # At least one seed must show non-zero positive or near-zero delta

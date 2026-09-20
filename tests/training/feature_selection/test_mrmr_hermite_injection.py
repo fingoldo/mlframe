@@ -210,5 +210,6 @@ class TestHermiteIntegrationEndToEnd:
         # (MRMR pair-MI gates may not pass), but if it IS non-empty the
         # invariant must hold.
         injected = getattr(m, "_hermite_features_", []) or []
+        assert len(injected) > 0
         for entry in injected:
             assert entry["name"] in m._engineered_features_, f"Hermite-injected name {entry['name']!r} missing from _engineered_features_"

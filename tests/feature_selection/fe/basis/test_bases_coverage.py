@@ -283,6 +283,7 @@ class TestCoefSize:
     def test_fourier_2k(self):
         """Fourier needs 2 coefficients (sin+cos) per harmonic degree; degree 0 clamps to the degree-1 minimum of 2."""
         b = EXTRA_BASES["fourier"]
+        assert list(range(1, 10))
         for d in range(1, 10):
             assert b["coef_size_func"](d) == 2 * d
         # Degree 0 clamps to max(1, 0) = 1 -> 2.
@@ -303,6 +304,7 @@ class TestCoefSize:
     def test_sigmoid_saturates_at_9(self):
         """Sigmoid coef count grows as degree+1 but saturates at 9 thresholds, even for degree 20."""
         b = EXTRA_BASES["sigmoid"]
+        assert list(range(1, 9))
         for d in range(1, 9):
             assert b["coef_size_func"](d) == d + 1
         assert b["coef_size_func"](9) == 9
@@ -312,6 +314,7 @@ class TestCoefSize:
     def test_pade_two_d_plus_one(self):
         """Pade coef count is 2*degree+1 (numerator+denominator terms), unbounded across degrees 1..5; degree 0 clamps to degree 1's 3."""
         b = EXTRA_BASES["pade"]
+        assert list(range(1, 6))
         for d in range(1, 6):
             assert b["coef_size_func"](d) == 2 * d + 1
         assert b["coef_size_func"](0) == 3  # max(1, 0) = 1 -> 2 * 1 + 1.

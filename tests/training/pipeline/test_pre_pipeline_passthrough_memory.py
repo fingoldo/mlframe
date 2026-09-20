@@ -89,6 +89,7 @@ def test_reattach_resets_frame_index_at_most_once(monkeypatch) -> None:
 
     # Behaviour preserved: all 3 passthrough cols re-attached correctly.
     assert isinstance(out, pd.DataFrame)
+    assert len(cols) > 0
     for c in cols:
         assert c in out.columns
         assert list(out[c]) == list(df[c])
@@ -131,6 +132,7 @@ def test_polars_stash_does_one_to_pandas(monkeypatch) -> None:
     )
 
     assert isinstance(out, pd.DataFrame)
+    assert len(cols) > 0
     for c in cols:
         assert c in out.columns
         assert list(out[c]) == list(_df_pd[c])

@@ -53,6 +53,7 @@ def test_activation_forward_backward_finite(act) -> None:
     assert torch.isfinite(y).all()
     loss = y.mean()
     loss.backward()
+    assert list(net.parameters())
     for p in net.parameters():
         if p.grad is not None:
             assert torch.isfinite(p.grad).all()

@@ -39,6 +39,7 @@ def test_3way_is_deterministic_for_fixed_seed():
     idx, y = _make_multilabel()
     a = _stratified_split_3way(idx, 0.2, 0.2, y, random_state=11)
     b = _stratified_split_3way(idx, 0.2, 0.2, y, random_state=11)
+    assert list(zip(a, b))
     for x, z in zip(a, b):
         assert np.array_equal(np.sort(x), np.sort(z))
 

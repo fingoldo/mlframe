@@ -44,6 +44,7 @@ def test_reproduces_time_series_split_when_each_row_is_its_own_group():
     gts = list(GroupTimeSeriesSplit(n_splits=5).split(np.zeros((n, 1)), groups=groups))
     tss = list(TimeSeriesSplit(n_splits=5).split(np.zeros((n, 1))))
     assert len(gts) == len(tss)
+    assert list(zip(gts, tss))
     for (a_tr, a_te), (b_tr, b_te) in zip(gts, tss):
         assert np.array_equal(np.sort(a_tr), np.sort(b_tr))
         assert np.array_equal(np.sort(a_te), np.sort(b_te))
@@ -61,6 +62,7 @@ def test_gap_embargoes_groups_between_train_and_test():
 def test_max_train_groups_is_a_rolling_window():
     """Max train groups is a rolling window."""
     groups = _time_ordered_groups(12, 4)
+    assert list(GroupTimeSeriesSplit(n_splits=3, max_train_groups=2).split(np.zeros((len(groups), 1)), groups=groups))
     for tr, _te in GroupTimeSeriesSplit(n_splits=3, max_train_groups=2).split(np.zeros((len(groups), 1)), groups=groups):
         assert len(set(groups[tr])) <= 2
 

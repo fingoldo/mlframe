@@ -226,6 +226,7 @@ class TestT4_FeatureGroups:
         )
         rfecv.fit(X, y)
         names_in = set(rfecv.feature_names_in_)
+        assert list(range(5))
         for i in range(5):
             assert f"dup{i}" in names_in, f"group member dup{i} was dropped by dedup; feature_names_in_={sorted(names_in)}"
 

@@ -253,5 +253,6 @@ def test_mtr_per_target_charts_render_k_files(tmp_path):
     expected = [tmp_path / f"mtr_chart_target{i}.png" for i in range(k)]
     rendered = sorted(p.name for p in tmp_path.iterdir())
     assert len(rendered) >= k, f"expected at least {k} chart files; got {rendered}"
+    assert len(expected) > 0
     for ep in expected:
         assert ep.exists(), f"missing per-target chart {ep.name}; have {rendered}"

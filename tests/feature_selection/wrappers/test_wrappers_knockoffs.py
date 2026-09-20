@@ -117,6 +117,7 @@ class TestK2_KnockoffImportance:
         informative_W = [W[f"f{i}"] for i in range(4)]
         noise_W = [W[f"f{i}"] for i in range(4, 12)]
         median_noise = np.median(noise_W)
+        assert list(enumerate(informative_W))
         for f_idx, w_inf in enumerate(informative_W):
             assert (
                 w_inf > median_noise

@@ -90,6 +90,7 @@ def test_analyzer_records_provenance_via_target_distribution():
         flat = rep.knob_overrides_provenance
         assert isinstance(flat, dict)
         for knobs in flat.values():
+            assert knobs.values()
             for stamp in knobs.values():
                 assert stamp.get("source") == "analyzer"
                 assert "reason" in stamp

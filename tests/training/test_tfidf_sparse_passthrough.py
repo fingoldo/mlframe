@@ -65,6 +65,7 @@ def test_tfidf_dense_path_when_keep_sparse_false(small_text_df):
         tfidf_keep_sparse=False,
     )
     out, _, _, _ = apply_preprocessing_extensions(small_text_df, None, None, cfg, verbose=0)
+    assert list(_tfidf_columns(out))
     for c in _tfidf_columns(out):
         # Legacy path produces float-typed dense columns.
         assert not isinstance(out[c].dtype, pd.SparseDtype)
@@ -182,6 +183,7 @@ def test_sparse_train_val_test_alignment(small_text_df):
     assert list(tr.columns) == list(va.columns) == list(te.columns)
     # Sparse dtype preserved across val/test.
     tfidf_cols = _tfidf_columns(tr)
+    assert len(tfidf_cols) > 0
     for c in tfidf_cols:
         assert isinstance(va[c].dtype, pd.SparseDtype)
         assert isinstance(te[c].dtype, pd.SparseDtype)

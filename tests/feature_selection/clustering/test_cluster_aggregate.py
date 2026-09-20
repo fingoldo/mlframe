@@ -74,6 +74,7 @@ def test_sign_alignment_flips_anticorrelated_member():
     Z, _mean, _std, signs = _standardize_align(M, 0)
     assert signs[2] == -1.0
     # After alignment all columns positively correlate with the reference.
+    assert list(range(3))
     for j in range(3):
         assert np.corrcoef(Z[:, j], Z[:, 0])[0, 1] > 0
 

@@ -243,6 +243,7 @@ class TestMRMRMonotoneWarpSurvivor:
             df, y = _make_warp_frame(seed=seed, reverse=reverse)
             sel = _fit_mrmr(df, y, seed)
             keep.append(_warp_survivors(_names(sel)))
+        assert list(zip((False, True), keep))
         for reverse, survivors in zip((False, True), keep):
             assert survivors == {"f"}, f"survivor should be the linear-usable raw f, got {survivors} (reverse={reverse}, seed={seed})"
 

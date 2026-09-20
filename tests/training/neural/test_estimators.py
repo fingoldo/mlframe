@@ -884,6 +884,7 @@ class TestNetworkResetAndClone:
         assert type(cloned) is type(clf), "Clone should have same type"
 
         # Check all params are copied
+        assert clf.get_params().keys()
         for key in clf.get_params().keys():
             assert hasattr(cloned, key), f"Cloned estimator missing param: {key}"
 

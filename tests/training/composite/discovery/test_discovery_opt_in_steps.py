@@ -133,14 +133,39 @@ def test_region_adaptive_on_runs_and_sets_artifact():
         assert t.shape == y.shape and np.isfinite(t).all()
 
 
+def _pure_interaction(n: int = 1200, seed: int = 0) -> pd.DataFrame:
+    """``y = 3*base*x1`` -- a PURE interaction: neither parent carries marginal MI, so the
+    synergy gate in ``discover_interaction_bases`` fires on the ``base OP x1`` synthetics.
+    The AR-style ``_synthetic`` frame is additive, where no pair clears that gate.
+    """
+    rng = np.random.default_rng(seed)
+    base = rng.normal(0.0, 1.0, n)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    x3 = rng.normal(size=n)
+    y = 3.0 * base * x1 + rng.normal(scale=0.2, size=n)
+    return pd.DataFrame({"base": base, "x1": x1, "x2": x2, "x3": x3, "y": y})
+
+
 def test_interaction_base_discovery_on_runs_and_sets_artifact():
     """Interaction base discovery on runs and sets artifact."""
-    disc = _fit(_base_config(interaction_base_discovery_enabled=True))
+    # Two base candidates + a pure-interaction target: the step needs a pool of >= 2 bases
+    # AND a qualifying synergy pair, neither of which the additive default fixture supplies
+    # (it left interaction_bases_ empty, so the per-base checks below never ran).
+    disc = _fit(
+        _base_config(interaction_base_discovery_enabled=True, base_candidates=["base", "x1"]),
+        _pure_interaction(),
+    )
     assert hasattr(disc, "interaction_bases_")
     assert isinstance(disc.interaction_bases_, dict)
     assert isinstance(disc.interaction_base_records_, list)
+    # Floor: the step really surfaced synthetics, one record per surfaced base.
+    surfaced = sorted(disc.interaction_bases_.items())
+    assert surfaced, "pure-interaction frame must surface at least one synthetic interaction base"
+    assert len(disc.interaction_base_records_) == len(surfaced)
+    assert "base__mul__x1" in disc.interaction_bases_, f"the product of the two interacting parents must qualify; got {sorted(disc.interaction_bases_)}"
     # Whatever surfaced must be a screen-row-length ndarray.
-    for name, arr in disc.interaction_bases_.items():
+    for name, arr in surfaced:
         assert isinstance(name, str)
         assert np.asarray(arr).ndim == 1
 

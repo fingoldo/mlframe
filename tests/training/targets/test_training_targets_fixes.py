@@ -298,5 +298,6 @@ def test_f7_no_mojibake_remains_in_target_temporal_files():
     mojibake_markers = ("Г—", "вЂ”", "в‰Ґ")
     for fp in affected:
         text = fp.read_text(encoding="utf-8")
+        assert len(mojibake_markers) > 0
         for marker in mojibake_markers:
             assert marker not in text, f"mojibake marker {marker!r} found in {fp}"

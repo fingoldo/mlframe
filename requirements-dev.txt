@@ -49,4 +49,6 @@
 # Bumped 2026-09-19 from 7809d32 to 65fb0a9: package_doctests gains skip_parts and imports only modules with examples.
 # Bumped 2026-09-19 from 65fb0a9 to b6622b1: audit_disposition_parity reads **Disposition:** lines and takes search_roots.
 # Bumped 2026-09-19 from b6622b1 to 36ace7a: repo_hygiene reads git's view of text files once (test_repo_hygiene 15 min -> seconds).
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@36ace7a0765c5f4ca11616f524556a3a7787fb04
+# Bumped 2026-09-20 from 36ace7a to 861b595: unresolved_imports detects import guards once per file instead of once per import,
+# and inert_patch_targets builds each module's facts in one walk.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@861b595342f1a9c72bf113407372277ae3f39975

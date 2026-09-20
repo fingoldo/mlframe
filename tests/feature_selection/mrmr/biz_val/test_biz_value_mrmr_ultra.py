@@ -393,5 +393,6 @@ class TestPipelineIntegration:
         mask = sel.get_support()
         np.testing.assert_array_equal(np.where(mask)[0], idxs)
         # Names align with indices
+        assert len(idxs) > 0
         for i in idxs:
             assert sel.feature_names_in_[i] in sel.get_feature_names_out()

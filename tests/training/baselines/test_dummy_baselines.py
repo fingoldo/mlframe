@@ -684,6 +684,7 @@ class TestVerdictFormat:
         info_text = rep.format_text(default_level="INFO")
         debug_text = rep.format_text(default_level="DEBUG")
         assert len(debug_text) > len(info_text)
+        assert len(rep.table.index) > 0
         for baseline_name in rep.table.index:
             assert str(baseline_name) in debug_text
 

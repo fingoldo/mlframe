@@ -129,6 +129,7 @@ class TestRuleRecommender:
         """Group-structured data enables every FE_GROUP_FLAGS entry, including fe_grouped_agg_enable."""
         X, y = _build_group_fixture(13)
         flags = recommend_fe_flags_by_rules(X, y)
+        assert len(FE_GROUP_FLAGS) > 0
         for f in FE_GROUP_FLAGS:
             assert flags[f] is True, f"group data must enable {f}; got {flags}"
         assert flags["fe_grouped_agg_enable"] is True
@@ -137,6 +138,7 @@ class TestRuleRecommender:
         """Categorical-heavy data enables every FE_CAT_FLAGS entry, including fe_cat_triple_enable for >= 3 cats."""
         X, y = _build_cat_fixture(7)
         flags = recommend_fe_flags_by_rules(X, y)
+        assert len(FE_CAT_FLAGS) > 0
         for f in FE_CAT_FLAGS:
             assert flags[f] is True, f"cat data must enable {f}; got {flags}"
         # 3 object cats -> triple synergy cross enabled.
@@ -379,9 +381,11 @@ class TestLearnedRecommender:
         rows = rec.oracle.store.read_rows()
         assert rows, "fit_observe recorded nothing"
         for r in rows:
+            assert r.items()
             for col, val in r.items():
                 assert not isinstance(val, (list, tuple, dict, np.ndarray)), f"non-scalar persisted in {col}: {type(val)}"
             fp_bucket = orjson.loads(r["fp_bucket_json"])
+            assert fp_bucket.values()
             for v in fp_bucket.values():
                 assert isinstance(v, (int, float, str)), f"non-scalar fp: {v!r}"
         store_bytes = os.path.getsize(rec.oracle.store._path)

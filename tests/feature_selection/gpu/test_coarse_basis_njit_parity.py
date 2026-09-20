@@ -37,6 +37,7 @@ def test_coarse_basis_njit_matches_numpy_to_single_ulp(n, nfreq):
     freqs = np.array([0.5 * k for k in range(1, nfreq + 1)], dtype=np.float64)
     sc_m, cc_m, sss, css = M._coarse_basis_njit(z, freqs)
     ref = _build_numpy(z, freqs)
+    assert list(range(nfreq))
     for gi in range(nfreq):
         # ~1e-13 reduction-order shift is acceptable; assert it stays in the single-ULP class.
         assert np.max(np.abs(sc_m[gi] - ref[gi][0])) < 1e-9

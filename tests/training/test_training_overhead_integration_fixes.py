@@ -748,6 +748,7 @@ def test_fix9_capability_detection_returns_booleans():
         "lgb_sklearn_accepts_dataset",
     }
     assert expected_keys.issubset(caps.keys())
+    assert caps.items()
     for k, v in caps.items():
         assert isinstance(v, bool), f"{k} is {type(v).__name__}, expected bool"
 

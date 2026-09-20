@@ -37,6 +37,7 @@ class TestStabilityCurve:
         rfecv.fit(X, y)
         curve = rfecv.stability_vs_n_curve_()
         assert isinstance(curve, dict)
+        assert curve.values()
         for s in curve.values():
             assert 0.0 <= s <= 1.0
         elbow = rfecv.n_stability_elbow_()

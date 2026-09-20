@@ -176,6 +176,7 @@ def _stability_top_k_body(fast: bool = False):
 
     # Monotone non-decreasing selection size with top_k.
     ordered = sorted(ks)
+    assert list(zip(ordered, ordered[1:]))
     for a, b in zip(ordered, ordered[1:]):
         assert sizes[a] <= sizes[b], f"top_k {a}->{b} grew selection: {sizes}"
         # Nesting: the smaller-top_k selection is contained in the larger.

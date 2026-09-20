@@ -128,6 +128,7 @@ def test_a_not_applicable_cell_and_a_not_computed_cell_never_render_the_same_way
 
     report = format_report(records, models=[MODEL])
     assert EMPTY_CELL_LEGEND.strip() in report
+    assert EMPTY_CELL_TOKENS.values()
     for token in EMPTY_CELL_TOKENS.values():
         assert token in report, f"the report renders no {token!r} cell, so this invariant is untested here"
 

@@ -76,6 +76,7 @@ def test_fit_drops_prediction_datamodule_tensors_by_default(monkeypatch) -> None
     # the spurious "no datamodule" warning.
     assert estimator.prediction_datamodule is not None
     # But every heavy tensor is dropped.
+    assert len(_TENSOR_ATTRS) > 0
     for _attr in _TENSOR_ATTRS:
         assert getattr(estimator.prediction_datamodule, _attr) is None, f"{_attr} must be nulled to avoid the 1.7 GB dump bloat"
     assert estimator._datamodule_tensors_dropped is True
@@ -91,6 +92,7 @@ def test_fit_keeps_prediction_datamodule_when_env_set(monkeypatch) -> None:
     _run_cleanup(estimator)
 
     # Env opt-out: every tensor stays put.
+    assert len(_TENSOR_ATTRS) > 0
     for _attr in _TENSOR_ATTRS:
         assert (
             getattr(estimator.prediction_datamodule, _attr) == "heavy-tensor-payload"

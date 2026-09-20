@@ -349,6 +349,7 @@ def test_monotonic_n3_does_not_false_stop_on_realistic_noisy_improving_curve():
     s = MonotonicDeclineStopper(3, mode="max")
     # Improving trend with single-step dips, each followed by a bounce-up (resets the streak): never 3 strict declines in a row.
     curve = [0.50, 0.58, 0.55, 0.62, 0.60, 0.66, 0.64, 0.70, 0.68, 0.74]
+    assert list(enumerate(curve))
     for i, v in enumerate(curve):
         assert not s.update(v), f"N=3 false-stopped at idx {i} on a noisy-but-improving curve (no 3 consecutive declines)"
     assert s.best == 0.74

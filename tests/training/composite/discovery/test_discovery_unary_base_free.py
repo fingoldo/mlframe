@@ -102,6 +102,7 @@ def test_unary_spec_name_has_no_base_segment(synthetic_df):
             # 2-segment form: exactly one dash separates target from alias, and
             # NONE of the feature columns appears as a trailing base segment.
             assert name.count("-") == 1, f"unary {unary!r} name {name!r} is not the 2-segment base-free form ``y-<alias>``"
+            assert len(feats) > 0
             for f in feats:
                 assert not name.endswith(f"-{f}"), f"unary {unary!r} name {name!r} carries a spurious base segment {f!r}"
             # The base-free name must still be recognised as a composite target
@@ -159,6 +160,7 @@ def test_unary_dedup_single_context_one_spec_per_unary(synthetic_df):
     from collections import Counter
 
     counts = Counter(r.get("transform_name") for r in disc.report_ if isinstance(r, dict))
+    assert len(_UNARY_TRANSFORMS) > 0
     for unary in _UNARY_TRANSFORMS:
         assert counts[unary] == 1, f"unary {unary!r} evaluated {counts[unary]} times; expected exactly one (single dedicated full-X context)"
 

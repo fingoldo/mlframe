@@ -31,6 +31,7 @@ def test_make_contrasts_preserves_column_marginals():
     C = _make_contrasts(X, np.random.default_rng(1))
     assert C.shape == X.shape
     # Each contrast column is a permutation of the source column: same sorted values, order destroyed.
+    assert list(range(X.shape[1]))
     for j in range(X.shape[1]):
         assert np.allclose(np.sort(C[:, j]), np.sort(X[:, j]))
     assert not np.allclose(C, X)  # rows were actually shuffled
@@ -321,5 +322,6 @@ def test_compare_selectors_jaccard_matches_core_implementation():
         return 1.0 if not union else len(a & b) / len(union)
 
     cases = [({"a", "b"}, {"b", "c"}), (set(), set()), ({"x"}, set()), ({"a", "b", "c"}, {"a", "b", "c"})]
+    assert len(cases) > 0
     for a, b in cases:
         assert jaccard(a, b) == _old(a, b)

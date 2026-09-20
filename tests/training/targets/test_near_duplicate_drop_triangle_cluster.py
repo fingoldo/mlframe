@@ -93,6 +93,7 @@ def test_linear_chain_covers_every_correlated_edge():
         verbose=False,
     )
     survivors = set(train_df.columns)
+    assert len(pairs) > 0
     for pair in pairs:
         assert not ({pair["a"], pair["b"]} <= survivors), f"correlated pair {pair['a']!r}/{pair['b']!r} must not both survive, got {survivors}"
     assert len(survivors) >= 1, f"the chain must not drop every column, got dropped={dropped}"

@@ -95,6 +95,7 @@ def test_fit_preserves_original_column_values_and_identity():
     snapshot = {c: X[c].to_numpy(copy=True) for c in X.columns}
     dtypes_before = X.dtypes.to_dict()
     _fit(X, y)
+    assert snapshot.items()
     for c, vals in snapshot.items():
         assert np.array_equal(X[c].to_numpy(), vals, equal_nan=True), f"MRMR.fit mutated the values of caller column {c!r} in place."
     assert X.dtypes.to_dict() == dtypes_before, "MRMR.fit changed caller column dtypes."
@@ -176,6 +177,7 @@ def test_fit_does_not_mutate_input_with_copy_on_write_forced_off():
         _fit(X, y)
         assert list(X.columns) == cols_before, f"MRMR.fit mutated the caller's columns under CoW-off {cols_before} -> {list(X.columns)}."
         assert X.dtypes.to_dict() == dtypes_before, "MRMR.fit changed caller column dtypes under CoW-off."
+        assert snapshot.items()
         for c, vals in snapshot.items():
             assert np.array_equal(X[c].to_numpy(), vals, equal_nan=True), f"MRMR.fit mutated caller column {c!r} in place under CoW-off."
     finally:

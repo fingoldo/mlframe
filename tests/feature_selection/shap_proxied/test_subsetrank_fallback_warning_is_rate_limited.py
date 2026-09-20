@@ -44,6 +44,7 @@ def _clock(monkeypatch):
 def test_a_burst_of_fallbacks_logs_once(_clock):
     """The behaviour worth keeping from the latch: repeated calls in quick succession do not spam."""
     assert sr._should_log_fallback() is True, "the first fallback in a run must report"
+    assert list(range(50))
     for _ in range(50):
         assert sr._should_log_fallback() is False, "a burst of fallbacks re-reported inside the rate-limit window"
 

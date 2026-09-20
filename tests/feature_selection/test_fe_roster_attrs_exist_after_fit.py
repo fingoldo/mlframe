@@ -61,5 +61,6 @@ def test_every_roster_is_present_after_a_multioutput_fit(kind):
 
     missing = [name for name in FE_ROSTER_ATTRS if not hasattr(m, name)]
     assert not missing, f"{kind}: fit returned without these rosters, so any test reading one gets AttributeError: {missing}"
+    assert len(FE_ROSTER_ATTRS) > 0
     for name in FE_ROSTER_ATTRS:
         assert list(getattr(m, name)) == [], f"{kind}: {name} is non-empty on the outer estimator, but FE ran only inside the per-target clones"

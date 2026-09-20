@@ -56,5 +56,6 @@ def test_score_ensemble_return_assigned_to_ctx_and_models():
     assert cur_target_name in models[target_type]
     assert len(models[target_type][cur_target_name]) == 2, "expected one entry per ensemble method"
     # Identity preserved -- we don't wrap/copy the per-method result.
+    assert fake_ensembles.values()
     for ens_obj in fake_ensembles.values():
         assert ens_obj in models[target_type][cur_target_name]

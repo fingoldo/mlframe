@@ -64,6 +64,7 @@ class TestTrivialPairFeatures:
             "geo_mean",
         }
         assert expected_keys.issubset(set(feats.keys()))
+        assert feats.items()
         for name, arr in feats.items():
             assert arr.shape == (n,), f"{name} wrong shape"
 
@@ -249,6 +250,7 @@ class TestTriplets:
         n = 200
         a, b, c = (rng.standard_normal(n) for _ in range(3))
         feats = triplet_pair_features(a, b, c)
+        assert feats.items()
         for name, arr in feats.items():
             assert arr.shape == (n,), f"{name} bad shape"
             assert np.all(np.isfinite(arr)), f"{name} has non-finite values"
@@ -282,6 +284,7 @@ class TestEdgeCases:
         x_a = np.zeros(50)
         x_b = np.ones(50)
         feats = trivial_pair_features(x_a, x_b)
+        assert feats.items()
         for name, arr in feats.items():
             assert np.all(np.isfinite(arr)), f"{name} not finite on constant input"
 
@@ -295,6 +298,7 @@ class TestEdgeCases:
         x_b = np.zeros(n)
         y = rng.integers(0, 2, size=n).astype(np.int64)
         scores = score_trivial_baselines(x_a, x_b, y, discrete_target=True)
+        assert scores.items()
         for name, mi in scores.items():
             assert mi < 0.1, f"{name} MI={mi} too high on constant input"
 
@@ -303,6 +307,7 @@ class TestEdgeCases:
         x_a = np.array([], dtype=np.float64)
         x_b = np.array([], dtype=np.float64)
         feats = trivial_pair_features(x_a, x_b)
+        assert feats.items()
         for name, arr in feats.items():
             assert arr.shape == (0,), f"{name} non-empty on empty input"
 
@@ -311,6 +316,7 @@ class TestEdgeCases:
         x_a = np.array([2.5])
         x_b = np.array([0.5])
         feats = trivial_pair_features(x_a, x_b)
+        assert feats.values()
         for arr in feats.values():
             assert arr.shape == (1,)
         np.testing.assert_allclose(feats["mul"], [1.25])

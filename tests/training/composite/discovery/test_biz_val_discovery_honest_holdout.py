@@ -226,5 +226,6 @@ def test_honest_holdout_disabled_leaves_no_holdout_and_no_honest_gain():
     df = _pure_noise_df(n=3000, seed=9)
     disc = _run(df, _make_config(random_state=9, honest_holdout_frac=0.0), feat)
     assert disc.honest_holdout_idx_ is None
+    assert list(disc.export_specs())
     for d in disc.export_specs():
         assert d["honest_holdout_gain"] is None, "honest gain must be None when the holdout is disabled (pre-fix result shape)"

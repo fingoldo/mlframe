@@ -128,6 +128,7 @@ def test_reallocate_budgets_smoothing_zero_keeps_base_unchanged():
     base = {"a": 0.6, "b": 0.4}
     roi = {"a": 100.0, "b": 0.0}
     out = reallocate_budgets(roi, base_budget=base, floor=0.1, smoothing=0.0, exploration=0.0)
+    assert len(base) > 0
     for k in base:
         assert out[k] == pytest.approx(base[k], abs=1e-9)
 
@@ -284,6 +285,7 @@ def test_biz_val_fe_budget_floor_prevents_starvation(tmp_path, monkeypatch):
     for _ in range(3):
         budgets_history.append(_fit_once(X, y))
 
+    assert list(enumerate(budgets_history))
     for i, budgets in enumerate(budgets_history):
         assert budgets["quadruplet"] >= floor * equal_share - 1e-6, f"fit {i}: quadruplet budget {budgets['quadruplet']:.4f} fell below the floor"
 

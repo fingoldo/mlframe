@@ -50,6 +50,7 @@ class TestPublicAPI:
         """All names importable."""
         import mlframe.feature_selection.wrappers as pkg
 
+        assert len(PUBLIC_NAMES) > 0
         for name in PUBLIC_NAMES:
             assert hasattr(pkg, name), f"public API missing {name!r}"
 

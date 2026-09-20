@@ -136,6 +136,7 @@ class TestM13PairedFoldGate:
             time_aware=False,
             max_k=3,
         )
+        assert len(diag) > 0
         for entry in diag:
             assert "paired_fold_win_frac" in entry
             assert "paired_folds_used" in entry

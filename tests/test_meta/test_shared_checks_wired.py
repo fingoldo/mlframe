@@ -412,8 +412,9 @@ def _test_files() -> list[Path]:
 def test_no_new_floorless_assert_loop():
     """A test whose only assertions sit inside a loop passes when the loop runs zero times.
 
-    Ratcheted: the loops that exist are recorded, a new one fails. Fix one by asserting the collection is
-    non-empty before the loop, then refresh via `python tests/test_meta/regen_baselines.py`.
+    The baseline is EMPTY: all 451 such loops have been given a floor, and five of them turned out to iterate zero
+    times, so the tests named after a behaviour were checking nothing. A new one fails; record it only when the
+    loop's own emptiness IS the contract, and say so.
     """
     from py_ci_shared.vacuous_loop_assertions import assert_no_new_floorless_loop
 

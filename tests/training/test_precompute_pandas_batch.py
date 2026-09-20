@@ -49,6 +49,7 @@ def test_S06_categorical_dtype_uses_dtype_categories_not_unique_scan():
 
     # cat_vals populated for every cat col (cc_* + sc_0 if string detection enabled).
     assert "cat_vals" in res
+    assert len(cat_cols) > 0
     for c in cat_cols:
         assert c in res["cat_vals"], f"{c} missing from cat_vals"
 

@@ -47,6 +47,7 @@ class TestContentHashMemo:
         clear_hash_memo()
         arr = np.random.default_rng(1).standard_normal(5000)
         h_ref = _content_hash(arr)
+        assert list(range(5))
         for _ in range(5):
             assert _content_hash_memoized(arr) == h_ref
         clear_hash_memo()

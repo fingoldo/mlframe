@@ -54,6 +54,7 @@ def test_random_shards_partition_regression(reg_val_df: tuple[pd.DataFrame, np.n
     all_idx = np.concatenate([s.row_indices for s in shards])
     assert all_idx.size == np.unique(all_idx).size, "K-fold shards must be disjoint"
     # Names follow valid_shard_r{i} convention
+    assert list(enumerate(shards))
     for i, s in enumerate(shards):
         assert s.name == f"valid_shard_r{i}"
 
@@ -169,6 +170,7 @@ def test_base_margin_aligned(reg_val_df: tuple[pd.DataFrame, np.ndarray]) -> Non
     rng = np.random.default_rng(2)
     base_margin = rng.normal(0, 1, len(y))
     shards = build_slice_eval_sets(X, y, source="random", k=4, min_rows_per_shard=10, random_state=42, base_margin=base_margin)
+    assert len(shards) > 0
     for s in shards:
         assert np.array_equal(s.base_margin, base_margin[s.row_indices])
 
@@ -182,6 +184,7 @@ def test_pandas_categorical_dtype_preserved() -> None:
     val_X = pd.DataFrame({"cat": cat_values, "num": np.random.default_rng(0).normal(0, 1, 150)})
     val_y = np.random.default_rng(0).normal(0, 1, 150)
     shards = build_slice_eval_sets(val_X, val_y, source="random", k=3, min_rows_per_shard=20, random_state=42)
+    assert len(shards) > 0
     for s in shards:
         assert isinstance(s.X["cat"].dtype, pd.CategoricalDtype), f"pandas Categorical dtype must survive slicing, got {s.X['cat'].dtype}"
         # Categories list must match the original (slicing via .iloc keeps the domain)
@@ -196,6 +199,7 @@ def test_polars_enum_dtype_preserved() -> None:
     val_X = pl.DataFrame([cats, nums])
     val_y = np.random.default_rng(0).normal(0, 1, 150)
     shards = build_slice_eval_sets(val_X, val_y, source="random", k=3, min_rows_per_shard=20, random_state=42)
+    assert len(shards) > 0
     for s in shards:
         # gather() preserves Enum exactly
         assert s.X.schema["cat"] == pl.Enum(["a", "b", "c"]), f"polars Enum dtype must survive .gather(); got {s.X.schema['cat']}"

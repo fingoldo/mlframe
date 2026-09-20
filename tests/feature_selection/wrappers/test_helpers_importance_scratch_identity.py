@@ -36,6 +36,7 @@ def test_scratch_build_byte_identical_to_np_delete(p):
     """Scratch build byte identical to np delete."""
     rng = np.random.default_rng(p)
     X = rng.standard_normal((50, p))
+    assert list(range(p))
     for j in range(p):
         assert np.array_equal(_scratch_build(X, j), _delete_reference(X, j)), f"mismatch at j={j}, p={p}"
 

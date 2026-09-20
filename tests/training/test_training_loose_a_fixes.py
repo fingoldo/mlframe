@@ -416,6 +416,7 @@ def test_pr2_batched_and_legacy_polars_paths_agree_on_constant_and_inf_handling(
     assert set(out_batched.columns) == set(out_legacy.columns) == {"a", "b"}, "both paths must drop the constant column identically"
     a_batched = out_batched["a"].to_list()
     a_legacy = out_legacy["a"].to_list()
+    assert list(zip(a_batched, a_legacy))
     for v_b, v_l in zip(a_batched, a_legacy):
         if v_b != v_b:  # NaN
             assert v_l != v_l
