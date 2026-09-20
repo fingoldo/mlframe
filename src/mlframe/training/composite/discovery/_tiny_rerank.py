@@ -121,6 +121,14 @@ def _tiny_model_rerank(
         n_strata=getattr(self.config, "mi_n_strata", 10),
     )
     train_idx_screen = train_idx[sample_idx]
+    # This sample is drawn here, so the MI screen's time sort does not reach it. Re-apply the caller's time key, or the
+    # TimeSeriesSplit below walks the sampler's row order while reporting itself as time-aware.
+    from ._fit_temporal import order_rows_by_time
+
+    _time_order = order_rows_by_time(train_idx_screen, getattr(self, "_time_ordering_", None))
+    if _time_order is not None:
+        sample_idx = sample_idx[_time_order]
+        train_idx_screen = train_idx_screen[_time_order]
     y_screen = y_full[train_idx_screen]
 
     # Group-aware tiny CV: when ``self._group_ids_for_rerank`` is set

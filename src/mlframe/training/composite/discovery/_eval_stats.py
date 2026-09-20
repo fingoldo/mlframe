@@ -283,6 +283,14 @@ def apply_alpha_drift_gate(
     self._alpha_drift_flags = {}
     drift_threshold = float(getattr(self.config, "alpha_drift_z_threshold", 3.0))
     reject_on_drift = bool(getattr(self.config, "reject_on_alpha_drift", False))
+    # "First half vs second half" must mean EARLIER vs LATER rows. The caller's frame need not be in time order, and the
+    # MI screen's sort never reached this gate, so without re-applying the time key the two halves are arbitrary
+    # partitions and the drift z-score tests nothing temporal.
+    from ._fit_temporal import order_rows_by_time
+
+    _drift_order = order_rows_by_time(train_idx, getattr(self, "_time_ordering_", None))
+    if _drift_order is not None:
+        train_idx = np.asarray(train_idx)[_drift_order]
     half = len(train_idx) // 2
     if half < 50:
         return kept_specs
@@ -296,6 +304,8 @@ def apply_alpha_drift_gate(
             continue
         # ``self._auto_base_pool[base]`` already holds ``base_full[train_idx]`` (set during per-base setup); ``pool[:half]/pool[half:]/pool`` are bit-identical to re-extracting the column and indexing it.
         base_pool = self._auto_base_pool.get(s.base_column)
+        if base_pool is not None and _drift_order is not None:
+            base_pool = np.asarray(base_pool)[_drift_order]  # the pool is aligned to the caller's train_idx order
         if base_pool is not None:
             base_t = base_pool
             base_h1 = base_pool[:half]

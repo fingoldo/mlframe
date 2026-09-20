@@ -243,6 +243,9 @@ def fit(
     from ._fit_temporal import order_screen_by_time
 
     train_idx_screen, sample_idx, self._screen_time_ordered_ = order_screen_by_time(train_idx_screen, sample_idx, time_ordering)
+    # Keep the key itself, not just the flag: consumers that draw their OWN sample (the tiny rerank, the drift gate)
+    # must re-apply the order, otherwise they run a "forward walk" over whatever order their rows happen to be in.
+    self._time_ordering_ = time_ordering
     y_screen = y_full[train_idx_screen]
 
     # knn-MI cost guard: probe one column's Kraskov cost on the real screen sample and downgrade
