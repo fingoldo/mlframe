@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 def _group_segments(groups: np.ndarray) -> list[tuple[Any, np.ndarray]]:
     """Return ``[(label, row_indices), ...]`` per unique group; ``row_indices`` are ascending (stable original order within the group)."""
     groups = np.asarray(groups).reshape(-1)
-    uniq, inv = np.unique(groups, return_inverse=True)
+    from . import _unique_group_labels
+    uniq, inv = _unique_group_labels(groups)
     order = np.argsort(inv, kind="stable")
     counts = np.bincount(inv, minlength=uniq.size)
     offsets = np.concatenate([[0], np.cumsum(counts)])
@@ -42,6 +43,29 @@ def _require_groups(groups: np.ndarray | None, name: str, op: str) -> np.ndarray
 
 
 # ----------------------------------------------------------------------
+# Shared history plumbing for the grouped recurrent trio
+# ----------------------------------------------------------------------
+
+def _group_history(history: np.ndarray | None, history_groups: np.ndarray | None, key: str) -> np.ndarray | None:
+    """Rows of ``history`` (the rows immediately preceding a batch, in order) that belong to group ``key``; ``None`` when no history was given.
+
+    ``history_groups`` must accompany ``history`` (a history without labels cannot be split per group)."""
+    if history is None:
+        return None
+    if history_groups is None:
+        raise ValueError("grouped recurrent transform: a history array needs matching history_groups labels.")
+    from . import _canonical_group_key
+    h = np.asarray(history, dtype=np.float64).reshape(-1)
+    hg = np.asarray(history_groups).reshape(-1)
+    if hg.size != h.size:
+        raise ValueError(f"grouped recurrent transform: history has {h.size} rows but history_groups has {hg.size}.")
+    for g, idx in _group_segments(hg):
+        if _canonical_group_key(g) == key:
+            return h[idx]
+    return h[:0]
+
+
+# ----------------------------------------------------------------------
 # ewma_residual_grouped
 # ----------------------------------------------------------------------
 
@@ -50,7 +74,9 @@ def _ewma_residual_grouped_fit(
     groups: np.ndarray | None = None,
     _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    """Per-group EWMA anchors (train-mean of the group's base; train-tail state as the continuation seed) + the shared span ``k``. Unseen groups at predict fall back to the global anchors."""
+    """Per-group EWMA anchors (train-mean of the group's base; train-tail state as the continuation seed) + the shared span ``k``. Unseen groups at
+    predict fall back to the global anchors: the global mean by default, and under recurrence continuation the train-tail state of the ungrouped
+    EWMA over the whole base series (the same seed ``ewma_residual`` would use), not the whole-history mean."""
     from . import _EWMA_RESIDUAL_DEFAULT_K, _canonical_group_key
     from .nonlinear import _ewma_compute
     groups_arr = _require_groups(groups, "ewma_residual_grouped", "fit")
@@ -61,6 +87,11 @@ def _ewma_residual_grouped_fit(
     per_group_anchors: dict[str, float] = {}
     per_group_tail_anchors: dict[str, float] = {}
     tail_anchor = anchor
+    if finite.any():
+        _global_trace = _ewma_compute(base_f, k, anchor)
+        _gtf = _global_trace[np.isfinite(_global_trace)]
+        if _gtf.size:
+            tail_anchor = float(_gtf[-1])
     for g, idx in _group_segments(groups_arr):
         seg = base_f[idx]
         seg_finite = seg[np.isfinite(seg)]
@@ -89,8 +120,10 @@ def _ewma_grouped_anchor(params: dict[str, Any], key: str) -> float:
 
 def _ewma_residual_grouped_apply(
     arr: np.ndarray, base: np.ndarray, params: dict[str, Any], groups: np.ndarray, sign: float,
+    history_base: np.ndarray | None = None, history_groups: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Shared forward/inverse body: ``arr + sign * EWMA_k(base_g)`` per group with per-group seeds (sign=-1 forward, +1 inverse)."""
+    """Shared forward/inverse body: ``arr + sign * EWMA_k(base_g)`` per group with per-group seeds (sign=-1 forward, +1 inverse); each group's
+    EWMA first runs over that group's ``history_base`` rows, so a batch scored with its preceding rows equals the same rows inside a longer batch."""
     from . import _canonical_group_key
     from .nonlinear import _ewma_compute
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
@@ -100,7 +133,10 @@ def _ewma_residual_grouped_apply(
     for g, idx in _group_segments(groups):
         key = _canonical_group_key(g)
         anchor = _ewma_grouped_anchor(params, key) if sign > 0 else float(params.get("per_group_anchors", {}).get(key, params["anchor"]))
-        trace = _ewma_compute(base_f[idx], k, anchor)
+        hist = _group_history(history_base, history_groups, key)
+        seg = base_f[idx] if hist is None else np.concatenate([hist, base_f[idx]])
+        h = 0 if hist is None else hist.size
+        trace = _ewma_compute(seg, k, anchor)[h:]
         out[idx] = arr_f[idx] + sign * trace
     return out
 
@@ -108,19 +144,23 @@ def _ewma_residual_grouped_apply(
 def _ewma_residual_grouped_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
     groups: np.ndarray | None = None,
+    history_base: np.ndarray | None = None, history_groups: np.ndarray | None = None,
 ) -> np.ndarray:
     """Apply ``T = y - EWMA_k(base)`` with the recurrence reset per group."""
     groups_arr = _require_groups(groups, "ewma_residual_grouped", "forward")
-    return _ewma_residual_grouped_apply(y, base, params, groups_arr, sign=-1.0)
+    return _ewma_residual_grouped_apply(y, base, params, groups_arr, sign=-1.0, history_base=history_base, history_groups=history_groups)
 
 
 def _ewma_residual_grouped_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
     groups: np.ndarray | None = None,
+    history_base: np.ndarray | None = None, history_groups: np.ndarray | None = None,
 ) -> np.ndarray:
     """Undo the transform: ``y = T_hat + EWMA_k(base)`` per group (per-group tail seed under recurrence continuation)."""
+    from ._nonlinear_ewma_fracdiff import _warn_cold_recurrence
     groups_arr = _require_groups(groups, "ewma_residual_grouped", "inverse")
-    return _ewma_residual_grouped_apply(t_hat, base, params, groups_arr, sign=1.0)
+    _warn_cold_recurrence("ewma_residual_grouped", int(np.asarray(t_hat).size), int(params["k"]), params, history_base)
+    return _ewma_residual_grouped_apply(t_hat, base, params, groups_arr, sign=1.0, history_base=history_base, history_groups=history_groups)
 
 
 def _ewma_residual_grouped_domain(
@@ -140,32 +180,58 @@ def _rolling_quantile_ratio_grouped_fit(
     groups: np.ndarray | None = None,
     _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    """Same params as ``rolling_quantile_ratio`` (k / eps / mode); the eps floor is global (train base scale), the window is applied per group."""
+    """Same params as ``rolling_quantile_ratio`` (k / eps / mode); the eps floor is global (train base scale), the window is applied per group.
+    Each group's last k-1 train base values are stored as its continuation window history."""
+    from . import _canonical_group_key
     from .simple import _ROLLING_QUANTILE_DEFAULT_K, _rolling_quantile_ratio_fit
-    _require_groups(groups, "rolling_quantile_ratio_grouped", "fit")
+    groups_arr = _require_groups(groups, "rolling_quantile_ratio_grouped", "fit")
     k = int(k if k is not None else _ROLLING_QUANTILE_DEFAULT_K)
-    return _rolling_quantile_ratio_fit(y, base, k=k, mode=mode, _finite_mask=_finite_mask)
+    params = _rolling_quantile_ratio_fit(y, base, k=k, mode=mode, _finite_mask=_finite_mask)
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    per_group_tail_base: dict[str, list[float]] = {}
+    kk = int(params["k"])
+    for g, idx in _group_segments(groups_arr):
+        seg = base_f[idx]
+        seg = seg[np.isfinite(seg)]
+        per_group_tail_base[_canonical_group_key(g)] = [float(v) for v in (seg[-(kk - 1):] if kk > 1 else seg[:0])]
+    params["per_group_tail_base"] = per_group_tail_base
+    return params
 
 
-def _rqr_grouped_median(base: np.ndarray, params: dict[str, Any], groups: np.ndarray) -> np.ndarray:
-    """Rolling median of ``base`` computed independently within each group's stable-order subsequence."""
+def _rqr_grouped_median(
+    base: np.ndarray, params: dict[str, Any], groups: np.ndarray,
+    history_base: np.ndarray | None = None, history_groups: np.ndarray | None = None, continuation: bool = False,
+) -> np.ndarray:
+    """Rolling median of ``base`` computed independently within each group's stable-order subsequence; each group's window also reads its
+    ``history_base`` rows and, under recurrence continuation (inverse only), its stored train tail."""
+    from . import _canonical_group_key
     from .simple import _rqr_rolling_median
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
     out = np.empty(base_f.size, dtype=np.float64)
     k = int(params["k"])
     mode = str(params.get("mode", "trailing"))
-    for _g, idx in _group_segments(groups):
-        out[idx] = _rqr_rolling_median(base_f[idx], k, mode)
+    use_tail = continuation and bool(params.get("recurrence_continuation"))
+    for g, idx in _group_segments(groups):
+        key = _canonical_group_key(g)
+        parts = []
+        if use_tail:
+            parts.append(np.asarray(params.get("per_group_tail_base", {}).get(key, []), dtype=np.float64))
+        hist = _group_history(history_base, history_groups, key)
+        if hist is not None:
+            parts.append(hist)
+        prefix = np.concatenate(parts) if parts else base_f[:0]
+        out[idx] = _rqr_rolling_median(np.concatenate([prefix, base_f[idx]]), k, mode)[prefix.size :]
     return out
 
 
 def _rolling_quantile_ratio_grouped_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
     groups: np.ndarray | None = None,
+    history_base: np.ndarray | None = None, history_groups: np.ndarray | None = None,
 ) -> np.ndarray:
     """Apply ``T = y / max(RollingMedian_k(base), eps)`` with the window confined to each row's group."""
     groups_arr = _require_groups(groups, "rolling_quantile_ratio_grouped", "forward")
-    roll_med = _rqr_grouped_median(base, params, groups_arr)
+    roll_med = _rqr_grouped_median(base, params, groups_arr, history_base, history_groups, continuation=False)
     eps = float(params["eps"])
     safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
     return np.asarray(np.asarray(y, dtype=np.float64).reshape(-1) / safe)
@@ -174,10 +240,13 @@ def _rolling_quantile_ratio_grouped_forward(
 def _rolling_quantile_ratio_grouped_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
     groups: np.ndarray | None = None,
+    history_base: np.ndarray | None = None, history_groups: np.ndarray | None = None,
 ) -> np.ndarray:
     """Undo the transform: ``y = T_hat * max(RollingMedian_k(base), eps)`` with the same per-group window."""
+    from ._nonlinear_ewma_fracdiff import _warn_cold_recurrence
     groups_arr = _require_groups(groups, "rolling_quantile_ratio_grouped", "inverse")
-    roll_med = _rqr_grouped_median(base, params, groups_arr)
+    _warn_cold_recurrence("rolling_quantile_ratio_grouped", int(np.asarray(t_hat).size), int(params["k"]), params, history_base)
+    roll_med = _rqr_grouped_median(base, params, groups_arr, history_base, history_groups, continuation=True)
     eps = float(params["eps"])
     safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
     return np.asarray(np.asarray(t_hat, dtype=np.float64).reshape(-1) * safe)
@@ -195,13 +264,23 @@ def _rolling_quantile_ratio_grouped_domain(
 # frac_diff_grouped (y-only, requires_base=False)
 # ----------------------------------------------------------------------
 
+def _tail_values(seg: np.ndarray, lags: int, pad: float) -> list[float]:
+    """The last ``lags`` finite values of ``seg`` (oldest first), left-padded with ``pad`` when the segment is shorter."""
+    fin = seg[np.isfinite(seg)][-lags:]
+    out = np.full(lags, pad, dtype=np.float64)
+    out[lags - fin.size :] = fin
+    return [float(v) for v in out]
+
+
 def _frac_diff_grouped_fit(
     y: np.ndarray, base: np.ndarray | None,
     d: float | None = None, lags: int | None = None,
     groups: np.ndarray | None = None,
     _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    """Shared (d, lags, weights) + per-group pre-window anchors: each group's history pads with ITS OWN train-y mean (tail-mean as the continuation seed), so entity-level differences never leak across the boundary."""
+    """Shared (d, lags, weights) + per-group pre-window anchors: each group's history pads with ITS OWN train-y mean, so entity-level differences
+    never leak across the boundary. Continuation seeds are each group's actual last ``lags`` train values; an unseen group under continuation
+    falls back to the ungrouped series' tail (the ``frac_diff`` continuation seed), not the whole-history mean."""
     from . import _FRAC_DIFF_DEFAULT_D, _FRAC_DIFF_DEFAULT_LAGS, _canonical_group_key
     from .nonlinear import _frac_diff_weights
     groups_arr = _require_groups(groups, "frac_diff_grouped", "fit")
@@ -210,8 +289,11 @@ def _frac_diff_grouped_fit(
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     finite = np.isfinite(y_f)
     anchor = float(np.mean(y_f[finite])) if finite.any() else 0.0
+    y_fin = y_f[finite]
+    tail_anchor = float(np.mean(y_fin[-lags:])) if y_fin.size else anchor
     per_group_anchors: dict[str, float] = {}
     per_group_tail_anchors: dict[str, float] = {}
+    per_group_tail_y: dict[str, list[float]] = {}
     for g, idx in _group_segments(groups_arr):
         seg = y_f[idx]
         seg_finite = seg[np.isfinite(seg)]
@@ -219,20 +301,25 @@ def _frac_diff_grouped_fit(
         a_g = float(seg_finite.mean()) if seg_finite.size else anchor
         per_group_anchors[key] = a_g
         per_group_tail_anchors[key] = float(seg_finite[-lags:].mean()) if seg_finite.size else a_g
+        per_group_tail_y[key] = _tail_values(seg, lags, a_g)
     return {
-        "d": d, "lags": lags, "anchor": anchor, "tail_anchor": anchor,
+        "d": d, "lags": lags, "anchor": anchor, "tail_anchor": tail_anchor,
+        "tail_y": _tail_values(y_f, lags, anchor),
         "weights": _frac_diff_weights(d, lags).tolist(),
         "per_group_anchors": per_group_anchors,
         "per_group_tail_anchors": per_group_tail_anchors,
+        "per_group_tail_y": per_group_tail_y,
     }
 
 
 def _frac_diff_grouped_forward(
     y: np.ndarray, base: np.ndarray | None, params: dict[str, Any],
     groups: np.ndarray | None = None,
+    history_y: np.ndarray | None = None, history_groups: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Per-group truncated frac-diff convolution, padding each group's pre-window history with its own anchor."""
+    """Per-group truncated frac-diff convolution, padding each group's pre-window history with its own anchor (or its ``history_y`` rows)."""
     from . import _canonical_group_key
+    from ._nonlinear_ewma_fracdiff import _history_prefix
     groups_arr = _require_groups(groups, "frac_diff_grouped", "forward")
     lags = int(params["lags"])
     weights = np.asarray(params["weights"], dtype=np.float64)
@@ -241,8 +328,8 @@ def _frac_diff_grouped_forward(
     for g, idx in _group_segments(groups_arr):
         key = _canonical_group_key(g)
         anchor = float(params.get("per_group_anchors", {}).get(key, params["anchor"]))
-        seg = y_f[idx]
-        padded = np.concatenate([np.full(lags, anchor, dtype=np.float64), seg])
+        prefix = _history_prefix(np.full(lags, anchor, dtype=np.float64), _group_history(history_y, history_groups, key), lags)
+        padded = np.concatenate([prefix, y_f[idx]])
         out[idx] = np.convolve(padded, weights, mode="valid")
     return out
 
@@ -250,23 +337,33 @@ def _frac_diff_grouped_forward(
 def _frac_diff_grouped_inverse(
     t_hat: np.ndarray, base: np.ndarray | None, params: dict[str, Any],
     groups: np.ndarray | None = None,
+    history_y: np.ndarray | None = None, history_groups: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Per-group iterative reconstruction via the shared njit-dispatched frac-diff-inverse kernel, each group seeded by its own anchor."""
+    """Per-group iterative reconstruction via the shared njit-dispatched frac-diff-inverse kernel, each group seeded by its own anchor, by its
+    actual train tail under recurrence continuation, and by its observed ``history_y`` rows when supplied."""
     from . import _canonical_group_key
     from .nonlinear import _frac_diff_inverse_compute
+    from ._nonlinear_ewma_fracdiff import _frac_diff_inverse_prefix, _history_prefix, _warn_cold_recurrence
     groups_arr = _require_groups(groups, "frac_diff_grouped", "inverse")
     lags = int(params["lags"])
     weights = np.ascontiguousarray(np.asarray(params["weights"], dtype=np.float64))
     t_f = np.asarray(t_hat, dtype=np.float64).reshape(-1)
+    _warn_cold_recurrence("frac_diff_grouped", t_f.size, lags, params, history_y)
     out = np.empty(t_f.size, dtype=np.float64)
     continuation = bool(params.get("recurrence_continuation"))
     for g, idx in _group_segments(groups_arr):
         key = _canonical_group_key(g)
-        if continuation and key in params.get("per_group_tail_anchors", {}):
-            anchor = float(params["per_group_tail_anchors"][key])
+        hist = _group_history(history_y, history_groups, key)
+        if continuation and "per_group_tail_y" in params:
+            default_prefix = np.asarray(params["per_group_tail_y"].get(key, params.get("tail_y", [params["anchor"]] * lags)), dtype=np.float64)
+        elif continuation and key in params.get("per_group_tail_anchors", {}):
+            default_prefix = np.full(lags, float(params["per_group_tail_anchors"][key]), dtype=np.float64)
         else:
-            anchor = float(params.get("per_group_anchors", {}).get(key, params["anchor"]))
-        out[idx] = _frac_diff_inverse_compute(t_f[idx], lags, weights, anchor)
+            default_prefix = np.full(lags, float(params.get("per_group_anchors", {}).get(key, params["anchor"])), dtype=np.float64)
+        if hist is None and not (continuation and "per_group_tail_y" in params):
+            out[idx] = _frac_diff_inverse_compute(t_f[idx], lags, weights, float(default_prefix[-1]))
+        else:
+            out[idx] = _frac_diff_inverse_prefix(t_f[idx], lags, weights, _history_prefix(default_prefix, hist, lags))
     return out
 
 
@@ -471,7 +568,9 @@ def _monotonic_residual_grouped_fit(
         y, base, groups_arr, _fit,
         level_keys=("knots_y", "y_train_mean"),
         min_group_size=min_group_size,
-        global_median_key="y_train_mean",
+        # Per-group levels are MEDIANS, so the shrink centre must be the global median: against the global mean, a skewed target's mean-median gap
+        # moved every group's knots the same way, even a group drawn from the global population.
+        global_median_key="y_train_median",
     )
 
 

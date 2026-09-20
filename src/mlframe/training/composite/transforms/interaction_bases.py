@@ -47,10 +47,11 @@ def generate_interaction_bases(
         Skip pairs where a == b. Default True.
     train_mask
         Optional boolean mask over rows of each candidate; when supplied, the divide-by-zero epsilon
-        floor (``median(|b|) * factor``) is computed from TRAIN rows only. ``None`` (default) keeps the
-        legacy whole-array median, which leaks test-set scale into the eps; the leak is small in practice
-        (median is robust) but the audited fix surfaces train-vs-test asymmetry explicitly when callers
-        opt in. Caller is responsible for aligning the mask length with each candidate array.
+        floor (``median(|b|) * factor``) is computed from TRAIN rows only. ``None`` (default) declares every
+        row a training row (discovery passes its train screening sample), so the whole-array median is the
+        train median; a caller passing train+test rows must pass the mask, or the eps floor sees test scale.
+        A mask whose length differs from the candidate arrays raises ``ValueError`` (it used to be ignored
+        silently, so the caller who meant to prevent the leak still got it).
 
     Returns
     -------
@@ -66,6 +67,11 @@ def generate_interaction_bases(
         raise ValueError(f"generate_interaction_bases: unsupported op(s) {bad_ops}. Valid: {sorted(valid_ops)}")
     selected_names = list(candidates.keys())[:top_k]
     selected_arrays = [np.asarray(candidates[n], dtype=np.float64).reshape(-1) for n in selected_names]
+    if train_mask is not None:
+        train_mask = np.asarray(train_mask, dtype=bool).reshape(-1)
+        bad = [n for n, arr in zip(selected_names, selected_arrays) if arr.shape != train_mask.shape]
+        if bad:
+            raise ValueError(f"generate_interaction_bases: train_mask has {train_mask.size} rows but candidate(s) {bad} have a different length.")
     synthetics: dict[str, np.ndarray] = {}
     provenance: dict[str, dict[str, Any]] = {}
     for i, name_a in enumerate(selected_names):
@@ -78,7 +84,7 @@ def generate_interaction_bases(
                 # Length mismatch -- caller misuse; skip with provenance entry rather than raise so a single bad pair doesn't kill the whole batch.
                 continue
             finite_b = np.isfinite(b) & (b != 0)
-            if train_mask is not None and train_mask.shape == b.shape:
+            if train_mask is not None:
                 # Train-only median for the eps floor; test rows still get divided but the safe_b floor is
                 # train-scale-derived (no test stats leak into the synthetic feature value).
                 _b_for_scale = b[finite_b & train_mask]

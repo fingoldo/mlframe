@@ -68,10 +68,10 @@ def test_predict_stubs_delegate_to_sibling(parent_module, siblings):
     calls = {"predict": 0}
     real_predict = p.predict
 
-    def spy(self, X):
-        """Spy."""
+    def spy(self, X, *args, **kwargs):
+        """Spy; accepts the delegating stub's ``inner_X`` pass-through."""
         calls["predict"] += 1
-        return real_predict(self, X)
+        return real_predict(self, X, *args, **kwargs)
 
     rng = np.random.default_rng(0)
     n = 50

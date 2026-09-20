@@ -11,7 +11,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from . import _y_train_clip_bounds
-from ..transforms import get_transform
+from ._routing import resolve_transform as get_transform
 
 # Same logger name as before the carve, so anything filtering these records by logger name keeps seeing them.
 logger = logging.getLogger("mlframe.training.composite.estimator._estimator")
@@ -26,6 +26,11 @@ def from_fitted_inner(
     y_train: np.ndarray,
     fallback_predict: str = "y_train_median",
     base_columns: Sequence[str] | None = None,
+    inner_pre_pipeline: Any = None,
+    base_train: np.ndarray | None = None,
+    group_column: str | None = None,
+    recurrence_continuation: bool = False,
+    target_name: str | None = None,
 ) -> Any:
     """Body of ``CompositeTargetEstimator.from_fitted_inner`` (see its docstring)."""
     instance = cls(
@@ -35,6 +40,8 @@ def from_fitted_inner(
         base_columns=base_columns,
         fallback_predict=fallback_predict,
         drop_invalid_rows=True,
+        group_column=group_column,
+        recurrence_continuation=recurrence_continuation,
     )
     # Validate we can lookup the transform up-front so a typo
     # surfaces here, not on first predict.
@@ -111,6 +118,11 @@ def from_fitted_inner(
                 t_clip_high = +t_envelope
 
     instance.estimator_ = fitted_inner
+    # The entry's fitted pre_pipeline: the inner was trained on its output, so predict applies it to the suite-stage frame for
+    # the inner only, while the base keeps the raw stage the transform params were fit on.
+    instance.inner_pre_pipeline_ = inner_pre_pipeline
+    if target_name:
+        instance.target_name_ = str(target_name)
     instance.fitted_params_ = {
         **dict(transform_fitted_params),
         "y_clip_low": y_clip_low,
@@ -119,6 +131,14 @@ def from_fitted_inner(
         "t_clip_low": t_clip_low,
         "t_clip_high": t_clip_high,
     }
+    if recurrence_continuation:
+        instance.fitted_params_["recurrence_continuation"] = True
+    # Same base calibration range fit() captures, so the default-ON soft base-shrink and its deep-OOD fallback are live on the
+    # suite path too. A spec that already carries a range (stamped by discovery) keeps it; train bases refresh it otherwise.
+    if base_train is not None:
+        from . import _soft_shrink as _soft_shrink
+
+        _soft_shrink.capture_base_fit_range(instance, get_transform(transform_name), np.asarray(base_train, dtype=np.float64))
     # Inherit feature_names_in_ from the already-fitted inner so the
     # predict-side column-subset fallback can resolve the wrapper's expected
     # columns; without it the wrapper is fed the post-extensions pca/svd-only

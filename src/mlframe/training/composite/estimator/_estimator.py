@@ -148,6 +148,10 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         cumulatively across calls.
     """
 
+    # Marks a model whose predict reads its base from the untransformed frame and accepts ``inner_X`` for the inner's own
+    # pipeline stage; wrappers that apply a pre_pipeline (PrePipelinePredictShim, predict entry points) key on it.
+    _routes_inner_input = True
+
     def __init__(
         self,
         base_estimator: Any = None,
@@ -221,15 +225,15 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
     # surface is discoverable to mypy / IDE / help() while the heavy bodies
     # stay carved out in ``_predict``.
 
-    def predict(self, X: Any) -> "np.ndarray":
-        """y-scale point prediction (inner predict on T-scale, then invert). See ``_composite_target_estimator_predict.predict``."""
+    def predict(self, X: Any, inner_X: Any = None) -> "np.ndarray":
+        """y-scale point prediction (inner predict on T-scale, then invert). See ``_predict.predict``."""
         from . import _predict as _pred
-        return _pred.predict(self, X)
+        return _pred.predict(self, X, inner_X=inner_X)
 
-    def predict_quantile(self, X: Any, alpha: "float | Sequence[float] | np.ndarray" = 0.5) -> "np.ndarray":
-        """y-scale quantile prediction by inverting the inner's T-scale quantile. See ``_composite_target_estimator_predict.predict_quantile``."""
+    def predict_quantile(self, X: Any, alpha: "float | Sequence[float] | np.ndarray" = 0.5, inner_X: Any = None) -> "np.ndarray":
+        """y-scale quantile prediction by inverting the inner's T-scale quantile. See ``_predict.predict_quantile``."""
         from . import _predict as _pred
-        return _pred.predict_quantile(self, X, alpha)
+        return _pred.predict_quantile(self, X, alpha, inner_X=inner_X)
 
     def predict_from_t(self, X: Any, t_hat: "np.ndarray") -> "np.ndarray":
         """Map externally made T-scale predictions (e.g. a composite ensemble's) to y-scale. See ``_predict.predict_from_t``."""
@@ -237,14 +241,14 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
 
         return _pred.predict_from_t(self, X, t_hat)
 
-    def predict_pre_clip(self, X: Any) -> "np.ndarray":
+    def predict_pre_clip(self, X: Any, inner_X: Any = None) -> "np.ndarray":
         """Inverse-of-transform y-prediction WITHOUT the train-envelope clip. See ``_predict.predict_pre_clip``.
 
         In-body delegating stub so the method is discoverable to mypy / IDE /
         ``help()``; the heavy body stays carved out in ``_predict``.
         """
         from . import _predict as _pred
-        return _pred.predict_pre_clip(self, X)
+        return _pred.predict_pre_clip(self, X, inner_X=inner_X)
 
     # Streaming-buffer update / inspect (heavy bodies in ``_update``); in-body
     # stubs keep the public surface discoverable.
@@ -310,6 +314,11 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         y_train: np.ndarray,
         fallback_predict: str = "y_train_median",
         base_columns: Sequence[str] | None = None,
+        inner_pre_pipeline: Any = None,
+        base_train: np.ndarray | None = None,
+        group_column: str | None = None,
+        recurrence_continuation: bool = False,
+        target_name: str | None = None,
     ) -> CompositeTargetEstimator:
         """Build a wrapper around an ALREADY-FITTED inner model.
 
@@ -346,14 +355,32 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             data later.
         fallback_predict
             See :meth:`__init__`.
+        inner_pre_pipeline
+            The fitted pipeline the inner was trained behind (scaler / imputer / encoder). ``predict(X)`` then reads the base from
+            ``X`` and feeds the inner ``inner_pre_pipeline.transform(X)``, so one suite-stage frame serves both.
+        base_train
+            Train-row base values (``(n,)`` or ``(n, K)``); records the calibration range the soft base-shrink guard needs.
+        group_column, recurrence_continuation
+            See :meth:`__init__`; required to wrap grouped / continuation-seeded transforms.
+        target_name
+            Original target name, used to resolve the causal-lag column for the deep-OOD fallback.
 
         Note: a lambda / closure ``runtime_stats_callback`` makes the fitted wrapper unpicklable; pass a module-level callable when persisting.
         """
         from . import _from_fitted
         return _from_fitted.from_fitted_inner(
             cls, fitted_inner, transform_name, base_column, transform_fitted_params, y_train,
-            fallback_predict=fallback_predict, base_columns=base_columns,
+            fallback_predict=fallback_predict, base_columns=base_columns, inner_pre_pipeline=inner_pre_pipeline,
+            base_train=base_train, group_column=group_column, recurrence_continuation=recurrence_continuation,
+            target_name=target_name,
         )
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore pickled state, re-registering an auto-discovered ``chain_*`` transform the loading process has never seen."""
+        super().__setstate__(state)
+        from ._routing import ensure_transforms_registered
+
+        ensure_transforms_registered([getattr(self, "transform_name", None)])
 
     def __sklearn_clone__(self) -> "CompositeTargetEstimator":
         """Refuse cloning a wrapper built via :meth:`from_fitted_inner`.

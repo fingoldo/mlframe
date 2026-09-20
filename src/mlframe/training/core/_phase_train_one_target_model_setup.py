@@ -626,6 +626,14 @@ def _setup_per_target_mlframe_models(
     if timestamps is not None:
         common_params["timestamps"] = timestamps
 
+    # A composite target's T depends on its spec's fitted params, so the model cache must not reuse an inner trained on a
+    # different T; process_model compares this digest with the one stamped on the cached wrapper.
+    from ._composite_wrap_helpers import composite_spec_digest, find_composite_spec
+
+    _cspec = find_composite_spec(metadata, target_type, cur_target_name)
+    if _cspec is not None:
+        common_params["composite_spec_digest"] = composite_spec_digest(_cspec)
+
     return {
         "plot_file": plot_file,
         "model_file": model_file,

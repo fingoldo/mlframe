@@ -208,7 +208,10 @@ def test_biz_centered_ratio_predict_eps_band_routes_to_fallback():
     # collapsed to the fallback. With different base values their predictions
     # must differ from each other and at least one must be away from the median.
     assert yp[0] != pytest.approx(yp[2]), "in-domain rows with different base collapsed to the same value"
-    assert abs(yp[0] - y_train_median) > 1.0, "in-domain row unexpectedly equals the fallback median"
+    # An in-domain row tracks the fitted law y ~ 2*base rather than the fallback. Comparing it to the train median
+    # instead would be vacuous here: base=5 is the centre of the train distribution, so 2*base IS about the median.
+    assert yp[0] == pytest.approx(2.0 * 5.0, rel=0.05), f"in-domain row should track the fit (~10), got {yp[0]:.4f}"
+    assert yp[2] == pytest.approx(2.0 * 6.0, rel=0.05), f"in-domain row should track the fit (~12), got {yp[2]:.4f}"
 
     # Direct pre-fix contrast: without the fitted-domain gate the band row
     # would have been forwarded through the clamped divisor + inverse, giving a

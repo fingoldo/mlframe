@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from .registry import _TRANSFORMS_REGISTRY
 from . import UnknownTransformError
+from ._call_gateway import call_transform, callable_accepts  # noqa: F401 - the signature-gated transform-call entry point lives next to get_transform
 
 if TYPE_CHECKING:
     from . import Transform

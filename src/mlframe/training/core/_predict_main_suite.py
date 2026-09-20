@@ -30,6 +30,7 @@ from .utils import (
     _validate_trusted_path,
 )
 from mlframe.utils.log_throttle import log_throttle
+from ._predict_composite_routing import composite_predict, is_composite_wrapper, register_spec_transforms
 
 logger = logging.getLogger("mlframe.training.core.predict")
 
@@ -90,7 +91,6 @@ def predict_mlframe_models_suite(
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
-    from ..composite import CompositeTargetEstimator as _CTE_cls
     from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
     from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
     from ..pipeline._cross_sectional_composite_fe import replay_cross_sectional_composite_fe
@@ -181,6 +181,8 @@ def predict_mlframe_models_suite(
     # vs 2) and HARD-FAIL on missing schema_version when the bundle claims
     # composite targets (those require schema_version >= 2 semantics).
     _validate_metadata_version_envelope(metadata, models_path)
+    # Auto-chain transforms live only in the training process's registry; rebuild them before any model is unpickled.
+    register_spec_transforms(metadata)
     results["metadata"] = metadata
 
     pipeline = metadata.get("pipeline")
@@ -244,11 +246,8 @@ def predict_mlframe_models_suite(
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=bool(verbose))
 
-    # Preserve the pre-main-pipeline frame: CompositeTargetEstimator.predict() reads its base
-    # column directly from X to apply the fitted inverse transform (e.g. linear_residual:
-    # y = t_hat + alpha*base + beta), with alpha/beta fit on the RAW base column at discovery
-    # time. Also doubles as the fallback for models whose internal categorical handling crashes
-    # on the post-pipeline encoded form. Mirrors predict_from_models's df_pre_pipeline exactly.
+    # Preserve the pre-main-pipeline frame: the fallback for models whose internal categorical handling crashes on the
+    # post-pipeline encoded form, and for polars-fastpath models trained on the raw frame. Mirrors predict_from_models.
     df_pre_pipeline = df
 
     if pipeline is not None:
@@ -367,6 +366,15 @@ def predict_mlframe_models_suite(
 
             model = model_obj.model if hasattr(model_obj, "model") else model_obj
 
+            if is_composite_wrapper(model):
+                # The wrapper reads its base from the suite-stage frame and applies its own inner pipeline to it, so it skips
+                # the per-model pre_pipeline + subset step raw models get below.
+                preds = composite_predict(model, model_obj, df, df_pre_pipeline, lambda _f: _ensure_pandas_view(_f, _pandas_view_cache))
+                results["predictions"][model_name] = preds
+                all_preds.append(preds)
+                per_target_preds.setdefault((_tt, _tn), []).append(preds)
+                continue
+
             input_for_model = df
             # Lazy polars->pandas only when this specific model is NOT polars-native (mirrors the training pattern
             # in ``_phase_train_one_target`` so two non-native models hit the cache after the first conversion).
@@ -419,19 +427,7 @@ def predict_mlframe_models_suite(
                 # model's own predict call to raise on -- this step only removes/reorders EXTRA
                 # columns, it never invents a missing one.
 
-            # CTE-RAW-X: CompositeTargetEstimator.predict() reads its base column directly from X
-            # to apply the fitted inverse transform (e.g. linear_residual: y = t_hat + alpha*base +
-            # beta); alpha/beta were fit on the RAW base column, but input_for_model is the
-            # pre-pipeline-scaled frame (base column z-scored), which degenerates the inverse to
-            # y_hat ~ t_hat -- predictions silently stay in residual/T scale. Hand the wrapper the
-            # RAW pre-pipeline frame instead; every other (non-composite) estimator stays on the
-            # normal post-pipeline path.
-            if isinstance(model, _CTE_cls):
-                _primary_for_model = df_pre_pipeline
-                if isinstance(_primary_for_model, pl.DataFrame) and not _is_polars_native_model(model_obj):
-                    _primary_for_model = _ensure_pandas_view(_primary_for_model, _pandas_view_cache)
-            else:
-                _primary_for_model = input_for_model
+            _primary_for_model = input_for_model
 
             if return_probabilities and hasattr(model, "predict_proba"):
                 # Route through _predict_with_fallback so the same predict-time guards used at training (CB val Pool
@@ -611,6 +607,12 @@ def predict_mlframe_models_suite(
         _stacked = np.stack(all_preds)
         if np.issubdtype(_stacked.dtype, np.floating):
             from mlframe.models.ensembling import combine_float_predictions
+            from ._predict_composite_routing import per_original_target_float_ensembles
+
+            # Per original target: raw, composite-target and CT-ensemble members predict the same y, other targets do not.
+            results["per_target_predictions"] = per_original_target_float_ensembles(
+                per_target_preds, metadata, lambda _m: combine_float_predictions(_m, flavour=_resolve_float_ensemble_flavour(metadata)),
+            )
             results["ensemble_predictions"] = combine_float_predictions(
                 _stacked, flavour=_resolve_float_ensemble_flavour(metadata),
             )

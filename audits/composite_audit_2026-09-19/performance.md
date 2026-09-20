@@ -1,0 +1,389 @@
+# Composite targets audit, direction 5: performance (speed and memory)
+
+Date: 2026-09-19. Code: `origin/master` a950f7e47 (clean worktree). Scope: `src/mlframe/training/composite/` (discovery, transforms, estimator, ensemble, root modules) and the composite phases in `src/mlframe/training/core/`.
+
+**Method.** I read the code paths that run under the default `CompositeTargetDiscoveryConfig`: the MI screen, per-candidate eval, auto-base, tiny rerank, post-rerank gates, honest holdout, opt-in steps, the wrap pass, CT_ENSEMBLE OOF and MoE. I looked for work that is repeated, discarded, copied or strided. Correctness issues already filed in `transforms.md`, `discovery.md` and `estimator_ensemble.md` are not repeated here. Where a finding touches one of them, the cross-reference is given.
+
+**Measurements.** Micro-benchmarks were run in one Python process at a time, with `OMP/MKL/OPENBLAS/NUMBA_NUM_THREADS=2` and `LOKY_MAX_CPU_COUNT=1`. Each figure is the median of 3 to 5 runs. Environment: numpy 2.x, lightgbm 4.6.0, pandas 3.0.3, polars. The host is a shared 16 GB box with another agent running, so absolute timings are inflated. Only the ratios matter. The scripts are in the session scratchpad (`bench_perf_audit.py`, `bench_coll.py`, `prof_sig.py`) and are not committed. Anything marked "estimate" was not measured.
+
+Default counts used in the estimates:
+- `mi_sample_n=100_000`, `auto_base_top_k=3` bases.
+- 25 bivariate transforms plus 5 unary transforms, so about 80 MI candidates per target.
+- `top_k_after_mi=32`, `tiny_screening_families=("lightgbm","linear")`, `tiny_model_n_seed_repeats=3`, `tiny_model_cv_folds=3`, `tiny_model_sample_n=20_000`.
+- `dedup_x_remaining_for_mi_baseline=True`, `honest_holdout_frac=0.2`, `oof_holdout_source="kfold"` with `oof_kfold=5`, `transform_waic_validation_enabled=True`.
+
+---
+
+### PRF-01 [P1] Near-collinear dedup runs a serial, strided O(B²·n) njit walk once per base; a single GEMM correlation matrix per target is about 70x faster
+
+- **Where**:
+  - `discovery/_fit.py:433-443`: the per-base `near_collinear_keep_mask(x_remaining_matrix, ...)` call, on by default.
+  - `discovery/_collinear_numba.py:134-181`: `_keep_mask_kernel_allfinite`, which is serial and reads `fm[i, j]` / `fm[i, k]` down columns of a C-order matrix.
+  - `discovery/_collinear_numba.py:324`: `np.ascontiguousarray(..., dtype=np.float64)`, a float64 copy per base.
+  - `discovery/_collinear_numba.py:326-331`: the content-hash cache.
+- **What**:
+  - For every base candidate, the walk compares each column with every column already kept, one full pass over n per pair. The pass is serial, and the inner reads stride across the row-major matrix.
+  - Measured on 80k x 120 all-finite float32: **11.5 s per call**. The in-code note says "~17 s at 80k x 120" on another box.
+  - A float64 `Z.T @ Z` correlation matrix plus the same greedy walk on the (B, B) matrix took **165 ms** and gave the identical keep-mask.
+  - The per-base matrices differ only by the dropped base column, and pairwise correlations do not depend on which column is absent. One correlation matrix per target therefore serves every base.
+  - The keep-mask cache is keyed by a blake2b hash of the float64 copy of the base-dropped matrix. It misses across bases by construction and still pays for the copy and the hash on each call.
+  - The cost scales as F². At 500 features, one base is an estimated few minutes on the current kernel.
+- **Expected win** (estimate): from 3 x 11.5 s to about 0.2 s per target at 80k x 120; roughly 50 to 70x on this step. Memory also drops: no per-base float64 copy.
+- **Suggested fix**:
+  - Compute column means and centred sums of squares once, then the full |corr| matrix with one BLAS GEMM on the float64 standardised screen matrix. For NaN-holed matrices, get the per-pair joint-finite moments from masked GEMMs: `X0ᵀX0`, `X0ᵀM`, `(X0²)ᵀM` and `MᵀM` with zero-filled `X0` and finite mask `M`.
+  - Run each base's greedy walk on the sub-matrix that excludes that base.
+  - Keep the existing borderline band (1e-9) and the exact numpy re-decision, so the mask stays bit-identical. GEMM rounding is around 1e-13, well inside the band.
+  - Keep the current kernel as `_keep_mask_kernel_v2` per the keep-all-kernels rule, behind the KTC dispatcher.
+- **Test/benchmark to add**:
+  - `_benchmarks/bench_near_collinear_gemm.py`: kernel vs GEMM at (80k, 120) and (100k, 500), all-finite and 5% NaN, plus 3-base amortisation.
+  - A parity test: the GEMM mask equals the reference `_near_collinear_keep_mask_numpy` across seeds, exact duplicates, a constant column, NaN holes and a pair placed exactly on the threshold.
+- **Disposition**: OPEN
+
+### PRF-02 [P1] The prebinned code matrix is C-order, so every per-feature MI call reads strided columns; F-order is 8.7x faster and bit-identical
+
+- **Where**:
+  - `discovery/screening.py:342` and `:405`: `binned = np.empty((n_rows, n_cols))` in the eager and lazy prebin paths.
+  - Consumers of `fb_f[:, j]` in `_mi_per_feature_prebinned` (`screening.py:536-557`):
+    - `discovery/_fit.py:374-381`: `_per_feat_y_full`.
+    - `discovery/_eval.py:515`: per-candidate `MI(T, X_remaining)`.
+    - `discovery/_eval.py:548`: `mi_y_compare`.
+  - `discovery/_fit.py:416`: per-base `np.delete`, which keeps C order.
+- **What**:
+  - `_mi_from_binned_pair` walks one int16 column element by element. On a C-order (n, F) matrix each element sits `2*F` bytes after the previous one, so every read touches a new cache line.
+  - Measured `_mi_per_feature_prebinned` at n=100k, F=100: **302 ms (C-order) vs 35 ms (`np.asfortranarray`), max abs diff 0.0**.
+  - The eval loop calls this once per candidate, about 80 times per target, plus the baselines. That is about 24 s vs about 3 s per target at F=100 on this host, and it grows linearly with F.
+- **Expected win** (measured kernel, estimated end to end): about 8x on the MI(T, X) part of the screen. `_prebin_feature_columns` would also speed up if it read and wrote contiguous columns.
+- **Suggested fix**:
+  - Allocate the code matrix with `order="F"` in both prebin paths.
+  - Have `_build_feature_matrix` fill an F-order `np.empty` column by column instead of `np.column_stack`. `np.delete` along axis 1 keeps F order.
+  - Check the row-gather users, which are the opt-in bootstrap `_x_pb_valid_const[idx_b]` and the boolean `valid_screen` masks. Keep a C-order copy only where row gathers dominate.
+- **Test/benchmark to add**: extend `bench_iter94_mi_binned_pair_strided.py` with a C vs F layout A/B at (100k, 100) and (100k, 500). Add a test that per-feature MI is bit-identical across the two layouts.
+- **Disposition**: OPEN
+
+### PRF-03 [P1] With group ids, the tiny rerank runs the full multi-family CV for every spec, then honest-OOF replaces nearly all of those scores
+
+- **Where**:
+  - `discovery/_tiny_rerank.py:368-470` and `:504`: the per-spec CV sweep.
+  - `discovery/_tiny_rerank.py:571-601`: honest-OOF override of `agg_scores` and of the gate baseline.
+  - `discovery/_tiny_rerank.py:353-363`: sequential early-stop is disabled whenever honest-OOF will run.
+- **What**:
+  - When `_group_ids_for_rerank` and `honest_holdout_idx_` exist (the grouped production case), every measured spec's CV score is overwritten by `honest_oof_reconstruction_rmse`. The raw-baseline threshold is replaced by the honest floor.
+  - The CV scores survive only as a fallback for specs whose honest measurement degenerated. Two other consumers use them, but both are off by default: the per-bin gate (`per_bin_n_bins=0`) and the Wilcoxon gate.
+  - Under groups the seed repeats collapse to one, so the discarded work is 32 specs x 2 families x 3 folds, about 192 tiny fits. The multiseed early-stop that would trim it is also disabled on this path.
+  - The honest step itself costs 1 raw fit plus one fit per spec.
+- **Expected win** (estimate): with groups, the rerank drops from about 192 CV fits to about 33 honest fits plus CV only for the degenerate specs. That is roughly 5x on the rerank phase.
+- **Suggested fix**:
+  - Compute `honest_oof_reconstruction_rmse` before the per-spec CV sweep. It only needs `kept_specs`, the frame and the indices.
+  - Run `_rerank_one_spec` only for specs missing from the honest dict, plus any spec a still-enabled consumer needs: per-bin, Wilcoxon, or the WAIC band in PRF-11.
+- **Test/benchmark to add**:
+  - A test with synthetic groups asserting that the CV sweep runs only for specs absent from the honest dict, and that the final `specs_` equal the current code path.
+  - A bench of rerank wall time with and without group ids.
+- **Disposition**: OPEN
+
+### PRF-04 [P1] The OOF pre-screen that skips refitting hopeless components never runs under the default `oof_holdout_source="kfold"`
+
+- **Where**:
+  - `core/_phase_composite_post_xt_ensemble/__init__.py:525`: the guard `if _ext_X is not None and _ext_y is not None and len(_components) >= 4`.
+  - `_ext_X` is set only in the `external_val` branch, `:481-489`.
+  - The default is set in `_composite_target_discovery_config.py:477`.
+- **What**:
+  - The code comment says the end-of-function dummy-floor gate drops 60-70% of components after they are OOF-refit, costing "~30-50 minutes of pure waste per target".
+  - The cheap pre-screen written to avoid this (leaky val RMSE with a 1.5x safety margin) is reachable only when the OOF source is `external_val`.
+  - Under the default K-fold source, `_ext_X` stays `None`. Every component therefore goes through `oof_kfold=5` full refits before the floor gate discards most of them.
+  - The val frame `filtered_val_df` is still available on the K-fold path.
+- **Expected win** (the in-code estimate, not re-measured here): 5 refits saved for each component the floor gate would drop, up to tens of minutes per target on large frames.
+- **Suggested fix**:
+  - Decouple the pre-screen from the OOF source. Whenever `filtered_val_df` and the val y exist, compute the leaky val RMSE from the already-trained components; reuse cached predictions per PRF-13. Drop components by the same 1.5x rule before `compute_oof_holdout_predictions`.
+  - This is independent of EST-11, the val-vs-OOF unit mismatch in the final floor gate.
+- **Test/benchmark to add**: a test in which a component clearly loses to the dummy on val and the OOF source is `"kfold"`. Assert that its OOF refit is never invoked, by counting fits on a mock, and that the surviving ensemble is unchanged.
+- **Disposition**: OPEN
+
+### PRF-05 [P1] The honest-holdout re-score gathers the full, uncapped holdout feature matrix once per spec, in parallel threads, and re-bins every column twice per spec
+
+- **Where**:
+  - `discovery/_honest_holdout.py:159-177`: `_build_x_remaining_holdout`.
+  - `discovery/_honest_holdout.py:252-338`: `_rescore_one`, with its `x_remaining[valid]` copy and two `_mi_to_target` calls, run under `Parallel(n_jobs=min(len(specs), cores))`.
+- **What**:
+  - For each final spec, the code pulls every usable feature on all holdout rows from the frame. The holdout is 20% of train and has no row cap, unlike the 100k screen.
+  - It copies that matrix again through the valid mask, then runs `_mi_to_target(estimator="bin")`. That calls `_mi_pair_bin`, which re-quantiles each X column for both `mi_t` and `mi_y`. The `mi_y` memo saves the second only on a hit.
+  - Specs on the same base rebuild the identical matrix.
+  - Measured at 40k x 50: `_mi_to_target(bin)` **430 ms per call**, against 26 ms with a matrix prebinned once, plus 275 ms one-time prebin.
+  - Memory: on a 4M-row train, each spec holds about 800k x F x 4 B twice. With 8 concurrent specs at F=500, that is an estimated 25 GB transient.
+- **Expected win** (estimate): time drops about 10x on this step. Peak memory goes from `n_jobs x 2 x holdout x F x 4 B` to one prebinned int16 matrix.
+- **Suggested fix**:
+  - Build the holdout matrix once, capped at `mi_sample_n` rows with a seeded draw, and prebin it once in F order (PRF-02).
+  - Per spec, pass the base column(s) as excluded indices; `_mi_per_feature_prebinned` already supports `exclude_col`, so extend it to a list. Apply `valid` as a row mask only when it is not all-true.
+- **Test/benchmark to add**:
+  - A bench of the re-score on 10 specs over 3 bases at a 200k holdout with 100 features, recording wall time and peak RSS.
+  - A test that the honest gains equal the current values when the cap exceeds the holdout size.
+- **Disposition**: OPEN
+
+### PRF-06 [P1] `_filter_features` holds every numeric feature over all train rows, then stacks a second full copy for a leak-corr test that a sample would decide
+
+- **Where**: `discovery/_filter.py:143-178`, which holds `candidate_arrays` and then runs `np.column_stack` and `~np.isfinite(X_train)`. The sampling helper is at `:41-121`.
+- **What**:
+  - Each numeric column is extracted on all `train_idx` rows (the 80% screening pool, not the 100k sample) and kept in `candidate_arrays`.
+  - After the loop, `np.column_stack` materialises a second (n_train, F) float32 copy, plus an (n_train, F) bool non-finite mask.
+  - `_maybe_sample_for_leak_corr` runs only after every full column is already held, and samples only when the stack would exceed 30% of available RAM.
+  - Peak is therefore at least `n_train x F x 4 B` and usually `2x` that plus `n_train x F` bytes. At 3.2M x 500 that is 6.4 GB + 6.4 GB + 1.6 GB.
+  - The constancy check (ptp, finite count) needs no stacking at all. The leak test is `|corr| >= 0.99999`, which is decided exactly as well on a few hundred thousand rows: the standard error of r near 1 is about (1-r²)/√n.
+- **Expected win** (estimate): peak memory in discovery fit falls from about 2 x n_train x F x 4 B to one column plus the sample matrix; the full-frame gather time also goes away.
+- **Suggested fix**:
+  - Compute min, max and non-null count per column with one lazy polars `select`, or per-column numba stats on pandas, without keeping the arrays.
+  - Run the leak-corr on a fixed seeded row sample, e.g. 500k rows or `mi_sample_n`, through `_extract_column_array(rows=...)`.
+  - Keep the per-pair NaN correlation branch on the sample.
+- **Test/benchmark to add**:
+  - A peak-RSS bench of `_filter_features` at 2M x 200.
+  - A test that the drop list, including exact-copy and y-derived leak columns, equals the full-row result.
+- **Disposition**: OPEN
+
+### PRF-07 [P2] Tiny-model LightGBM fits re-bin the same feature matrix for every spec, seed and fold; `LgbFoldCache` exists but only auto-chain uses it
+
+- **Where**:
+  - `discovery/_screening_tiny_perbin.py:282-316`: the y-scale CV, once per spec x seed x fold.
+  - `discovery/_screening_tiny.py:373-399`: the raw-y CV.
+  - `discovery/_honest_oof_select.py:101-157`, `discovery/_honest_rmse_gate.py:116-127`, `discovery/_yscale_holdout_gate.py:333-392`: one x_fit per gate, a raw fit plus one fit per spec.
+  - `discovery/_eval_waic.py:218-229`: WAIC, same X per base, 4 folds per spec.
+  - The reference implementation is `discovery/_lgb_fold_cache.py`, used by `_auto_chain.py`.
+- **What**:
+  - Within one base, every spec's tiny model trains on the same X rows per (seed, fold), and only the label differs. `LGBMRegressor.fit` rebuilds the binned `Dataset` each time.
+  - In the rerank that is about 288 LightGBM fits over at most 9 distinct fold matrices per base.
+  - Measured with 10 targets on 13.3k x 60: **7.50 s per-fit vs 5.00 s with one constructed Dataset plus `set_label` (1.50x)**; one Dataset construction takes 133 ms. The auto-chain docstring measured construction at "a quarter" of wall time.
+- **Expected win** (measured on this shape): about 1.3-1.5x on all tiny LightGBM work, which is the dominant rerank cost.
+- **Suggested fix**:
+  - Generalise `LgbFoldCache` into a shared helper keyed by (x identity, fold rows).
+  - In the rerank, restructure so each (base, seed, fold) builds one Dataset and loops specs over it. Use `subset(fit_rows)` for specs whose domain mask removes rows. Keep threads on (base, seed, fold) instead of specs, because `set_label` mutates the Dataset.
+  - Apply the same pattern to the three holdout gates: build the gate's x_fit Dataset once and reuse it for the raw fit and each spec.
+- **Test/benchmark to add**:
+  - A bench of the rerank at 20k x 100 with 32 specs.
+  - A parity test that per-spec RMSEs match the per-fit path to about 1e-12, since LightGBM with the same params and bins is deterministic.
+- **Disposition**: OPEN
+
+### PRF-08 [P2] The `"linear"` screening family refits `SimpleImputer + Ridge` for every spec on the same X; one multi-output solve is 9.4x faster
+
+- **Where**: `discovery/_screening_tiny.py:236-254` (the pipeline), called from `_screening_tiny_perbin.py:282-316` and `_screening_tiny.py:373-399` for each spec x seed x fold.
+- **What**:
+  - `tiny_screening_families` defaults to `("lightgbm", "linear")`, so the rerank also runs about 288 Ridge pipelines. Each one re-imputes and re-factorises the same fold X; only the target column differs.
+  - Measured with 10 targets on 13.3k x 60 (1% NaN): **427 ms per-target vs 45 ms for one multi-output `Pipeline.fit(X, T)` (9.4x)**.
+- **Expected win** (measured): about 9x on the linear-family share of the rerank.
+- **Suggested fix**:
+  - Group specs by (base, seed, fold, fit-row mask). The all-valid-domain specs share one mask, which is the common case.
+  - Fit one imputer and one multi-target Ridge per group, then invert each column with its own transform. Specs with a different domain mask fall back to the per-spec path.
+- **Test/benchmark to add**: a parity test that multi-output Ridge predictions equal per-target predictions to 1e-10, plus a rerank bench with the `"linear"` family only.
+- **Disposition**: OPEN
+
+### PRF-09 [P2] Per-base float and prebinned matrix copies stay alive through the rerank and all later gates, although the default bin path never reads the float values; the lazy prebin path is dead under defaults
+
+- **Where**:
+  - `discovery/_fit.py:409-510`: per-base `np.delete` copies of both `_full_x_matrix` and `_full_x_prebinned`, stored in `_base_contexts`.
+  - `discovery/_fit.py:319`: lazy-prebin gate that requires `not _dedup_x_remaining`.
+  - `discovery/_eval.py:512`: the float copy is read only when `_x_prebinned is None`.
+- **What**:
+  - With the default bin estimator, the base-dropped float32 `x_remaining_matrix` is consumed only by the dedup mask and a `.shape[1]` check. It is still stored in each base context next to its int16 prebinned copy.
+  - These locals and the full matrices stay referenced until `fit` returns, so they are alive during the tiny rerank, the holdout gates, auto-chain and the honest re-score.
+  - Resident extra is about `(bases+1) x n_screen x F x 6 B`; an estimated 1.2 GB at 100k x 500 with 3 bases.
+  - The polars lazy-prebin path, built to avoid the float plane, is gated off whenever `dedup_x_remaining_for_mi_baseline` is on, which is the default. The path is therefore unreachable in default runs.
+- **Expected win** (estimate): about 1 GB lower peak during the most memory-heavy discovery phases at 100k x 500.
+- **Suggested fix**:
+  - After the dedup mask, replace the float copy with the zero-row proxy the lazy path already uses on the bin path.
+  - Use `exclude_col` / a column-index array instead of materialising per-base prebinned copies.
+  - `del _base_contexts, _full_x_matrix, _full_x_prebinned` right after the candidate loop.
+  - With PRF-01, dedup needs only one correlation matrix per target. That matrix can be built one column pair block at a time, which lets the lazy path run together with dedup.
+- **Test/benchmark to add**: extend `bench_lazy_prebin_memory.py` to record RSS at the `transforms_evaluated` and `tiny_model_rerank_done` checkpoints with dedup on.
+- **Disposition**: OPEN
+
+### PRF-10 [P2] The honest-OOF selector, the honest RMSE gate and the y-scale gate each rebuild feature matrices from the frame and refit a raw baseline and each spec on nearly the same screen-to-holdout design
+
+- **Where**:
+  - `discovery/_honest_oof_select.py:71-111`: 30k cap; `x_fit`/`x_eval` built; raw fit plus one fit per spec, up to 32.
+  - `discovery/_honest_rmse_gate.py:95-126`: 20k cap; its own `x_fit`/`x_eval`; raw fit plus one fit per spec.
+  - `discovery/_yscale_holdout_gate.py:324-392`.
+  - Call order in `discovery/_fit.py:700-722`.
+- **What**:
+  - With group ids, honest-OOF has already fit a tiny model per spec on screen rows, predicted the honest holdout, inverted, and scored RMSE against a raw-y baseline.
+  - The honest RMSE gate then repeats the same measurement on a different subsample, with a 20k instead of 30k cap and its own RNG draw. It does this for the surviving specs and refits the raw baseline.
+  - Each of the three gates also gathers two full-feature matrices from the frame.
+- **Expected win** (estimate): 1 raw fit plus up to `top_m_after_tiny=10` spec fits, plus 2 frame gathers, saved per target when groups exist. On non-grouped runs, the shared gather still saves one matrix build per gate.
+- **Suggested fix**:
+  - Use one cap for both honest measurements and cache `{spec.name -> (honest rmse, raw rmse)}` on the instance. The gate reuses the value for any spec already measured.
+  - Keep a per-fit row-index-keyed cache of built feature matrices for the gates.
+  - The DSC-03/DSC-07 correctness discussion about using the holdout for selection is separate; this finding is only about duplicated compute.
+- **Test/benchmark to add**: count tiny-model fits per discovery fit on a grouped fixture, and assert gate verdicts are unchanged when the caps are equal.
+- **Disposition**: OPEN
+
+### PRF-11 [P2] The WAIC tie-break scores every kept spec, although the score is used only inside multi-member RMSE bands
+
+- **Where**:
+  - `discovery/_tiny_rerank.py:930`: call site.
+  - `discovery/_tiny_rerank_waic.py:72-110`: `_waic_for`, run for all specs.
+  - `discovery/_tiny_rerank_waic.py:93`: float64 copy of the base matrix per spec.
+  - `discovery/_tiny_rerank_waic.py:117-128`: band logic.
+- **What**:
+  - `transform_waic_validation_enabled` is on by default. `_apply_waic_tiebreak` runs 4 LightGBM folds per spec, with an extra train-set predict per fold, for up to 32 specs.
+  - The resulting WAIC changes the order only inside bands where RMSEs sit within 2% of each other. Singleton bands, and bands wholly below `top_m_after_tiny`, discard their WAIC.
+  - Each spec also builds its own `np.asarray(x_mat, dtype=np.float64)[valid]` copy of the shared per-base matrix.
+  - The in-code note records the serial version at "73s of a 139s discovery". It is now threaded, but the work is unchanged.
+- **Expected win** (estimate): proportional to the fraction of specs outside multi-member bands. When RMSEs are spread out, most of the WAIC work disappears.
+- **Suggested fix**: compute the bands from `agg_scores` first. Score WAIC only for specs in bands of size at least 2 that intersect the top-`top_m` window. Hoist the float64 conversion to once per base, and reuse the fold Dataset (PRF-07).
+- **Test/benchmark to add**: a test that the final order is identical when WAIC runs only on band members; a bench counting WAIC fits on a spread-RMSE fixture.
+- **Disposition**: OPEN
+
+### PRF-12 [P2] The auto-base permutation null is a serial Python loop over features x 20 permutations
+
+- **Where**: `discovery/_auto_base.py:512-561`.
+- **What**:
+  - `auto_base_null_perms=20` by default. For every usable feature, the code block-shuffles its codes and calls `_mi_from_binned_pair` 20 times, one Python iteration each, on the 100k screen.
+  - The codes are int64.
+  - Measured at 481 µs per (column, permutation) at n=100k: 0.48 s for F=50, an estimated 4.8 s for F=500 per target. All of it runs on one thread.
+- **Expected win** (estimate): about the core count on this step, since (column, permutation) pairs are independent, plus a smaller constant from fusing and int16 codes.
+- **Suggested fix**:
+  - Pre-draw the permutation matrix from `rng_perm` in the same order to keep the null bit-identical.
+  - Run one `@njit(parallel=True)` kernel that prange-iterates columns, gathers each block-shuffled column into a thread-local buffer and builds the joint histogram.
+  - Store codes as int16.
+  - Keep the per-pair NaN fallback path as is.
+- **Test/benchmark to add**: extend `bench_unary_mi_memo.py` or add `bench_auto_base_null_njit.py` for F in {50, 500}, with a bit-identity test of `null_means`/`null_stds` against the loop.
+- **Disposition**: OPEN
+
+### PRF-13 [P2] The composite post-phases re-predict the same models on the same val and test frames several times
+
+- **Where**:
+  - `core/_phase_composite_wrapping.py:258-263`: per-model immediate `wrapper.predict` on val and test.
+  - `core/_phase_composite_post_xt_ensemble/__init__.py:1120`: `_ensemble.predict(val)` and `_ensemble.predict(test)`, which runs every component predict.
+  - `core/_phase_composite_post_moe.py:183-193`: `_ens_model.predict(filtered_val_df)` and `_raw_shim.predict(filtered_val_df)` again.
+  - `core/_phase_composite_post_xt_ensemble/__init__.py:544`: the pre-screen's component predicts on val (see PRF-04).
+- **What**:
+  - Each component's y-scale val prediction is computed once in the per-model hook. It is computed again inside the CT_ENSEMBLE report, and a third time by the MoE gate.
+  - Every one of these calls also re-runs the shim's `pre_pipeline.transform` on the full val frame.
+  - The only existing cache (`_train_pred_cache` / `_build_pred_cache`) covers the train frame only.
+- **Expected win** (estimate): 2 of 3 val predict passes and 1 of 2 test passes per component, per target. On MLP/CatBoost components with large val/test frames, that is minutes per target.
+- **Suggested fix**:
+  - Extend the build-scoped cache to `(id(inner), split_name, frame identity)` for val and test, filled by the per-model hook.
+  - Give the ensemble a `predict_from_component_preds` path, reusing the "gate==deploy" combine helper, so the report and MoE combine cached columns instead of calling `predict`.
+- **Test/benchmark to add**: a mock-counted predict test over one composite target, asserting each (component, split) is predicted once; a wall-time bench on a 3-component fixture.
+- **Disposition**: OPEN
+
+### PRF-14 [P2] The wrap-pass metric block runs four full inner predicts per (entry, split) where one would do
+
+- **Where**: `core/_phase_composite_wrapping.py:518-527` (`predict` and then `predict_pre_clip`), `:651-655` (watchdog universal `_wi_uni.predict`) and `:699-702` (additive watchdog `_wi.predict`). The block runs when `skip_wrap_pass_predict=False`.
+- **What**:
+  - For each wrapped entry and each of train, val and test, the code calls:
+    1. `wrapper.predict(X)`, which runs the inner predict and the inverse.
+    2. `wrapper.predict_pre_clip(X)`, the same inner predict and inverse without the final clip.
+    3. `estimator_.predict(X)` for the universal watchdog.
+    4. `estimator_.predict(X)` again for the additive watchdog, whose result equals the third call.
+  - Train is the largest split. The docstring prices the block at "~5-15 min".
+- **Expected win** (estimate): about 4x on this block when it is enabled.
+- **Suggested fix**:
+  - Call `_predict_unclipped` once, derive the clipped value with the same `np.clip`, and return `t_hat` in `meta`.
+  - Feed that `t_hat` to both watchdog checks.
+  - Keep the watchdog semantics by comparing `inverse(t_hat)` to the wrapper output computed from the same `t_hat`. Alternatively, keep one independent inner predict for the universal check only, if its purpose is to catch wrapper state loss (EST-08 discusses what the watchdog can detect).
+- **Test/benchmark to add**: a mock-counted inner-predict test for `_run_composite_target_wrapping(skip_predict=False)` expecting 1 or 2 predicts per (entry, split) instead of 4.
+- **Disposition**: OPEN
+
+### PRF-15 [P2] Under the supported pandas range, the per-target discovery frame is a full copy of the train frame
+
+- **Where**: `core/_phase_composite_discovery_helpers.py:88-112` (`_build_disc_df_for_target`), called per regression target at `core/_phase_composite_discovery.py:478`.
+- **What**:
+  - For pandas input, the function returns `pd.concat([filtered_train_df[cols_wo_target], target_series], axis=1)`.
+  - `pyproject.toml` pins `pandas>=1.5,<3.0`. There, list-column selection materialises a copy, and `concat` with its default `copy=True` can copy again. That is one or two transient full-frame copies per target just to attach the y column.
+  - Measured on pandas 3.0.3 (Copy-on-Write default): **zero-copy** (5 ms, +5 MB RSS, `shares_memory=True` on a 200 MB frame). I did not measure on pandas 2.x, so the copy is inferred from pandas semantics.
+  - Discovery reads the target only through `_extract_column_array(df, target_col)`.
+- **Expected win** (estimate, pandas 1.5-2.x only): up to 2x the train-frame size in transient RAM per regression target.
+- **Suggested fix**: pass `y` to `CompositeTargetDiscovery.fit` as an array (an optional `y=` argument used instead of `df[target_col]`) and stop injecting the column. Or use `df.copy(deep=False)` plus assigning the new, previously absent column, which does not touch existing blocks.
+- **Test/benchmark to add**: a pandas-2.x CI job running a peak-RSS bench of the discovery phase on a 1M x 200 pandas frame, and asserting the caller's frame is unmodified.
+- **Disposition**: OPEN
+
+### PRF-16 [P2] K-fold OOF re-runs a shared `pre_pipeline.transform` for every component on every fold
+
+- **Where**: `composite/ensemble/__init__.py:558` (K-fold loop), `:306` (external holdout) and `:818` (single split), all through `_transform_pair_via` (`:62-96`).
+- **What**:
+  - Inside each fold, the code calls `pp.transform(X_stack)` and `pp.transform(X_holdout)` separately for every component.
+  - Components that hold the same fitted pre-pipeline object repeat identical transforms over about 160k rows each, at the default `oof_max_train_rows=200_000` and K=5.
+  - I did not confirm how often a suite shares one pre-pipeline object across components. It depends on the per-strategy `pre_pipeline` construction in `_phase_train_one_target_body.py`.
+- **Expected win** (estimate): per fold, `(components sharing a pp - 1) x 2` pipeline transforms. Zero when pipelines are not shared.
+- **Suggested fix**: memoise `_transform_pair_via` results per fold in a dict keyed by `id(pp)`, only for fitted pipelines; unfitted pipelines are fold-fit clones and stay per component. Release the memo at the end of each fold.
+- **Test/benchmark to add**: a test with two components sharing one fitted pipeline that asserts `transform` is called 2 times per fold instead of 4, and that OOF matrices are unchanged.
+- **Disposition**: OPEN
+
+### PRF-17 [P3] Every `fit` computes a full `data_signature` that only `discover_incremental` reads
+
+- **Where**: `discovery/_fit.py:817-823`; `composite/cache.py:158-240`.
+- **What**:
+  - After every discovery fit (and every stability or per-group replicate), `data_signature(df, target_col, feature_cols)` runs. It computes whole-column min/max/null statistics, a head/tail row fingerprint, and a per-column encoded sample of up to `sample_n` rows.
+  - Measured at 200k x 50: **308 ms on polars, 84 ms on pandas**. The polars cost is per column (about 2 ms/column of small `select`/`collect` calls in `encode_polars_slice` and `row_order_fingerprint`), so it is an estimated 1-3 s at 500 columns.
+  - When the disk cache is on, the phase also computes its own signature of the same frame (`core/_phase_composite_discovery.py:533-536`).
+- **Expected win** (estimate): about 1-3 s per target on wide polars frames, plus the duplicate when caching.
+- **Suggested fix**: compute it lazily in `discover_incremental` from the retained `self._df_ref`, or reuse the phase's `_df_sig` when present. Batch the per-column polars sample encodes into one `select`.
+- **Test/benchmark to add**: a test that `discover_incremental` still hits the byte-identical fast path; a bench of `data_signature` at 200k x 500 on polars.
+- **Disposition**: OPEN
+
+### PRF-18 [P3] Auto-base and `fit` build the identical 100k-row screen feature matrix twice
+
+- **Where**: `discovery/_auto_base.py:158-167` and `discovery/_fit.py:225-348`. Both call `_sample_indices(train_idx.size, mi_sample_n, random_state, strategy, y=y_train, n_strata)` and then `_build_feature_matrix(df, usable_features, ...)`.
+- **What**: both sites draw the same sample; `fit` only reorders it by time when `time_ordering` is given. Each then gathers every usable column on those rows from the frame, a polars `gather` per column on a possibly multi-million-row frame.
+- **Expected win** (estimate): one `n_screen x F` gather per target, roughly 1-2 s at 100k x 500 on a large polars frame.
+- **Suggested fix**: have `_auto_base` stash `(train_idx_screen, x_matrix)` on the instance. In `fit`, reuse it by permuting rows with the time order. Mind that `_auto_base` imputes a copy, so stash the pristine matrix.
+- **Test/benchmark to add**: count `_build_feature_matrix` calls per fit.
+- **Disposition**: OPEN
+
+### PRF-19 [P3] Auto-chain upcasts each base's matrix to float64 and copies `x_tr` for every candidate on every fold, even when the fold Dataset is already cached
+
+- **Where**: `discovery/_auto_chain.py:440` (`x_matrix = np.asarray(x_matrix, dtype=np.float64)`) and `:254` (`x_tr, x_va = x_matrix[tr_idx], x_matrix[va_idx]` inside `_y_scale_cv_rmse`).
+- **What**:
+  - Bases run in parallel threads, and each doubles its float32 tiny-sample matrix to float64.
+  - Every one of the roughly 12 candidates then fancy-index-copies both fold slices, although `LgbFoldCache` needs `x_tr` only on its first call per fold.
+- **Expected win** (estimate): half the per-base matrix memory, and about `12 x folds - folds` avoided `x_tr` copies per base.
+- **Suggested fix**: keep float32, since LightGBM bins it anyway. Build `x_va` once per fold and `x_tr` only when the fold cache is cold.
+- **Test/benchmark to add**: a parity test that chain RMSEs are unchanged; an RSS bench at 20k x 400.
+- **Disposition**: OPEN
+
+### PRF-20 [P3] The interaction-base step, on by default, synthesises its columns twice, and its output never becomes a spec
+
+- **Where**: `discovery/_interaction_bases.py:123` (`score_interaction_pairs`) and `:196` (`discover_interaction_bases` calls `generate_interaction_bases` again). Stashed only at `discovery/_opt_in_steps.py:119-155`.
+- **What**: every pairwise product/ratio column over the top-4 bases is generated in the scoring pass and again in the selection pass. The result is stored on `interaction_bases_` for reporting and never re-screened into `specs_`.
+- **Expected win** (estimate): small, about 24 column syntheses plus MI at 100k rows per target.
+- **Suggested fix**: return the synthesised columns from `score_interaction_pairs` and reuse them. Consider gating the step behind a reporting flag until it feeds specs.
+- **Test/benchmark to add**: a test that `generate_interaction_bases` is called once per fit.
+- **Disposition**: OPEN
+
+### PRF-21 [P3] The opt-in bootstrap MI recomputes the same `MI(y, X)` replicates for every transform on a base
+
+- **Where**: `discovery/_eval.py:585-611`.
+- **What**:
+  - The bootstrap RNG is re-seeded per candidate from the fixed `mi_gain_bootstrap_random_state`. For every transform on a base with the same `valid_screen` mask, the `idx_b` draws and therefore the `mi_y_b` replicates are identical, yet each candidate recomputes them.
+  - `_x_prebinned[valid_screen]` is also copied even when the mask is all-true.
+- **Expected win** (estimate): about 2x on bootstrap cost when `mi_gain_bootstrap_n > 0`; off by default.
+- **Suggested fix**: memoise the `mi_y_b` replicate vector in the base context keyed by `hash(valid_screen.tobytes())`, as `_mi_y_compare_memo` already does. Skip the copy when the mask is all-true.
+- **Test/benchmark to add**: a bit-identity test of `mi_gain_lcb` and `bootstrap_p_value` with and without the memo.
+- **Disposition**: OPEN
+
+### PRF-22 [P3] The prebin content cache hashes the screen matrix on every fit but misses across targets
+
+- **Where**: `discovery/screening.py:434-463` (`_prebin_feature_columns_cached`) and `discovery/_fit.py:355-363`.
+- **What**:
+  - Each fit hashes the whole float32 screen matrix, an estimated 0.2-0.4 s at 100k x 500.
+  - The default `mi_sample_strategy="stratified_quantile"` stratifies on each target's own y. Different targets therefore draw different rows, and the cache can only hit when the same target is re-discovered.
+- **Expected win** (estimate): the hash cost per target in multi-target suites.
+- **Suggested fix**: key on `(frame signature, train_idx_screen hash, nbins)`, which is cheap, instead of the matrix bytes. Or skip the lookup when the row set differs from the last put.
+- **Test/benchmark to add**: a counter test on a 3-target suite showing hits/misses; a hash-cost micro-bench.
+- **Disposition**: OPEN
+
+### PRF-23 [P3] Region-adaptive, which is opt-in, fits full-region parameters for every candidate in every region, then keeps only the winner's
+
+- **Where**: `discovery/_region_adaptive.py:199-202` (`_oof_score_transform` returns `tr.fit(y, base)` for each candidate) and `:248-253`.
+- **What**: every candidate refits on the full region after its OOF folds, and every non-winning fit is discarded. The winner-seeding `linear_residual` fit is also done up front.
+- **Expected win** (estimate): `len(candidates) - 1` full-region fits per region. Small.
+- **Suggested fix**: return only the OOF score, then fit the winner once per region.
+- **Test/benchmark to add**: a test that the fitted `RegionAdaptiveSpec` is unchanged.
+- **Disposition**: OPEN
+
+### PRF-24 [P3] The multi-target OOF polars slice converts fold indices to a Python list
+
+- **Where**: `core/_phase_composite_post_xt_ensemble/_phase_composite_post_xt_mtr_oof.py:43-45`.
+- **What**:
+  - `X[idx.tolist()]` builds a Python list of about 160k ints per fold and component slice. Polars row-indexing accepts an integer ndarray directly.
+  - The `hasattr(X, "__getitem__")` guard is always true, so the `filter` fallback is unreachable.
+- **Expected win** (estimate): a few ms per fold. Small, but free.
+- **Suggested fix**: use `X[idx]` (or `X.gather(idx)`) and drop the dead branch.
+- **Test/benchmark to add**: a parity test that the slices are equal.
+- **Disposition**: OPEN

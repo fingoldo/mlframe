@@ -1,0 +1,289 @@
+# Composite targets audit 2026-09-19: direction 6 of 6, TEST QUALITY AND COVERAGE
+
+**Scope**: the test suite that exercises composite targets. That is all 327 `test_*.py` files under `tests/training/composite/` (root plus `cache/`, `discovery/`, `ensemble/`, `estimator/`, `eval/`, `kernels_identity/`, `screening/`, `transforms/`), plus the composite-touching tests outside it: `tests/inference/test_predict_cte_raw_x.py`, `tests/inference/test_predict_ct_ensemble_save_load.py`, `tests/inference/test_lean_vs_nonlean_predict_bit_identity.py`, `tests/inference/test_predict_round_trip_parity.py`, `tests/training/core/test_composite_post_moe_value_report.py`, `tests/training/fuzz/test_fuzz_combo_*.py` and `tests/test_meta/test_config_field_consumption.py`.
+
+**Checkout**: `.claude/worktrees/agent-ab1823c081b446d9e` (origin/master a950f7e47). All file:line references are to that tree.
+
+**Method**: I read CLAUDE.md and the four sibling reports (`transforms.md`, `discovery.md`, `estimator_ensemble.md`, `performance.md`) plus `suite_integration.md`, which landed while I was working. Their "Test to add" items are not repeated here. This report is about the existing tests: whether they can fail, what they lock in, and what their fixtures hide. I read the contract, fuzz, pickle, parity, integration, MoE, ensemble-dropout, honest-holdout, time-awareness, recurrent-transform and biz_val files in full, and grepped the rest by pattern. I ran three small single-process probes (`OMP_NUM_THREADS=2`, `LOKY_MAX_CPU_COUNT=1`) and quote their numbers below:
+1. the registry contract fixture through every transform, measuring median and max round-trip error;
+2. the `test_composite_integration.py` y-scale fixture (one suite run, n=400, `mlframe_models=["linear"]`), predicting through the test's own code path;
+3. a module-to-test reference map, built by tokenising every test file that mentions "composite".
+
+No pytest batch was run.
+
+**Module -> test map (summary)**. The composite package has 172 non-benchmark modules (excluding `__init__.py`). Most have direct or symbol-level test references. The gaps that matter are these:
+- **Selection gates with no direct test.** `discovery/_tiny_rerank_waic.py` (`apply_honest_oof_floor`, `_apply_waic_tiebreak`) has zero test references. `discovery/_filter_and_gate.py` (`filter_sort_and_gate_candidates`) and `discovery/_per_group.py` (`run_per_group_discovery`) have zero direct references. They run only indirectly through `CompositeTargetDiscovery.fit`.
+- **Thin transform coverage.** `transforms/_gaussian_copula.py`, `_second_diff.py`, `_volatility.py`, `_multi_extra.py`, `_rank_ecdf.py` and `_registry_extended.py` have no direct module references. By transform name, `smoothing_spline_residual` appears in no test besides the registry contract. Thirteen transforms are named in exactly one other test file: `asinh_residual`, `asinh_residual_multi`, `causal_anchor_residual`, `centered_ratio`, `chain_linres_cbrt_qn`, `frac_diff_grouped`, `linear_residual_robust`, `monotonic_residual_grouped`, `quantile_residual_grouped`, `rank_ecdf_residual`, `rank_residual`, `rolling_quantile_ratio_centered`, `rolling_quantile_ratio_grouped`. Only `linear_residual` (107 files) and `diff` (102 files) are broadly covered.
+- **Suite level.** Only one test file runs `train_mlframe_models_suite` with composite discovery enabled and then predicts: `test_composite_integration.py`. It uses one fixture, one model family (`linear`), no groups, no timestamps and pandas only. No test saves a composite suite and predicts from disk.
+
+Findings are ordered by severity. A cross-reference like "(EST-01)" means the defect filed in a sibling report that the test in question fails to catch or actively pins.
+
+---
+
+### TST-01 [P1] The suite-level composite tests pass with a composite model that is almost 2x worse than raw y, because every assertion is a range check that the y-clip guarantees
+- **Where**: `tests/training/composite/test_composite_integration.py:168-254` (`test_composite_models_predict_in_y_scale_after_wrap`), `:301-352` (`test_y_scale_metrics_populated_after_wrap`, `assert 0 < train_metrics["RMSE"] < 100`), `:537-604` (`test_composite_dummy_baseline_inverted_to_y_scale`, `0.5 < RMSE < 50`, and `if split not in ys: continue` at `:593`), and `:354-492` (`test_cross_target_ensemble_creates_aggregate_entry`). Wrapper level: `tests/training/composite/transforms/test_composite_y_scale_invariant.py`.
+- **What**:
+  - **The y-scale checks are range checks.** The y-scale test asserts `preds.min() > 0.5*y_min` and `preds.max() < 1.5*y_max` on 5 rows. I ran the test's exact fixture and code path. The entry's `pre_pipeline` is **unfitted**, so `_apply_pre_pipeline_if_fitted` returns the frame unchanged. The "same chain as the suite driver" that the comment describes is never exercised. The wrapped `target-linres-TVT_prev` model gives y-scale RMSE **0.578** over all rows, while the suite's raw-target model reaches 0.301. `suite_integration.md` INT-03 measures T-scale RMSE 0.334 for the same inner. Because `linear_residual` is additive, the y-scale and T-scale RMSE must be equal. The test passes anyway: y spans [-1.56, 18.76], so the bounds are about [-0.78, 28.1]. `test_y_scale_metrics_populated_after_wrap` accepts any RMSE in (0, 100). The dummy test accepts any RMSE in (0.5, 50), and silently checks nothing if a split is missing.
+  - **The wrapper-level invariant does not reach the suite.** `test_composite_y_scale_invariant.py` pins "y-MAE == T-MAE within 1e-6" at the wrapper boundary. Its own docstring says "the production symptom must therefore live in the entry-mutation / cached-prediction layer above `_run_composite_target_wrapping`". No test checks that invariant on the suite's recorded `composite_target_y_scale_metrics` (INT-03).
+  - **Degraded ensemble outcomes pass.** The same probe run logged `dummy-floor gate fired: dropping 2/3 component(s)`: the linres component's OOF RMSE was 9.752 against a median dummy at 2.971, while the same model predicts at 0.578 directly. It also logged `[CompositeValueReport] ... report build failed (len() of unsized object); continuing.` The ensemble test deliberately accepts either "weights + component_names" or the `single_best_fallback` marker (`:477-492`), so a run where every composite component was dropped by an OOF surface that disagrees 17x with direct prediction still passes. No test asserts that the value report builds.
+  - **Entry points are never called.** No test calls `predict_from_models` / `predict_mlframe_models_suite` on a composite suite. In INT-03(a) the former drops the composite model with an error log.
+- **Why it matters**: the P0/P1 suite defects (EST-01, INT-01, INT-03, EST-05, EST-11) all pass the only end-to-end composite tests. A 2x-worse composite, an ensemble that falls back because of a broken OOF surface, and a report that crashes all stay green.
+- **Suggested fix**: rewrite `TestCompositeIntegration` around one module-scoped suite run (see TST-17) with discriminating contracts:
+  - (a) for every additive composite key, `|RMSE_y(recorded) - RMSE_T(inner)| < 1e-6` on train/val/test;
+  - (b) each composite's y-scale val RMSE is at most 1.2x the raw target model's val RMSE on this fixture, where `linear_residual` is the true DGP;
+  - (c) `predict_from_models(df, models, metadata)` returns a finite prediction for every composite key, equal to `wrapper.predict` on the correctly staged frame;
+  - (d) assert `ens_meta["strategy"] != "single_best_fallback"` on this fixture, and that no component's OOF RMSE exceeds 2x its direct holdout RMSE;
+  - (e) `caplog` has no "report build failed" record.
+
+  Parametrise over `mlframe_models=["linear", "lgb"]`, so that at least one family with a fitted scaler pre_pipeline and one without are both covered.
+- **Disposition**: OPEN
+
+### TST-02 [P1] No test round-trips a real composite suite or ensemble through disk or a fresh process; the persistence tests use surrogates
+- **Where**:
+  - `tests/inference/test_predict_ct_ensemble_save_load.py:24-60`: `_save_threads_zero` replaces `save_mlframe_model`, and a `DummyRegressor(constant=7.5)` stands in for the ensemble inside a hand-built ctx.
+  - `tests/inference/test_predict_round_trip_parity.py:83,147,223`: `CompositeTargetDiscoveryConfig(enabled=False)` in all three suites.
+  - `tests/training/composite/estimator/test_composite_estimator_pickle_roundtrip.py:90-96`: 5 of 51 transforms, all built through `.fit()`, all in-process.
+  - `tests/training/composite/ensemble/test_composite_stackers_unit.py:234`: in-process pickle only.
+  - `tests/training/fuzz/test_fuzz_combo_axes.py:103-109` and `test_fuzz_combo_cross_axis.py:103-116`: assert only that the combo flag survives canonicalisation.
+- **What**:
+  - **Stub context hides the ordering bug.** The CT-ensemble persister test builds a ctx that already holds a CT entry, so it cannot see that `finalize_suite` runs before post-processing creates the entry (INT-02).
+  - **The persisted object is never a real composite model.** It is never a `CompositeCrossTargetEnsemble`, a `CompositeTargetEstimator` or a `_MoEGatedDeployableModel`. Whether `_SafeUnpickler` accepts those classes is untested.
+  - **The on-disk suite is never checked.** The suite round-trip test disables composites. So the on-disk `.dump` being the unwrapped inner (INT-01, P0) passes the whole suite.
+  - **Every pickle test stays in-process.** A wrapper whose transform is an auto-chain `chain_*` name (INT-05) or a runtime-registered transform always resolves there.
+  - **Pickle coverage is narrow.** It covers `linear_residual`, `ratio`, `ewma_residual`, `signed_power_y` and `linear_residual_grouped`. It skips every params-heavy transform (`monotonic_residual` knots, `quantile_normal_y` knots, `seasonal_residual` phase means, `rank_residual` arrays, `target_encoding_residual` tables) and the `from_fitted_inner` construction that the suite actually uses.
+- **Why it matters**: the deployed artefact is what users serve. Every persistence defect in `suite_integration.md` (INT-01, INT-02, INT-05) is invisible to the suite as written.
+- **Suggested fix**:
+  - (1) A composite-on variant of `test_predict_round_trip_parity.py`: train with `CompositeTargetDiscoveryConfig(enabled=True)` on the TVT fixture, save, then call `predict_mlframe_models_suite(models_path)`. Assert that every composite key's prediction equals the in-memory wrapper's output (`assert_allclose`, rtol 1e-9) and has y-scale mean/std. Also assert that `_CT_ENSEMBLE__target/CT_ENSEMBLE.dump` exists.
+  - (2) Parametrise the pickle round-trip over all of `list_transforms()` using the TST-03 contract fixture, for both `.fit()` and `from_fitted_inner` construction.
+  - (3) Add a subprocess test that `dill`-loads a wrapper with an auto-chain transform and predicts.
+- **Disposition**: OPEN
+
+### TST-03 [P1] The per-transform registry contract test cannot detect the transform defects: one benign fixture, median error, exact-T round trip on train bases only, and a tolerance table up to 1e9x looser than the measured error
+- **Where**: `tests/training/composite/transforms/test_composite_transforms_registry_contract.py:30-33` (fixture `_BASE = linspace(1,10,200)`, `_Y = 0.5*base + 1 + 0.1*noise`), `:42-92` (`_TRANSFORM_RTOL`), `:165-184` (round trip: `err = np.median(...)`).
+- **What**: I ran the fixture through all 51 registered transforms:
+  - **Every transform round-trips to ULP.** The max error is at most 5.3e-15, except `y_quantile_clip` at 1.5e-2, which clips by design.
+  - **The tolerance table is stale.** It still says "binned IQR division, lossy" (`quantile_residual`, 1.0), "PCHIP interpolation" (`monotonic_residual`, 0.5), "ECDF knot + tail eps-clip loss" (`gaussian_copula_residual`, 0.5) and so on for 15 transforms with tolerances of 0.5 to 1.0. That is up to about 1e15x the measured error. The median |y - mean(y)| of this fixture is 1.08, so a tolerance of 1.0 accepts an inverse that is nearly a constant.
+  - **The median metric masks isolated failures.** A median-of-errors check passes even when up to half the rows are wrong. TRF-06 is exactly that shape: only tail rows (continuous y) or one level (discrete y) fail.
+  - **The round trip is too easy.** It inverts the exact forward `T` on the training bases, so any defect that appears only with a perturbed `T_hat` or an unseen base cannot fire: TRF-01, TRF-02, TRF-04, TRF-05 and TRF-12.
+  - **The fixture is too narrow.** It has n=200, positive, unit scale and continuous values, with int groups and no ties or missing values. It hides every scale-dependent (TRF-01, TRF-08, TRF-09, TRF-18), size-dependent (TRF-03), tie-dependent (TRF-06, TRF-16) and missing-group (TRF-10) defect.
+  - **Multi-base transforms get a 1-D base.** This silently exercises TRF-13's degenerate path as if it were valid.
+  - **Four transforms are missing from the table** (`causal_anchor_residual`, `rank_ecdf_residual`, `second_diff`, `target_encoding_residual`) and fall to the 1e-6 default. That shows the table is not maintained against the registry.
+- **Why it matters**: this file is the registry's only all-transform unit gate (its docstring says so), and `transforms.md` notes that every one of its defects passes it. It costs 286 s in `.test_durations`, yet it can only fail on a crash or a gross algebra error.
+- **Suggested fix**:
+  - Replace the median with `max` absolute error. Replace the per-name table with one tolerance, `1e-9 * max(1, max|y|)`. Keep explicit, documented exceptions only for transforms that are lossy by definition (`y_quantile_clip`, `median_residual`), and assert their loss bound.
+  - Parametrise the fixture over: scale `{1e-3, 1, 1e3, 1e6}`; offset base `c + N(0,1)` with `c in {0, 1e4}`; n `{50, 300, 5000}`; discrete y (binary and 5-level); negative and zero-crossing y where the domain allows; a group column with `None`/`NaN`.
+  - Add three legs:
+    - (a) inverse of `forward(y) + delta` for a small `delta`, checked against a per-transform Lipschitz bound (catches TRF-04's 9.75x gain);
+    - (b) inverse on a held-out base 5% outside the train range, which must stay finite and keep the sign of the train y (TRF-02);
+    - (c) exact round trip for `T` computed on a second, disjoint batch (catches batch-dependent state; see TST-05).
+  - Add a guard test that `set(_TRANSFORM_RTOL) == set(TRANSFORMS_REGISTRY)`, or delete the table.
+- **Disposition**: OPEN
+
+### TST-04 [P1] Seven tests pin behaviour that the sibling reports show is wrong, so fixing those defects turns the suite red
+- **Where / What** (each test asserts the defective output as the contract):
+  - **DSC-01**: `tests/training/composite/discovery/test_biz_val_grouped_causal_bases.py:151-157` `test_single_row_group_fills_own_value` asserts that the engineered lag, trailing mean and expanding mean of a one-row group equal that row's own `y` (5.0). That is the target-into-base leak.
+  - **EST-02**: `tests/training/composite/test_biz_val_moe_gate.py:71-82` `test_global_fallback_for_unseen_group_is_lag` asserts `global_choice_ == "lag"` and that an unseen group gets the lag prediction. In its own fixture the composite has pooled RMSE 0.35 against lag's 0.71, so the pinned fallback is the worse expert.
+  - **EST-03**: `tests/training/composite/ensemble/test_composite_ensemble_linear_stack_dropout.py:60-86` and `:89-121` assert that a dropped component leaves `w_surv @ p_surv + intercept` un-renormalised. The second docstring concedes it "does not perfectly reconstruct y". `tests/training/composite/test_composite_medium_findings.py:86-123` (`test_m2_dropout_predict_is_deterministic_no_refit`) pins `nnls_stack` dropout to the raw surviving weights: weights `[0.5, 0.25, 0.5]` give an expected 2.0, while EST-03's rescaling gives 2.5.
+  - **EST-09**: `tests/training/composite/estimator/test_biz_val_soft_base_shrink.py:355-373` `test_from_fitted_inner_has_no_range_and_is_noop` asserts that the default-ON soft shrink is inert (`n_shrunk == 0`) on a base of 80 for every `from_fitted_inner` wrapper, which is the path the suite uses.
+  - **TRF-13**: `tests/training/composite/transforms/test_biz_val_second_diff.py:81` `test_second_diff_one_d_base_degenerates_to_single_lag` asserts `T = y - 2*b1` for a 1-D base as valid behaviour.
+  - **TRF-06**: `test_composite_transforms_registry_contract.py:91` sets `gaussian_copula_residual` at tolerance 0.5 with the comment "tail eps-clip loss". It pins the lossy clip as expected, not as a defect.
+  - **INT-15**: `tests/test_meta/test_config_field_consumption.py:80-81` allowlists `force_inject_diff_on_top_ablation_pct` and `structural_fragility_max_amplification_ratio` as intentionally unconsumed, while the config comments tell users how to enable them.
+- **Why it matters**: these tests make the defects look intended. Whoever fixes a defect meets a red test that claims the old behaviour is the contract. Under the repo's own rule (reframe stale tests, don't relax) each one must be rewritten with the fix, and the reviewer has to know that up front.
+- **Suggested fix**: rewrite each one in the same change as its fix:
+  - DSC-01: a one-row group's engineered base is NaN / the global fallback, never `y`.
+  - EST-02: an unseen group gets the pooled-best expert (composite in this fixture).
+  - EST-03: prediction mean within 5% of the surviving components' renormalised blend, and the log text matches the branch.
+  - EST-09: a `from_fitted_inner` wrapper given a train base range shrinks deep-OOD rows (`n_shrunk > 0`).
+  - TRF-13: 1-D base raises or equals `y - b1`.
+  - TRF-06: exact recovery of every level.
+  - INT-15: remove the allowlist entries and assert a warning on a non-default value.
+- **Disposition**: OPEN
+
+### TST-05 [P1] No test checks that predict is independent of how rows are batched, and the recurrent-transform tests invert over the full series, which hides every batch-state defect
+- **Where**:
+  - `tests/training/composite/test_composite_edge_hardening.py:283-298` (`test_single_row_predict`: shape and finiteness only, and only `diff`, `linear_residual`, `logratio`, `ratio`).
+  - `tests/training/composite/estimator/test_composite_estimator_fuzz_metamorphic.py:310-324` (the row-duplication invariant for `linear_residual` only).
+  - `tests/training/composite/transforms/test_biz_val_t_batch_transforms.py:77-107` (`test_biz_val_volatility_normalized_beats_plain_ewma_on_regime_switch`: `t.forward(y, base, p)` and `t.inverse(T_hat_te, base, p)` run over the full train+test series, then the test rows are masked).
+  - `tests/training/composite/transforms/test_composite_ewma_rolling_frac.py:170-195` (frac-diff round trips on the exact `T`).
+  - `tests/training/composite/transforms/test_transforms_t_batch.py:303-313` (seasonal: fit and forward on one batch starting at phase 0).
+- **What**:
+  - **No value-equality check exists.** No test compares `predict(X)[i]` with `predict(X.iloc[[i]])` or with a chunked predict for any transform.
+  - **The one single-row test is weak.** It uses only pointwise transforms and does not compare values.
+  - **The recurrent biz test avoids the cold start.** The volatility/EWMA biz test gives the inverse the warm-up history from the training rows. The wrapper never does that at predict time, so the cold start of TRF-05 (up to 11.94 y-units) cannot appear.
+  - **The frac-diff tests invert the exact forward.** The 9.75x bias gain of TRF-04 needs a perturbed `T_hat`.
+  - **The seasonal test never predicts a continuation.** A later batch starting at phase 0 (TRF-12) is never tested.
+  - **No NaN base in a batch.** No test injects one NaN base into a batch for a recurrent transform, which is where EST-04 corrupts the next ~k rows.
+- **Why it matters**: online, micro-batch and chunked scoring are normal serving modes. TRF-04, TRF-05, TRF-12 and EST-04 all produce silently different predictions for the same row depending on its neighbours in the batch, and no test in the suite can observe that.
+- **Suggested fix**:
+  - Add a property test parametrised over `list_transforms()` through `CompositeTargetEstimator`. Fit, predict a 200-row continuation as one batch, then predict it again as 1-row, 7-row and 50-row chunks.
+  - For pointwise transforms (`recurrent=False`), assert bit-equality.
+  - For `recurrent=True` transforms, assert equality when `recurrence_continuation` plus a warm-up prefix is supplied (once TRF-05's fix lands). Until then, pin the measured skew under a name that says it is a known defect, not a contract.
+  - Add a NaN-base variant: every row except the NaN row equals the carry-forward semantics (EST-04).
+  - Change the recurrent biz tests to fit on the train rows and invert only the test batch, as the wrapper does.
+- **Disposition**: OPEN
+
+### TST-06 [P2] The discovery time-awareness tests shuffle rows correctly but assert only the `_screen_time_ordered_` flag, which is the one thing the sort changes
+- **Where**: `tests/training/composite/test_composite_time_awareness.py:50-60` (`test_time_ordering_sets_screen_flag_and_sorts`) and `tests/training/composite/test_composite_time_series_wiring.py:43-77` (`test_time_series_discovery_runs_clean_on_temporal_frame`, which also asserts `isinstance(disc.specs_, list)`).
+- **What**: both fixtures shuffle an AR(1) frame and pass `time_ordering`, which is the right setup. The only assertion is that the flag is True. DSC-05 shows that the flag is the only effect of the sort: the tiny-rerank `TimeSeriesSplit`, multi-base stepwise and the alpha-drift halves all run in row-position order. The test named "..._and_sorts" never checks any sort. The second test also runs the recurrent TS transforms on shuffled rows and accepts any spec list, including specs chosen by EWMA/frac-diff over a scrambled sequence.
+- **Why it matters**: the tests certify leakage protection that does not exist (DSC-05, P1).
+- **Suggested fix**: spy on the CV splitter (monkeypatch `_tiny_cv_rmse_y_scale`, or the `cv_splitter` argument) and assert that every fold's train rows precede its validation rows in `ts`. Assert that the alpha-drift halves are the time halves. Assert that recurrent specs are fitted on time-sorted `y` (compare `fitted_params_["tail_anchor"]` with the value fitted on the sorted frame).
+- **Disposition**: OPEN
+
+### TST-07 [P2] The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04
+- **Where**:
+  - `tests/training/composite/eval/test_eval_perfold_refit.py:118-163` (`_cv_heldout_rmse` harness) and `:170-226` (`test_biz_val_perfold_refit_removes_global_fit_optimism`).
+  - `tests/training/composite/discovery/test_biz_val_discovery_honest_holdout.py:56-81` (`_make_config` with `screening="mi"`, `require_beats_raw_baseline=False`) and `:104-153`.
+- **What**:
+  - **Per-fold refit.** The biz test calls `refit_transform_on_fold` from its own CV loop. Its docstring says "a regression that drops the per-fold refit (reverting to global params) collapses the gap ... and fails". But production (`_tiny_cv_rmse_y_scale`) has never called the function (DSC-04). The test is green, and the leak it claims to guard is live on the default path.
+  - **Honest holdout path.** The test runs `screening="mi"` with `group_ids` absent. So the honest-OOF rank, the honest floor and the group-aware selection that reuse the holdout (DSC-03) are not the path under test.
+  - **Honest holdout assertions.** Two of its checks are non-discriminating: `abs(mean_honest) < 0.01` and `mean_inscreen >= 0.0`. The test's own measured means are +0.0016 (in-screen) and +0.0002 (honest), so an "honest" value equal to the in-screen value would also pass the `< 0.01` check. Only the `0.6x` ratio and the 8/10 majority checks carry signal.
+  - **No fresh-row reference.** Neither test compares the exported honest number against rows the discovery never saw.
+- **Why it matters**: the two P1 discovery-honesty defects are covered by tests that read as though they guard them.
+- **Suggested fix**:
+  - (1) Drive `_tiny_cv_rmse_y_scale` itself with the degree-13 poly transform from this file. Assert its RMSE equals the per-fold-refit harness and not the global-fit number (the DSC-04 "test to add" belongs in this file, replacing the harness biz test).
+  - (2) Add a default-config variant (`screening="hybrid"`, with group ids) that compares the mean exported `honest_holdout_rmse_gain` against the gain on freshly drawn rows from the same DGP.
+  - (3) Delete the two non-discriminating asserts.
+- **Disposition**: OPEN
+
+### TST-08 [P2] Group handling is tested only with clean string/int labels on row-random splits, and the unseen-group tests assert only finiteness
+- **Where**:
+  - `tests/training/composite/test_composite_edge_hardening.py:114-126` (`test_unseen_group_falls_back_global_finite`) and `:301-315`.
+  - `tests/training/composite/test_biz_val_moe_gate.py:205-257` (`_make_split_synthetic` uses `idx = rng.permutation(...)`, so every holdout group is also a selection group).
+  - `test_composite_transforms_registry_contract.py:33` (`_GROUPS` int64).
+- **What**:
+  - **Unseen-group tests are too weak.** They check `np.isfinite` only. A fallback that returns garbage, or the wrong group's coefficients, passes. They never compare the unseen rows with the global alpha/beta inverse.
+  - **The MoE "held-out" biz test has no unseen groups.** Its split is row-random, so the unseen-group path, which on a group-disjoint split routes every row to lag (EST-02), never runs in it.
+  - **No missing group labels.** No composite transform or estimator test passes a group column with `None` or `NaN` mixed with strings, which is where TRF-10 raises `TypeError` in five places. The only missing-label tests are in discovery splitters (`test_discovery_group_aware_splitter.py`) and conformal Mondrian (`test_training_composite_loose_b_fixes.py:394`).
+  - **No grouped suite or discovery run.** No suite-level test runs discovery with `group_column` set, which would catch DSC-02: specs whose `__gcausal_*` base columns do not exist downstream. No discovery test lists a `*_grouped` transform in `transforms`, which would catch INT-09.
+- **Why it matters**: grouped panels are a primary composite use case, and three P1/P2 defects (DSC-02, EST-02, TRF-10) plus INT-09 live exactly in these gaps.
+- **Suggested fix**:
+  - (1) In the unseen-group tests, assert that the unseen rows equal `inverse(T_hat, base, global params)` to 1e-12.
+  - (2) Add a group-disjoint variant of the MoE biz test: fit on groups 0-9, predict on 100-109, and assert the gated RMSE is at most 1.02x the pooled-best expert.
+  - (3) Add a `groups=["a", None, "b", np.nan, "a"]` case to every `requires_groups` transform in the contract test.
+  - (4) Add a discovery test with `group_column` plus `transforms=[..., "quantile_residual_grouped"]`. Assert the result is a per-candidate rejection and not a whole-fit failure, and that every exported spec's `base_column` exists in the train split frame.
+- **Disposition**: OPEN
+
+### TST-09 [P2] Polars coverage is limited to four pointwise transforms and a monotone-time OOF case, which hides the polars row-misalignment bug
+- **Where**:
+  - `tests/training/composite/test_composite_edge_hardening.py:94,247-275` (`_PARITY_TRANSFORMS = ["diff", "linear_residual", "logratio", "ratio"]`).
+  - `tests/training/composite/test_oof_polars_timeseries_holdout_idx.py:27-66` (`time_ordering = np.arange(n)`, monotone).
+  - `tests/training/composite/test_composite.py:717-735` (`test_polars_to_pandas_then_fit_works` converts to pandas before fit, so polars is never exercised).
+- **What**:
+  - **Few composite files touch polars.** 19 of the 327 composite test files mention polars at all.
+  - **The only polars OOF parity test uses already-sorted time.** EST-07's `filter(mask)` misalignment appears only when `time_ordering` is not monotone.
+  - **Transform parity is narrow.** Pandas/polars parity covers no grouped, multi-base, recurrent or unary transform, and no `group_column` extraction from a polars frame (`_extract_groups`).
+  - **No suite-level composite run uses polars.**
+- **Why it matters**: polars is the stated first-class carrier. EST-07 (P2) passes the dedicated polars OOF test by construction.
+- **Suggested fix**:
+  - (1) Parametrise `test_oof_polars_timeseries_holdout_idx.py` over `time_ordering in {monotone, reversed, shuffled}` and `oof_holdout_source in {"kfold", "train_tail", "external_val"}`, using an identity component, and assert `max|pred - y| == 0`.
+  - (2) Extend `_PARITY_TRANSFORMS` to one transform per family: `linear_residual_grouped` with a polars `group_column`, `linear_residual_multi`, `ewma_residual`, `cbrt_y`, `target_encoding_residual`.
+  - (3) Delete or rename the pandas-conversion test, which tests nothing about polars.
+- **Disposition**: OPEN
+
+### TST-10 [P2] The CTE fuzz suite asserts only finiteness and a y-envelope that the post-inverse clip guarantees, on small-scale data, and states "found NO production bug"
+- **Where**: `tests/training/composite/estimator/test_composite_estimator_fuzz_metamorphic.py:1-36` (docstring), `:69-73` (`_MULTI_BASE`), `:128-175` (data factory), `:188-246` (`test_fuzz_batch`), `:248-265`.
+- **What**:
+  - **The envelope assert holds by construction.** `predict` clips to `[y_clip_low, y_clip_high]` = `[q001 - 0.9*span, q999 + 8*span]` (`estimator/__init__.py:40-61`). In my integration probe the fitted envelope was [-17.2, 186.6] for y in [-1.56, 18.76]. The fuzz assertion "prediction inside the envelope" therefore holds even when the inverse is wrong: TRF-01's constant collapse, TRF-02's negative sign flip and TRF-09's poor quadratic fit all end up finite and clipped.
+  - **The data is small-scale.** Bases are `N(2, 1.5)` or `U(0.5, 5)` with y about 1.3*base. That is the one scale where TRF-01 and TRF-08 are silent.
+  - **Some multi-base transforms get a 1-D base.** `_MULTI_BASE` omits `second_diff`, `asinh_residual_multi` and `linear_residual_multi_robust`, so they are fuzzed with a single base (the TRF-13 degenerate path).
+  - **There is no accuracy check.** Nothing compares fuzz output with a baseline (for example, the wrapper must not be worse than the fallback median on in-distribution rows).
+  - **The cost.** The six batches cost about 195 s per run.
+- **Why it matters**: 300 random configs give the suite a large-looking safety net whose only failure modes are a crash or NaN. The docstring's "found NO production bug" is a statement about the assertions, not the code.
+- **Suggested fix**:
+  - Add an accuracy oracle per config: on the training rows, with a perfect inner (`_OracleInner` returning the exact `forward(y)`), the wrapper must reproduce `y` to `1e-6*max|y|` for every lossless transform. This one change would have caught TRF-01, TRF-02 (with a predict base below the train min) and TRF-09.
+  - Draw the base scale log-uniformly from `[1e-3, 1e6]` and include an offset base.
+  - Derive the multi-base set from the registry (`n_bases` or signature), as `_GROUPED` already is.
+  - Drop the batch count to 3 once the oracle carries the signal.
+- **Disposition**: OPEN
+
+### TST-11 [P2] Several biz_val tests have no honest baseline, compare against a baseline starved of the base column, or assert only "not worse"
+- **Where / What**:
+  - `tests/training/composite/transforms/test_biz_val_t_batch_transforms.py:50-74` and `:77-107`: the raw-y baseline is `_ridge_1d(f[tr], y[tr], f[te])`, a model **without** the base/lag column that the composite gets. "grouped EWMA <= 0.05x raw-y" (measured 2.6 against 630) mostly measures access to the base, not the transform's value. An honest baseline is the same inner fitted on raw y with `base` (and `groups`) as features.
+  - `tests/training/composite/test_composite_business_value_locks.py:259-335` (`test_nnls_stack_beats_best_single`): stack weights are fit on **in-sample** LGBM train predictions (`train_preds` from the model fitted on those rows), not OOF. The lock is `nnls_rmse < best_single * 1.015`, which is "not more than 1.5% worse", under a test named "beats". It also bypasses `ens.predict` (`test_mat @ nnls_ens.weights`).
+  - `tests/training/composite/discovery/test_biz_val_training_composite_discovery.py:99-114`, `:117-122`, `:177-191`, `:199-225`: four `test_biz_val_*` tests assert only `isinstance(specs, list)` and `drops is None or isinstance(drops, (list, dict))`. `test_biz_val_composite_discovery_fallback_raw_on_pure_noise` never checks that no spec is emitted on pure noise.
+  - `tests/training/composite/transforms/test_biz_val_composite_transforms.py:86-160`: the "biz_val" tests are exact round trips of `diff`, `linear_residual` and `ratio`, with no baseline and no downstream model.
+  - `tests/training/composite/transforms/test_composite_ewma_rolling_frac.py:86-106` and `test_composite_monotonic_residual.py:148-167`: the win is `var(T_a) < var(T_b)`, measured in-sample in T space. It is not held-out y-scale error against raw y.
+- **Why it matters**: the repo rule is that every feature has a biz_value test with a measurable synthetic win against an honest baseline. These tests pass for any transform that is not a regression against a strawman, and several cannot fail at all.
+- **Suggested fix**:
+  - For each file, make the baseline "same inner model on raw y with the base column(s) as features". Measure held-out y-scale RMSE, and set the threshold from the measured ratio with the file's usual margin.
+  - For NNLS, fit weights on K-fold OOF predictions and assert a strict win (`< 0.99x`) on a DGP with decorrelated component errors, or rename the test to "does not lose".
+  - Rename the `runs_clean` tests to smoke tests. In the pure-noise test, assert `specs == []`.
+- **Disposition**: OPEN
+
+### TST-12 [P2] Targeted transform and ensemble tests use the one parameter region where the filed defect is silent
+- **Where / What**:
+  - **TRF-03**: `tests/training/composite/transforms/test_composite_monotonic_residual.py:29-50` and `:148-167` use n=2000 and n=1500. The edge-knot flattening happens below about 660 rows (and in nearly every per-group fit).
+  - **TRF-11**: `tests/training/composite/transforms/test_transforms_t_batch.py:303-313` uses period 7. No other candidate period (4, 5, 12, 24, 52) is a multiple of 7, so this is the one grid period that cannot lose to a nested multiple. No test fits pure noise.
+  - **TRF-02**: `tests/training/composite/estimator/test_domain_check_fitted.py:104-120` and `:177-211` test only `base == -c` exactly (inside the eps band). A base a few percent below the train minimum (`base + c < 0`, the sign flip) is never tested. The quantile tests never use `centered_ratio` or `rolling_quantile_ratio`, and no test asserts non-crossing across alphas for any transform (EST-10). In `tests/training/composite/test_composite_edge_hardening.py:266-275` the quantile parity uses `diff` and `linear_residual`, and the quantile tests overall cover 13 transform names.
+  - **EST-06**: `tests/training/composite/test_composite_polish.py:127-161` checks only `component_names` after `cap_inference_components`, and only under `oof_weighted` / `mean`. It never checks predictions, and never checks the non-convex `nnls_stack` / `linear_stack`, where the cap biases every row.
+  - **EST-05**: no test builds a pool of noise components and checks that the "honest OOF gate" ever falls back, so a gate that cannot fire by construction stays green.
+- **Why it matters**: each test reads as coverage of the component that has the defect.
+- **Suggested fix**: add the sibling reports' "Test to add" items to these existing files rather than new ones: n in {300, 500} for monotonic; noise and period-12 for seasonal; base below the train min, plus a generic `np.all(np.diff(q, axis=1) >= 0)` over all transforms, for `predict_quantile`; capped-prediction mean within 2% for NNLS; a 1-good plus 20-noise pool for the OOF gate.
+- **Disposition**: OPEN
+
+### TST-13 [P2] Data-dependent skips and conditional asserts let tests pass without checking anything
+- **Where**:
+  - `tests/training/composite/test_composite_business_value_locks.py:186-194`: `pytest.skip("OFF false-positive rate ... too low")`.
+  - `tests/training/composite/discovery/test_composite_x_feature_selection.py:293-294` and `:385-386`: skip when MRMR drops `base`. This file costs 395 s.
+  - `tests/training/composite/discovery/test_stacked_discovery_fixes.py:319-323`: `if residual_specs: assert ... else: pytest.skip(...)`.
+  - `tests/training/composite/ensemble/test_composite_ensemble_failed_component.py:186-190`: `if _names is not None: assert "raw#2" not in ...`.
+  - `tests/training/composite/test_composite_integration.py:593`: `if split not in ys: continue`.
+  - `tests/training/composite/discovery/test_biz_val_composite_improvements.py:294-295` and `:361-362`: skip under xdist.
+- **What**: all fixtures are seeded, so each skip is deterministic. The test either always runs or always skips on a given library version. A change in MRMR, discovery gating or the dummy-floor gate can turn a checked assertion into a permanent skip or no-op, and CI reports it as passing or skipped, not failing. The stacked and failed-component guards are exactly the code paths under test: "no residual specs" and "ensemble collapsed to a non-ensemble" are outcomes the test should fail on, or at least pin.
+- **Why it matters**: this is the "documented skip hides a real bug" pattern. The suite cannot distinguish "feature works" from "feature path no longer reached".
+- **Suggested fix**:
+  - Replace each skip with an assertion on the precondition, so the fixture must reach the path, and tune the seed or DGP until it does.
+  - For MRMR, force-keep `base` (or pass the selected columns plus `base` explicitly).
+  - For the xdist cases, use the existing `no_xdist` marker alone and drop the runtime skip.
+- **Disposition**: OPEN
+
+### TST-14 [P2] The selection-gate modules with the most leverage have no direct tests, and the cache-key tests check only the key function's own arguments
+- **Where**:
+  - `src/mlframe/training/composite/discovery/_tiny_rerank_waic.py` (`apply_honest_oof_floor`, `_apply_waic_tiebreak`: zero test references).
+  - `discovery/_filter_and_gate.py` (`filter_sort_and_gate_candidates`: zero direct references).
+  - `discovery/_per_group.py` (`run_per_group_discovery`: zero direct references).
+  - `discovery/_fit_helpers.py` (`maybe_boost_mi_strata_for_heavy_tail`, `no_base_candidates_report_entry`: zero).
+  - `tests/training/composite/discovery/test_composite_discovery_cache.py:86-95` (`test_different_inputs_different_keys` varies only the five arguments of `make_discovery_cache_key`).
+- **What**:
+  - **Gate modules are covered only indirectly.** The honest-OOF floor is one of the three DSC-03 selection sites. The WAIC tie-break is DSC-10. Both run only inside end-to-end `fit` calls whose assertions are about other things. So a scale mismatch (DSC-10) or a NaN pass-through (DSC-09) inside them has no unit that could catch it.
+  - **The cache tests cannot detect a missing key input.** They prove that different arguments give different keys. They cannot show that an input which changes discovery's result is missing from the key (`group_ids`, `time_ordering` values, `val_df`/`val_y`, hint strengths; DSC-12).
+- **Why it matters**: the gates decide which composite targets exist. Untested ranking and floor code is where scale and NaN defects hide.
+- **Suggested fix**:
+  - Unit-test `apply_honest_oof_floor` and `_apply_waic_tiebreak` directly with hand-built score dicts. Cover NaN scores, `y` versus `a*y` equivalent transforms (DSC-10) and ties.
+  - Unit-test `filter_sort_and_gate_candidates` with a candidate whose gate raises (DSC-09: it must be rejected, not kept).
+  - For the cache, add a completeness test at the phase level: run `_phase_composite_discovery`'s key builder twice with identical data and config but different `group_ids`, then different `val` frames, and assert that the keys differ.
+- **Disposition**: OPEN
+
+### TST-15 [P2] Composite tests check the CTE-raw-X routing by inspecting source text, and the behavioural half fits the inner on raw features, so it cannot see EST-01
+- **Where**:
+  - `tests/inference/test_predict_cte_raw_x.py:25-42` (`test_predict_module_has_cte_raw_x_dispatch` greps five source files for the strings "CompositeTargetEstimator" and "_primary_for_model") and `:45-...` (the behavioural test fits `Ridge` on the raw `X_df`).
+  - Also `tests/training/composite/discovery/test_training_composite_discovery_fixes.py:187-190`, `tests/training/composite/estimator/test_composite_ct_get_best_iter_and_loss.py:195-215` and `tests/training/composite/test_training_composite_loose_a_fixes.py:163-165` (source-string assertions).
+- **What**:
+  - **The string checks pass whenever the identifiers appear anywhere**, including in comments, whatever the dispatch does.
+  - **The behavioural test cannot see EST-01.** Its inner never sees a scaled frame, so it cannot show EST-01: the inner needs `pp(X)` while the base needs raw `X`, and each caller gets one of them wrong (RMSE 165.8 and 419.0 against the 0.99 oracle in EST-01's repro).
+  - **The other source checks lock in implementation details.** `for i in range(window, n):` must not appear; `X.copy(deep=False)` must appear. They do not test behaviour.
+- **Why it matters**: the repo rule is behavioural tests over `getsource`. The CTE-raw-X test gives false assurance on a P0 path.
+- **Suggested fix**: delete the source-inspection asserts. Replace the CTE test with the EST-01 oracle: a Ridge inner fit on `StandardScaler(X)`, `linear_residual` on the raw base, then assert that `predict_from_models` and the CT-ensemble component prediction are within 1.5x of the "inner on pp(X) + raw base" oracle. For the other three, assert the behaviour the string stood for (kernel output equals a pandas rolling reference; `np.shares_memory` already covers the shallow copy; the CatBoost `eval_metric` passed to `set_params`).
+- **Disposition**: OPEN
+
+### TST-16 [P3] Timing-based asserts in the composite suite can flake on the shared host
+- **Where**:
+  - `tests/training/composite/kernels_identity/test_screening_mi_njit_bit_identity.py:136-163`: a relative wall-clock race, `nj_t <= np_t * 1.05`, median of 7 x 1500 calls on n=20k.
+  - `tests/training/composite/cache/test_composite_update_ring_buffer.py:195-210`: `elapsed < perf_time_budget(2.0)`.
+  - `tests/training/composite/estimator/test_hpo_pruner_and_conditional_space.py:237`: `estimated_wallclock_saved_seconds > 0.05 * median_completed_trial_seconds`.
+- **What**: the njit sentinel compares two timings taken minutes apart in the same process. A load spike during the njit leg fails it, even though the code's claimed margin is 2.6-4.2x. The 1.05 slack is far below that margin. `perf_time_budget` widens under detected contention, but the other two do not use it. The HPO assertion depends on measured trial durations of sub-second fits.
+- **Why it matters**: flaky reds under the documented one-agent-plus-one-worker regime train people to rerun and to ignore failures.
+- **Suggested fix**: interleave the numpy and njit legs, take best-of-N and assert `nj_t <= np_t * 1.5`, which still catches a fall-back to the numpy path. Or move the sentinel to a `perf` marker excluded from the default run. For HPO, assert `n_trials_pruned > 0` and the step count saved, not seconds.
+- **Disposition**: OPEN
+
+### TST-17 [P3] The composite integration tests run eight independent full-suite trainings for loose assertions, and the recorded durations are contaminated
+- **Where**: `tests/training/composite/test_composite_integration.py` (8 tests, each calling `train_mlframe_models_suite`: 620 s total in `.test_durations`); `tests/training/composite/discovery/test_composite_x_feature_selection.py` (395 s); `.test_durations` entries such as `test_training_composite_loose_b_fixes.py::test_f8_conformal_internal_split_random_state_changes_split` (181.9 s) and `test_composite_provenance.py::TestReportToMarkdown::test_renders_ensemble_section` (181.4 s).
+- **What**:
+  - **The integration tests repeat nearly the same training.** Six of the eight fit the same `_tvt_dataset` with near-identical configs, then each inspects one metadata slot. They could share one module-scoped fixture.
+  - **The durations file is contaminated.** The two 180 s tests are pure-function tests: a 200-row index split and a markdown render. Their recorded durations are host stalls or import cost, not test cost. Any shard balancing or "slow test" triage that reads `.test_durations` is therefore misled for this directory (3454 composite tests, 10228 s recorded).
+- **Why it matters**: the local rule is targeted runs only. A 10-minute file that asserts little (TST-01) is expensive to run and cheap to ignore.
+- **Suggested fix**:
+  - Build one `scope="module"` fixture that trains once with composite discovery and CT ensemble on (plus one `enabled=False` run for the negative tests), and make each test assert against it.
+  - Regenerate `.test_durations` on a quiet run.
+  - Mark `test_composite_x_feature_selection.py` `slow` once TST-13's skip is fixed.
+- **Disposition**: OPEN

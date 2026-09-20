@@ -417,6 +417,13 @@ def run_recurrent_finalize_and_composite_post(
         verbose=bool(verbose),
         ctx=ctx,
     )
+    # finalize_suite saved before post-processing wrapped the composite models, built the CT ensemble and stamped its
+    # metadata; persist those now so the on-disk suite matches the returned one.
+    ctx.models = models
+    ctx.metadata = metadata
+    from ._phase_persist_post import persist_after_composite_post
+
+    persist_after_composite_post(ctx)
     return models, metadata
 
 
