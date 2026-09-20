@@ -27,6 +27,20 @@ logger = logging.getLogger(__name__)
 _LEAK_CORR_MIN_SAMPLE_ROWS = 500_000
 
 
+def _leak_corr_sample_rows(n_rows: int) -> np.ndarray | None:
+    """Row positions the leak-corr test reads, or ``None`` when every row is kept.
+
+    The test is ``|corr(x, y)| >= 0.99999``, whose standard error near 1 is ``(1 - r**2) / sqrt(n)``: past the minimum
+    sample it is decided identically on a stride of the rows. Choosing them BEFORE the columns are gathered is what
+    bounds the peak: the previous order held every numeric column over every train row, then stacked a second full copy,
+    and only sampled once both were already allocated -- about 14 GB on a 3.2M x 500 frame.
+    """
+    if n_rows <= _LEAK_CORR_MIN_SAMPLE_ROWS:
+        return None
+    stride = max(2, n_rows // _LEAK_CORR_MIN_SAMPLE_ROWS)
+    return np.arange(0, n_rows, stride)
+
+
 # Headroom guard the sampler enforces. The leak-corr matrix is materialised at
 # ``rows * cols * 4 B`` in one shot (column_stack copy); we sample down when
 # that single allocation would consume more than this fraction of currently-
@@ -145,6 +159,14 @@ def _filter_features(
     corr_drops: list[tuple[str, float]] = []
     candidates: list[str] = []
     candidate_arrays: list[np.ndarray] = []
+    _leak_rows = _leak_corr_sample_rows(int(np.asarray(train_idx).size))
+    _y_leak = y_train if _leak_rows is None or y_train is None else np.asarray(y_train)[_leak_rows]
+    if _leak_rows is not None:
+        logger.info(
+            "[CompositeTargetDiscovery] leak-corr test reads a %d-row stride of the %d train rows; the constancy and "
+            "finite-row checks still read every row, so only the correlation is sampled.",
+            _leak_rows.size, int(np.asarray(train_idx).size),
+        )
     for col in feature_cols:
         if col == self._target_col:
             continue
@@ -170,7 +192,9 @@ def _filter_features(
             })
             continue
         candidates.append(col)
-        candidate_arrays.append(arr)
+        # Keep only the rows the leak-corr test will read: the constancy and finite-count checks above are done with,
+        # so the full column can be released here instead of being held until the stack.
+        candidate_arrays.append(arr if _leak_rows is None else arr[_leak_rows])
 
     # Vectorised corr filter on survivors. Replaces the per-column
     # ``abs(_safe_corr(arr, y_train))`` loop. NaN rows in the survivor matrix
@@ -187,7 +211,7 @@ def _filter_features(
         # precision, well inside the leak-filter threshold tolerance. See helper
         # docstring for the why/why-not analysis.
         _sampled_arrays, _y_for_corr = _maybe_sample_for_leak_corr(
-            candidates, candidate_arrays, y_train,
+            candidates, candidate_arrays, _y_leak,
         )
         X_train = np.column_stack(_sampled_arrays)
         # Free the per-column ndarrays the moment they land in the stacked matrix:
