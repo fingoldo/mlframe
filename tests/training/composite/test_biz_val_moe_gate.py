@@ -51,7 +51,7 @@ def test_gate_never_selects_worse_than_lag_on_selection_split():
     assert gate.guarantee_["not_worse_than_lag"] is True
     assert gate.guarantee_["not_worse_than_best_single"] is True
     gate_rmse = gate.guarantee_["pooled_rmse_gate"]
-    assert gate.guarantee_['pooled_rmse_per_expert'].items()
+    assert gate.guarantee_["pooled_rmse_per_expert"].items()
     for name, r in gate.guarantee_["pooled_rmse_per_expert"].items():
         assert gate_rmse <= r * (1.0 + 1e-9), f"gate {gate_rmse} > expert {name} {r}"
 
@@ -69,16 +69,32 @@ def test_gate_pooled_rmse_exact_argmin_at_shrink_zero():
     assert _rmse(routed, y) == pytest.approx(gate.guarantee_["pooled_rmse_gate"])
 
 
-def test_global_fallback_for_unseen_group_is_lag():
-    """Global fallback for unseen group is lag."""
+def test_global_fallback_for_unseen_group_is_the_pooled_best_expert():
+    """An unseen group has no selection rows, so it defers to the pooled-best expert rather than to the failsafe.
+
+    Pooled SSE here: composite 0.5, lag 2.0, raw 10.0. Routing such a group to lag served the failsafe to every row of a group the
+    fit never saw, which on a group-disjoint split is the whole deployed frame.
+    """
     y = np.array([0.0, 0.0, 1.0, 1.0])
     comp = np.array([0.0, 0.0, 0.5, 0.5])
     raw = np.array([2.0, 2.0, 2.0, 2.0])
     lag = np.array([1.0, 1.0, 1.0, 1.0])
     g = np.array(["A", "A", "B", "B"])
     gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
+    assert gate.global_choice_ == "composite", "the pooled-best expert must take the unseen-group rows"
+    out = gate.predict({"composite": np.array([9.0]), "raw": np.array([8.0]), "lag": np.array([7.0])}, group_ids=np.array(["Z"]))
+    assert out[0] == 9.0
+
+
+def test_global_fallback_stays_lag_when_lag_is_the_pooled_best():
+    """The failsafe still takes unseen groups when it is the best expert overall, so the change is not a blanket demotion."""
+    y = np.array([0.0, 0.0, 1.0, 1.0])
+    comp = np.array([3.0, 3.0, 4.0, 4.0])
+    raw = np.array([2.0, 2.0, 2.0, 2.0])
+    lag = np.array([0.1, -0.1, 1.1, 0.9])
+    g = np.array(["A", "A", "B", "B"])
+    gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert gate.global_choice_ == "lag"
-    # Unseen group Z -> global fallback (lag).
     out = gate.predict({"composite": np.array([9.0]), "raw": np.array([8.0]), "lag": np.array([7.0])}, group_ids=np.array(["Z"]))
     assert out[0] == 7.0
 
