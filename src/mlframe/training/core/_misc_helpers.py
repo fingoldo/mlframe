@@ -191,6 +191,7 @@ def _build_full_column_from_splits(
     """
     import numpy as _np
     out = _np.full(n_total, _np.nan, dtype=_np.float64)
+    _seen_anywhere = False
     for _split_df, _split_idx in (
         (train_df, train_idx), (val_df, val_idx), (test_df, test_idx),
     ):
@@ -198,6 +199,7 @@ def _build_full_column_from_splits(
             continue
         if col_name not in _split_df.columns:
             continue
+        _seen_anywhere = True
         try:
             col_vals = _split_df[col_name].to_numpy() if hasattr(_split_df[col_name], "to_numpy") else _np.asarray(_split_df[col_name])
         except Exception:
@@ -209,6 +211,14 @@ def _build_full_column_from_splits(
             # Frame and index disagree (e.g. OD-filtered train_df paired with raw train_idx); skip rather than mis-align silently.
             continue
         out[idx_arr] = col_vals
+    if not _seen_anywhere:
+        # An all-NaN column here becomes an all-NaN composite target downstream, which trains a model on nothing. The
+        # caller passed a name no split carries, so say which one instead of returning the empty column quietly.
+        log_throttle(
+            logger, "build_full_column_missing_everywhere", logging.WARNING,
+            "column %r is in none of the train/val/test frames; returning all-NaN. A composite target built on it "
+            "cannot be trained.", col_name,
+        )
     return out
 
 

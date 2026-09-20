@@ -116,6 +116,53 @@ def _maybe_auto_enable_discovery(composite_target_discovery_config, *, target_by
     return composite_target_discovery_config.model_copy(update={"enabled": True})
 
 
+def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, target_name: str) -> list[dict]:
+    """Drop kept specs whose base columns are absent from every split frame, returning one failure record each.
+
+    Discovery may build extra base columns on its OWN frame -- the engineered per-group causal bases are the default
+    case. Those columns never reach the suite's split frames, and the column builder silently yields all-NaN for a name
+    it cannot find, so such a spec would be trained on a NaN target and every gate verdict recorded for it was measured
+    on a column the trainer does not have. They are screening-only by construction: the bases are functions of past y,
+    which a predict frame does not carry, so there is nothing to rebuild downstream either.
+    """
+    specs = list(getattr(disc, "specs_", ()) or ())
+    if not specs:
+        return []
+    available: set = set()
+    for _frame in split_frames:
+        if _frame is None:
+            continue
+        try:
+            available.update(str(c) for c in _frame.columns)
+        except Exception as e:
+            logger.debug("reading split frame columns failed while checking spec bases: %s", e)
+    if not available:  # nothing to check against: keep the specs rather than drop them on a failed lookup
+        return []
+    kept, dropped = [], []
+    for _spec in specs:
+        _needed = [str(getattr(_spec, "base_column", "") or "")]
+        _needed += [str(_c) for _c in (getattr(_spec, "extra_base_columns", ()) or ())]
+        _missing = [_c for _c in _needed if _c and _c not in available]
+        if _missing:
+            dropped.append({
+                "name": getattr(_spec, "name", None) or getattr(_spec, "transform_name", "?"),
+                "kept": False,
+                "rejected": True,
+                "reason": f"base column(s) {_missing} exist only in discovery's own frame, so the suite cannot build this target",
+            })
+        else:
+            kept.append(_spec)
+    if dropped:
+        disc.specs_ = kept
+        log_throttle(
+            logger, "composite_spec_base_not_materialisable", logging.WARNING,
+            "[CompositeTargetDiscovery] target='%s': dropped %d spec(s) whose base column is not in the training frames "
+            "(%s). Engineered bases are screening-only; pass such a column in your own frame to train on it.",
+            target_name, len(dropped), "; ".join(str(d["reason"]) for d in dropped[:3]),
+        )
+    return dropped
+
+
 def run_composite_target_discovery(
     *,
     composite_target_discovery_config,
@@ -771,10 +818,13 @@ def run_composite_target_discovery(
                         }]
                     continue
 
+                _unbuildable = _drop_specs_whose_bases_the_suite_cannot_materialise(
+                    _disc, (train_df_pd, val_df_pd, test_df_pd), _tname_disc,
+                )
                 metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
                 metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = _disc.export_specs()
                 metadata["composite_target_failures"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = [r for r in _disc.report() if r.get("rejected")]
+                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = [r for r in _disc.report() if r.get("rejected")] + _unbuildable
                 metadata.setdefault("composite_target_filter_drops", {})
                 metadata["composite_target_filter_drops"].setdefault(str(_tt_disc), {})
                 metadata["composite_target_filter_drops"][str(_tt_disc)][_tname_disc] = _disc.filter_drops()
