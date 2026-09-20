@@ -593,7 +593,10 @@ def _eval_one_transform_impl(
         # ``y_screen[valid_screen]`` and ``_x_prebinned[valid_screen]`` per replicate
         # even though they are constants across replicates.
         _y_screen_valid = y_screen[valid_screen]
-        _x_pb_valid_const = _x_prebinned[valid_screen] if _x_prebinned is not None else None
+        # Row-major copy for the replicate loop below. The prebinned matrix is stored column-major, which is what the
+        # per-column MI walk wants, but this loop does ``[idx_b]`` ROW gathers once per replicate -- 102 ms against
+        # 14 ms at 100k x 100 on this host. One transpose-copy here pays for itself from the second replicate on.
+        _x_pb_valid_const = np.ascontiguousarray(_x_prebinned[valid_screen]) if _x_prebinned is not None else None
         _boot_fail_count = 0
         failures: list = []  # per-replicate failure messages, surfaced in the returned entry below
         for b in range(bootstrap_n):

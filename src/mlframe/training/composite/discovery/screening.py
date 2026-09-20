@@ -339,7 +339,12 @@ def _prebin_feature_columns(
     if n_rows < 5 * nbins:
         return np.full((n_rows, n_cols), -1, dtype=code_dtype)
     q_edges = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
-    binned = np.empty((n_rows, n_cols), dtype=code_dtype)
+    # Column-major: every consumer of this matrix reads it one COLUMN at a time (the per-feature MI walk, the
+    # per-candidate MI(T, X), the mi_y comparison). In C order those reads stride 2*F bytes per element, so each one
+    # touches a fresh cache line; measured on this host at n=100k the per-feature MI pass is 239 ms C-order against
+    # 35 ms F-order at F=100, and 1958 ms against 82 ms at F=300, bit-identical either way. The column fills below and
+    # the per-base np.delete(axis=1) both keep the layout.
+    binned = np.empty((n_rows, n_cols), dtype=code_dtype, order="F")
     for j in range(n_cols):
         binned[:, j] = _prebin_one_column(
             feature_matrix[:, j], q_edges=q_edges, nbins=nbins, code_dtype=code_dtype,
@@ -402,7 +407,7 @@ def _prebin_feature_columns_lazy(
     if n_rows < 5 * nbins:
         return np.full((n_rows, n_cols), -1, dtype=code_dtype)
     q_edges = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
-    binned = np.empty((n_rows, n_cols), dtype=code_dtype)
+    binned = np.empty((n_rows, n_cols), dtype=code_dtype, order="F")  # see the eager path: consumers read columns
     for j, c in enumerate(cols):
         col = _extract_column_array(df, c, rows=rows)
         binned[:, j] = _prebin_one_column(

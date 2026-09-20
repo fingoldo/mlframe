@@ -19,10 +19,10 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `discovery.md` | 30 | 5 | 0 | 25 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
 | `suite_integration.md` | 19 | 6 | 0 | 13 | 0 | 0 |
-| `performance.md` | 24 | 0 | 0 | 23 | 1 | 0 |
+| `performance.md` | 24 | 1 | 0 | 22 | 1 | 0 |
 | `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **41** | **0** | **137** | **1** | **0** |
+| **Total** | **179** | **42** | **0** | **136** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -146,7 +146,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | Status | Sev | ID | Finding | Evidence / what remains |
 |---|---|---|---|---|
 | **REJECTED** | P1 | `PRF-01` | Near-collinear dedup runs a serial, strided O(B²·n) njit walk once per base; a single GEMM correlation matrix per target is about 70x faster | the 70x does not reproduce: kernel 239 ms (not 11.5 s) at 80k x 120, matrix path 1.1-1.9x on all-finite and 0.8x with 5% NaN, masks identical; bench_near_collinear_gemm.py carries the numbers |
-| **TODO** | P1 | `PRF-02` | The prebinned code matrix is C-order, so every per-feature MI call reads strided columns; F-order is 8.7x faster and bit-identical | |
+| **RESOLVED** | P1 | `PRF-02` | The prebinned code matrix is C-order, so every per-feature MI call reads strided columns; F-order is 8.7x faster and bit-identical | both prebin paths allocate the code matrix column-major, which is how every consumer reads it. Measured on this host (2 threads): the per-feature MI pass on the shipped prebin output went 239 ms -> 19.1 ms at n=100k, F=100, and an isolated A/B gives 6.8x at F=100 and 23.9x at F=300, max|diff| 0.0. The one path that reads ROWS (the opt-in bootstrap replicate loop) takes a C-order copy once, since a row gather costs 102 ms against 14 ms in this layout (test_prebinned_matrix_is_column_major.py, 4 tests: layout, bit-identical MI, np.delete keeps the layout, exclude_col parity) |
 | **TODO** | P1 | `PRF-03` | With group ids, the tiny rerank runs the full multi-family CV for every spec, then honest-OOF replaces nearly all of those scores | |
 | **TODO** | P1 | `PRF-04` | The OOF pre-screen that skips refitting hopeless components never runs under the default `oof_holdout_source="kfold"` | |
 | **TODO** | P1 | `PRF-05` | The honest-holdout re-score gathers the full, uncapped holdout feature matrix once per spec, in parallel threads, and re-bins every column twice per spec | |

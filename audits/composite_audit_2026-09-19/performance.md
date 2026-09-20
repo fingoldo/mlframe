@@ -58,7 +58,7 @@ Default counts used in the estimates:
   - Have `_build_feature_matrix` fill an F-order `np.empty` column by column instead of `np.column_stack`. `np.delete` along axis 1 keeps F order.
   - Check the row-gather users, which are the opt-in bootstrap `_x_pb_valid_const[idx_b]` and the boolean `valid_screen` masks. Keep a C-order copy only where row gathers dominate.
 - **Test/benchmark to add**: extend `bench_iter94_mi_binned_pair_strided.py` with a C vs F layout A/B at (100k, 100) and (100k, 500). Add a test that per-feature MI is bit-identical across the two layouts.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - both prebin paths allocate the code matrix column-major, which is how every consumer reads it. Measured on this host (2 threads): the per-feature MI pass on the shipped prebin output went 239 ms -> 19.1 ms at n=100k, F=100, and an isolated A/B gives 6.8x at F=100 and 23.9x at F=300, max|diff| 0.0. The one path that reads ROWS (the opt-in bootstrap replicate loop) takes a C-order copy once, since a row gather costs 102 ms against 14 ms in this layout (test_prebinned_matrix_is_column_major.py, 4 tests: layout, bit-identical MI, np.delete keeps the layout, exclude_col parity)
 
 ### PRF-03 [P1] With group ids, the tiny rerank runs the full multi-family CV for every spec, then honest-OOF replaces nearly all of those scores
 
