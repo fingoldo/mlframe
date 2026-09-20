@@ -45,7 +45,10 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     engineer_causal_lags: Tuple[int, ...] = (1,)  # per-group lag_k bases to build
     engineer_causal_trailing_windows: Tuple[int, ...] = (3,)  # causal trailing-mean window sizes
     engineer_causal_ops: Tuple[str, ...] = ("lag", "trailing_mean", "expanding_mean")
-    engineer_causal_first_fill: str = "group_first"  # first-in-group fill: "group_first" (finite) or "nan"
+    # First-in-group fill: "nan" (default) or "group_first". A row at in-group position 0 has no prior value, and
+    # "group_first" fills it with ``y`` of that same row -- its own target, which at serve time does not exist for a new
+    # group's first row. Downstream pairwise masking already drops NaN rows, so the honest fill is NaN.
+    engineer_causal_first_fill: str = "nan"
 
     # Exempt strictly-causal bases (grouped-causal engineered ``__gcausal_*`` or a named ``{y}_prev`` lag) from the
     # near-copy-of-y and structural-fragility gates. Those gates drop bases whose additive inverse extrapolates on unseen

@@ -52,9 +52,25 @@ def _mixed_frame() -> pd.DataFrame:
 def test_grouped_lag1_equals_previous_within_group_ordered_by_key():
     """Grouped lag1 equals previous within group ordered by key."""
     df = _mixed_frame()
-    out = engineer_grouped_causal_bases(df, "y", "well", "md", lags=(1,), ops=("lag",))
+    out = engineer_grouped_causal_bases(df, "y", "well", "md", lags=(1,), ops=("lag",), first_fill="group_first")
     # Original row order [A md2=30, B md0=100, A md0=10, B md1=200, A md1=20]; each lag1 is the previous IN-GROUP value.
+    # first_fill is explicit here: the default leaves the two history-less head rows NaN (see the leak test below).
     np.testing.assert_array_equal(out["y__gcausal_lag1"], [20, 100, 10, 100, 10])
+
+
+def test_default_fill_never_writes_a_rows_own_target_into_its_causal_base():
+    """A history-less row must not be handed its own y: at serve time a new group's first row has no such value.
+
+    ``group_first`` writes ``y`` of the row AT in-group position 0 into that row's own base, which is target leakage on
+    one row per group (more for lag>1). The default fill is NaN, which the downstream pairwise masking drops.
+    """
+    df = pd.DataFrame({"y": [5.0, 6.0, 7.0], "well": ["solo", "pair", "pair"], "md": [0, 0, 1]})
+    for op, key in (("lag", "y__gcausal_lag1"), ("expanding_mean", "y__gcausal_expmean"), ("trailing_mean", "y__gcausal_tmean3")):
+        out = engineer_grouped_causal_bases(df, "y", "well", "md", lags=(1,), trailing_windows=(3,), ops=(op,))
+        base = out[key]
+        assert np.isnan(base[0]), f"{op}: the one-row group's base is {base[0]}, its own y"
+        assert np.isnan(base[1]), f"{op}: the first row of group 'pair' got {base[1]}, its own y"
+        assert base[2] == pytest.approx(6.0), f"{op}: a row WITH history must keep the observed predecessor"
 
 
 def test_grouped_lag2_and_first_fill_group_first():
@@ -79,9 +95,9 @@ def test_trailing_and_expanding_mean_are_strictly_past():
     """Trailing and expanding mean are strictly past."""
     df = _mixed_frame()
     out = engineer_grouped_causal_bases(df, "y", "well", "md", trailing_windows=(2,), ops=("trailing_mean", "expanding_mean"))
-    # A sorted y=[10,20,30]: tmean2=[10(fill),mean(10)=10,mean(10,20)=15]; expmean=[10(fill),10,15].
-    np.testing.assert_allclose(out["y__gcausal_tmean2"], [15, 100, 10, 100, 10])
-    np.testing.assert_allclose(out["y__gcausal_expmean"], [15, 100, 10, 100, 10])
+    # A sorted y=[10,20,30]: tmean2=[NaN(no prior),mean(10)=10,mean(10,20)=15]; expmean=[NaN,10,15]. B sorted y=[100,200].
+    np.testing.assert_allclose(out["y__gcausal_tmean2"], [15, np.nan, np.nan, 100, 10])
+    np.testing.assert_allclose(out["y__gcausal_expmean"], [15, np.nan, np.nan, 100, 10])
 
 
 def test_expanding_mean_long_group_matches_running_mean_of_past():
@@ -91,7 +107,7 @@ def test_expanding_mean_long_group_matches_running_mean_of_past():
     df = pd.DataFrame({"y": y, "g": ["x"] * 20, "md": np.arange(20)})
     out = engineer_grouped_causal_bases(df, "y", "g", "md", ops=("expanding_mean",))
     exp = out["y__gcausal_expmean"]
-    assert exp[0] == y[0]  # first-row fill
+    assert np.isnan(exp[0]), "the first row has no strictly-prior value, so the default fill leaves it NaN"
     assert list(range(1, 20))
     for i in range(1, 20):
         assert exp[i] == pytest.approx(y[:i].mean())
@@ -104,7 +120,7 @@ def test_trailing_window_matches_manual_rolling_mean_of_strict_past():
     w = 3
     out = engineer_grouped_causal_bases(df, "y", "g", "md", trailing_windows=(w,), ops=("trailing_mean",))
     tmean = out[f"y__gcausal_tmean{w}"]
-    assert tmean[0] == y[0]
+    assert np.isnan(tmean[0]), "the first row has no strictly-prior window, so the default fill leaves it NaN"
     for i in range(1, len(y)):
         lo = max(0, i - w)
         assert tmean[i] == pytest.approx(y[lo:i].mean())
@@ -124,8 +140,8 @@ def test_group_boundaries_never_leak_across_entities():
         }
     )
     out = engineer_grouped_causal_bases(df, "y", "g", "md", lags=(1,), ops=("lag",))
-    # A sorted y=[1,2,3] lag1=[1,1,2]; B sorted y=[100,200,300] lag1=[100,100,200]; interleaved back.
-    np.testing.assert_array_equal(out["y__gcausal_lag1"], [1, 100, 1, 100, 2, 200])
+    # A sorted y=[1,2,3] lag1=[NaN,1,2]; B sorted y=[100,200,300] lag1=[NaN,100,200]; interleaved back.
+    np.testing.assert_array_equal(out["y__gcausal_lag1"], [np.nan, np.nan, 1, 100, 2, 200])
 
 
 def test_unordered_input_is_sorted_by_order_key():
@@ -145,17 +161,20 @@ def test_none_time_column_uses_frame_row_order():
     """None time column uses frame row order."""
     df = pl.DataFrame({"y": [1.0, 2.0, 3.0, 9.0, 4.0], "g": ["A", "A", "A", "C", "A"]})
     out = engineer_grouped_causal_bases(df, "y", "g", None, lags=(1,), ops=("lag",))
-    # A rows in frame order y=[1,2,3,4]; C single row y=9. lag1: A=[1,1,2,3], C=[9]; back-mapped.
-    np.testing.assert_array_equal(out["y__gcausal_lag1"], [1, 1, 2, 9, 3])
+    # A rows in frame order y=[1,2,3,4]; C single row y=9. lag1: A=[NaN,1,2,3], C=[NaN]; back-mapped.
+    np.testing.assert_array_equal(out["y__gcausal_lag1"], [np.nan, 1, 2, np.nan, 3])
 
 
-def test_single_row_group_fills_own_value():
-    """Single row group fills own value."""
+def test_single_row_group_is_nan_not_its_own_value():
+    """A group with one row has no history at all, so every causal base for it is NaN rather than that row's own y."""
     df = pd.DataFrame({"y": [5.0, 6.0, 7.0], "g": ["solo", "pair", "pair"], "md": [0, 0, 1]})
     out = engineer_grouped_causal_bases(df, "y", "g", "md", lags=(1,), trailing_windows=(2,), ops=("lag", "trailing_mean", "expanding_mean"))
-    assert out["y__gcausal_lag1"][0] == 5.0
-    assert out["y__gcausal_tmean2"][0] == 5.0
-    assert out["y__gcausal_expmean"][0] == 5.0
+    assert np.isnan(out["y__gcausal_lag1"][0])
+    assert np.isnan(out["y__gcausal_tmean2"][0])
+    assert np.isnan(out["y__gcausal_expmean"][0])
+    # Opting into the legacy fill is what writes the row's own target back in.
+    legacy = engineer_grouped_causal_bases(df, "y", "g", "md", lags=(1,), ops=("lag",), first_fill="group_first")
+    assert legacy["y__gcausal_lag1"][0] == 5.0
 
 
 # --------------------------------------------------------------------------- carrier parity
@@ -354,8 +373,12 @@ def test_biz_val_grouped_causal_lag_enters_pool_and_reconstructs_on_disjoint_hol
     # y_hat = lag (the additive inverse), a per-row REAL previous value -> in-range by construction, no group collapse.
     lag = engineer_grouped_causal_bases(df, "y", "well", "md", lags=(1,), ops=("lag",))["y__gcausal_lag1"]
     y = df["y"].to_numpy()
-    rmse_raw = float(np.sqrt(np.mean((y[hold_idx] - y[train_idx].mean()) ** 2)))
-    rmse_lag = float(np.sqrt(np.mean((y[hold_idx] - lag[hold_idx]) ** 2)))
+    # Score the rows the base is defined on: a group's first holdout row has no prior value, and the pairwise masking
+    # downstream drops it too. Everything after it carries a real observed predecessor.
+    scored = hold_idx[np.isfinite(lag[hold_idx])]
+    assert scored.size >= hold_idx.size - len(set(df["well"][hold_idx])), "only the per-group head rows may be undefined"
+    rmse_raw = float(np.sqrt(np.mean((y[scored] - y[train_idx].mean()) ** 2)))
+    rmse_lag = float(np.sqrt(np.mean((y[scored] - lag[scored]) ** 2)))
     ratio = rmse_lag / rmse_raw
     assert ratio <= 0.05, f"causal lag reconstruction ratio {ratio:.4f} should be <= 0.05 (raw={rmse_raw:.2f}, lag={rmse_lag:.2f})"
 
@@ -369,8 +392,9 @@ def test_biz_val_reconstruction_is_stable_across_seeds():
         hold_idx = np.array([i for i, w in enumerate(df["well"]) if int(w[1:]) >= 15])
         lag = engineer_grouped_causal_bases(df, "y", "well", "md", lags=(1,), ops=("lag",))["y__gcausal_lag1"]
         y = df["y"].to_numpy()
-        rmse_raw = np.sqrt(np.mean((y[hold_idx] - y[train_idx].mean()) ** 2))
-        rmse_lag = np.sqrt(np.mean((y[hold_idx] - lag[hold_idx]) ** 2))
+        scored = hold_idx[np.isfinite(lag[hold_idx])]  # per-group head rows have no predecessor under the default fill
+        rmse_raw = np.sqrt(np.mean((y[scored] - y[train_idx].mean()) ** 2))
+        rmse_lag = np.sqrt(np.mean((y[scored] - lag[scored]) ** 2))
         ratios.append(rmse_lag / rmse_raw)
     assert max(ratios) <= 0.08, f"reconstruction ratio unstable across seeds: {ratios}"
 
