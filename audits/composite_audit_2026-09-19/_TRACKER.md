@@ -15,45 +15,45 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
-| `transforms.md` | 26 | 0 | 0 | 26 | 0 | 0 |
+| `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 0 | 0 | 30 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 0 | 0 | 22 | 0 | 0 |
 | `suite_integration.md` | 19 | 0 | 0 | 19 | 0 | 0 |
 | `performance.md` | 24 | 0 | 0 | 24 | 0 | 0 |
 | `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **0** | **0** | **179** | **0** | **0** |
+| **Total** | **179** | **26** | **0** | **153** | **0** | **0** |
 
 ### `transforms.md`
 
 | Status | Sev | ID | Finding | Evidence / what remains |
 |---|---|---|---|---|
-| **TODO** | P1 | `TRF-01` | `reciprocal_residual` inverse clamps `z = T_hat + 1/base` with an epsilon in base units, so every prediction collapses to a constant once /y/ is larger than about 1e6/median/base/ | |
-| **TODO** | P1 | `TRF-02` | `centered_ratio` shifts even a strictly positive base down to about 0 at the train minimum, so a predict base slightly below the train min flips the sign of `y_hat` | |
-| **TODO** | P1 | `TRF-03` | `monotonic_residual` sends under-populated knots to the global median before the cumulative max/min, which flattens half the spline on small and mid-size train sets | |
-| **TODO** | P1 | `TRF-04` | `frac_diff` inverse amplifies any T-bias about 10x and makes each row's prediction depend on which other rows are in the predict batch | |
-| **TODO** | P2 | `TRF-05` | Predictions from the recurrent family (`ewma_residual`, `volatility_normalized_residual`, `rolling_quantile_ratio*`, and their `_grouped` variants) depend on the composition of the predict batch | |
-| **TODO** | P2 | `TRF-06` | `quantile_normal_y` and `gaussian_copula_residual` clip the ECDF with an epsilon from the knot count, not the sample size, so their round-trip is lossy on tails (continuous y) and on the extreme values (tied/discrete y) | |
-| **TODO** | P2 | `TRF-07` | `linear_residual` (and every transform built on `_linear_residual_fit`) returns a minimum-norm, non-zero alpha on a zero-variance base, which extrapolates wrongly on any different base value | |
-| **TODO** | P2 | `TRF-08` | The `logratio` soft-cap floor is `1e-3 * std(y)` in raw y units while the cap applies to log-scale T, so the cap switches off for large-scale targets and is scale-dependent | |
-| **TODO** | P2 | `TRF-09` | `polynomial_residual_deg2` solves raw (uncentred) normal equations, so the quadratic fit breaks down once the base is offset from zero; the comment claims centring that the code does not do | |
-| **TODO** | P2 | `TRF-10` | Grouped and categorical transforms crash with `TypeError` on a group column holding missing values (`None`/`NaN` mixed with strings) | |
-| **TODO** | P2 | `TRF-11` | `seasonal_residual` period selection maximises in-sample fit with no complexity penalty: the largest candidate period always wins on noise and nested multiples beat the true period | |
-| **TODO** | P2 | `TRF-12` | At predict, `seasonal_residual` assumes the batch starts at phase 0 and there is no continuation offset, so a chronological test split usually gets wrong phase means | |
-| **TODO** | P2 | `TRF-13` | `second_diff` with a 1-D base becomes `T = y - 2*b1`, which keeps the full (negated) level; the docstring calls this "still a valid, if weaker, detrend" | |
-| **TODO** | P3 | `TRF-14` | `nadaraya_watson_residual` sets the bandwidth from the full n but only averages over at most 2000 single-observation knots, so accuracy stops improving with more data | |
-| **TODO** | P3 | `TRF-15` | `monotonic_residual_grouped` shrinks per-group medians toward the global **mean** (`y_train_mean`), so skewed targets get a one-sided level shift instead of a shrink toward the global fit | |
-| **TODO** | P3 | `TRF-16` | The `rank_ecdf_residual` / `gaussian_copula_residual` constant-column ECDF adds a synthetic knot at `value + 1.0` in raw units, so a tiny T error inverts to `y + 1` | |
-| **TODO** | P3 | `TRF-17` | The `smoothing_spline_residual` registry description gives the wrong smoothing formula, and spline build/eval failures are swallowed at `debug` level | |
-| **TODO** | P3 | `TRF-18` | `quantile_residual` per-bin IQR floor is an absolute `1e-6`, not scale-relative, so heteroscedastic scaling is silently disabled for small-scale targets | |
-| **TODO** | P3 | `TRF-19` | `signed_power_y` never tries `p = 1` (identity), so an already-symmetric target is always compressed | |
-| **TODO** | P3 | `TRF-20` | `geometric_mean_residual` domain requires `y > 0` even though `T = y / geomean(bases)` is defined for any finite y | |
-| **TODO** | P3 | `TRF-21` | Chain transforms silently drop `sample_weight`, while their standalone bivariate half honours it | |
-| **TODO** | P3 | `TRF-22` | `_grouped_extra` stores the global `anchor` as `tail_anchor`, so unseen groups under `recurrence_continuation` get the mean seed, unlike the ungrouped transforms | |
-| **TODO** | P3 | `TRF-23` | `rank_residual` stores the full sorted train `y` and `base` arrays in params | |
-| **TODO** | P3 | `TRF-24` | `generate_interaction_bases` defaults `train_mask=None` (the divisor epsilon leaks test-set scale) and silently ignores a mask of the wrong length | |
-| **TODO** | P3 | `TRF-25` | The Yeo-Johnson fit failure log says "Box-Cox", and `_registry_extended.py` rebuilds all six unary adapters but uses only one | |
-| **TODO** | P3 | `TRF-26` | `target_encoding_residual` fits category means in-sample: each train row's own y is included in its encoding | |
+| **RESOLVED** | P1 | `TRF-01` | `reciprocal_residual` inverse clamps `z = T_hat + 1/base` with an epsilon in base units, so every prediction collapses to a constant once /y/ is larger than about 1e6/median/base/ | inverse floor derived from the train y range, bounding |y_hat| at 1000x max|y| (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P1 | `TRF-02` | `centered_ratio` shifts even a strictly positive base down to about 0 at the train minimum, so a predict base slightly below the train min flips the sign of `y_hat` | a strictly positive base keeps c=0 and the fitted domain requires base+c >= eps, so sign-crossing rows take the fallback (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P1 | `TRF-03` | `monotonic_residual` sends under-populated knots to the global median before the cumulative max/min, which flattens half the spline on small and mid-size train sets | the knot-population threshold scales with n and a sparse knot is interpolated from its populated neighbours (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P1 | `TRF-04` | `frac_diff` inverse amplifies any T-bias about 10x and makes each row's prediction depend on which other rows are in the predict batch | observed history_y seeds the lag terms, so per-row serving has gain 1; the fit logs the amplification (168e79ee8; test_transform_defects_recurrent.py) |
+| **RESOLVED** | P2 | `TRF-05` | Predictions from the recurrent family (`ewma_residual`, `volatility_normalized_residual`, `rolling_quantile_ratio*`, and their `_grouped` variants) depend on the composition of the predict batch | every recurrent forward/inverse warms up on history_base/history_y, so a chunked predict equals the one-batch predict (168e79ee8; test_transform_defects_recurrent.py) |
+| **RESOLVED** | P2 | `TRF-06` | `quantile_normal_y` and `gaussian_copula_residual` clip the ECDF with an epsilon from the knot count, not the sample size, so their round-trip is lossy on tails (continuous y) and on the extreme values (tied/discrete y) | the ECDF clip is the tail mass beyond the extreme knots instead of an eps from the knot count (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P2 | `TRF-07` | `linear_residual` (and every transform built on `_linear_residual_fit`) returns a minimum-norm, non-zero alpha on a zero-variance base, which extrapolates wrongly on any different base value | a zero-variance base returns (0, mean y); a constant-base group keeps the global slope and its own level (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P2 | `TRF-08` | The `logratio` soft-cap floor is `1e-3 * std(y)` in raw y units while the cap applies to log-scale T, so the cap switches off for large-scale targets and is scale-dependent | the soft-cap MAD floor is unitless instead of 1e-3*std(y) in raw y units (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P2 | `TRF-09` | `polynomial_residual_deg2` solves raw (uncentred) normal equations, so the quadratic fit breaks down once the base is offset from zero; the comment claims centring that the code does not do | least squares on the centred/scaled (1, z, z^2) design, evaluated in z space; raw alphas kept for provenance (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P2 | `TRF-10` | Grouped and categorical transforms crash with `TypeError` on a group column holding missing values (`None`/`NaN` mixed with strings) | grouped and categorical transforms accept a group column mixing strings with None/NaN (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P2 | `TRF-11` | `seasonal_residual` period selection maximises in-sample fit with no complexity penalty: the largest candidate period always wins on noise and nested multiples beat the true period | period selection is held-out error over alternating cycles with period 1 a candidate, taking the smallest within one SE (168e79ee8; test_transform_defects_recurrent.py) |
+| **RESOLVED** | P2 | `TRF-12` | At predict, `seasonal_residual` assumes the batch starts at phase 0 and there is no continuation offset, so a chronological test split usually gets wrong phase means | forward/inverse take absolute row_index positions and continuation starts at the phase following the train series (168e79ee8; test_transform_defects_recurrent.py) |
+| **RESOLVED** | P2 | `TRF-13` | `second_diff` with a 1-D base becomes `T = y - 2*b1`, which keeps the full (negated) level; the docstring calls this "still a valid, if weaker, detrend" | a single-column fit records single_lag_as_diff so T = y - b1 and warns about the missing lag-2 wiring; old params keep their algebra (84c125ddf; test_biz_val_second_diff.py) |
+| **RESOLVED** | P3 | `TRF-14` | `nadaraya_watson_residual` sets the bandwidth from the full n but only averages over at most 2000 single-observation knots, so accuracy stops improving with more data | count-weighted rank-bucket means replace the 2000 single-observation knots, so accuracy improves with n (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-15` | `monotonic_residual_grouped` shrinks per-group medians toward the global **mean** (`y_train_mean`), so skewed targets get a one-sided level shift instead of a shrink toward the global fit | the grouped monotonic fit shrinks toward the global MEDIAN (`_grouped_extra.py:573` global_median_key="y_train_median", stored by `nonlinear.py:428`) |
+| **RESOLVED** | P3 | `TRF-16` | The `rank_ecdf_residual` / `gaussian_copula_residual` constant-column ECDF adds a synthetic knot at `value + 1.0` in raw units, so a tiny T error inverts to `y + 1` | the constant-column ramp knot is scale-relative instead of a raw +1.0 (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-17` | The `smoothing_spline_residual` registry description gives the wrong smoothing formula, and spline build/eval failures are swallowed at `debug` level | spline build failures log at WARNING and set is_degenerate; the stale description is corrected (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-18` | `quantile_residual` per-bin IQR floor is an absolute `1e-6`, not scale-relative, so heteroscedastic scaling is silently disabled for small-scale targets | the per-bin IQR floor is relative to the global IQR instead of an absolute 1e-6 (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P3 | `TRF-19` | `signed_power_y` never tries `p = 1` (identity), so an already-symmetric target is always compressed | p = 1 (identity) is in the search, so a symmetric target is no longer compressed (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P3 | `TRF-20` | `geometric_mean_residual` domain requires `y > 0` even though `T = y / geomean(bases)` is defined for any finite y | y <= 0 rows are kept: T = y / geomean is defined for any finite y (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-21` | Chain transforms silently drop `sample_weight`, while their standalone bivariate half honours it | call_transform forwards sample_weight exactly when the target accepts it, so chains honour it (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-22` | `_grouped_extra` stores the global `anchor` as `tail_anchor`, so unseen groups under `recurrence_continuation` get the mean seed, unlike the ungrouped transforms | the grouped seed is the ungrouped train-tail state: `_grouped_extra.py:90-94` computes the global EWMA trace tail instead of reusing the mean anchor |
+| **RESOLVED** | P3 | `TRF-23` | `rank_residual` stores the full sorted train `y` and `base` arrays in params | bounded knot tables replace the two full sorted train arrays (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-24` | `generate_interaction_bases` defaults `train_mask=None` (the divisor epsilon leaks test-set scale) and silently ignores a mask of the wrong length | a mis-shaped mask raises ValueError and a div without train_mask warns that the eps floor sees every row (1f8f92837; test_composite_interaction_bases.py::TestTrainMaskScale) |
+| **RESOLVED** | P3 | `TRF-25` | The Yeo-Johnson fit failure log says "Box-Cox", and `_registry_extended.py` rebuilds all six unary adapters but uses only one | the Yeo-Johnson failure log names Yeo-Johnson and _registry_extended no longer builds the five unregistered adapters (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-26` | `target_encoding_residual` fits category means in-sample: each train row's own y is included in its encoding | train T is out-of-fold by default (predict keeps the full encoding), declared as oof_train_forward on the registry (428a76f75, 61c3bae14; test_composite_target_encoding_residual.py) |
 
 ### `discovery.md`
 
