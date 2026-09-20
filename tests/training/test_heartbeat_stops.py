@@ -16,3 +16,10 @@ def test_stop_then_restart():
     hb2 = cd.start_heartbeat(3600)
     assert hb2 is not None and hb2.alive and hb2 is not hb
     cd.stop_heartbeat()
+
+
+def test_startup_line_names_the_interpreter_age():
+    """"private commit 61.7 GB" before any data was loaded reads as a startup leak until the line says the interpreter
+    is hours old and carries what earlier cells committed."""
+    line = cd._process_age_line()
+    assert "min old" in line and "RSS" in line

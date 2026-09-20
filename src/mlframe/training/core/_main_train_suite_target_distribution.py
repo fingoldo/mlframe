@@ -18,6 +18,8 @@ from typing import Any
 
 import numpy as np
 
+from ._leakage_by_name import target_named_features
+
 logger = logging.getLogger("mlframe.training.core._main_train_suite")
 
 
@@ -507,6 +509,20 @@ def _run_target_distribution_analyzer(
                             _fd_report.drop_candidates or "(none)",
                             _fd_report.leakage_candidates or "(none)",
                         )
+                    # Name-based post-outcome check: the correlation gate above cannot see a column that is merely
+                    # KNOWN after the outcome (see ``_leakage_by_name``).
+                    _target_named = target_named_features(
+                        getattr(train_df, "columns", []) or [],
+                        [str(name) for _tt_names in (target_by_type or {}).values() for name in _tt_names],
+                    )
+                    if _target_named:
+                        logger.warning(
+                            "[mini-HPT] %d feature column(s) carry the targets' naming prefix and may be known only "
+                            "AFTER the outcome (post-outcome leakage the correlation check cannot see): %s. Drop them "
+                            "from the feature set if they are, or rename them if the prefix is incidental.",
+                            len(_target_named), ", ".join(_target_named[:12]) + (", ..." if len(_target_named) > 12 else ""),
+                        )
+                        metadata["target_named_feature_columns"] = list(_target_named)
                     metadata["feature_distribution_report"] = {
                         "n_samples": _fd_report.n_samples,
                         "n_features": _fd_report.n_features,

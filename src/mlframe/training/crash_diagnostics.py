@@ -348,6 +348,28 @@ def stop_heartbeat() -> None:
             logger.debug("heartbeat stop failed: %s", e)
 
 
+def _process_age_line() -> str:
+    """How long this interpreter has been alive plus its RSS / private commit.
+
+    A suite started in a notebook inherits whatever earlier cells committed: a production log opened with "private
+    commit 61.7 GB" before loading a 242 MB frame, which reads as a startup leak until you know the interpreter was
+    hours old. RSS beside it also shows the gap ``clean_ram()`` opens (it evicts the working set; committed memory
+    stays), so the two numbers are not mistaken for one.
+    """
+    try:
+        import psutil
+
+        proc = psutil.Process()
+        mi = proc.memory_info()
+        age_s = max(0.0, time.time() - proc.create_time())
+        private = getattr(mi, "private", None)
+        private_txt = f", private commit {private / 1024**3:.1f} GB" if private else ""
+        return f"{age_s / 60.0:.0f} min old, RSS {mi.rss / 1024**3:.1f} GB{private_txt} (a reused interpreter starts with what earlier work committed)"
+    except Exception as e:
+        logger.debug("process-age probe failed: %s", e)
+        return "age/memory unavailable"
+
+
 def install_crash_diagnostics(crash_dir: Optional[str] = None, all_threads: bool = True, heartbeat_s: Optional[float] = None) -> Dict[str, Any]:
     """Install everything above; returns what got enabled. Never raises."""
     info: Dict[str, Any] = {}
@@ -361,8 +383,9 @@ def install_crash_diagnostics(crash_dir: Optional[str] = None, all_threads: bool
         if cs:
             logger.info(
                 "Memory at startup: physical %.1f GB (avail %.1f), commit limit %.1f GB (avail %.1f), page file ~%.1f GB. "
-                "Paging-file exhaustion (WinError 1455) kills the process once commit reaches the limit.",
+                "Paging-file exhaustion (WinError 1455) kills the process once commit reaches the limit. This process: %s.",
                 cs["phys_total_gb"], cs["phys_avail_gb"], cs["commit_limit_gb"], cs["commit_avail_gb"], cs["pagefile_gb"],
+                _process_age_line(),
             )
         logger.info(
             "Crash diagnostics: faulthandler file=%s; uncaught exceptions -> log; exit line on normal exit "
