@@ -33,6 +33,12 @@ materialised; never a frame copy.
 """
 from __future__ import annotations
 
+_DUPLICATE_OF_RAW_RMSE_FRAC = 1e-3
+"""How close a spec's honest y-RMSE must be to raw's before it is even considered a possible copy of raw."""
+
+_DUPLICATE_OF_RAW_MIN_CORR = 0.9999
+"""And how strongly its reconstruction must track the raw model's prediction for it to be one."""
+
 from ._spec_shared import spec_base_columns, rmse
 
 import logging
@@ -130,7 +136,8 @@ def apply_honest_rmse_gate(
         return np.asarray(model.predict(x_eval), dtype=np.float64)
 
     try:
-        raw_rmse = rmse(y_eval, _fit_predict(y_fit))
+        _raw_pred = _fit_predict(y_fit)
+        raw_rmse = rmse(y_eval, _raw_pred)
     except Exception as exc:  # -- no baseline, no sound gate
         logger.warning("[CompositeTargetDiscovery.honest_rmse_gate] raw-y baseline fit failed (%s); gate skipped.", exc)
         return kept_specs
@@ -207,6 +214,22 @@ def apply_honest_rmse_gate(
             ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
                           numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "tol": float(tol)}, **_led_kw)
             continue
+        # A spec whose reconstruction IS the raw model's prediction ships a second trained model for nothing: it adds
+        # no lift and no ensemble diversity either, since the two prediction vectors are the same. The 5% tolerance is
+        # there to keep specs that trade a little accuracy for a different view of the data, not copies of raw. The
+        # canonical case is a unary transform whose T is y shifted by a constant on data with none of the structure it
+        # models -- the tiny model then learns the same function and the inverse puts the shift back.
+        _raw_eval = np.asarray(_raw_pred, dtype=np.float64)[finite]
+        if _raw_eval.size > 2 and abs(rmse_y - raw_rmse) <= _DUPLICATE_OF_RAW_RMSE_FRAC * raw_rmse:
+            _sd_spec = float(np.std(y_hat[finite]))
+            _sd_raw = float(np.std(_raw_eval))
+            _corr = float(np.corrcoef(y_hat[finite], _raw_eval)[0, 1]) if _sd_spec > 0 and _sd_raw > 0 else 0.0
+            if _corr >= _DUPLICATE_OF_RAW_MIN_CORR:
+                _r = f"reconstruction duplicates the raw model (corr={_corr:.6f}, y-RMSE={rmse_y:.6g} vs raw {raw_rmse:.6g})"
+                rejected.append((spec.name, _r))
+                ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
+                              numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "corr_with_raw": _corr}, **_led_kw)
+                continue
         object.__setattr__(spec, "honest_holdout_rmse", float(rmse_y))
         object.__setattr__(spec, "honest_holdout_raw_rmse", float(raw_rmse))
         object.__setattr__(spec, "honest_holdout_rmse_gain", float(raw_rmse - rmse_y))
