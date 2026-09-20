@@ -521,21 +521,27 @@ def fast_ice_only(
     y_pred: np.ndarray,
     nbins: int = 10,
     use_weights: bool = True,
+    binning_strategy: str = "auto",
     **ice_kwargs,
 ) -> float:
     """Compute only the ICE scalar from y_true/y_pred, skipping the
     log_loss / precision-recall-f1 / title / plotting work that
     ``fast_calibration_report`` does for its reporting callers.
 
-    Bit-exact equivalent of ``fast_calibration_report(...)[6]``. Used by
-    the fairness fan-out hot path -- verified 1.1-1.7x faster per call
-    (bench_ice_only.py, 2026-04-19) with ICE drift < 1e-9.
+    Equivalent to ``fast_calibration_report(...).ice`` on the same ``binning_strategy``; used by the fairness fan-out hot
+    path -- verified 1.1-1.7x faster per call (bench_ice_only.py, 2026-04-19).
+
+    ``binning_strategy`` defaults to ``"auto"``, the report's own default, because it used to be pinned to ``"uniform"``
+    while the report resolved ``"auto"`` to quantile bins below a 10% base rate: the same predictions then scored -0.294
+    here and -0.313 in the report that called this "bit-exact", and two folds either side of 10% prevalence were scored
+    on different partitions. Pass ``"uniform"`` explicitly for the cheapest path when the caller does not need to match
+    a report.
     """
     from ..core import fast_brier_score_loss  # lazy: import-cycle, see module top
     if len(y_true) == 0:
         return 1.0
     brier_loss = fast_brier_score_loss(y_true=y_true, y_prob=y_pred)
-    freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    freqs_predicted, freqs_true, hits = calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins, strategy=binning_strategy)
     cal_mae, cal_std, cal_cov = calibration_metrics_from_freqs(
         freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights,
     )

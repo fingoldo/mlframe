@@ -49,9 +49,8 @@ def _batch_per_class_ice_kernel(
 
     Returns ice_per_class : (K,) float64.
 
-    Bit-exact equivalent of looping ``fast_ice_only`` per class
-    (verified against the legacy form in
-    ``bench_compute_multiclass_error.py``).
+    Equivalent to looping ``fast_ice_only`` per class: same binning grid, same per-bin MEAN prediction, same weighting
+    (pinned by ``tests/metrics/test_ice_kernel_parity.py``).
 
     ``desc_idx_NK`` is the per-class descending-score order (shape (N, K)), computed ONCE by the caller via numpy's
     C ``np.argsort(-y_pred_NK, axis=0)``. numba's own ``np.argsort`` is markedly slower than numpy's (measured 3.6x on
@@ -102,6 +101,7 @@ def _batch_per_class_ice_kernel(
         span = max_val - min_val
         pockets_pred = np.zeros(nbins, dtype=np.int64)
         pockets_true = np.zeros(nbins, dtype=np.int64)
+        pockets_pred_sum = np.zeros(nbins, dtype=np.float64)
         if span > 0:
             multiplier = (nbins - 1) / span
             for i in range(N):
@@ -115,10 +115,12 @@ def _batch_per_class_ice_kernel(
                     ind = nbins - 1
                 pockets_pred[ind] += 1
                 pockets_true[ind] += y_t[i]
+                pockets_pred_sum[ind] += y_p[i]
         else:
             for i in range(N):
                 pockets_pred[0] += 1
                 pockets_true[0] += y_t[i]
+                pockets_pred_sum[0] += y_p[i]
 
         # Collapse to non-empty bins
         n_nonempty = 0
@@ -131,7 +133,11 @@ def _batch_per_class_ice_kernel(
         ptr = 0
         for b in range(nbins):
             if pockets_pred[b] > 0:
-                freqs_pred[ptr] = min_val + (b + 0.5) * span / nbins
+                # MEAN prediction in the bin, as the serial reference does. The bin CENTRE used here before is a
+                # different number whenever a bin's mass is not symmetric around it -- the normal case on a skewed
+                # probability distribution -- so the "bit-exact equivalent of fast_ice_only" claim was false: on a
+                # Beta(2,5) bed at nbins=10 the two forms returned -0.1477 and -0.0917.
+                freqs_pred[ptr] = pockets_pred_sum[b] / pockets_pred[b]
                 freqs_true[ptr] = pockets_true[b] / pockets_pred[b]
                 hits[ptr] = pockets_pred[b]
                 ptr += 1
@@ -303,6 +309,7 @@ def _batch_per_class_ice_kernel_serial(
         span = max_val - min_val
         pockets_pred = np.zeros(nbins, dtype=np.int64)
         pockets_true = np.zeros(nbins, dtype=np.int64)
+        pockets_pred_sum = np.zeros(nbins, dtype=np.float64)
         if span > 0:
             multiplier = (nbins - 1) / span
             for i in range(N):
@@ -313,10 +320,12 @@ def _batch_per_class_ice_kernel_serial(
                     ind = nbins - 1
                 pockets_pred[ind] += 1
                 pockets_true[ind] += y_t[i]
+                pockets_pred_sum[ind] += y_p[i]
         else:
             for i in range(N):
                 pockets_pred[0] += 1
                 pockets_true[0] += y_t[i]
+                pockets_pred_sum[0] += y_p[i]
 
         n_nonempty = 0
         for b in range(nbins):
@@ -328,7 +337,11 @@ def _batch_per_class_ice_kernel_serial(
         ptr = 0
         for b in range(nbins):
             if pockets_pred[b] > 0:
-                freqs_pred[ptr] = min_val + (b + 0.5) * span / nbins
+                # MEAN prediction in the bin, as the serial reference does. The bin CENTRE used here before is a
+                # different number whenever a bin's mass is not symmetric around it -- the normal case on a skewed
+                # probability distribution -- so the "bit-exact equivalent of fast_ice_only" claim was false: on a
+                # Beta(2,5) bed at nbins=10 the two forms returned -0.1477 and -0.0917.
+                freqs_pred[ptr] = pockets_pred_sum[b] / pockets_pred[b]
                 freqs_true[ptr] = pockets_true[b] / pockets_pred[b]
                 hits[ptr] = pockets_pred[b]
                 ptr += 1

@@ -411,6 +411,23 @@ def _quantile_binning_kernel(y_true: np.ndarray, y_pred: np.ndarray, edges: np.n
     return freqs_predicted, freqs_true, hits
 
 
+# Base rate below which "auto" switches to equal-population bins: uniform bins leave most pockets empty on a rare
+# positive class, so the calibration curve is estimated from a handful of them.
+_QUANTILE_BINNING_MAX_BASE_RATE = 0.10
+
+
+def resolve_binning_strategy(y_true, strategy: str = "auto") -> str:
+    """Resolve ``"auto"`` to ``"uniform"`` / ``"quantile"``; any other value passes through.
+
+    Exposed so every ICE path resolves identically: the metric used to be pinned to uniform while the report resolved
+    auto, and the same predictions scored -0.294 and -0.313 under a "bit-exact" claim.
+    """
+    if strategy != "auto":
+        return strategy
+    base_rate = float(np.mean(y_true)) if len(y_true) else 0.0
+    return "quantile" if 0.0 < base_rate < _QUANTILE_BINNING_MAX_BASE_RATE else "uniform"
+
+
 def calibration_binning(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -438,10 +455,7 @@ def calibration_binning(
         empty = np.array((), dtype=np.float64)
         return empty, empty, np.array((), dtype=np.int64)
 
-    resolved = strategy
-    if strategy == "auto":
-        base_rate = float(np.mean(y_true))
-        resolved = "quantile" if (0.0 < base_rate < 0.10) else "uniform"
+    resolved = resolve_binning_strategy(y_true, strategy)
 
     if resolved == "uniform":
         return fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)

@@ -428,6 +428,11 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights)
 
 
+# Finite worst-case ICE for an input the metric cannot score. Finite because CatBoost refuses a non-finite custom
+# metric value ("JSON writer: invalid float value"); large enough that no real model competes with it.
+ICE_UNCOMPUTABLE: float = 1e6
+
+
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def integral_calibration_error_from_metrics(
     calibration_mae: float,
@@ -475,13 +480,20 @@ def integral_calibration_error_from_metrics(
     """
     # Guard against NaN in any of the 6 inputs (single-class eval set, zero-variance scores, out-of-range
     # probabilities feeding fast_brier_score_loss, degenerate calibration bins, etc. - each of these upstream
-    # kernels documents returning NaN on such degenerate inputs). Without this guard on EVERY term, the entire
-    # ICE becomes NaN, which silently breaks early-stopping comparisons (NaN > best is always False, so the
-    # trainer gets stuck on iteration-1 best instead of failing loud).
-    brier_term = 0.0 if np.isnan(brier_loss) else brier_loss * brier_loss_weight
-    mae_term = 0.0 if np.isnan(calibration_mae) else calibration_mae * mae_weight
-    std_term = 0.0 if np.isnan(calibration_std) else calibration_std * std_weight
-    cov_term = 0.0 if np.isnan(calibration_coverage) else (1.0 - calibration_coverage) * coverage_weight
+    # kernels documents returning NaN on such degenerate inputs). Without a guard on EVERY term the whole ICE
+    # becomes NaN, which breaks early-stopping comparisons (NaN > best is always False) - and CatBoost rejects a
+    # non-finite custom-metric value outright ("JSON writer: invalid float value"), so the sentinel must be finite.
+    #
+    # A LOSS term cannot be zeroed: ICE is lower-is-better, so a NaN Brier (one iteration emitting p slightly above
+    # 1.0) used to make that iteration score BETTER than its healthy neighbours and win early stopping. A term that
+    # cannot be computed scores the worst finite value instead; the REWARD terms below keep the 0 substitution,
+    # which already means "no reward earned".
+    if np.isnan(brier_loss) or np.isnan(calibration_mae) or np.isnan(calibration_std) or np.isnan(calibration_coverage):
+        return ICE_UNCOMPUTABLE
+    brier_term = brier_loss * brier_loss_weight
+    mae_term = calibration_mae * mae_weight
+    std_term = calibration_std * std_weight
+    cov_term = (1.0 - calibration_coverage) * coverage_weight
     base_loss = brier_term + mae_term + std_term + cov_term
     roc_term = 0.0 if np.isnan(roc_auc) else np.abs(roc_auc - 0.5) * roc_auc_weight
     pr_term = 0.0 if np.isnan(pr_auc) else pr_auc * pr_auc_weight

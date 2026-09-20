@@ -13,6 +13,7 @@ from ._calibration_plot import (
     DEFAULT_TITLE_METRICS_TOKENS,
     render_title_metric_token,
     fast_calibration_binning,
+    resolve_binning_strategy,
     _fast_calibration_binning_prange,
     _close_unless_interactive,
     show_calibration_plot,
@@ -26,5 +27,6 @@ from ._calibration_metrics import (
     compute_ece_brier_full_and_debiased,
     compute_ece_debiased,
     fast_calibration_metrics,
+    ICE_UNCOMPUTABLE,
     integral_calibration_error_from_metrics,
 )
