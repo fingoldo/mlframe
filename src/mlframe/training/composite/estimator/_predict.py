@@ -14,6 +14,7 @@ from sklearn.exceptions import NotFittedError
 
 from . import _extract_groups
 from . import _soft_shrink as _soft_shrink
+from ._estimator_helpers import _carry_forward_fill
 from ._routing import inner_input as _inner_input
 from ._routing import resolve_transform as get_transform
 
@@ -118,7 +119,18 @@ def _inverse_with_fallback(
         # row mask along the column axis (a flat np.where would raise a
         # (n,) vs (n,K) broadcast ValueError for K>=2).
         mask = domain_ok if base_arr.ndim == 1 else domain_ok[:, None]
-        base_safe = np.where(mask, base_arr, 1.0)
+        if getattr(transform, "recurrent", False):
+            # A recurrent inverse walks the whole base sequence, so a placeholder is NOT irrelevant here: 1.0 next to a
+            # base of ~1e3 drags the EWMA / rolling state for every LATER row, far beyond the row that was flagged (and
+            # those rows stay in the output, since only the flagged ones are overwritten). Carry the last valid value
+            # forward instead, exactly as fit does for its own dropped rows.
+            keep = np.isfinite(base_arr) & mask
+            if base_arr.ndim == 1:
+                base_safe = _carry_forward_fill(base_arr, keep)
+            else:
+                base_safe = np.column_stack([_carry_forward_fill(base_arr[:, j], keep[:, j]) for j in range(base_arr.shape[1])])
+        else:
+            base_safe = np.where(mask, base_arr, 1.0)
         y_hat_valid = np.asarray(
             transform.inverse(t_hat, base_safe, params, **inverse_kwargs),
             dtype=np.float64,

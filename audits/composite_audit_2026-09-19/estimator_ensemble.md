@@ -70,7 +70,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: A single missing base value silently spoils tens of neighbouring predictions, far beyond the row that was flagged. The distortion does not show up in the domain-violation counters.
 - **Suggested fix**: In `_inverse_with_fallback`, for transforms with `getattr(transform, "recurrent", False)`, build `base_safe` with `_carry_forward_fill` (per column for 2-D bases, per group for grouped transforms), matching fit. Keep the 1.0 placeholder only for pointwise inverses.
 - **Test to add**: For each recurrent transform, run predict twice (clean batch, and the same batch with one NaN base). Assert that every row except the NaN row matches to within 1e-9 of carry-forward semantics, and that the NaN row gets the fallback.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - a recurrent inverse carry-forward-fills an out-of-domain base instead of substituting 1.0, matching what fit does for its own dropped rows (test_recurrent_predict_out_of_domain_base.py: at origin/master one blanked row moved 73 of 239 other rows by up to 75.9)
 
 ### EST-05 [P2] The CT-ensemble "honest OOF gate" can never fire for the default `nnls_stack` (and in practice for `linear_stack`), because the stack weights are fit on the same OOF matrix the gate scores
 
