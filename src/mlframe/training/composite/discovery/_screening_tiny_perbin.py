@@ -41,6 +41,7 @@ from ._screening_tiny import (
     _cached_kfold_splits,
     _silence_tiny_model_output,
 )
+from ._eval import refit_transform_on_fold
 
 
 def _per_bin_rmse(
@@ -312,8 +313,26 @@ def _tiny_cv_rmse_y_scale(
                 _fit_rows = _tr_valid
             else:
                 _fit_rows = train_fold
+            # Per-fold transform refit. The global ``fitted_params`` were fit on every screening row, so they already saw
+            # this fold's held-out rows: scoring that fold with them credits the spec for structure its own parameters
+            # absorbed (linear_residual's alpha/beta, a spline's knots), and the flexible residuals win the rerank on it.
+            # A degenerate fold returns None and keeps the global params, so a spec that scored before still scores.
+            _fold_params = fitted_params
+            _t_fit = t_clean[_fit_rows]
+            _refit = refit_transform_on_fold(
+                transform,
+                y_clean[_fit_rows], base_clean[_fit_rows],
+                groups_fold=(groups_clean[_fit_rows] if groups_clean is not None else None),
+            )
+            if _refit is not None:
+                _p_fold, _valid_fold = _refit
+                _rows_fold = _fit_rows[_valid_fold]
+                if _rows_fold.shape[0] >= 2:
+                    _t_try = np.asarray(transform.forward(y_clean[_rows_fold], base_clean[_rows_fold], _p_fold), dtype=np.float64)
+                    if np.all(np.isfinite(_t_try)):
+                        _fold_params, _fit_rows, _t_fit = _p_fold, _rows_fold, _t_try
             with _silence_tiny_model_output(family):
-                model.fit(x_clean[_fit_rows], t_clean[_fit_rows])
+                model.fit(x_clean[_fit_rows], _t_fit)
                 t_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
             # Domain-invalid val rows have a meaningless base for the inverse; supply a safe placeholder and overwrite with the median fallback below (mirrors estimator/_predict.py base_safe + y_train_median).
             if _split_valid_mask is not None:
@@ -324,8 +343,8 @@ def _tiny_cv_rmse_y_scale(
                 _base_for_inverse = base_clean[val_fold]
             # Smearing for curved unary inverses (see ``estimator._smearing``), as the trained composite predicts.
             y_hat = smeared_prediction(
-                getattr(transform, "name", ""), model, x_clean[_fit_rows], t_clean[_fit_rows], t_hat,
-                lambda t: transform.inverse(t, _base_for_inverse, fitted_params),
+                getattr(transform, "name", ""), model, x_clean[_fit_rows], _t_fit, t_hat,
+                lambda t: transform.inverse(t, _base_for_inverse, _fold_params),
             )
             # Wrapper-aware clipping. The
             # production CompositeTargetEstimator.predict applies

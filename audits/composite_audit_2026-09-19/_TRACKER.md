@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 2 | 0 | 28 | 0 | 0 |
+| `discovery.md` | 30 | 3 | 0 | 27 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
 | `suite_integration.md` | 19 | 4 | 0 | 15 | 0 | 0 |
 | `performance.md` | 24 | 0 | 0 | 24 | 0 | 0 |
 | `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **36** | **0** | **143** | **0** | **0** |
+| **Total** | **179** | **37** | **0** | **142** | **0** | **0** |
 
 ### `transforms.md`
 
@@ -62,7 +62,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `DSC-01` | Grouped causal bases copy each row's own target into the first row of every group | engineer_causal_first_fill defaults to 'nan' (config and the builder), so a history-less row is left undefined for the downstream masking to drop instead of being handed its own y; opting back into 'group_first' logs a warning naming the leak (test_biz_val_grouped_causal_bases.py::test_default_fill_never_writes_a_rows_own_target_into_its_causal_base and ::test_single_row_group_is_nan_not_its_own_value, which pinned the old fill) |
 | **RESOLVED** | P1 | `DSC-02` | Engineered `__gcausal_*` bases exist only in discovery's private frame, so kept specs cannot be rebuilt downstream | the discovery phase drops any kept spec whose base (or extra base) column is in none of the train/val/test frames, recording one failure entry each, and the shared column builder now warns instead of answering a name it cannot find with a silent all-NaN column. Engineered causal bases stay screening-only: they are functions of past y, which a predict frame does not carry, so there is nothing to rebuild downstream (test_composite_spec_base_materialisable.py, 5 tests; the builder probe fails at origin/master) |
 | **TODO** | P1 | `DSC-03` | The "never-touched" honest holdout is used for selection and then reported as an honest post-selection estimate | |
-| **TODO** | P1 | `DSC-04` | Tiny-rerank CV scores every fold with transform params fit on all rows; the per-fold refit fix exists but is never called | |
+| **RESOLVED** | P1 | `DSC-04` | Tiny-rerank CV scores every fold with transform params fit on all rows; the per-fold refit fix exists but is never called | _tiny_cv_rmse_y_scale's _one_fold now calls refit_transform_on_fold on the fold's own train rows and forwards/inverses that fold with the fold-local params (the helper existed and was tested but had no production caller); a degenerate fold returns None and keeps the global params, so a spec that scored before still scores (test_tiny_cv_refits_transform_per_fold.py, which fails at origin/master where both scores are identical) |
 | **TODO** | P1 | `DSC-05` | `time_ordering` sorts only the MI screen; the CVs that claim to be forward-walks run on row-position order | |
 | **TODO** | P2 | `DSC-06` | The bin-MI `mi_gain` compares a de-duplicated `MI(T,X)` with a non-de-duplicated `MI(y,X)` | |
 | **TODO** | P2 | `DSC-07` | The tiny rerank ranks and gates on a mix of honest-holdout RMSE and optimistic in-group CV RMSE | |
