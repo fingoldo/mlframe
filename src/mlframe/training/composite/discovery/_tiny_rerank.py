@@ -363,6 +363,27 @@ def _tiny_model_rerank(
         and getattr(self, "_group_ids_for_rerank", None) is not None
         and getattr(self, "honest_holdout_idx_", None) is not None
     )
+    # Honest group-OOF, when it will run, REPLACES the group-internal CV-RMSE of every spec it can measure (the
+    # overwrite loop below the sweep). Measuring it FIRST lets those specs skip the CV sweep entirely instead of
+    # computing a score that is thrown away: on a 16-spec grouped run the sweep cost 11.6 s of model fits against
+    # 0.26 s for the honest measurement, and all 16 scores were overwritten. Only safe when the sweep has no OTHER
+    # consumer -- the per-bin regime gate reuses its first-pass breakdown and the Wilcoxon gate needs its per-seed
+    # vectors -- so with either enabled every spec still runs the full sweep, exactly as before.
+    _honest_oof_pre: dict[str, float] = {}
+    if _honest_oof_will_run and not per_bin_enabled_pre and not use_wilcoxon:
+        from ._honest_oof_select import honest_oof_reconstruction_rmse as _honest_oof_fn
+
+        _honest_oof_pre = dict(
+            _honest_oof_fn(
+                self, df, target_col, kept_specs, usable_features, train_idx,
+                getattr(self, "honest_holdout_select_idx_", None) if getattr(self, "honest_holdout_select_idx_", None) is not None else getattr(self, "honest_holdout_idx_", None),
+                y_full,
+            )
+            or {}
+        )
+    # Spec names whose CV score would be discarded: the worker returns immediately for these.
+    _skip_cv_names = set(_honest_oof_pre)
+
     _early_stop_threshold = float("inf")
     if (
         bool(getattr(self.config, "enable_multiseed_early_stop", True))
@@ -381,6 +402,9 @@ def _tiny_model_rerank(
         ``per_family_scores`` / ``_wilcoxon_per_seed_composite`` /
         ``_per_bin_first_pass`` in spec order on the main thread.
         """
+        if spec.name in _skip_cv_names:
+            # Honest-OOF already measured this spec and will set its score; the CV fits would be discarded.
+            return spec.name, {}, {}, None
         base_screen_local, x_matrix_local = _per_base_cache[spec.base_column]
         transform = get_transform(spec.transform_name)
         # Switch this spec's tiny-CV to TimeSeriesSplit when the data is
@@ -578,7 +602,8 @@ def _tiny_model_rerank(
     ):
         from ._honest_oof_select import honest_oof_reconstruction_rmse
 
-        _honest_oof = honest_oof_reconstruction_rmse(
+        # Reuse the pre-sweep measurement when it was taken (same inputs, same selection half); otherwise measure now.
+        _honest_oof = _honest_oof_pre or honest_oof_reconstruction_rmse(
             self, df, target_col, kept_specs, usable_features,
             # Selection half: this score is a ranking key, so it must not be measured on the reported rows.
             train_idx, getattr(self, "honest_holdout_select_idx_", None) if getattr(self, "honest_holdout_select_idx_", None) is not None else getattr(self, "honest_holdout_idx_", None), y_full,

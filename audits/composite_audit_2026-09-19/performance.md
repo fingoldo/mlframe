@@ -78,7 +78,7 @@ Default counts used in the estimates:
 - **Test/benchmark to add**:
   - A test with synthetic groups asserting that the CV sweep runs only for specs absent from the honest dict, and that the final `specs_` equal the current code path.
   - A bench of rerank wall time with and without group ids.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - honest-OOF is now measured BEFORE the sweep and every spec it measures skips the CV fits entirely. Measured on the grouped biz fixture (40 groups x 300 rows, 2 threads): 16 kept specs, all 16 scores overwritten, CV sweep 11.6 s of fits against 0.26 s for the honest measurement; after the change the sweep runs 0 times and the full fit went 8.44 s -> 6.47 s at default `tiny_model_n_estimators`, with a bit-identical spec order and bit-identical `tiny_rerank_scores_`. The skip is gated on the sweep having no other consumer: with the per-bin regime gate or the Wilcoxon gate on, every spec is still fitted (WAIC recomputes its own folds, so it needs nothing from the sweep). test_honest_oof_skips_discarded_cv.py, 4 tests: no CV fits on the default grouped path (fails pre-fix with 32 calls), scores are the honest values, Wilcoxon keeps the sweep, per-bin keeps the sweep
 
 ### PRF-04 [P1] The OOF pre-screen that skips refitting hopeless components never runs under the default `oof_holdout_source="kfold"`
 
