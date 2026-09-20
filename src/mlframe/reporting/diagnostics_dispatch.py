@@ -469,40 +469,50 @@ def render_target_drift_diagnostics(
                 )
 
     if adversarial_validation and train_frame is not None and (test_frame is not None or val_frame is not None):
-        try:
-            # Its own LightGBM classifier fit cost scales with COLUMN count, not just row count -- unlike
-            # every other builder in this dispatcher (all row/histogram capped), this one had no bound on a
-            # very wide frame at all. Capped the same way this module's OWN dense-matrix builders already
-            # are (DIAG_MAX_FEATURES), by restricting feature_names before the fit rather than after: the
-            # underlying frame-reader already narrows to exactly the given names, so no extra frame slicing
-            # is needed. Traced to a production profile alongside the (separately fixed) PDP categorical-
-            # sweep cost -- the same "cost scales with an unbounded dimension" bug class.
-            _adv_names = list(_non_calendar) if _non_calendar is not None else _column_names(train_frame)
-            if _adv_names is not None and len(_adv_names) > DIAG_MAX_FEATURES:
-                _adv_names = _adv_names[:DIAG_MAX_FEATURES]
-            # The adversarial classifier depends only on the feature frames, not on the target: every target of a run
-            # (raw and composite alike) re-fitted the same 3-fold LightGBM, ~15 s x 32 targets in one production log.
-            _adv_key = _adversarial_cache_key(train_frame, test_frame, val_frame, _adv_names, seed)
-            spec = _ADVERSARIAL_CACHE.get(_adv_key) if _adv_key is not None else None
-            if spec is None:
-                spec = _adversarial_validation_fn(
-                    train_frame, test_frame if test_frame is not None else val_frame,
-                    val_frame=val_frame if test_frame is not None else None,
-                    feature_names=_adv_names, seed=seed,
-                )
-                if _adv_key is not None:
-                    while len(_ADVERSARIAL_CACHE) >= 8:
-                        _ADVERSARIAL_CACHE.pop(next(iter(_ADVERSARIAL_CACHE)))
-                    _ADVERSARIAL_CACHE[_adv_key] = spec
-            if _calendar:
-                spec = _with_caption_note(spec, f"Excluded {len(_calendar)} calendar feature(s) derived from the timestamp (an earlier and a later period differ in them by construction): {', '.join(_calendar)}.")
-            ok = _save_spec(spec, plot_outputs, base_path + "_adversarial")
-            _record(charts, "adversarial", ok)
-            if ok:
-                _record_path(charts, base_path + "_adversarial")
-        except Exception:
-            logger.exception("diagnostics_dispatch: adversarial_validation failed; continuing.")
-            _record(charts, "adversarial", False)
+        _render_adversarial_panel(train_frame=train_frame, test_frame=test_frame, val_frame=val_frame, non_calendar=_non_calendar,
+                                  calendar=_calendar, plot_outputs=plot_outputs, base_path=base_path, charts=charts, seed=seed)
+
+
+def _render_adversarial_panel(*, train_frame: Any, test_frame: Any, val_frame: Any, non_calendar: Any, calendar: list,
+                              plot_outputs: str, base_path: str, charts: Optional[dict], seed: int) -> None:
+    """The train-vs-test separability panel, cached across targets since it depends only on the feature frames."""
+    # Imported per call, not at module import: the builder's real home is the patch point tests reach for.
+    from mlframe.reporting.charts.drift import adversarial_validation as _adversarial_validation_fn
+
+    try:
+        # Its own LightGBM classifier fit cost scales with COLUMN count, not just row count -- unlike
+        # every other builder in this dispatcher (all row/histogram capped), this one had no bound on a
+        # very wide frame at all. Capped the same way this module's OWN dense-matrix builders already
+        # are (DIAG_MAX_FEATURES), by restricting feature_names before the fit rather than after: the
+        # underlying frame-reader already narrows to exactly the given names, so no extra frame slicing
+        # is needed. Traced to a production profile alongside the (separately fixed) PDP categorical-
+        # sweep cost -- the same "cost scales with an unbounded dimension" bug class.
+        _adv_names = list(non_calendar) if non_calendar is not None else _column_names(train_frame)
+        if _adv_names is not None and len(_adv_names) > DIAG_MAX_FEATURES:
+            _adv_names = _adv_names[:DIAG_MAX_FEATURES]
+        # The adversarial classifier depends only on the feature frames, not on the target: every target of a run
+        # (raw and composite alike) re-fitted the same 3-fold LightGBM, ~15 s x 32 targets in one production log.
+        _adv_key = _adversarial_cache_key(train_frame, test_frame, val_frame, _adv_names, seed)
+        spec = _ADVERSARIAL_CACHE.get(_adv_key) if _adv_key is not None else None
+        if spec is None:
+            spec = _adversarial_validation_fn(
+                train_frame, test_frame if test_frame is not None else val_frame,
+                val_frame=val_frame if test_frame is not None else None,
+                feature_names=_adv_names, seed=seed,
+            )
+            if _adv_key is not None:
+                while len(_ADVERSARIAL_CACHE) >= 8:
+                    _ADVERSARIAL_CACHE.pop(next(iter(_ADVERSARIAL_CACHE)))
+                _ADVERSARIAL_CACHE[_adv_key] = spec
+        if calendar:
+            spec = _with_caption_note(spec, f"Excluded {len(calendar)} calendar feature(s) derived from the timestamp (an earlier and a later period differ in them by construction): {', '.join(calendar)}.")
+        ok = _save_spec(spec, plot_outputs, base_path + "_adversarial")
+        _record(charts, "adversarial", ok)
+        if ok:
+            _record_path(charts, base_path + "_adversarial")
+    except Exception:
+        logger.exception("diagnostics_dispatch: adversarial_validation failed; continuing.")
+        _record(charts, "adversarial", False)
 
 
 _ADVERSARIAL_CACHE: dict = {}
