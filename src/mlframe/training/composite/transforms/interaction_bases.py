@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------
 # generate_interaction_bases (synthetic base column generator).
@@ -72,6 +75,14 @@ def generate_interaction_bases(
         bad = [n for n, arr in zip(selected_names, selected_arrays) if arr.shape != train_mask.shape]
         if bad:
             raise ValueError(f"generate_interaction_bases: train_mask has {train_mask.size} rows but candidate(s) {bad} have a different length.")
+    elif "div" in ops:
+        # Without a mask the div floor's scale is the median over EVERY row handed in, so a caller passing train+test rows
+        # folds test scale into a synthetic column's values. Say so once per call rather than in the silent docstring only.
+        logger.warning(
+            "generate_interaction_bases: no train_mask given, so the div eps floor is the median over all %d rows supplied. "
+            "Pass train_mask=<train rows> to keep test-row scale out of the synthetic columns.",
+            selected_arrays[0].size if selected_arrays else 0,
+        )
     synthetics: dict[str, np.ndarray] = {}
     provenance: dict[str, dict[str, Any]] = {}
     for i, name_a in enumerate(selected_names):
