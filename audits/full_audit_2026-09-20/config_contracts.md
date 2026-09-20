@@ -37,4 +37,10 @@ Scope: `src/mlframe/config.py`, `src/mlframe/training/configs.py` and the siblin
 | Low | CFG-31 | `cv_strategy` / `cv_purge` comment says the split routing "lands in the E2 follow-up", but the purge/embargo is already applied | `_preprocessing_configs.py:207-209` "Consumed by the conformal structure-inference today; the make_train_test_split / routing lands in the E2 follow-up."; `core/_phase_helpers_fit_split.py:460-471` drops train and val rows when `cv_strategy="purged"` and `cv_purge>0` | A user who sets `cv_purge` "harmlessly, for documentation" per the comment silently loses training rows. | Update the comment to state the embargo is applied in `_phase_helpers_fit_split._apply_purge_embargo`. |
 | Low | CFG-32 | `FeatureSelectionConfig`'s Parameters block documents 4 of ~45 fields, omitting every default-ON knob | `_feature_selection_config.py:40-49` "Parameters / ---------- / use_mrmr_fs : bool …"; undocumented default-ON example `rfecv_cluster_reduce: bool = True` (`:118`) | `help(FeatureSelectionConfig)` gives no hint that RFECV runs on a cluster-medoid-reduced pool by default, so the user cannot explain the selected feature set. | Document the default-ON fields, or replace the stale partial block with a pointer to the inline field comments. |
 
-- **Disposition**: TODO
+- **Disposition**: PARTIAL - CFG-01 RESOLVED, the remaining 31 are TODO.
+
+## Dispositions
+
+| ID | Status | Note |
+|---|---|---|
+| CFG-01 | RESOLVED | The documentation was wrong, not the default. The field's own comment states the rationale for ON (the step only ever moves a LOW-confidence target toward neutral), so the phase docstring and the suite kwarg now say it is ON and that it applies even when no `regression_calibration_config` is passed; the "opt-in, default OFF" wording belongs to `point`, which is unchanged. Pinned by `tests/training/test_confidence_shrinkage_default_is_documented.py`. |

@@ -161,12 +161,16 @@ def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
 
 
 def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
-    """Opt-in final prediction-shrinkage step for regression targets: pull weakly-discriminative targets'
-    test/val predictions toward a neutral value, per ``mlframe.calibration.confidence_shrinkage``.
+    """Final prediction-shrinkage step for regression targets: pull weakly-discriminative targets' test/val
+    predictions toward a neutral value, per ``mlframe.calibration.confidence_shrinkage``.
 
     Confidence is computed from each model's OOF preds/target (``compute_oof_confidence``); the shrinkage is
     then applied to that same model's test/val predictions in place (``apply_confidence_shrinkage``). Gated by
-    ``RegressionCalibrationConfig.apply_confidence_shrinkage``; default OFF (bit-identical no-op).
+    ``RegressionCalibrationConfig.apply_confidence_shrinkage``, which is ON by default - and the config is
+    constructed for every run, so this applies even when the caller passes no ``regression_calibration_config``
+    at all. Set it to False for the bit-identical no-op. The step only ever moves a LOW-confidence target's
+    predictions toward neutral, which is why it is on; this docstring and the suite kwarg used to describe it as
+    disabled unless requested, which was the opposite of what every run actually did.
     """
     from ...calibration.confidence_shrinkage import apply_confidence_shrinkage, compute_oof_confidence
 

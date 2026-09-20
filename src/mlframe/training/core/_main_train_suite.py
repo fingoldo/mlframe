@@ -217,8 +217,10 @@ def train_mlframe_models_suite(
         quantile_regression_config: Quantile-regression alphas / crossing-fix / coverage. See ``QuantileRegressionConfig``.
         conformal_config: Conformal prediction intervals (regression) / sets (classification) plus
             achieved coverage into ``metadata["conformal"]``; default ON. See ``ConformalConfig``.
-        regression_calibration_config: Opt-in monotone point recalibration g(yhat)~=E[y|yhat] for
-            regression models (default OFF). See ``RegressionCalibrationConfig``.
+        regression_calibration_config: Monotone point recalibration g(yhat)~=E[y|yhat] for regression models,
+            opt-in and OFF by default (``point="off"``). Note that the same config also carries
+            ``apply_confidence_shrinkage``, which is ON by default and applies whether or not this argument is
+            passed. See ``RegressionCalibrationConfig``.
         composite_target_discovery_config: Composite-target (diff/ratio/linres) discovery. ``MLFRAME_DISABLE_COMPOSITE=1`` forces off. See ``CompositeTargetDiscoveryConfig``.
         feature_handling_config: Feature-handling / caching config bundle (advanced). See the feature_handling package.
         enable_target_distribution_analyzer: When True (default), run the mini-HPT target-distribution analyzer
@@ -285,6 +287,11 @@ def train_mlframe_models_suite(
     # cached entry whose underlying state belongs to the prior suite. The session reset guarantees
     # each suite starts from a fresh FH cache namespace.
     reset_fh_session()
+    # Regression sensor trips are process-level and keyed by model name, so one suite's flags would otherwise be
+    # attributed to the next suite's identically-named models.
+    from mlframe.training.reporting._reporting_regression._sensor_ledger import clear_sensor_trips
+
+    clear_sensor_trips()
 
     # Ergonomic happy path: when no extractor is supplied, build a
     # SimpleFeaturesAndTargetsExtractor from ``target_name`` alone, inferring the

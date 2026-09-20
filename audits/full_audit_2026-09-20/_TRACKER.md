@@ -30,8 +30,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `evaluation_reporting.md` | 16 | 3 | 0 | 13 | 0 | 0 |
 | `performance.md` | 6 | 2 | 0 | 4 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 1 | 0 | 11 | 0 | 0 |
-| `config_contracts.md` | 32 | 0 | 0 | 32 | 0 | 0 |
-| **Total** | **163** | **21** | **1** | **141** | **0** | **0** |
+| `config_contracts.md` | 32 | 1 | 0 | 31 | 0 | 0 |
+| **Total** | **163** | **22** | **1** | **140** | **0** | **0** |
 
 ## Per-report status
 
@@ -50,7 +50,7 @@ least one of its findings moves).
 | **PARTIAL** | [evaluation_reporting.md](evaluation_reporting.md) | 16 | diagnostic verdicts (EVR-01, EVR-02, EVR-03 fixed) |
 | **PARTIAL** | [performance.md](performance.md) | 6 | measured performance (PRF-01, PRF-02 fixed) |
 | **PARTIAL** | [concurrency_resources.md](concurrency_resources.md) | 12 | concurrency and resources (CNC-01 fixed) |
-| **TODO** | [config_contracts.md](config_contracts.md) | 32 | config contracts |
+| **PARTIAL** | [config_contracts.md](config_contracts.md) | 32 | config contracts (CFG-01 fixed) |
 
 ## What the wave is about
 
