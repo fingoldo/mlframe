@@ -136,8 +136,11 @@ def _train_fingerprint(y_f: np.ndarray, uniq: np.ndarray, inverse_idx: np.ndarra
     import hashlib
     from . import _canonical_group_key
     h = hashlib.blake2b(digest_size=16)
-    h.update(np.ascontiguousarray(y_f, dtype=np.float64).tobytes())
-    h.update(np.ascontiguousarray(inverse_idx, dtype=np.int64).tobytes())
+    # Hash the existing buffer instead of a second copy of the whole column: same bytes, same digest.
+    from mlframe._array_buffer import array_buffer
+
+    h.update(array_buffer(np.ascontiguousarray(y_f, dtype=np.float64)))
+    h.update(array_buffer(np.ascontiguousarray(inverse_idx, dtype=np.int64)))
     h.update("\x1f".join(_canonical_group_key(g) for g in uniq.tolist()).encode("utf-8"))
     return h.hexdigest()
 
