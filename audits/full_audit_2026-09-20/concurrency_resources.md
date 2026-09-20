@@ -17,4 +17,10 @@ Scope: the whole `src/mlframe` package except `training/composite/`, read-only. 
 | LOW | CNC-11 | Library code mutates the root logger's level and rewrites other packages' handler formatters, with no restore | `training/core/_misc_helpers.py:54-59` `for h in root.handlers:` / `h.setFormatter(timestamped)` / `if root.level > level or root.level == logging.NOTSET:` / `root.setLevel(level)` | An embedding application that configured a structured/JSON root handler has its formatter replaced by mlframe's asctime text format for the rest of the process and its root level lowered; downstream log ingestion breaks in a way that points at the application, not at mlframe. | Configure the `mlframe` logger rather than the root logger, or snapshot and restore root state around the suite as the residual-audit flag already is. |
 | LOW | CNC-12 | A module-level GPU-decision cache is declared but never read or written | `feature_engineering/transformer/random_features.py:325` `_GPU_AUTO_CACHE: dict[tuple[int, int, int], bool] = {}` - a package-wide grep returns only this line (plus the stale `.pyc`) | Dead shared state: readers assume the auto-GPU decision is memoised per shape, so the per-call probe cost goes unnoticed, and a contributor who "restores" its use would be adding an unlocked dict on a threaded path (see CNC-01). | Delete the unused global, or wire it in behind a `threading.Lock` like the sibling caches in `feature_selection/filters`. |
 
-- **Disposition**: TODO
+- **Disposition**: PARTIAL - CNC-01 RESOLVED, the remaining 11 are TODO.
+
+## Dispositions
+
+| ID | Status | Note |
+|---|---|---|
+| CNC-01 | RESOLVED | `_GPU_POOL_LOCK` (an `RLock`) is held across the whole ensure-fill-launch block in `mi_direct_gpu`, not just `ensure()`, since the buffers stay shared for the entire permutation loop. Serialising costs nothing real - the work inside is GPU-bound. Pinned by `tests/feature_selection/gpu/test_gpu_pool_thread_safety.py`, which checks both exclusivity and that four concurrent callers with different bin counts get the serial answers. |

@@ -459,11 +459,19 @@ def _predict_with_fallback(
         except Exception as exc:
             logger.debug("polars-native probe failed (%s: %s); the message omits the library's own answer", type(exc).__name__, exc)
             _native = None
+        # Say WHERE the flag came from, not just that it is set. It is raised either by an observed dispatch miss on
+        # THIS model or, before any predict, by the installed build failing the polars probe. A production log showed
+        # the message asserting an earlier miss that had never happened, on a build the same line reported as working.
+        _observed = getattr(model, "_mlframe_polars_fastpath_miss_observed", False)
         log_throttle(
             logger, "cb_sticky_pandas_predict", logging.INFO,
-            "  [predict] this model is flagged as having missed the CatBoost polars fastpath earlier, so its "
-            "frames are converted to pandas from here on. The installed CatBoost %s accept a polars frame in "
-            "a probe, so this is a per-model condition (dtype mix on the failing call), not a library limit.",
+            "  [predict] CatBoost frames are converted to pandas from here on because %s. The installed CatBoost %s "
+            "accept a polars frame in a probe.",
+            (
+                "this model hit the polars-fastpath dispatch miss on an earlier call"
+                if _observed
+                else "the installed build was pre-flagged as lacking the polars fastpath (no miss was observed on this model)"
+            ),
             {True: "DOES", False: "does NOT", None: "could not be probed to"}.get(_native, "could not be probed to"),
         )
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
@@ -501,6 +509,7 @@ def _predict_with_fallback(
         )
         try:
             model._mlframe_polars_fastpath_broken = True
+            model._mlframe_polars_fastpath_miss_observed = True
         except AttributeError:
             pass
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
@@ -758,11 +767,11 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             # address for a new allocation of matching size (same id-reuse bug class already
             # fixed for the cache KEY above); an id() collision here would silently keep a
             # stale val label on the reused Pool. See _full_target_content_hash's docstring.
-            from mlframe.training.pipeline import _full_target_content_hash
+            from mlframe.training.pipeline import _full_target_content_hash, target_label_changed
             last_target_sig = getattr(cached, "_mlframe_last_target_sig", None)
             try:
                 _target_sig = _full_target_content_hash(val_target)
-                _label_changed = last_target_sig != _target_sig
+                _label_changed = target_label_changed(last_target_sig, _target_sig)
                 if _label_changed:
                     try:
                         _lab = _coerce_label_for_cb_pool(val_target)

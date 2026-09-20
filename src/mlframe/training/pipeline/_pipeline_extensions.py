@@ -303,11 +303,16 @@ def apply_preprocessing_extensions(
     verbose: int = 1,
     y_train=None,
     out_pysr_equations: Optional[Dict[str, str]] = None,
+    out_extremality_reference: Optional[Dict[str, list]] = None,
 ):
     """Apply shared sklearn-based extensions to train/val/test after the Polars-ds pipeline.
 
     Returns (train, val, test, fitted_pipeline_or_None). Fastpath: when ``config``
     is None OR has zero active stages, returns inputs untouched with None pipeline.
+
+    When ``out_extremality_reference`` is provided AND the row-wise extremality reference is fitted, it is populated
+    with ``{column: sorted reference values}`` so the caller can persist it for predict-time replay; without that, the
+    predict path re-ranks within the serving batch and a single scored row is its own median (every score 0.0).
 
     When ``out_pysr_equations`` is provided AND the PySR stage runs, the dict is populated with ``{column_name: equation_str}`` so the caller can persist the mapping under ``metadata["pysr_equations"]`` for predict-time replay (column names are content-hashed so different seeds discover distinct columns; loaders need the equation -> column mapping to rebind predict-time features).
     """
@@ -650,6 +655,10 @@ def apply_preprocessing_extensions(
                     from mlframe.feature_engineering.row_wise_extremality_reference import fit_extremality_reference
 
                     _rw_reference = fit_extremality_reference(train, [c for c in _rw_cols if c in train.columns])
+                    if out_extremality_reference is not None and _rw_reference:
+                        # Lists, not arrays: this travels through the persisted metadata, and the predict side
+                        # rebuilds float64 arrays from it.
+                        out_extremality_reference.update({str(_c): np.asarray(_v, dtype=np.float64).tolist() for _c, _v in _rw_reference.items()})
                 except Exception:
                     logger.warning(
                         "apply_preprocessing_extensions: could not fit the extremality reference; falling back "

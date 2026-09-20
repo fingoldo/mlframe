@@ -216,7 +216,24 @@ def _apply_row_wise_extensions(df: Any, config: Optional[dict], verbose: int = 0
             from mlframe.feature_engineering.row_wise_extremality import row_wise_top_k_extreme_columns
             _k_raw = config.get("extreme_columns_k")
             _k = int(_k_raw) if _k_raw is not None else 3
-            _out = row_wise_top_k_extreme_columns(df, columns=_cols, k=_k)
+            _ref_raw = config.get("extreme_columns_reference")
+            _reference = None
+            if _ref_raw:
+                _reference = {str(_c): np.asarray(_v, dtype=np.float64) for _c, _v in _ref_raw.items() if _c in _cols}
+                _absent = [str(_c) for _c in _cols if str(_c) not in _reference]
+                if _absent:
+                    logger.warning(
+                        "_apply_row_wise_extensions: no fit-time extremality reference for %d column(s) (%s); those "
+                        "columns are ranked within the serving batch, which is NOT what the model was fitted on.",
+                        len(_absent), _absent[:5],
+                    )
+            elif config.get("extreme_columns_fit_reference", True):
+                logger.warning(
+                    "_apply_row_wise_extensions: this artefact carries no fitted extremality reference, so the scores "
+                    "are ranked within the serving batch: a single-row batch scores 0.0 on every column regardless of "
+                    "how extreme it is. Retrain to persist the reference, or score in batches resembling train."
+                )
+            _out = row_wise_top_k_extreme_columns(df, columns=_cols, k=_k, reference=_reference)
             assert isinstance(_out, pd.DataFrame)  # return_column_summary not passed -> always the plain-DataFrame overload
             _score_cols = [c for c in _out.columns if c.endswith("_score")]
             _result = _out[_score_cols].add_prefix("row_extreme_")

@@ -21,17 +21,36 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
-| `training_core.md` | 13 | 0 | 0 | 13 | 0 | 0 |
+| `training_core.md` | 13 | 1 | 0 | 12 | 0 | 0 |
 | `feature_selection.md` | 21 | 0 | 0 | 21 | 0 | 0 |
 | `feature_engineering.md` | 14 | 0 | 0 | 14 | 0 | 0 |
-| `metrics.md` | 17 | 0 | 0 | 17 | 0 | 0 |
-| `predict_persistence.md` | 18 | 0 | 0 | 18 | 0 | 0 |
-| `ensembling_models.md` | 14 | 0 | 0 | 14 | 0 | 0 |
+| `metrics.md` | 17 | 3 | 1 | 13 | 0 | 0 |
+| `predict_persistence.md` | 18 | 3 | 0 | 15 | 0 | 0 |
+| `ensembling_models.md` | 14 | 3 | 0 | 11 | 0 | 0 |
 | `evaluation_reporting.md` | 16 | 0 | 0 | 16 | 0 | 0 |
 | `performance.md` | 6 | 0 | 0 | 6 | 0 | 0 |
-| `concurrency_resources.md` | 12 | 0 | 0 | 12 | 0 | 0 |
+| `concurrency_resources.md` | 12 | 1 | 0 | 11 | 0 | 0 |
 | `config_contracts.md` | 32 | 0 | 0 | 32 | 0 | 0 |
-| **Total** | **163** | **0** | **0** | **163** | **0** | **0** |
+| **Total** | **163** | **11** | **1** | **151** | **0** | **0** |
+
+## Per-report status
+
+One row per report, status first so a count can read it. The per-finding dispositions live in each report's own
+table; this rolls them up to the coarsest status that is true of the whole report (a report is **TODO** until at
+least one of its findings moves).
+
+| Status | Report | Findings | Area |
+|---|---|---|---|
+| **PARTIAL** | [training_core.md](training_core.md) | 13 | suite orchestration, splits, booster dataset reuse (TRC-02 fixed) |
+| **TODO** | [feature_selection.md](feature_selection.md) | 21 | feature selection |
+| **TODO** | [feature_engineering.md](feature_engineering.md) | 14 | feature engineering and preprocessing |
+| **PARTIAL** | [metrics.md](metrics.md) | 17 | metrics and calibration (MET-01..MET-03 fixed, MET-04 partial) |
+| **PARTIAL** | [predict_persistence.md](predict_persistence.md) | 18 | serving path and artifact round-trip (PRD-02, PRD-04, PRD-05 fixed) |
+| **PARTIAL** | [ensembling_models.md](ensembling_models.md) | 14 | model zoo, blends, thresholds, votenrank (ENS-01, ENS-02, ENS-04 fixed) |
+| **TODO** | [evaluation_reporting.md](evaluation_reporting.md) | 16 | diagnostic verdicts |
+| **TODO** | [performance.md](performance.md) | 6 | measured performance |
+| **PARTIAL** | [concurrency_resources.md](concurrency_resources.md) | 12 | concurrency and resources (CNC-01 fixed) |
+| **TODO** | [config_contracts.md](config_contracts.md) | 32 | config contracts |
 
 ## What the wave is about
 

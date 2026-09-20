@@ -90,7 +90,7 @@ def predict_mlframe_models_suite(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
+    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
     from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
     from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
     from ..pipeline._cross_sectional_composite_fe import replay_cross_sectional_composite_fe
@@ -394,6 +394,17 @@ def predict_mlframe_models_suite(
                 metadata=metadata,
                 model_name=model_name,
                 verbose=verbose,
+            )
+
+            # LGB/XGB categorical dtype coercion, with the train-time Enum domains. Only the in-memory entry point ran
+            # it, so the same bundle served from disk handed LightGBM a cat column as float64/object instead of pandas
+            # ``category``: its predict-time categorical auto-detection then disagreed with the booster's fit-time
+            # spec, and unseen categories were not mapped through the train-time domain, so the codes shifted.
+            _cat_features_suite = (metadata.get("cat_features") or []) if isinstance(metadata, dict) else []
+            _enum_domains_suite = metadata.get("enum_domains") if isinstance(metadata, dict) else None
+            input_for_model = _coerce_cat_dtype_for_lgb_xgb(
+                input_for_model, model=model, cat_features=_cat_features_suite,
+                enum_domains=_enum_domains_suite,
             )
 
             # Subset + reorder to the model's own expected feature schema. Without this, a model

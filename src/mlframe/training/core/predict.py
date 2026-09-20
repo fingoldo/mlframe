@@ -210,8 +210,8 @@ def _combine_probs(
     that model's probabilities have been post-hoc calibrated. A mix (some True, some False) produces a
     ``logger.warning`` because blending calibrated with uncalibrated probs degrades calibration of the
     ensemble; the function does NOT refuse (user policy: WARN, NOT REFUSE). When ``metadata`` is
-    supplied, ``metadata["ensembles_calibrated"]`` is stamped as a bool reflecting "all members
-    calibrated" (True only when every flag is True; False otherwise).
+    supplied, ``metadata["ensembles_calibrated_by_target"][target_label]`` is stamped as a bool
+    reflecting "all members calibrated" (True only when every flag is True; False otherwise).
     """
     from mlframe.models.ensembling import combine_probs as _shared_combine_probs
 
@@ -228,7 +228,11 @@ def _combine_probs(
                 _n_cal, len(_flags),
             )
         if isinstance(metadata, dict) and _flags:
-            metadata["ensembles_calibrated"] = bool(all(_flags))
+            # The flag describes THIS blend, so it is reported per target rather than overwriting one suite-wide key on
+            # a dict the caller owns (in the in-memory path that dict is the training run's own metadata, and a predict
+            # call used to stamp its verdict back onto it).
+            _cal_key = str(target_label) if target_label else "ensemble"
+            metadata.setdefault("ensembles_calibrated_by_target", {})[_cal_key] = bool(all(_flags))
 
     stacked = np.stack(all_probs)
     # When the caller passes ``quantile_alphas`` (even an empty list) they are
@@ -401,12 +405,16 @@ def _is_post_hoc_calibrated_model(model_obj: Any) -> bool:
     """
     if model_obj is None:
         return False
+    _WRAPPERS = ("_PostHocCalibratedModel", "_PostHocMultiCalibratedModel")
     try:
-        _name = type(model_obj).__name__
+        # The calibrator wraps the ESTIMATOR and the bundle keeps it under ``.model`` (`entry.model = wrapped`), so
+        # the predict path was reading the bundle's own class name and answering False for every member, calibrated or
+        # not: the mixed-calibration WARN could never fire. Both levels are checked, the inner one first.
+        _names = [type(getattr(model_obj, "model", model_obj)).__name__, type(model_obj).__name__]
     except Exception as exc:
         logger.debug("_is_post_hoc_calibrated_model: type introspection failed: %s", exc)
         return False
-    return _name in ("_PostHocCalibratedModel", "_PostHocMultiCalibratedModel")
+    return any(_n in _WRAPPERS for _n in _names)
 
 
 def _resolve_quantile_alphas(metadata: dict, target_type: Any, target_name: Any, model_obj: Any = None) -> Sequence[float] | None:
@@ -591,10 +599,21 @@ def _slice_frame(df: Any, start: int, length: int) -> Any:
     raise TypeError(f"_slice_frame: unsupported type {type(df).__name__}")
 
 
-def _concat_probs_dicts(parts: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
-    """Concatenate per-batch probability dicts along axis 0 by model_name. Missing keys in any part are skipped
-    (a model that crashed on one batch shouldn't poison the others; the caller's warn-and-continue handler
-    already logged the failure)."""
+def _concat_probs_dicts(
+    parts: list[dict[str, np.ndarray]],
+    batch_rows: Sequence[int] | None = None,
+    partial: set[str] | None = None,
+) -> dict[str, np.ndarray]:
+    """Concatenate per-batch probability dicts along axis 0 by model_name.
+
+    A model that crashed on one batch must not poison the others, but dropping that batch's rows silently returns a
+    SHORT array under the model's name: every caller zipping it against the input frame then assigns predictions to
+    the wrong rows from the failed batch onwards. The gap is filled with NaN for the batch's own row count instead, so
+    positions stay aligned and the missing rows are visibly missing; ``batch_rows`` supplies those counts and the
+    model's name is added to ``partial`` so the caller can refuse to use it at all.
+
+    Without ``batch_rows`` (an unbatched caller) the legacy skip-and-concatenate behaviour is kept.
+    """
     if not parts:
         return {}
     out: dict[str, np.ndarray] = {}
@@ -602,9 +621,31 @@ def _concat_probs_dicts(parts: list[dict[str, np.ndarray]]) -> dict[str, np.ndar
     for part in parts:
         keys.update(part.keys())
     for key in keys:
-        chunks = [part[key] for part in parts if key in part and part[key] is not None]
-        if chunks:
-            out[key] = np.concatenate(chunks, axis=0)
+        present = [(i, part[key]) for i, part in enumerate(parts) if key in part and part[key] is not None]
+        if not present:
+            continue
+        if batch_rows is None or len(present) == len(parts):
+            out[key] = np.concatenate([c for _, c in present], axis=0)
+            continue
+        if partial is not None:
+            partial.add(key)
+        _template = present[0][1]
+        _tail = np.shape(_template)[1:]
+        _dtype = _template.dtype if np.issubdtype(_template.dtype, np.floating) else np.float64
+        _present_by_idx = dict(present)
+        chunks = []
+        for i in range(len(parts)):
+            _chunk = _present_by_idx.get(i)
+            if _chunk is None:
+                chunks.append(np.full((int(batch_rows[i]), *_tail), np.nan, dtype=_dtype))
+            else:
+                chunks.append(_chunk.astype(_dtype, copy=False))
+        out[key] = np.concatenate(chunks, axis=0)
+        logger.warning(
+            "_concat_probs_dicts: %r produced no output on %d of %d batches; those rows are NaN-filled to keep the "
+            "array aligned with the input frame. The model is listed under results['partial_models'].",
+            key, len(parts) - len(present), len(parts),
+        )
     return out
 
 
@@ -623,21 +664,26 @@ def _run_batched(
     if n == 0:
         return dict(entry_fn(df, *args, **kwargs))
     batch_outs: list[dict[str, Any]] = []
+    _batch_rows: list[int] = []
     _start = 0
     while _start < n:
         _length = min(predict_batch_rows, n - _start)
         _slice = _slice_frame(df, _start, _length)
         _out = entry_fn(_slice, *args, **kwargs)
         batch_outs.append(_out)
+        _batch_rows.append(_length)
         _start += _length
 
     if len(batch_outs) == 1:
         return batch_outs[0]
 
     merged: dict[str, Any] = dict(batch_outs[0])  # carry metadata / models_used etc. from batch-0
+    _partial: set[str] = set()
     for _key in ("predictions", "probabilities", "per_target_probabilities", "per_target_predictions"):
         if _key in merged and isinstance(merged[_key], dict):
-            merged[_key] = _concat_probs_dicts([b.get(_key, {}) or {} for b in batch_outs])
+            merged[_key] = _concat_probs_dicts([b.get(_key, {}) or {} for b in batch_outs], _batch_rows, _partial)
+    if _partial:
+        merged["partial_models"] = sorted(_partial)
     for _key in ("ensemble_predictions", "ensemble_probabilities"):
         _parts: list = [b.get(_key) for b in batch_outs if b.get(_key) is not None]
         if _parts:

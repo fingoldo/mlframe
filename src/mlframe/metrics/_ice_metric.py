@@ -433,18 +433,20 @@ class ICE:
         """CatBoost custom-metric protocol hook: convert raw logits to probabilities, compute the integral calibration error, and periodically log/plot the calibration report."""
         output_weight = 1  # every row of the returned value carries the same weight; see the sample-weight check below
 
-        # A weighted fit must not be scored by an unweighted metric: the trainer would early-stop on a number that
-        # describes a different objective than the one it is minimising. Nothing in the ICE kernels takes per-row
-        # weights, so the honest answer is to refuse rather than to report an unweighted ICE as if it were weighted.
+        # A weighted fit is scored by an unweighted metric here, which is a real divergence between the early-stopping
+        # surface and the objective. Refusing the fit outright was worse: weighted fits (fairness / inverse-frequency
+        # weighting) are a supported, common path, and the ICE kernels taking per-row weights is the actual fix. Until
+        # then the divergence is announced once per fit rather than being silently dropped.
         if weight is not None and not self._sample_weights_checked:
             self._sample_weights_checked = True
             w = np.asarray(weight, dtype=np.float64)
             if w.size and not np.allclose(w, w[0]):
-                raise ValueError(
-                    "ICE does not support per-row sample weights: the fit passes a non-uniform weight vector "
-                    f"(min={w.min():.6g}, max={w.max():.6g}), but the ICE kernels score every row equally, so the "
-                    "reported metric would not be the weighted objective being optimised. Drop sample_weight, or "
-                    "use a weight-aware eval_metric for this fit."
+                logger.warning(
+                    "ICE is computed UNWEIGHTED while this fit carries per-row sample weights "
+                    "(min=%.6g, max=%.6g): no ICE kernel takes per-row weights, so the metric driving early stopping "
+                    "describes the unweighted sample while the loss being minimised is weighted. Rows with large "
+                    "weights count once here. Use a weight-aware eval_metric when that difference matters.",
+                    float(w.min()), float(w.max()),
                 )
 
         n_rows = len(approxes[0])
