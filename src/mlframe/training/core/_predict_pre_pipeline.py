@@ -201,6 +201,20 @@ def _apply_row_wise_extensions(df: Any, config: Optional[dict], verbose: int = 0
     for _bc in _bool_cols:
         df[_bc] = df[_bc].astype(np.int8)
     _cols = df.select_dtypes(include="number").columns.tolist()
+    # Prefer the list pinned at fit time. Re-deriving it here admits a column that was all-null on train (dropped
+    # from the pinned list before any row-wise statistic was computed) but carries values at serve time: same feature
+    # names, different values, no warning.
+    _pinned_cols = config.get("columns")
+    if _pinned_cols:
+        _available = set(_cols)
+        _missing = [str(_c) for _c in _pinned_cols if str(_c) not in _available]
+        _cols = [str(_c) for _c in _pinned_cols if str(_c) in _available]
+        if _missing:
+            logger.warning(
+                "_apply_row_wise_extensions: %d fit-time row-wise column(s) are absent or non-numeric at predict "
+                "time (%s); the row-wise features are computed over the remaining %d and will differ from fit time.",
+                len(_missing), _missing[:5], len(_cols),
+            )
     if config.get("summary_stats_enabled"):
         try:
             from mlframe.feature_engineering.row_wise_summary import row_wise_summary_stats

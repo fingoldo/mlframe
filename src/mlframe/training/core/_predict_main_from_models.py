@@ -511,6 +511,17 @@ def predict_from_models(
                                 input_for_model = input_for_model.drop(_drop_extra)
                             else:
                                 input_for_model = input_for_model.drop(columns=_drop_extra)
+                        # Dropping the extras is not enough: the ORDER has to match fit time too. LGB/XGB accept a
+                        # frame carrying every required name in the wrong order and then score each value against
+                        # another feature's split thresholds - plausible-looking, entirely wrong predictions, no
+                        # exception. A replay step that appends its columns in a different order (composite FE
+                        # replay, extensions back-merge) is exactly how that happens. The sibling suite path already
+                        # reorders here.
+                        if [str(c) for c in input_for_model.columns] != _expected_list:
+                            if isinstance(input_for_model, pl.DataFrame):
+                                input_for_model = input_for_model.select(_expected_list)
+                            else:
+                                input_for_model = input_for_model.loc[:, _expected_list]
 
                     # per-model pre_pipeline.transform
                     # (with text/embedding passthrough stashing + feature-

@@ -304,11 +304,15 @@ def apply_preprocessing_extensions(
     y_train=None,
     out_pysr_equations: Optional[Dict[str, str]] = None,
     out_extremality_reference: Optional[Dict[str, list]] = None,
+    out_row_wise_columns: Optional[list] = None,
 ):
     """Apply shared sklearn-based extensions to train/val/test after the Polars-ds pipeline.
 
     Returns (train, val, test, fitted_pipeline_or_None). Fastpath: when ``config``
     is None OR has zero active stages, returns inputs untouched with None pipeline.
+
+    ``out_row_wise_columns``, when provided, receives the pinned numeric column list the row-wise steps were
+    computed over, for the same reason: predict must use that list, not whatever the serving frame happens to have.
 
     When ``out_extremality_reference`` is provided AND the row-wise extremality reference is fitted, it is populated
     with ``{column: sorted reference values}`` so the caller can persist it for predict-time replay; without that, the
@@ -598,6 +602,11 @@ def apply_preprocessing_extensions(
         getattr(config, "row_wise_summary_stats_enabled", False) or getattr(config, "row_wise_extreme_columns_enabled", False)
     ):
         _rw_cols = list(train.columns)
+        if out_row_wise_columns is not None:
+            # The pinned list is fixed HERE, after the numeric filter and the all-null drop. Re-deriving it at
+            # predict time from the serving frame's dtypes brings back a column that was all-null on train (and so
+            # never entered any row-wise statistic), shifting every row_summary_* value with no warning.
+            out_row_wise_columns.extend(str(_c) for _c in _rw_cols)
 
         def _rw_apply(_fn, _df):
             """Apply a row-wise-stats function to _df's pinned columns and join the result back on."""

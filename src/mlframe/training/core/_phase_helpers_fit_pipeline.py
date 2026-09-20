@@ -595,10 +595,12 @@ def _phase_fit_pipeline(
     # Capture PySR's equation -> column-name map so predict can replay symbolic features against the same content-hashed column names that training emitted.
     _pysr_equations_out: dict = {}
     _extremality_reference_out: dict = {}
+    _row_wise_columns_out: list = []
     train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
         train_df, val_df, test_df, preprocessing_extensions, verbose=verbose, y_train=_y_train_for_ext,
         out_pysr_equations=_pysr_equations_out,
         out_extremality_reference=_extremality_reference_out,
+        out_row_wise_columns=_row_wise_columns_out,
     )
     if _pysr_equations_out:
         metadata["pysr_equations"] = dict(_pysr_equations_out)
@@ -626,6 +628,8 @@ def _phase_fit_pipeline(
         # for a default-on feature. Persist the reference so predict reproduces the fit-time ranking.
         if _extremality_reference_out:
             metadata["row_wise_extensions_config"]["extreme_columns_reference"] = dict(_extremality_reference_out)
+        if _row_wise_columns_out:
+            metadata["row_wise_extensions_config"]["columns"] = list(_row_wise_columns_out)
     if verbose and preprocessing_extensions is not None:
         logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))
     if extensions_pipeline is not None:
