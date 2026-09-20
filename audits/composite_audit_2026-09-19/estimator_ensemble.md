@@ -37,7 +37,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 
   Then route every caller through it: the predict entry points pass `(input_for_model, df_pre_pipeline)`, the shim passes `(transformed, raw)`, the wrap pass applies `entry.pre_pipeline` for the inner, and OOF refits pass both slices. Remove the CTE-RAW-X special case once the wrapper owns the split.
 - **Test to add**: A suite-level test with a linear-model composite target (`linear_residual`, scaler pipeline). Assert that `predict_from_models`, `predict_mlframe_models_suite`, the wrap-pass y-scale val RMSE and the CT-ensemble component prediction all land within 1.5x of the inner-on-pp(X) plus raw-base oracle. Also add a unit test for `predict(X, base_frame=...)`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - the wrapper owns inner_pre_pipeline_ and derives the inner frame from the suite-stage frame, with an inner_X override for callers that already applied it; PipelineCache now carries the fitted pipeline (dbe77db39; a8d1f9b06 pins both stages against an oracle at every predict entry point, test_composite_suite_persistence.py)
 
 ### EST-02 [P1] The default-ON MoE gate routes every row of a group it did not see at fit time to `lag_predict`, so on group-disjoint val/test splits it replaces the deployed ensemble with lag everywhere
 
