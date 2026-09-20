@@ -48,7 +48,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: A silent, large accuracy regression in the shipped predictor, on by default whenever `group_column` and `ctx.group_ids` are set. That is exactly the grouped-panel setup that the ensemble's group-aware OOF logic targets.
 - **Suggested fix**: Make the unseen-group fallback the expert with the best pooled selection-split RMSE (the not-worse-than-lag guarantee still holds per group for seen groups). Also check test-time group coverage: if the fraction of predict rows whose group was seen at fit is below a threshold, use the pooled-best expert instead of lag. At minimum, skip the MoE wrap when the val groups and train groups are disjoint (the split is then group-disjoint by construction).
 - **Test to add**: Fit the gate on groups 0-29 where composite wins, predict on groups 100-129, and assert that the gated RMSE is no worse than the pooled-best expert. Reframe `test_biz_val_moe_gate.py::test_global_fallback_for_unseen_group_is_lag` to the pooled-best contract.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - the unseen/low-data fallback is the pooled-best expert over the matched selection rows with lag among the candidates, since such a group contributes no rows to the pooled sums the vs-lag guarantee is proved on (test_biz_val_moe_gate.py::test_global_fallback_for_unseen_group_is_the_pooled_best_expert, which fails at origin/master with 'lag' == 'composite'; the companion test keeps lag when lag is pooled-best)
 
 ### EST-03 [P1] When a component fails at predict time, `CompositeCrossTargetEnsemble.predict` drops it but keeps the other components' raw weights, which biases predictions toward 0 by the dropped weight mass
 
