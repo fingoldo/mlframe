@@ -71,6 +71,8 @@ import logging
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from .hermite_fe import _POLY_BASES
@@ -526,7 +528,7 @@ def generate_cluster_basis_features(
             (float(raw_mi_map.get(m, 0.0)) for m in info["members"]),
             default=0.0,
         )
-        uplift = emi / (baseline + 1e-12)
+        uplift = relative_uplift(emi, baseline)
         if uplift < float(min_uplift):
             continue
         if emi < abs_floor:

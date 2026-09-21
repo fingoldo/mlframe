@@ -49,6 +49,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift_array
 import pandas as pd
 
 from ._orthogonal_shared import coerce_y_classif
@@ -234,7 +236,7 @@ def score_features_by_bootstrap_mi(
         raw_mi_arr = np.asarray(raw_mi_b, dtype=np.float64)
         baseline_b = np.where(_src_valid, raw_mi_arr[_src_idx_clipped], 0.0)
         engineered_b = np.asarray(eng_mi_b, dtype=np.float64)
-        uplift_b = engineered_b / (baseline_b + 1e-12)
+        uplift_b = relative_uplift_array(engineered_b, baseline_b)
         baseline_replicates.append(baseline_b)
         engineered_replicates.append(engineered_b)
         uplift_replicates.append(uplift_b)

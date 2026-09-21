@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ..hermite_fe import _POLY_BASES
@@ -231,7 +233,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         emi = float(eng_mi[j])
         rows.append({
             "engineered_col": nm, "source_col": src,
-            "baseline_mi": base, "engineered_mi": emi, "uplift": emi / (base + 1e-12),
+            "baseline_mi": base, "engineered_mi": emi, "uplift": relative_uplift(emi, base),
         })
     scores = pd.DataFrame(rows).sort_values("uplift", ascending=False).reset_index(drop=True)
     return eng_mat, names, scores

@@ -106,6 +106,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ._mi_greedy_cmi_fe import (
@@ -454,7 +456,7 @@ def score_features_by_cmim(
             score = float(_cmi_from_binned(cand_bin, y_bin, None))
         else:
             score = _cmim_score_cached(cand_bin, y_bin, cache_filtered, n_rows)
-        uplift = score / (baseline + 1e-12)
+        uplift = relative_uplift(score, baseline)
         rows.append({
             "engineered_col": eng_name,
             "source_col": source,

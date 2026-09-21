@@ -16,6 +16,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
@@ -379,7 +381,7 @@ def select_best_scorer_per_column(
         )
         best_lcb = float(per_scorer[best_scorer])
         baseline_lcb = float(source_lcb.get(src, {}).get(best_scorer, 0.0))
-        uplift = best_lcb / (baseline_lcb + 1e-12)
+        uplift = relative_uplift(best_lcb, baseline_lcb)
         rows.append(
             {
                 "engineered_col": eng_name,

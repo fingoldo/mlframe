@@ -63,6 +63,8 @@ from itertools import combinations
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from .hermite_fe import basis_route_by_moments, _POLY_BASES
@@ -346,7 +348,7 @@ def generate_adaptive_arity_cross_basis(
             "arity": k,
             "baseline_mi": baseline_mi,
             "engineered_mi": mi_val,
-            "uplift": mi_val / (baseline_mi + 1e-12),
+            "uplift": relative_uplift(mi_val, baseline_mi),
         })
 
     eng_X = pd.DataFrame(out_cols, index=X.index)
@@ -470,7 +472,7 @@ def score_adaptive_arity_cross_basis(
             "arity": arity,
             "baseline_mi": baseline,
             "engineered_mi": emi,
-            "uplift": emi / (baseline + 1e-12),
+            "uplift": relative_uplift(emi, baseline),
         })
     df = pd.DataFrame(rows)
     if not df.empty:

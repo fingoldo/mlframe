@@ -83,6 +83,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ._mi_greedy_cmi_fe import _quantile_bin, _renumber_joint
@@ -442,7 +444,7 @@ def score_features_by_tc_uplift(
             mi_c_S = 0.0
         delta_tc_raw = tc_after - tc_before
         new_info_term = delta_tc_raw - mi_c_S  # = I(c; y | S)
-        uplift = new_info_term / (baseline + 1e-12)
+        uplift = relative_uplift(new_info_term, baseline)
         rows.append({
             "engineered_col": eng_name,
             "source_col": source,
