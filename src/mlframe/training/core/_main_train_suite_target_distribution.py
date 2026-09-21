@@ -238,6 +238,24 @@ def _maybe_auto_drop_after_feature_analyzer(
     return train_df, val_df, test_df, drop_list
 
 
+def _flag_target_named_features(train_df: Any, target_by_type: Any, metadata: dict) -> None:
+    """Warn about, and record in ``metadata``, feature columns carrying a target's naming prefix."""
+    # Name-based post-outcome check: the analyzer's correlation gate cannot see a column that is merely
+    # KNOWN after the outcome (see ``_leakage_by_name``).
+    named = target_named_features(
+        getattr(train_df, "columns", []) or [],
+        [str(name) for _tt_names in (target_by_type or {}).values() for name in _tt_names],
+    )
+    if named:
+        logger.warning(
+            "[mini-HPT] %d feature column(s) carry the targets' naming prefix and may be known only "
+            "AFTER the outcome (post-outcome leakage the correlation check cannot see): %s. Drop them "
+            "from the feature set if they are, or rename them if the prefix is incidental.",
+            len(named), ", ".join(named[:12]) + (", ..." if len(named) > 12 else ""),
+        )
+        metadata["target_named_feature_columns"] = list(named)
+
+
 def _run_target_distribution_analyzer(
     *,
     enable_target_distribution_analyzer: bool,
@@ -480,7 +498,6 @@ def _run_target_distribution_analyzer(
                                     hyperparams_config = hyperparams_config.model_copy(update={_slot: _hp_merged.get(_slot)})
                                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                                     logger.debug("suppressed: %s", e)
-                                    pass
                 # Reflect any mutation back onto ctx so downstream phases see
                 # the merged config instead of the caller's original.
                 ctx.hyperparams_config = hyperparams_config
@@ -509,20 +526,7 @@ def _run_target_distribution_analyzer(
                             _fd_report.drop_candidates or "(none)",
                             _fd_report.leakage_candidates or "(none)",
                         )
-                    # Name-based post-outcome check: the correlation gate above cannot see a column that is merely
-                    # KNOWN after the outcome (see ``_leakage_by_name``).
-                    _target_named = target_named_features(
-                        getattr(train_df, "columns", []) or [],
-                        [str(name) for _tt_names in (target_by_type or {}).values() for name in _tt_names],
-                    )
-                    if _target_named:
-                        logger.warning(
-                            "[mini-HPT] %d feature column(s) carry the targets' naming prefix and may be known only "
-                            "AFTER the outcome (post-outcome leakage the correlation check cannot see): %s. Drop them "
-                            "from the feature set if they are, or rename them if the prefix is incidental.",
-                            len(_target_named), ", ".join(_target_named[:12]) + (", ..." if len(_target_named) > 12 else ""),
-                        )
-                        metadata["target_named_feature_columns"] = list(_target_named)
+                    _flag_target_named_features(train_df, target_by_type, metadata)
                     metadata["feature_distribution_report"] = {
                         "n_samples": _fd_report.n_samples,
                         "n_features": _fd_report.n_features,
