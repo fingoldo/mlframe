@@ -38,6 +38,7 @@ ZERO_TOLERANCE_BASELINES: tuple[str, ...] = (
     "_readonly_to_numpy_mutation_baseline.json",
     "_tick_isinstance_baseline.json",
     "_unprotected_treeexplainer_baseline.json",
+    "_vacuous_loop_baseline.json",
 )
 
 
