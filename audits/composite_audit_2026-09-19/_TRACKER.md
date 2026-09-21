@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 8 | 0 | 11 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 6 | 1 | 34 | 0 | 0 |
-| **Total** | **179** | **87** | **12** | **79** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 6 | 2 | 33 | 0 | 0 |
+| **Total** | **179** | **87** | **13** | **78** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -206,7 +206,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `PMT-08` | Scale and shift metamorphic property over every registered transform | scale/shift property tests; fixed log_y +1.0 offset and raw-unit arcsinh |
 | **TODO** | P2 | `PMT-09` | Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery | |
 | **TODO** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | |
-| **TODO** | P1 | `PMT-11` | Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test | |
+| **PARTIAL** | P1 | `PMT-11` | Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test | ratchet on tested-but-uncalled (68 recorded) + gate modules imported by tests; triage of the 68 open |
 | **TODO** | P1 | `PMT-12` | Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered | |
 | **TODO** | P1 | `PMT-13` | Ensemble combiner invariants for every stacking strategy, including "the gate can fire" | |
 | **TODO** | P2 | `PMT-14` | Transform-call gateway: every registry-transform fit/forward/inverse call goes through one signature-gated helper, and weights are honoured | |

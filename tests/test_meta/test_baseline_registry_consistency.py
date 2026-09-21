@@ -32,6 +32,8 @@ FLAG_EXEMPT: dict[str, str] = {
     "_value_bearing_asserts_baseline.json": "python tests/test_meta/regen_baselines.py",
     "_vacuous_loop_baseline.json": "python tests/test_meta/regen_baselines.py",
     "_fail_open_handlers_baseline.json": "python tests/test_meta/regen_baselines.py",
+    # Pruned by hand as entries are wired in or justified; the test names every stale or new key.
+    "_tested_but_uncalled_baseline.json": "edit by hand (test_tested_but_uncalled.py lists the keys)",
     "_function_length_baseline.json": "python tests/test_meta/regen_baselines.py",
     # The shared py_ci_shared.loc_budget module names its own flag, one for every repo that uses it.
     "_loc_over_1k_baseline.json": "--refresh-loc-budget-baseline",

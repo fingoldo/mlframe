@@ -249,7 +249,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. A utility kept for external API users is allowlisted with a reason.
 - **Runtime**: under 5 s (both scans already run in the meta suite; this cross-joins their results).
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. tests/test_meta/test_tested_but_uncalled.py covers two rules. (a) It joins the uncalled-functions baseline with the names tests reference: 68 composite functions are tested yet uncalled today, and they are recorded in `_tested_but_uncalled_baseline.json`. A new entry fails, and so does a stale one once a function is wired in. (b) Every discovery gate / rerank / filter / per-group module must have an importing test; all do today, so TST-14's gap is closed. The motivating `refit_transform_on_fold` is called by production since 870694a39. Remaining: triage of the recorded 68 entries into wire-in or justified. Most are public diagnostics (plot_*, winkler, bayesian fits); the gate-like ones (`calibration_adjusted_score`, `stability_select_specs`, `screen_base_pool`, `make_purged_cv`) need a decision each. Rule (c) is not built.
 
 ### PMT-12 [P1] Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered
 - **Asserts**: for every registry transform:
