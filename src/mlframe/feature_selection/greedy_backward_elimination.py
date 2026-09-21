@@ -10,12 +10,29 @@ importance-proxy or a fixed unanimity rule.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, List, Optional
 
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.model_selection import BaseCrossValidator, KFold
+
+
+@dataclass(frozen=True)
+class EliminationStep:
+    """One accepted removal: what was dropped, the score it bought, and how many columns were left.
+
+    The sequence of these IS a ranking, and it is the only one this selector can produce. It removes the
+    column whose removal helps most, so the LAST column dropped is the most important of those dropped and
+    the survivors outrank all of them. Without the trace the selector reports a bare set, which makes it
+    unrankable and excludes it from every ranking metric the benchmark computes -- while the information
+    needed to rank it was computed and discarded on every round.
+    """
+
+    dropped: Any
+    score_after: float
+    n_remaining: int
 
 
 def _cv_score(estimator, X: pd.DataFrame, y_arr: np.ndarray, folds, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
@@ -69,7 +86,8 @@ def greedy_backward_elimination(
     tol: float = 0.0,
     n_repeats: int = 1,
     seed_base: int = 0,
-) -> list[Any]:
+    return_trace: bool = False,
+) -> Any:
     """Repeatedly remove the single feature whose removal most improves mean CV ``scoring``, HIGHER is better.
 
     Parameters
@@ -140,6 +158,7 @@ def greedy_backward_elimination(
 
     remaining = list(X.columns) if has_columns else list(range(X.shape[1]))
     current_score = score_fn(col_select(remaining))
+    trace: List[EliminationStep] = []
 
     while len(remaining) > min_features:
         # The running maximum and the acceptance bar are SEPARATE. They used to be one variable, so each
@@ -162,8 +181,11 @@ def greedy_backward_elimination(
 
         remaining.remove(best_candidate)
         current_score = best_score
+        trace.append(EliminationStep(dropped=best_candidate, score_after=float(best_score), n_remaining=len(remaining)))
 
+    if return_trace:
+        return remaining, tuple(trace)
     return remaining
 
 
-__all__ = ["greedy_backward_elimination"]
+__all__ = ["greedy_backward_elimination", "EliminationStep"]

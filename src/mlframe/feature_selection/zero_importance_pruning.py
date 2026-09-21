@@ -15,12 +15,30 @@ BEFORE the heavier MRMR/RFECV passes on a huge feature set, not to replace them.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.model_selection import KFold
+
+
+@dataclass(frozen=True)
+class PruningRound:
+    """One round of pruning: what it dropped, the score that bought, and whether it became the best set.
+
+    Two things fall out of the sequence that the returned set cannot express. The order columns were
+    dropped in is a ranking -- a column surviving to round five outranks one dropped in round one -- and
+    this selector otherwise reports a bare set, which excludes it from every ranking metric. And the
+    returned set is the BEST of the rounds rather than the last, which is a maximum over several noisy
+    draws; the per-round scores are what makes that optimism measurable instead of assumed.
+    """
+
+    dropped: Tuple[Any, ...]
+    score_after: float
+    n_remaining: int
+    became_best: bool
 
 
 def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
@@ -50,7 +68,8 @@ def iterative_zero_importance_pruning(
     importance_threshold: float = 0.0,
     max_rounds: int = 20,
     importance_fn: Optional[Callable[[Any, pd.DataFrame, np.ndarray], np.ndarray]] = None,
-) -> list[Any]:
+    return_trace: bool = False,
+) -> Any:
     """Repeatedly drop the WHOLE batch of near-zero-importance features per round, for up to ``max_rounds``.
 
     The loop does NOT stop on CV degradation -- this summary line used to say it did, contradicting both the
@@ -105,6 +124,7 @@ def iterative_zero_importance_pruning(
     remaining = list(X.columns) if has_columns else list(range(X.shape[1]))
     best_score = _cv_score(estimator, col_select(remaining), y, cv, scoring)
     best_remaining = list(remaining)
+    trace: List[PruningRound] = []
 
     for _ in range(max_rounds):
         full_fit_estimator = clone(estimator).fit(col_select(remaining), y)
@@ -121,12 +141,16 @@ def iterative_zero_importance_pruning(
             break  # never drop every feature - degenerate case, stop here.
 
         candidate_score = _cv_score(estimator, col_select(candidate_remaining), y, cv, scoring)
+        dropped = tuple(col for col, is_zero in zip(remaining, zero_mask) if is_zero)
         remaining = candidate_remaining
+        trace.append(PruningRound(dropped=dropped, score_after=float(candidate_score), n_remaining=len(remaining), became_best=candidate_score > best_score))
         if candidate_score > best_score:
             best_score = candidate_score
             best_remaining = list(remaining)
 
+    if return_trace:
+        return best_remaining, tuple(trace)
     return best_remaining
 
 
-__all__ = ["iterative_zero_importance_pruning"]
+__all__ = ["iterative_zero_importance_pruning", "PruningRound"]
