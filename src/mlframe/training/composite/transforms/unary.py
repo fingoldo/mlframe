@@ -26,7 +26,7 @@ import logging
 
 from ._domain_shared import y_domain_finite
 
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Dict, Tuple, cast
 
 import numpy as np
 
@@ -215,18 +215,29 @@ def signed_power_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -
 # ----------------------------------------------------------------------
 
 _LOG_OFFSET_SAFETY: float = 1.0
-"""Additional positive margin above |min(y_train)| so log doesn't see exactly zero (eps-floor for floating-point safety)."""
+"""Margin above |min(y_train)| for a constant non-positive target, whose spread cannot set the scale."""
+
+_LOG_OFFSET_REL: float = 0.1
+"""Margin above |min(y_train)| for a non-positive target, as a fraction of its standard deviation."""
 
 
 def log_y_fit(y: np.ndarray) -> Dict[str, Any]:
-    """Fit the shifted-log offset so ``min(y_train) + offset > 0`` (plus a safety margin)."""
+    """Fit the shifted-log offset so ``min(y_train) + offset > 0``.
+
+    A strictly positive target takes the plain log (offset 0). The offset used to add 1.0 in raw y units even then, so on
+    a target of order 1e-3 ``log(y + 1)`` was nearly the identity (no compression at all) while on 1e6 it was a log: the
+    transform's shape depended on the target's units. A non-positive target is lifted by a margin relative to its own
+    spread, so the shape is the same at every scale.
+    """
     arr = np.asarray(y, dtype=np.float64)
     finite = arr[np.isfinite(arr)]
     if finite.size == 0:
         return {"offset": _LOG_OFFSET_SAFETY}
     y_min = float(finite.min())
-    offset = -y_min + _LOG_OFFSET_SAFETY if y_min <= 0.0 else _LOG_OFFSET_SAFETY
-    return {"offset": offset}
+    if y_min > 0.0:
+        return {"offset": 0.0}
+    spread = float(np.std(finite))
+    return {"offset": -y_min + (_LOG_OFFSET_REL * spread if spread > 0.0 else _LOG_OFFSET_SAFETY)}
 
 
 def log_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
@@ -433,11 +444,19 @@ _BC_INV_BASE_FLOOR: float = 1e-12
 
 
 def box_cox_y_fit(y: np.ndarray) -> Dict[str, Any]:
-    """Fit lambda by MLE via ``scipy.stats.boxcox`` on the finite strictly-positive train rows; falls back to lambda=1.0 (identity-ish) when fewer than 4 usable rows, constant y, or numerical failure."""
+    """Fit lambda by MLE via ``scipy.stats.boxcox`` on the finite strictly-positive train rows, in the normalised form.
+
+    ``y`` is divided by its geometric mean ``y_scale`` before the power: the MLE lambda is unchanged by that rescaling, but
+    on a target far from 1 (y ~ 5.7e8 with a spread of 5e5) a bounded lambda of -2 made ``(y**lam - 1) / lam`` equal 0.5
+    for every row in float64, so the inverse could not recover y at all. Falls back to lambda=1.0 (identity-ish) when
+    fewer than 4 usable rows, constant y, or numerical failure.
+    """
     arr = np.asarray(y, dtype=np.float64)
     pos = arr[np.isfinite(arr) & (arr > 0.0)]
     if pos.size < 4 or float(pos.min()) == float(pos.max()):
         return {"lambda": 1.0}
+    y_scale = float(np.exp(np.mean(np.log(pos))))
+    pos = pos / y_scale
     try:
         from scipy.stats import boxcox
         _, lam = boxcox(pos)
@@ -448,13 +467,13 @@ def box_cox_y_fit(y: np.ndarray) -> Dict[str, Any]:
         logger.warning("Box-Cox lambda computation failed, defaulting to 1.0: %s", e)
         lam = 1.0
     lam = float(np.clip(lam, *_BOX_COX_LAMBDA_RANGE))
-    return {"lambda": lam, **_fitted_t_range(box_cox_y_forward(pos, {"lambda": lam}))}
+    return {"lambda": lam, "y_scale": y_scale, **_fitted_t_range(box_cox_y_forward(pos, {"lambda": lam}))}
 
 
 def box_cox_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Box-Cox forward: ``(y**lam - 1) / lam`` (``log(y)`` at lam=0) using the fitted ``params["lambda"]``. Defined for y > 0 only (domain-gated upstream)."""
     from scipy.special import boxcox as _bc
-    arr = np.asarray(y, dtype=np.float64)
+    arr = np.asarray(y, dtype=np.float64) / float(params.get("y_scale", 1.0))  # params fitted before the scale existed use 1.0
     # A stray non-positive row (predict-time domain fallback handles it) yields NaN; silence the expected warning.
     with np.errstate(invalid="ignore", divide="ignore"):
         return np.asarray(_bc(arr, float(params["lambda"])), dtype=np.float64)
@@ -464,10 +483,11 @@ def box_cox_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Closed-form Box-Cox inverse ``(t*lam + 1)**(1/lam)`` (``exp(t)`` at lam=0), flooring the power base at ``_BC_INV_BASE_FLOOR`` so out-of-range t saturates instead of producing NaN."""
     lam = float(params["lambda"])
     arr = _clamp_to_fitted_t_range(np.asarray(t, dtype=np.float64), params)
+    y_scale = float(params.get("y_scale", 1.0))
     if abs(lam) < 1e-12:
-        return np.exp(arr)
+        return cast(np.ndarray, y_scale * np.exp(arr))
     base = np.maximum(arr * lam + 1.0, _BC_INV_BASE_FLOOR)
-    return np.asarray(np.power(base, 1.0 / lam))
+    return np.asarray(y_scale * np.power(base, 1.0 / lam))
 
 
 def box_cox_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:

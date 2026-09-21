@@ -33,7 +33,7 @@ if _HAS_NUMBA:
         out = np.empty(n_perms, dtype=np.float64)
         for p in _numba.prange(n_perms):
             shuffled = _block_gather_kernel(col_codes, perms[p], block_len)
-            out[p] = _mi_from_binned_pair_njit_kernel(shuffled, y_codes, nbins)
+            out[p] = _mi_from_binned_pair_njit_kernel(shuffled, y_codes, nbins)  # type: ignore[misc]  # redefined to a real njit kernel under `if _HAS_NUMBA:`; only None on the branch this block never runs on
         return out
 
 

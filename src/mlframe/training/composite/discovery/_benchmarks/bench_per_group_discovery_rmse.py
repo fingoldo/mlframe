@@ -75,8 +75,7 @@ def _fit_inner_and_score(spec, train_df: pd.DataFrame, holdout_df: pd.DataFrame,
         base_estimator=LGBMRegressor(n_estimators=60, num_leaves=15, learning_rate=0.1, random_state=seed, verbosity=-1),
         transform_name=spec.transform_name,
         base_column=spec.base_column,
-        moe_gate_enabled=False,  # isolate the raw spec's reconstruction quality, no {composite,raw,lag} MoE routing
-    )
+    )  # a bare estimator: the {composite, raw, lag} MoE gate runs only in suite post-processing, so nothing routes here
     X_cols = ["base_1", "base_2"]
     est.fit(train_df[X_cols], train_df["y"].to_numpy())
     y_hat = est.predict(holdout_df[X_cols])

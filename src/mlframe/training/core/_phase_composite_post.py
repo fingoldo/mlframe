@@ -319,9 +319,9 @@ def run_composite_post_processing(
 
     # Every run leaves one comparable quality table behind, so two runs differing only in features or
     # hyperparameters can be diffed afterwards rather than re-read out of the log.
-    from ._phase_targets_performance import render_targets_performance
+    from ._phase_targets_performance import render_targets_performance, targets_performance_file
 
-    render_targets_performance(models, metadata, plot_file=plot_file)
+    render_targets_performance(models, metadata, plot_file=targets_performance_file(plot_file, ctx, model_name))
 
     return models, metadata
 

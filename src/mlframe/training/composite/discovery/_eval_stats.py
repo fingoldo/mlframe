@@ -47,12 +47,20 @@ def apply_fdr_control_to_candidates(
     ``fdr_dropped=True`` + a ``reason`` on every spec BH does NOT reject at the
     target family FDR ``alpha``; the caller then skips those before the eps gate.
 
-    No-op under the shipped defaults: with the bootstrap disabled every p-value
-    is NaN, so the finite-p set is empty and nothing is dropped. Returns the
-    number of specs dropped so the caller can log the family-wise effect.
+    Inactive under the shipped defaults: with the bootstrap disabled every p-value is NaN, so the finite-p set is empty and
+    nothing is dropped; that is logged at INFO so "FDR control on" is never read as multiplicity control that did not run
+    (a 50-replicate bootstrap costs ~70% more discovery wall at n=5000 and changes which specs are kept, so it stays opt-in).
+    Returns the number of specs dropped so the caller can log the family-wise effect.
     """
-    scored = [e for e in candidates if e.get("spec") is not None and np.isfinite(e.get("bootstrap_p_value", float("nan")))]
+    tested = [e for e in candidates if e.get("spec") is not None]
+    scored = [e for e in tested if np.isfinite(e.get("bootstrap_p_value", float("nan")))]
     if not scored:
+        if tested:
+            logger.info(
+                "[CompositeTargetDiscovery] FDR control is inactive: none of the %d candidate specs has a bootstrap p-value "
+                "(mi_gain_bootstrap_n=0), so no multiplicity correction was applied. Set mi_gain_bootstrap_n > 0 to enable it.",
+                len(tested),
+            )
         return 0
     p_values = np.array(
         [float(e["bootstrap_p_value"]) for e in scored], dtype=np.float64,

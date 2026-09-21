@@ -79,7 +79,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: The gate looks like a leakage-free check in logs and docs, but it cannot reject an over-fit stack, for example many correlated components with noise-fitted weights.
 - **Suggested fix**: Score the stack with a nested split: within the OOF rows, fit the weights on K-1 folds and evaluate on the held-out fold (cross-fitted stacking), then compare with the best single component's OOF RMSE on the same rows. Evaluate the calibrator with the same nesting, or fit it inside the cross-fit.
 - **Test to add**: Build a pool of one good component plus 20 pure-noise components with a small OOF n. Assert that the gate falls back to the best single component (currently it keeps the stack).
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. For `nnls_stack` / `linear_stack` the fallback gate now compares a cross-fitted stack RMSE (`gate_stack_rmse` / `cross_fitted_stack_rmse`: 5 folds over the OOF rows, the same stack constructor fitted on four and scored on the fifth) with the best single component. On a pool of 1 good + 20 noise components at n=60 the in-sample stack beats its best single on every seed (the old blind spot). The cross-fitted stack loses on seeds 1 and 2, so the gate can now fire. The output calibrator is not cross-fitted yet. Tests: tests/training/composite/ensemble/test_combiner_invariants.py.
 
 ### EST-06 [P2] `cap_inference_components` trims non-convex stacks without refitting or renormalising, after the gate has already accepted the full stack
 
@@ -88,7 +88,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Enabling `max_inference_components` for latency silently biases every prediction.
 - **Suggested fix**: Refit NNLS/Ridge on the OOF matrix restricted to the kept columns (the xt builder has it in scope), or renormalise NNLS weights to the original sum. Then re-run the gate on the capped predictor.
 - **Test to add**: For an NNLS ensemble with weights [0.5, 0.3, 0.2] capped to 2, assert that the capped prediction mean is within 2% of the uncapped mean on the OOF surface.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. After `cap_inference_components`, a non-convex stack is refitted by `refit_capped_stack` with the same solver on the OOF columns it kept, so its weights describe the predictor that ships. Convex strategies renormalise at predict and are left as they are. On the test fixture, the raw-weight cap put the blend more than 2% off the target mean; the refit puts it within 2%. The capped predictor is not re-gated separately. Tests: tests/training/composite/ensemble/test_combiner_invariants.py.
 
 ### EST-07 [P2] On the time-sorted OOF holdout path, the polars branch misaligns X and y rows, in both the refit-train slice and the holdout slice
 
@@ -141,7 +141,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
   - For fallback rows, return NaN, or the train-y empirical quantiles at each alpha (`np.quantile(y_train, alpha)` stored at fit).
   - Replace the per-transform guard list with a generic check: after inverting, detect rows where the column order is not monotone in alpha and either sort them (a valid rearrangement, per Chernozhukov et al.) or raise for transforms not declared monotone-increasing.
 - **Test to add**: `centered_ratio` with a predict base below `-c`: assert that the quantile columns are non-decreasing. Domain-violating rows: assert that the q10 and q90 values differ, or are NaN.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. (a) Fit stores `y_train_quantile_grid` (train-y quantiles at alpha = 0..1 in 101 steps). In `predict_quantile`, rows that fail the base domain or are deep OOD take the train-y quantile at each alpha, so they keep a real interval instead of the median in every column (`fallback_predict='nan'` keeps NaN). (b) Every multi-alpha prediction is monotone-rearranged per row in alpha order (Chernozhukov et al.), which covers any inverse whose base factor turns negative. Tests: tests/training/composite/estimator/test_predict_quantile_contract.py (the fallback case fails pre-fix). Ordering is checked for every transform; on this fixture a base below -c routes to the fallback rather than inverting crossed, so the rearrangement is a guard. The quantile-parity test now expects the per-alpha fallback.
 
 ### EST-11 [P2] The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE
 
@@ -150,7 +150,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Component selection and weighting depend on split drift rather than skill.
 - **Suggested fix**: Evaluate the strongest dummy on the same OOF rows (dummies are cheap: fit per fold, or reuse the in-pool `lag_predict` OOF column, which is already there when injected). Use that as both the floor and the baseline. Keep the val-split dummy only for reporting.
 - **Test to add**: Build a val period with twice the train noise and assert that a component beating the dummy on OOF is not dropped by the floor.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `same_split_dummy_rmse` measures the dummy floor, and the `oof_weighted` baseline, on the same OOF rows as the components: the in-pool `lag_predict` OOF column, else the strongest constant strategy on the OOF targets. The val-split value is used only when neither applies, with a WARNING. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### EST-12 [P2] `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path
 
@@ -186,7 +186,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Recurrent composites are mis-weighted or dropped by the dummy floor for reasons unrelated to their skill.
 - **Suggested fix**: For components whose transform is `recurrent`, use contiguous-block K-fold (`KFold(shuffle=False)` or `TimeSeriesSplit` on the time order), or exclude them from shuffled OOF and fall back to the train-RMSE proxy with a WARNING.
 - **Test to add**: Create an AR(1) target where `ewma_residual` is the true DGP. Assert that its OOF RMSE under the chosen splitter is within 20% of its contiguous-holdout RMSE.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. With no time or group signal, the ensemble's outer K-fold OOF split comes from `_plain_oof_splitter`. It gives contiguous blocks (unshuffled KFold via the factory) whenever any component's transform is `recurrent`, so the EWMA / rolling / frac-diff state runs over adjacent rows. On unordered rows contiguous blocks are an ordinary partition. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).
 
 ### EST-16 [P3] The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level
 
@@ -222,7 +222,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Non-reproducible predictions, and the fill value uses information from the test batch.
 - **Suggested fix**: Call `_lag_model.fit(filtered_train_df)` when injecting it (as the MoE path does), and make `predict` raise, or use a stored constant, when unfitted.
 - **Test to add**: Predict the deployed lag component on two batches that differ only in their other rows, and assert that the fill for a shared NaN row is identical.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The injected `lag_predict` is fitted on the train frame when it is added to the cross-target ensemble; if its lag column cannot be read there it is not injected, with a WARNING. An unfitted model no longer takes the median of the batch it is predicting to fill a missing lag: it raises `NotFittedError`. The MoE path already fitted its copy. Tests: tests/training/composite/estimator/test_cte_row_purity.py (a shared NaN row gets the train median in any batch; unfitted raises).
 
 ### EST-20 [P3] `predict` / `predict_quantile` change shared state without synchronisation
 
@@ -231,7 +231,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: The monitoring counters and per-row OOD flags are not reliable under concurrency.
 - **Suggested fix**: Guard the counter update with a lock that is excluded from `__getstate__`, and return the shrink info from an explicit `predict(..., return_info=True)` instead of storing it on the instance, or store it in thread-local storage.
 - **Test to add**: 8 threads x 100 predicts; assert `runtime_stats_["predict_calls"] == 800`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The `runtime_stats_` read-modify-writes run under a module-level lock (nothing lock-shaped on the picklable estimator), and the callback reports a snapshot taken inside it. `soft_shrink_info_` is now a property backed by a per-thread `WeakKeyDictionary`, so each caller reads the flags of its own batch. Test: 8 threads x 150 predicts with the switch interval cut to 1 us. Before the fix, threads read other threads' shrink flags on every run; after it, all 1200 calls are counted and every thread sees its own batch.
 
 ### EST-21 [P3] `from_fitted_inner` cannot express grouped transforms or recurrence continuation
 

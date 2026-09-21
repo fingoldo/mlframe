@@ -25,6 +25,8 @@ from mlframe.metrics import average_precision_score, fast_brier_score_loss, fast
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "PANEL_THREADS",
+    "PANEL_RANDOM_STATE",
     "PANEL_MEMBERS",
     "panel_factories",
     "assert_wrapper_estimator_differs",
@@ -36,6 +38,16 @@ __all__ = [
 
 # Minimum panel mandated by the pre-registration. A run may add members; it may not drop one.
 PANEL_MEMBERS: Sequence[str] = ("logistic", "lightgbm")
+
+
+#: Threads the downstream panel may use. Fixed rather than `-1`: LightGBM's determinism guarantee holds at
+#: a FIXED thread count, and the runner's workers each have their own budget, so letting the panel take the
+#: machine would both break the pairing and fight the other workers.
+PANEL_THREADS = 4
+
+#: The panel's seed. Every cell uses the same one, because the panel is the constant the arms are compared
+#: through: varying it would add a nuisance axis to every paired difference at once.
+PANEL_RANDOM_STATE = 0
 
 
 def panel_factories() -> Dict[str, Callable[[], Any]]:
@@ -50,10 +62,30 @@ def panel_factories() -> Dict[str, Callable[[], Any]]:
         return make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, C=1.0))
 
     def _lightgbm() -> Any:
-        """LightGBM -- the gradient-boosted panel member, near-invariant to selection at unlimited K."""
+        """LightGBM -- the gradient-boosted panel member, near-invariant to selection at unlimited K.
+
+        Pinned for reproducibility, not for speed. Both statistical layers above this one difference an
+        arm against the null hypothesis on the SAME holdout and assume the pairing is exact, so a
+        downstream fit that varied between two runs of the same cell would put noise into every paired
+        difference -- and a cell re-run on another worker could produce a different winner.
+
+        `deterministic=True` and `force_row_wise=True` together remove the two sources that matter: the
+        histogram construction that otherwise depends on the thread count, and the row/column-wise choice
+        LightGBM makes from the data and the number of threads. A fixed `random_state` and a fixed
+        `n_jobs` complete it. An unset seed is not "no randomness"; it is randomness nobody recorded.
+        """
         import lightgbm as lgb
 
-        return lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=4, verbose=-1)
+        return lgb.LGBMClassifier(
+            n_estimators=300,
+            num_leaves=31,
+            learning_rate=0.05,
+            n_jobs=PANEL_THREADS,
+            verbose=-1,
+            random_state=PANEL_RANDOM_STATE,
+            deterministic=True,
+            force_row_wise=True,
+        )
 
     return {"logistic": _logistic, "lightgbm": _lightgbm}
 

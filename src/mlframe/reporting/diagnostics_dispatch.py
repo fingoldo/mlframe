@@ -375,13 +375,13 @@ def render_target_drift_diagnostics(
             _calendar = calendar_feature_names(test_frame, np.asarray(timestamps)[: _row_count(test_frame)], feature_names)
         except Exception:
             logger.debug("calendar-feature detection failed; drift charts keep every feature.", exc_info=True)
-    _all_names = list(feature_names) if feature_names is not None else None
+    _all_names: Optional[List[Any]] = list(feature_names) if feature_names is not None else None
     if _calendar:
         if _all_names is None:
             from mlframe.reporting.charts._drift_shared import _frame_columns
 
             _all_names = [str(n) for n in _frame_columns(test_frame, None)[1]]
-        _non_calendar = [n for n in _all_names if str(n) not in set(_calendar)]
+        _non_calendar: Optional[List[Any]] = [n for n in _all_names if str(n) not in set(_calendar)]
         logger.info("drift charts: excluding %d calendar feature(s) derived from the timestamp: %s", len(_calendar), ", ".join(_calendar))
     else:
         _non_calendar = _all_names

@@ -137,7 +137,33 @@ def _entry_name(entry: Any) -> str:
     return str(getattr(inner, "model_name", None) or type(getattr(inner, "model", inner)).__name__)
 
 
-LEAD_COLUMNS = ("target_name", "target_type", "best_model", "n_models", "primary_metric", "primary_value")
+LEAD_COLUMNS = ("target_name", "target_type", "best_model", "n_models", "primary_metric", "primary_value", "scale")
+
+
+def _composite_target_names(metadata: Mapping[str, Any]) -> set:
+    """Names of the composite targets the run discovered."""
+    names: set = set()
+    for by_target in ((metadata or {}).get("composite_target_specs", {}) or {}).values():
+        for specs in (by_target or {}).values() if isinstance(by_target, Mapping) else ():
+            names.update(str(s.get("name")) for s in (specs or []) if isinstance(s, Mapping) and s.get("name"))
+    return names
+
+
+def _y_scale_row(metadata: Mapping[str, Any], target_type: str, target_name: str, split: str, primary: Optional[str]) -> Optional[Dict[str, Any]]:
+    """The row for a composite target from its y-scale metrics (the scale raw targets report on), or ``None`` without them."""
+    rows = ((metadata or {}).get("composite_target_y_scale_metrics", {}) or {}).get(target_type, {})
+    rows = rows.get(target_name) if isinstance(rows, Mapping) else None
+    scored = []
+    for r in rows or []:
+        m = ((r or {}).get("metrics") or {}).get(split) if isinstance(r, Mapping) else None
+        if isinstance(m, Mapping):
+            scored.append((r.get("model_name"), {k: float(v) for k, v in m.items() if not str(k).startswith("n_") and isinstance(v, (int, float)) and not isinstance(v, bool) and np.isfinite(v)}))
+    if not scored:
+        return None
+    key = primary if primary and any(primary in s for _n, s in scored) else "RMSE"
+    higher = bool(metric_name_higher_is_better(key))
+    best_name, best = min(scored, key=lambda t: (-t[1][key] if higher else t[1][key]) if key in t[1] else float("inf"))
+    return {"best_model": str(best_name or ""), "primary_metric": key, "primary_value": best.get(key, float("nan")), "scale": "y", **best}
 
 
 def targets_performance_frame(
@@ -157,8 +183,13 @@ def targets_performance_frame(
     normalise against; see :func:`compare_targets_performance`.
     """
     rows: List[Dict[str, Any]] = []
+    composite_names = _composite_target_names(metadata or {})
     for target_type, target_name, entries in _iter_target_entries(models):
         primary = _primary_metric(metadata or {}, target_type, target_name)
+        y_scale = _y_scale_row(metadata or {}, target_type, target_name, split, primary)
+        if y_scale is not None:
+            rows.append({"target_name": target_name, "target_type": target_type, "n_models": len(entries), **y_scale})
+            continue
         best, primary_value = _best_entry(entries, split, primary)
         row: Dict[str, Any] = {
             "target_name": target_name,
@@ -167,6 +198,9 @@ def targets_performance_frame(
             "n_models": len(entries),
             "primary_metric": primary or "",
             "primary_value": primary_value,
+            # A composite target's per-target metrics are on its T scale (R2 of a residual, MAPE of a near-zero target):
+            # labelled, never presented as target quality beside the raw rows.
+            "scale": "T" if target_name in composite_names else "y",
         }
         for metric in _entry_metric_names(best, split):
             value = _entry_metric(best, split, metric)
@@ -191,6 +225,7 @@ def targets_performance_frame(
         "n_models": int(frame["n_models"].sum()),
         "primary_metric": f"{len(known)}/{len(metric_cols)} metrics scoreable",
         "primary_value": float("nan"),
+        "scale": "",
         "split": split,
     }
     return pd.concat([frame, pd.DataFrame([aggregate])], ignore_index=True)

@@ -146,6 +146,9 @@ class CompositeTargetDiscovery:
     elapsed_seconds_: float
     _df_ref: Any
     _screen_time_ordered_: bool
+    # Set during a fit and cleared to None at its end; declared here so the two are the same attribute.
+    _screen_matrix_stash: Any
+    _time_ordering_: Any
     _fit_data_signature: str | None
     _fit_data_signature_inputs: tuple | None
     # Sweep-shared honest holdout set by ``fit_with_stability_check`` (consumed by
@@ -291,6 +294,7 @@ class CompositeTargetDiscovery:
                 # and any post-train wrapping path that re-applies the
                 # transform.
                 "extra_base_columns": tuple(getattr(s, "extra_base_columns", ()) or ()),
+                "stats_measured_for": getattr(s, "stats_measured_for", None),
                 # Post-selection-inference honest gain (SA27). ``mi_gain`` above is the
                 # in-screen SELECTION score (optimistically biased by the winner's curse);
                 # ``honest_holdout_gain`` is the SAME gain re-scored on a holdout the discovery
@@ -647,6 +651,7 @@ def discover_incremental(
     prior_sig = (_sig_of() if callable(_sig_of) else getattr(prior_result, "_fit_data_signature", "")) or ""
     if config is None:
         config = getattr(prior_result, "config", None)
+    kwargs.setdefault("prior_n_rows", getattr(prior_result, "_fit_n_rows", None))
     return incremental_discovery_check(
         prior_specs, prior_sig, new_df, target_col, feature_cols, config, **kwargs,
     )

@@ -72,10 +72,9 @@ def _network(self, ax, p: NetworkPanelSpec, fig) -> None:
             directed = np.zeros_like(directed)
         for a, b, d in zip(e_src, e_dst, directed):
             if d:
-                ax.annotate("", xy=tuple(nx_pos[b]), xytext=tuple(nx_pos[a]),
-                            arrowprops=dict(arrowstyle="-|>", color="0.35",
-                                            alpha=0.6, shrinkA=8, shrinkB=8),
-                            zorder=2)
+                ax.annotate(
+                    "", xy=tuple(nx_pos[b]), xytext=tuple(nx_pos[a]), arrowprops=dict(arrowstyle="-|>", color="0.35", alpha=0.6, shrinkA=8, shrinkB=8), zorder=2
+                )
 
         # A colorbar over edge weights that are all the same encodes nothing, and matplotlib renders the
         # degenerate range with an offset exponent ("1e-9+1") that reads as a real scale. The spectral

@@ -36,6 +36,7 @@ import numpy as np
 # is no circular-dep concern. Kept at module level here (not only in the carved ``_screening_tiny_perbin``
 # sibling) so the race-safe hoist holds for importers of this parent module too.
 from ..estimator import _y_train_clip_bounds  # noqa: F401
+from ._splitter import make_discovery_splitter
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +61,7 @@ def _cached_kfold_splits(n_rows: int, cv_folds: int, random_state: int):
     cached = _KFOLD_SPLIT_CACHE.get(key)
     if cached is not None:
         return cached
-    from sklearn.model_selection import KFold
-    kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+    kf = make_discovery_splitter(cv_folds, random_state=random_state)[0]  # the one place a shuffled discovery KFold is built
     splits = list(kf.split(np.empty(n_rows, dtype=np.uint8)))
     if len(_KFOLD_SPLIT_CACHE) >= _KFOLD_SPLIT_CACHE_MAX:
         _KFOLD_SPLIT_CACHE.clear()  # cheap bounded reset; sweeps reuse one key set
@@ -302,7 +302,7 @@ def _tiny_cv_rmse_raw_y(
     the (bin_var-independent) raw-y model per base. Bit-identical to calling
     this function per base with ``bin_var=`` set.
     """
-    from sklearn.model_selection import GroupKFold, KFold, TimeSeriesSplit
+    from sklearn.model_selection import GroupKFold, TimeSeriesSplit
     n = len(y_train)
     if n < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
@@ -352,7 +352,7 @@ def _tiny_cv_rmse_raw_y(
         kf = TimeSeriesSplit(n_splits=cv_folds)
         _precomputed_splits = None
     else:
-        kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+        kf = make_discovery_splitter(cv_folds, random_state=random_state)[0]
         _precomputed_splits = None
 
     # bin_var aligns to the masked y_clean / x_clean. If caller

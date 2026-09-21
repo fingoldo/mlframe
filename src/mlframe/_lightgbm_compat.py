@@ -48,8 +48,9 @@ def patch_lgbm_model_class(cls: type) -> bool:
     if not isinstance(prop, property) or getattr(prop.fget, "_mlframe_backport", False):
         return False
     original_get = prop.fget
+    assert original_get is not None, "a property without a getter cannot be backported"
 
-    def feature_names_in_(self):
+    def feature_names_in_(self) -> Any:
         """scikit-learn compatible ``feature_name_``; absent when the training data had no feature names (as in 4.7)."""
         names = original_get(self)
         if _is_auto_names(names):
@@ -59,8 +60,10 @@ def patch_lgbm_model_class(cls: type) -> bool:
             )
         return names
 
-    feature_names_in_._mlframe_backport = True
-    cls.feature_names_in_ = property(feature_names_in_, prop.fset, prop.fdel, prop.__doc__)
+    # Marker attribute on the function object and a property installed on the class: both are dynamic by
+    # design, and neither shape is expressible in an annotation.
+    feature_names_in_._mlframe_backport = True  # type: ignore[attr-defined]
+    cls.feature_names_in_ = property(feature_names_in_, prop.fset, prop.fdel, prop.__doc__)  # type: ignore[attr-defined]  # installing a property on a third-party class is dynamic by design
     return True
 
 

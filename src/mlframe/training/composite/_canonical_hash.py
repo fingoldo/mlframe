@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 _NAT = np.iinfo(np.int64).min
 _UNIT_TO_NS = {"ns": 1, "us": 1_000, "ms": 1_000_000, "s": 1_000_000_000}
-_FLOAT_TOKENS = {"float16": np.dtype("<f2"), "float32": np.dtype("<f4"), "float64": np.dtype("<f8")}
+_FLOAT_TOKENS: Dict[str, np.dtype] = {"float16": np.dtype("<f2"), "float32": np.dtype("<f4"), "float64": np.dtype("<f8")}
 _TEXT_TOKENS = ("string", "category", "object", "decimal", "other")
 
 

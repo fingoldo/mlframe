@@ -258,9 +258,14 @@ class TestLockEnsembleNNLS:
     convex combination)."""
 
     def test_nnls_stack_beats_best_single(self) -> None:
-        """Nnls stack beats best single."""
+        """An NNLS stack weighted on out-of-fold predictions beats the best single component on held-out rows, through ``predict``.
+
+        Each ``diff`` component misses one base, so their errors are driven by different columns and partly cancel. The
+        weights are fitted on 5-fold OOF predictions (in-sample predictions reward whichever component overfits), and the
+        held-out prediction goes through ``ens.predict``. Measured (seeds 0/1/2): stack/best-single 0.962/0.941/0.947.
+        """
         from lightgbm import LGBMRegressor
-        from sklearn.metrics import mean_squared_error
+        from sklearn.model_selection import KFold
 
         rng = np.random.default_rng(0)
         n = 4000
@@ -268,69 +273,37 @@ class TestLockEnsembleNNLS:
         base_b = rng.normal(loc=5, scale=1, size=n)
         x1 = rng.normal(size=n)
         y = 0.6 * base_a + 0.7 * base_b + 0.4 * x1 + rng.normal(scale=0.3, size=n)
-        df = pd.DataFrame(
-            {
-                "base_a": base_a,
-                "base_b": base_b,
-                "x1": x1,
-                "y": y,
-            }
-        )
+        df = pd.DataFrame({"base_a": base_a, "base_b": base_b, "x1": x1})
         cut = int(0.8 * n)
-        train_idx, test_idx = np.arange(cut), np.arange(cut, n)
-        # Train one composite per base.
-        train_preds: list = []
-        test_preds: list = []
-        component_models: list = []
-        component_names: list = []
-        y_tr = df["y"].iloc[train_idx].to_numpy()
-        y_te = df["y"].iloc[test_idx].to_numpy()
-        for base_col in ["base_a", "base_b"]:
-            t = get_transform("diff")
-            b_tr = df[base_col].iloc[train_idx].to_numpy()
-            b_te = df[base_col].iloc[test_idx].to_numpy()
+        tr, te = np.arange(cut), np.arange(cut, n)
+        y_tr, y_te = y[tr], y[te]
+        t = get_transform("diff")
+
+        def _lgbm():
+            return LGBMRegressor(n_estimators=200, num_leaves=31, learning_rate=0.05, random_state=0, verbosity=-1)
+
+        component_models, component_names, oof_cols, single_rmses = [], [], [], []
+        for base_col in ("base_a", "base_b"):
+            x_cols = [c for c in df.columns if c != base_col]
+            b_tr = df[base_col].to_numpy()[tr]
+            oof = np.empty(cut)
+            for f_tr, f_te in KFold(5, shuffle=True, random_state=0).split(tr):
+                fp = t.fit(y_tr[f_tr], b_tr[f_tr])
+                m = _lgbm().fit(df[x_cols].iloc[tr].iloc[f_tr], t.forward(y_tr[f_tr], b_tr[f_tr], fp))
+                oof[f_te] = t.inverse(m.predict(df[x_cols].iloc[tr].iloc[f_te]), b_tr[f_te], fp)
             fp = t.fit(y_tr, b_tr)
-            t_tr = t.forward(y_tr, b_tr, fp)
-            x_cols = [c for c in ["base_a", "base_b", "x1"] if c != base_col]
-            m = LGBMRegressor(
-                n_estimators=200,
-                num_leaves=31,
-                learning_rate=0.05,
-                random_state=0,
-                verbosity=-1,
-            )
-            m.fit(df[x_cols].iloc[train_idx].to_numpy(), t_tr)
-            t_hat_tr = m.predict(df[x_cols].iloc[train_idx].to_numpy())
-            t_hat_te = m.predict(df[x_cols].iloc[test_idx].to_numpy())
-            train_preds.append(t.inverse(t_hat_tr, b_tr, fp))
-            test_preds.append(t.inverse(t_hat_te, b_te, fp))
-            wrapper = CompositeTargetEstimator.from_fitted_inner(
-                fitted_inner=m,
-                transform_name="diff",
-                base_column=base_col,
-                transform_fitted_params=fp,
-                y_train=y_tr,
-            )
+            m = _lgbm().fit(df[x_cols].iloc[tr], t.forward(y_tr, b_tr, fp))
+            wrapper = CompositeTargetEstimator.from_fitted_inner(fitted_inner=m, transform_name="diff", base_column=base_col, transform_fitted_params=fp, y_train=y_tr)
             component_models.append(wrapper)
             component_names.append(f"diff_{base_col}")
-        rmses = [float(np.sqrt(mean_squared_error(y_te, p))) for p in test_preds]
-        best_single = min(rmses)
-        # NNLS stack on train; predict on test via weights.
-        train_mat = np.column_stack(train_preds)
+            oof_cols.append(oof)
+            single_rmses.append(float(np.sqrt(np.mean((np.asarray(wrapper.predict(df.iloc[te])) - y_te) ** 2))))
         nnls_ens = CompositeCrossTargetEnsemble.from_nnls_stack(
-            component_models=component_models,
-            component_names=component_names,
-            component_predictions=train_mat,
-            y_train=y_tr,
+            component_models=component_models, component_names=component_names, component_predictions=np.column_stack(oof_cols), y_train=y_tr,
         )
-        test_mat = np.column_stack(test_preds)
-        nnls_pred = test_mat @ nnls_ens.weights
-        nnls_rmse = float(np.sqrt(mean_squared_error(y_te, nnls_pred)))
-        # Lock: NNLS not worse than 1.5% over best_single (allows
-        # for jitter; demo showed NNLS +1.1% better).
-        assert (
-            nnls_rmse < best_single * 1.015
-        ), f"regression: NNLS stack ({nnls_rmse:.4f}) much worse than best_single ({best_single:.4f}); expected within 1.5%"
+        nnls_rmse = float(np.sqrt(np.mean((np.asarray(nnls_ens.predict(df.iloc[te])) - y_te) ** 2)))
+        best_single = min(single_rmses)
+        assert nnls_rmse < 0.99 * best_single, f"NNLS stack ({nnls_rmse:.4f}) must beat the best single component ({best_single:.4f}) by at least 1%"
 
 
 # ----------------------------------------------------------------------

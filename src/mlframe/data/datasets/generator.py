@@ -36,6 +36,7 @@ from mlframe.data.datasets._columns import draw_features, standardize
 from mlframe.data.datasets._derived import derived_order, realize_derived
 from mlframe.data.datasets._latent import realize_latents
 from mlframe.data.datasets._links import apply_heteroscedasticity, link_score
+from mlframe.data.datasets._missing import apply_missingness
 from mlframe.data.datasets._noise import apply_corruption
 from mlframe.data.datasets._rng import stream_for
 from mlframe.data.datasets._scm import build_ground_truth, graph_from_spec
@@ -72,12 +73,24 @@ def _assemble_frame(spec: DatasetSpec, columns: Dict[str, np.ndarray]) -> pd.Dat
     data: Dict[str, Any] = {}
     for feature in spec.features:
         values = columns[feature.name]
+        # A masked cell arrives here as NaN, and both non-float dtypes need widening to hold it. Never a
+        # sentinel: a -999 in an integer column is a value some method will cheerfully treat as a very
+        # small number, which silently turns a missingness bed into an outlier bed.
+        holes = ~np.isfinite(values)
         if feature.dtype == "category":
             levels = feature.levels or ()
-            codes = np.clip(values.astype(int), 0, max(len(levels) - 1, 0))
+            codes = np.where(holes, -1, np.clip(np.nan_to_num(values, nan=0.0).astype(int), 0, max(len(levels) - 1, 0)))
             data[feature.name] = pd.Categorical.from_codes(codes, categories=list(levels))
         elif feature.dtype == "int":
-            data[feature.name] = np.rint(values).astype(np.int64)
+            rounded = np.rint(np.nan_to_num(values, nan=0.0)).astype(np.int64)
+            # Widened ONLY when there are holes: pandas' nullable Int64 is handled worse than plain int64
+            # by several downstream estimators, so a bed with no missingness must not pay for one that has it.
+            if holes.any():
+                widened = pd.array(rounded, dtype="Int64")
+                widened[holes] = pd.NA
+                data[feature.name] = widened
+            else:
+                data[feature.name] = rounded
         else:
             data[feature.name] = values.astype(np.float64)
     return pd.DataFrame(data, columns=list(spec.feature_names()))
@@ -218,8 +231,14 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
         # probability, and building it from one would make it cleaner than any real measurement can be.
         realize_derived(after_target, graph, columns, scales, target.name, {target.name: labels}, spec.root_seed, spec.name)
 
+    # Masking happens HERE: after the link, after calibration, after the labels. `true_prob` is the law
+    # relating COMPLETE values to the target, and that is the law the labels came from; hiding values
+    # afterwards changes what a method can see and not what is true. Applying the mask earlier would make
+    # the recorded ceiling the ceiling of a half-observed world, which nothing here computes.
+    columns, missing_caveats = apply_missingness(spec.missingness, columns, spec.root_seed, spec.name, knob_rng)
+
     structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups)
-    caveats = list(structural.caveats)
+    caveats = list(structural.caveats) + missing_caveats
     if caveat:
         caveats.append(caveat)
     requested, achieved = calibration["requested"], calibration["achieved_auc"]

@@ -20,7 +20,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from ._paired_stats import PairedTResult, average_over_cv_seed, paired_differences, paired_t_test, reliability
+import numpy as np
+
+from ._paired_stats import PairedTResult, average_over_cv_seed, detectable_effect, paired_differences, paired_t_test, reliability
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +52,16 @@ class ArmVerdict:
 
     arm: str
     stat: PairedTResult
-    # "beats_null" | "loses_to_null" | "indistinguishable" | "identical_to_null" |
+    # "beats_null" | "loses_to_null" | "indistinguishable" | "underpowered" | "identical_to_null" |
     # "beats_null_deterministic" | "loses_to_null_deterministic" | "insufficient_seeds"
     verdict: str
+    #: The smallest paired difference this contrast's own seed count could have resolved, at the
+    #: pre-registered power. Carried on every row rather than kept in a separate power document, because
+    #: "no gain" and "a gain smaller than this leg can see" are different statements and the report was
+    #: printing them identically. The real leg's threshold is 0.013 to 0.031 AUC, which is larger than most
+    #: of the gains the synthetic legs measured -- so reading its nulls as evidence of absence is a mistake
+    #: the numbers themselves invite.
+    mde: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -107,12 +116,17 @@ def extract_long_rows(
 DIRECTIONAL_VERDICTS = ("beats_null", "loses_to_null", "beats_null_deterministic", "loses_to_null_deterministic")
 
 
-def _classify(stat: PairedTResult, alpha: float) -> str:
+def _classify(stat: PairedTResult, alpha: float, mde: Optional[float] = None) -> str:
     """Turn a paired-`t` result into a verdict label.
 
     A zero-variance difference has no `t` statistic but is not an absent result: every seed moved by the
     same amount, so it is labelled `identical_to_null` (delta exactly 0, e.g. an arm that kept every
     column) or `*_deterministic`, never conflated with too few seeds to test.
+
+    A non-rejection splits in two. When the observed difference is smaller than the smallest this contrast
+    could have detected, the test has not found an absence -- it was never able to see a difference that
+    size, and calling that `indistinguishable` alongside a contrast that genuinely resolved a null reports
+    two different states as one. `underpowered` says which of the two happened.
     """
     if stat.m < 2:
         return "insufficient_seeds"
@@ -121,6 +135,8 @@ def _classify(stat: PairedTResult, alpha: float) -> str:
             return "identical_to_null"
         return "beats_null_deterministic" if stat.mean_delta > 0 else "loses_to_null_deterministic"
     if stat.p_value >= alpha:
+        if mde is not None and np.isfinite(mde) and abs(stat.mean_delta) < mde:
+            return "underpowered"
         return "indistinguishable"
     return "beats_null" if stat.mean_delta > 0 else "loses_to_null"
 
@@ -144,7 +160,11 @@ def scenario_verdict(
     for arm in arms:
         deltas = paired_differences(collapsed, arm=arm, null_arm=null_arm, scenario=scenario)
         stat = paired_t_test(deltas, alpha=alpha)
-        verdicts.append(ArmVerdict(arm=arm, stat=stat, verdict=_classify(stat, alpha)))
+        # Computed from THIS contrast's own spread and seed count, not from a leg-wide summary: the spread
+        # varies by an order of magnitude across arms, so one pooled threshold would flatter the noisy ones
+        # and slander the stable ones.
+        mde = detectable_effect(stat.sd_delta, stat.m, alpha=alpha)
+        verdicts.append(ArmVerdict(arm=arm, stat=stat, verdict=_classify(stat, alpha, mde), mde=mde))
 
     winners = [v for v in verdicts if v.verdict in ("beats_null", "beats_null_deterministic")]
     headline = max(winners, key=lambda v: v.stat.mean_delta).arm if winners else NO_PAY_ROW

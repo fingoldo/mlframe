@@ -52,7 +52,7 @@ from __future__ import annotations
 from ._domain_shared import residual_domain_plain
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import numpy as np
 
@@ -63,6 +63,9 @@ _RECIPROCAL_EPS_FLOOR: float = 1e-12
 _RECIPROCAL_Y_CAP_MULT: float = 1e3  # the inverse's z-floor bounds |y_hat| at this multiple of the train max|y|
 _SPLINE_DEFAULT_K: int = 3
 _SPLINE_DEFAULT_S_MULT: float = 1.0  # smoothing = m * var_noise * s_mult (scipy s bounds the residual SS)
+# bench-attempt-rejected (2026-09-21): s = (m + sqrt(2m)) * var_noise, the top of scipy's recommended range, stops the knot count
+# growing with n (10 -> 41 knots from n=1000 to 4000 on a log curve; own-row influence stays ~0.04 instead of 1/n), but the
+# fit is further from the true curve in every case measured (log/sin, n=300..20000; rmse 0.006 -> 0.031 at n=20000).
 
 
 # ============================================================
@@ -73,44 +76,66 @@ _SPLINE_DEFAULT_S_MULT: float = 1.0  # smoothing = m * var_noise * s_mult (scipy
 # T = arcsinh(y) - alpha * arcsinh(base) generalises logratio to
 # signed bases. Fitted alpha = OLS on train.
 
+def asinh_scale(x: np.ndarray) -> Any:
+    """The unit arcsinh is taken in: median |x| per column (then the std, then 1.0), so the transform has one shape at every scale.
+
+    arcsinh is linear within about one unit of zero and logarithmic beyond it; in raw units a target of order 1e-3 sat
+    entirely in the linear region (no compression) while one of order 1e6 was a log, so the transform depended on units.
+    """
+    arr = np.asarray(x, dtype=np.float64)
+    cols = arr.reshape(arr.shape[0], -1) if arr.ndim > 1 else arr.reshape(-1, 1)
+    out = []
+    for j in range(cols.shape[1]):
+        c = cols[:, j][np.isfinite(cols[:, j])]
+        s = float(np.median(np.abs(c))) if c.size else 0.0
+        if not s > 0.0:
+            s = float(np.std(c)) if c.size else 0.0
+        out.append(s if s > 0.0 else 1.0)
+    return out[0] if arr.ndim <= 1 else out
+
+
 def _asinh_residual_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
-    """OLS-fit alpha/beta of arcsinh(y) ~ alpha * arcsinh(base) + beta on finite train rows; falls back to alpha=1/0 pass-through when fewer than 10 finite rows or base has zero variance."""
-    yz = np.arcsinh(np.asarray(y, dtype=np.float64))
-    bz = np.arcsinh(np.asarray(base, dtype=np.float64))
+    """OLS-fit alpha/beta of arcsinh(y/s_y) ~ alpha * arcsinh(base/s_b) + beta on finite train rows (scales from ``asinh_scale``); falls back to alpha=1/0 pass-through when fewer than 10 finite rows or base has zero variance."""
+    s_y, s_b = asinh_scale(y), asinh_scale(base)
+    scales = {"y_scale": s_y, "base_scale": s_b}
+    yz = np.arcsinh(np.asarray(y, dtype=np.float64) / s_y)
+    bz = np.arcsinh(np.asarray(base, dtype=np.float64) / s_b)
     finite = np.isfinite(yz) & np.isfinite(bz)
     if finite.sum() < 10:
-        return {"alpha": 1.0, "beta": 0.0}
+        return {"alpha": 1.0, "beta": 0.0, **scales}
     yc = yz[finite]
     bc = bz[finite]
     b_mean = float(bc.mean())
     b_centered = bc - b_mean
     denom = float(np.dot(b_centered, b_centered))
     if denom <= 0:
-        return {"alpha": 0.0, "beta": float(yc.mean())}
+        return {"alpha": 0.0, "beta": float(yc.mean()), **scales}
     alpha = float(np.dot(b_centered, yc - yc.mean()) / denom)
     beta = float(yc.mean() - alpha * b_mean)
-    return {"alpha": alpha, "beta": beta}
+    return {"alpha": alpha, "beta": beta, **scales}
 
 
 def _asinh_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    """Apply the fitted asinh residual: arcsinh(y) - alpha * arcsinh(base) - beta."""
+    """Apply the fitted asinh residual: arcsinh(y/s_y) - alpha * arcsinh(base/s_b) - beta (params without scales use 1.0)."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
-    return np.arcsinh(np.asarray(y, dtype=np.float64)) - alpha * np.arcsinh(np.asarray(base, dtype=np.float64)) - beta
+    s_y, s_b = float(params.get("y_scale", 1.0)), float(params.get("base_scale", 1.0))
+    return np.arcsinh(np.asarray(y, dtype=np.float64) / s_y) - alpha * np.arcsinh(np.asarray(base, dtype=np.float64) / s_b) - beta
 
 
 def _asinh_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    """Invert the asinh residual back to y-space: sinh(t_hat + alpha * arcsinh(base) + beta)."""
+    """Invert the asinh residual back to y-space: s_y * sinh(t_hat + alpha * arcsinh(base/s_b) + beta)."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
-    z = np.asarray(t_hat, dtype=np.float64) + alpha * np.arcsinh(np.asarray(base, dtype=np.float64)) + beta
-    return np.sinh(z)
+    s_y, s_b = float(params.get("y_scale", 1.0)), float(params.get("base_scale", 1.0))
+    z = np.asarray(t_hat, dtype=np.float64) + alpha * np.arcsinh(np.asarray(base, dtype=np.float64) / s_b) + beta
+    return s_y * np.sinh(z)
 
 
 _asinh_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_plain
@@ -426,7 +451,7 @@ class _TckSpline:
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
         from scipy.interpolate import splev
-        return splev(x, self.tck, ext=3)
+        return cast(np.ndarray, splev(x, self.tck, ext=3))
 
 
 def _build_smoothing_spline(params: dict[str, Any]) -> Any:

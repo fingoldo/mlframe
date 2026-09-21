@@ -96,7 +96,7 @@ def _run_discovery(df, config):
 # ---------------------------------------------------------------------------
 
 
-def test_biz_val_composite_discovery_runs_clean_on_logratio_target():
+def test_smoke_composite_discovery_runs_clean_on_logratio_target():
     """Discovery must complete without raising on a multiplicative-
     noise target. The gain dynamics (mi_t > mi_y for some transform)
     can be subtle on small synthetics; here we assert the discovery
@@ -114,12 +114,16 @@ def test_biz_val_composite_discovery_runs_clean_on_logratio_target():
     assert drops is None or isinstance(drops, (list, dict))
 
 
-def test_biz_val_composite_discovery_runs_clean_on_diff_target():
-    """Lagged-target structure -- discovery completes cleanly."""
+def test_biz_val_composite_discovery_finds_diff_on_a_random_walk():
+    """Lagged-target structure: ``y[t] = y[t-1] + step`` with the lag as base, so ``diff`` leaves only the step.
+
+    Measured: discovery emits the ``diff`` spec (mi_gain 0.0073) on this seeded walk; losing it means discovery no longer
+    sees the one structure the fixture was built to have.
+    """
     df = _diff_target(n=2500, seed=42)
     disc = _run_discovery(df, _make_config())
-    specs = disc.export_specs()
-    assert isinstance(specs, list)
+    names = [s["transform_name"] for s in disc.export_specs()]
+    assert "diff" in names, f"discovery missed the diff structure on a random walk; emitted {names}"
 
 
 def test_biz_val_composite_discovery_returns_valid_spec_schema_on_linear_target():
@@ -174,7 +178,7 @@ def test_biz_val_composite_discovery_hybrid_screening_runs_tiny_model():
 # ---------------------------------------------------------------------------
 
 
-def test_biz_val_composite_discovery_bin_estimator_default_runs_to_completion():
+def test_smoke_composite_discovery_bin_estimator_default_runs_to_completion():
     """``mi_estimator='bin'`` (post-2026-05-10 default) must run end-
     to-end on a heavy-tail target without raising. Catches
     regressions where the bin-MI path silently breaks (a known issue
@@ -217,12 +221,9 @@ def test_biz_val_composite_discovery_fallback_raw_on_pure_noise():
         raw_baseline_tolerance=1.05,
     )
     disc = _run_discovery(df, config)
-    # The diagnostic must complete without raising. Output structure
-    # invariant: specs is a list, drops is dict-or-None.
+    # The business value of fallback_raw on pure noise is that nothing is emitted: any spec here is a false discovery.
     specs = disc.export_specs()
-    drops = disc.filter_drops()
-    assert isinstance(specs, list)
-    assert drops is None or isinstance(drops, (list, dict))
+    assert specs == [], f"discovery emitted {len(specs)} spec(s) on pure noise: {[s['transform_name'] for s in specs]}"
 
 
 def _multibase_holdout_rmse(scenario, thr, seed, n=3000):

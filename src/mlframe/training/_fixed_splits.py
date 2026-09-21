@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import os
 from os.path import join
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -84,7 +84,7 @@ def extract_row_ids(df: Any, id_column: str) -> np.ndarray:
             f"id_column {id_column!r} is not unique: {int(_dup.sum())} rows share {int(_s[_dup].nunique())} ids "
             f"(e.g. {_examples}). A duplicated key cannot pin one row to one split; deduplicate or use a finer key."
         )
-    return ids
+    return cast(np.ndarray, ids)
 
 
 def _ts_series(timestamps: Any) -> Optional[pd.Series]:
@@ -100,7 +100,7 @@ def _ts_series(timestamps: Any) -> Optional[pd.Series]:
 
 def _is_datetime(ts: pd.Series) -> bool:
     """True when ``ts`` has a datetime64 dtype (tz-aware or naive)."""
-    return pd.api.types.is_datetime64_any_dtype(ts.dtype)
+    return cast(bool, pd.api.types.is_datetime64_any_dtype(ts.dtype))
 
 
 def _align_bound(bound: Any, ts: pd.Series) -> Any:
@@ -173,12 +173,12 @@ def _read_json(path: str) -> Optional[dict]:
         import orjson
 
         with open(path, "rb") as f:
-            return orjson.loads(f.read())
+            return cast(Optional[dict], orjson.loads(f.read()))
     except ImportError:
         import json
 
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            return cast(Optional[dict], json.load(f))
 
 
 def split_dir_for(data_dir: Optional[str], models_dir: Optional[str], target_name: str, model_name: str) -> Optional[str]:
@@ -367,7 +367,7 @@ def pinned_train_val_test_split(
         _kw = dict(splitter_kwargs)
         _kw.update(test_size=_test_sz, val_size=_val_sz, calib_size=_calib_sz)
         _sub = lambda a: None if a is None else np.asarray(a)[pool]  # noqa: E731
-        (_tr, _va, _te, details["train"], details["val"], details["test"], _ca, details["calib"]) = splitter(
+        _tr, _va, _te, details["train"], details["val"], details["test"], _ca, details["calib"] = splitter(
             df=pd.DataFrame(index=pd.RangeIndex(len(pool))),
             timestamps=None if ts is None else ts.iloc[pool].reset_index(drop=True),
             stratify_y=_sub(stratify_y),
@@ -420,8 +420,7 @@ def pinned_train_val_test_split(
         f", {len(idx['calib'])} calib rows" if len(idx["calib"]) else "",
         ", ".join(f"{k}={v}" for k, v in source.items()),
     )
-    return (idx["train"], idx["val"], idx["test"], details["train"], details["val"], details["test"],
-            idx["calib"], details["calib"], info)
+    return (idx["train"], idx["val"], idx["test"], details["train"], details["val"], details["test"], idx["calib"], details["calib"], info)
 
 
 __all__ = [

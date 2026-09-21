@@ -74,7 +74,7 @@ def _inside_fit_range(params: dict, base: np.ndarray) -> np.ndarray:
     b2 = base.reshape(-1, 1) if base.ndim == 1 else base
     if not isinstance(rng, dict) or "lo" not in rng:
         return np.ones(b2.shape[0], dtype=bool)
-    return np.all((b2 >= np.asarray(rng["lo"])) & (b2 <= np.asarray(rng["hi"])), axis=1)
+    return np.asarray(np.all((b2 >= np.asarray(rng["lo"])) & (b2 <= np.asarray(rng["hi"])), axis=1), dtype=bool)
 
 
 def _warn(key: str, msg: str, *args: Any) -> None:

@@ -692,6 +692,18 @@ def _rfecv_rank_vector(model: Any, names: Sequence[str], selected: Sequence[str]
     Returns:
         A float rank vector aligned to ``names``, lower meaning better, never containing NaN.
     """
+
+    # The consensus order first, when the fit produced one. `ranking_` assigns rank 1 to EVERY survivor,
+    # so on a bed where RFECV keeps most of the columns it is a single enormous tie group and the cut that
+    # follows is decided by the tie-break rather than by the selector -- which is exactly the artefact that
+    # made an earlier version of the atlas report a perfect parity result. The consensus ranking is a
+    # strict order over all the features, computed by the fit and previously discarded.
+    consensus = getattr(model, "consensus_ranking_", None)
+    if consensus:
+        order = {str(nm): pos for pos, nm in enumerate(consensus)}
+        if set(order) & set(names):
+            return np.asarray([float(order.get(str(nm), len(order))) for nm in names], dtype=np.float64)
+
     raw = getattr(model, "ranking_", None)
     if raw is not None and len(np.asarray(raw, dtype=object).ravel()) > 0:
         arr = np.asarray(raw, dtype=object).ravel()
@@ -781,6 +793,7 @@ class RFECVArm(BaseArm):
                 "max_refits": self.max_refits,
                 "max_runtime_mins": self.max_runtime_mins,
                 "n_unique_ranks": int(np.unique(ranking).size),
+                "rank_source": "consensus_ranking_" if getattr(model, "consensus_ranking_", None) else "ranking_",
                 "selection_metric": internal_metric,
             },
         }
@@ -903,6 +916,11 @@ def build_arm_roster(n_features: int, *, k: Optional[int] = None, random_state: 
     roster["rfecv"] = lambda: RFECVArm(random_state=random_state)
     roster["boruta-shap"] = lambda: BorutaShapArm(random_state=random_state)
     roster["shap-proxied"] = lambda: ShapProxiedArm(random_state=random_state)
+    # Imported here rather than at module scope: the rank-aggregation arm imports `BaseArm` from this
+    # module, so a top-level import would close the cycle.
+    from ._arms_rank_aggregation import RankAggregationArm
+
+    roster["rank-vote"] = lambda: RankAggregationArm(k=kk, rule="borda", random_state=random_state)
     return roster
 
 

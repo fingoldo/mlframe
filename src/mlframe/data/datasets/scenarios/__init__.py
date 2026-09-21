@@ -28,9 +28,13 @@ from mlframe.data.datasets.spec import DatasetSpec
 from ._causal import mediator_chain_spec, spouse_collider_spec
 from ._interactions import parity_plus_decoy_spec, parity_spec
 from ._linear import linear_lowdim_spec, linear_spec
+from ._marginals import heavy_tail_spec, outlier_contaminated_spec, quantized_spec, zero_inflated_spec
+from ._mixed_types import graded_cardinality_spec, id_trap_spec, zipf_levels_spec
+from ._observation import concept_shift_spec, covariate_shift_spec, missingness_trio_spec, rare_class_spec
 from ._null import null_spec
 from ._redundant import exact_redundancy_spec, private_delta_spec
-from ._tails import gaussian_tail_control_spec, tail_dependence_spec
+from ._reference import friedman1_spec, friedman2_spec, friedman3_spec, weston_guyon_spec
+from ._tails import gaussian_tail_control_spec, tail_dependence_spec, tail_isolation_spec
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +64,26 @@ class Scenario:
     purpose: str
     primary_target_set: str = PRIMARY_TARGET_SET
     defaults: Dict[str, Any] = field(default_factory=dict)
+    #: Whether sorting columns by raw variance recovers this bed's answer key. False everywhere it can be:
+    #: a bed where the unsupervised control wins is normally a BROKEN bed, because in an additively
+    #: generated SCM the variance grows with depth in topological order and the control then recovers the
+    #: causal order without ever looking at the target (Reisach, Seiler and Drton, NeurIPS 2021). Columns
+    #: are standardised to unit variance precisely to remove that channel. A bed setting this True is
+    #: declaring that its unequal scales are part of the published design rather than an accident, and it
+    #: owes the reason in ``varsortable_reason``.
+    varsortable: bool = False
+    varsortable_reason: str = ""
+
+    def __post_init__(self) -> None:
+        """Refuse a varsortability declaration with no stated reason.
+
+        Raises:
+            ValueError: When a bed marks itself varsortable without saying why. The flag exempts the bed
+                from the suite's strongest anti-rigging check, so an unexplained one is how a broken bed
+                would get through.
+        """
+        if self.varsortable and not self.varsortable_reason.strip():
+            raise ValueError(f"scenario {self.name!r} declares varsortable=True without a reason; the flag waives an anti-rigging check")
 
     def build(self, seed: int = 0, **overrides: Any) -> DatasetSpec:
         """Return this scenario's spec at one seed.
@@ -130,7 +154,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         family="interactions",
         builder=parity_spec,
         defaults={"order": 3},
-        expected_to_break=("mrmr", "univariate-mi", "skb-f", "skb-mi", "lars-order", "select-fdr", "variance-sort"),
+        expected_to_break=("mrmr", "univariate-mi", "skb-f", "skb-mi", "lars-order", "select-fdr", "variance-sort", "rank-vote"),
         purpose="operands with zero marginal association: invisible to any one-column-at-a-time ranking",
     ),
     Scenario(
@@ -156,10 +180,122 @@ SCENARIOS: Tuple[Scenario, ...] = (
         purpose="same correlation and gate, no tail dependence: isolates a tail failure from a gate failure",
     ),
     Scenario(
+        name="friedman1",
+        family="reference",
+        builder=friedman1_spec,
+        expected_to_break=("skb-f", "select-fdr", "lars-order", "variance-sort"),
+        purpose="published bed: a sine interaction and a centred square that no linear statistic can see",
+    ),
+    Scenario(
+        name="friedman2",
+        family="reference",
+        builder=friedman2_spec,
+        expected_to_break=("skb-mi", "univariate-mi", "variance-sort"),
+        purpose="published bed whose column ranges differ by orders of magnitude, by design rather than by accident",
+    ),
+    Scenario(
+        name="friedman3",
+        family="reference",
+        builder=friedman3_spec,
+        expected_to_break=("skb-f", "lars-order", "variance-sort"),
+        purpose="published bed where a ratio is the entire signal, so neither operand is informative at a fixed marginal",
+    ),
+    Scenario(
+        name="weston_guyon_k4_p100",
+        family="reference",
+        builder=weston_guyon_spec,
+        expected_to_break=("select-fdr", "skb-f", "skb-mi", "boruta", "rfecv"),
+        purpose="published bed: equal-weight informative columns against same-marginal probes, so partial credit is unavailable",
+    ),
+    Scenario(
+        name="tail_isolation_clayton_vs_gaussian",
+        family="tails",
+        builder=tail_isolation_spec,
+        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr", "lars-order", "mrmr", "rank-vote"),
+        purpose="two pairs at matched rank correlation, one tail-dependent: the only bed here where the copula is the whole difference",
+    ),
+    Scenario(
+        name="heavy_tail_t4",
+        family="marginals",
+        builder=heavy_tail_spec,
+        expected_to_break=("skb-f", "select-fdr", "lars-order"),
+        purpose="infinite kurtosis: a Pearson statistic is decided by a handful of rows and a rank statistic is not",
+    ),
+    Scenario(
+        name="outliers_020permille",
+        family="marginals",
+        builder=outlier_contaminated_spec,
+        expected_to_break=("skb-f", "lars-order", "variance-sort"),
+        purpose="fixed-rate contamination rather than a heavy law, which is what a broken sensor actually produces",
+    ),
+    Scenario(
+        name="zero_inflated_40pct",
+        family="marginals",
+        builder=zero_inflated_spec,
+        expected_to_break=("skb-mi", "univariate-mi", "mrmr"),
+        purpose="a point mass equal-mass binning cannot split, so the delivered bin count is silently not the requested one",
+    ),
+    Scenario(
+        name="quantized_6levels",
+        family="marginals",
+        builder=quantized_spec,
+        expected_to_break=("skb-mi", "univariate-mi", "mrmr", "knockoffs"),
+        purpose="fewer distinct values than an estimator wants bins, so ties dominate the ranking",
+    ),
+    Scenario(
+        name="graded_cardinality",
+        family="mixed_types",
+        builder=graded_cardinality_spec,
+        expected_to_break=("sfm-lgbm", "boruta", "boruta-shap"),
+        purpose="equal signal at four cardinalities: a method ranking them apart is ranking by split opportunities",
+    ),
+    Scenario(
+        name="id_trap",
+        family="mixed_types",
+        builder=id_trap_spec,
+        expected_to_break=("sfm-lgbm", "boruta-shap", "rfecv", "variance-sort"),
+        purpose="a unique-per-row column that maximises impurity importance and generalises to nothing",
+    ),
+    Scenario(
+        name="zipf_levels",
+        family="mixed_types",
+        builder=zipf_levels_spec,
+        expected_to_break=("skb-mi", "univariate-mi", "knockoffs"),
+        purpose="power-law level frequencies: a long tail with almost no rows per level",
+    ),
+    Scenario(
+        name="missingness_trio_30pct",
+        family="observation",
+        builder=missingness_trio_spec,
+        expected_to_break=("skb-f", "select-fdr", "lars-order", "knockoffs"),
+        purpose="three missingness mechanisms on sibling columns, so one run separates recoverable bias from unrecoverable",
+    ),
+    Scenario(
+        name="rare_class_010permille",
+        family="observation",
+        builder=rare_class_spec,
+        expected_to_break=("skb-mi", "univariate-mi", "mrmr", "boruta"),
+        purpose="a one-per-cent positive rate reached by intercept shift, so imbalance is not confounded with sample size",
+    ),
+    Scenario(
+        name="shift_covariate",
+        family="observation",
+        builder=covariate_shift_spec,
+        expected_to_break=("variance-sort", "skb-mi"),
+        purpose="P(x) moves and P(y|x) does not: paired with the concept-shift bed, which differs in exactly one declaration",
+    ),
+    Scenario(
+        name="shift_concept",
+        family="observation",
+        builder=concept_shift_spec,
+        expected_to_break=("skb-f", "select-fdr", "univariate-mi", "lars-order"),
+        purpose="P(y|x) rotates while P(x) stays put: the half of drift that reweighting cannot fix",
+    ),
+    Scenario(
         name="mb_spouse_collider",
         family="causal",
         builder=spouse_collider_spec,
-        expected_to_break=("univariate-mi", "skb-f", "skb-mi", "select-fdr", "lars-order"),
+        expected_to_break=("univariate-mi", "skb-f", "skb-mi", "select-fdr", "lars-order", "rank-vote"),
         purpose="a blanket member that is invisible until one conditions on the collider",
     ),
     Scenario(

@@ -23,7 +23,7 @@ import sys
 import threading
 import time
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ def resolve_crash_dir(crash_dir: Optional[str] = None) -> str:
                     fn = getattr(h, "baseFilename", None)
                     # pytest's logging plugin installs a FileHandler on os.devnull; that is not a real log location.
                     if fn and os.path.basename(fn).lower() not in ("nul", "null") and os.path.abspath(fn) != os.path.abspath(os.devnull):
-                        return os.path.dirname(os.path.abspath(fn))
+                        return cast(str, os.path.dirname(os.path.abspath(fn)))
                 cur = cur.parent if getattr(cur, "propagate", False) else None
     except Exception as e:
         logger.debug("could not derive crash dir from logging handlers: %s", e)

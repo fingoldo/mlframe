@@ -45,7 +45,7 @@ def resave_post_processed_entries(ctx: Any) -> int:
                 if not path or not _is_post_processed_model(model) or not exists(path):
                     continue
                 try:
-                    saved = load_mlframe_model(path)
+                    saved: Any = load_mlframe_model(path)
                     if saved is None or not hasattr(saved, "model"):
                         raise ValueError(f"dump at {path} did not load as a model entry")
                     saved.model = model

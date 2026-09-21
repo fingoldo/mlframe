@@ -146,23 +146,18 @@ class TestBizValueBeatsLinearOnSaturating:
         return y, base
 
     def test_monotonic_residual_variance_strictly_lower(self) -> None:
-        """Monotonic residual variance strictly lower."""
-        y, base = self._make_saturating_dgp()
-        # Linear residual (single-base OLS).
-        from mlframe.training.composite import (
-            _linear_residual_fit,
-            _linear_residual_forward,
-        )
+        """On a saturating DGP, the monotonic residual beats a linear model of y on the base, on held-out rows.
 
-        lr_params = _linear_residual_fit(y, base)
-        T_lr = _linear_residual_forward(y, base, lr_params)
-        # Monotonic residual.
-        mr_params = _monotonic_residual_fit(y, base)
-        T_mr = _monotonic_residual_forward(y, base, mr_params)
-        var_lr = float(np.var(T_lr))
-        var_mr = float(np.var(T_mr))
-        assert (
-            var_mr < var_lr * 0.5
-        ), f"monotonic_residual variance must be << linear_residual's on a saturating DGP; got var_lr={var_lr:.4f}, var_mr={var_mr:.4f}"
-        # And close to noise variance (~0.09 here).
-        assert var_mr < 0.5
+        Fit on the first 70%, a constant inner (mean train T) and the inverse give the held-out y, so the difference is
+        the transform's base curve alone. The honest baseline is a linear model of y on the same base (what
+        ``linear_residual`` reduces to with a constant inner). Measured (seeds 0/1/2): 0.52/0.78/0.53 vs 2.74/2.88/2.61.
+        """
+        y, base = self._make_saturating_dgp()
+        ntr = int(0.7 * len(y))
+        mr_params = _monotonic_residual_fit(y[:ntr], base[:ntr])
+        t_train = _monotonic_residual_forward(y[:ntr], base[:ntr], mr_params)
+        y_hat = _monotonic_residual_inverse(np.full(len(y) - ntr, float(np.mean(t_train))), base[ntr:], mr_params)
+        coef = np.polyfit(base[:ntr], y[:ntr], 1)
+        rmse_mono = float(np.sqrt(np.mean((y_hat - y[ntr:]) ** 2)))
+        rmse_linear = float(np.sqrt(np.mean((np.polyval(coef, base[ntr:]) - y[ntr:]) ** 2)))
+        assert rmse_mono < 0.5 * rmse_linear, f"monotonic held-out RMSE {rmse_mono:.4f} should be < 0.5x the linear model's {rmse_linear:.4f}"

@@ -194,7 +194,7 @@ Findings are ordered by severity. A cross-reference like "(EST-01)" means the de
   - Draw the base scale log-uniformly from `[1e-3, 1e6]` and include an offset base.
   - Derive the multi-base set from the registry (`n_bases` or signature), as `_GROUPED` already is.
   - Drop the batch count to 3 once the oracle carries the signal.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Added `test_a_perfect_inner_reproduces_the_training_y`: 3 batches x 40 configs, excluding the lossy and out-of-fold-forward transforms. A `_RowOracleInner` returns the exact T per training row (looked up by a row-id feature), and the wrapper must give every row the inner saw its own y back, to 1e-6 x max|y|. The data factory now scales bases log-uniformly over [1e-3, 1e6] with a 0 or 1000-scale offset, in the oracle and in the envelope batches. `_MULTI_BASE` derives from `Transform.n_bases` (00ce5dbc6). The envelope fuzz drops from 6 to 3 batches. On its first run the oracle found a real defect: `box_cox_y` on a target far from 1 (y ~ 5.7e8, spread 5e5) hit the lambda bound of -2, and `(y**lam - 1) / lam` equalled 0.5 for every row in float64, off by up to 9.7e6. Box-Cox is now fitted in the normalised form (y divided by its geometric mean `y_scale`, which leaves the MLE lambda unchanged), and the round trip error is 4.8e-7. The docstring's "found NO production bug" is replaced.
 
 ### TST-11 [P2] Several biz_val tests have no honest baseline, compare against a baseline starved of the base column, or assert only "not worse"
 - **Where / What**:
@@ -208,7 +208,7 @@ Findings are ordered by severity. A cross-reference like "(EST-01)" means the de
   - For each file, make the baseline "same inner model on raw y with the base column(s) as features". Measure held-out y-scale RMSE, and set the threshold from the measured ratio with the file's usual margin.
   - For NNLS, fit weights on K-fold OOF predictions and assert a strict win (`< 0.99x`) on a DGP with decorrelated component errors, or rename the test to "does not lose".
   - Rename the `runs_clean` tests to smoke tests. In the pure-noise test, assert `specs == []`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Every baseline was measured before its threshold was set. T-batch: the raw-y baseline is now the same ridge given the lag and the group one-hot. Measured against it, grouped EWMA *lost* on the random-walk panel (1.85 vs 1.24), because there the lag is the ideal predictor. The panel is now the regime the transform exists for, a drifting level observed with noise, where it wins 0.74-0.79x (bound 0.87). The volatility-normalised residual beats the honest ridge on [f, lag] 0.40-0.56x (bound 0.7). NNLS: weights fitted on 5-fold OOF predictions, the held-out prediction taken through `ens.predict`, and the claim made strict (`< 0.99x` best single; measured 0.94-0.96). Discovery: the random-walk test pins that `diff` is found, the pure-noise test asserts `specs == []`, and the two log-ratio/bin tests that assert only structure are renamed to smoke tests. The exact-round-trip `test_biz_val_*` contracts are renamed. The EWMA and monotonic in-sample `var(T)` wins became held-out y-scale RMSE against a linear model on the same base (EWMA 0.71x, bound 0.85; monotonic 0.19-0.27x, bound 0.5).
 
 ### TST-12 [P2] Targeted transform and ensemble tests use the one parameter region where the filed defect is silent
 - **Where / What**:

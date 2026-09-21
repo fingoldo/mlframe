@@ -9,13 +9,14 @@ helpers are defined, so the partial-module lookup succeeds.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Sequence, cast
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 # Module-level helpers carved to _estimator_helpers.py (1k-LOC house limit); re-exported so call sites + tests that
 # import them from this module keep working.
+from ._estimator_helpers import _y_quantile_grid
 from ._estimator_helpers import (  # noqa: F401
     _callable_accepts_param,
     _carry_forward_fill,
@@ -172,11 +173,6 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         conformal_ood_adaptive: bool = True,
         soft_base_shrink: bool = True,
         soft_base_shrink_severity_iqr: float = 3.0,
-        moe_gate_enabled: bool = True,
-        moe_shrink_rtol: float = 0.0,
-        moe_tie_rtol: float = 1e-9,
-        moe_min_group_rows: int = 1,
-        moe_failsafe: str = "lag",
     ) -> None:
         self.base_estimator = base_estimator
         self.transform_name = transform_name
@@ -212,14 +208,6 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         # the raw additive inverse. In-range predict is bit-identical either way.
         self.soft_base_shrink = soft_base_shrink
         self.soft_base_shrink_severity_iqr = soft_base_shrink_severity_iqr
-        # MoE selection gate: at deploy time pick per-group among {composite, raw, lag} experts with a hard "never worse
-        # than the lag failsafe" guarantee on the selection split. Default ON; ``moe_failsafe`` is the expert deferred to
-        # for low-evidence / unseen groups. See ``composite._moe_gate.MoESelectionGate``.
-        self.moe_gate_enabled = moe_gate_enabled
-        self.moe_shrink_rtol = moe_shrink_rtol
-        self.moe_tie_rtol = moe_tie_rtol
-        self.moe_min_group_rows = moe_min_group_rows
-        self.moe_failsafe = moe_failsafe
 
     # Predict family -- thin in-body delegating stubs so the public predict
     # surface is discoverable to mypy / IDE / help() while the heavy bodies
@@ -240,6 +228,27 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         from . import _predict as _pred
 
         return _pred.predict_from_t(self, X, t_hat)
+
+    @property
+    def soft_shrink_info_(self) -> dict:
+        """Per-row shrink / fallback flags of the calling thread's last predict batch.
+
+        Stored per thread: a single instance attribute could describe another thread's batch under concurrent predicts,
+        so a caller reading the flags after its own predict got the wrong rows.
+        """
+        from . import _soft_shrink as _ss
+
+        info = _ss.thread_info(self)
+        if info is None:
+            raise AttributeError("soft_shrink_info_ is set by predict; this thread has not predicted with this estimator yet")
+        return dict(info)
+
+    @soft_shrink_info_.setter
+    def soft_shrink_info_(self, value: dict) -> None:
+        """Record this thread's soft-shrink diagnostics; the state is per thread, not per estimator."""
+        from . import _soft_shrink as _ss
+
+        _ss.set_thread_info(self, value)
 
     def predict_pre_clip(self, X: Any, inner_X: Any = None) -> "np.ndarray":
         """Inverse-of-transform y-prediction WITHOUT the train-envelope clip. See ``_predict.predict_pre_clip``.
@@ -368,19 +377,21 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         Note: a lambda / closure ``runtime_stats_callback`` makes the fitted wrapper unpicklable; pass a module-level callable when persisting.
         """
         from . import _from_fitted
-        return _from_fitted.from_fitted_inner(
+
+        return cast("CompositeTargetEstimator", _from_fitted.from_fitted_inner(
             cls, fitted_inner, transform_name, base_column, transform_fitted_params, y_train,
             fallback_predict=fallback_predict, base_columns=base_columns, inner_pre_pipeline=inner_pre_pipeline,
             base_train=base_train, group_column=group_column, recurrence_continuation=recurrence_continuation,
             target_name=target_name,
-        )
+        ))
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore pickled state, re-registering an auto-discovered ``chain_*`` transform the loading process has never seen."""
         super().__setstate__(state)
         from ._routing import ensure_transforms_registered
 
-        ensure_transforms_registered([getattr(self, "transform_name", None)])
+        transform_name = getattr(self, "transform_name", None)
+        ensure_transforms_registered([transform_name] if transform_name is not None else [])
 
     def __sklearn_clone__(self) -> "CompositeTargetEstimator":
         """Refuse cloning a wrapper built via :meth:`from_fitted_inner`.
@@ -748,16 +759,13 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         self.estimator_ = estimator
         from ._smearing import SMEARED_TRANSFORMS, residual_quantiles
 
-        _smear_q = (
-            residual_quantiles(estimator, X_valid, t_train)
-            if self.transform_name in SMEARED_TRANSFORMS and getattr(self, "smearing", True)
-            else None
-        )
+        _smear_q = residual_quantiles(estimator, X_valid, t_train) if self.transform_name in SMEARED_TRANSFORMS and getattr(self, "smearing", True) else None
         self.fitted_params_ = {
             **transform_params,
             "y_clip_low": y_clip_low,
             "y_clip_high": y_clip_high,
             "y_train_median": y_train_median,
+            "y_train_quantile_grid": _y_quantile_grid(y_train),
             "t_clip_low": t_clip_low,
             "t_clip_high": t_clip_high,
             "n_train_valid": int(y_train.size),

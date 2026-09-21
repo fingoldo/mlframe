@@ -34,6 +34,8 @@ This module adds two smooth, measured guards, gated default-ON via
 from __future__ import annotations
 
 import logging
+import threading
+import weakref
 from typing import Any
 
 import numpy as np
@@ -318,8 +320,26 @@ def apply_smart_fallback(
         y_hat[idx] = _median_constant(self, params) if use_median else np.nan
 
 
+_THREAD_INFO = threading.local()
+"""Per-thread ``{estimator: info}``: concurrent predicts on one fitted wrapper each read the flags of their own batch."""
+
+
+def thread_info(est: Any) -> Any:
+    """This thread's last ``soft_shrink_info_`` for ``est``, or ``None``."""
+    table = getattr(_THREAD_INFO, "table", None)
+    return None if table is None else table.get(est)
+
+
+def set_thread_info(est: Any, info: Any) -> None:
+    """Record ``info`` as this thread's last ``soft_shrink_info_`` for ``est`` (held weakly: it never keeps ``est`` alive)."""
+    table = getattr(_THREAD_INFO, "table", None)
+    if table is None:
+        table = _THREAD_INFO.table = weakref.WeakKeyDictionary()
+    table[est] = info
+
+
 def record_info(self, shrunk, deep_ood, n_rows: int) -> None:
-    """Expose the per-row shrink / fallback flags on ``self.soft_shrink_info_`` (last predict batch)."""
+    """Expose the per-row shrink / fallback flags on ``self.soft_shrink_info_`` (this thread's last predict batch)."""
     if shrunk is None:
         self.soft_shrink_info_ = {
             "shrunk_mask": None, "fallback_mask": None,

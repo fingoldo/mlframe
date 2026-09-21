@@ -10,6 +10,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from ._estimator_helpers import _y_quantile_grid
+
 from . import _y_train_clip_bounds
 from ._routing import resolve_transform as get_transform
 
@@ -127,7 +129,7 @@ def from_fitted_inner(
         **dict(transform_fitted_params),
         "y_clip_low": y_clip_low,
         "y_clip_high": y_clip_high,
-        "y_train_median": y_train_median,
+        "y_train_median": y_train_median, "y_train_quantile_grid": _y_quantile_grid(y_train),
         "t_clip_low": t_clip_low,
         "t_clip_high": t_clip_high,
     }

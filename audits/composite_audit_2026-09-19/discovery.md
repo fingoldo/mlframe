@@ -54,7 +54,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: On `screening="mi"`, `mi_gain` is the ranking key (`_filter_and_gate.py:65`) and the rerank pre-order, and it is the fallback budget gain at `core/_phase_composite_discovery.py:876`.
 - **Suggested fix**: When `_keep` prunes columns, derive `mi_y_for_base` by aggregating `_per_feat_y_full[_surviving_orig_idx]`, as the knn branch does. Apply the same keep-mask in `_build_x_remaining_holdout`.
 - **Test to add**: Use a frame with an exact duplicate of a high-MI feature and a full-domain transform. Assert that `spec.mi_y` equals `_mi_to_target_prebinned(pruned_matrix, y)`, and that the gain matches between a full-domain transform and the same transform forced through the shrunk-domain path.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. When the dedup prunes columns, the bin-path `mi_y_for_base` is aggregated over `_per_feat_y_full[_surviving_orig_idx]`, the columns `MI(T, X)` sees, as the knn branch already did. The selection logic moved to `_fit._mi_y_baseline`. An exact duplicate of a high-MI feature no longer changes `mi_y`. The holdout rescore computes both halves on one holdout matrix, so it was already consistent. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### DSC-07 [P2] The tiny rerank ranks and gates on a mix of honest-holdout RMSE and optimistic in-group CV RMSE
 - **Where**: `_tiny_rerank.py:585-590` replaces `agg_scores[i]` only for specs with a finite honest-OOF measurement. `_honest_oof_select.py:131-148` returns `None` (no measurement) when a spec has fewer than 50 valid fit rows, when forward raises, or when fit or inverse raises. The gate at `_tiny_rerank.py:683-686` then compares every score with the honest raw baseline, and `:767` / `:921` sort them together.
@@ -62,7 +62,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The ranking is not monotone in any single objective, and a spec that could not be measured beats specs that were measured.
 - **Suggested fix**: Keep the two populations separate. Rank measured specs by honest RMSE and put unmeasured specs after them, or rescale their CV score by the raw-y honest/CV ratio measured on the same run. Apply the gate threshold on the scale each score came from.
 - **Test to add**: Take two specs, one with honest RMSE 12 and one forced to `None` with internal CV 9 (monkeypatch the transform to raise in `forward` on the holdout fit only). Assert that the unmeasured spec does not rank first.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `_put_unmeasured_on_the_honest_scale` multiplies an unmeasured spec's group-internal CV score by the raw-y honest/CV ratio measured on the same run, before ranking and gating. Without that ratio, the spec is placed after every measured one. An optimistic CV score can no longer outrank honest measurements. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### DSC-08 [P2] The y-scale gates score a spec on its finite rows only, while raw-y is scored on every row
 - **Where**: `_yscale_holdout_gate.py:403-416`, `_honest_rmse_gate.py:180-193`, `_honest_oof_select.py:163-169`, and `_auto_chain.py:288-291`.
@@ -86,7 +86,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The tie-break is on by default and changes the top-M order among near-tied specs for a reason unrelated to predictive quality.
 - **Suggested fix**: Compute WAIC on the y scale. Either invert the OOF `T` predictions and score y residuals, or add the per-row log-Jacobian `log|dT/dy|` to each `lpd`. The alternative is to restrict the tie-break to bands whose members share one target scale (all residual-type transforms).
 - **Test to add**: Take `y` and `a*y` style transforms of identical y-scale quality (for example `T=y-base` vs `T=(y-base)/100`, equivalent under squared loss). They must get equal WAIC and must not be reordered.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The WAIC tie-break re-orders a noise band only when every member's transform is additive in T (`Transform.additive_in_t`: T in y units). A band that mixes in a compressive transform (log, cbrt, a ratio) keeps its y-scale RMSE order, so the ~log(scale_y/scale_T) per-row bias cannot decide the order. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### DSC-11 [P2] WAIC and auto-chain CVs use shuffled KFold, ignoring groups and time
 - **Where**: `_eval_waic.py:219` and `_auto_chain.py:250`, both `KFold(shuffle=True)`. Compare the rerank, which honours `groups` / `time_aware` at `_screening_tiny_perbin.py:260-274`.
@@ -94,7 +94,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The discovery paths are inconsistent, and on grouped or temporal data auto-chain admission is leaky.
 - **Suggested fix**: Pass the rerank's `groups` / time-ordering into `compute_transform_waic` and `discover_chains` and build the same splitter there. `LgbFoldCache` stays valid because it keys on `fold_id`.
 - **Test to add**: On a grouped DGP where a per-group memoriser wins shuffled CV but loses GroupKFold, `discover_chains` given groups must not surface that chain.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New `discovery/_splitter.py` (`make_discovery_splitter` / `discovery_splits`: groups, then time order, then contiguous or shuffled KFold). The WAIC pass (`compute_transform_waic`, with the groups masked by its finite-row filter) and the auto-chain CV (`discover_chains` / `_y_scale_cv_rmse`) now take the rerank's groups and time flag. The auto-chain call site applies the caller's time key to its sample and passes frame-aligned groups. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).
 
 ### DSC-12 [P2] The discovery disk-cache key leaves out inputs that change the result
 - **Where**: `core/_phase_composite_discovery.py:521-541`, where the key is `data_signature(_disc_df, target, feature_cols)` plus the config signature, and `composite/cache.py:158-251`.
@@ -134,7 +134,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: `discover_incremental` promises "no silent reuse of stale specs", but under shipped defaults the drift gate never triggers.
 - **Suggested fix**: Test for drift against the prior gains rather than the admission threshold. For example, reuse only when the new gain is at least the prior `mi_gain` minus k times the bootstrap SE, or when `honest_holdout_gain` is not significantly worse. Draw the sample from the appended rows (or weight toward them).
 - **Test to add**: Append rows from a DGP where the base relation is destroyed (base permuted). With the default config the decision must be `reuse=False`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. A spec now survives the incremental check only if its re-scored gain clears `eps_mi_gain` and also keeps at least half of its reference gain (`_required_gain`: min(ref - 0.02, 0.5 ref), with 0.02 nats of slack for sampling noise). Discovery records `_fit_n_rows`, and `discover_incremental` forwards it as `prior_n_rows`. When the new frame extends the prior one, the re-score samples only the appended rows, and the reference is the same re-score on the prior rows (compared like with like). Otherwise the spec's recorded `mi_gain` is the reference. Measured with 3000 prior rows and 1000 appended: the same DGP keeps 0.173-0.183 of a 0.180 gain, and a permuted base leaves 0.001. `IncrementalDecision.per_spec_reference_gain` exposes the reference. Regression test `test_default_config_detects_a_destroyed_base_relation` (default config) fails before the fix.
 
 ### DSC-17 [P2] The cross-target composite budget sorts three incompatible gain units together
 - **Where**: `core/_phase_composite_discovery.py:866-878` and `:913`.
@@ -142,7 +142,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The global budget allocation depends on which scorer happened to run, not on value.
 - **Suggested fix**: Rank on one unit only (relative honest RMSE gain). Put specs without it into a separate lower tier (or order them by a documented secondary key) instead of mixing them in.
 - **Test to add**: Two targets, one with the RMSE-gate gain 0.05 and one with only an in-screen MI gain of 0.3 nats. Assert that the RMSE-scored spec is not outranked purely by unit mismatch.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `rank_pending_composites` ranks in two tiers: specs with a relative honest RMSE gain first, then the specs that fell back to an MI gain in nats. Each tier is ordered in its own unit, and a non-finite gain sorts last. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### DSC-18 [P2] The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection
 - **Where**: `core/_phase_composite_post_summary.py:190-257` (`_comp_val` from y-scale **val**, `_raw_val = _raw_best.get(_pm)`, verdict from `_l_raw`). Discovery's yscale gate selects composites on the same val frame (`_yscale_holdout_gate.py:291-300`, supplied at `core/_phase_composite_discovery.py:700-717`).
@@ -158,7 +158,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: On skewed-group data, screening, rerank, transform fits and the final `fitted_params` silently run on a small fraction of train.
 - **Suggested fix**: Precompute group sizes once (`np.unique(..., return_counts=True)`). Skip any group that would push the holdout above `holdout_frac * (1 + tol)` instead of always taking the first. If no admissible subset exists, fall back to the i.i.d. split with a warning.
 - **Test to add**: Two groups at 90% / 10%. The carved holdout must be the 10% group (or an i.i.d. fallback), never the 90% group.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `_group_disjoint_holdout` computes group sizes once and visits groups in seeded order, skipping any group that would push the holdout above `n_holdout * 1.25`. It accepts a total within +/-25% of the configured size, or falls back to the i.i.d. row holdout with a WARNING. A group holding 90% of the rows no longer becomes the holdout. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).
 
 ### DSC-20 [P3] Auto-chain proposals are not required to beat raw y, and duplicate the hard-coded default chains
 - **Where**: `_auto_chain.py:473-497` (the gate is `margin > min_rmse_margin` against the singles only; `raw_rmse` is computed and stored but never tested), `_opt_in_steps.py:250-274`, and the default `transforms` list (`_composite_target_discovery_config_base.py:216-218`).
@@ -174,7 +174,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The comparison is not apples to apples in exactly the gate that claims to be.
 - **Suggested fix**: Decide `time_aware` once per rerank and use it for raw and every spec, or score raw separately per splitter and compare each spec with the raw measured on its own splitter.
 - **Test to add**: With one monotone and one non-monotone base, assert that raw and each spec's `_tiny_cv_rmse_*` calls receive the same `time_aware`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The fold scheme is decided once per rerank: `_screen_time_ordered_`, or no groups and any kept spec's base monotone. It is used for the raw-y baseline, every spec's CV, the per-bin pass and the WAIC tie-break. On a fixture with one monotone and one non-monotone base, pre-fix time_aware values were [True, False, True, False]; post-fix it is a single value. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).
 
 ### DSC-22 [P3] `_group_ids_for_rerank` is read under two alignment conventions
 - **Where**: `_honest_holdout.py:96` (`g[train_idx] if g.shape[0] != n else g`, so a length-n array is treated as aligned to `train_idx`), compared with `_tiny_rerank.py:140`, `_fit_multibase.py:104` and `_yscale_holdout_gate.py:141/303`, which all index `group_ids[train_idx...]` (frame-aligned).
@@ -182,7 +182,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: Silent misalignment breaks the group-disjoint guarantee.
 - **Suggested fix**: Document and enforce one contract (frame-aligned, as every other reader assumes) and raise on a length mismatch rather than guessing.
 - **Test to add**: With a shuffled `train_idx` over a full frame and frame-aligned groups, the carved holdout must be group-disjoint from the screen pool.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. One contract, frame-aligned, as every other reader assumes: `group_ids[train_idx]`. A group array too short to be indexed by `train_idx` raises `ValueError` instead of being reinterpreted as train-aligned. A permuted `train_idx` now gives a group-disjoint holdout. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).
 
 ### DSC-23 [P3] Report reasons misattribute specs dropped by the late gates
 - **Where**: `_fit.py:804-814`.
@@ -198,7 +198,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: A documented safeguard does nothing under shipped defaults, and nothing reports that.
 - **Suggested fix**: Enable a cheap bootstrap by default (for example `mi_gain_bootstrap_n=50` on the bin path, which reuses prebinned codes), or log once at INFO that FDR control is inactive because the bootstrap is disabled.
 - **Test to add**: With default config, assert that either the p-values are finite or the "FDR inactive" log is emitted.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `apply_fdr_control_to_candidates` logs at INFO, once per fit, that FDR control is inactive when no candidate has a bootstrap p-value (the default `mi_gain_bootstrap_n=0`) and names the knob that enables it. The docstring now states the inert default and its measured reason. A 50-replicate default bootstrap was measured instead: a default fit at n=5000 goes from 4.2 s to 7.1 s, and the eps gate moves to the LCB, so the kept set changes (cbrt_y out, asinh_residual in) with no shown accuracy gain. It stays opt-in. Regression test `test_inactive_fdr_control_says_so` in tests/training/composite/eval/test_eval_stats_by_fdr.py fails before the fix.
 
 ### DSC-25 [P3] Alpha-drift flags leak between fits of one instance; the reject flag's code fallback contradicts the config default
 - **Where**: `_eval_stats.py:279-282` resets `self._alpha_drift_flags` only when a `linear_residual` survived, and `_fit.py:750-779` reads it for survivors. `_eval_stats.py:283` uses `getattr(self.config, "reject_on_alpha_drift", False)`, while the config default is `True` (`_composite_target_discovery_config_base.py:718`).
@@ -230,7 +230,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: Exported diagnostics and the fallback budget key (`mi_gain`) are wrong for upgraded specs.
 - **Suggested fix**: Re-score the upgraded spec (one `eval_one_transform` with a multi-base context, plus one tiny-CV) or stamp these fields as NaN with a provenance flag.
 - **Test to add**: After an upgrade, assert that `spec.mi_gain` equals a direct recompute for the multi-base transform, or is NaN.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. A multi-base upgrade's `mi_gain` / `mi_y` / `mi_t` are NaN, with the new `CompositeSpec.stats_measured_for` naming the seed (exported too). Its `valid_domain_frac` and `n_train_rows` are computed for the multi-base spec itself. The budget sort treats a non-finite gain as last. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### DSC-29 [P3] The knn cost guard runs after the most expensive knn work
 - **Where**: `_fit.py:251-254` (`maybe_downgrade_knn_estimator` runs after `_resolve_base_candidates`). `_auto_base.py:270-295` does a per-column Kraskov pass and `:555-563` does `auto_base_null_perms` (default 20) Kraskov calls per column.
@@ -238,7 +238,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The cost guard does not cover the dominant knn cost.
 - **Suggested fix**: Run the knn probe and downgrade before `_resolve_base_candidates`, and include the auto-base plus null-permutation work in the extrapolated cost.
 - **Test to add**: With `mi_estimator="knn"` and a tiny `knn_mi_budget_seconds`, assert that `_auto_base` uses the bin estimator (spy on `mutual_info_regression` call count).
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The knn budget guard now runs before `_resolve_base_candidates`. It probes the Kraskov cost on a random `mi_sample_n`-sized sample of train rows (the size every later knn call sees). The estimate adds the auto-base sweeps (`1 + auto_base_null_perms` per column when `base_candidates='auto'`, via `_planned_bases_and_auto_sweeps`) to the per-work-item sweeps, and the planned base count comes from `auto_base_top_k` capped by `max_base_candidates`. Regression test `test_the_guard_covers_auto_base_ranking` spies `mutual_info_regression`: before the fix, auto-base ran 65 Kraskov estimates under a 1e-9 s budget; now it runs none. `test_the_estimate_counts_the_auto_base_sweeps` pins the formula.
 
 ### DSC-30 [P3] The stratified MI sampler gives non-finite-y rows a full stratum share
 - **Where**: `screening.py:925-948`.
@@ -246,4 +246,4 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The screening budget is wasted and the sample is smaller than configured on targets with NaNs.
 - **Suggested fix**: Exclude non-finite `y` from the sampler (or cap that stratum at 0), since no downstream consumer can use those rows.
 - **Test to add**: With 1% NaN `y`, assert the sampled rows contain no non-finite `y`, or at most their natural frequency.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Non-finite-y rows are excluded from the stratified sampler: they no longer form a stratum with a full water-fill share, since every MI and fit step drops them. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).

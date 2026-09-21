@@ -49,6 +49,13 @@ __all__ = [
     "row_level_descriptive_ci",
     "reliability",
     "intention_to_treat_mean",
+    "required_replicates",
+    "detectable_effect",
+    "achieved_power",
+    "DEFAULT_ALPHA",
+    "DEFAULT_POWER",
+    "DEFAULT_EFFECT_GRID",
+    "MAX_REPLICATES",
 ]
 
 CellIndex = Tuple[str, str, int]  # (arm, scenario, dataset_seed)
@@ -235,3 +242,80 @@ def intention_to_treat_mean(values: Sequence[Optional[float]], base_rate_value: 
     if not filled:
         return float("nan")
     return float(np.mean(filled))
+
+# ---------------------------------------------------------------------------------------------
+# Power arithmetic. It lives here, beside the paired test it is about, rather than in the reporting
+# module that used to own it: a verdict row needs the smallest effect its own seed count could have
+# resolved, so the reporting layer has to be able to ask for it without the power report importing the
+# reporting layer back.
+# ---------------------------------------------------------------------------------------------
+
+# Planning defaults. Two-sided, conventional 80% power, and the effect grid spans the range the
+# pre-registration cares about: 0.002 is below any practical relevance, 0.02 is a difference a practitioner
+# would act on without statistics.
+DEFAULT_ALPHA = 0.05
+DEFAULT_POWER = 0.80
+DEFAULT_EFFECT_GRID: Tuple[float, ...] = (0.002, 0.005, 0.010, 0.020, 0.050)
+MAX_REPLICATES = 100000
+
+
+def _z(probability: float) -> float:
+    """Standard-normal quantile, imported locally so the module stays cheap to import."""
+    from scipy import stats as _stats
+
+    return float(_stats.norm.ppf(probability))
+
+
+def required_replicates(tau: float, delta: float, alpha: float = DEFAULT_ALPHA, power: float = DEFAULT_POWER) -> Optional[int]:
+    """Return the paired seeds needed to detect ``delta`` at ``power``, or ``None`` when ``tau`` is unusable.
+
+    The normal formula ``m = (z_{1-a/2} + z_power)^2 (tau/delta)^2`` understates the requirement at small
+    ``m``, where the critical value comes from a ``t`` with ``m-1`` degrees of freedom rather than a normal.
+    The fixed-point loop below re-solves with the ``t`` quantile until ``m`` stops moving, which typically
+    adds one to three seeds in the range this design lives in.
+    """
+    if not np.isfinite(tau) or tau < 0.0 or not np.isfinite(delta) or delta <= 0.0:
+        return None
+    if tau == 0.0:
+        # Every seed moved by the same amount: two seeds establish the direction and no more are useful.
+        return 2
+
+    from scipy import stats as _stats
+
+    ratio = float(tau) / float(delta)
+    m = max(2, math.ceil((_z(1.0 - alpha / 2.0) + _z(power)) ** 2 * ratio**2))
+    for _ in range(50):
+        crit = float(_stats.t.ppf(1.0 - alpha / 2.0, max(1, m - 1)))
+        nxt = max(2, math.ceil((crit + _z(power)) ** 2 * ratio**2))
+        if nxt == m:
+            return m
+        if nxt > MAX_REPLICATES:
+            return None
+        m = nxt
+    return m
+
+
+def detectable_effect(tau: float, m: int, alpha: float = DEFAULT_ALPHA, power: float = DEFAULT_POWER) -> Optional[float]:
+    """Return the smallest paired difference ``m`` seeds resolve at ``power``, or ``None`` when undefined."""
+    if not np.isfinite(tau) or tau < 0.0 or m < 2:
+        return None
+    from scipy import stats as _stats
+
+    crit = float(_stats.t.ppf(1.0 - alpha / 2.0, m - 1))
+    return float((crit + _z(power)) * tau / math.sqrt(m))
+
+
+def achieved_power(tau: float, delta: float, m: int, alpha: float = DEFAULT_ALPHA) -> Optional[float]:
+    """Return the power ``m`` seeds have against a true difference of ``delta``, or ``None`` when undefined."""
+    if not np.isfinite(tau) or tau <= 0.0 or m < 2 or not np.isfinite(delta) or delta <= 0.0:
+        return None
+    from scipy import stats as _stats
+
+    df = m - 1
+    crit = float(_stats.t.ppf(1.0 - alpha / 2.0, df))
+    ncp = float(delta) * math.sqrt(m) / float(tau)
+    # Non-central t survival at the two-sided critical value; the lower tail is negligible for ncp > 0 but is
+    # kept so the number stays correct for effects small enough that both tails contribute.
+    upper = float(_stats.nct.sf(crit, df, ncp))
+    lower = float(_stats.nct.cdf(-crit, df, ncp))
+    return upper + lower

@@ -49,6 +49,7 @@ from ._phase_composite_discovery_gates import (  # noqa: F401  (re-exported)
     _maybe_auto_enable_discovery,
     _drop_specs_whose_bases_the_suite_cannot_materialise,
     _discovery_cache_lookup,
+    rank_pending_composites,
 )
 
 
@@ -856,7 +857,7 @@ def run_composite_target_discovery(
                 "(min_honest_gain_to_train): %s",
                 len(_below), float(_min_gain), ", ".join(f"{d['name']}({d['gain']:+.3f})" for d in _below),
             )
-    _pending_composite.sort(key=lambda item: item["gain"], reverse=True)
+    _pending_composite = rank_pending_composites(_pending_composite)
     if _max_total is not None and len(_pending_composite) > int(_max_total):
         _kept_composite = _pending_composite[: int(_max_total)]
         _dropped_composite = _pending_composite[int(_max_total) :]

@@ -69,6 +69,7 @@ from ..transforms.unary import (
     signed_power_y_inverse as _sp_inv,
 )
 from ._lgb_fold_cache import LgbFoldCache
+from ._splitter import discovery_splits
 from ._screening_tiny import _build_tiny_model
 from .screening import _mi_to_target
 
@@ -221,8 +222,13 @@ def _y_scale_cv_rmse(
     learning_rate: float,
     fold_cache: Optional[LgbFoldCache] = None,
     inner_n_jobs: int = 1,
+    groups: Any = None,
+    time_aware: bool = False,
 ) -> Tuple[float, float]:
     """Tiny-CV RMSE on the ORIGINAL y-scale for one transform (``None`` = raw y).
+
+    Folds come from ``make_discovery_splitter`` with the rerank's groups and time order, so a chain admitted here is judged
+    on the same kind of folds as every other spec (shuffled folds reward per-group memorisation and look-ahead).
 
     Per fold: fit ``transform`` on the train rows, forward to ``T``, fit a tiny
     GBM ``T ~ X`` on train, predict ``T_hat`` on val, invert ``T_hat -> y_hat``
@@ -237,8 +243,6 @@ def _y_scale_cv_rmse(
     would flatter the chain. Identical handling for every candidate keeps the
     comparison apples-to-apples.
     """
-    from sklearn.model_selection import KFold
-
     y = np.asarray(y, dtype=np.float64)
     n = y.size
     if n < cv_folds * 10:
@@ -247,10 +251,9 @@ def _y_scale_cv_rmse(
     if transform is not None:
         dom = np.asarray(transform.domain_check(y, base), dtype=bool)
         valid_frac = float(dom.mean()) if dom.size else 0.0
-    kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
     sse = 0.0
     cnt = 0
-    for fold_id, (tr_idx, va_idx) in enumerate(kf.split(x_matrix)):
+    for fold_id, (tr_idx, va_idx) in enumerate(discovery_splits(n, cv_folds, groups=groups, time_aware=time_aware, random_state=random_state)):
         if fold_cache is not None and fold_cache.has_fold(fold_id):
             # The fold's binned dataset holds its train rows and the cache kept its holdout slice: no per-candidate copies.
             x_tr, x_va = None, fold_cache.holdout(fold_id)
@@ -280,6 +283,8 @@ def _y_scale_cv_rmse(
                     learning_rate=learning_rate, random_state=random_state,
                     inner_n_jobs=inner_n_jobs,
                 )
+                # Reached only on the uncached branch, where `x_tr` was sliced from the matrix above.
+                assert x_tr is not None
                 model.fit(x_tr[fit_mask], target_tr[fit_mask])
                 pred = np.asarray(model.predict(x_va), dtype=np.float64)
             if transform is None:
@@ -387,6 +392,8 @@ def discover_chains(
     mi_n_neighbors: int = 3,
     top_k: int = 3,
     inner_n_jobs: int = 1,
+    groups: Any = None,
+    time_aware: bool = False,
 ) -> List[ChainCandidate]:
     """Search ``residual x unary`` chains; return those that beat BOTH single stages.
 
@@ -463,7 +470,7 @@ def discover_chains(
         y=y, base=base, x_matrix=x_matrix, cv_folds=cv_folds,
         random_state=random_state, family=family, n_estimators=n_estimators,
         num_leaves=num_leaves, learning_rate=learning_rate,
-        fold_cache=fold_cache, inner_n_jobs=inner_n_jobs,
+        fold_cache=fold_cache, inner_n_jobs=inner_n_jobs, groups=groups, time_aware=time_aware,
     )
 
     raw_rmse, _ = _y_scale_cv_rmse(None, **cv_kw)

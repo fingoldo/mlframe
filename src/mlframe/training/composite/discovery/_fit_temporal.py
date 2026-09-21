@@ -99,8 +99,7 @@ def order_rows_by_time(row_idx: np.ndarray, time_ordering: Any) -> np.ndarray | 
         return np.argsort(_time_all[_rows], kind="stable")
     except (TypeError, ValueError, IndexError) as _to_err:
         logger.warning(
-            "[CompositeTargetDiscovery] time_ordering supplied but could not order a consumer's sample (%s); "
-            "its split runs in row order.",
+            "[CompositeTargetDiscovery] time_ordering supplied but could not order a consumer's sample (%s); " "its split runs in row order.",
             _to_err,
         )
         return None

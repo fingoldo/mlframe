@@ -10,7 +10,7 @@ train rows and flag a pair when the squared Pearson correlation is within ``r2_t
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Optional, Sequence, cast
 
 import numpy as np
 
@@ -39,7 +39,7 @@ def _standardise(col: np.ndarray) -> np.ndarray | None:
     sd = float(np.sqrt(np.mean(c * c)))
     if not np.isfinite(sd) or sd <= 1e-12 * max(1.0, float(np.max(np.abs(col)))):
         return None
-    return c / sd
+    return cast(Optional[np.ndarray], c / sd)
 
 
 def find_equivalent_composite_specs(

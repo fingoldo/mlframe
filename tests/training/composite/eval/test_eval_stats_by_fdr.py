@@ -74,3 +74,17 @@ def test_empty_and_all_nan_inputs():
     assert benjamini_yekutieli_reject(np.array([]), 0.05).size == 0
     out = benjamini_yekutieli_reject(np.array([np.nan, np.nan]), 0.05)
     assert out.dtype == bool and not out.any()
+
+
+def test_inactive_fdr_control_says_so(caplog):
+    """With no bootstrap p-values (the default mi_gain_bootstrap_n=0) the control logs that it did nothing, once."""
+    import logging
+
+    cands = [{"spec": object(), "bootstrap_p_value": float("nan")} for _ in range(3)]
+    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._eval_stats"):
+        assert apply_fdr_control_to_candidates(cands, alpha=0.1) == 0
+    assert [r.getMessage() for r in caplog.records if "FDR control is inactive" in r.getMessage()], "the inert default must be reported"
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._eval_stats"):
+        apply_fdr_control_to_candidates([], alpha=0.1)
+    assert not caplog.records, "an empty family has nothing to control and nothing to report"

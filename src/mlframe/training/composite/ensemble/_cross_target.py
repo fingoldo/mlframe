@@ -61,6 +61,9 @@ class CompositeCrossTargetEnsemble:
     _linear_stack_ridge_alpha: float
     _nnls_stack_train_preds: np.ndarray
     _nnls_stack_train_y: np.ndarray
+    # Per-column means of the component predictions, stashed at construction and read back at predict
+    # time via getattr; declared so the write and the read are the same attribute.
+    _component_col_means: list
 
     def __init__(
         self,

@@ -91,3 +91,21 @@ def render_targets_performance(
             )
     except Exception as err:  # never load-bearing
         logger.warning("targets performance frame failed (%s: %s); suite output is unaffected.", type(err).__name__, err)
+
+
+def targets_performance_file(plot_file: Optional[str], ctx: Any, model_name: Any) -> Optional[str]:
+    """Where the targets table is written: the chart prefix when there is one, else beside the leaderboard under ``data_dir``.
+
+    The suite passes no chart prefix to the composite post-processing, which left the CSV unwritten on every run; named
+    per model, a later run can be diffed against today's without a re-run. ``None`` when the run persists nothing.
+    """
+    if plot_file:
+        return plot_file
+    data_dir = getattr(ctx, "data_dir", None)
+    if not data_dir:
+        return None
+    import os
+
+    from pyutilz.strings import slugify
+
+    return os.path.join(str(data_dir), slugify(str(model_name or "suite")))

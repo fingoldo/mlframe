@@ -284,3 +284,49 @@ per arm and scenario, alongside an intention-to-treat aggregate scoring a crashe
   representative of production tabular pipelines.
 - The Bayes ceiling exists only on the synthetic leg. The metric that makes this benchmark distinctive is
   unavailable on the only externally valid leg.
+
+## 2d. Beds added after the first legs ran, and why each was added
+
+The lock file makes a post-hoc addition visible; this section says what it was for. Eleven beds were added
+after the three legs reported, none of them in response to an arm's result:
+
+| bed | added because |
+|---|---|
+| `friedman1`, `friedman2`, `friedman3`, `weston_guyon_k4_p100` | every other bed was written by the author of one of the arms; these predate the arms and give an outside check on the harness |
+| `heavy_tail_t4`, `outliers_020permille`, `zero_inflated_40pct`, `quantized_6levels` | the suite had no bed where the marginal was the difficulty, so "robust to outliers" had no measurable meaning in it |
+| `graded_cardinality`, `id_trap`, `zipf_levels` | every bed was all-numeric, which excluded impurity-based importance's cardinality bias entirely |
+| `missingness_trio_30pct`, `rare_class_010permille`, `shift_covariate`, `shift_concept` | the observation process was unrepresented, and it calls for different fixes than a structural failure does |
+| `tail_isolation_clayton_vs_gaussian` | the registered copula pair was measured to be almost the same bed, so the tail claim had nothing supporting it |
+
+None of these beds may be edited after their first reported run without bumping the lock.
+
+## 6b. What a non-rejection means, stated before the numbers are read
+
+A paired contrast that fails to reject is reported in one of two states, and the report may not merge them:
+
+* **`indistinguishable`** -- the observed difference is at or above the smallest this contrast could have
+  detected at the pre-registered power, and the test did not reject. This is evidence about the arm.
+* **`underpowered`** -- the observed difference is smaller than that threshold. The design could not have
+  detected a difference of this size, so the non-rejection is a statement about the design.
+
+The threshold is computed per contrast from its own paired spread and seed count, never pooled: the spread
+varies by an order of magnitude across arms, and one pooled threshold would flatter the noisy ones and
+slander the stable ones.
+
+## 8b. What makes a cell's timing quotable
+
+Wall-clock is advisory and stays advisory. Three conditions must hold before it is reported at all:
+
+1. **The memo is drained and the drain is VERIFIED.** MRMR memoizes whole fits by content hash in two
+   independent caches, the roster runs several MRMR-family arms against one training frame, and a
+   memoized fit returns the correct selection instantly. A cell that cannot verify both caches are empty
+   records `memo_drained=False` and its timing is not used.
+2. **A calibration anchor is recorded beside it.** A fixed, deterministic, single-threaded workload runs
+   next to the arm, so timings are comparable as ratios across machines and months where they are not
+   comparable as seconds.
+3. **The environment tuple matches.** Quality metrics are hardware-invariant and always comparable;
+   timings are comparable only within one environment, and an aggregate must refuse to compare across
+   environments rather than average them.
+
+`n_model_fits` remains the primary cost axis, and every arm in the roster reports a counted figure -- an
+arm whose fits nobody counted would appear in the cost table as free.

@@ -31,7 +31,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -185,8 +185,8 @@ class CatBoostGpuFitMonitor:
         self._last: Optional[Tuple[float, int]] = None  # (clock, iter) at the previous poll
         self._early_rates: List[float] = []
         self._stall_polls = 0
-        self._collapse_warned_at = -10**9
-        self._stall_warned_at = -10**9
+        self._collapse_warned_at = -(10**9)
+        self._stall_warned_at = -(10**9)
         self._budget_warned = False
         self._overrun_warned = False
         # Called on a time-budget / runaway breach until it returns True (it declines while no snapshot exists yet).
@@ -248,7 +248,11 @@ class CatBoostGpuFitMonitor:
         """GPU snapshot from the injected or default probe plus its one-line summary (this process excluded from 'other processes')."""
         probe = self._gpu_probe
         if probe is None:
-            from .._gpu_state_probe import gpu_snapshot as probe  # lazy: keeps import cheap when no GPU fit happens
+            from .._gpu_state_probe import gpu_snapshot
+
+            # Bound to a fresh local rather than rebinding `probe`: the lazy import is what keeps this module
+            # cheap to import when no GPU fit ever happens.
+            probe = gpu_snapshot
         try:
             snap = probe()
         except Exception as e:
@@ -512,7 +516,7 @@ class CatBoostGpuFitGuard:
         self.remember_original(("allow_writing_files", "train_dir"))
         self.est.set_params(allow_writing_files=True, train_dir=self.ensure_tmp_dir())
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:
         try:
             if self.monitor is not None:
                 self.monitor.stop()

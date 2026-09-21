@@ -24,7 +24,7 @@ convergence question.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Tuple
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 
@@ -134,6 +134,49 @@ def bayes_brier(probability: np.ndarray) -> float:
     return float(np.mean(p * (1.0 - p)))
 
 
+#: How many times each bracket end may be moved inward looking for a finite AUC. Geometric, so a few dozen
+#: attempts cover the whole representable range of scales without a tuned constant per bed.
+_BRACKET_RESCUE_STEPS = 40
+
+
+def _finite_bracket(
+    achieved: Callable[[float], float],
+    low: float,
+    high: float,
+) -> Tuple[float, Optional[float], float, Optional[float]]:
+    """Move each bracket end inward until its AUC is finite, returning ``(low, lo_auc, high, hi_auc)``.
+
+    A bracket end that saturates is common and is not a reason to abandon calibration. A link whose raw
+    score spans tens of units -- every published reference bed does, because their coefficients are stated
+    in the units of their own inputs -- drives the logistic to exactly zero and one at the wide end of the
+    scale bracket, and the resulting degenerate probability vector has no finite AUC. Treating that as "the
+    bed cannot be calibrated" ships the bed at unit scale with whatever difficulty that happens to give:
+    Friedman-1 came out at an achievable AUC of 0.966 while its spec declared 0.85, and nothing downstream
+    said so.
+
+    Halving inward finds a finite end in a handful of steps, and the returned bracket is then a genuine one
+    for the bisection that follows. ``None`` for an end means no finite value exists anywhere along it,
+    which is a real failure and is reported as one.
+    """
+    lo_auc: Optional[float] = None
+    hi_auc: Optional[float] = None
+    for _ in range(_BRACKET_RESCUE_STEPS):
+        value = achieved(high)
+        if np.isfinite(value):
+            hi_auc = float(value)
+            break
+        high = 0.5 * (low + high)
+    for _ in range(_BRACKET_RESCUE_STEPS):
+        value = achieved(low)
+        if np.isfinite(value):
+            lo_auc = float(value)
+            break
+        # Inward from the LOW end means upward: a vanishing scale makes every row equiprobable, which has
+        # no AUC either, so the rescue walks towards the middle from both sides rather than outwards.
+        low = 0.5 * (low + high)
+    return low, lo_auc, high, hi_auc
+
+
 def calibrate_scale(
     probability_at: Callable[[float], np.ndarray],
     target_auc: float,
@@ -165,9 +208,9 @@ def calibrate_scale(
         """Return the Bayes AUC of the final probabilities at one candidate scale."""
         return bayes_auc(probability_at(scale))
 
-    lo_auc, hi_auc = achieved(low), achieved(high)
-    if not np.isfinite(lo_auc) or not np.isfinite(hi_auc):
-        logger.warning("ceiling calibration got a non-finite AUC at a bracket end; returning the unit scale")
+    low, lo_auc, high, hi_auc = _finite_bracket(achieved, low, high)
+    if lo_auc is None or hi_auc is None:
+        logger.warning("ceiling calibration found no finite AUC anywhere in the bracket; returning the unit scale")
         return 1.0, achieved(1.0)
     if target_auc <= lo_auc:
         return low, lo_auc

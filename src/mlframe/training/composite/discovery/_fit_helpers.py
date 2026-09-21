@@ -3,6 +3,8 @@ Each takes the discovery instance explicitly and is imported back into ``_fit``.
 """
 from __future__ import annotations
 
+from typing import cast
+
 import logging
 
 import numpy as np
@@ -74,9 +76,9 @@ def take_screen_matrix(self, df, columns, rows) -> np.ndarray:
         s_df, s_cols, s_rows, s_matrix = stash
         if s_df is df and s_cols == tuple(columns) and s_rows.shape == rows.shape:
             if np.array_equal(s_rows, rows):
-                return s_matrix
+                return cast(np.ndarray, s_matrix)
             order = np.argsort(s_rows, kind="stable")
             pos = order[np.clip(np.searchsorted(s_rows[order], rows), 0, s_rows.size - 1)]
             if np.array_equal(s_rows[pos], rows):
-                return s_matrix[pos]
-    return self._build_feature_matrix(df, columns, rows)
+                return cast(np.ndarray, s_matrix[pos])
+    return cast(np.ndarray, self._build_feature_matrix(df, columns, rows))

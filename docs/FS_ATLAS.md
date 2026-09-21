@@ -173,6 +173,16 @@ The four arms with a real pooled advantage span the whole cost range: `lars-orde
 `ace` costs nine, while `rfecv` at thirty-eight fits and fifty seconds is the worst arm in the pooled table.
 On these beds, cost buys nothing.
 
+## Reading a null: what this suite could have seen
+
+Every contrast now carries the smallest paired difference its own seed count could have resolved, and a
+non-rejection whose observed difference falls below it is reported as `underpowered` rather than as
+`indistinguishable`. The distinction is not pedantic here. The real leg's threshold is 0.013 to 0.031 AUC
+([`BENCHMARK_POWER.md`](BENCHMARK_POWER.md)), and most gains measured on the synthetic beds are smaller
+than that -- so its nulls are very largely statements about this design's resolution rather than about
+feature selection. Both states were printed identically until now, which made the real leg's silence read
+as evidence of absence.
+
 ## What this does NOT establish
 
 * **That selection does not pay on real data.** The real leg's minimum detectable effect at 20 seeds is
@@ -183,6 +193,12 @@ On these beds, cost buys nothing.
   the counts are not.
 * **That the arms are configured optimally.** Each is driven bare with an explicit budget. A tuned RFECV or
   a differently parameterised MRMR would land elsewhere, and the pre-registration says so.
-* **Anything about tail dependence.** The copula beds separate the roster by monotonicity, and the t-copula
-  bed and its Gaussian control produce identical splits -- so nothing here distinguishes tail dependence from
-  any other non-monotone structure. A bed that isolates it is still missing.
+* **Anything about tail dependence, YET.** The copula beds separate the roster by monotonicity, and the
+  t-copula bed and its Gaussian control produce identical splits, so nothing measured here distinguishes
+  tail dependence from any other non-monotone structure. The reason is now measured rather than guessed: a
+  symmetric gate at the eightieth percentile fires only 1.1 times as often under a t copula as under a
+  correlation-matched Gaussian one, so those two beds really are almost the same bed. A bed built to
+  separate them -- Clayton against Gaussian at matched Spearman, gated one-sidedly at the second percentile
+  where the firing rates differ threefold -- is registered as `tail_isolation_clayton_vs_gaussian` and has
+  not been run. Its measurement is a rank gap between the two column groups rather than set recovery,
+  because every column on it is a genuine cause.

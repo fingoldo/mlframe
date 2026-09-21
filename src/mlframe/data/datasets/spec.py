@@ -82,10 +82,20 @@ class _DatasetSubSpec(BaseModel):
         Sorted-key JSON is what makes the hash stable: dict ordering is insertion order, so two specs that
         declare the same parameters in a different order must still key the same cached dataset.
 
+        Default-valued fields are excluded, which is what keeps the hash a statement about the BED rather
+        than about the spec language. Adding a new field -- a nonlinear basis term, a cost, a missingness
+        knob -- otherwise moves the hash of every spec in the registry at once, and the scenario lock then
+        reports twelve beds as structurally changed when none of them were. That is not a harmless false
+        positive: the lock exists so that a bed edited after its results were seen is visible in the diff,
+        and a check that cries wolf on every unrelated field addition is one nobody reads.
+
+        The cost is that a spec explicitly setting a field to its default hashes the same as one leaving
+        it out. Those two specs generate identical data, so they are the same bed.
+
         Returns:
             A 32-character hex digest of the canonicalised JSON form.
         """
-        canonical = json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        canonical = json.dumps(self.model_dump(mode="json", exclude_defaults=True), sort_keys=True, separators=(",", ":"))
         return hashlib.blake2b(canonical.encode("utf-8"), digest_size=16).hexdigest()
 
 
@@ -189,10 +199,20 @@ class GateSpec(_DatasetSubSpec):
             ``self``, unchanged, when the gate describes a usable region.
 
         Raises:
-            ValueError: If neither bound is given, or ``low >= high``.
+            ValueError: If the gate describes no region at all, mixes the two ways of describing one, or
+                gives an inverted interval.
         """
-        if self.low is None and self.high is None:
-            raise ValueError(f"GateSpec on {self.column!r} needs at least one of `low` / `high`")
+        bounded = self.low is not None or self.high is not None
+        if not bounded and self.fraction is None:
+            raise ValueError(f"GateSpec on {self.column!r} needs either `fraction` or at least one of `low` / `high`")
+        # The two forms are alternatives, not layers. An explicit interval names a region in the column's
+        # own units; a fraction names the top share of its distribution, which is what keeps a region the
+        # same SIZE across marginal families. Accepting both would leave it undefined which one applies,
+        # and the earlier version of this validator rejected the fraction form outright -- making it
+        # unreachable, and with it the heteroscedastic path in the generator, whose only trigger is a
+        # region declared as a fraction.
+        if bounded and self.fraction is not None:
+            raise ValueError(f"GateSpec on {self.column!r} declares both `fraction` and an explicit interval; they are alternative ways to name a region, so pick one")
         if self.low is not None and self.high is not None and not self.low < self.high:
             raise ValueError(f"GateSpec bounds must satisfy low < high, got low={self.low}, high={self.high}")
         return self
@@ -217,6 +237,12 @@ class FeatureSpec(_DatasetSubSpec):
     cost: float = Field(default=1.0, ge=0.0)
     standardize: bool = True
     outlier_fraction: Knob = 0.0
+    #: Round the column onto this many equally spaced levels before standardising, or ``None`` to leave it
+    #: continuous. Quantisation is a real and common corruption -- a sensor reporting to two decimal
+    #: places, a price rounded to the nearest cent, an age in whole years -- and it is the one that breaks
+    #: equal-mass binning specifically: once a column has fewer distinct values than the estimator wants
+    #: bins, the bin edges collapse onto ties and the binning no longer carries the mass it was asked for.
+    quantize_levels: Optional[int] = Field(default=None, ge=2)
 
     @model_validator(mode="after")
     def _check_levels(self) -> "FeatureSpec":
@@ -285,6 +311,61 @@ class LatentSpec(_DatasetSubSpec):
         return self
 
 
+class BasisTerm(_DatasetSubSpec):
+    """One named nonlinear term in the link, stated rather than approximated.
+
+    The additive and multiplicative parts of a link cover a lot, but not the shapes the literature's
+    reference beds are DEFINED by: Friedman's first function opens with ``10 sin(pi x1 x2)`` and follows it
+    with ``20 (x3 - 0.5)^2``, and a benchmark that substituted a product for the sine would no longer be
+    comparable to any published number -- which is the only reason those beds are worth having.
+
+    Each kind is a closed form with a stated derivative behaviour, because that is what decides which
+    methods can see it:
+
+    * ``sin_product`` -- ``sin(frequency * prod(columns))``. Non-monotone in every operand and, over a
+      symmetric input range, weakly correlated with each; the operands are individually visible only
+      because the range is one period or less.
+    * ``centered_square`` -- ``(x - center)^2``. Symmetric about the centre, so a linear statistic scores
+      it at zero while a binned one finds it immediately. The cleanest separator between the two families
+      there is.
+    * ``abs_deviation`` -- ``|x - center|``. The same symmetry with a kink instead of curvature, which
+      distinguishes a method that needs smoothness from one that needs only non-monotonicity.
+    * ``ratio`` -- ``numerator / max(|denominator|, floor)`` over exactly two columns. Neither operand is
+      informative alone at a fixed marginal, and the floor keeps a near-zero denominator from producing a
+      single row that dominates every scale computed downstream.
+    * ``identity`` -- the column itself, so a bed can express a weighted linear term in the same list as
+      its nonlinear ones instead of splitting one formula across two fields.
+    """
+
+    kind: Literal["sin_product", "centered_square", "abs_deviation", "ratio", "identity"] = "identity"
+    columns: Tuple[str, ...] = Field(min_length=1)
+    weight: float = 1.0
+    #: Kind-specific constants: ``frequency`` for ``sin_product``, ``center`` for the centred kinds,
+    #: ``floor`` for ``ratio``. Unknown keys are ignored rather than rejected, so a term can carry a note
+    #: for a reader without changing what it computes.
+    params: Dict[str, float] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _check_arity(self) -> "BasisTerm":
+        """Reject an operand count the kind cannot use.
+
+        Returns:
+            ``self``, unchanged, when the arity is usable.
+
+        Raises:
+            ValueError: If the kind needs exactly one or exactly two columns and got something else. A
+                silently ignored extra operand would change the formula from the one the bed's name
+                promises, which for a reference bed is the whole of its value.
+        """
+        if self.kind in ("centered_square", "abs_deviation", "identity") and len(self.columns) != 1:
+            raise ValueError(f"basis term {self.kind!r} takes exactly one column; got {self.columns!r}")
+        if self.kind == "ratio" and len(self.columns) != 2:
+            raise ValueError(f"basis term 'ratio' takes exactly two columns (numerator, denominator); got {self.columns!r}")
+        if self.kind == "sin_product" and len(self.columns) < 1:
+            raise ValueError("basis term 'sin_product' needs at least one column")
+        return self
+
+
 class LinkSpec(_DatasetSubSpec):
     """How the features combine into the latent score that drives the target.
 
@@ -299,6 +380,9 @@ class LinkSpec(_DatasetSubSpec):
     coefficients: Dict[str, float] = Field(default_factory=dict)
     interactions: Tuple[Tuple[str, ...], ...] = ()
     interaction_weights: Tuple[float, ...] = ()
+    #: Named nonlinear terms, added to the additive and interaction parts. Empty for every bed that does
+    #: not need one, so adding the field leaves every existing spec hash untouched.
+    basis_terms: Tuple[BasisTerm, ...] = ()
     intercept: float = 0.0
     scale: Knob = 1.0
     region: Optional[GateSpec] = None
@@ -306,6 +390,11 @@ class LinkSpec(_DatasetSubSpec):
     # fire. The signal then lives in the JOINT tail, which is where a Gaussian copula has none and an
     # equal-mass binned estimator has one cell.
     tail_quantile: float = Field(default=0.9, gt=0.0, lt=1.0)
+    # Which tail a ``tail_gate`` term fires in. ``both`` cancels the marginal channel by symmetry and is
+    # what a bed wants when it is testing joint structure. A one-sided gate is for the asymmetric copulas:
+    # Clayton's dependence lives in the LOWER tail only, so including the upper tail -- where it is
+    # asymptotically independent -- dilutes exactly the contrast such a bed exists to measure.
+    tail_direction: Literal["both", "lower", "upper"] = "both"
 
     @model_validator(mode="after")
     def _check_interactions(self) -> "LinkSpec":
@@ -453,6 +542,54 @@ class EdgeSpec(_DatasetSubSpec):
         return self
 
 
+class MissingnessSpec(_DatasetSubSpec):
+    """Holes punched in an OBSERVED column, after the link has already consumed the complete values.
+
+    The ordering is the whole design, and it is what keeps the Bayes ceiling honest. ``true_prob`` is the
+    law relating the COMPLETE feature values to the target, and that law is what the generator calibrated
+    and what the truth record reports. Masking values afterwards does not change it; it changes what a
+    method can SEE. So the ceiling on the emitted frame is lower than the recorded one, by an amount that
+    depends on the mechanism, and the truth carries a caveat saying so rather than a number nobody
+    computed.
+
+    Three mechanisms, which are genuinely different problems and not degrees of one:
+
+    * ``mcar`` -- missing completely at random. The observed rows are a fair sample, so a complete-case
+      analysis is unbiased and only loses power. The easy case.
+    * ``mar`` -- missingness depends on ANOTHER observed column. A complete-case analysis is biased, but
+      the bias is recoverable because the thing driving it is in the data.
+    * ``mnar`` -- missingness depends on the masked column's OWN value: the largest values go missing
+      precisely because they are large. Nothing observable identifies the bias, and a method that imputes
+      from the observed distribution imputes from the wrong one.
+    """
+
+    column: str = Field(min_length=1)
+    mechanism: Literal["mcar", "mar", "mnar"] = "mcar"
+    rate: Knob = 0.2
+    #: The column whose value decides missingness under ``mar``. Ignored by the other two mechanisms:
+    #: ``mcar`` depends on nothing and ``mnar`` depends on the masked column itself.
+    driver: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _check_driver(self) -> "MissingnessSpec":
+        """Require a driver for the one mechanism that needs one, and refuse a self-referential MAR.
+
+        Returns:
+            ``self``, unchanged, when the declaration is usable.
+
+        Raises:
+            ValueError: If ``mar`` has no driver, or names the masked column as its own driver -- which is
+                ``mnar`` wearing the wrong label, and the difference decides whether the bias is
+                recoverable at all.
+        """
+        if self.mechanism == "mar":
+            if not self.driver:
+                raise ValueError(f"missingness on {self.column!r} declares 'mar' but names no driver column")
+            if self.driver == self.column:
+                raise ValueError(f"missingness on {self.column!r} declares 'mar' driven by itself, which is 'mnar'")
+        return self
+
+
 class DatasetSpec(_DatasetSubSpec):
     """The complete, content-hashable description of one synthetic dataset.
 
@@ -469,6 +606,7 @@ class DatasetSpec(_DatasetSubSpec):
     copulas: Tuple[CopulaSpec, ...] = ()
     latents: Tuple[LatentSpec, ...] = ()
     targets: Tuple[TargetSpec, ...] = ()
+    missingness: Tuple[MissingnessSpec, ...] = ()
     edges: Tuple[EdgeSpec, ...] = ()
     provenance: Dict[str, str] = Field(default_factory=dict)
 

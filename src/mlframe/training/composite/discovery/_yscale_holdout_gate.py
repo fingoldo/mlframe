@@ -43,6 +43,7 @@ from ._causal_lag import is_causal_base_name
 from ._screening_tiny import _build_tiny_model
 from ._rejection_ledger import RejectStage, ledger_append
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
+from ._rejection_ledger import spec_inverse
 
 logger = logging.getLogger(__name__)
 
@@ -394,7 +395,7 @@ def apply_yscale_holdout_gate(
             model.fit(x_fit[valid], t_fit)
             t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
             # Smearing for curved unary inverses (see ``estimator._smearing``): judge the conditional mean of y.
-            y_hat = smeared_prediction(spec.transform_name, model, x_fit[valid], t_fit, t_hat, lambda t, _tr=transform, _b=base_eval, _p=params: _tr.inverse(t, _b, _p))
+            y_hat = smeared_prediction(spec.transform_name, model, x_fit[valid], t_fit, t_hat, spec_inverse(transform, base_eval, params))
         except Exception as exc:
             _gate_error_reject(self, spec, rejected, RejectStage.YSCALE_HOLDOUT, f"fit/inverse raised {type(exc).__name__}: {exc}")
             continue

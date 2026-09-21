@@ -65,6 +65,13 @@ _DEFAULT_MIN_SURVIVING_FRACTION: float = 0.5
 # decay while keeping the probe O(K * sample_n) rather than O(K * n_new).
 _DEFAULT_INCREMENTAL_SAMPLE_N: int = 4000
 
+# A spec survives only while its gain on the appended rows keeps at least this share of its gain on the prior rows (less
+# the absolute slack below). eps_mi_gain alone cannot detect drift: with mean aggregation every finite gain is above
+# -log(nbins) = -2.77 at 16 bins, far over the -10 default. Measured (n=3000 prior, 1000 appended): the same DGP keeps
+# 0.173-0.183 of a 0.180 gain; a permuted base leaves 0.001.
+_DRIFT_MIN_RETAINED: float = 0.5
+_DRIFT_ABS_SLACK_NATS: float = 0.02
+
 
 @dataclass
 class IncrementalDecision:
@@ -94,6 +101,14 @@ class IncrementalDecision:
     prior_signature: str = ""
     new_signature: str = ""
     n_rescored: int = 0
+    per_spec_reference_gain: dict[str, float] = field(default_factory=dict)
+
+
+def _required_gain(reference: float) -> float:
+    """The gain the appended rows must reach: half the reference gain, or the reference less the noise slack if lower."""
+    if not np.isfinite(reference):
+        return -np.inf
+    return min(reference - _DRIFT_ABS_SLACK_NATS, _DRIFT_MIN_RETAINED * reference) if reference > 0 else reference - _DRIFT_ABS_SLACK_NATS
 
 
 def _rescore_spec_gain(
@@ -205,6 +220,7 @@ def incremental_discovery_check(
     sample_n: int = _DEFAULT_INCREMENTAL_SAMPLE_N,
     min_surviving_fraction: float = _DEFAULT_MIN_SURVIVING_FRACTION,
     eps_mi_gain: float | None = None,
+    prior_n_rows: int | None = None,
 ) -> IncrementalDecision:
     """Decide REUSE vs full re-discovery for prior specs on an appended frame.
 
@@ -225,7 +241,12 @@ def incremental_discovery_check(
         new sample for a REUSE verdict.
     eps_mi_gain
         Gain threshold; defaults to ``config.eps_mi_gain``. A spec "survives"
-        when its re-scored gain is ``> eps_mi_gain``.
+        when its re-scored gain is ``> eps_mi_gain`` AND keeps at least half of its
+        reference gain (see ``_required_gain``).
+    prior_n_rows
+        Rows of the frame the specs were fit on. When ``df`` extends it, the re-score samples only the appended rows and
+        the reference gain is the same re-score on the prior rows; otherwise the whole frame is sampled against the
+        spec's recorded ``mi_gain``.
 
     Returns
     -------
@@ -267,16 +288,30 @@ def incremental_discovery_check(
         )
     # Sorted sample of the new frame (preserves temporal order, same strategy as
     # the screen). When the frame is smaller than ``sample_n`` we use all rows.
-    idx = _sample_indices(n_rows, sample_n, int(config.random_state))
+    rs = int(config.random_state)
+    appended = prior_n_rows is not None and 0 < int(prior_n_rows) < n_rows
+    if appended:
+        n_old = int(prior_n_rows)
+        idx = n_old + _sample_indices(n_rows - n_old, sample_n, rs)
+        idx_old = _sample_indices(n_old, sample_n, rs)
+    else:
+        idx = _sample_indices(n_rows, sample_n, rs)
 
     per_spec_gain: dict[str, float] = {}
+    per_spec_reference: dict[str, float] = {}
     n_rescored = 0
     n_surviving = 0
     for spec in prior_specs:
         gain = _rescore_spec_gain(spec, df, target_col, feature_cols, idx, config)
+        if appended:
+            reference = _rescore_spec_gain(spec, df, target_col, feature_cols, idx_old, config)
+            n_rescored += 1
+        else:
+            reference = float(getattr(spec, "mi_gain", float("nan")))
         per_spec_gain[spec.name] = gain
+        per_spec_reference[spec.name] = reference
         n_rescored += 1
-        if np.isfinite(gain) and gain > eps:
+        if np.isfinite(gain) and gain > eps and gain >= _required_gain(reference):
             n_surviving += 1
 
     n_specs = len(prior_specs)
@@ -284,14 +319,14 @@ def incremental_discovery_check(
     reuse = frac >= float(min_surviving_fraction)
     if reuse:
         reason = (
-            f"{n_surviving}/{n_specs} specs still clear eps_mi_gain={eps:.4g} "
-            f"on the new sample (frac={frac:.2f} >= {min_surviving_fraction:.2f}) "
+            f"{n_surviving}/{n_specs} specs still clear eps_mi_gain={eps:.4g} and keep their reference gain "
+            f"on the {'appended rows' if appended else 'new sample'} (frac={frac:.2f} >= {min_surviving_fraction:.2f}) "
             f"-- reuse prior specs, skip full re-discovery"
         )
     else:
         reason = (
-            f"only {n_surviving}/{n_specs} specs clear eps_mi_gain={eps:.4g} "
-            f"on the new sample (frac={frac:.2f} < {min_surviving_fraction:.2f}) "
+            f"only {n_surviving}/{n_specs} specs clear eps_mi_gain={eps:.4g} and keep their reference gain "
+            f"on the {'appended rows' if appended else 'new sample'} (frac={frac:.2f} < {min_surviving_fraction:.2f}) "
             f"-- DGP drift, run full re-discovery"
         )
     logger.info("[incremental] %s", reason)
@@ -305,4 +340,5 @@ def incremental_discovery_check(
         prior_signature=prior_signature,
         new_signature=new_sig,
         n_rescored=n_rescored,
+        per_spec_reference_gain=per_spec_reference,
     )

@@ -528,10 +528,7 @@ def _run_composite_target_wrapping(
                 "composite_target_y_scale_metrics", {},
             ).setdefault(str(_tt_w), {}).setdefault(_composite_name, [])
             # Re-scored below per real model; ensemble rows (no model, scored by _record_ensemble_y_scale_metrics) stay.
-            _ens_names = {
-                getattr(e, "model_name", None) for e in _entries
-                if not callable(getattr(getattr(e, "model", None), "predict", None))
-            }
+            _ens_names = {getattr(e, "model_name", None) for e in _entries if not callable(getattr(getattr(e, "model", None), "predict", None))}
             _metrics_dict[:] = [row for row in _metrics_dict if row.get("model_name") in _ens_names]
             _y_full_metric = target_by_type.get(_tt_w, {}).get(_orig_tname)
             if _y_full_metric is None:
@@ -692,4 +689,3 @@ def _run_composite_target_wrapping(
                             " | ".join(_y_summary_parts),
                         )
     return _train_pred_cache
-

@@ -7,6 +7,7 @@ The base-side domain mask, the T-scale clip, the domain-aware inverse-with-fallb
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Optional, Sequence
 
 import numpy as np
@@ -108,9 +109,7 @@ def _inverse_with_fallback(
         # returns the conditional MEAN of y, not the inverse of the mean of T. Absent quantiles -> the plain inverse.
         from ._smearing import smeared_inverse
 
-        y_hat = smeared_inverse(
-            lambda t: transform.inverse(t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles")
-        ).reshape(-1)
+        y_hat = smeared_inverse(lambda t: transform.inverse(t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles")).reshape(-1)
     else:
         y_hat = np.full_like(t_hat, fill_value=np.nan, dtype=np.float64)
         # Inverse on valid rows only; placeholder base for invalid rows is
@@ -169,6 +168,11 @@ _RUNTIME_STAT_KEYS = (
 )
 
 
+_RUNTIME_STATS_LOCK = threading.Lock()
+"""Serialises the counter read-modify-writes: concurrent predicts on one wrapper lost increments without it. Module-level, so
+nothing lock-shaped lives on the (picklable) estimator; the critical section is a handful of integer adds."""
+
+
 def _record_runtime_stats(
     self, n: int, n_violation: int, low_hits: int, high_hits: int,
     t_low_hits: int, t_high_hits: int,
@@ -183,15 +187,17 @@ def _record_runtime_stats(
     and swallowed -- monitoring must never break inference.
     """
     rs = self.runtime_stats_
-    for _k in _RUNTIME_STAT_KEYS:
-        rs.setdefault(_k, 0)
-    rs["predict_calls"] += 1
-    rs["predict_rows_total"] += n
-    rs["domain_violation_rows"] += n_violation
-    rs["y_clip_low_hits"] += low_hits
-    rs["y_clip_high_hits"] += high_hits
-    rs["t_clip_low_hits"] += t_low_hits
-    rs["t_clip_high_hits"] += t_high_hits
+    with _RUNTIME_STATS_LOCK:
+        for _k in _RUNTIME_STAT_KEYS:
+            rs.setdefault(_k, 0)
+        rs["predict_calls"] += 1
+        rs["predict_rows_total"] += n
+        rs["domain_violation_rows"] += n_violation
+        rs["y_clip_low_hits"] += low_hits
+        rs["y_clip_high_hits"] += high_hits
+        rs["t_clip_low_hits"] += t_low_hits
+        rs["t_clip_high_hits"] += t_high_hits
+        snapshot = dict(rs)  # the callback reports this batch's cumulative totals, not a later thread's
 
     cb = getattr(self, "runtime_stats_callback", None)
     if cb is not None:
@@ -205,13 +211,13 @@ def _record_runtime_stats(
                 "batch_y_clip_high_hits": high_hits,
                 "batch_t_clip_low_hits": t_low_hits,
                 "batch_t_clip_high_hits": t_high_hits,
-                "cumulative_predict_calls": rs["predict_calls"],
-                "cumulative_predict_rows_total": rs["predict_rows_total"],
-                "cumulative_domain_violation_rows": rs["domain_violation_rows"],
-                "cumulative_y_clip_low_hits": rs["y_clip_low_hits"],
-                "cumulative_y_clip_high_hits": rs["y_clip_high_hits"],
-                "cumulative_t_clip_low_hits": rs["t_clip_low_hits"],
-                "cumulative_t_clip_high_hits": rs["t_clip_high_hits"],
+                "cumulative_predict_calls": snapshot["predict_calls"],
+                "cumulative_predict_rows_total": snapshot["predict_rows_total"],
+                "cumulative_domain_violation_rows": snapshot["domain_violation_rows"],
+                "cumulative_y_clip_low_hits": snapshot["y_clip_low_hits"],
+                "cumulative_y_clip_high_hits": snapshot["y_clip_high_hits"],
+                "cumulative_t_clip_low_hits": snapshot["t_clip_low_hits"],
+                "cumulative_t_clip_high_hits": snapshot["t_clip_high_hits"],
             })
         except Exception as cb_err:
             logger.debug(
@@ -554,7 +560,7 @@ def predict_quantile(
     n_violation = int((~domain_ok).sum())
 
     if alpha_is_scalar:
-        y_q = _invert_one(t_raw)
+        y_q = _quantile_fallback(self, params, _invert_one(t_raw), alpha, domain_ok, deep_ood)
         _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
         _record_runtime_stats(
             self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
@@ -578,4 +584,36 @@ def predict_quantile(
     _record_runtime_stats(
         self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
     )
-    return np.column_stack(cols)
+    return _finish_quantiles(self, params, np.column_stack(cols), np.asarray(alpha, dtype=np.float64).reshape(-1), domain_ok, deep_ood)
+
+
+def _quantile_fallback(self, params: dict, y_col: np.ndarray, a: Any, domain_ok: np.ndarray, deep_ood: Any) -> np.ndarray:
+    """Rows the model cannot serve (base out of domain, deep OOD) take the train-y quantile at level ``a``.
+
+    They used to take one median in every column: a zero-width interval exactly where the uncertainty is highest.
+    """
+    grid = np.asarray(params.get("y_train_quantile_grid", []) or [], dtype=np.float64)
+    if a is None or grid.size != 101 or getattr(self, "fallback_predict", "y_train_median") != "y_train_median":
+        return y_col
+    rows = ~domain_ok if deep_ood is None else (~domain_ok | np.asarray(deep_ood, dtype=bool))
+    return np.where(rows, float(np.interp(float(a), np.linspace(0.0, 1.0, 101), grid)), y_col) if rows.any() else y_col
+
+
+def _finish_quantiles(self, params: dict, out: np.ndarray, alphas: np.ndarray, domain_ok: np.ndarray, deep_ood: Any) -> np.ndarray:
+    """Per-alpha fallback on the rows the model cannot serve, then the monotone rearrangement of every row."""
+    if alphas.size == out.shape[1]:
+        for k, a in enumerate(alphas):
+            out[:, k] = _quantile_fallback(self, params, out[:, k], a, domain_ok, deep_ood)
+    return _rearranged(out, alphas)
+
+
+def _rearranged(out: np.ndarray, alphas: np.ndarray) -> np.ndarray:
+    """Quantile columns sorted per row in alpha order (Chernozhukov et al.'s monotone rearrangement).
+
+    An inverse that multiplies T by a base factor that goes negative reverses the column order; sorting restores valid
+    quantiles and never moves an already-ordered row.
+    """
+    if alphas.size == out.shape[1]:
+        order = np.argsort(alphas, kind="stable")
+        out[:, order] = np.sort(out[:, order], axis=1)
+    return out

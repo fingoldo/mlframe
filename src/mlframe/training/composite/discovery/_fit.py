@@ -180,6 +180,58 @@ def _evaluate_work_items(self, base_candidates, _base_contexts, _skip_right_tail
     return [c for _r in _results if _r for c in _r]
 
 
+def _mi_y_baseline(self, *, x_prebinned, per_feat_y_full, surviving_orig_idx, base, col_index, drop_idx, mi_aggregation,
+                   per_feat_y_knn_full, x_remaining_matrix, y_screen, mi_kwargs) -> float:
+    """MI(y, X_remaining) for one base, over exactly the columns MI(T, X_remaining) will see."""
+    if x_prebinned is not None:
+        if per_feat_y_full is not None and surviving_orig_idx is not None:
+            # Aggregate over exactly the columns MI(T, X) sees: the base dropped AND the near-duplicates the dedup pruned.
+            # Averaging MI(y, X) over every column let a high-MI duplicate block inflate mi_y and bias mi_gain low for
+            # the bases the dedup exists for (the knn branch below was already pruned in lockstep).
+            return _aggregate_mi_per_feature(per_feat_y_full[surviving_orig_idx], mi_aggregation)
+        elif per_feat_y_full is not None and base in col_index:
+            # Decompose: aggregate the precomputed per-feature MI over all
+            # features except the base column (bit-identical to re-MI'ing
+            # x_remaining vs y, since per-feature MI is base-invariant). The
+            # exclude-aware aggregate masks out the base entry in place, so
+            # no per-base (n, F-1) np.delete copy is materialised for the
+            # baseline -- only the held-alive transform-consumer matrices remain.
+            return _aggregate_mi_per_feature_excluding(
+                per_feat_y_full,
+                mi_aggregation,
+                drop_idx,
+            )
+        elif per_feat_y_full is not None:
+            return _aggregate_mi_per_feature(
+                per_feat_y_full,
+                mi_aggregation,
+            )
+        else:
+            return _mi_to_target_prebinned(
+                x_prebinned,
+                y_screen,
+                **mi_kwargs,
+            )
+    elif per_feat_y_knn_full is not None and surviving_orig_idx is not None:
+        # knn baseline from the precomputed base-invariant per-feature vector: aggregate over the surviving
+        # original-column indices. Bit-identical to _mi_to_target(x_remaining_matrix, y_screen, knn) -- the same
+        # set of single-column MI(y, x_j) values (each on its own per-pair-finite rows), aggregated in the same
+        # mean/sum reduction -- without re-running ~50 Kraskov estimators per base.
+        return _aggregate_mi_per_feature(
+            per_feat_y_knn_full[surviving_orig_idx],
+            mi_aggregation,
+        )
+    else:
+        return _mi_to_target(
+            x_remaining_matrix,
+            y_screen,
+            n_neighbors=self.config.mi_n_neighbors,
+            random_state=self.config.random_state,
+            estimator=self.config.mi_estimator,
+            **mi_kwargs,
+        )
+
+
 def fit(
     self: "CompositeTargetDiscovery",
     df: Any,
@@ -312,6 +364,14 @@ def fit(
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "filter_features_done")
 
+    # knn-MI cost guard, BEFORE base resolution (auto-base ranking + its permutation null is ~21 knn sweeps per column):
+    # probe the Kraskov cost on a screen-sized sample and downgrade knn -> bin (warning) when the extrapolated sweep exceeds
+    # ``knn_mi_budget_seconds``. Swaps only a per-fit config copy; see ``_knn_budget`` for why T-side caching is not an option.
+    if self.config.mi_estimator == "knn" and getattr(self.config, "knn_mi_auto_downgrade", True):
+        from ._knn_budget import maybe_downgrade_knn_estimator
+
+        maybe_downgrade_knn_estimator(self, df, usable_features, train_idx, y_train)
+
     # Resolve base candidates.
     base_candidates = self._resolve_base_candidates(
         df,
@@ -375,15 +435,6 @@ def fit(
     # must re-apply the order, otherwise they run a "forward walk" over whatever order their rows happen to be in.
     self._time_ordering_ = time_ordering
     y_screen = y_full[train_idx_screen]
-
-    # knn-MI cost guard: probe one column's Kraskov cost on the real screen sample and downgrade
-    # knn -> bin (warning) when the extrapolated sweep exceeds ``knn_mi_budget_seconds`` -- a knn
-    # config on a large screen can otherwise take hours where bin takes seconds. Swaps only a
-    # per-fit config copy; see ``_knn_budget`` for why T-side neighbor caching is not an option.
-    if self.config.mi_estimator == "knn" and getattr(self.config, "knn_mi_auto_downgrade", True):
-        from ._knn_budget import maybe_downgrade_knn_estimator
-
-        maybe_downgrade_knn_estimator(self, df, usable_features, base_candidates, train_idx_screen, y_screen)
 
     # Bin-MI floors every value to 0.0 when the screening sample has fewer than
     # 5*nbins finite rows (joint-histogram cells too sparse), so top-K ranking
@@ -538,7 +589,7 @@ def fit(
     # same de-duplicated feature set. Gated + threshold-tunable via config; a
     # strict no-op when no surviving pair exceeds the threshold.
     _dedup_corr_thr = float(getattr(self.config, "dedup_x_remaining_corr_threshold", 0.99))
-    _base_contexts: dict[str, dict[str, Any]] = {}
+    _base_contexts: Any = {}
     for base in base_candidates:
         base_train = _extract_column_array(df, base)[train_idx]
         self._auto_base_pool[base] = base_train
@@ -555,7 +606,7 @@ def fit(
                 # the (n, F-1) plane. dedup is off on this gate, so the float
                 # values are provably unused.
                 _rem_cols = _x_prebinned.shape[1] if _x_prebinned is not None else 0
-                x_remaining_matrix = np.empty((0, _rem_cols), dtype=np.float32)
+                x_remaining_matrix: Any = np.empty((0, _rem_cols), dtype=np.float32)
             else:
                 assert _full_x_matrix is not None  # built above whenever not _use_lazy_prebin
                 x_remaining_matrix = np.delete(_full_x_matrix, _drop_idx, axis=1)
@@ -587,48 +638,11 @@ def fit(
             nbins=int(self.config.mi_nbins),
             aggregation=getattr(self.config, "mi_aggregation", "mean"),
         )
-        if _x_prebinned is not None:
-            if _per_feat_y_full is not None and base in _col_index:
-                # Decompose: aggregate the precomputed per-feature MI over all
-                # features except the base column (bit-identical to re-MI'ing
-                # x_remaining vs y, since per-feature MI is base-invariant). The
-                # exclude-aware aggregate masks out the base entry in place, so
-                # no per-base (n, F-1) np.delete copy is materialised for the
-                # baseline -- only the held-alive transform-consumer matrices remain.
-                mi_y_for_base = _aggregate_mi_per_feature_excluding(
-                    _per_feat_y_full,
-                    _mi_aggregation,
-                    _drop_idx,
-                )
-            elif _per_feat_y_full is not None:
-                mi_y_for_base = _aggregate_mi_per_feature(
-                    _per_feat_y_full,
-                    _mi_aggregation,
-                )
-            else:
-                mi_y_for_base = _mi_to_target_prebinned(
-                    _x_prebinned,
-                    y_screen,
-                    **_mi_kwargs,
-                )
-        elif _per_feat_y_knn_full is not None and _surviving_orig_idx is not None:
-            # knn baseline from the precomputed base-invariant per-feature vector: aggregate over the surviving
-            # original-column indices. Bit-identical to _mi_to_target(x_remaining_matrix, y_screen, knn) -- the same
-            # set of single-column MI(y, x_j) values (each on its own per-pair-finite rows), aggregated in the same
-            # mean/sum reduction -- without re-running ~50 Kraskov estimators per base.
-            mi_y_for_base = _aggregate_mi_per_feature(
-                _per_feat_y_knn_full[_surviving_orig_idx],
-                _mi_aggregation,
-            )
-        else:
-            mi_y_for_base = _mi_to_target(
-                x_remaining_matrix,
-                y_screen,
-                n_neighbors=self.config.mi_n_neighbors,
-                random_state=self.config.random_state,
-                estimator=self.config.mi_estimator,
-                **_mi_kwargs,
-            )
+        mi_y_for_base = _mi_y_baseline(
+            self, x_prebinned=_x_prebinned, per_feat_y_full=_per_feat_y_full, surviving_orig_idx=_surviving_orig_idx, base=base,
+            col_index=_col_index, drop_idx=_drop_idx, mi_aggregation=_mi_aggregation, per_feat_y_knn_full=_per_feat_y_knn_full,
+            x_remaining_matrix=x_remaining_matrix, y_screen=y_screen, mi_kwargs=_mi_kwargs,
+        )
         _base_contexts[base] = dict(
             base_train=base_train,
             base_screen=base_screen,
@@ -855,9 +869,9 @@ def fit(
 
     # The data signature the specs were fit on is read only by ``discover_incremental``, but it cost 84-308 ms at 200k x 50
     # (seconds on wide polars frames) on every fit, stability replicate and per-group fit. Record what it needs and let
-    # ``fit_data_signature()`` compute it on first use; pickling computes it before the frame reference is dropped.
+    # ``fit_data_signature()`` compute it on first use; pickling computes it before the frame reference is dropped. The row count lets it re-score only appended rows.
     self._fit_data_signature = None
-    self._fit_data_signature_inputs = (target_col, list(feature_cols))
+    self._fit_data_signature_inputs, self._fit_n_rows = (target_col, list(feature_cols)), len(df)
 
     # Bookkeeping. (target_col + df_ref + train_idx already stashed.)
     self.specs_ = kept_specs

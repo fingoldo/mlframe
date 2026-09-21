@@ -443,7 +443,7 @@ def _phase_train_val_test_split(
             # Some splits are fixed by an id file / date windows; the rest is carved by the same splitter on the remaining rows.
             (train_idx, val_idx, test_idx, train_details, val_details, test_details, calib_idx, calib_details,
              _pin_info) = pinned_train_val_test_split(
-                n_rows=len(df), row_ids=row_ids, timestamps=timestamps, split_config=split_config,
+                n_rows=len(df) if df is not None else 0, row_ids=row_ids, timestamps=timestamps, split_config=split_config,
                 stratify_y=_stratify_y, groups=_groups, splitter=make_train_test_split, splitter_kwargs=_cfg_dict,
             )
             metadata["split_pinning"] = _pin_info

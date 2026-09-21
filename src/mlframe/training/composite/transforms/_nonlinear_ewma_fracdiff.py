@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from typing import (
+    cast,
     Any,
     Callable,
     Optional,
@@ -166,7 +167,7 @@ def _history_prefix(default_prefix: np.ndarray, history: Optional[np.ndarray], l
         return np.asarray(default_prefix, dtype=np.float64)[-lags:]
     h = np.asarray(history, dtype=np.float64).reshape(-1)
     h = h[np.isfinite(h)]
-    return np.concatenate([np.asarray(default_prefix, dtype=np.float64), h])[-lags:]
+    return cast(np.ndarray, np.concatenate([np.asarray(default_prefix, dtype=np.float64), h])[-lags:])
 
 
 def _with_history(arr: np.ndarray, history: Optional[np.ndarray]) -> tuple[np.ndarray, int]:

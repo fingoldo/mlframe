@@ -13,6 +13,8 @@ it instead of probing again. A module that is already imported is importable by 
 
 from __future__ import annotations
 
+from typing import cast
+
 import logging
 import os
 import subprocess  # nosec B404 - runs sys.executable with a fixed argument list, no shell, no untrusted input
@@ -53,15 +55,15 @@ def native_module_importable(name: str) -> bool:
         return True
     cached = _verdicts.get(name)
     if cached is not None:
-        return cached
+        return cast(bool, cached)
     with _lock:
         cached = _verdicts.get(name)
         if cached is not None:
-            return cached
+            return cast(bool, cached)
         inherited = os.environ.get(_env_key(name))
         if inherited in ("0", "1"):
             _verdicts[name] = inherited == "1"
-            return _verdicts[name]
+            return cast(bool, _verdicts[name])
         try:
             proc = subprocess.run(  # nosec B603 - fixed trusted executable and argument list
                 [sys.executable, "-c", f"import {name}"],

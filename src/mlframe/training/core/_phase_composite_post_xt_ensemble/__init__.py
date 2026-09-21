@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -17,7 +17,8 @@ from ...composite.post_shim import PrePipelinePredictShim
 from ..utils import _build_full_column_from_splits
 from .._phase_composite_post_lag_predict import _LagPredictDeployableModel
 from ._post_xt_ensemble_mtr import _build_mtr_per_column_ensemble
-from ._prescreen import PRESCREEN_SAFETY, dummy_floor_from_metadata, leaky_rmse_keep_mask, prescreen_frame
+from ._crossfit import gate_stack_rmse, refit_capped_stack
+from ._prescreen import PRESCREEN_SAFETY, dummy_floor_from_metadata, leaky_rmse_keep_mask, prescreen_frame, same_split_dummy_rmse
 from .._prediction_memo import memo_predict
 from mlframe.utils.log_throttle import log_throttle
 
@@ -66,6 +67,54 @@ def _slice_frame_rows(frame, pos):
     if hasattr(frame, "iloc"):
         return frame.iloc[pos].reset_index(drop=True)
     return frame[pos]
+
+
+def _inject_lag_predict(components: list, component_names: list, metadata: dict, tt_e: Any, orig_tname: str, filtered_train_df: Any) -> None:
+    """Append the dummy-baselines lag_predict (fitted on the train rows) to the component pool, when the target has one.
+
+    On strongly auto-regressive targets (lag1_corr ~0.999 within groups) ``y_hat = lag_target_value`` often beats every
+    trained model on RMSE; the honest-OOF gate selects it when it dominates. No trainable parameters beyond the train
+    median that fills a missing lag.
+    """
+    try:
+        _dbl_for_target = metadata.get("dummy_baselines", {}).get(str(tt_e), {}).get(str(orig_tname), {})
+        _dbl_extras = _dbl_for_target.get("extras", {})
+        _lag_meta = (
+            _dbl_extras.get("lag_predict")
+            if isinstance(
+                _dbl_extras,
+                dict,
+            )
+            else None
+        )
+        if _lag_meta is not None:
+            _lag_col = _lag_meta.get("feature_used")
+            if _lag_col:
+                _fresh_lag_model = _LagPredictDeployableModel(_lag_col)
+                _lag_model: Optional[_LagPredictDeployableModel] = _fresh_lag_model
+                try:
+                    # Fitted on the train rows so a missing lag at predict gets the train median, not the median of its own batch.
+                    _fresh_lag_model.fit(filtered_train_df)
+                except (KeyError, TypeError, ValueError) as _lag_fit_err:
+                    logger.warning("[CompositeCrossTargetEnsemble] target='%s': lag_predict not injected, its lag column %r cannot be read from the train frame (%s).",
+                                   orig_tname, _lag_col, _lag_fit_err)
+                    _lag_model = None
+            if _lag_col and _lag_model is not None:
+                components.append(PrePipelinePredictShim(_lag_model, None, "lag_predict"))
+                component_names.append("lag_predict")
+                logger.info(
+                    "[CompositeCrossTargetEnsemble] target='%s' "
+                    "injected lag_predict (feature=%s) as a free "
+                    "ensemble component. honest-OOF gate will "
+                    "auto-select if it dominates trained models.",
+                    orig_tname, _lag_col,
+                )
+    except Exception as _lag_inj_err:
+        logger.debug(
+            "[CompositeCrossTargetEnsemble] lag_predict injection " "failed for target='%s' (non-fatal): %s",
+            orig_tname,
+            _lag_inj_err,
+        )
 
 
 def _build_cross_target_ensemble_for_target(
@@ -201,36 +250,7 @@ def _build_cross_target_ensemble_for_target(
         _components.append(PrePipelinePredictShim(_inner, _pp, _name))
         _component_names.append(_name)
     # Inject lag_predict dummy baseline as a free component for the cross-target ensemble pool. On strongly auto-regressive targets (lag1_corr ~0.999 within groups) the dumbest ``y_hat = lag_target_value`` baseline often beats every trained model on RMSE; honest-OOF gate naturally selects it when it dominates. NO trainable parameters; cost is one column read.
-    try:
-        _dbl_for_target = metadata.get("dummy_baselines", {}).get(str(_tt_e), {}).get(str(_orig_tname), {})
-        _dbl_extras = _dbl_for_target.get("extras", {})
-        _lag_meta = (
-            _dbl_extras.get("lag_predict")
-            if isinstance(
-                _dbl_extras,
-                dict,
-            )
-            else None
-        )
-        if _lag_meta is not None:
-            _lag_col = _lag_meta.get("feature_used")
-            if _lag_col:
-                _lag_model = _LagPredictDeployableModel(_lag_col)
-                _components.append(PrePipelinePredictShim(_lag_model, None, "lag_predict"))
-                _component_names.append("lag_predict")
-                logger.info(
-                    "[CompositeCrossTargetEnsemble] target='%s' "
-                    "injected lag_predict (feature=%s) as a free "
-                    "ensemble component. honest-OOF gate will "
-                    "auto-select if it dominates trained models.",
-                    _orig_tname, _lag_col,
-                )
-    except Exception as _lag_inj_err:
-        logger.debug(
-            "[CompositeCrossTargetEnsemble] lag_predict injection " "failed for target='%s' (non-fatal): %s",
-            _orig_tname,
-            _lag_inj_err,
-        )
+    _inject_lag_predict(_components, _component_names, metadata, _tt_e, _orig_tname, filtered_train_df)
     for _spec in _spec_list:
         _composite_entries = (models or {}).get(_tt_e, {}).get(_spec["name"], []) or []
         for _i, _entry in enumerate(_composite_entries):
@@ -664,18 +684,10 @@ def _build_cross_target_ensemble_for_target(
                     and _oof_pred_matrix is not None
                     and _oof_pred_matrix.shape[1] > 0
                     and len(_oof_rmses) > 0):
-                _dummy_floor_rmse = None
-                try:
-                    _raw_dbl = metadata.get("dummy_baselines", {}).get(str(_tt_e), {}).get(str(_orig_tname), {})
-                    _data = _raw_dbl.get("data", {}) if isinstance(_raw_dbl, dict) else {}
-                    _strongest = _raw_dbl.get("strongest") if isinstance(_raw_dbl, dict) else None
-                    _pm = _raw_dbl.get("primary_metric") if isinstance(_raw_dbl, dict) else None
-                    if _strongest and _pm and _strongest in _data:
-                        _v = _data[_strongest].get(_pm)
-                        if _v is not None and np.isfinite(float(_v)):
-                            _dummy_floor_rmse = float(_v) * (1.0 + _dummy_floor_tol)
-                except (KeyError, TypeError, ValueError):
-                    _dummy_floor_rmse = None
+                # The floor is measured on the same OOF rows as the components it gates (see same_split_dummy_rmse).
+                _dummy_floor_rmse = same_split_dummy_rmse(metadata, _tt_e, _orig_tname, _oof_names, _oof_rmses, _oof_y_holdout)
+                if _dummy_floor_rmse is not None:
+                    _dummy_floor_rmse *= 1.0 + _dummy_floor_tol
                 if _dummy_floor_rmse is not None:
                     _keep_idx = [_i for _i in range(len(_oof_rmses)) if np.isfinite(_oof_rmses[_i]) and _oof_rmses[_i] <= _dummy_floor_rmse]
                     _dropped_idx = [_i for _i in range(len(_oof_rmses)) if _i not in set(_keep_idx)]
@@ -685,11 +697,11 @@ def _build_cross_target_ensemble_for_target(
                         logger.warning(
                             "[CompositeCrossTargetEnsemble] target='%s' "
                             "dummy-floor gate fired: dropping %d/%d "
-                            "component(s) whose OOF RMSE > strongest "
-                            "dummy ('%s' %s=%.4g) x (1+%.2f) = %.4g. "
+                            "component(s) whose OOF RMSE > the strongest "
+                            "dummy's same-split OOF RMSE %.4g x (1+%.2f) = %.4g. "
                             "Dropped: %s",
                             _orig_tname, len(_dropped_idx),
-                            len(_oof_rmses), _strongest, _pm,
+                            len(_oof_rmses),
                             _floor_base, _dummy_floor_tol,
                             _dummy_floor_rmse, _dropped_names,
                         )
@@ -829,24 +841,8 @@ def _build_cross_target_ensemble_for_target(
             # and pass the strongest-dummy (lag_predict / naive) OOF RMSE as baseline_oof_rmse so weights are
             # gain-over-naive rather than gain-over-the-worst-component (the class's self-normalising fallback,
             # which discards every below-median component and dilutes against a meaningless baseline).
-            _baseline_oof_rmse = None
-            try:
-                _raw_dbl_base = metadata.get("dummy_baselines", {}).get(str(_tt_e), {}).get(str(_orig_tname), {})
-                if isinstance(_raw_dbl_base, dict):
-                    _data_base = _raw_dbl_base.get("data", {}) or {}
-                    _strongest_base = _raw_dbl_base.get("strongest")
-                    _pm_base = _raw_dbl_base.get("primary_metric")
-                    if _strongest_base and _pm_base and _strongest_base in _data_base:
-                        _v_base = _data_base[_strongest_base].get(_pm_base)
-                        if _v_base is not None and np.isfinite(float(_v_base)):
-                            _baseline_oof_rmse = float(_v_base)
-                # Prefer the in-pool lag_predict OOF RMSE when present: it is the honest, same-split naive floor.
-                if "lag_predict" in _oof_names:
-                    _lp_b = float(_oof_rmses[_oof_names.index("lag_predict")])
-                    if np.isfinite(_lp_b):
-                        _baseline_oof_rmse = _lp_b if _baseline_oof_rmse is None else max(_baseline_oof_rmse, _lp_b)
-            except (KeyError, TypeError, ValueError):
-                _baseline_oof_rmse = None
+            # The same-split naive floor (the in-pool lag_predict OOF column, or the strongest constant on the OOF rows).
+            _baseline_oof_rmse = same_split_dummy_rmse(metadata, _tt_e, _orig_tname, _oof_names, _oof_rmses, _oof_y_holdout)
             _ensemble = _CrossEns.from_train_metrics(
                 component_models=_oof_components,
                 component_names=_oof_names,
@@ -876,8 +872,7 @@ def _build_cross_target_ensemble_for_target(
                     _w_sum = float(_w_full.sum())
                     _w_norm = _w_full / _w_sum if _w_sum > 0 else np.full_like(_w_full, 1.0 / len(_w_full))
                     _ens_holdout = (_oof_pred_matrix * _w_norm[None, :]).sum(axis=1)
-                _ens_diff = _ens_holdout - _oof_y_holdout
-                _ens_rmse = float(np.sqrt(np.mean(_ens_diff**2)))
+                _ens_rmse = gate_stack_rmse(_CrossEns, _ce_strategy, _oof_components, _oof_names, _oof_pred_matrix, _oof_y_holdout, _ens_holdout)
                 _best_single_rmse = float(np.nanmin(_oof_rmses))
                 # AR(1) failsafe: when lag_predict's OOF RMSE ties the best trained component, prefer zero-param lag. But
                 # the OOF RMSE is a group-K-fold estimate that UNDERESTIMATES the full-data model (each fold trains on
@@ -1019,7 +1014,7 @@ def _build_cross_target_ensemble_for_target(
         "max_inference_components", None,
     )
     if _max_components is not None and _max_components > 0 and isinstance(_ensemble, _CrossEns):
-        _ensemble = _ensemble.cap_inference_components(int(_max_components))
+        _ensemble = refit_capped_stack(_CrossEns, _ce_strategy, _ensemble.cap_inference_components(int(_max_components)), _oof_names, _oof_pred_matrix, _oof_y_holdout)
     # SimpleNamespace shim for downstream iterators expecting .model/.columns; columns=None since each component knows its own.
     _ens_entry = SimpleNamespace(
         model=_ensemble,

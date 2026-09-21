@@ -15,7 +15,7 @@ from __future__ import annotations
 import threading
 import weakref
 from collections import OrderedDict
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -40,7 +40,7 @@ class _RidgeFoldModel:
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Predict on ``x``, filling each non-finite cell with its column's train mean."""
         xi = _impute(x, self.fill)
-        return xi @ self.coef + self.intercept
+        return cast(np.ndarray, xi @ self.coef + self.intercept)
 
 
 def _impute(x: np.ndarray, fill: np.ndarray) -> np.ndarray:
@@ -61,7 +61,7 @@ def _fold_factor(x: np.ndarray, rows: np.ndarray) -> tuple[np.ndarray, np.ndarra
         hit = _CACHE.get(key)
         if hit is not None and hit[0]() is x:
             _CACHE.move_to_end(key)
-            return hit[1]
+            return cast(tuple, hit[1])
     raw = np.asarray(x[rows], dtype=np.float64)
     fill = np.nanmean(np.where(np.isfinite(raw), raw, np.nan), axis=0)
     fill = np.where(np.isfinite(fill), fill, 0.0)  # an all-missing column imputes to 0, contributing nothing

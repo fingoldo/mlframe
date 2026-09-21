@@ -95,7 +95,7 @@ Overlap notes: DSC-12 (cache key contents), DSC-18 (verdict split), DSC-20 (auto
 - **Why it matters**: The one cross-run comparison table misstates composite quality, and it is lost after the process exits.
 - **Suggested fix**: For composite targets, source the row from `composite_target_y_scale_metrics` (or tag the scale in a `scale` column and put T-scale rows in a separate section). Fill CT_ENSEMBLE rows from its OOF/test metrics. Pass the suite's real chart prefix so the CSV is written, and render before the final metadata save.
 - **Test to add**: On the TVT fixture, the composite row's RMSE equals the y-scale test RMSE recorded in `composite_target_y_scale_metrics`, and `targets_performance_path` exists on disk.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The targets table has a `scale` column. A composite target's row is sourced from `composite_target_y_scale_metrics`, which the per-model hook fills even under the default skip. When those are missing its T-scale metrics are labelled `T`, never shown unmarked beside y-scale rows. The CSV is written beside the leaderboard under `data_dir` (named per model) when the suite passes no chart prefix; it is still rendered before the post-processing persist added for INT-02. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### INT-11 [P2] Specs dropped by the global `max_total_composite_targets` cap stay in `metadata["composite_target_specs"]` with no failure record
 - **Where**: `core/_phase_composite_discovery.py:912-927`. Compare `core/_phase_composite_discovery_dedup.py:62-70`, where equivalence drops are removed from the exported specs and logged as failures.
