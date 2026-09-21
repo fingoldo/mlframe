@@ -366,7 +366,7 @@ Default counts used in the estimates:
 - **Expected win** (estimate): the hash cost per target in multi-target suites.
 - **Suggested fix**: key on `(frame signature, train_idx_screen hash, nbins)`, which is cheap, instead of the matrix bytes. Or skip the lookup when the row set differs from the last put.
 - **Test/benchmark to add**: a counter test on a 3-target suite showing hits/misses; a hash-cost micro-bench.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL - measured first: hashing the screen matrix costs about 11% of the binning it guards (112 ms vs 1012 ms at 100k x 100, 563 ms vs 5272 ms at 100k x 500), paid on every fit. The key now uses xxh3-128 (`xxhash`, already a declared dependency) instead of blake2b over the same buffer: 509 ms -> 39 ms on a 200 MB screen, same exact-content semantics since the cache is in-process only (the key tag moved to `prebin_v2`). The 13 existing prebin-cache tests pass unchanged. NOT done: the cache still misses across targets under stratified sampling, as the finding says; keying on the row set instead of the content would not change that, and skipping the lookup on a row-set change would only save the now-small hash.
 
 ### PRF-23 [P3] Region-adaptive, which is opt-in, fits full-region parameters for every candidate in every region, then keeps only the winner's
 

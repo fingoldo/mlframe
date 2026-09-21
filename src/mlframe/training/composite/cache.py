@@ -395,10 +395,16 @@ def prebin_matrix_signature(feature_matrix: np.ndarray, nbins: int) -> str:
     digest gives a key that hits iff a later call would recompute byte-identical codes, and misses
     on any change (a different sample, a re-ordered/rescaled column, a different nbins). The hash
     is over the contiguous matrix buffer -- O(matrix bytes), no copy of the source frame.
+
+    The digest is xxh3-128 rather than blake2b: the key only has to tell matrices apart inside one process (the cache is
+    never persisted), and hashing the screen matrix on every fit cost about 11% of the binning it guards while the cache
+    hits only on re-discovery of the same target. On a 100k x 500 float32 screen: 509 ms -> 39 ms.
     """
+    import xxhash
+
     arr = np.ascontiguousarray(feature_matrix)
-    h = hashlib.blake2b(digest_size=16)
-    h.update(b"prebin_v1|nbins=")
+    h = xxhash.xxh3_128()
+    h.update(b"prebin_v2|nbins=")
     h.update(str(int(nbins)).encode("utf-8"))
     h.update(b"|dtype=")
     h.update(str(arr.dtype).encode("utf-8"))

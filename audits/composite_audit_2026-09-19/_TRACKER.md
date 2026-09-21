@@ -19,10 +19,10 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `discovery.md` | 30 | 5 | 0 | 25 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
 | `suite_integration.md` | 19 | 6 | 0 | 13 | 0 | 0 |
-| `performance.md` | 24 | 11 | 9 | 3 | 1 | 0 |
+| `performance.md` | 24 | 11 | 10 | 2 | 1 | 0 |
 | `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **52** | **9** | **117** | **1** | **0** |
+| **Total** | **179** | **52** | **10** | **116** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -166,7 +166,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `PRF-19` | Auto-chain upcasts each base's matrix to float64 and copies `x_tr` for every candidate on every fold, even when the fold Dataset is already cached | float32 kept for LightGBM, built folds reuse their holdout and skip train slices; all candidate scores identical |
 | **PARTIAL** | P3 | `PRF-20` | The interaction-base step, on by default, synthesises its columns twice, and its output never becomes a spec | columns synthesised once (scorer hands them back, identical output); whether the step should feed specs or be gated is left open |
 | **RESOLVED** | P3 | `PRF-21` | The opt-in bootstrap MI recomputes the same `MI(y, X)` replicates for every transform on a base | MI(y,X) replicates + row-major copy built once per base/mask/seed under a per-key lock (concurrent-safe); LCB and p-values identical |
-| **TODO** | P3 | `PRF-22` | The prebin content cache hashes the screen matrix on every fit but misses across targets | |
+| **PARTIAL** | P3 | `PRF-22` | The prebin content cache hashes the screen matrix on every fit but misses across targets | key hash blake2b -> xxh3-128 (509 -> 39 ms on 200 MB); cross-target misses under stratified sampling remain inherent |
 | **TODO** | P3 | `PRF-23` | Region-adaptive, which is opt-in, fits full-region parameters for every candidate in every region, then keeps only the winner's | |
 | **TODO** | P3 | `PRF-24` | The multi-target OOF polars slice converts fold indices to a Python list | |
 
