@@ -77,3 +77,7 @@ class CompositeSpec:
     honest_holdout_rmse: float | None = None
     honest_holdout_raw_rmse: float | None = None
     honest_holdout_rmse_gain: float | None = None
+    # Standard error of that gain, from the paired per-row squared errors of the spec and the raw baseline on the
+    # identical holdout rows. Lets the ship/no-ship floor ask whether a gain is larger than its own measurement
+    # noise instead of comparing it against a fixed constant. ``None`` when the gate did not run.
+    honest_holdout_rmse_gain_se: float | None = None

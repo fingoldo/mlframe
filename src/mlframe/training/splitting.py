@@ -194,7 +194,11 @@ def make_train_test_split(
                 _gap_val_train_days = float((_t_val_min - _t_train_max).total_seconds() / 86400.0) if pd.notna(_t_val_min) and pd.notna(_t_train_max) else float("nan")
                 _gap_train_prod_days = float((_t_test_max - _t_train_max).total_seconds() / 86400.0) if pd.notna(_t_test_max) and pd.notna(_t_train_max) else float("nan")
                 logger.info(
-                    "Temporal layout (val_placement='forward', default): train_max=%s, val=[%s..%s], test=[%s..%s], val->train_gap=%.2fd, train->prod_estimated_gap=%.2fd. Mazzanti backward layout typically gives a better prod-error proxy under drift; set val_placement='backward' to switch.",
+                    "Implied temporal layout BEFORE any val augmentation (val_placement='forward', default; derived "
+                    "from the timestamps and the requested sizes, so a later random-row top-up moves these "
+                    "boundaries -- the realised split is reported separately below): train_max=%s, val=[%s..%s], "
+                    "test=[%s..%s], val->train_gap=%.2fd, train->prod_estimated_gap=%.2fd. Mazzanti backward layout "
+                    "typically gives a better prod-error proxy under drift; set val_placement='backward' to switch.",
                     _t_train_max, _t_val_min, _t_val_max, _t_test_min, _t_test_max,
                     _gap_val_train_days, _gap_train_prod_days,
                 )

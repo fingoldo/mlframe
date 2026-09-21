@@ -797,7 +797,9 @@ def report_probabilistic_model_perf(
             f"LOG_LOSSes: \n\t{', '.join(log_losses)}",
             f"ICEs: \n\t{', '.join(integral_errors)}",
         ]
-        if custom_ice_metric != custom_rice_metric:
+        # Only when there is something under it: the header used to print with an empty body on every
+        # classification block whose robust-ICE metric produced no per-class values.
+        if custom_ice_metric != custom_rice_metric and robust_integral_errors:
             _report_lines.append(f"RICEs: \n\t{', '.join(robust_integral_errors)}")
         logger.info("\n".join(_report_lines))
 

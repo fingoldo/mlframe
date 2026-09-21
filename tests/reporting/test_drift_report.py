@@ -232,8 +232,10 @@ def test_regression_mean_drift_warns():
     val = rng.normal(loc=14.0, scale=2.0, size=2_000)
     report = compute_label_distribution_drift(train, val, None, "regression")
     assert report["drifts"]["val_mean_z_vs_train"] > 0.5
-    assert len(report["warnings"]) == 1
-    assert "regression target shift" in report["warnings"][0]
+    # A 10 -> 14 move is both a 2-sigma shift and a +40% level shift, so the sigma test and the scale-free level
+    # test (audit 2026-09-20 SEN-02, added because the sigma test is unreachable on a heavy-tailed target) both
+    # fire. This test is about the sigma one; pin its presence rather than the total warning count.
+    assert any("regression target shift" in w for w in report["warnings"]), report["warnings"]
 
 
 # -----------------------------------------------------------------------------

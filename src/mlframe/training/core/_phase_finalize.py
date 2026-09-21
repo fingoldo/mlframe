@@ -17,6 +17,7 @@ from .._format import unwrap_target_wrapper
 from ._process_flag_scope import restore_process_flags
 from ..io import save_mlframe_model
 from ..phases import format_phase_summary
+from ._phase_finalize_calib_skipped import report_calib_dependent_steps_skipped, report_oof_dependent_steps_inert
 from ._phase_finalize_calibration import (
     _apply_confidence_shrinkage_to_regression,
     _auto_calibrate_on_calib_slice,
@@ -553,14 +554,14 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     except Exception as _cal_err:
         logger.warning("[calib] auto-calibration pass failed: %s", _cal_err)
 
-    # Opt-in: flag binary isotonic calibrators fit above that are tracking per-point noise. Default OFF.
+    # Flag binary isotonic calibrators fit above that are tracking per-point noise. ON by default (check_isotonic_overfit_risk).
     try:
         _isotonic_overfit_risk_check(ctx)
     except Exception as _iso_err:
         logger.warning("[isotonic_risk] finalize pass failed: %s", _iso_err)
 
-    # Opt-in: fit an optimized binary decision threshold (+ optional per-cohort / cv report) on the calib
-    # slice. Default OFF.
+    # Fit an optimized binary decision threshold (+ optional per-cohort / cv report) on the calib slice. ON by
+    # default (auto_optimize_threshold).
     try:
         _optimize_decision_threshold_on_calib_slice(ctx)
     except Exception as _thr_err:
@@ -573,7 +574,7 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     except Exception as _recal_err:
         logger.warning("[regression_recal] finalize pass failed: %s", _recal_err)
 
-    # Opt-in: shrink weakly-discriminative regression targets' predictions toward neutral. Default OFF.
+    # Shrink weakly-discriminative regression targets' predictions toward neutral. ON by default (apply_confidence_shrinkage).
     try:
         _apply_confidence_shrinkage_to_regression(ctx)
     except Exception as _shrink_err:
@@ -584,6 +585,14 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         _conformal_on_calib_slice(ctx)
     except Exception as _conf_err:
         logger.warning("[conformal] finalize pass failed: %s", _conf_err)
+
+    # Every step above that fits on the calib slice reports only what it produced, so with no slice they all fell
+    # silent together. Say once which enabled steps that cost, and the one knob that restores them.
+    try:
+        report_calib_dependent_steps_skipped(ctx)
+        report_oof_dependent_steps_inert(ctx)
+    except Exception as _skip_err:
+        logger.debug("[calib] skipped-steps report failed: %s", _skip_err)
 
     # Advisory: map the target-distribution analyzer verdict to a recommended composite estimator (E3).
     try:

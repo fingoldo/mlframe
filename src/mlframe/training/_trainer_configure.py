@@ -527,10 +527,13 @@ def configure_training_params(
         else:
             _cb_classif_params = cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF
             _cb_model = CatBoostClassifier(**_cb_classif_params)
-        # Defensively pre-set the polars-fastpath sticky flag. ``_predict_with_fallback`` lazily flips this attribute to True after the FIRST polars-fastpath dispatch miss, so the short-circuit fires only on the SECOND predict call onward. That works for re-using a single fitted model (VAL -> TEST), but in a suite each weight-schema iteration calls ``sklearn.clone()`` on this base ``_cb_model`` and clone strips non-param attrs, giving every fresh CB instance a blank flag.
-        # CB 1.2.x's ``_set_features_order_data_polars_categorical_column`` has dispatch gaps on our nullable-Categorical / Enum schema, so opting CB into pandas at predict time bypasses the doomed retry on success and costs nothing on failure. Set on the base instance so ``clone()`` carries the param-equivalent state forward; for the attr to survive clone we also re-assert it inside ``train_eval.py:process_model``'s clone call.
+        # Pre-set the polars-fastpath sticky flag when THIS CatBoost build actually needs it. ``_predict_with_fallback`` lazily flips the attribute to True after the FIRST dispatch miss, so the short-circuit would otherwise fire only from the SECOND predict onward -- and in a suite each weight-schema iteration calls ``sklearn.clone()``, which strips non-param attrs and hands every fresh instance a blank flag.
+        # The value comes from the installed build's own probe rather than a constant: some CB 1.2.x builds have dispatch gaps on a nullable-Categorical / Enum schema and some do not, and pre-setting it on a build that works costs a polars->pandas conversion on EVERY predict for nothing (a production run logged 52 of them while the probe answered that CatBoost accepts polars). Set on the base instance so ``clone()`` carries the param-equivalent state forward; ``train_eval.py:process_model`` re-asserts it around its clone call.
         try:
-            _cb_model._mlframe_polars_fastpath_broken = True
+            from mlframe.training._polars_native_support import catboost_polars_fastpath_broken
+
+            if catboost_polars_fastpath_broken():
+                _cb_model._mlframe_polars_fastpath_broken = True
         except Exception as e:  # nosec B110 - non-trivial body
             # CB Python class is permissive about attributes; slot-only forks could refuse - degrade to "pay first-call retry".
             logger.debug("setting _mlframe_polars_fastpath_broken failed: %s", e)

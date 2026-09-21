@@ -77,6 +77,18 @@ def _maybe_auto_drop_after_feature_analyzer(
     """
     if behavior_config is None or fd_report is None:
         return train_df, val_df, test_df, []
+
+    def _nan_fraction_of(_report: Any, _col: str) -> float:
+        """Null fraction the feature analyzer recorded for ``_col``, parsed from its ``nan_fraction=<x> >= <t>``
+        warning; ``0.0`` when it recorded none, so an unparseable entry never triggers a drop."""
+        for _msg in _report.feature_warnings.get(_col, ()) or ():
+            _m = str(_msg)
+            if _m.startswith("nan_fraction="):
+                try:
+                    return float(_m.split("=", 1)[1].split()[0])
+                except (ValueError, IndexError):
+                    return 0.0
+        return 0.0
     _do_drop_candidates = bool(getattr(behavior_config, "auto_drop_distribution_analyzer_candidates", False))
     # A NaN-heavy column is only worth dropping when something downstream cannot read a NaN. With a
     # gradient-boosting-only run, the missingness IS the signal -- it is usually structural (the field applies
@@ -93,6 +105,22 @@ def _maybe_auto_drop_after_feature_analyzer(
             _nan_only = [
                 _c for _c in _candidates if (_warn_map_nan.get(_c) or []) and all(str(_m).startswith("nan_fraction") for _m in _warn_map_nan.get(_c) or [])
             ]
+            # "Missingness is signal" needs the missingness to carry information the frame does not already have.
+            # Past the suite's own null-fraction bar there is nothing but the present/absent bit, and the later
+            # suite-wide pre-screen drops those columns anyway -- a production run kept nine of them here and
+            # dropped the same nine twelve minutes later, after composite discovery had screened them four times.
+            # Keep and drop now agree on one bar.
+            _null_bar = float(getattr(getattr(behavior_config, "feature_selection_config", None), "pre_screen_null_fraction_threshold", 0.99))
+            _too_empty = [_c for _c in _nan_only if _nan_fraction_of(fd_report, _c) > _null_bar]
+            if _too_empty:
+                _nan_only = [_c for _c in _nan_only if _c not in set(_too_empty)]
+                if verbose:
+                    logger.info(
+                        "[mini-HPT] dropping %d of the NaN-heavy column(s) now rather than keeping them as signal: "
+                        "their null fraction is above %.2f, so the only thing left in them is the present/absent bit "
+                        "and the suite-wide pre-screen would drop them later anyway. Dropped: %s",
+                        len(_too_empty), _null_bar, ", ".join(_too_empty[:8]),
+                    )
             if _nan_only:
                 _candidates = [_c for _c in _candidates if _c not in set(_nan_only)]
                 if verbose:

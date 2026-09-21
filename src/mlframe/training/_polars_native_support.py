@@ -127,10 +127,23 @@ def accepts_polars(library: str) -> bool:
         return _CACHE[key]
 
 
+def catboost_polars_fastpath_broken() -> bool:
+    """Whether CatBoost predict should be pre-routed through pandas on THIS installation.
+
+    ``_predict_with_fallback`` recovers from a polars dispatch miss by converting and retrying, but only after
+    paying a failed Cython call; pre-setting ``_mlframe_polars_fastpath_broken`` skips that. The suite used to set
+    it unconditionally for every CatBoost instance, which on a working build means a pandas conversion on every
+    single predict -- a production run logged 52 of them while this very probe answered that the installed CatBoost
+    DOES take a polars frame. The probe covers exactly the schema the pessimisation was justified by (nullable
+    float + ``pl.Enum`` categorical), so it, not a constant, is the right answer.
+    """
+    return not accepts_polars("catboost")
+
+
 def reset_cache() -> None:
     """Forget the probe results, so a test can re-probe against a patched library."""
     with _CACHE_LOCK:
         _CACHE.clear()
 
 
-__all__ = ["accepts_polars", "reset_cache"]
+__all__ = ["accepts_polars", "catboost_polars_fastpath_broken", "reset_cache"]

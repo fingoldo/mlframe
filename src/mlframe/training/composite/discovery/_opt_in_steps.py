@@ -147,9 +147,14 @@ def _run_interaction_bases(
         return {}, []
     top_k = int(getattr(self.config, "interaction_base_top_k", 4))
     max_pairs = int(getattr(self.config, "interaction_base_max_pairs", 3))
+    # Every row here is a train row by construction: ``_auto_base_pool`` is already restricted to ``train_idx`` and
+    # the screen sample indexes into it. Pass that explicitly rather than leaving it implicit -- the generator warns
+    # about a possible test-scale leak when the mask is absent, which on this path was a false alarm four times per
+    # run, and a WARNING that cries leak without a leak teaches the reader to ignore the one that matters.
+    train_mask = np.ones(y_screen.shape[0], dtype=bool)
     synth, records = discover_interaction_bases(
         candidates, y_screen, top_k=top_k, max_pairs=max_pairs,
-        nbins=int(self.config.mi_nbins),
+        nbins=int(self.config.mi_nbins), train_mask=train_mask,
     )
     return synth, records
 

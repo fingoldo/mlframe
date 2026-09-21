@@ -554,6 +554,18 @@ def fit(
             "[CompositeTargetDiscovery] target is left-skewed; skipping right-tail compressors %s (they would deepen the "
             "skew). yeo_johnson_y stays: it fits lambda > 1 for a left tail.", sorted(_skip_right_tail),
         )
+    from ._point_mass_gate import point_mass_curved_inverse_skips, point_mass_fraction
+
+    _skip_curved = point_mass_curved_inverse_skips(y_train)
+    if _skip_curved:
+        logger.info(
+            "[CompositeTargetDiscovery] %.0f%% of the target sits on a single value; skipping curved y-compressors %s "
+            "(their convex inverse cannot reconstruct spread from a point mass -- a production run measured "
+            "pred_std at 1.3-1.8%% of target_std for log/cbrt on a zero-inflated amount, after paying for the fits). "
+            "Clipping-style y-transforms keep a piecewise-linear inverse and stay.",
+            100.0 * point_mass_fraction(y_train), sorted(_skip_curved),
+        )
+        _skip_right_tail = _skip_right_tail | _skip_curved
     _work_items: list[tuple[str, str, Any]] = []
     for base in base_candidates:
         if base not in _base_contexts:

@@ -56,6 +56,44 @@ from ._phase_composite_discovery_helpers import (
 # composite discovery (default OFF) never actually runs unless a caller manually opts in.
 _AUTO_ENABLE_DISCOVERY_PATHOLOGY_PREFIXES = ("heavy_tail", "skewed_target")
 
+def _maybe_narrow_to_unary_transforms(disc_cfg: Any, diag: Any, target_name: str) -> Any:
+    """Drop base-dependent transforms when BaselineDiagnostics found no dominant feature to residualise against.
+
+    Returns ``disc_cfg`` unchanged when the diagnostic is absent, says something else, or the narrowing would leave
+    nothing to search.
+    """
+    if not isinstance(diag, dict) or diag.get("composite_recommendation") != "unlikely_to_help":
+        return disc_cfg
+    try:
+        from ..composite.transforms import UnknownTransformError, get_transform
+
+        unary: list[str] = []
+        for name in list(getattr(disc_cfg, "transforms", ()) or ()):
+            try:
+                if not get_transform(name).requires_base:
+                    unary.append(name)
+            except UnknownTransformError:  # noqa: PERF203 -- per-transform fault isolation is intentional; an unknown name skips, never aborts the narrowing
+                continue
+        if not unary or len(unary) == len(list(disc_cfg.transforms)):
+            return disc_cfg
+        logger.info(
+            "[CompositeTargetDiscovery] target=%r: BaselineDiagnostics reports composite_recommendation="
+            "'unlikely_to_help' (%s). That verdict is about BASE-DEPENDENT families -- with no dominant feature "
+            "there is nothing to residualise against -- so discovery is narrowed from %d transform(s) to the %d "
+            "base-free unary one(s), which the finding does not bear on.",
+            target_name, diag.get("composite_recommendation_reason", "no reason recorded"),
+            len(list(disc_cfg.transforms)), len(unary),
+        )
+        return disc_cfg.model_copy(update={"transforms": unary})
+    except Exception as exc:
+        logger.debug("narrowing discovery to unary transforms failed for %r (%s); full search proceeds", target_name, exc)
+        return disc_cfg
+
+
+_DEFAULT_MIN_HONEST_GAIN_Z: float = 2.0
+"""Standard errors a spec's honest-holdout RMSE gain must clear before the spec is worth a full model fit, on top of
+the constant ``min_honest_gain_to_train`` floor. 0 disables the noise-aware half and restores the constant-only bar."""
+
 
 def _target_pathologies_for_auto_enable(y_train: np.ndarray, target_name: str, td_report: dict) -> list[str]:
     """Pathologies relevant to auto-enabling discovery for one regression target.
@@ -479,6 +517,16 @@ def run_composite_target_discovery(
 
             # If hint enabled and BD ran, derive per-target config with dominant_features_hint from ablation top-K.
             _disc_cfg = _disc_cfg_base
+            # BaselineDiagnostics computes a ``composite_recommendation`` whose whole purpose is to say whether
+            # composite discovery is worth running, and the suite already has it here (it is the same precompute the
+            # hint above comes from) -- it was simply never read, so the verdict only reached the log AFTER discovery
+            # had finished and committed its specs. Read it at the decision point.
+            #
+            # ``unlikely_to_help`` means "no dominant features", which is a statement about BASE-DEPENDENT families:
+            # a residual transform has nothing to residualise against. The base-free unary y-transforms are
+            # untouched by that finding, and in the production run the one composite that beat raw y was exactly one
+            # of those. So the verdict narrows discovery to the unary family rather than cancelling it.
+            _disc_cfg = _maybe_narrow_to_unary_transforms(_disc_cfg, _diag, _tname_disc)
             if _use_hint and _diag is not None:
                 _hint_top_k = max(1, int(getattr(
                     composite_target_discovery_config,
@@ -876,8 +924,13 @@ def run_composite_target_discovery(
                     # is still globally rankable rather than silently excluded from the budget entirely.
                     _honest_mi = getattr(_spec, "honest_holdout_gain", None)
                     _rel_gain = float(_honest_mi) if _honest_mi is not None else float(_spec.mi_gain)
+                _gain_se = getattr(_spec, "honest_holdout_rmse_gain_se", None)
+                _rel_gain_se = (
+                    float(_gain_se) / float(_raw_rmse) if (_gain_is_rmse and _gain_se is not None and _raw_rmse) else None
+                )
                 _pending_composite.append({
-                    "tt": _tt_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain, "rmse_gain": _gain_is_rmse,
+                    "tt": _tt_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain,
+                    "rmse_gain": _gain_is_rmse, "gain_se": _rel_gain_se,
                 })
             # Each shipped spec costs a full model-zoo fit: drop ones whose T is equivalent to raw y or to a better spec's T.
             from ._phase_composite_discovery_dedup import prune_equivalent_composite_specs
@@ -913,14 +966,33 @@ def run_composite_target_discovery(
     # share per target) up to max_total_composite_targets; None keeps every discovered spec (old behaviour).
     _max_total = getattr(composite_target_discovery_config, "max_total_composite_targets", None)
     _min_gain = getattr(composite_target_discovery_config, "min_honest_gain_to_train", None)
+    # A constant floor cannot tell a real 0.4% gain from a 0.4% measurement error. Each spec now carries the paired
+    # standard error of its own gain, so the bar is "beats the constant floor AND is larger than its own noise" --
+    # a production run shipped 9 specs at gains of +0.002..+0.011 and warned about GPU non-determinism of the same
+    # order in the very next log line.
+    _min_gain_z = float(getattr(composite_target_discovery_config, "min_honest_gain_z", _DEFAULT_MIN_HONEST_GAIN_Z))
     if _min_gain is not None:
-        _below = [p for p in _pending_composite if p.get("rmse_gain") and p["gain"] <= float(_min_gain)]
+        def _floor_for(p: dict) -> float:
+            """Ship/no-ship floor for one pending spec: the configured constant, raised to its measurement noise when known."""
+            _se = p.get("gain_se")
+            if _min_gain_z <= 0 or _se is None or not np.isfinite(_se) or _se <= 0:
+                return float(_min_gain)
+            return max(float(_min_gain), _min_gain_z * float(_se))
+
+        _below = [p for p in _pending_composite if p.get("rmse_gain") and p["gain"] <= _floor_for(p)]
         if _below:
             _pending_composite = [p for p in _pending_composite if p not in _below]
             logger.info(
-                "[CompositeTargetDiscovery] not training %d composite target(s) whose honest-holdout RMSE gain is <= %.3f "
-                "(min_honest_gain_to_train): %s",
-                len(_below), float(_min_gain), ", ".join(f"{d['name']}({d['gain']:+.3f})" for d in _below),
+                "[CompositeTargetDiscovery] not training %d composite target(s) whose honest-holdout RMSE gain is at or "
+                "below its floor (min_honest_gain_to_train=%.3f, raised to %.1f x the gain's own paired standard error "
+                "where measurable): %s",
+                len(_below), float(_min_gain), _min_gain_z,
+                ", ".join(
+                    f"{d['name']}({d['gain']:+.4f} vs floor {_floor_for(d):.4f}"
+                    + (f", se={d['gain_se']:.4f}" if d.get("gain_se") else "")
+                    + ")"
+                    for d in _below
+                ),
             )
     _pending_composite.sort(key=lambda item: item["gain"], reverse=True)
     if _max_total is not None and len(_pending_composite) > int(_max_total):

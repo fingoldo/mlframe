@@ -32,6 +32,7 @@ from ._eval_helpers import _align_xgb_cat_categories
 from ._training_loop_refit import (
     _maybe_refit_on_collapsed_predictions,
     _maybe_refit_on_degenerate_best_iter,
+    _maybe_refit_on_saturated_best_iter,
 )
 from .cb import (
     _maybe_get_or_build_cb_pool,
@@ -809,6 +810,7 @@ def _train_model_with_fallback_unguarded(
             # _predict_with_fallback.
             try:
                 model._mlframe_polars_fastpath_broken = True
+                model._mlframe_polars_fastpath_miss_observed = True
             except Exception as _mark_broken_err:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 # Deliberately NOT named `e`: this is nested inside the outer `except Exception as e:` handler,
                 # and Python implicitly `del`s the exception name at the end of its own except clause -- reusing
@@ -977,6 +979,20 @@ def _train_model_with_fallback_unguarded(
         )
         if _new_best_iter is not None:
             best_iter = _new_best_iter
+        else:
+            # The other half of the same failure class: a robust loss whose eval surface keeps improving while the
+            # reported metric diverges, so ES never fires and the fit runs to the cap unprotected.
+            _sat_best_iter = _maybe_refit_on_saturated_best_iter(
+                model_obj=model_obj,
+                model_type_name=model_type_name,
+                best_iter=best_iter,
+                train_df=train_df,
+                train_target=train_target,
+                fit_params=fit_params,
+                logger_=logger,
+            )
+            if _sat_best_iter is not None:
+                best_iter = _sat_best_iter
 
     # MLP / recurrent collapse detection: same
     # failure shape as the booster Huber-collapse path -- network

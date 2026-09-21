@@ -238,6 +238,11 @@ class CatBoostGpuFitMonitor:
 
     def _safe_poll(self) -> None:
         """One :meth:`poll_once`; a failure is logged as a warning and never propagates into the fit."""
+        # Re-check the stop flag after the interval wait: ``stop()`` can land while this thread is between its wait
+        # returning and the poll starting, and the poll then reports a live-looking iteration count and ETA for a
+        # fit that has already returned (observed 24 ms after ``model.fit ... done``, claiming "cb-ETA=2.1m").
+        if self._stop.is_set():
+            return
         try:
             self.poll_once()
         except Exception as e:  # best-effort: a monitoring bug must never reach the fit

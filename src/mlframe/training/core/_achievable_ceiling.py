@@ -359,6 +359,11 @@ def measure_achievable_ceiling(
     base_cands = _pick_base_candidates(df, feature_cols, target_col, lag_col, y_sub, idx_all, max_base_candidates)
     best_composite_rmse = float("inf")
     best_base: Optional[str] = None
+    # "No candidate was evaluated" and "every evaluated candidate collapsed" both leave best_composite_rmse at inf,
+    # and used to reach the same "unmeasurable -> proceed" verdict with no way to tell them apart. The first is an
+    # absence of evidence; the second IS evidence. Count both.
+    n_evaluated = 0
+    n_collapsed = 0
     for bcol in base_cands:
         try:
             base_fit = _extract_column_array(df, bcol, rows=rows_fit).astype(np.float64, copy=False)
@@ -372,9 +377,13 @@ def measure_achievable_ceiling(
             base_fit=base_fit, base_hold=base_hold, y_fit=y_fit, y_hold=y_hold,
             x_fit=x_fit, x_hold=x_hold, model_factory=_model_factory, y_hold_std=y_hold_std,
         )
-        if np.isfinite(comp) and comp < best_composite_rmse:
-            best_composite_rmse = comp
-            best_base = bcol
+        n_evaluated += 1
+        if np.isfinite(comp):
+            if comp < best_composite_rmse:
+                best_composite_rmse = comp
+                best_base = bcol
+        else:
+            n_collapsed += 1
 
     # Floor = the honest min over the raw model and the AR failsafe.
     floor_candidates = [v for v in (raw_rmse, lag_rmse) if np.isfinite(v)]
@@ -387,8 +396,33 @@ def measure_achievable_ceiling(
     if not np.isfinite(floor_rmse):
         return _verdict(headroom=float("nan"), decision="proceed", reason="no measurable floor (raw + lag both non-finite)", **common)
     if not np.isfinite(best_composite_rmse):
+        if n_evaluated == 0:
+            return _verdict(
+                headroom=float("nan"), decision="proceed",
+                reason=f"optimistic composite ceiling unmeasured: {len(base_cands)} candidate base(s) offered, 0 evaluable "
+                       f"(absent / shape-mismatched columns). Absence of measurement, not evidence against composites",
+                **common,
+            )
+        # Every base that COULD be evaluated produced a non-finite reconstruction. That is a measurement. Honour it
+        # only where the existing strong-floor rule already trusts the ceiling estimate; on a weak floor the tiny
+        # model is not reliable enough to conclude anything either way.
+        _strong_floor = y_hold_std > 0 and floor_rmse <= strong_floor_frac * y_hold_std
+        _reason = (
+            f"optimistic composite ceiling collapsed on ALL {n_collapsed}/{n_evaluated} evaluable base(s) "
+            f"(non-finite reconstruction on the holdout)"
+        )
+        if _strong_floor:
+            return _verdict(
+                headroom=float("nan"), decision="skip",
+                reason=f"{_reason}; the floor {floor_rmse:.4g} is already strong vs std(y)={y_hold_std:.4g} "
+                       f"(<= {strong_floor_frac:.0%}), so there is measured evidence against composites, lag_predict deployed instead",
+                **common,
+            )
         return _verdict(
-            headroom=float("nan"), decision="proceed", reason="optimistic composite ceiling unmeasurable (all candidate bases collapsed / absent)", **common
+            headroom=float("nan"), decision="proceed",
+            reason=f"{_reason}, but the floor {floor_rmse:.4g} is weak vs std(y)={y_hold_std:.4g} "
+                   f"(> {strong_floor_frac:.0%}), so the tiny-model ceiling is low-confidence; discovery proceeds",
+            **common,
         )
 
     headroom = (floor_rmse - best_composite_rmse) / floor_rmse if floor_rmse > 0 else float("nan")

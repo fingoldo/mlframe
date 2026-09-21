@@ -49,6 +49,34 @@ from ._screening_tiny import _build_tiny_model
 logger = logging.getLogger(__name__)
 
 
+_GAIN_SIGNIFICANCE_Z: float = 2.0
+"""Standard errors a gain must clear to count as measured rather than as noise. Used for the gate's own reporting and
+exported on each spec so the ship/no-ship floor downstream can be noise-aware instead of a fixed constant."""
+
+
+def _paired_rmse_gain_se(
+    y_true: np.ndarray, y_hat_raw: np.ndarray, y_hat_spec: np.ndarray, raw_rmse: float, spec_rmse: float
+) -> float:
+    """Standard error of ``RMSE_raw - RMSE_spec`` from the PAIRED per-row squared errors; NaN when undefined.
+
+    Both predictions cover the same holdout rows from the same model class, so the difference of squared errors is
+    paired and its mean is ``MSE_raw - MSE_spec``. The delta method turns that into the RMSE scale::
+
+        RMSE_raw - RMSE_spec = (MSE_raw - MSE_spec) / (RMSE_raw + RMSE_spec)
+        se(dRMSE)            ~ se(mean of per-row squared-error differences) / (RMSE_raw + RMSE_spec)
+
+    O(n) on arrays the gate already holds, with no extra model fits.
+    """
+    denom = raw_rmse + spec_rmse
+    if y_true.size < 30 or denom <= 0:
+        return float("nan")
+    d = (y_true - y_hat_raw) ** 2 - (y_true - y_hat_spec) ** 2
+    d = d[np.isfinite(d)]
+    if d.size < 30:
+        return float("nan")
+    return float(np.std(d, ddof=1) / np.sqrt(d.size) / denom)
+
+
 def _base_arg(df: Any, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
     """Materialise the ``base`` argument shape ``transform.forward/inverse`` expects on the given rows."""
     if not base_columns:
@@ -130,7 +158,11 @@ def apply_honest_rmse_gate(
         return np.asarray(model.predict(x_eval), dtype=np.float64)
 
     try:
-        raw_rmse = rmse(y_eval, _fit_predict(y_fit))
+        # Keep the raw baseline's PREDICTION VECTOR, not just its RMSE. Every spec is scored on these same rows with
+        # the same model class, so their squared errors are paired -- the cheapest available evidence for whether a
+        # gain is real, and it used to be discarded on the line that computed it.
+        y_hat_raw = _fit_predict(y_fit)
+        raw_rmse = rmse(y_eval, y_hat_raw)
     except Exception as exc:  # -- no baseline, no sound gate
         logger.warning("[CompositeTargetDiscovery.honest_rmse_gate] raw-y baseline fit failed (%s); gate skipped.", exc)
         return kept_specs
@@ -210,6 +242,10 @@ def apply_honest_rmse_gate(
         object.__setattr__(spec, "honest_holdout_rmse", float(rmse_y))
         object.__setattr__(spec, "honest_holdout_raw_rmse", float(raw_rmse))
         object.__setattr__(spec, "honest_holdout_rmse_gain", float(raw_rmse - rmse_y))
+        object.__setattr__(
+            spec, "honest_holdout_rmse_gain_se",
+            _paired_rmse_gain_se(y_eval[finite], y_hat_raw[finite], y_hat[finite], raw_rmse, float(rmse_y)),
+        )
         survivors.append(spec)
 
     if rejected:
@@ -219,11 +255,22 @@ def apply_honest_rmse_gate(
             len(rejected), len(kept_specs), raw_rmse, tol,
             ", ".join(f"{n}({why})" for n, why in rejected),
         )
-    else:
-        logger.info(
-            "[CompositeTargetDiscovery.honest_rmse_gate] all %d spec(s) passed the honest-holdout "
-            "y-scale RMSE gate (raw-y baseline RMSE=%.4g).", len(kept_specs), raw_rmse,
-        )
+    # "Passed" means "not more than tol worse than raw", which includes being worse. Reporting only the count reads
+    # as an endorsement: a production run logged "all 10 spec(s) passed" for specs that later scored y-scale R2 of
+    # -0.024 and -0.026. Split the survivors by what they actually did against raw.
+    _better = [s for s in survivors if (getattr(s, "honest_holdout_rmse_gain", None) or 0.0) > 0]
+    _sig = [
+        s for s in _better
+        if (getattr(s, "honest_holdout_rmse_gain_se", None) or 0.0) > 0
+        and s.honest_holdout_rmse_gain >= _GAIN_SIGNIFICANCE_Z * s.honest_holdout_rmse_gain_se
+    ]
+    logger.info(
+        "[CompositeTargetDiscovery.honest_rmse_gate] %d/%d spec(s) survived the honest-holdout y-scale RMSE gate "
+        "(raw-y baseline RMSE=%.4g, tol=%.2f): %d beat raw, of which %d by at least %.1f paired standard errors; "
+        "the remaining %d are within tolerance but do NOT beat raw.",
+        len(survivors), len(kept_specs), raw_rmse, tol,
+        len(_better), len(_sig), _GAIN_SIGNIFICANCE_Z, len(survivors) - len(_better),
+    )
     return survivors
 
 
