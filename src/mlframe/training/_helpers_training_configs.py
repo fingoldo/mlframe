@@ -32,6 +32,28 @@ from ._picklable_metrics import (
 )
 
 
+def _cb_calib_classif_params(cb_classif: dict, resolved_tt: Any, final_ice: Any) -> dict:
+    """CatBoost classifier params with the integral calibration error as ``eval_metric`` where CatBoost supports it."""
+    params = cb_classif.copy()
+    # ICE custom-metric only works for single-target CatBoost objectives
+    # (binary / multiclass). For MultiLogloss (multilabel) CB asserts that
+    # the custom metric inherits from MultiTargetCustomMetric. Until we
+    # ship a multi-target ICE variant, fall back to HammingLoss for
+    # multilabel (same as CB_CLASSIF so calibrated path == base path).
+    if resolved_tt.is_classification and not resolved_tt.is_binary and cb_classif.get("loss_function") == "MultiLogloss":
+        # eval_metric is already HammingLoss in cb_classif; keep it.
+        pass
+    else:
+        # ``skip_largest_set``: CatBoost evaluates a custom eval_metric on the LEARN set as well as on the eval set, and
+        # the learn value is only printed - early stopping and model selection read the eval set. One call cost 107.8 ms
+        # at 498k rows, and on a 200k-row bed the fit went 10.3s (builtin logloss) -> 15.5s (ICE on both sets) -> 12.7s
+        # (ICE on the eval set alone). Skipping by SIZE alone would silently zero a large eval set's metric and break
+        # early stopping, so ICE skips the largest set only once it has seen more than one size, i.e. only when an eval
+        # set exists.
+        params.update({"eval_metric": ICE(metric=final_ice, higher_is_better=False, skip_largest_set=True)})
+    return params
+
+
 def get_training_configs(
     iterations: int = 5000,
     early_stopping_rounds: Optional[int] = 0,
@@ -363,23 +385,7 @@ def get_training_configs(
 
     lgbm_integral_calibration_error = LightGBMMetricAdapter(final_integral_calibration_error)
 
-    CB_CALIB_CLASSIF = CB_CLASSIF.copy()
-    # ICE custom-metric only works for single-target CatBoost objectives
-    # (binary / multiclass). For MultiLogloss (multilabel) CB asserts that
-    # the custom metric inherits from MultiTargetCustomMetric. Until we
-    # ship a multi-target ICE variant, fall back to HammingLoss for
-    # multilabel (same as CB_CLASSIF so calibrated path == base path).
-    if _resolved_tt.is_classification and not _resolved_tt.is_binary and CB_CLASSIF.get("loss_function") == "MultiLogloss":
-        # eval_metric already set to HammingLoss above; keep it.
-        pass
-    else:
-        # ``skip_largest_set``: CatBoost evaluates a custom eval_metric on the LEARN set as well as on the eval set, and
-        # the learn value is only printed - early stopping and model selection read the eval set. One call cost 107.8 ms
-        # at 498k rows, and on a 200k-row bed the fit went 10.3s (builtin logloss) -> 15.5s (ICE on both sets) -> 12.7s
-        # (ICE on the eval set alone). Skipping by SIZE alone would silently zero a large eval set's metric and break
-        # early stopping, so ICE skips the largest set only once it has seen more than one size, i.e. only when an eval
-        # set exists.
-        CB_CALIB_CLASSIF.update({"eval_metric": ICE(metric=final_integral_calibration_error, higher_is_better=False, skip_largest_set=True)})
+    CB_CALIB_CLASSIF = _cb_calib_classif_params(CB_CLASSIF, _resolved_tt, final_integral_calibration_error)
 
     # Same gating story as XGB. ``has_gpu and LGB_GPU_AVAILABLE`` respects
     # the LightGBM build's actual GPU support (default LightGBM wheels are
