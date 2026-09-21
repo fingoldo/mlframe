@@ -19,10 +19,10 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `discovery.md` | 30 | 5 | 0 | 25 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
 | `suite_integration.md` | 19 | 6 | 0 | 13 | 0 | 0 |
-| `performance.md` | 24 | 12 | 10 | 1 | 1 | 0 |
+| `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **53** | **10** | **115** | **1** | **0** |
+| **Total** | **179** | **54** | **10** | **114** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -168,7 +168,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `PRF-21` | The opt-in bootstrap MI recomputes the same `MI(y, X)` replicates for every transform on a base | MI(y,X) replicates + row-major copy built once per base/mask/seed under a per-key lock (concurrent-safe); LCB and p-values identical |
 | **PARTIAL** | P3 | `PRF-22` | The prebin content cache hashes the screen matrix on every fit but misses across targets | key hash blake2b -> xxh3-128 (509 -> 39 ms on 200 MB); cross-target misses under stratified sampling remain inherent |
 | **RESOLVED** | P3 | `PRF-23` | Region-adaptive, which is opt-in, fits full-region parameters for every candidate in every region, then keeps only the winner's | candidates score only, winner fitted once per region; specs identical to the old implementation over 3 seeds |
-| **TODO** | P3 | `PRF-24` | The multi-target OOF polars slice converts fold indices to a Python list | |
+| **RESOLVED** | P3 | `PRF-24` | The multi-target OOF polars slice converts fold indices to a Python list | polars gathers by the ndarray directly; dead filter branch removed; slices equal |
 
 ### `tests.md`
 

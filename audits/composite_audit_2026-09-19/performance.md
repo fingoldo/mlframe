@@ -386,4 +386,4 @@ Default counts used in the estimates:
 - **Expected win** (estimate): a few ms per fold. Small, but free.
 - **Suggested fix**: use `X[idx]` (or `X.gather(idx)`) and drop the dead branch.
 - **Test/benchmark to add**: a parity test that the slices are equal.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - polars frames are now indexed with the integer ndarray directly (`X[np.asarray(idx, dtype=np.int64)]`), and the unreachable `filter` fallback is gone. test_mtr_oof_polars_slice.py, 3 tests: equal to the list-based slice (rows, order, dtypes), unsorted and repeated indices keep their order, int32 indices accepted
