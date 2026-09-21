@@ -344,7 +344,7 @@ Default counts used in the estimates:
 - **Expected win** (estimate): small, about 24 column syntheses plus MI at 100k rows per target.
 - **Suggested fix**: return the synthesised columns from `score_interaction_pairs` and reuse them. Consider gating the step behind a reporting flag until it feeds specs.
 - **Test/benchmark to add**: a test that `generate_interaction_bases` is called once per fit.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL - verified the two passes produce identical arrays (same top-k parents, same train-mask eps floor; checked for top_k 3 and 4), then made the scorer hand back its synthesised columns (`_score_interaction_pairs_with_synth`, with `score_interaction_pairs` keeping its public records-only contract) so `discover_interaction_bases` no longer regenerates them: one synthesis per call instead of two, identical output. NOT done: the finding also notes the surfaced columns are stored on `interaction_bases_` for reporting and never re-screened into `specs_`; whether to gate the step behind a reporting flag or feed it into the spec screen is a product decision left open. test_interaction_bases_generated_once.py, 3 tests: one synthesis per discovery (fails pre-fix), surfaced columns equal a fresh synthesis, the public scorer still returns records
 
 ### PRF-21 [P3] The opt-in bootstrap MI recomputes the same `MI(y, X)` replicates for every transform on a base
 

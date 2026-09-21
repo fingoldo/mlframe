@@ -74,7 +74,26 @@ def score_interaction_pairs(
     min_margin_ratio: float = _INTERACTION_MIN_MARGIN_RATIO_DEFAULT,
     train_mask: Optional[np.ndarray] = None,
 ) -> List[Dict[str, Any]]:
-    """Score interaction pairs by MI synergy beyond the additive marginals.
+    """Score interaction pairs by MI synergy beyond the additive marginals (parameters and records as documented on
+    :func:`_score_interaction_pairs_with_synth`, which also hands back the synthesised columns)."""
+    return _score_interaction_pairs_with_synth(
+        candidates, y, ops=ops, top_k=top_k, nbins=nbins,
+        min_synergy_gain=min_synergy_gain, min_margin_ratio=min_margin_ratio, train_mask=train_mask,
+    )[0]
+
+
+def _score_interaction_pairs_with_synth(
+    candidates: Dict[str, np.ndarray],
+    y: np.ndarray,
+    *,
+    ops: Sequence[str] = _INTERACTION_OPS_DEFAULT,
+    top_k: int = _INTERACTION_TOP_K_DEFAULT,
+    nbins: int = 12,
+    min_synergy_gain: float = _INTERACTION_MIN_SYNERGY_GAIN_DEFAULT,
+    min_margin_ratio: float = _INTERACTION_MIN_MARGIN_RATIO_DEFAULT,
+    train_mask: Optional[np.ndarray] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, np.ndarray]]:
+    """Score interaction pairs by MI synergy beyond the additive marginals, returning ``(records, synthesised_columns)``.
 
     Parameters
     ----------
@@ -110,7 +129,7 @@ def score_interaction_pairs(
     y = np.asarray(y, dtype=np.float64).reshape(-1)
     names = list(candidates.keys())[:top_k]
     if len(names) < 2:
-        return []
+        return [], {}
     # Marginal MI per candidate, computed once (reused across every pair it
     # appears in). Bit-identical to recomputing per pair, just cheaper.
     mi_marg: Dict[str, float] = {}
@@ -156,7 +175,7 @@ def score_interaction_pairs(
             }
         )
     results.sort(key=lambda r: -r["gain"])
-    return results
+    return results, synth
 
 
 def discover_interaction_bases(
@@ -181,7 +200,7 @@ def discover_interaction_bases(
     Returns ``({synth_name -> ndarray}, [score_record, ...])``. Empty when no
     pair clears the synergy gate -- the caller then proceeds with raw bases only.
     """
-    scored = score_interaction_pairs(
+    scored, synth_all = _score_interaction_pairs_with_synth(
         candidates, y,
         ops=ops, top_k=top_k, nbins=nbins,
         min_synergy_gain=min_synergy_gain,
@@ -191,12 +210,8 @@ def discover_interaction_bases(
     qualifying = [r for r in scored if r["qualifies"]]
     if not qualifying:
         return {}, []
-    # Regenerate the synthetic arrays for the names we keep (cheap; the scorer
-    # already proved them out). Dedup commutative ops by sorted-parent + op.
-    synth_all, _prov = generate_interaction_bases(
-        candidates, ops=ops, top_k=top_k,
-        forbid_self_pairs=True, train_mask=train_mask,
-    )
+    # Keep the columns the scorer already synthesised (generating them again gave identical arrays: the same top-k
+    # parents and the same train-mask eps floor). Dedup commutative ops by sorted-parent + op.
     out: Dict[str, np.ndarray] = {}
     kept_records: List[Dict[str, Any]] = []
     seen_keys: set = set()
