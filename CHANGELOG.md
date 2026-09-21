@@ -128,6 +128,10 @@ history.
 
 - MRMR GPU-resident FE (`MLFRAME_FE_GPU_STRICT`) now has an AUTO size-gated default: on fits at/above `MLFRAME_FE_GPU_STRICT_AUTO_MIN_N` rows (default 100 000, the production regime) with a usable CUDA device, STRICT engages automatically (~2.5x faster FE and measured selection-equivalent to the CPU path at that scale). Below the threshold, or with no GPU, the exact CPU path runs unchanged (byte-identical legacy). Set `MLFRAME_FE_GPU_STRICT=0` to pin the CPU path at any n, or `=1` to force STRICT. The small-n divergence that keeps STRICT gated below the threshold is finite-sample MI-estimation variance (features with near-tied relevance), which fades as n grows — verified converged across scenarios by ~50k; the 100k default sits comfortably above that.
 
+### Removed
+
+- `CompositeTargetEstimator` no longer accepts `moe_gate_enabled`, `moe_shrink_rtol`, `moe_tie_rtol`, `moe_min_group_rows` or `moe_failsafe`. They were stored and never read: the {composite, raw, lag} MoE gate runs in suite post-processing and is configured by `CompositeTargetDiscoveryConfig.moe_gate_enabled` and the `moe_gate_*` fields, so passing `moe_gate_enabled=False` to an estimator disabled nothing. Estimators pickled with these attributes still load.
+
 ### Fixed
 
 - The downstream panel was not reproducible. Both statistical layers difference an arm against the null hypothesis on the same holdout and assume the pairing is exact, but the LightGBM member was unseeded, unpinned and free to pick its histogram strategy from the thread count, so a cell re-run on another worker could produce a different winner. It now carries `deterministic=True`, `force_row_wise=True`, a fixed seed and a fixed thread count.
