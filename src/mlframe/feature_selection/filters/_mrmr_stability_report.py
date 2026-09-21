@@ -28,11 +28,22 @@ MI sweeps over the stored matrix == K screen-replays, NOT K * single-fit-time.
 
 What the report measures
 ------------------------
-* per-feature SELECTION-FREQUENCY: the fraction of the K bootstrap resamples on
-  which the feature would have been selected (its replayed relevance MI lands in
-  the top-``n_selected`` of the candidate pool, mirroring the in-fit relevance
-  ranking). A genuine signal feature clears on nearly every resample (-> ~1.0); a
-  noise feature that won the point selection by chance does not (-> low).
+* per-feature RELEVANCE-RANK FREQUENCY: the fraction of the K bootstrap resamples
+  on which the feature's replayed marginal MI lands in the top-``n_selected`` of
+  the candidate pool. A genuine signal feature clears on nearly every resample
+  (-> ~1.0); a noise feature that won the point selection by chance does not
+  (-> low).
+
+  This is a relevance statistic, NOT a replay of the selection. MRMR picks on
+  relevance MINUS redundancy against what it has already picked, and this column
+  has no redundancy term: replaying the real greedy step would cost
+  ``K * n_selected * n_cand`` conditional MIs, which is the single-fit cost this
+  whole accessor exists to avoid. So two duplicated strong features BOTH score
+  ~1.0 here, though MRMR deliberately kept one and dropped the other, and a
+  feature admitted for its low redundancy despite middling relevance can score
+  low while being a sound pick. Read the column as "is this feature's relevance
+  robust to resampling", and the ``*`` as "MRMR picked it", which are different
+  questions.
 * per-recipe SURVIVAL-FREQUENCY: for engineered (``unary_binary``) recipes, the
   fraction of resamples on which the recipe still clears its held-out uplift gate
   (the #15 ``_recipe_clears_fold`` statistic re-used verbatim on the resample).
@@ -128,7 +139,9 @@ def selection_stability_report(
     Returns
     -------
     A formatted report string (``as_text=True``) or a dict with keys
-    ``feature_selection_frequency`` ({name -> freq}), ``selected_features``
+    ``feature_relevance_rank_frequency`` ({name -> freq}; also returned under the
+    older, less accurate name ``feature_selection_frequency`` for callers that
+    still read it), ``selected_features``
     (the point selection), ``recipe_survival_frequency`` ({name -> freq}),
     ``n_boot``, ``n_selected``, ``n_candidates``. Returns a short notice string /
     empty dict when the replay state was not stored (e.g. a degenerate fit).
@@ -177,10 +190,12 @@ def selection_stability_report(
         for _ in range(K):
             idx = rng.integers(0, n_rows, size=n_rows)  # bootstrap (with replacement)
             y_b = y_codes[idx]
-            # Cheap per-candidate marginal MI on the resample (the screen-replay).
+            # One gather for the whole resample, then a view per candidate. Indexing ``cand_codes[idx, c]`` inside the loop allocated a fresh
+            # full-length column for every candidate of every resample, K * n_cand gathers where K do.
+            cand_b = cand_codes[idx]
             rel = np.empty(n_cand, dtype=np.float64)
             for c in range(n_cand):
-                rel[c] = _marginal_mi_codes(cand_codes[idx, c], y_b)
+                rel[c] = _marginal_mi_codes(cand_b[:, c], y_b)
             # Mirror the in-fit relevance ranking: top-n_selected by relevance MI. np.argpartition sorts NaN to the HIGH end, so a degenerate
             # candidate would count as selected on every resample; rank it last instead.
             rel = np.nan_to_num(rel, nan=-np.inf)
@@ -206,6 +221,9 @@ def selection_stability_report(
         )
 
     result = {
+        # The metric is a relevance ranking, so it is named for that. The old key is still populated: it was the published name, and it is
+        # the same numbers, only described wrongly.
+        "feature_relevance_rank_frequency": dict(sorted(freq.items(), key=lambda kv: -kv[1])),
         "feature_selection_frequency": dict(sorted(freq.items(), key=lambda kv: -kv[1])),
         "selected_features": selected_features,
         "recipe_survival_frequency": recipe_freq,
@@ -277,15 +295,15 @@ def _format_report(result: dict, *, quorum: float) -> str:
     lines: list = []
     K = result["n_boot"]
     lines.append(
-        f"MRMR selection-stability report  (K={K} bootstrap replays, " f"{result['n_selected']}/{result['n_candidates']} selected, quorum={quorum:.2f})"
+        f"MRMR relevance-rank stability report  (K={K} bootstrap replays, " f"{result['n_selected']}/{result['n_candidates']} selected, quorum={quorum:.2f})"
     )
     lines.append("-" * 72)
-    lines.append(f"{'feature':<40}{'sel.freq':>10}  {'point':>6}  conf")
+    lines.append(f"{'feature':<40}{'rel.rank.freq':>14}  {'picked':>6}  conf")
     sel_set = set(result["selected_features"])
-    for nm, fr in result["feature_selection_frequency"].items():
+    for nm, fr in result["feature_relevance_rank_frequency"].items():
         point = "  *  " if nm in sel_set else "     "
         conf = "HIGH" if fr >= max(quorum, 0.7) else ("low" if fr < 0.3 else "mid")
-        lines.append(f"{str(nm)[:40]:<40}{fr:>10.2f}  {point:>6}  {conf}")
+        lines.append(f"{str(nm)[:40]:<40}{fr:>14.2f}  {point:>6}  {conf}")
     if result["recipe_survival_frequency"]:
         lines.append("-" * 72)
         lines.append("engineered recipe survival-frequency (held-out uplift gate):")
@@ -294,8 +312,9 @@ def _format_report(result: dict, *, quorum: float) -> str:
             lines.append(f"  {str(nm)[:50]:<52}{fr:>8.2f}  {conf}")
     lines.append("-" * 72)
     lines.append(
-        "sel.freq = fraction of bootstrap resamples on which the feature's replayed "
-        "relevance MI ranked in the selected top-set. * marks the point selection. "
-        "Computed by replay (no MRMR refit)."
+        "rel.rank.freq = fraction of bootstrap resamples on which the feature's replayed marginal relevance MI ranked in the top-n_selected. "
+        "It has NO redundancy term, so it is not a replay of the MRMR decision: two duplicated strong features both score ~1.0 here even "
+        "though MRMR keeps one and drops the other. * marks what MRMR actually picked, redundancy included, so a starred feature with a low "
+        "score is not a contradiction. Computed by replay (no MRMR refit)."
     )
     return "\n".join(lines)

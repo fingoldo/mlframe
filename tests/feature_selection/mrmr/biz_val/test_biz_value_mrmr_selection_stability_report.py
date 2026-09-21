@@ -133,9 +133,10 @@ def test_biz_value_tiny_n_clean_separation():
         assert freq.get(c, 0.0) < gen_min, f"noise {c} freq {freq.get(c)} not below genuine min {gen_min} ({freq})"
         if c not in sel_set:
             assert freq.get(c, 0.0) < 0.3, f"unselected noise {c} freq {freq.get(c)} not < 0.3 ({freq})"
-    # The human-readable form is one screen and names the contract.
+    # The human-readable form is one screen and names the contract. The heading says relevance-rank, not selection: the column ranks on
+    # marginal relevance with no redundancy term, so it is not a replay of the MRMR decision and does not claim to be.
     txt = sel.selection_stability_report(n_boot=60, as_text=True)
-    assert isinstance(txt, str) and "selection-stability" in txt
+    assert isinstance(txt, str) and "relevance-rank stability report" in txt
     assert "replay (no MRMR refit)" in txt
 
 
