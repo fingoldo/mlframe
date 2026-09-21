@@ -63,6 +63,9 @@ _RECIPROCAL_EPS_FLOOR: float = 1e-12
 _RECIPROCAL_Y_CAP_MULT: float = 1e3  # the inverse's z-floor bounds |y_hat| at this multiple of the train max|y|
 _SPLINE_DEFAULT_K: int = 3
 _SPLINE_DEFAULT_S_MULT: float = 1.0  # smoothing = m * var_noise * s_mult (scipy s bounds the residual SS)
+# bench-attempt-rejected (2026-09-21): s = (m + sqrt(2m)) * var_noise, the top of scipy's recommended range, stops the knot count
+# growing with n (10 -> 41 knots from n=1000 to 4000 on a log curve; own-row influence stays ~0.04 instead of 1/n), but the
+# fit is further from the true curve in every case measured (log/sin, n=300..20000; rmse 0.006 -> 0.031 at n=20000).
 
 
 # ============================================================
