@@ -155,7 +155,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         family="interactions",
         builder=parity_spec,
         defaults={"order": 3},
-        expected_to_break=("mrmr", "univariate-mi", "skb-f", "skb-mi", "lars-order", "select-fdr", "variance-sort", "rank-vote"),
+        expected_to_break=("mrmr", "univariate-mi", "skb-f", "skb-mi", "lars-order", "select-fdr", "variance-sort", "rank-vote", "byproduct-ensemble"),
         purpose="operands with zero marginal association: invisible to any one-column-at-a-time ranking",
     ),
     Scenario(
@@ -212,7 +212,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         name="tail_isolation_clayton_vs_gaussian",
         family="tails",
         builder=tail_isolation_spec,
-        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr", "lars-order", "mrmr", "rank-vote"),
+        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr", "lars-order", "mrmr", "rank-vote", "byproduct-ensemble"),
         purpose="two pairs at matched rank correlation, one tail-dependent: the only bed here where the copula is the whole difference",
     ),
     Scenario(
@@ -317,7 +317,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         name="mb_spouse_collider",
         family="causal",
         builder=spouse_collider_spec,
-        expected_to_break=("univariate-mi", "skb-f", "skb-mi", "select-fdr", "lars-order", "rank-vote"),
+        expected_to_break=("univariate-mi", "skb-f", "skb-mi", "select-fdr", "lars-order", "rank-vote", "byproduct-ensemble"),
         purpose="a blanket member that is invisible until one conditions on the collider",
     ),
     Scenario(
