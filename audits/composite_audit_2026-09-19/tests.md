@@ -194,7 +194,7 @@ Findings are ordered by severity. A cross-reference like "(EST-01)" means the de
   - Draw the base scale log-uniformly from `[1e-3, 1e6]` and include an offset base.
   - Derive the multi-base set from the registry (`n_bases` or signature), as `_GROUPED` already is.
   - Drop the batch count to 3 once the oracle carries the signal.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Added `test_a_perfect_inner_reproduces_the_training_y`: 3 batches x 40 configs, excluding the lossy and out-of-fold-forward transforms. A `_RowOracleInner` returns the exact T per training row (looked up by a row-id feature), and the wrapper must give every row the inner saw its own y back, to 1e-6 x max|y|. The data factory now scales bases log-uniformly over [1e-3, 1e6] with a 0 or 1000-scale offset, in the oracle and in the envelope batches. `_MULTI_BASE` derives from `Transform.n_bases` (00ce5dbc6). The envelope fuzz drops from 6 to 3 batches. On its first run the oracle found a real defect: `box_cox_y` on a target far from 1 (y ~ 5.7e8, spread 5e5) hit the lambda bound of -2, and `(y**lam - 1) / lam` equalled 0.5 for every row in float64, off by up to 9.7e6. Box-Cox is now fitted in the normalised form (y divided by its geometric mean `y_scale`, which leaves the MLE lambda unchanged), and the round trip error is 4.8e-7. The docstring's "found NO production bug" is replaced.
 
 ### TST-11 [P2] Several biz_val tests have no honest baseline, compare against a baseline starved of the base column, or assert only "not worse"
 - **Where / What**:

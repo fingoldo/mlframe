@@ -20,9 +20,9 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `estimator_ensemble.md` | 22 | 7 | 0 | 15 | 0 | 0 |
 | `suite_integration.md` | 19 | 7 | 0 | 12 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 5 | 1 | 11 | 0 | 0 |
+| `tests.md` | 17 | 6 | 1 | 10 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 3 | 0 | 38 | 0 | 0 |
-| **Total** | **179** | **67** | **11** | **100** | **1** | **0** |
+| **Total** | **179** | **68** | **11** | **99** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -183,7 +183,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `TST-07` | The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04 | |
 | **TODO** | P2 | `TST-08` | Group handling is tested only with clean string/int labels on row-random splits, and the unseen-group tests assert only finiteness | |
 | **TODO** | P2 | `TST-09` | Polars coverage is limited to four pointwise transforms and a monotone-time OOF case, which hides the polars row-misalignment bug | |
-| **TODO** | P2 | `TST-10` | The CTE fuzz suite asserts only finiteness and a y-envelope that the post-inverse clip guarantees, on small-scale data, and states "found NO production bug" | |
+| **RESOLVED** | P2 | `TST-10` | The CTE fuzz suite asserts only finiteness and a y-envelope that the post-inverse clip guarantees, on small-scale data, and states "found NO production bug" | oracle inner reproduces train y over nine decades of scale; found + fixed box_cox_y constant-T collapse (normalised form) |
 | **TODO** | P2 | `TST-11` | Several biz_val tests have no honest baseline, compare against a baseline starved of the base column, or assert only "not worse" | |
 | **TODO** | P2 | `TST-12` | Targeted transform and ensemble tests use the one parameter region where the filed defect is silent | |
 | **RESOLVED** | P2 | `TST-13` | Data-dependent skips and conditional asserts let tests pass without checking anything | seeded skips pinned as preconditions; integration asserts measured; no_xdist tests now run on -n 1 CI shards |
