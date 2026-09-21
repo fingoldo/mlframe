@@ -327,7 +327,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low, since thresholds are set on the DGP each transform is designed for. The cost is writing 51 small DGP factories once.
 - **Runtime**: fast subset about 5 s; the NW n=20k cell about 3 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New tests/training/composite/transforms/test_transform_canonical_dgp.py. Every base transform declares a canonical DGP family in `_CANONICAL_DGP` (additive, linear, second difference, product, multiplicative, geometric or saturating), and a meta-guard keeps the keys equal to the base transforms in the registry. Absorption is measured scale-free, at n in {300, 2000} and, for the additive-type families, with the base offset by 1e4: inverting the constant median T at each row's base must explain at least 90% of y's variance (80% for the product family). The test found a TRF-03-class defect in `quantile_residual`, now fixed. At n=300 its ten bins of 30 rows sat under the 50-row minimum, so every bin fell back to the global median and T ignored the base (R2 0.00). The bin count is now `min(n_bins, n // min_bin_n)`, which gives R2 0.96. Not built: the smoother-improves-with-n leg and the grouped-level leg.
 
 ### PMT-18 [P1] Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows
 - **Asserts**:

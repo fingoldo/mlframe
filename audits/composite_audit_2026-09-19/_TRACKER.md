@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 8 | 0 | 11 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 7 | 3 | 31 | 0 | 0 |
-| **Total** | **179** | **91** | **14** | **73** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 7 | 4 | 30 | 0 | 0 |
+| **Total** | **179** | **91** | **15** | **72** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -212,7 +212,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `PMT-14` | Transform-call gateway: every registry-transform fit/forward/inverse call goes through one signature-gated helper, and weights are honoured | |
 | **TODO** | P2 | `PMT-15` | Cache-key completeness by input perturbation, plus a code-version gate on discovery sources | |
 | **TODO** | P2 | `PMT-16` | polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared) | |
-| **TODO** | P1 | `PMT-17` | Absorption and consistency on each transform's canonical DGP | |
+| **PARTIAL** | P1 | `PMT-17` | Absorption and consistency on each transform's canonical DGP | canonical-DGP absorption for all 40 base transforms; fixed quantile_residual small-n; smoother/grouped legs open |
 | **TODO** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | |
 | **TODO** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | |
 | **TODO** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | |

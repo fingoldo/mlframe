@@ -306,6 +306,9 @@ def _quantile_residual_fit(
     base_clean = base_f[finite]
     # Quantile edges on train base; ``np.quantile`` with linspace covers the open-open envelope, and the outermost edges become +/-inf below so predict-time digitize never produces an out-of-range bucket.
     # Tie-safe edges; a discrete base with <= n_bins values gets one bin per value (a binary base used to collapse to one bin).
+    # As many bins as the rows can populate: at n=300 with 10 bins of 30 rows and min_bin_n=50 every bin fell back to the
+    # global median, so T was y standardised with the base ignored entirely.
+    n_bins = max(2, min(n_bins, base_clean.size // min_bin_n))
     edges = quantile_bin_edges(base_clean, n_bins)
     if edges.size < 2:
         # All base values identical: degenerate single bucket.
