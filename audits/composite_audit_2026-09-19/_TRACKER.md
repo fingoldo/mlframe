@@ -19,10 +19,10 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `discovery.md` | 30 | 5 | 0 | 25 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
 | `suite_integration.md` | 19 | 6 | 0 | 13 | 0 | 0 |
-| `performance.md` | 24 | 9 | 8 | 6 | 1 | 0 |
+| `performance.md` | 24 | 10 | 8 | 5 | 1 | 0 |
 | `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **50** | **8** | **120** | **1** | **0** |
+| **Total** | **179** | **51** | **8** | **119** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -163,7 +163,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `PRF-16` | K-fold OOF re-runs a shared `pre_pipeline.transform` for every component on every fold | per-fold cache for fitted shared pipelines (half the transforms were repeats; 20 -> 15 calls, OOF bit-identical) |
 | **PARTIAL** | P3 | `PRF-17` | Every `fit` computes a full `data_signature` that only `discover_incremental` reads | signature computed lazily (and on pickle) instead of on every fit; phase-signature reuse and polars batching not done |
 | **RESOLVED** | P3 | `PRF-18` | Auto-base and `fit` build the identical 100k-row screen feature matrix twice | fit reuses auto-base's screening matrix (permuted for time order); one full-frame gather saved per auto-base fit, specs identical |
-| **TODO** | P3 | `PRF-19` | Auto-chain upcasts each base's matrix to float64 and copies `x_tr` for every candidate on every fold, even when the fold Dataset is already cached | |
+| **RESOLVED** | P3 | `PRF-19` | Auto-chain upcasts each base's matrix to float64 and copies `x_tr` for every candidate on every fold, even when the fold Dataset is already cached | float32 kept for LightGBM, built folds reuse their holdout and skip train slices; all candidate scores identical |
 | **TODO** | P3 | `PRF-20` | The interaction-base step, on by default, synthesises its columns twice, and its output never becomes a spec | |
 | **TODO** | P3 | `PRF-21` | The opt-in bootstrap MI recomputes the same `MI(y, X)` replicates for every transform on a base | |
 | **TODO** | P3 | `PRF-22` | The prebin content cache hashes the screen matrix on every fit but misses across targets | |

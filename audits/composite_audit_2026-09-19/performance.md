@@ -335,7 +335,7 @@ Default counts used in the estimates:
 - **Expected win** (estimate): half the per-base matrix memory, and about `12 x folds - folds` avoided `x_tr` copies per base.
 - **Suggested fix**: keep float32, since LightGBM bins it anyway. Build `x_va` once per fold and `x_tr` only when the fold cache is cold.
 - **Test/benchmark to add**: a parity test that chain RMSEs are unchanged; an RSS bench at 20k x 400.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - `discover_chains` keeps a float32 block as float32 when the family is LightGBM (it bins its input, and float32 -> float64 is exact); other families keep the float64 upcast, and the two MI-gain calls upcast only their transient slices so bin-estimator quantiles are unchanged. `LgbFoldCache` now remembers each fold's holdout slice and reports `has_fold`, so after the first candidate a fold takes no train slice and no holdout copy; the subset decision reads the row count from the fit mask. On the heavy-tail chain fixture all 12 candidate CV scores, the chains and their MI gains are repr-identical before and after. No RSS bench was run; the saving is one float64 copy of the per-base matrix per base plus roughly 12 x folds - folds train/holdout slice copies. test_auto_chain_float32_and_fold_reuse.py, 3 tests: float32 and float64 blocks give identical scores, a built fold predicts identically without its train rows, a masked candidate on a built fold still learns
 
 ### PRF-20 [P3] The interaction-base step, on by default, synthesises its columns twice, and its output never becomes a spec
 

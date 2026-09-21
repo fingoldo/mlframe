@@ -29,6 +29,15 @@ class LgbFoldCache:
             "force_col_wise": True,
         }
         self._folds: Dict[int, Any] = {}
+        self._holdouts: Dict[int, np.ndarray] = {}
+
+    def has_fold(self, fold_id: int) -> bool:
+        """True once fold ``fold_id``'s dataset is built, so the caller can skip slicing its train rows."""
+        return fold_id in self._folds
+
+    def holdout(self, fold_id: int) -> np.ndarray:
+        """Fold ``fold_id``'s holdout feature slice, kept from the call that built the fold."""
+        return self._holdouts[fold_id]
 
     def _fold_dataset(self, fold_id: int, x_tr: np.ndarray) -> Any:
         """The LightGBM ``Dataset`` for fold ``fold_id``, built once from ``x_tr`` and reused."""
@@ -40,16 +49,23 @@ class LgbFoldCache:
             self._folds[fold_id] = ds
         return ds
 
-    def fit_predict(self, fold_id: int, x_tr: np.ndarray, target: np.ndarray, fit_mask: np.ndarray, x_va: np.ndarray) -> np.ndarray:
-        """Train on the ``fit_mask`` rows of fold ``fold_id`` with ``target`` as label; predict ``x_va``."""
+    def fit_predict(self, fold_id: int, x_tr: np.ndarray | None, target: np.ndarray, fit_mask: np.ndarray, x_va: np.ndarray) -> np.ndarray:
+        """Train on the ``fit_mask`` rows of fold ``fold_id`` with ``target`` as label; predict ``x_va``.
+
+        ``x_tr`` may be ``None`` once the fold is built (:meth:`has_fold`): the binned dataset already holds its rows.
+        """
         import lightgbm as lgb
 
-        full = self._fold_dataset(fold_id, x_tr)
+        if x_tr is None:
+            full = self._folds[fold_id]
+        else:
+            full = self._fold_dataset(fold_id, x_tr)
+            self._holdouts.setdefault(fold_id, x_va)
         rows = np.flatnonzero(fit_mask)
         # The subset must be constructed BEFORE its label is set: a lazy subset builds itself from the parent at train
         # time and takes the parent's label with it -- the all-zeros placeholder -- so every masked candidate trained on
         # zeros and predicted a constant, while ``get_label()`` still reported the label that was set.
-        train = full.subset(rows.tolist()).construct() if rows.size < x_tr.shape[0] else full
+        train = full.subset(rows.tolist()).construct() if rows.size < fit_mask.shape[0] else full
         train.set_label(np.asarray(target, dtype=np.float64)[rows])
         booster = lgb.train(self.params, train, num_boost_round=self.n_estimators)
         return np.asarray(booster.predict(x_va, num_threads=self.params["num_threads"]), dtype=np.float64)

@@ -251,7 +251,11 @@ def _y_scale_cv_rmse(
     sse = 0.0
     cnt = 0
     for fold_id, (tr_idx, va_idx) in enumerate(kf.split(x_matrix)):
-        x_tr, x_va = x_matrix[tr_idx], x_matrix[va_idx]
+        if fold_cache is not None and fold_cache.has_fold(fold_id):
+            # The fold's binned dataset holds its train rows and the cache kept its holdout slice: no per-candidate copies.
+            x_tr, x_va = None, fold_cache.holdout(fold_id)
+        else:
+            x_tr, x_va = x_matrix[tr_idx], x_matrix[va_idx]
         y_tr, y_va = y[tr_idx], y[va_idx]
         b_tr, b_va = base[tr_idx], base[va_idx]
         try:
@@ -321,7 +325,7 @@ def _mi_gain_of(
     if finite.sum() < 8:
         return float("nan")
     mi_t = _mi_to_target(
-        x_matrix[finite], t[finite], n_neighbors=mi_n_neighbors,
+        np.asarray(x_matrix[finite], dtype=np.float64), t[finite], n_neighbors=mi_n_neighbors,
         random_state=random_state, estimator=mi_estimator, nbins=mi_nbins,
     )
     return float(mi_t - mi_y)
@@ -437,7 +441,10 @@ def discover_chains(
 
     y = np.asarray(y, dtype=np.float64)
     base = np.asarray(base, dtype=np.float64)
-    x_matrix = np.asarray(x_matrix, dtype=np.float64)
+    # LightGBM bins its input, and float32 -> float64 is exact, so a float32 block gives it the same values at half the
+    # memory; every base upcast its own copy in parallel threads. Other families keep the float64 upcast they fit on.
+    _keep_float = family.lower() in ("lgb", "lightgbm") and np.asarray(x_matrix).dtype in (np.float32, np.float64)
+    x_matrix = np.asarray(x_matrix) if _keep_float else np.asarray(x_matrix, dtype=np.float64)
     if x_matrix.ndim == 1:
         x_matrix = x_matrix.reshape(-1, 1)
     res_names = tuple(residual_names) if residual_names else _RESIDUAL_STAGE_NAMES
@@ -465,7 +472,7 @@ def discover_chains(
         fy = np.isfinite(y)
         if fy.sum() >= 8:
             mi_y = _mi_to_target(
-                x_matrix[fy], y[fy], n_neighbors=mi_n_neighbors,
+                np.asarray(x_matrix[fy], dtype=np.float64), y[fy], n_neighbors=mi_n_neighbors,
                 random_state=random_state, estimator=mi_estimator, nbins=mi_nbins,
             )
 
