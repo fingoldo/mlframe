@@ -68,3 +68,13 @@ def silverman_bandwidth(values: Any, xp: Any = np) -> Optional[float]:
     if not (std > _REL_TOL * mag):
         return None
     return float(1.06 * std * (max(n, 1) ** (-1.0 / 5.0)))
+
+
+def guarded_scale(scale, magnitude, xp=np):
+    """``scale`` itself when it is resolvable against the data's own ``magnitude``, else ``1.0``.
+
+    Divisors for an axis (a standard deviation, a min-max span) are guarded rather than padded: a genuinely tiny but real scale divides by
+    itself, and a degenerate one divides by one, collapsing the axis onto its origin instead of exploding it. ``magnitude`` is the column's
+    own ``max|x|``, so the threshold follows the data's units; both arguments may be scalars or per-column arrays.
+    """
+    return xp.where(scale > _REL_TOL * xp.abs(magnitude), scale, 1.0)

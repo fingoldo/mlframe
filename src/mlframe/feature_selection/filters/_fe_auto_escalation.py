@@ -62,6 +62,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from mlframe.feature_selection.filters._safe_scale import guarded_scale, scale_is_usable
+
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -364,7 +366,8 @@ def _propose_fourier(x_w, x_m, y_f, *, min_val_corr: float, max_freqs: int, chir
     t = y_c * z_m
     # Linear axis (shipped robust min-max normalisation).
     lo, span = _fit_fourier_for_col(xw)
-    z01 = (xw - float(lo)) / max(float(span), 1e-12)
+    span = float(guarded_scale(span, np.abs(xw).max()))  # stored below, so replay divides by exactly this
+    z01 = (xw - float(lo)) / span
     freqs = _detect_fourier_freqs_for_col(
         z01, t, f_grid=_ADAPTIVE_F_GRID, min_val_corr=float(min_val_corr),
         min_rows=800, max_freqs=int(max_freqs),
@@ -378,7 +381,7 @@ def _propose_fourier(x_w, x_m, y_f, *, min_val_corr: float, max_freqs: int, chir
     # Quadratic-argument chirp axis (shipped warp): stationary in u for growing-frequency inners.
     if chirp:
         c_mean, c_std, c_lo, c_span = _fit_chirp_warp_for_col(xw)
-        if c_span > 1e-12 and c_std > 1e-12:
+        if scale_is_usable(c_span, xw) and scale_is_usable(c_std, xw):
             u = _chirp_axis(xw, c_mean, c_std, c_lo, c_span)
             if np.all(np.isfinite(u)) and float(np.std(u)) > 1e-12:
                 cfreqs = _detect_fourier_freqs_for_col(

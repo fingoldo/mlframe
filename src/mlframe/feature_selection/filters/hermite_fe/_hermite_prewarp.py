@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+
+from mlframe.feature_selection.filters._safe_scale import guarded_scale
 from numba import njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
@@ -296,10 +298,10 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
         g = B_b @ cb
         ca = None
         for _ in range(max(1, int(iters))):
-            g_norm = g / (float(np.std(g)) + 1e-12)
+            g_norm = g / float(guarded_scale(np.std(g), np.abs(g).max()))
             ca = _als_solve(B_a * g_norm[:, None], yc)
             f = B_a @ ca
-            f_norm = f / (float(np.std(f)) + 1e-12)
+            f_norm = f / float(guarded_scale(np.std(f), np.abs(f).max()))
             cb = _als_solve(B_b * f_norm[:, None], yc)
             g = B_b @ cb
         if ca is None or not (np.all(np.isfinite(ca)) and np.all(np.isfinite(cb))):
@@ -494,9 +496,9 @@ def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
         if str(pp.get("arg", "linear")) == "quadratic":
             z = (xf - float(pp["mean"])) / max(float(pp["std"]), 1e-12)
             u = np.sign(z) * (z * z)
-            axis = (u - float(pp["lo"])) / max(float(pp["span"]), 1e-12)
+            axis = (u - float(pp["lo"])) / float(pp["span"])
         else:
-            axis = (xf - float(pp["lo"])) / max(float(pp["span"]), 1e-12)
+            axis = (xf - float(pp["lo"])) / float(pp["span"])
         coef = np.asarray(spec["coef"], dtype=np.float64).reshape(-1)
         freqs = np.asarray(pp["freqs"], dtype=np.float64).reshape(-1)
         # Guarded: this replay is reached from inside the FE pair sweep's chunk pipeline, where a producer

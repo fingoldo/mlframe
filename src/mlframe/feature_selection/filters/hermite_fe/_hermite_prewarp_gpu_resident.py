@@ -54,6 +54,8 @@ import logging
 
 import numpy as np
 
+from mlframe.feature_selection.filters._safe_scale import guarded_scale
+
 logger = logging.getLogger(__name__)
 
 
@@ -141,10 +143,10 @@ def _als_sweep_gpu(cp, Ba, Bb, yc, iters) -> tuple:
     for _ in range(max(1, int(iters))):
         # cp.std(...) kept as a device 0-dim scalar (no float()): it is only a broadcast divisor, so the host
         # roundtrip was pure waste - the divide stays fully resident and the result is bit-identical.
-        g_norm = g / (cp.std(g) + 1e-12)
+        g_norm = g / guarded_scale(cp.std(g), cp.abs(g).max(), xp=cp)
         ca = _als_solve_gpu(cp, Ba * g_norm[:, None], yc)
         f = Ba @ ca
-        f_norm = f / (cp.std(f) + 1e-12)
+        f_norm = f / guarded_scale(cp.std(f), cp.abs(f).max(), xp=cp)
         cb = _als_solve_gpu(cp, Bb * f_norm[:, None], yc)
         g = Bb @ cb
     if ca is None:
