@@ -128,7 +128,8 @@
         "skb-f",
         "skb-mi",
         "select-fdr",
-        "lars-order"
+        "lars-order",
+        "rank-vote"
       ],
       "family": "causal",
       "primary_target_set": "markov_blanket",
@@ -259,7 +260,8 @@
         "univariate-mi",
         "select-fdr",
         "lars-order",
-        "mrmr"
+        "mrmr",
+        "rank-vote"
       ],
       "family": "tails",
       "primary_target_set": "markov_blanket",
@@ -287,7 +289,8 @@
         "skb-mi",
         "lars-order",
         "select-fdr",
-        "variance-sort"
+        "variance-sort",
+        "rank-vote"
       ],
       "family": "interactions",
       "primary_target_set": "markov_blanket",

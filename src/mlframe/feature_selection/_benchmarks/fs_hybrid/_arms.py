@@ -916,6 +916,11 @@ def build_arm_roster(n_features: int, *, k: Optional[int] = None, random_state: 
     roster["rfecv"] = lambda: RFECVArm(random_state=random_state)
     roster["boruta-shap"] = lambda: BorutaShapArm(random_state=random_state)
     roster["shap-proxied"] = lambda: ShapProxiedArm(random_state=random_state)
+    # Imported here rather than at module scope: the rank-aggregation arm imports `BaseArm` from this
+    # module, so a top-level import would close the cycle.
+    from ._arms_rank_aggregation import RankAggregationArm
+
+    roster["rank-vote"] = lambda: RankAggregationArm(k=kk, rule="borda", random_state=random_state)
     return roster
 
 
