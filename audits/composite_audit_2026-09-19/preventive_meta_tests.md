@@ -191,7 +191,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low once the helper exists. The work is the migration of the existing sort sites.
 - **Runtime**: (b) under 1 s; (c) about 5 s (tiny data, 5 scorers x 3 transforms).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. The seven findings it names are fixed at source: DSC-06, DSC-07, DSC-10, DSC-17, DSC-28, EST-11 and INT-10. tests/training/composite/discovery/test_scorer_invariance.py pins each one, including the WAIC scale invariance (c) and the y-scale table (d), and every case fails pre-fix. The cross-target budget sort, the one sort that mixed units, is now the named `rank_pending_composites`. Not built: the typed `Score` / `rank_specs` wrapper and the (b) scan over every spec sort. The remaining sorts each order a single unit (auto-chain candidates by y-RMSE, the screen by `mi_gain`, stability by frequency).
 
 ### PMT-08 [P1] Scale and shift metamorphic property over every registered transform
 - **Asserts**:

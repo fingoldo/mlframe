@@ -579,7 +579,7 @@ def _tiny_model_rerank(
     self._tiny_rerank_scores = {kept_specs[i].name: float(agg_scores[i]) for i in range(len(kept_specs))}
 
     kept_specs, agg_scores, _honest_oof_baseline = _apply_honest_oof_ordering(
-        self, df, target_col, kept_specs, agg_scores, usable_features, train_idx, y_full, _honest_oof_pre,
+        self, df, target_col, kept_specs, agg_scores, usable_features, train_idx, y_full, _honest_oof_pre, raw_cv_baseline=raw_baseline,
     )
     kept_specs, agg_scores = _reject_unscored_specs(self, kept_specs, agg_scores)
 

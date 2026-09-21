@@ -111,10 +111,16 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     # Scoring every spec ran 4 folds each for scores that were then discarded.
     bands = rmse_bands([int(i) for i in order], agg_scores, rel_tol)
     top_m = max(1, int(getattr(self.config, "top_m_after_tiny", len(order)) or len(order)))
+    # A WAIC over T compares densities in T units, so it can only order transforms whose T is in y units: the additive ones
+    # (T = y - g(base)). Between a residual and a compressive transform (log, cbrt, a ratio) it rewarded the smaller T scale
+    # by ~log(scale_y / scale_T) nats per row, which is not generalisation; such bands keep their y-scale RMSE order.
+    def _same_scale(band) -> bool:
+        return all(_additive_in_t(kept_specs[b]) for b in band)
+
     to_score: list[int] = []
     pos = 0
     for band in bands:
-        if len(band) > 1 and pos < top_m:
+        if len(band) > 1 and pos < top_m and _same_scale(band):
             to_score.extend(band)
         pos += len(band)
 
@@ -134,6 +140,14 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
             band = sorted(band, key=lambda b: (-waic[b], names[b]))
         new_order.extend(band)
     return np.asarray(new_order, dtype=int)
+
+
+def _additive_in_t(spec) -> bool:
+    """True when the spec's transform is additive in T (its T is in y units)."""
+    try:
+        return bool(getattr(get_transform(spec.transform_name), "additive_in_t", False))
+    except Exception:  # best-effort: an unresolvable transform is simply not WAIC-comparable
+        return False
 
 
 def rmse_bands(idx: list, agg_scores, rel_tol: float) -> list:

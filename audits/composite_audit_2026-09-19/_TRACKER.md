@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 11 | 0 | 19 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 10 | 0 | 12 | 0 | 0 |
-| `suite_integration.md` | 19 | 7 | 0 | 12 | 0 | 0 |
+| `discovery.md` | 30 | 16 | 0 | 14 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 11 | 0 | 11 | 0 | 0 |
+| `suite_integration.md` | 19 | 8 | 0 | 11 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 5 | 0 | 36 | 0 | 0 |
-| **Total** | **179** | **79** | **11** | **88** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 5 | 1 | 35 | 0 | 0 |
+| **Total** | **179** | **86** | **12** | **80** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -64,18 +64,18 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `DSC-03` | The "never-touched" honest holdout is used for selection and then reported as an honest post-selection estimate | the carve halves the holdout into honest_holdout_select_idx_ and honest_holdout_report_idx_: the drop gate and the honest-OOF ranking key read the selection half, the final re-score stamps its gain from the report half that no gate or ranking touched. A holdout too small to leave two usable halves keeps both roles on all rows (prior behaviour). The two winner's-curse biz tests now run on 2x the rows so the report half carries the sample size their thresholds were calibrated on; thresholds unchanged (test_honest_holdout_select_report_split.py, 5 tests) |
 | **RESOLVED** | P1 | `DSC-04` | Tiny-rerank CV scores every fold with transform params fit on all rows; the per-fold refit fix exists but is never called | _tiny_cv_rmse_y_scale's _one_fold now calls refit_transform_on_fold on the fold's own train rows and forwards/inverses that fold with the fold-local params (the helper existed and was tested but had no production caller); a degenerate fold returns None and keeps the global params, so a spec that scored before still scores (test_tiny_cv_refits_transform_per_fold.py, which fails at origin/master where both scores are identical) |
 | **RESOLVED** | P1 | `DSC-05` | `time_ordering` sorts only the MI screen; the CVs that claim to be forward-walks run on row-position order | fit stores the caller's time key on the instance and the new _fit_temporal.order_rows_by_time re-applies it where a consumer draws its own rows: the tiny rerank orders its sample before the TimeSeriesSplit, and the alpha-drift gate orders train_idx (and the cached base pool with it) so its halves are the time halves (test_time_ordering_reaches_consumers.py: a 1.0 -> 5.0 slope break scores z=3.92 ordered vs z=0.89 in row order, the latter under the 3.0 threshold, and the probe fails at origin/master) |
-| **TODO** | P2 | `DSC-06` | The bin-MI `mi_gain` compares a de-duplicated `MI(T,X)` with a non-de-duplicated `MI(y,X)` | |
-| **TODO** | P2 | `DSC-07` | The tiny rerank ranks and gates on a mix of honest-holdout RMSE and optimistic in-group CV RMSE | |
+| **RESOLVED** | P2 | `DSC-06` | The bin-MI `mi_gain` compares a de-duplicated `MI(T,X)` with a non-de-duplicated `MI(y,X)` | mi_y over the dedup-surviving columns |
+| **RESOLVED** | P2 | `DSC-07` | The tiny rerank ranks and gates on a mix of honest-holdout RMSE and optimistic in-group CV RMSE | unmeasured specs rescaled to the honest scale |
 | **TODO** | P2 | `DSC-08` | The y-scale gates score a spec on its finite rows only, while raw-y is scored on every row | |
 | **RESOLVED** | P2 | `DSC-09` | Gate exceptions keep the spec (fail-open), and an all-NaN tiny-CV score passes the raw-baseline gate | gate evaluation errors / unregistered transforms reject with WARNING + ledger; non-finite tiny-CV scores rejected before the threshold |
-| **TODO** | P2 | `DSC-10` | The WAIC tie-break compares log predictive densities of different target scales | |
+| **RESOLVED** | P2 | `DSC-10` | The WAIC tie-break compares log predictive densities of different target scales | WAIC tie-break only within additive-in-T bands |
 | **RESOLVED** | P2 | `DSC-11` | WAIC and auto-chain CVs use shuffled KFold, ignoring groups and time | splitter factory; WAIC + auto-chain CVs take groups/time |
 | **TODO** | P2 | `DSC-12` | The discovery disk-cache key leaves out inputs that change the result | |
 | **TODO** | P2 | `DSC-13` | The yscale gate's fallback path evaluates on rows the transform params were fit on | |
 | **TODO** | P2 | `DSC-14` | Stacked and stability-check fits drop `time_ordering`, `val_df` and `val_y` | |
 | **TODO** | P2 | `DSC-15` | The stability-check majority threshold is truncated, so n=3 keeps specs found once | |
 | **TODO** | P2 | `DSC-16` | Incremental drift detection cannot fire under default config | |
-| **TODO** | P2 | `DSC-17` | The cross-target composite budget sorts three incompatible gain units together | |
+| **RESOLVED** | P2 | `DSC-17` | The cross-target composite budget sorts three incompatible gain units together | budget ranks RMSE-gain tier before MI tier |
 | **TODO** | P2 | `DSC-18` | The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection | |
 | **RESOLVED** | P2 | `DSC-19` | The group-disjoint honest-holdout carve can hold out most of the training rows | holdout within +/-25% or iid fallback |
 | **TODO** | P3 | `DSC-20` | Auto-chain proposals are not required to beat raw y, and duplicate the hard-coded default chains | |
@@ -86,7 +86,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P3 | `DSC-25` | Alpha-drift flags leak between fits of one instance; the reject flag's code fallback contradicts the config default | |
 | **TODO** | P3 | `DSC-26` | The corr-filter log recommends an escape hatch that does not work | |
 | **TODO** | P3 | `DSC-27` | Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids | |
-| **TODO** | P3 | `DSC-28` | Multi-base upgraded specs inherit unmeasured statistics from their seed | |
+| **RESOLVED** | P3 | `DSC-28` | Multi-base upgraded specs inherit unmeasured statistics from their seed | upgrade MI stats NaN + stats_measured_for |
 | **TODO** | P3 | `DSC-29` | The knn cost guard runs after the most expensive knn work | |
 | **RESOLVED** | P3 | `DSC-30` | The stratified MI sampler gives non-finite-y rows a full stratum share | NaN-y rows not sampled |
 
@@ -104,7 +104,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `EST-08` | The wrap-pass watchdog is off by default, cannot detect the failures it names, raises a false alarm on every `quantile_residual` run, and swallows its own errors at DEBUG | runs on a val sample by default; base-read oracle + raw-frame additive check; groups; WARNING on failures |
 | **RESOLVED** | P2 | `EST-09` | The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit | OOF refit wrappers now get their training base (5 of 6 lacked it); pinned no-op test split into no-base no-op + with-base shrink |
 | **TODO** | P2 | `EST-10` | `predict_quantile` returns zero-width intervals on fallback rows and crossed quantiles for sign-flipping multiplicative inverses | |
-| **TODO** | P2 | `EST-11` | The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE | |
+| **RESOLVED** | P2 | `EST-11` | The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE | dummy floor/baseline on the same OOF rows |
 | **TODO** | P2 | `EST-12` | `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path | |
 | **TODO** | P2 | `EST-13` | The CT_ENSEMBLE val/test metrics and charts describe the pre-MoE predictor, not the model that ships | |
 | **TODO** | P2 | `EST-14` | A streaming `update()` refit leaves the soft-shrink base range at the dead regime, and its T-clip refresh leaves out the widening to the observed range that `fit()` applies | |
@@ -130,7 +130,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `INT-07` | `transforms=[...]` does not restrict auto-chain: chain specs are added outside the user's whitelist | |
 | **TODO** | P2 | `INT-08` | Suite logic identifies composite targets by a name heuristic that misses auto-chain names and matches dashed raw targets | |
 | **TODO** | P2 | `INT-09` | Listing any grouped transform in `transforms` makes discovery raise, which removes every composite for that target | |
-| **TODO** | P2 | `INT-10` | The suite-end "TARGETS QUALITY" table reports composite rows on T-scale beside raw rows on y-scale, and is never persisted | |
+| **RESOLVED** | P2 | `INT-10` | The suite-end "TARGETS QUALITY" table reports composite rows on T-scale beside raw rows on y-scale, and is never persisted | scale column; composite rows from y-scale metrics; CSV written under data_dir |
 | **TODO** | P2 | `INT-11` | Specs dropped by the global `max_total_composite_targets` cap stay in `metadata["composite_target_specs"]` with no failure record | |
 | **TODO** | P2 | `INT-12` | On the supported pandas range, discovery materialises a full copy of the train frame for every regression target | |
 | **TODO** | P3 | `INT-13` | The default model cache reuses a composite inner model whose target definition has changed | |
@@ -202,7 +202,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `PMT-04` | Non-discriminating test-assertion shapes: literal wide ranges, median-of-error, isinstance-only biz tests, data-dependent skips | py_ci_shared.nondiscriminating_shapes + local biz-val rule wired; suite violators baselined, composite ones fixed under TST-10/11/13 |
 | **RESOLVED** | P1 | `PMT-05` | Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe | test_cte_row_purity: chunk invariance to 1e-14, threads, lag_predict fill; found EST-19/EST-20 |
 | **RESOLVED** | P1 | `PMT-06` | Splitter and sampler consistency: one splitter factory, time order and groups honoured everywhere, sampler returns usable rows | no ad-hoc shuffled KFold scan + splitter contract tests; fixed 6 findings |
-| **TODO** | P1 | `PMT-07` | Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform | |
+| **PARTIAL** | P1 | `PMT-07` | Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform | 7 findings fixed + invariance tests; typed Score/rank_specs + sort scan not built |
 | **TODO** | P1 | `PMT-08` | Scale and shift metamorphic property over every registered transform | |
 | **TODO** | P2 | `PMT-09` | Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery | |
 | **TODO** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | |

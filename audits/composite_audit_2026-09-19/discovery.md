@@ -54,7 +54,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: On `screening="mi"`, `mi_gain` is the ranking key (`_filter_and_gate.py:65`) and the rerank pre-order, and it is the fallback budget gain at `core/_phase_composite_discovery.py:876`.
 - **Suggested fix**: When `_keep` prunes columns, derive `mi_y_for_base` by aggregating `_per_feat_y_full[_surviving_orig_idx]`, as the knn branch does. Apply the same keep-mask in `_build_x_remaining_holdout`.
 - **Test to add**: Use a frame with an exact duplicate of a high-MI feature and a full-domain transform. Assert that `spec.mi_y` equals `_mi_to_target_prebinned(pruned_matrix, y)`, and that the gain matches between a full-domain transform and the same transform forced through the shrunk-domain path.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. When the dedup prunes columns, the bin-path `mi_y_for_base` is aggregated over `_per_feat_y_full[_surviving_orig_idx]`, the columns `MI(T, X)` sees, as the knn branch already did. The selection logic moved to `_fit._mi_y_baseline`. An exact duplicate of a high-MI feature no longer changes `mi_y`. The holdout rescore computes both halves on one holdout matrix, so it was already consistent. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### DSC-07 [P2] The tiny rerank ranks and gates on a mix of honest-holdout RMSE and optimistic in-group CV RMSE
 - **Where**: `_tiny_rerank.py:585-590` replaces `agg_scores[i]` only for specs with a finite honest-OOF measurement. `_honest_oof_select.py:131-148` returns `None` (no measurement) when a spec has fewer than 50 valid fit rows, when forward raises, or when fit or inverse raises. The gate at `_tiny_rerank.py:683-686` then compares every score with the honest raw baseline, and `:767` / `:921` sort them together.
@@ -62,7 +62,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The ranking is not monotone in any single objective, and a spec that could not be measured beats specs that were measured.
 - **Suggested fix**: Keep the two populations separate. Rank measured specs by honest RMSE and put unmeasured specs after them, or rescale their CV score by the raw-y honest/CV ratio measured on the same run. Apply the gate threshold on the scale each score came from.
 - **Test to add**: Take two specs, one with honest RMSE 12 and one forced to `None` with internal CV 9 (monkeypatch the transform to raise in `forward` on the holdout fit only). Assert that the unmeasured spec does not rank first.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `_put_unmeasured_on_the_honest_scale` multiplies an unmeasured spec's group-internal CV score by the raw-y honest/CV ratio measured on the same run, before ranking and gating. Without that ratio, the spec is placed after every measured one. An optimistic CV score can no longer outrank honest measurements. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### DSC-08 [P2] The y-scale gates score a spec on its finite rows only, while raw-y is scored on every row
 - **Where**: `_yscale_holdout_gate.py:403-416`, `_honest_rmse_gate.py:180-193`, `_honest_oof_select.py:163-169`, and `_auto_chain.py:288-291`.
@@ -86,7 +86,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The tie-break is on by default and changes the top-M order among near-tied specs for a reason unrelated to predictive quality.
 - **Suggested fix**: Compute WAIC on the y scale. Either invert the OOF `T` predictions and score y residuals, or add the per-row log-Jacobian `log|dT/dy|` to each `lpd`. The alternative is to restrict the tie-break to bands whose members share one target scale (all residual-type transforms).
 - **Test to add**: Take `y` and `a*y` style transforms of identical y-scale quality (for example `T=y-base` vs `T=(y-base)/100`, equivalent under squared loss). They must get equal WAIC and must not be reordered.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The WAIC tie-break re-orders a noise band only when every member's transform is additive in T (`Transform.additive_in_t`: T in y units). A band that mixes in a compressive transform (log, cbrt, a ratio) keeps its y-scale RMSE order, so the ~log(scale_y/scale_T) per-row bias cannot decide the order. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### DSC-11 [P2] WAIC and auto-chain CVs use shuffled KFold, ignoring groups and time
 - **Where**: `_eval_waic.py:219` and `_auto_chain.py:250`, both `KFold(shuffle=True)`. Compare the rerank, which honours `groups` / `time_aware` at `_screening_tiny_perbin.py:260-274`.
@@ -142,7 +142,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The global budget allocation depends on which scorer happened to run, not on value.
 - **Suggested fix**: Rank on one unit only (relative honest RMSE gain). Put specs without it into a separate lower tier (or order them by a documented secondary key) instead of mixing them in.
 - **Test to add**: Two targets, one with the RMSE-gate gain 0.05 and one with only an in-screen MI gain of 0.3 nats. Assert that the RMSE-scored spec is not outranked purely by unit mismatch.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `rank_pending_composites` ranks in two tiers: specs with a relative honest RMSE gain first, then the specs that fell back to an MI gain in nats. Each tier is ordered in its own unit, and a non-finite gain sorts last. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### DSC-18 [P2] The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection
 - **Where**: `core/_phase_composite_post_summary.py:190-257` (`_comp_val` from y-scale **val**, `_raw_val = _raw_best.get(_pm)`, verdict from `_l_raw`). Discovery's yscale gate selects composites on the same val frame (`_yscale_holdout_gate.py:291-300`, supplied at `core/_phase_composite_discovery.py:700-717`).
@@ -230,7 +230,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: Exported diagnostics and the fallback budget key (`mi_gain`) are wrong for upgraded specs.
 - **Suggested fix**: Re-score the upgraded spec (one `eval_one_transform` with a multi-base context, plus one tiny-CV) or stamp these fields as NaN with a provenance flag.
 - **Test to add**: After an upgrade, assert that `spec.mi_gain` equals a direct recompute for the multi-base transform, or is NaN.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. A multi-base upgrade's `mi_gain` / `mi_y` / `mi_t` are NaN, with the new `CompositeSpec.stats_measured_for` naming the seed (exported too). Its `valid_domain_frac` and `n_train_rows` are computed for the multi-base spec itself. The budget sort treats a non-finite gain as last. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### DSC-29 [P3] The knn cost guard runs after the most expensive knn work
 - **Where**: `_fit.py:251-254` (`maybe_downgrade_knn_estimator` runs after `_resolve_base_candidates`). `_auto_base.py:270-295` does a per-column Kraskov pass and `:555-563` does `auto_base_null_perms` (default 20) Kraskov calls per column.

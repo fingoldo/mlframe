@@ -59,7 +59,23 @@ def _honest_oof_prepass(self, df, target_col, kept_specs, usable_features, train
     return dict(honest_oof_reconstruction_rmse(self, df, target_col, kept_specs, usable_features, train_idx, select_idx, y_full) or {})
 
 
-def _apply_honest_oof_ordering(self, df, target_col, kept_specs, agg_scores, usable_features, train_idx, y_full, _honest_oof_pre):
+def _put_unmeasured_on_the_honest_scale(kept_specs, agg_scores, honest_oof: dict, honest_raw: float, raw_cv: float) -> None:
+    """Rescale, in place, the CV score of every spec the honest measurement could not score onto the honest scale.
+
+    Group-internal CV is optimistic (about 9 against an honest 13.6 on the production case), so an unmeasured spec kept
+    its lower CV score, sorted above the honestly measured specs and passed the honest threshold easily: the specs the
+    honest path could not measure were the most likely to reach the top-M. The raw-y model's honest / CV ratio, measured on
+    the same run, converts the scale; without it, an unmeasured spec is placed after every measured one.
+    """
+    measured = [float(v) for v in honest_oof.values() if v is not None and math.isfinite(v)]
+    ratio = honest_raw / raw_cv if math.isfinite(honest_raw) and math.isfinite(raw_cv) and raw_cv > 0 else float("nan")
+    for i, spec in enumerate(kept_specs):
+        if honest_oof.get(spec.name) is not None or not math.isfinite(agg_scores[i]):
+            continue
+        agg_scores[i] = agg_scores[i] * ratio if math.isfinite(ratio) and ratio > 0 else (max(measured, default=0.0) + agg_scores[i])
+
+
+def _apply_honest_oof_ordering(self, df, target_col, kept_specs, agg_scores, usable_features, train_idx, y_full, _honest_oof_pre, raw_cv_baseline: float = float("nan")):
     """Re-rank the survivors by honest group-OOF reconstruction RMSE and enforce its floor, in place of the CV order.
 
     Returns ``(kept_specs, agg_scores, baseline)``; without group ids and a holdout this is a no-op and the
@@ -97,6 +113,7 @@ def _apply_honest_oof_ordering(self, df, target_col, kept_specs, agg_scores, usa
                 if _hv is not None:
                     agg_scores[i] = float(_hv)
                     object.__setattr__(_spec, "honest_oof_rmse", float(_hv))
+            _put_unmeasured_on_the_honest_scale(kept_specs, agg_scores, _honest_oof, _honest_raw, raw_cv_baseline)
             self._tiny_rerank_scores = {kept_specs[i].name: float(agg_scores[i]) for i in range(len(kept_specs))}
             logger.info(
                 "[CompositeTargetDiscovery.honest_oof_select] ranking %d spec(s) by honest group-OOF "

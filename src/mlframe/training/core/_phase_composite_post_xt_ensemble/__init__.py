@@ -17,7 +17,7 @@ from ...composite.post_shim import PrePipelinePredictShim
 from ..utils import _build_full_column_from_splits
 from .._phase_composite_post_lag_predict import _LagPredictDeployableModel
 from ._post_xt_ensemble_mtr import _build_mtr_per_column_ensemble
-from ._prescreen import PRESCREEN_SAFETY, dummy_floor_from_metadata, leaky_rmse_keep_mask, prescreen_frame
+from ._prescreen import PRESCREEN_SAFETY, dummy_floor_from_metadata, leaky_rmse_keep_mask, prescreen_frame, same_split_dummy_rmse
 from .._prediction_memo import memo_predict
 from mlframe.utils.log_throttle import log_throttle
 
@@ -682,18 +682,10 @@ def _build_cross_target_ensemble_for_target(
                     and _oof_pred_matrix is not None
                     and _oof_pred_matrix.shape[1] > 0
                     and len(_oof_rmses) > 0):
-                _dummy_floor_rmse = None
-                try:
-                    _raw_dbl = metadata.get("dummy_baselines", {}).get(str(_tt_e), {}).get(str(_orig_tname), {})
-                    _data = _raw_dbl.get("data", {}) if isinstance(_raw_dbl, dict) else {}
-                    _strongest = _raw_dbl.get("strongest") if isinstance(_raw_dbl, dict) else None
-                    _pm = _raw_dbl.get("primary_metric") if isinstance(_raw_dbl, dict) else None
-                    if _strongest and _pm and _strongest in _data:
-                        _v = _data[_strongest].get(_pm)
-                        if _v is not None and np.isfinite(float(_v)):
-                            _dummy_floor_rmse = float(_v) * (1.0 + _dummy_floor_tol)
-                except (KeyError, TypeError, ValueError):
-                    _dummy_floor_rmse = None
+                # The floor is measured on the same OOF rows as the components it gates (see same_split_dummy_rmse).
+                _dummy_floor_rmse = same_split_dummy_rmse(metadata, _tt_e, _orig_tname, _oof_names, _oof_rmses, _oof_y_holdout)
+                if _dummy_floor_rmse is not None:
+                    _dummy_floor_rmse *= 1.0 + _dummy_floor_tol
                 if _dummy_floor_rmse is not None:
                     _keep_idx = [_i for _i in range(len(_oof_rmses)) if np.isfinite(_oof_rmses[_i]) and _oof_rmses[_i] <= _dummy_floor_rmse]
                     _dropped_idx = [_i for _i in range(len(_oof_rmses)) if _i not in set(_keep_idx)]
@@ -703,11 +695,11 @@ def _build_cross_target_ensemble_for_target(
                         logger.warning(
                             "[CompositeCrossTargetEnsemble] target='%s' "
                             "dummy-floor gate fired: dropping %d/%d "
-                            "component(s) whose OOF RMSE > strongest "
-                            "dummy ('%s' %s=%.4g) x (1+%.2f) = %.4g. "
+                            "component(s) whose OOF RMSE > the strongest "
+                            "dummy's same-split OOF RMSE %.4g x (1+%.2f) = %.4g. "
                             "Dropped: %s",
                             _orig_tname, len(_dropped_idx),
-                            len(_oof_rmses), _strongest, _pm,
+                            len(_oof_rmses),
                             _floor_base, _dummy_floor_tol,
                             _dummy_floor_rmse, _dropped_names,
                         )
@@ -847,24 +839,8 @@ def _build_cross_target_ensemble_for_target(
             # and pass the strongest-dummy (lag_predict / naive) OOF RMSE as baseline_oof_rmse so weights are
             # gain-over-naive rather than gain-over-the-worst-component (the class's self-normalising fallback,
             # which discards every below-median component and dilutes against a meaningless baseline).
-            _baseline_oof_rmse = None
-            try:
-                _raw_dbl_base = metadata.get("dummy_baselines", {}).get(str(_tt_e), {}).get(str(_orig_tname), {})
-                if isinstance(_raw_dbl_base, dict):
-                    _data_base = _raw_dbl_base.get("data", {}) or {}
-                    _strongest_base = _raw_dbl_base.get("strongest")
-                    _pm_base = _raw_dbl_base.get("primary_metric")
-                    if _strongest_base and _pm_base and _strongest_base in _data_base:
-                        _v_base = _data_base[_strongest_base].get(_pm_base)
-                        if _v_base is not None and np.isfinite(float(_v_base)):
-                            _baseline_oof_rmse = float(_v_base)
-                # Prefer the in-pool lag_predict OOF RMSE when present: it is the honest, same-split naive floor.
-                if "lag_predict" in _oof_names:
-                    _lp_b = float(_oof_rmses[_oof_names.index("lag_predict")])
-                    if np.isfinite(_lp_b):
-                        _baseline_oof_rmse = _lp_b if _baseline_oof_rmse is None else max(_baseline_oof_rmse, _lp_b)
-            except (KeyError, TypeError, ValueError):
-                _baseline_oof_rmse = None
+            # The same-split naive floor (the in-pool lag_predict OOF column, or the strongest constant on the OOF rows).
+            _baseline_oof_rmse = same_split_dummy_rmse(metadata, _tt_e, _orig_tname, _oof_names, _oof_rmses, _oof_y_holdout)
             _ensemble = _CrossEns.from_train_metrics(
                 component_models=_oof_components,
                 component_names=_oof_names,

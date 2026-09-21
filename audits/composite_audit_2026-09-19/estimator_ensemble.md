@@ -150,7 +150,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Component selection and weighting depend on split drift rather than skill.
 - **Suggested fix**: Evaluate the strongest dummy on the same OOF rows (dummies are cheap: fit per fold, or reuse the in-pool `lag_predict` OOF column, which is already there when injected). Use that as both the floor and the baseline. Keep the val-split dummy only for reporting.
 - **Test to add**: Build a val period with twice the train noise and assert that a component beating the dummy on OOF is not dropped by the floor.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `same_split_dummy_rmse` measures the dummy floor, and the `oof_weighted` baseline, on the same OOF rows as the components: the in-pool `lag_predict` OOF column, else the strongest constant strategy on the OOF targets. The val-split value is used only when neither applies, with a WARNING. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### EST-12 [P2] `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path
 

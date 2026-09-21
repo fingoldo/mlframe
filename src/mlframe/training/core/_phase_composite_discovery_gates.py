@@ -175,3 +175,13 @@ def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_
         )
         payload = None
     return cache, cache_key, payload
+
+
+def rank_pending_composites(pending: list) -> list:
+    """The cross-target budget order: specs with a relative honest RMSE gain first, then the ones that fell back to MI.
+
+    Each tier is ranked in its own unit (a fraction of RMSE, or nats); one sort over both ranked a fraction against nats,
+    i.e. arbitrarily across targets. A non-finite gain sorts last in its tier.
+    """
+    return sorted(pending, key=lambda item: (bool(item.get("rmse_gain")), item["gain"] if np.isfinite(item["gain"]) else -np.inf), reverse=True)
+
