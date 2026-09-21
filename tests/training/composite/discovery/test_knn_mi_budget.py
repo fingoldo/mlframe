@@ -68,3 +68,33 @@ def test_no_downgrade_when_budget_ample_or_disabled():
     disc2 = CompositeTargetDiscovery(_cfg(knn_mi_auto_downgrade=False, knn_mi_budget_seconds=1e-9))
     disc2.fit(df, "y", ["base", "x0", "x1"], np.arange(len(df)))
     assert disc2.config.mi_estimator == "knn", "auto_downgrade=False must be a hard opt-out"
+
+
+def test_the_guard_covers_auto_base_ranking(monkeypatch):
+    """With auto bases and the permutation null, a tiny budget downgrades before auto-base runs any Kraskov estimate."""
+    import sklearn.feature_selection as fs
+
+    calls = {"n": 0}
+    at_auto_base = {"n": None}
+    real_mi, real_auto = fs.mutual_info_regression, CompositeTargetDiscovery._auto_base
+
+    def mi_spy(*a, **k):
+        calls["n"] += 1
+        return real_mi(*a, **k)
+
+    def auto_spy(self, *a, **k):
+        at_auto_base["n"] = calls["n"]
+        return real_auto(self, *a, **k)
+
+    monkeypatch.setattr(fs, "mutual_info_regression", mi_spy)
+    monkeypatch.setattr(CompositeTargetDiscovery, "_auto_base", auto_spy)
+    disc = CompositeTargetDiscovery(_cfg(knn_mi_budget_seconds=1e-9, base_candidates="auto", auto_base_null_perms=20))
+    disc.fit(_frame(), "y", ["base", "x0", "x1"], np.arange(1500))
+    assert disc.config.mi_estimator == "bin"
+    assert at_auto_base["n"] is not None, "auto-base ranking did not run"
+    assert calls["n"] == at_auto_base["n"], f"auto-base ran {calls['n'] - at_auto_base['n']} Kraskov estimates the guard should have prevented"
+
+
+def test_the_estimate_counts_the_auto_base_sweeps():
+    """21 auto-base sweeps (1 + 20 null draws) are added to the per-work-item sweeps and the y baseline."""
+    assert estimate_knn_sweep_seconds(0.5, 10, 7, 21) == pytest.approx(0.5 * 10 * (8 + 21))

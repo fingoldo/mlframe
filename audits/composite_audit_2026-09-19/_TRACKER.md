@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 18 | 0 | 12 | 0 | 0 |
+| `discovery.md` | 30 | 19 | 0 | 11 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 14 | 0 | 8 | 0 | 0 |
 | `suite_integration.md` | 19 | 8 | 0 | 11 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 7 | 5 | 29 | 0 | 0 |
-| **Total** | **179** | **93** | **16** | **69** | **1** | **0** |
+| **Total** | **179** | **94** | **16** | **68** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -87,7 +87,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P3 | `DSC-26` | The corr-filter log recommends an escape hatch that does not work | |
 | **TODO** | P3 | `DSC-27` | Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids | |
 | **RESOLVED** | P3 | `DSC-28` | Multi-base upgraded specs inherit unmeasured statistics from their seed | upgrade MI stats NaN + stats_measured_for |
-| **TODO** | P3 | `DSC-29` | The knn cost guard runs after the most expensive knn work | |
+| **RESOLVED** | P3 | `DSC-29` | The knn cost guard runs after the most expensive knn work | guard moved before base resolution; estimate includes auto-base + null-perm sweeps |
 | **RESOLVED** | P3 | `DSC-30` | The stratified MI sampler gives non-finite-y rows a full stratum share | NaN-y rows not sampled |
 
 ### `estimator_ensemble.md`

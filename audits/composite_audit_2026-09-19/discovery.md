@@ -238,7 +238,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The cost guard does not cover the dominant knn cost.
 - **Suggested fix**: Run the knn probe and downgrade before `_resolve_base_candidates`, and include the auto-base plus null-permutation work in the extrapolated cost.
 - **Test to add**: With `mi_estimator="knn"` and a tiny `knn_mi_budget_seconds`, assert that `_auto_base` uses the bin estimator (spy on `mutual_info_regression` call count).
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The knn budget guard now runs before `_resolve_base_candidates`. It probes the Kraskov cost on a random `mi_sample_n`-sized sample of train rows (the size every later knn call sees). The estimate adds the auto-base sweeps (`1 + auto_base_null_perms` per column when `base_candidates='auto'`, via `_planned_bases_and_auto_sweeps`) to the per-work-item sweeps, and the planned base count comes from `auto_base_top_k` capped by `max_base_candidates`. Regression test `test_the_guard_covers_auto_base_ranking` spies `mutual_info_regression`: before the fix, auto-base ran 65 Kraskov estimates under a 1e-9 s budget; now it runs none. `test_the_estimate_counts_the_auto_base_sweeps` pins the formula.
 
 ### DSC-30 [P3] The stratified MI sampler gives non-finite-y rows a full stratum share
 - **Where**: `screening.py:925-948`.
