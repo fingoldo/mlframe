@@ -183,15 +183,16 @@ class TestLockPermutationNull:
                 false_on += 1
         # Demo: 10/10 OFF, 1-2/10 ON. Lock: ON must catch >= 50% of
         # OFF's false-positives.
-        if false_off >= 5:
-            reduction = (false_off - false_on) / false_off
-            assert reduction >= 0.5, (
-                f"regression: null filter reduced false-positives by only "
-                f"{reduction * 100:.0f}% (OFF={false_off}/{n_reps}, "
-                f"ON={false_on}/{n_reps}); expected >= 50%"
-            )
-        else:
-            pytest.skip(f"OFF false-positive rate {false_off}/{n_reps} too low for stable measurement")
+        # The fixture is seeded, so the OFF rate is fixed; a skip here would have turned the lock off for good the day a
+        # discovery change lowered it. Pin the precondition instead: if OFF stops producing false positives, the fixture
+        # no longer measures the filter and must be rebuilt.
+        assert false_off >= 5, f"OFF false-positive rate {false_off}/{n_reps} is too low to measure the null filter; the fixture needs a noisier DGP"
+        reduction = (false_off - false_on) / false_off
+        assert reduction >= 0.5, (
+            f"regression: null filter reduced false-positives by only "
+            f"{reduction * 100:.0f}% (OFF={false_off}/{n_reps}, "
+            f"ON={false_on}/{n_reps}); expected >= 50%"
+        )
 
 
 # ----------------------------------------------------------------------

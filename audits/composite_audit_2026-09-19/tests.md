@@ -235,7 +235,7 @@ Findings are ordered by severity. A cross-reference like "(EST-01)" means the de
   - Replace each skip with an assertion on the precondition, so the fixture must reach the path, and tune the seed or DGP until it does.
   - For MRMR, force-keep `base` (or pass the selected columns plus `base` explicitly).
   - For the xdist cases, use the existing `no_xdist` marker alone and drop the runtime skip.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Each seeded skip site was run first: all of them take the checked branch today, so the skip or guard became an asserted precondition. A change that would have skipped now fails. Sites: the null-filter lock (`false_off >= 5` asserted), both MRMR-keeps-`base` sites, the stacked residual-spec warning (`residual_specs` asserted), and the failed-component exclusion (`component_names` asserted). The integration `continue` was replaced: both splits must be present, and its `0.5 < RMSE < 50` became the measured additive invariant (y-scale dummy RMSE == T-scale dummy RMSE) plus a bound against std(y). Its docstring's premise was wrong: the inverted dummy uses the base, so it is residual-sized. The xdist skips are an environment probe, but they hid a CI gap: `running_under_xdist()` was true for any worker, so the `-n 1` macOS shards skipped every `no_xdist` test and no CI leg ran them. A single worker no longer counts as parallel, so those tests now run on the macOS shards (verified: `-n 1` runs, `-n 2` skips).
 
 ### TST-14 [P2] The selection-gate modules with the most leverage have no direct tests, and the cache-key tests check only the key function's own arguments
 - **Where**:
