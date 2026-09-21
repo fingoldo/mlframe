@@ -198,7 +198,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: A documented safeguard does nothing under shipped defaults, and nothing reports that.
 - **Suggested fix**: Enable a cheap bootstrap by default (for example `mi_gain_bootstrap_n=50` on the bin path, which reuses prebinned codes), or log once at INFO that FDR control is inactive because the bootstrap is disabled.
 - **Test to add**: With default config, assert that either the p-values are finite or the "FDR inactive" log is emitted.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `apply_fdr_control_to_candidates` logs at INFO, once per fit, that FDR control is inactive when no candidate has a bootstrap p-value (the default `mi_gain_bootstrap_n=0`) and names the knob that enables it. The docstring now states the inert default and its measured reason. A 50-replicate default bootstrap was measured instead: a default fit at n=5000 goes from 4.2 s to 7.1 s, and the eps gate moves to the LCB, so the kept set changes (cbrt_y out, asinh_residual in) with no shown accuracy gain. It stays opt-in. Regression test `test_inactive_fdr_control_says_so` in tests/training/composite/eval/test_eval_stats_by_fdr.py fails before the fix.
 
 ### DSC-25 [P3] Alpha-drift flags leak between fits of one instance; the reject flag's code fallback contradicts the config default
 - **Where**: `_eval_stats.py:279-282` resets `self._alpha_drift_flags` only when a `linear_residual` survived, and `_fit.py:750-779` reads it for survivors. `_eval_stats.py:283` uses `getattr(self.config, "reject_on_alpha_drift", False)`, while the config default is `True` (`_composite_target_discovery_config_base.py:718`).
