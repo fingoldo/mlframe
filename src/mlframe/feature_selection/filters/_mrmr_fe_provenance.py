@@ -34,8 +34,8 @@ Columns:
   any mech-specific knobs (basis name, degree, etc.). Stringified so the
   whole frame survives pickle / clone trivially.
 - ``mrmr_gain`` : the greedy gain at the moment this feature was added to
-  ``predictors`` (matches ``mrmr_gains_`` at the same position when the
-  selection order is preserved).
+  ``predictors``, read from that pick's ``_predictors_log_`` entry (``mrmr_gains_``
+  holds the same values in output order, not selection order).
 - ``support_rank`` : 0-based position in the greedy selection order.
 
 PURE ADDITIVE
@@ -43,7 +43,7 @@ PURE ADDITIVE
 This layer touches NO decision logic; ``fe_provenance_`` is metadata only.
 The DataFrame is built from already-stored fitted attrs (``support_``,
 ``feature_names_in_``, ``_engineered_features_``, ``_engineered_recipes_``,
-``mrmr_gains_``, the various ``*_features_`` rosters). When the
+``_predictors_log_``, the various ``*_features_`` rosters). When the
 ingredients are missing (e.g. someone unpickles a pre-Layer-54 model and
 never calls fit again), the helper returns an empty DataFrame instead of
 raising so downstream report calls degrade gracefully.
@@ -493,17 +493,6 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
     recipe_by_name = {simplify_fe_name(str(getattr(r, "name", ""))): r for r in produced_recipes if getattr(r, "name", None) is not None}
     recipe_by_name.update({simplify_fe_name(str(getattr(r, "name", ""))): r for r in engineered_recipes if getattr(r, "name", None) is not None})
     predictors = getattr(mrmr_self, "_predictors_log_", None) or ()
-    # mrmr_gains_ is in greedy selection order (set in _mrmr_fit_impl ~line
-    # 2169). Index by position when the name lines up; fall back to NaN.
-    # ``or []`` is unsafe here because ``mrmr_gains_`` may be an ndarray,
-    # which raises ``ValueError`` on truth-test for size>1; use an explicit
-    # ``None`` guard instead.
-    _gains_raw = getattr(mrmr_self, "mrmr_gains_", None)
-    if _gains_raw is None:
-        gains_arr = np.array([], dtype=np.float64)
-    else:
-        gains_arr = np.asarray(_gains_raw, dtype=np.float64)
-
     final_names = _final_feature_order(mrmr_self)
     raw_set = set(feature_names_in)
     _roster_sets = _build_roster_membership_sets(mrmr_self)
@@ -512,10 +501,8 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
     rows = []
     for name in final_names:
         rank = _rank_index.get(simplify_fe_name(str(name)), -1)
-        if rank >= 0 and rank < gains_arr.size:
-            gain_val = float(gains_arr[rank])
-        else:
-            gain_val = float("nan")
+        # The log entry at the greedy rank carries this pick's gain; mrmr_gains_ is in output order, so it cannot be indexed by rank.
+        gain_val = float(predictors[rank].get("gain", float("nan"))) if 0 <= rank < len(predictors) else float("nan")
 
         if name in raw_set and name not in recipe_by_name:
             origin = "raw"

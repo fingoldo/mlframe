@@ -740,6 +740,10 @@ def _append_engineered(self, base_out, X, recipes):
     # replay on test data alongside pair recipes. The only filter is the legacy ``requires_refit_for_replay``
     # flag retained for OLD pickles that pre-date the chain payload.
     replayable = [r for r in recipes if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")]
+    # One column cache and one basis cache for this call: a hub source column is pulled from X once and a shared orth operand's basis is
+    # evaluated once, however many recipes read it. Recipes never write into what they read, so the cached arrays stay valid for the call.
+    _col_cache: dict = {}
+    _basis_cache: dict = {}
     if len(replayable) < len(recipes) and self.verbose:
         logger.info(
             "MRMR.transform: skipping %d legacy k-way recipe(s) " "without chained-lookup payload (pre-D3 pickle). Re-fit " "to materialise the chain.",
@@ -851,7 +855,7 @@ def _append_engineered(self, base_out, X, recipes):
             _still: list = []
             for r in _pending:
                 if not _unresolved_sources(r):
-                    col = apply_recipe(r, chained)
+                    col = apply_recipe(r, chained, col_cache=_col_cache, basis_cache=_basis_cache)
                     _results[r.name] = col
                     # In-place append, not ``.assign()`` (which ALWAYS returns a full block-manager
                     # copy - see the ownership comment above ``chained = ... .copy()``). Safe here:
@@ -923,7 +927,7 @@ def _append_engineered(self, base_out, X, recipes):
                     f"(constant-col removal / imputer drop / OD filter) is mutating the "
                     f"column set BETWEEN fit and transform. Investigate."
                 )
-        engineered_cols = [apply_recipe(r, _X_for_recipes) for r in recipes]
+        engineered_cols = [apply_recipe(r, _X_for_recipes, col_cache=_col_cache, basis_cache=_basis_cache) for r in recipes]
     if isinstance(base_out, pd.DataFrame):
         # ``copy=False`` would risk mutating caller's view (base_out is a view into pandas X). Build a narrow
         # new frame: engineered cols are fresh ndarrays anyway, only base cols share buffers with X.

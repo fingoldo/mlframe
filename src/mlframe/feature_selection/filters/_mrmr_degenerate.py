@@ -68,13 +68,11 @@ def _column_arrays(X):
         for name in X.columns:
             yield name, X[name].to_numpy()
         return
-    # polars
-    if hasattr(X, "columns") and hasattr(X, "to_numpy") and not isinstance(X, np.ndarray):
+    # polars: one column at a time; X.to_numpy() would materialise the whole frame as one dense array first.
+    if hasattr(X, "columns") and hasattr(X, "get_column") and not isinstance(X, np.ndarray):
         try:
-            arr = X.to_numpy()
-            cols = list(X.columns)
-            for i, name in enumerate(cols):
-                yield name, arr[:, i]
+            for name in list(X.columns):
+                yield name, X.get_column(name).to_numpy()
             return
         except Exception as e:  # nosec B110 - best-effort path
             logger.debug("polars-native per-column extraction failed for degenerate-column audit, falling back to np.asarray: %s", e)
@@ -186,9 +184,20 @@ def _gram_matrix(M: np.ndarray) -> np.ndarray:
 
 
 _COLLINEARITY_PASS_MAX_COLS = 4000
+# The collinearity pass builds one (K, n) float64 matrix; above this many bytes the diagnostic pass is skipped rather than allocated.
+_COLLINEARITY_PASS_MAX_BYTES = 2 * 1024**3
 
 
-def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_MAX_COLS) -> dict:
+def _column_values(X, name):
+    """One column of ``X`` as an ndarray, by the label ``_column_arrays`` yielded for it."""
+    if isinstance(X, pd.DataFrame):
+        return X[name].to_numpy()
+    if hasattr(X, "get_column") and not isinstance(X, np.ndarray):
+        return X.get_column(name).to_numpy()
+    return np.asarray(X)[:, name]
+
+
+def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_MAX_COLS, max_collinearity_bytes: int = _COLLINEARITY_PASS_MAX_BYTES) -> dict:
     """Cheap O(p) degenerate-column scan. Returns ``{column: reason}``.
 
     Order of precedence per column: all_nan > constant > duplicate_of > collinear_with.
@@ -206,7 +215,8 @@ def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_
     """
     degenerate: dict = {}
     seen_content: dict = {}  # content_key -> first column name
-    numeric_cols: list = []  # (name, standardized values) for collinearity pass
+    numeric_cols: list = []  # names of numeric candidates for the collinearity pass; values are re-read from X when the matrix is filled
+    n_rows = 0
 
     for name, values in _column_arrays(X):
         if _is_all_nan(values):
@@ -223,10 +233,10 @@ def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_
             seen_content[key] = name
         # collect for the collinearity pass (numeric, non-degenerate only)
         if values.dtype.kind in "fiu":
-            v = values.astype(np.float64)
-            finite = np.isfinite(v)
-            if finite.sum() >= 2:
-                numeric_cols.append((name, v, finite))
+            finite_count = int(np.isfinite(values).sum()) if values.dtype.kind == "f" else int(values.shape[0])
+            if finite_count >= 2:
+                numeric_cols.append(name)
+                n_rows = int(values.shape[0])
 
     # Perfect-collinearity pass - VECTORISED so the whole correlation matrix is one
     # BLAS GEMM (O(n*p^2) in optimised C) instead of a Python O(p^2) loop of np.corrcoef
@@ -235,16 +245,21 @@ def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_
     # complete linear relationship, which is the only case |corr| reaches 1.0. Only the
     # numeric, non-degenerate columns participate; the first column of each collinear
     # group is the reference.
-    live = [(n, v, f) for (n, v, f) in numeric_cols if n not in degenerate]
+    live = [n for n in numeric_cols if n not in degenerate]
     if len(live) > max_collinearity_cols:
         logger.info(
             "mrmr degenerate-column audit: skipping the collinearity pass (%d numeric candidate columns "
             "exceeds max_collinearity_cols=%d) -- all_nan/constant/duplicate reasons are unaffected.",
             len(live), max_collinearity_cols,
         )
+    elif len(live) >= 2 and len(live) * n_rows * 8 > max_collinearity_bytes:
+        logger.info(
+            "mrmr degenerate-column audit: skipping the collinearity pass (a %d x %d float64 matrix is %.1f GiB, above "
+            "max_collinearity_bytes=%.1f GiB) -- all_nan/constant/duplicate reasons are unaffected.",
+            len(live), n_rows, len(live) * n_rows * 8 / 1024**3, max_collinearity_bytes / 1024**3,
+        )
     elif len(live) >= 2:
-        names = [n for (n, _, _) in live]
-        n_rows = live[0][1].shape[0]
+        names = live
         # ROW-major (K, n_rows), not (n_rows, K): writing ``M[k, :] = col`` fills a CONTIGUOUS row,
         # while the previous ``M[:, k] = col`` wrote a column of a C-order (n_rows, K) array -
         # every element strided by K*8 bytes, the classic column-into-row-major antipattern (measured
@@ -252,20 +267,23 @@ def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_
         # below is transposed to match (``M @ M.T`` instead of ``M.T @ M``) - same Gram matrix, same
         # BLAS call, just the operand layout that lets each per-column write stay contiguous.
         M = np.empty((len(live), n_rows), dtype=np.float64)
-        for k, (_, v, fin) in enumerate(live):
-            col = v.copy()
+        for k, name in enumerate(live):
+            row = M[k]
+            row[:] = _column_values(X, name)  # casts into the row; no separate float64 copy of the column
+            fin = np.isfinite(row)
             if not fin.all():
-                col_mean = float(np.nanmean(col)) if fin.any() else 0.0
-                col = np.where(fin, col, col_mean)
-            M[k, :] = col
+                col_mean = float(np.nanmean(row)) if fin.any() else 0.0
+                row[~fin] = col_mean
         # Standardise; zero-variance columns (shouldn't reach here - caught as constant)
         # are guarded by a non-zero std floor so they cannot spuriously read |corr|=1.
         with np.errstate(invalid="ignore"):  # a non-finite-derived col_mean can make the centre subtract NaN; the std floor below handles it
             M -= M.mean(axis=1, keepdims=True)
-            stds = np.sqrt((M * M).sum(axis=1))
+            # Row by row: the same per-row pairwise sum as (M * M).sum(axis=1), without a second (K, n) temporary.
+            stds = np.sqrt(np.fromiter(((row * row).sum() for row in M), dtype=np.float64, count=M.shape[0]))
         good = stds > 0
         with np.errstate(invalid="ignore", divide="ignore"):
-            M = np.where(good[:, None], M / np.where(stds == 0, 1.0, stds)[:, None], 0.0)
+            np.divide(M, np.where(stds == 0, 1.0, stds)[:, None], out=M)
+        M[~good] = 0.0
         corr = _gram_matrix(M)  # unit-norm rows -> Gram matrix == correlation matrix
         np.fill_diagonal(corr, 0.0)
         abs_corr = np.abs(corr)

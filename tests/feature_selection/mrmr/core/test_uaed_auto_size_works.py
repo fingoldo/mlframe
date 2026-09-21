@@ -69,8 +69,11 @@ def test_mrmr_gains_attribute_populated_after_fit():
 
 
 def test_mrmr_gains_monotone_non_increasing_in_screen_order():
-    """The relevance trace should be roughly non-increasing across
-    rounds (greedy mRMR selects highest-gain candidate each step).
+    """The relevance trace is roughly non-increasing across rounds (greedy mRMR picks the highest-gain candidate each step).
+
+    Read from ``_predictors_log_``, which is the screen order. ``mrmr_gains_`` is in OUTPUT order (it pairs with
+    ``get_feature_names_out()``), so a reversal there is ordinary: a late greedy pick can sit early in the output, and a
+    feature a protection pass re-added without a greedy score carries 0.0.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -78,10 +81,32 @@ def test_mrmr_gains_monotone_non_increasing_in_screen_order():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         sel = MRMR(verbose=0).fit(X, y)
-    if sel.mrmr_gains_.size >= 2:
-        # Allow tiny ties / noise; assert no large reversal.
-        diffs = np.diff(sel.mrmr_gains_)
-        assert (diffs <= 0.05).all(), f"mrmr_gains_ not weakly non-increasing: {sel.mrmr_gains_}"
+    screen_gains = np.asarray([float(p["gain"]) for p in sel._predictors_log_], dtype=np.float64)
+    assert screen_gains.size >= 2, f"fixture precondition: the screen must log at least two picks, got {screen_gains.size}"
+    # Allow tiny ties / noise; assert no large reversal.
+    diffs = np.diff(screen_gains)
+    assert (diffs <= 0.05).all(), f"greedy gains not weakly non-increasing in screen order: {screen_gains}"
+
+
+def test_mrmr_gains_pair_with_the_output_names():
+    """Each ``mrmr_gains_`` entry is the greedy gain of the feature at the same position in ``get_feature_names_out()``."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    X, y = _clear_elbow_frame()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sel = MRMR(verbose=0).fit(X, y)
+    names = list(sel.get_feature_names_out())
+    gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
+    assert gains.size == len(names) == sel.n_features_
+    by_name = {str(p["name"]): float(p["gain"]) for p in sel._predictors_log_}
+    scored = [(nm, g) for nm, g in zip(names, gains.tolist()) if nm in by_name]
+    assert scored, f"fixture precondition: at least one output name must appear in the greedy log; names={names}"
+    for nm, g in scored:
+        assert g == by_name[nm], f"{nm!r} carries gain {g}, the screen logged {by_name[nm]}"
+    for nm, g in zip(names, gains.tolist()):
+        if nm not in by_name:
+            assert g == 0.0, f"{nm!r} was never greedy-scored, so its gain must be 0.0, not {g}"
 
 
 def test_mrmr_gains_non_increasing_within_raw_screen_prefix():
