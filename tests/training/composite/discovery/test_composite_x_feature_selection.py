@@ -290,8 +290,9 @@ class TestCompositeXMRMRNoFE:
         selected = X.columns[mrmr.support_].tolist()
         assert len(selected) >= 1
         # Composite discovery on the MRMR-selected subset.
-        if "base" not in selected:
-            pytest.skip("MRMR did not keep `base`; composite cannot use it. Synthetic-data variance; not a regression.")
+        # Seeded fixture: MRMR keeps `base` today. A skip here would stop testing the composite downstream the day an MRMR
+        # change dropped the dominant base, which is exactly the interaction this test exists to watch.
+        assert "base" in selected, f"MRMR dropped the dominant base column; selected={selected}"
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
             screening="mi",
@@ -380,10 +381,8 @@ class TestCompositeXMRMRWithFE:
         selected_original = X.columns[mrmr.support_].tolist()
         assert len(selected_original) >= 1
         # Composite discovery on the original-selected subset.
-        if "base" not in selected_original:
-            # MRMR-with-FE may select a different combination; not
-            # a regression. Skip downstream composite check.
-            pytest.skip(f"MRMR-with-FE did not keep `base`; selected={selected_original}")
+        # Pinned like the no-FE case: on this seeded fixture MRMR-with-FE keeps `base`, and losing it must fail, not skip.
+        assert "base" in selected_original, f"MRMR-with-FE dropped the dominant base column; selected={selected_original}"
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
             screening="mi",

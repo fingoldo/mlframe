@@ -20,9 +20,9 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `estimator_ensemble.md` | 22 | 7 | 0 | 15 | 0 | 0 |
 | `suite_integration.md` | 19 | 7 | 0 | 12 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 4 | 1 | 12 | 0 | 0 |
+| `tests.md` | 17 | 5 | 1 | 11 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 3 | 0 | 38 | 0 | 0 |
-| **Total** | **179** | **66** | **11** | **101** | **1** | **0** |
+| **Total** | **179** | **67** | **11** | **100** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -186,7 +186,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `TST-10` | The CTE fuzz suite asserts only finiteness and a y-envelope that the post-inverse clip guarantees, on small-scale data, and states "found NO production bug" | |
 | **TODO** | P2 | `TST-11` | Several biz_val tests have no honest baseline, compare against a baseline starved of the base column, or assert only "not worse" | |
 | **TODO** | P2 | `TST-12` | Targeted transform and ensemble tests use the one parameter region where the filed defect is silent | |
-| **TODO** | P2 | `TST-13` | Data-dependent skips and conditional asserts let tests pass without checking anything | |
+| **RESOLVED** | P2 | `TST-13` | Data-dependent skips and conditional asserts let tests pass without checking anything | seeded skips pinned as preconditions; integration asserts measured; no_xdist tests now run on -n 1 CI shards |
 | **TODO** | P2 | `TST-14` | The selection-gate modules with the most leverage have no direct tests, and the cache-key tests check only the key function's own arguments | |
 | **TODO** | P2 | `TST-15` | Composite tests check the CTE-raw-X routing by inspecting source text, and the behavioural half fits the inner on raw features, so it cannot see EST-01 | |
 | **TODO** | P3 | `TST-16` | Timing-based asserts in the composite suite can flake on the shared host | |

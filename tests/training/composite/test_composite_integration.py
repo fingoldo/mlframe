@@ -346,10 +346,10 @@ class TestCompositeIntegration:
         # First entry has at least train RMSE.
         train_metrics = per_entry_metrics[0].get("metrics", {}).get("train", {})
         assert "RMSE" in train_metrics
-        # y-scale RMSE should be finite and reasonable for TVT data
-        # (target ranges roughly 0-30; RMSE should be a small fraction
-        # of that, definitely finite).
-        assert 0 < train_metrics["RMSE"] < 100
+        # Measured against the target's own spread: the linear residual on TVT_prev reaches y-RMSE 0.29 with std(y) 2.95
+        # (ratio 0.10). An inverse that returned T, or added the base twice, lands near the base level (~10), far above.
+        y_std = float(np.std(np.asarray(df["target"], dtype=np.float64)))
+        assert 0 < train_metrics["RMSE"] < 0.25 * y_std, f"train y-RMSE {train_metrics['RMSE']:.4g} vs std(y) {y_std:.4g}"
 
     def test_cross_target_ensemble_creates_aggregate_entry(self, tmp_path) -> None:
         """When ``cross_target_ensemble_strategy != 'off'`` is set, the
@@ -546,9 +546,11 @@ class TestCompositeIntegration:
 
         This test locks the inversion contract:
         ``metadata['dummy_baselines'][regression][<composite_name>]
-        ['y_scale_strongest_metrics']`` must be populated and the
-        RMSE_y values must lie in the same order of magnitude as the
-        raw target's range, not the (much smaller) residual range.
+        ['y_scale_strongest_metrics']`` must be populated for both splits.
+        For the additive ``linear_residual`` the inverted dummy's y-error
+        equals its T-error row by row, so the y-scale RMSE must equal the
+        T-scale one; the inverted dummy uses the base, so it is
+        residual-sized rather than the raw target's spread.
         """
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
         from mlframe.training.core import train_mlframe_models_suite
@@ -588,20 +590,17 @@ class TestCompositeIntegration:
             "verdict can compare apples-to-apples with model RMSE_y; "
             f"got: {rep.keys()}"
         )
-        # Val and test sub-entries each carry RMSE / MAE finite numbers.
+        # Both splits must be scored: a missing split is the regression, not something to step over.
+        assert {"val", "test"} <= set(ys), f"y-scale dummy metrics cover only {sorted(ys)}"
+        t_scale = rep["data"][rep["strongest"]]
+        y_std = float(np.std(np.asarray(df["target"], dtype=np.float64)))
         for split in ("val", "test"):
-            if split not in ys:
-                continue
-            assert "RMSE" in ys[split]
-            assert "MAE" in ys[split]
-            assert np.isfinite(ys[split]["RMSE"])
-            assert np.isfinite(ys[split]["MAE"])
-            # The dummy RMSE on y-scale should be roughly the std of y
-            # (predicting a constant on y-scale). For our synthetic TVT
-            # data y has std ~ 3-5, so RMSE_y in [1, 20] is sane and
-            # SUBSTANTIALLY larger than the T-scale RMSE (residual std
-            # ~ 0.3).
-            assert 0.5 < ys[split]["RMSE"] < 50, f"y-scale RMSE_y={ys[split]['RMSE']:.4g} out of range; either inversion math is wrong or test data drifted"
+            assert np.isfinite(ys[split]["RMSE"]) and np.isfinite(ys[split]["MAE"])
+            # linear_residual is additive in T (y = T + alpha*base + beta), so the inverted dummy's y-error equals its T-error
+            # row by row: the y-scale RMSE must equal the T-scale one. The inverted dummy (median(T) + alpha*base) uses the
+            # base, so it is residual-sized (measured 0.70-0.73), well under a raw constant's std(y) of 2.97.
+            np.testing.assert_allclose(ys[split]["RMSE"], t_scale[f"{split}_RMSE"], rtol=1e-6, err_msg=f"{split}: y-scale dummy RMSE != T-scale")
+            assert ys[split]["RMSE"] < 0.5 * y_std, f"{split}: inverted dummy RMSE {ys[split]['RMSE']:.4g} vs std(y) {y_std:.4g}"
 
     def test_env_var_kill_switch_disables_even_when_config_opts_in(self, tmp_path) -> None:
         """``MLFRAME_DISABLE_COMPOSITE=1`` must override the config."""
