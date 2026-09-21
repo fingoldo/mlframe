@@ -91,6 +91,95 @@ def _apply_honest_holdout_stages(self, df, target_col, kept_specs, usable_featur
     return kept_specs
 
 
+def _evaluate_work_items(self, base_candidates, _base_contexts, _skip_right_tail, _unary_evaluated, _unary_context_available, y_train, y_screen, target_col) -> list:
+    """Score every (base, transform) pair against its base context, in (base, transform) order.
+
+    Unary transforms go to the full-X sentinel context once each; base transforms run per base. The dispatch is a
+    threading pool, so the large per-base matrices are shared by reference rather than pickled.
+    """
+    _work_items: list[tuple[str, str, Any]] = []
+    for base in base_candidates:
+        if base not in _base_contexts:
+            continue
+        for transform_name in self.config.transforms:
+            if transform_name in _skip_right_tail:
+                continue
+            try:
+                transform = get_transform(transform_name)
+            except UnknownTransformError as exc:
+                log_throttle(
+                    logger, "composite_discovery_fit_unknown_transform", logging.WARNING,
+                    "[CompositeTargetDiscovery] %s; skipping.",
+                    exc,
+                )
+                continue
+            if not transform.requires_base:
+                if transform_name in _unary_evaluated:
+                    continue
+                _unary_evaluated.add(transform_name)
+                # Score the unary against the FULL-X sentinel context, not the
+                # current loop's ``base``. Fall back to the real base only if
+                # the sentinel context could not be built (degenerate empty
+                # feature matrix) so the unary still gets evaluated.
+                _unary_base = _UNARY_BASE_SENTINEL if _unary_context_available else base
+                _work_items.append((_unary_base, transform_name, transform))
+                continue
+            _work_items.append((base, transform_name, transform))
+
+    # Single parallel dispatch over the flat
+    # ``_work_items`` list. Joblib preserves input order so
+    # ``candidates`` ends up in (base, transform) iteration order
+    # identical to the legacy nested-loop serial path. joblib
+    # threading backend keeps closure capture cheap (no pickling),
+    # which is critical for the large ``x_remaining_matrix`` /
+    # ``_x_prebinned`` arrays the body reads. Most of the compute
+    # (transform.fit / transform.forward / _mi_to_target_prebinned
+    # / bootstrap MI loop) is numpy / numba which releases the GIL,
+    # so threading scales close to linearly up to cpu_count.
+    # 0 = auto: cap at the number of work items and cpu_count. 1 = serial.
+    _n_jobs_raw = getattr(self.config, "discovery_n_jobs", 1)
+    _n_jobs_raw = 1 if _n_jobs_raw is None else int(_n_jobs_raw)
+    if _n_jobs_raw == 0:
+        _n_jobs_disc = max(1, min(len(_work_items), os.cpu_count() or 1))
+    else:
+        _n_jobs_disc = max(1, _n_jobs_raw)
+    if _n_jobs_disc > 1 and len(_work_items) > 1:
+        from joblib import Parallel as _Parallel, delayed as _delayed
+
+        _results = _Parallel(
+            n_jobs=_n_jobs_disc,
+            backend="threading",
+            prefer="threads",
+        )(
+            _delayed(eval_one_transform)(
+                self,
+                _b,
+                _tn,
+                _t,
+                base_contexts=_base_contexts,
+                y_train=y_train,
+                y_screen=y_screen,
+                target_col=target_col,
+            )
+            for _b, _tn, _t in _work_items
+        )
+    else:
+        _results = [
+            eval_one_transform(
+                self,
+                _b,
+                _tn,
+                _t,
+                base_contexts=_base_contexts,
+                y_train=y_train,
+                y_screen=y_screen,
+                target_col=target_col,
+            )
+            for _b, _tn, _t in _work_items
+        ]
+    return [c for _r in _results if _r for c in _r]
+
+
 def fit(
     self: "CompositeTargetDiscovery",
     df: Any,
@@ -596,89 +685,12 @@ def fit(
             "[CompositeTargetDiscovery] target is left-skewed; skipping right-tail compressors %s (they would deepen the "
             "skew). yeo_johnson_y stays: it fits lambda > 1 for a left tail.", sorted(_skip_right_tail),
         )
-    _work_items: list[tuple[str, str, Any]] = []
-    for base in base_candidates:
-        if base not in _base_contexts:
-            continue
-        for transform_name in self.config.transforms:
-            if transform_name in _skip_right_tail:
-                continue
-            try:
-                transform = get_transform(transform_name)
-            except UnknownTransformError as exc:
-                log_throttle(
-                    logger, "composite_discovery_fit_unknown_transform", logging.WARNING,
-                    "[CompositeTargetDiscovery] %s; skipping.",
-                    exc,
-                )
-                continue
-            if not transform.requires_base:
-                if transform_name in _unary_evaluated:
-                    continue
-                _unary_evaluated.add(transform_name)
-                # Score the unary against the FULL-X sentinel context, not the
-                # current loop's ``base``. Fall back to the real base only if
-                # the sentinel context could not be built (degenerate empty
-                # feature matrix) so the unary still gets evaluated.
-                _unary_base = _UNARY_BASE_SENTINEL if _unary_context_available else base
-                _work_items.append((_unary_base, transform_name, transform))
-                continue
-            _work_items.append((base, transform_name, transform))
-
-    # Single parallel dispatch over the flat
-    # ``_work_items`` list. Joblib preserves input order so
-    # ``candidates`` ends up in (base, transform) iteration order
-    # identical to the legacy nested-loop serial path. joblib
-    # threading backend keeps closure capture cheap (no pickling),
-    # which is critical for the large ``x_remaining_matrix`` /
-    # ``_x_prebinned`` arrays the body reads. Most of the compute
-    # (transform.fit / transform.forward / _mi_to_target_prebinned
-    # / bootstrap MI loop) is numpy / numba which releases the GIL,
-    # so threading scales close to linearly up to cpu_count.
-    # 0 = auto: cap at the number of work items and cpu_count. 1 = serial.
-    _n_jobs_raw = getattr(self.config, "discovery_n_jobs", 1)
-    _n_jobs_raw = 1 if _n_jobs_raw is None else int(_n_jobs_raw)
-    if _n_jobs_raw == 0:
-        _n_jobs_disc = max(1, min(len(_work_items), os.cpu_count() or 1))
-    else:
-        _n_jobs_disc = max(1, _n_jobs_raw)
-    if _n_jobs_disc > 1 and len(_work_items) > 1:
-        from joblib import Parallel as _Parallel, delayed as _delayed
-
-        _results = _Parallel(
-            n_jobs=_n_jobs_disc,
-            backend="threading",
-            prefer="threads",
-        )(
-            _delayed(eval_one_transform)(
-                self,
-                _b,
-                _tn,
-                _t,
-                base_contexts=_base_contexts,
-                y_train=y_train,
-                y_screen=y_screen,
-                target_col=target_col,
-            )
-            for _b, _tn, _t in _work_items
-        )
-    else:
-        _results = [
-            eval_one_transform(
-                self,
-                _b,
-                _tn,
-                _t,
-                base_contexts=_base_contexts,
-                y_train=y_train,
-                y_screen=y_screen,
-                target_col=target_col,
-            )
-            for _b, _tn, _t in _work_items
-        ]
-    for _r in _results:
-        if _r:
-            candidates.extend(_r)
+    candidates.extend(_evaluate_work_items(
+        self, base_candidates, _base_contexts, _skip_right_tail, _unary_evaluated, _unary_context_available, y_train, y_screen, target_col,
+    ))
+    # The per-base float and prebinned copies and the full matrices are read by nothing past this point; holding them
+    # kept (bases + 1) x rows x features x 6 bytes resident through the rerank, the holdout gates and the re-score.
+    _base_contexts = _full_x_matrix = _full_x_prebinned = _unary_full_x = _unary_ctx = x_remaining_matrix = _x_prebinned = None
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "transforms_evaluated")
 

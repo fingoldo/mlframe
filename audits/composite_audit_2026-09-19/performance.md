@@ -190,7 +190,7 @@ Default counts used in the estimates:
   - `del _base_contexts, _full_x_matrix, _full_x_prebinned` right after the candidate loop.
   - With PRF-01, dedup needs only one correlation matrix per target. That matrix can be built one column pair block at a time, which lets the lazy path run together with dedup.
 - **Test/benchmark to add**: extend `bench_lazy_prebin_memory.py` to record RSS at the `transforms_evaluated` and `tiny_model_rerank_done` checkpoints with dedup on.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL - the per-base contexts and the full float and prebinned matrices are now released right after the candidate loop (the work-item build and dispatch moved into `_evaluate_work_items` so `fit` could take the release line; it went 788 -> 711 lines). Measured RSS at the start of the tiny rerank on 100k x 300 with two bases: 1080 MB -> 725 MB. NOT done: the float copy still lives alongside its prebinned twin during the candidate loop itself, the per-base prebinned copies are still materialised rather than addressed through `exclude_col`, and the lazy prebin path is still gated off by the default dedup, so the peak inside the candidate loop is unchanged. test_base_matrices_released_before_rerank.py: a weak reference to the screening matrix is dead when the rerank starts (fails pre-fix)
 
 ### PRF-10 [P2] The honest-OOF selector, the honest RMSE gate and the y-scale gate each rebuild feature matrices from the frame and refit a raw baseline and each spec on nearly the same screen-to-holdout design
 
