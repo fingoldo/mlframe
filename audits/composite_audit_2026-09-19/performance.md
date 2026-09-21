@@ -291,7 +291,7 @@ Default counts used in the estimates:
 - **Expected win** (estimate, pandas 1.5-2.x only): up to 2x the train-frame size in transient RAM per regression target.
 - **Suggested fix**: pass `y` to `CompositeTargetDiscovery.fit` as an array (an optional `y=` argument used instead of `df[target_col]`) and stop injecting the column. Or use `df.copy(deep=False)` plus assigning the new, previously absent column, which does not touch existing blocks.
 - **Test/benchmark to add**: a pandas-2.x CI job running a peak-RSS bench of the discovery phase on a 1M x 200 pandas frame, and asserting the caller's frame is unmodified.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - `_build_disc_df_for_target` no longer selects a column list when the target is not already a column (the usual case), and passes `copy=False` to `pd.concat` on pandas < 3, where the keyword is not deprecated; on pandas 3 it passes nothing, since copy-on-write already makes this zero-copy. The result is still a new frame, so the caller's is untouched. Verified on pandas 3.0.3 only (this host): feature columns share memory with the train frame, the caller's frame gains no target column, an existing target column is replaced not duplicated. The pandas-2.x copy is inferred from pandas semantics as the finding says; the same `np.shares_memory` assertion is what a pandas-2 CI leg would check. test_disc_df_does_not_copy_train_frame.py, 3 tests
 
 ### PRF-16 [P2] K-fold OOF re-runs a shared `pre_pipeline.transform` for every component on every fold
 
