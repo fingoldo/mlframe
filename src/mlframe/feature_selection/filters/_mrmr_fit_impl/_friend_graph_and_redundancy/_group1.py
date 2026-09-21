@@ -14,10 +14,22 @@ import os
 
 import numpy as np
 
+from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._heldout_gate import (
+    build_heldout_incr_probe,
+    candidate_values,
+    coerce_gate_target,
+    selected_design_columns,
+)
+
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
+
+# Held-out R^2 a protection pass must buy before it puts a screened-out column back into support. Matches the hinge protection's floor in
+# _group2: these are the same question asked of different column families, so they answer to the same bar.
+_ADAPTIVE_FOURIER_PROTECT_MIN_INCR_R2 = 0.003
+_MISS_INDICATOR_PROTECT_MIN_INCR_R2 = 0.003
 
 def _friend_graph_and_redundancy_passes_group1(
     self,
@@ -464,19 +476,56 @@ def _friend_graph_and_redundancy_passes_group1(
     if _adaptive_fourier and len(selected_vars):
         _cols_index = {c: i for i, c in enumerate(cols)}
         _sv_set = set(selected_vars)
-        _readd_adaptive = []
+        _y_gate_af = coerce_gate_target(_y_np, data.shape[0])
+        _af_probe = build_heldout_incr_probe(
+            y_gate=_y_gate_af,
+            sel_value_cols=selected_design_columns(
+                X=X, cols=cols, selected_vars=selected_vars, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_af
+            ),
+            random_seed=getattr(self, "random_seed", 0),
+        )
+        # The legs of one adaptive frequency are judged TOGETHER, not one at a time: the phase is split across the sin and cos leg, so each
+        # leg's individual marginal is low by construction (which is why the screen dropped them) and a per-leg gate would reject the very
+        # pair this protection exists to rescue. Their JOINT lift over the selected design is the honest question, and a pair already
+        # subsumed by a surviving composite adds ~0 to it.
+        _adaptive_by_source: dict = {}
         for _an in _adaptive_fourier:
             _idx = _cols_index.get(_an)
-            if _idx is None:
+            if _idx is None or _idx in _sv_set:
                 continue
-            if _idx not in _sv_set:
+            _rec_af = _hybrid_orth_pre_recipes.get(_an)
+            _src_af = tuple(getattr(_rec_af, "src_names", ()) or ())
+            _adaptive_by_source.setdefault(_src_af[0] if _src_af else _an, []).append((_an, _idx))
+        _readd_adaptive = []
+        for _src_name_af, _legs_af in _adaptive_by_source.items():
+            _leg_vals_af = [candidate_values(_ln, X=X, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_af) for _ln, _ in _legs_af]
+            if _y_gate_af is None or any(_v is None for _v in _leg_vals_af):
+                # Unmeasurable: no usable target, or a leg whose values cannot be scored. Keep the pre-gate behaviour rather than dropping blind.
+                _incr_af = float("inf")
+            else:
+                _incr_af = _af_probe(
+                    np.column_stack(_leg_vals_af),
+                    candidate_values(_src_name_af, X=X, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_af),
+                )
+            if _incr_af < _ADAPTIVE_FOURIER_PROTECT_MIN_INCR_R2:
+                if verbose:
+                    logger.info(
+                        "MRMR adaptive-fourier protection: leaving %d leg(s) of %r out of support, held-out R^2 gain over the selected design %.5f < %.5f: %s",
+                        len(_legs_af),
+                        _src_name_af,
+                        _incr_af,
+                        _ADAPTIVE_FOURIER_PROTECT_MIN_INCR_R2,
+                        [_ln for _ln, _ in _legs_af],
+                    )
+                continue
+            for _ln, _idx in _legs_af:
                 _readd_adaptive.append(_idx)
                 _sv_set.add(_idx)
         if _readd_adaptive:
             selected_vars = list(selected_vars) + _readd_adaptive
             if verbose:
                 logger.info(
-                    "MRMR adaptive-fourier protection: re-added %d held-out-" "validated adaptive Fourier feature(s) dropped by the screen: %s",
+                    "MRMR adaptive-fourier protection: re-added %d adaptive Fourier feature(s) the screen dropped, each lifting a held-out fit over the selected design: %s",
                     len(_readd_adaptive),
                     [cols[i] for i in _readd_adaptive],
                 )
@@ -491,6 +540,14 @@ def _friend_graph_and_redundancy_passes_group1(
         _cols_index = {c: i for i, c in enumerate(cols)}
         _sv_set = set(selected_vars)
         _sel_names_now = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
+        _y_gate_mi = coerce_gate_target(_y_np, data.shape[0])
+        _miss_probe = build_heldout_incr_probe(
+            y_gate=_y_gate_mi,
+            sel_value_cols=selected_design_columns(
+                X=X, cols=cols, selected_vars=selected_vars, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_mi
+            ),
+            random_seed=getattr(self, "random_seed", 0),
+        )
         _readd_miss = []
         for _mn in _miss_indicators:
             _idx = _cols_index.get(_mn)
@@ -498,8 +555,24 @@ def _friend_graph_and_redundancy_passes_group1(
                 continue
             _rec_mi = _miss_ind_pre_recipes.get(_mn)
             _src_mi = tuple(getattr(_rec_mi, "src_names", ()) or ())
-            # Re-add only when the indicator's raw source survived the screen (i.e. the signal is real and the screen kept the redundant raw twin in its place).
+            # Re-add only when the indicator's raw source survived the screen (i.e. the signal is real and the screen kept the redundant raw twin
+            # in its place) AND the indicator still lifts a held-out fit over the design we actually kept: "the source survived" is a membership
+            # test, and on a multi-signal frame a surviving composite can already carry the pattern the indicator encodes.
             if _src_mi and _src_mi[0] in _sel_names_now:
+                _mi_vals = candidate_values(_mn, X=X, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_mi)
+                if _mi_vals is None:
+                    _incr_mi = float("inf")  # unmeasurable values leave the pre-gate behaviour in place rather than dropping blind
+                else:
+                    _incr_mi = _miss_probe(_mi_vals, candidate_values(_src_mi[0], X=X, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_mi))
+                if _incr_mi < _MISS_INDICATOR_PROTECT_MIN_INCR_R2:
+                    if verbose:
+                        logger.info(
+                            "MRMR missingness-indicator protection: leaving %r out of support, held-out R^2 gain over the selected design %.5f < %.5f",
+                            _mn,
+                            _incr_mi,
+                            _MISS_INDICATOR_PROTECT_MIN_INCR_R2,
+                        )
+                    continue
                 _readd_miss.append(_idx)
                 _sv_set.add(_idx)
         if _readd_miss:

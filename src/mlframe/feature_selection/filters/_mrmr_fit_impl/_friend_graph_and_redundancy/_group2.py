@@ -11,6 +11,12 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+
+from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._heldout_gate import (
+    build_heldout_incr_probe,
+    coerce_gate_target,
+    selected_design_columns,
+)
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -149,103 +155,16 @@ def _friend_graph_and_redundancy_passes_group2(
         # composite adds ~0 and is dropped (no spurious cols on multi-signal data),
         # while a genuine slope-change leg with no competing composite clears the
         # floor (the hidden-champion win is kept). y is read only here at fit.
-        _y_for_hinge_gate = None
-        try:
-            _yv = _y_np
-            _yv = np.asarray(_yv, dtype=np.float64).reshape(-1)
-            if _yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_yv)):
-                _y_for_hinge_gate = _yv
-        except Exception as exc:
-            logger.debug("mrmr: y coercion for the hinge floor-drop rescue gate failed: %r", exc, exc_info=True)
-            _y_for_hinge_gate = None
-        # Continuous values of the currently-selected columns (engineered from the
-        # snapshot, raw from X) -> the baseline design the leg must beat OOS.
-        _sel_value_cols = []
-        if _y_for_hinge_gate is not None and isinstance(X, pd.DataFrame):
-            for _sn in dict.fromkeys(cols[i] for i in selected_vars if 0 <= i < len(cols)):
-                _cv = _eng_continuous_snapshot.get(_sn)
-                if _cv is None and _sn in X.columns:
-                    _cv = X[_sn].to_numpy()
-                if _cv is None:
-                    continue
-                try:
-                    _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
-                except (TypeError, ValueError):
-                    continue  # a raw categorical/string selected column (e.g. under skip_categorical_encoding) is not a numeric R^2-baseline regressor - exclude it from the linear design
-                if _cv.shape[0] == _y_for_hinge_gate.shape[0] and np.all(np.isfinite(_cv)):
-                    _sel_value_cols.append(_cv)
+        _y_for_hinge_gate = coerce_gate_target(_y_np, data.shape[0])
+        # Continuous values of the currently-selected columns -> the baseline design the leg must beat OOS.
+        _sel_value_cols = selected_design_columns(
+            X=X, cols=cols, selected_vars=selected_vars, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_for_hinge_gate
+        )
 
         _heldout_gate_ready = True
-
-        def _heldout_incr_over_selected(_leg_vals, _src_vals=None) -> float:
-            """Held-out R^2 gain of adding ``_leg_vals`` to the selected design
-            PLUS the source and its degree-2 poly, scored on the %3 stride slice.
-
-            Including ``[src, src^2]`` in the baseline is the SMOOTH-CURVE guard:
-            a parabola (y=x^2) is captured by ``src^2`` so a kink adds ~0 over it
-            and is rejected (no spurious hinge on a smooth target - matches the
-            biz_value complementarity contract); a GENUINE slope change still beats
-            ``[src, src^2]`` OOS (a quadratic cannot fit a sharp two-slope kink) so
-            the hidden-champion leg is kept."""
-            if _y_for_hinge_gate is None:
-                return 1.0  # gate disabled -> fall back to the source-survived rule
-            leg = np.asarray(_leg_vals, dtype=np.float64).reshape(-1)
-            n = leg.shape[0]
-            if n != _y_for_hinge_gate.shape[0] or not np.all(np.isfinite(leg)):
-                return 0.0
-            # Seeded shuffle-then-stride, not a raw
-            # positional (idx % 3) == 0 split - the latter is not an honest i.i.d. holdout on
-            # time/group/label-sorted input (this module explicitly supports sorted input elsewhere
-            # via ``groups`` / the ``temporal_agg`` FE family), which can bias the held-out R^2
-            # this gate decides on.
-            _hinge_gate_perm = np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)).permutation(n)
-            va = np.zeros(n, dtype=bool)
-            va[_hinge_gate_perm[: n // 3]] = True
-            tr = ~va
-            if int(tr.sum()) < 32 or int(va.sum()) < 16:
-                return 1.0
-            yv = _y_for_hinge_gate[va]
-            ss = float(np.sum((yv - yv.mean()) ** 2))
-            if ss < 1e-24:
-                return 0.0
-            base = [np.ones(n), *_sel_value_cols]
-            if _src_vals is not None:
-                _sv = np.asarray(_src_vals, dtype=np.float64).reshape(-1)
-                if _sv.shape[0] == n and np.all(np.isfinite(_sv)):
-                    base = [*base, _sv, _sv * _sv]
-            def _r2(design_cols):
-                """Fit an OLS design on the train stride and return held-out R^2 on the %3 validation stride (``-inf`` on a singular/failed solve).
-
-                Normal-equations solve (A.T@A / np.linalg.solve) on the well-conditioned small-k design
-                (intercept + a handful of base/leg columns) instead of a full SVD lstsq -- same win already
-                proven for this module's sibling OLS fit (see ``_deflate_sincos`` in
-                ``_orth_extra_basis_fe.py``: normal equations beats lstsq here because k is tiny and the
-                design isn't near-singular). Falls back to lstsq if A.T@A is singular."""
-                A = np.column_stack(design_cols)
-                A_tr = A[tr]
-                y_tr = _y_for_hinge_gate[tr]
-                try:
-                    AtA = A_tr.T @ A_tr
-                    coef = np.linalg.solve(AtA, A_tr.T @ y_tr)
-                except np.linalg.LinAlgError:
-                    try:
-                        coef, *_ = np.linalg.lstsq(A_tr, y_tr, rcond=None)
-                    except Exception as e:
-                        logger.debug("Hinge-gate OLS lstsq fallback failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
-                        return -np.inf
-                except Exception as e:
-                    logger.debug("Hinge-gate OLS lstsq failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
-                    return -np.inf
-                pred = A[va] @ coef
-                return 1.0 - float(np.sum((yv - pred) ** 2)) / ss
-            r2_base = _r2(base)
-            r2_full = _r2([*base, leg])
-            if not (np.isfinite(r2_base) and np.isfinite(r2_full)):
-                # The solve failed, so the uplift is unmeasured, not zero. -inf keeps the reject verdict at both ``< floor`` call sites
-                # (a NaN would compare False there and admit the candidate) while no longer reading as a measured 0.0.
-                logger.debug("mrmr: held-out R^2 probe could not be solved (base=%r, full=%r); rejecting the candidate", r2_base, r2_full)
-                return float("-inf")
-            return float(r2_full - r2_base)
+        _heldout_incr_over_selected = build_heldout_incr_probe(
+            y_gate=_y_for_hinge_gate, sel_value_cols=_sel_value_cols, random_seed=getattr(self, "random_seed", 0)
+        )
 
         if _hinge_feats:
             _HINGE_PROTECT_MIN_INCR_R2 = 0.003
