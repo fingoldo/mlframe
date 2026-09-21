@@ -707,12 +707,6 @@ def _run_composite_target_wrapping(
                         # not just per-row predictions).
                         try:
                             _spec_t_name = _spec.get("transform_name") if isinstance(_spec, dict) else None
-                            _ADDITIVE_TRANSFORMS = {
-                                "linear_residual", "linear_residual_robust",
-                                "linear_residual_multi", "linear_residual_grouped",
-                                "diff", "monotonic_residual", "quantile_residual",
-                                "ewma_residual",
-                            }
                             # Universal predict-vs-inverse-of-inner check (works for ALL transforms including multiplicative).
                             # If wrapper.predict diverges from manually-reconstructed inverse(inner.predict, base, params), the wrapper math is broken.
                             try:
@@ -756,7 +750,7 @@ def _run_composite_target_wrapping(
                                     "failed for composite='%s' split='%s': %s",
                                     _composite_name, _split_name, _uni_err,
                                 )
-                            if _spec_t_name in _ADDITIVE_TRANSFORMS:
+                            if _spec_t_name and _is_additive_in_t(_spec_t_name):
                                 _wi = getattr(_wrapper_for_score, "estimator_", None)
                                 # Full base set including extra_base_columns: linear_residual_multi is additive but its forward needs the
                                 # (n, K) matrix. Building a 1-D base here is what previously raised the alphas-width ValueError and was
@@ -870,3 +864,18 @@ def _run_composite_target_wrapping(
                             " | ".join(_y_summary_parts),
                         )
     return _train_pred_cache
+
+
+def _is_additive_in_t(transform_name: str) -> bool:
+    """True when the ``MAE_T == MAE_y`` watchdog invariant holds for this transform.
+
+    Read off ``Transform.additive_in_t``: the hand-kept list included ``quantile_residual`` (``y = T * IQR + median``, so the
+    invariant never holds and the watchdog false-fired) and missed most additive transforms. An out-of-fold train forward
+    (target encoding) answers the fit rows differently from the inverse, so it is left out too.
+    """
+    try:
+        t = get_transform(transform_name)
+    except (KeyError, ValueError):
+        return False
+    return bool(getattr(t, "additive_in_t", False)) and not getattr(t, "oof_train_forward", False)
+

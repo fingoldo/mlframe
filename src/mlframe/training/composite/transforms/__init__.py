@@ -143,6 +143,15 @@ class Transform:
     # must use rows outside the fit batch. Default False: every other transform's
     # forward depends only on its arguments' values.
     oof_train_forward: bool = False
+    # Additive in T: the inverse is ``y = T + g(base, params)`` with g independent of T, so a T-space error equals the y-space error row
+    # by row. The wrap-pass watchdog's ``MAE_T == MAE_y`` invariant holds exactly for these and for no other transform.
+    additive_in_t: bool = False
+    # Linear in base: additive in T with g linear in the base (``T + alpha . base + beta``), so an out-of-range base extrapolates the
+    # prediction linearly; the estimator's soft base shrink guards exactly these. Implies ``additive_in_t``.
+    linear_in_base: bool = False
+    # Number of base columns the transform is built for: 2 marks the multi-base family, which takes an ``(n, K)`` base matrix with
+    # K >= 2 and degrades to a single-column fallback when handed fewer columns (``second_diff`` becomes ``diff``).
+    n_bases: int = 1
 
 
 # ----------------------------------------------------------------------

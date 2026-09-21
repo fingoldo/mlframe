@@ -190,6 +190,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "polynomial_residual_deg2": Transform(
         name="polynomial_residual_deg2",
+        additive_in_t=True,
         forward=_polynomial_residual_deg2_forward,
         inverse=_polynomial_residual_deg2_inverse,
         fit=_polynomial_residual_deg2_fit,
@@ -219,6 +220,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "smoothing_spline_residual": Transform(
         name="smoothing_spline_residual",
+        additive_in_t=True,
         forward=_smoothing_spline_residual_forward,
         inverse=_smoothing_spline_residual_inverse,
         fit=_smoothing_spline_residual_fit,
@@ -251,6 +253,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "geometric_mean_residual": Transform(
         name="geometric_mean_residual",
+        n_bases=2,
         forward=_geometric_mean_residual_forward,
         inverse=_geometric_mean_residual_inverse,
         fit=_geometric_mean_residual_fit,
@@ -267,6 +270,8 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "pairwise_interaction_residual": Transform(
         name="pairwise_interaction_residual",
+        n_bases=2,
+        additive_in_t=True,
         forward=_pairwise_interaction_residual_forward,
         inverse=_pairwise_interaction_residual_inverse,
         fit=_pairwise_interaction_residual_fit,
@@ -284,6 +289,8 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "causal_anchor_residual": Transform(
         name="causal_anchor_residual",
+        additive_in_t=True,
+        linear_in_base=True,
         forward=_causal_anchor_residual_forward,
         inverse=_causal_anchor_residual_inverse,
         fit=_causal_anchor_residual_fit,
@@ -304,6 +311,9 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "second_diff": Transform(
         name="second_diff",
+        n_bases=2,
+        additive_in_t=True,
+        linear_in_base=True,
         forward=_second_diff_forward,
         inverse=_second_diff_inverse,
         fit=_second_diff_fit,
@@ -340,6 +350,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "target_encoding_residual": Transform(
         name="target_encoding_residual",
+        additive_in_t=True,
         forward=_target_encoding_residual_forward,
         inverse=_target_encoding_residual_inverse,
         fit=_target_encoding_residual_fit,
@@ -369,6 +380,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     # processed in its stable original order). For stacked panels where the ungrouped recurrences bleed one entity's level into the next entity's first rows.
     "ewma_residual_grouped": Transform(
         name="ewma_residual_grouped",
+        additive_in_t=True,
         forward=_ewma_residual_grouped_forward,
         inverse=_ewma_residual_grouped_inverse,
         fit=_ewma_residual_grouped_fit,
@@ -421,6 +433,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "monotonic_residual_grouped": Transform(
         name="monotonic_residual_grouped",
+        additive_in_t=True,
         forward=_monotonic_residual_grouped_forward,
         inverse=_monotonic_residual_grouped_inverse,
         fit=_monotonic_residual_grouped_fit,
@@ -448,6 +461,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "seasonal_residual": Transform(
         name="seasonal_residual",
+        additive_in_t=True,
         forward=_seasonal_residual_forward,
         inverse=_seasonal_residual_inverse,
         fit=_seasonal_residual_fit,
@@ -474,6 +488,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "asinh_residual_multi": Transform(
         name="asinh_residual_multi",
+        n_bases=2,
         forward=_asinh_residual_multi_forward,
         inverse=_asinh_residual_multi_inverse,
         fit=_asinh_residual_multi_fit,
@@ -485,6 +500,9 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "linear_residual_multi_robust": Transform(
         name="linear_residual_multi_robust",
+        n_bases=2,
+        additive_in_t=True,
+        linear_in_base=True,
         forward=_linear_residual_multi_forward,
         inverse=_linear_residual_multi_inverse,
         fit=_linear_residual_multi_robust_fit,
@@ -496,6 +514,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "nadaraya_watson_residual": Transform(
         name="nadaraya_watson_residual",
+        additive_in_t=True,
         forward=_nadaraya_watson_residual_forward,
         inverse=_nadaraya_watson_residual_inverse,
         fit=_nadaraya_watson_residual_fit,

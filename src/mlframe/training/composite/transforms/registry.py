@@ -147,6 +147,8 @@ _sp_fit_a, _sp_forward_a, _sp_inverse_a, _sp_domain_a, _sp_domain_fitted_a = _ma
 _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     "diff": Transform(
         name="diff",
+        additive_in_t=True,
+        linear_in_base=True,
         forward=_diff_forward,
         inverse=_diff_inverse,
         fit=_diff_fit,
@@ -156,6 +158,8 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "additive_residual": Transform(
         name="additive_residual",
+        additive_in_t=True,
+        linear_in_base=True,
         forward=_additive_residual_forward,
         inverse=_additive_residual_inverse,
         fit=_additive_residual_fit,
@@ -170,6 +174,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "median_residual": Transform(
         name="median_residual",
+        additive_in_t=True,
         forward=_median_residual_forward,
         inverse=_median_residual_inverse,
         fit=_median_residual_fit,
@@ -224,6 +229,8 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "linear_residual": Transform(
         name="linear_residual",
+        additive_in_t=True,
+        linear_in_base=True,
         forward=_linear_residual_forward,
         inverse=_linear_residual_inverse,
         fit=_linear_residual_fit,
@@ -233,6 +240,8 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "linear_residual_robust": Transform(
         name="linear_residual_robust",
+        additive_in_t=True,
+        linear_in_base=True,
         forward=_linear_residual_forward,
         inverse=_linear_residual_inverse,
         fit=_linear_residual_robust_fit,
@@ -249,6 +258,8 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "theilsen_residual": Transform(
         name="theilsen_residual",
+        additive_in_t=True,
+        linear_in_base=True,
         forward=_linear_residual_forward,
         inverse=_linear_residual_inverse,
         fit=_theilsen_residual_fit,
@@ -269,6 +280,9 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "linear_residual_multi": Transform(
         name="linear_residual_multi",
+        n_bases=2,
+        additive_in_t=True,
+        linear_in_base=True,
         forward=_linear_residual_multi_forward,
         inverse=_linear_residual_multi_inverse,
         fit=_linear_residual_multi_fit,
@@ -283,6 +297,8 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "linear_residual_grouped": Transform(
         name="linear_residual_grouped",
+        additive_in_t=True,
+        linear_in_base=True,
         forward=_linear_residual_grouped_forward,
         inverse=_linear_residual_grouped_inverse,
         fit=_linear_residual_grouped_fit,
@@ -310,6 +326,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "monotonic_residual": Transform(
         name="monotonic_residual",
+        additive_in_t=True,
         forward=_monotonic_residual_forward,
         inverse=_monotonic_residual_inverse,
         fit=_monotonic_residual_fit,
@@ -321,6 +338,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "ewma_residual": Transform(
         name="ewma_residual",
+        additive_in_t=True,
         forward=_ewma_residual_forward,
         inverse=_ewma_residual_inverse,
         fit=_ewma_residual_fit,

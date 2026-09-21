@@ -147,3 +147,64 @@ def test_no_two_registry_names_share_one_function_triple():
             duplicates.append((seen[key], name))
         seen.setdefault(key, name)
     assert not duplicates, f"registry names sharing one function triple: {duplicates}"
+
+
+def _fit_and_forward(name: str):
+    """Fitted params, the forward T on the fit rows, and those rows' base and groups."""
+    t = TRANSFORMS_REGISTRY[name]
+    y, base, base2, groups = _grid_data(400, 1.0, 0.0)
+    params, domain, b = _fit_on_domain(t, name, y, base, base2, groups)
+    b_fit = b[domain] if t.requires_base else b
+    return t, params, _call_forward(t, y[domain], b_fit, params, groups[domain]), b_fit, groups[domain]
+
+
+@pytest.mark.parametrize("name", [n for n in _NAMES if TRANSFORMS_REGISTRY[n].additive_in_t])
+def test_a_transform_declared_additive_in_t_moves_y_one_for_one_with_t(name: str):
+    """``additive_in_t`` promises ``inverse(T + d) - inverse(T) == d``; the wrap-pass watchdog relies on it."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        t, params, t_fit, b_fit, g = _fit_and_forward(name)
+        shift = _call_inverse(t, t_fit + 0.3, b_fit, params, g) - _call_inverse(t, t_fit, b_fit, params, g)
+    np.testing.assert_allclose(shift, 0.3, rtol=0, atol=1e-9, err_msg=f"{name} declares additive_in_t but T+0.3 does not move y by 0.3")
+
+
+@pytest.mark.parametrize("name", [n for n in _NAMES if TRANSFORMS_REGISTRY[n].linear_in_base])
+def test_a_transform_declared_linear_in_base_is_additive_and_linear_in_its_base(name: str):
+    """``linear_in_base`` promises a y that moves linearly with the base; the soft base shrink relies on it."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        t, params, t_fit, b_fit, g = _fit_and_forward(name)
+        assert t.additive_in_t, f"{name}: linear_in_base implies additive_in_t"
+        y0 = _call_inverse(t, t_fit, b_fit, params, g)
+        y1 = _call_inverse(t, t_fit, b_fit + 0.2, params, g)
+        y2 = _call_inverse(t, t_fit, b_fit + 0.4, params, g)
+    np.testing.assert_allclose(y2 - y0, 2.0 * (y1 - y0), rtol=0, atol=1e-9, err_msg=f"{name} declares linear_in_base but is not linear in it")
+
+
+@pytest.mark.parametrize("name", ["quantile_residual", "ratio", "log_y", "rank_ecdf_residual"])
+def test_a_non_additive_transform_does_not_declare_additive_in_t(name: str):
+    """The flag is not set where the property fails: ``quantile_residual`` inverts as ``T * IQR + median``."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        t, params, t_fit, b_fit, g = _fit_and_forward(name)
+        shift = _call_inverse(t, t_fit + 0.3, b_fit, params, g) - _call_inverse(t, t_fit, b_fit, params, g)
+    assert not np.allclose(shift, 0.3, atol=1e-9), f"{name} is additive in T on this data; pick a non-additive probe"
+    assert not t.additive_in_t
+
+
+def test_the_wrap_watchdog_checks_the_t_error_invariant_only_where_it_holds():
+    """The ``MAE_T == MAE_y`` watchdog runs for additive transforms and never for ``quantile_residual`` or an OOF-forward transform."""
+    from mlframe.training.core._phase_composite_wrapping import _is_additive_in_t
+
+    assert _is_additive_in_t("linear_residual") and _is_additive_in_t("monotonic_residual") and _is_additive_in_t("causal_anchor_residual")
+    assert not _is_additive_in_t("quantile_residual")
+    assert not _is_additive_in_t("target_encoding_residual")
+    assert not _is_additive_in_t("no_such_transform")
+
+
+def test_the_soft_base_shrink_covers_every_linear_in_base_transform():
+    """``causal_anchor_residual`` (``T + alpha * base``) extrapolates linearly in the base, so the shrink must guard it."""
+    from mlframe.training.composite.estimator import _soft_shrink
+
+    assert "causal_anchor_residual" in _soft_shrink.ADDITIVE_BASE_TRANSFORMS
+    assert _soft_shrink.ADDITIVE_BASE_TRANSFORMS == {n for n, t in TRANSFORMS_REGISTRY.items() if t.linear_in_base}

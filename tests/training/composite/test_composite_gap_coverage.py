@@ -40,6 +40,8 @@ import pytest
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model import LinearRegression
 
+from mlframe.training.composite.transforms import TRANSFORMS_REGISTRY
+
 warnings.filterwarnings("ignore")
 
 
@@ -502,11 +504,7 @@ _T25_NON_INVERTIBLE = {
 }
 
 # Multi-base transforms need a K-column base matrix, not a 1-D base.
-_T25_MULTI_BASE = {
-    "linear_residual_multi",
-    "geometric_mean_residual",
-    "pairwise_interaction_residual",
-}
+_T25_MULTI_BASE = {name for name, t in TRANSFORMS_REGISTRY.items() if t.n_bases > 1}
 
 # Transforms requiring strictly-positive y / base for their domain.
 _T25_POSITIVE_DOMAIN = {

@@ -49,25 +49,23 @@ except ImportError:  # pragma: no cover - numba optional
 
 logger = logging.getLogger(__name__)
 
-# The inverse is linear-in-base (``y = T + <linear combo of base> + const``) exactly for these
-# transforms, so an out-of-range base directly scales the extrapolation. Other transforms either
+# The inverse is linear-in-base (``y = T + <linear combo of base> + const``) exactly for the transforms declaring
+# ``Transform.linear_in_base``, so an out-of-range base directly scales the extrapolation. Other transforms either
 # have no base, already edge-clip the base (median_residual / monotonic_residual lookups), or use a
 # non-additive inverse (ratio / logratio) -- soft-shrink is scoped out of those so they stay
-# byte-identical.
-ADDITIVE_BASE_TRANSFORMS = frozenset({
-    "diff",
-    "second_diff",
-    "additive_residual",
-    "linear_residual",
-    "linear_residual_robust",
-    "theilsen_residual",
-    "linear_residual_multi",
-    # linear_residual_multi_robust reuses linear_residual_multi's forward/inverse functions verbatim
-    # (registry: "Forward / inverse identical to linear_residual_multi once (alphas, beta) are fitted")
-    # -- same linear-in-base extrapolation, same OOD failure mode, so it needs the same guard.
-    "linear_residual_multi_robust",
-    "linear_residual_grouped",
-})
+# byte-identical. The set is read off the registry flag: a hand-kept name list had missed
+# linear_residual_multi_robust and causal_anchor_residual (``T + alpha * base``).
+def _linear_in_base(transform) -> bool:
+    """True for a transform whose inverse is linear in its base."""
+    return bool(getattr(transform, "linear_in_base", False))
+
+
+def __getattr__(name: str):
+    """``ADDITIVE_BASE_TRANSFORMS``: the registry names declaring ``linear_in_base``, read at access time so runtime registrations count."""
+    if name == "ADDITIVE_BASE_TRANSFORMS":
+        from ..transforms import TRANSFORMS_REGISTRY
+        return frozenset(n for n, t in TRANSFORMS_REGISTRY.items() if t.linear_in_base)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Rows shrunk more than this many IQRs beyond the calibration boundary are DEEPLY out-of-distribution
 # and route to the smart fallback rather than trusting even the bounded shrunk inverse. Overridable per
@@ -103,7 +101,7 @@ def capture_base_fit_range(self, transform, base_train: np.ndarray) -> None:
     """
     if not getattr(transform, "requires_base", False):
         return
-    if getattr(transform, "name", "") not in ADDITIVE_BASE_TRANSFORMS:
+    if not _linear_in_base(transform):
         return
     b = np.asarray(base_train, dtype=np.float64)
     b2 = b.reshape(-1, 1) if b.ndim == 1 else b
@@ -134,7 +132,7 @@ def is_enabled(self, transform, params: dict[str, Any]) -> bool:
         return False
     if not getattr(transform, "requires_base", False):
         return False
-    if getattr(transform, "name", "") not in ADDITIVE_BASE_TRANSFORMS:
+    if not _linear_in_base(transform):
         return False
     rng = params.get(BASE_FIT_RANGE_KEY) if isinstance(params, dict) else None
     return isinstance(rng, dict) and "lo" in rng

@@ -66,11 +66,7 @@ sklearn_ensemble = pytest.importorskip("sklearn.ensemble")
 HistGradientBoostingRegressor = sklearn_ensemble.HistGradientBoostingRegressor
 
 # Transforms whose base is a K-column matrix (need ``base_columns``).
-_MULTI_BASE = {
-    "linear_residual_multi",
-    "geometric_mean_residual",
-    "pairwise_interaction_residual",
-}
+_MULTI_BASE = {name for name in list_transforms() if get_transform(name).n_bases > 1}
 # Transforms that consume a group / category column (need ``group_column``). Derived from the
 # registry's own ``requires_groups`` flag rather than a hand-maintained name set: a hardcoded set
 # silently drifted stale when 5 new ``_grouped``/``_residual_grouped`` transforms were added to the

@@ -50,7 +50,7 @@ def _base_for(name: str, base: np.ndarray, base2: np.ndarray) -> np.ndarray:
 
     Handing a multi-base transform a 1-D base silently exercised its degenerate single-column path as if it were valid.
     """
-    return np.column_stack([base, base2]) if name.endswith("_multi") or "_multi_" in name else base
+    return np.column_stack([base, base2]) if TRANSFORMS_REGISTRY[name].n_bases > 1 else base
 
 
 def _grid_data(n: int, scale: float, offset: float, seed: int = 0):
