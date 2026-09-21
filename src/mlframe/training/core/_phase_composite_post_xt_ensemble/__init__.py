@@ -68,6 +68,53 @@ def _slice_frame_rows(frame, pos):
     return frame[pos]
 
 
+def _inject_lag_predict(components: list, component_names: list, metadata: dict, tt_e: Any, orig_tname: str, filtered_train_df: Any) -> None:
+    """Append the dummy-baselines lag_predict (fitted on the train rows) to the component pool, when the target has one.
+
+    On strongly auto-regressive targets (lag1_corr ~0.999 within groups) ``y_hat = lag_target_value`` often beats every
+    trained model on RMSE; the honest-OOF gate selects it when it dominates. No trainable parameters beyond the train
+    median that fills a missing lag.
+    """
+    try:
+        _dbl_for_target = metadata.get("dummy_baselines", {}).get(str(tt_e), {}).get(str(orig_tname), {})
+        _dbl_extras = _dbl_for_target.get("extras", {})
+        _lag_meta = (
+            _dbl_extras.get("lag_predict")
+            if isinstance(
+                _dbl_extras,
+                dict,
+            )
+            else None
+        )
+        if _lag_meta is not None:
+            _lag_col = _lag_meta.get("feature_used")
+            if _lag_col:
+                _lag_model = _LagPredictDeployableModel(_lag_col)
+                try:
+                    # Fitted on the train rows so a missing lag at predict gets the train median, not the median of its own batch.
+                    _lag_model.fit(filtered_train_df)
+                except (KeyError, TypeError, ValueError) as _lag_fit_err:
+                    logger.warning("[CompositeCrossTargetEnsemble] target='%s': lag_predict not injected, its lag column %r cannot be read from the train frame (%s).",
+                                   orig_tname, _lag_col, _lag_fit_err)
+                    _lag_model = None
+            if _lag_col and _lag_model is not None:
+                components.append(PrePipelinePredictShim(_lag_model, None, "lag_predict"))
+                component_names.append("lag_predict")
+                logger.info(
+                    "[CompositeCrossTargetEnsemble] target='%s' "
+                    "injected lag_predict (feature=%s) as a free "
+                    "ensemble component. honest-OOF gate will "
+                    "auto-select if it dominates trained models.",
+                    orig_tname, _lag_col,
+                )
+    except Exception as _lag_inj_err:
+        logger.debug(
+            "[CompositeCrossTargetEnsemble] lag_predict injection " "failed for target='%s' (non-fatal): %s",
+            orig_tname,
+            _lag_inj_err,
+        )
+
+
 def _build_cross_target_ensemble_for_target(
     *,
     _tt_e,
@@ -201,44 +248,7 @@ def _build_cross_target_ensemble_for_target(
         _components.append(PrePipelinePredictShim(_inner, _pp, _name))
         _component_names.append(_name)
     # Inject lag_predict dummy baseline as a free component for the cross-target ensemble pool. On strongly auto-regressive targets (lag1_corr ~0.999 within groups) the dumbest ``y_hat = lag_target_value`` baseline often beats every trained model on RMSE; honest-OOF gate naturally selects it when it dominates. NO trainable parameters; cost is one column read.
-    try:
-        _dbl_for_target = metadata.get("dummy_baselines", {}).get(str(_tt_e), {}).get(str(_orig_tname), {})
-        _dbl_extras = _dbl_for_target.get("extras", {})
-        _lag_meta = (
-            _dbl_extras.get("lag_predict")
-            if isinstance(
-                _dbl_extras,
-                dict,
-            )
-            else None
-        )
-        if _lag_meta is not None:
-            _lag_col = _lag_meta.get("feature_used")
-            if _lag_col:
-                _lag_model = _LagPredictDeployableModel(_lag_col)
-                try:
-                    # Fitted on the train rows so a missing lag at predict gets the train median, not the median of its own batch.
-                    _lag_model.fit(filtered_train_df)
-                except (KeyError, TypeError, ValueError) as _lag_fit_err:
-                    logger.warning("[CompositeCrossTargetEnsemble] target='%s': lag_predict not injected, its lag column %r cannot be read from the train frame (%s).",
-                                   _orig_tname, _lag_col, _lag_fit_err)
-                    _lag_model = None
-            if _lag_col and _lag_model is not None:
-                _components.append(PrePipelinePredictShim(_lag_model, None, "lag_predict"))
-                _component_names.append("lag_predict")
-                logger.info(
-                    "[CompositeCrossTargetEnsemble] target='%s' "
-                    "injected lag_predict (feature=%s) as a free "
-                    "ensemble component. honest-OOF gate will "
-                    "auto-select if it dominates trained models.",
-                    _orig_tname, _lag_col,
-                )
-    except Exception as _lag_inj_err:
-        logger.debug(
-            "[CompositeCrossTargetEnsemble] lag_predict injection " "failed for target='%s' (non-fatal): %s",
-            _orig_tname,
-            _lag_inj_err,
-        )
+    _inject_lag_predict(_components, _component_names, metadata, _tt_e, _orig_tname, filtered_train_df)
     for _spec in _spec_list:
         _composite_entries = (models or {}).get(_tt_e, {}).get(_spec["name"], []) or []
         for _i, _entry in enumerate(_composite_entries):

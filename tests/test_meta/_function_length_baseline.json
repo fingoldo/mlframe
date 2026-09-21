@@ -283,7 +283,7 @@
   "src/mlframe/training/core/_phase_composite_post.py::run_composite_post_processing": 178,
   "src/mlframe/training/core/_phase_composite_post_moe.py::run_composite_moe_and_value_report": 160,
   "src/mlframe/training/core/_phase_composite_post_summary.py::_run_suite_end_dummy_baselines_summary": 156,
-  "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py::_build_cross_target_ensemble_for_target": 1070,
+  "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py::_build_cross_target_ensemble_for_target": 1041,
   "src/mlframe/training/core/_phase_composite_wrapping.py::_run_composite_target_wrapping": 360,
   "src/mlframe/training/core/_phase_config_setup.py::setup_configuration": 486,
   "src/mlframe/training/core/_phase_diagnostics.py::run_per_target_diagnostics": 151,
