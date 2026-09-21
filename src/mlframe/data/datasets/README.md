@@ -82,6 +82,7 @@ Beds are grouped by what they attack, not by how they were built:
 | `marginals` | 4 | heavy tails, contamination, point masses, quantisation |
 | `mixed_types` | 3 | cardinality bias, the identifier trap, power-law levels |
 | `observation` | 4 | missingness mechanisms, rare classes, the two halves of drift |
+| `targets` | 3 | multiclass, ordinal and count, sharing one structure so only the target varies |
 
 Every scenario declares `expected_to_break` — which arms it is designed to defeat — **before** the run.
 Those declarations are scored afterwards, so declaring one costs something. Roughly half hold, which is
