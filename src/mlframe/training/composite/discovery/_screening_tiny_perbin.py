@@ -43,6 +43,7 @@ from ._screening_tiny import (
 )
 from ._eval import refit_transform_on_fold
 from ._lgb_shared_fold import fit_on_shared_fold, lgb_params
+from ._ridge_shared_fold import fit_ridge_on_shared_fold
 
 
 def _per_bin_rmse(
@@ -181,6 +182,8 @@ def _fit_fold_model(x_clean, train_fold, fit_rows, t_fit, *, family, n_estimator
             deterministic=deterministic, num_threads=1 if n_jobs > 1 else inner_n_jobs,
         )
         return fit_on_shared_fold(x_clean, train_fold, t_fit, params=params, n_estimators=n_estimators)
+    if family.lower() in ("linear", "ridge") and isinstance(x_clean, np.ndarray) and fit_rows.shape[0] == train_fold.shape[0]:
+        return fit_ridge_on_shared_fold(x_clean, train_fold, t_fit)
     model = _tiny_fold_model(
         family, n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate,
         random_state=random_state, deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs,
