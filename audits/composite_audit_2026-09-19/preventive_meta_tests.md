@@ -143,7 +143,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium for (a): some metrics really do have wide legitimate ranges (probabilities in (0,1)), so the rule exempts `0 <= p <= 1`. Low for (c)-(e).
 - **Runtime**: about 3 s over about 3600 test files (cached AST).
 - **Repo**: py-ci-shared for (a), (b), (c), (e); mlframe for (d).
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Rules (a), (b), (c) and (e) are `py_ci_shared.nondiscriminating_shapes.shape_reasons` (py-ci-shared d619ced, 17 unit tests; `0 <= p <= 1` exempt, and environment-probe and missing-dependency skips exempt from (e)). Rule (d) is local: `biz-val-no-numeric` flags a `test_biz_val_*` whose every assertion is a type, None, non-empty or truthiness check and that calls no checking helper. Both are wired into tests/test_meta/test_no_nondiscriminating_assert.py, one baseline key per new reason so earlier entries keep their keys. Suite-wide at wiring: 111 late-skip, 45 biz-val-no-numeric, 25 wide-literal-range, 3 envelope-assert, 2 median-roundtrip, all recorded in the baseline. The composite-test hits (TST-10, TST-11, TST-13 among them) are fixed under those findings. The refresh paths of this and three sibling baselines wrote through `write_text`, which turns every newline into CRLF on Windows; they now write bytes.
 
 ### PMT-05 [P1] Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe
 - **Asserts**: fit a `CompositeTargetEstimator` per registry transform with an oracle inner (the inner returns the exact `forward(y)` for the rows it is given), then predict a 200-row continuation.

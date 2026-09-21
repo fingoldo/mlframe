@@ -297,7 +297,7 @@ def regenerate_baseline() -> None:
     import orjson
 
     payload = orjson.dumps(dict(sorted(_stale_comment_keys().items())), option=orjson.OPT_INDENT_2).decode("utf-8")
-    _STALE_COMMENT_BASELINE.write_text(payload + chr(10), encoding="utf-8")
+    _STALE_COMMENT_BASELINE.write_bytes((payload + chr(10)).encode("utf-8"))  # bytes: text mode on Windows writes CRLF
 
 
 def test_no_inert_patch_targets():
@@ -429,7 +429,7 @@ def regenerate_vacuous_loop_baseline() -> None:
 
     found = {loop.key: "pre-existing, recorded when the check was wired; not yet individually triaged" for loop in find_floorless_loops(_test_files(), REPO_ROOT)}
     payload = orjson.dumps(dict(sorted(found.items())), option=orjson.OPT_INDENT_2).decode("utf-8")
-    _VACUOUS_LOOP_BASELINE.write_text(payload + chr(10), encoding="utf-8")
+    _VACUOUS_LOOP_BASELINE.write_bytes((payload + chr(10)).encode("utf-8"))  # bytes: text mode on Windows writes CRLF
 
 
 _FAIL_OPEN_BASELINE = Path(__file__).resolve().parent / "_fail_open_handlers_baseline.json"
@@ -470,7 +470,7 @@ def regenerate_fail_open_baseline() -> None:
         key = h.scope if counts[h.scope] == 1 else f"{h.scope}#{counts[h.scope]}"
         found[key] = old.get(key, "pre-existing, recorded when the check was wired; not yet triaged")
     payload = orjson.dumps(dict(sorted(found.items())), option=orjson.OPT_INDENT_2).decode("utf-8")
-    _FAIL_OPEN_BASELINE.write_text(payload + chr(10), encoding="utf-8")
+    _FAIL_OPEN_BASELINE.write_bytes((payload + chr(10)).encode("utf-8"))  # bytes: text mode on Windows writes CRLF
 
 
 # Synthetic timestamps for generated benchmark data: naive on purpose, like the user frames they stand in for.
