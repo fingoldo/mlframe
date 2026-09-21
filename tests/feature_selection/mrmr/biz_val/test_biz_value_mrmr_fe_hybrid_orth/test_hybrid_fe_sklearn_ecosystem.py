@@ -584,6 +584,7 @@ class TestSetOutputPandasWithHybrid:
         m.fit(X, y)
         names_out = list(m.get_feature_names_out())
         # Every engineered name appears in feature_names_out.
+        assert len(m.hybrid_orth_features_) > 0
         for eng_name in m.hybrid_orth_features_:
             assert eng_name in names_out, f"engineered name {eng_name!r} not in get_feature_names_out()={names_out}"
 

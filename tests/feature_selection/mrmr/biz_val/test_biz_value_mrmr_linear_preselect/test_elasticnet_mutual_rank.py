@@ -329,6 +329,7 @@ class TestMutualRankGatesStrictly:
 
         # Subset property: every qualified column is in EVERY scorer's
         # top-K (the strict conjunction).
+        assert len(scorers) > 0
         for s in scorers:
             assert qualified_cols.issubset(per_scorer_top_k[s]), (
                 f"seed={seed}: mutual_top_k qualified set {qualified_cols} "

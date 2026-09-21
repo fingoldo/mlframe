@@ -286,6 +286,7 @@ class TestRawYBaselineGate:
         disc.fit(df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200))
         scores = disc.tiny_rerank_scores_
         assert isinstance(scores, dict)
+        assert len(disc.specs_) > 0
         for s in disc.specs_:
             assert s.name in scores, f"missing tiny RMSE for kept spec {s.name}"
             assert np.isfinite(scores[s.name])

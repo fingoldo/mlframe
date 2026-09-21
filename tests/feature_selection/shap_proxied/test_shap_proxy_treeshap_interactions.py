@@ -167,38 +167,70 @@ def test_compute_interaction_tensor_routes_to_numba_on_wide_xgb():
 
 @pytest.mark.slow
 def test_biz_val_interaction_kernel_faster_than_shap():
-    """biz_value: the numba interaction kernel beats ``shap.shap_interaction_values`` on a wide matrix.
+    """biz_value: the numba interaction kernel beats ``shap.shap_interaction_values`` where auto routes to it.
 
-    The interaction tensor is the search hotspot on the interaction-aware path; the slow shap call is
-    what this kernel replaces. We quantify the win and assert a conservative >=1.15x with parity intact.
+    Auto sends LightGBM to the kernel: LightGBM has no native interaction predict, so shap runs its own
+    single-threaded C++ recurrence. xgboost is NOT compared here - shap hands xgboost interactions to
+    xgboost's multithreaded ``predict(pred_interactions=True)``, which on a release build is ~10x faster than
+    the kernel, so auto routes xgboost there (see test_auto_routes_xgboost_to_native_and_lightgbm_to_numba).
+    The kernel only ever won against xgboost on a slow dev build of xgboost, which is what made this test go
+    red on CI (0.02x) once it ran against a release wheel.
     """
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import extract_ensemble
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions import interaction_tensor_numba
+    lgb = pytest.importorskip("lightgbm")
+    import shap
 
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import _interaction_tensor_numba
 
     X, y, _ = make_regime_dataset(n_samples=1500, n_informative=6, n_noise=44, task="regression", interaction_order=2, interaction_strength=0.6, seed=5)
-    model = _fit_xgb(X, y, classification=False, n_estimators=200, max_depth=4)
-    ens = extract_ensemble(model)
+    model = lgb.LGBMRegressor(n_estimators=200, max_depth=4, num_leaves=15, learning_rate=0.2, random_state=0, verbose=-1, n_jobs=1).fit(X, y)
 
-    interaction_tensor_numba(ens, X.values[:16])  # JIT warmup (excluded from timing)
-    Phi_ref, _ = _shap_interaction_reference(model, X)  # warms shap setup
+    _warm = _interaction_tensor_numba(model, X.iloc[:16], classification=False)  # JIT warmup
+    assert _warm[0].shape == (16, X.shape[1], X.shape[1]), "LightGBM did not take the numba kernel path"
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _maybe_patch_shap_xgb_base_score
 
-    def _shap_arm():
-        """Helper: the upstream shap interaction-values arm."""
-        import shap
+    with _maybe_patch_shap_xgb_base_score():
+        ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+    Phi_ref = np.asarray(ex.shap_interaction_values(X), dtype=np.float64)
 
-        from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
-
-        with spe._maybe_patch_shap_xgb_base_score():
-            ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
-            return ex.shap_interaction_values(X)
-
-    _, (Phi_n, _phi, _base) = assert_paired_speedup(
-        _shap_arm,
-        lambda: interaction_tensor_numba(ens, X.values),
+    _, (Phi_n, _base) = assert_paired_speedup(
+        lambda: ex.shap_interaction_values(X),
+        lambda: _interaction_tensor_numba(model, X, classification=False),
         base_ratio=1.15,
         n_trials=3,
-        what=f"the numba interaction-tensor kernel on {X.shape[1]} features",
+        what=f"the numba interaction-tensor kernel on {X.shape[1]} features (LightGBM)",
     )
     np.testing.assert_allclose(Phi_n, Phi_ref, rtol=1e-4, atol=1e-4)
+
+
+def test_auto_routes_xgboost_to_native_and_lightgbm_to_numba(monkeypatch):
+    """Without a GPU, auto must not send xgboost through the numba kernel (xgboost's own C++ is faster) but
+    must send LightGBM there (shap's single-threaded fallback is slower)."""
+    lgb = pytest.importorskip("lightgbm")
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_interactions as SI
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_treeshap_interactions_gpu as G
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
+
+    monkeypatch.setattr(G, "gpu_interactions_available", lambda: False)
+    calls = []
+    real = SI._interaction_tensor_numba
+
+    def _spy(est, X, classification):
+        """Record which estimator type reached the numba kernel, then delegate."""
+        calls.append(type(est).__name__)
+        return real(est, X, classification=classification)
+
+    monkeypatch.setattr(SI, "_interaction_tensor_numba", _spy)
+    rng = np.random.default_rng(4)
+    P = SI._interaction_numba_min_features() + 4
+    X = pd.DataFrame(rng.normal(size=(200, P)), columns=[f"f{i}" for i in range(P)])
+    y = ((X["f0"] > 0) ^ (X["f1"] > 0)).astype(int).to_numpy()
+
+    Phi, _ = SI.compute_interaction_tensor(make_default_estimator(classification=True, n_estimators=20), X, y, classification=True, rng=np.random.default_rng(0), backend="auto")
+    assert Phi.shape == (200, P, P)
+    assert calls == [], f"auto routed xgboost through the numba kernel: {calls}"
+
+    tmpl = lgb.LGBMClassifier(n_estimators=20, max_depth=3, num_leaves=7, verbose=-1, n_jobs=1)
+    Phi, _ = SI.compute_interaction_tensor(tmpl, X, y, classification=True, rng=np.random.default_rng(0), backend="auto")
+    assert Phi.shape == (200, P, P)
+    assert calls and all("LGBM" in c for c in calls), f"auto did not route LightGBM to the numba kernel: {calls}"

@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from ..composite.transforms import is_composite_target_name
+from ._prediction_memo import with_prediction_memo
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,59 @@ def recover_composite_y_scale_metrics(
 # _run_suite_end_dummy_baselines_summary moved to sibling; re-exported below.
 
 
+def _with_raw_only_ensemble_entries(composite_specs_by_target_type, models, composite_target_discovery_config, *, discovery_enabled: bool, ce_strategy: str):
+    """The spec mapping the cross-target ensemble loop iterates, with raw-only regression targets added.
+
+    A target with trained models but no discovered spec still needs that loop: it is where lag_predict is injected and
+    the OOF, dummy-floor and AR(1)-failsafe gates run. The merge happens in a fresh dict, since the metadata-owned
+    mapping can back the on-disk discovery cache.
+    """
+    _build_for_raw_only = bool(getattr(
+        composite_target_discovery_config,
+        "always_build_ct_ensemble_for_raw", True,
+    ))
+    if not (discovery_enabled and ce_strategy != "off" and _build_for_raw_only):
+        return composite_specs_by_target_type
+    from ..configs import TargetTypes
+
+    # Merge into a FRESH local dict; never mutate the metadata-owned
+    # ``composite_target_specs`` (that dict can back the on-disk discovery
+    # cache -- see _phase_composite_discovery.py:439-442 -- and is read by
+    # report()/predict()). Shallow-copy each per-target-type sub-dict so the
+    # synthesised ``[]`` entries don't leak back into metadata either.
+    _merged_specs: dict = {_tt_k: dict(_tt_v) for _tt_k, _tt_v in (composite_specs_by_target_type or {}).items()}
+    # ``TargetTypes`` is a ``StrEnum`` so ``TargetTypes.REGRESSION`` and the
+    # ``str(...)``-flavoured key the discovery phase writes are
+    # hash-equivalent; ``setdefault`` resolves to the existing regression
+    # bucket (if any) rather than creating a duplicate.
+    _reg_specs_bucket = _merged_specs.setdefault(TargetTypes.REGRESSION, {})
+    _reg_models = (models or {}).get(TargetTypes.REGRESSION, {}) if models else {}
+    _n_synth = 0
+    for _raw_tname, _entries in _reg_models.items():
+        if _entries and not is_composite_target_name(str(_raw_tname)) and _raw_tname not in _reg_specs_bucket:
+            _reg_specs_bucket[_raw_tname] = []
+            _n_synth += 1
+    # Drop an empty regression bucket we created but never populated so the
+    # downstream ``if not _tt_specs: continue`` guard isn't tripped by an
+    # accidental empty key on a no-regression-model suite.
+    if not _reg_specs_bucket and TargetTypes.REGRESSION not in (composite_specs_by_target_type or {}):
+        _merged_specs.pop(TargetTypes.REGRESSION, None)
+    if _n_synth:
+        # Rebind to the merged dict so the loop below sees both the
+        # discovered specs AND the synthesised raw-only ``[]`` entries.
+        composite_specs_by_target_type = _merged_specs
+        logger.info(
+            "[CompositeCrossTargetEnsemble] always_build_ct_ensemble_for_raw=True: "
+            "synthesised raw-only entries for %d regression target(s) "
+            "with trained models but no discovered composite specs; "
+            "ensemble loop will inject lag_predict and run the dummy-floor "
+            "+ AR(1)-failsafe gates for each.",
+            _n_synth,
+        )
+    return composite_specs_by_target_type
+
+
+@with_prediction_memo
 def run_composite_post_processing(
     *,
     models: dict,
@@ -149,14 +203,18 @@ def run_composite_post_processing(
             target_name=target_name,
             plot_file=plot_file,
             reporting_config=reporting_config,
+            group_column=getattr(composite_target_discovery_config, "group_column", None),
         )
 
+    # Discovery may have been auto-enabled for a heavy-tail target on a config that still reads enabled=False here (the
+    # copy stays inside the discovery phase), so take the effective decision it published.
+    _discovery_enabled = bool(composite_target_discovery_config.enabled or metadata.get("composite_discovery_effective_enabled"))
     # Cross-target ensemble (opt-in). Stored as a SimpleNamespace under models[type][f"_CT_ENSEMBLE__{original_target}"].
     _ce_strategy = getattr(
         composite_target_discovery_config, "cross_target_ensemble_strategy", "off",
     )
     # Unconditional banner when discovery is enabled so "no log lines" remains a debuggable signal.
-    if composite_target_discovery_config.enabled:
+    if _discovery_enabled:
         _n_specs_total = sum(sum(len(v) for v in _tt_specs.values()) for _tt_specs in (composite_specs_by_target_type or {}).values())
         logger.info(
             "[CompositeCrossTargetEnsemble] entry: strategy='%s', " "target_types=%d, composite_specs=%d",
@@ -187,50 +245,11 @@ def run_composite_post_processing(
     # discovered, so the loop runs for every such target, lag_predict is
     # injected, and the OOF + dummy-floor + AR(1)-failsafe gates pick the
     # right component.
-    _build_for_raw_only = bool(getattr(
-        composite_target_discovery_config,
-        "always_build_ct_ensemble_for_raw", True,
-    ))
-    if (composite_target_discovery_config.enabled
-            and _ce_strategy != "off"
-            and _build_for_raw_only):
-        from ..configs import TargetTypes
-
-        # Merge into a FRESH local dict; never mutate the metadata-owned
-        # ``composite_target_specs`` (that dict can back the on-disk discovery
-        # cache -- see _phase_composite_discovery.py:439-442 -- and is read by
-        # report()/predict()). Shallow-copy each per-target-type sub-dict so the
-        # synthesised ``[]`` entries don't leak back into metadata either.
-        _merged_specs: dict = {_tt_k: dict(_tt_v) for _tt_k, _tt_v in (composite_specs_by_target_type or {}).items()}
-        # ``TargetTypes`` is a ``StrEnum`` so ``TargetTypes.REGRESSION`` and the
-        # ``str(...)``-flavoured key the discovery phase writes are
-        # hash-equivalent; ``setdefault`` resolves to the existing regression
-        # bucket (if any) rather than creating a duplicate.
-        _reg_specs_bucket = _merged_specs.setdefault(TargetTypes.REGRESSION, {})
-        _reg_models = (models or {}).get(TargetTypes.REGRESSION, {}) if models else {}
-        _n_synth = 0
-        for _raw_tname, _entries in _reg_models.items():
-            if _entries and not is_composite_target_name(str(_raw_tname)) and _raw_tname not in _reg_specs_bucket:
-                _reg_specs_bucket[_raw_tname] = []
-                _n_synth += 1
-        # Drop an empty regression bucket we created but never populated so the
-        # downstream ``if not _tt_specs: continue`` guard isn't tripped by an
-        # accidental empty key on a no-regression-model suite.
-        if not _reg_specs_bucket and TargetTypes.REGRESSION not in (composite_specs_by_target_type or {}):
-            _merged_specs.pop(TargetTypes.REGRESSION, None)
-        if _n_synth:
-            # Rebind to the merged dict so the loop below sees both the
-            # discovered specs AND the synthesised raw-only ``[]`` entries.
-            composite_specs_by_target_type = _merged_specs
-            logger.info(
-                "[CompositeCrossTargetEnsemble] always_build_ct_ensemble_for_raw=True: "
-                "synthesised raw-only entries for %d regression target(s) "
-                "with trained models but no discovered composite specs; "
-                "ensemble loop will inject lag_predict and run the dummy-floor "
-                "+ AR(1)-failsafe gates for each.",
-                _n_synth,
-            )
-    if composite_target_discovery_config.enabled and _ce_strategy != "off" and composite_specs_by_target_type:
+    composite_specs_by_target_type = _with_raw_only_ensemble_entries(
+        composite_specs_by_target_type, models, composite_target_discovery_config,
+        discovery_enabled=_discovery_enabled, ce_strategy=_ce_strategy,
+    )
+    if _discovery_enabled and _ce_strategy != "off" and composite_specs_by_target_type:
         from ._phase_composite_post_xt_ensemble import _build_cross_target_ensemble_for_target
 
         for _tt_e, _tt_specs in composite_specs_by_target_type.items():

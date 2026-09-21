@@ -100,6 +100,7 @@ def test_oof_timeseries_folds_never_predict_a_past_row():
 
     n, n_splits = 200, 4
     tss = TimeSeriesSplit(n_splits=n_splits)
+    assert list(tss.split(np.arange(n)))
     for train_idx, test_idx in tss.split(np.arange(n)):
         # Every test fold index must be strictly greater than every train index (no leak of future into the past).
         assert train_idx.max() < test_idx.min(), "TimeSeriesSplit fold leaks a future row into a past prediction"

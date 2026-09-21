@@ -38,6 +38,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD` | `'2000000'` | [src/mlframe/metrics/calibration/_calibration_plot.py](../src/mlframe/metrics/calibration/_calibration_plot.py#L188) |
 | `MLFRAME_CAT_DIAG` | — | [src/mlframe/training/_eval_helpers.py](../src/mlframe/training/_eval_helpers.py#L74) |
 | `MLFRAME_CAT_FE_BENCH_PROD` | — | [src/mlframe/feature_selection/_benchmarks/bench_categorical_fe.py](../src/mlframe/feature_selection/_benchmarks/bench_categorical_fe.py#L136) |
+| `MLFRAME_CB_GPU_MONITOR_S` | `''` | [src/mlframe/training/cb/_cb_gpu_monitor.py](../src/mlframe/training/cb/_cb_gpu_monitor.py#L108) |
 | `MLFRAME_CB_POOL_CACHE_MAX_BYTES` | — | [src/mlframe/training/cb/_cb_pool_budget.py](../src/mlframe/training/cb/_cb_pool_budget.py#L40) |
 | `MLFRAME_CMI_ANALYTIC_NULL_MIN_N` | `''` | [src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py](../src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py#L27) |
 | `MLFRAME_CMI_FORDER` | `'1'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L89) |
@@ -49,6 +50,8 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_CMI_XC_RESIDENT` | `'1'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L420) |
 | `MLFRAME_CMI_YZ_HOIST` | `'1'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L713) |
 | `MLFRAME_CONFIDENCE_BLEND_BACKEND` | `''` | [src/mlframe/votenrank/confidence_gated_blend.py](../src/mlframe/votenrank/confidence_gated_blend.py#L176) |
+| `MLFRAME_CRASH_HEARTBEAT_S` | `''` | [src/mlframe/training/crash_diagnostics.py](../src/mlframe/training/crash_diagnostics.py#L306) |
+| `MLFRAME_CRASH_LOG_DIR` | `''` | [src/mlframe/training/crash_diagnostics.py](../src/mlframe/training/crash_diagnostics.py#L108) |
 | `MLFRAME_CRIT_DTYPE_RELAXED` | `'1'` | [src/mlframe/feature_selection/filters/_fe_usability_signal.py](../src/mlframe/feature_selection/filters/_fe_usability_signal.py#L150) |
 | `MLFRAME_CTX_STRICT` | `''` | [src/mlframe/training/core/_misc_helpers.py](../src/mlframe/training/core/_misc_helpers.py#L949) |
 | `MLFRAME_CUDA_GRAPH_PREDICT` | `'0'` | [src/mlframe/training/neural/_flat_torch_module/_flat_torch_predict_accel.py](../src/mlframe/training/neural/_flat_torch_module/_flat_torch_predict_accel.py#L276) |
@@ -192,6 +195,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_MRMR_GPU_CMI` | `'1'` | [src/mlframe/feature_selection/filters/_evaluation_driver.py](../src/mlframe/feature_selection/filters/_evaluation_driver.py#L51) |
 | `MLFRAME_MRMR_NULL_PERMS` | `'32'` | [src/mlframe/feature_selection/filters/permutation.py](../src/mlframe/feature_selection/filters/permutation.py#L75) |
 | `MLFRAME_MRMR_NULL_SIGNIF_ALPHA` | `'0.05'` | [src/mlframe/feature_selection/filters/evaluation.py](../src/mlframe/feature_selection/filters/evaluation.py#L73) |
+| `MLFRAME_MRMR_PICKLE_REPLAY_STATE_MAX_MB` | `'64'` | [src/mlframe/feature_selection/filters/_mrmr_stability_report.py](../src/mlframe/feature_selection/filters/_mrmr_stability_report.py#L78) |
 | `MLFRAME_NEURAL_MI_DEVICE` | `'auto'` | [src/mlframe/feature_selection/filters/_neural_mi.py](../src/mlframe/feature_selection/filters/_neural_mi.py#L59) |
 | `MLFRAME_NONFINITE_PAR_THRESHOLD` | `'1000000'` | [src/mlframe/feature_engineering/transformer/_utils.py](../src/mlframe/feature_engineering/transformer/_utils.py#L40) |
 | `MLFRAME_NO_CUDA_AUTOCONFIG` | `''` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L51) |

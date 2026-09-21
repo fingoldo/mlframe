@@ -23,6 +23,7 @@ def test_resolve_explicit_methods_pass_through():
     """Resolve explicit methods pass through."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import PREFILTER_METHODS, resolve_prefilter_method
 
+    assert len(PREFILTER_METHODS) > 0
     for m in PREFILTER_METHODS:
         assert resolve_prefilter_method(m, n_features=10000, n_rows=4000) == m
 

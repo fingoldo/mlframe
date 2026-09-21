@@ -373,7 +373,13 @@ def get_training_configs(
         # eval_metric already set to HammingLoss above; keep it.
         pass
     else:
-        CB_CALIB_CLASSIF.update({"eval_metric": ICE(metric=final_integral_calibration_error, higher_is_better=False, max_arr_size=0)})
+        # ``skip_largest_set``: CatBoost evaluates a custom eval_metric on the LEARN set as well as on the eval set, and
+        # the learn value is only printed - early stopping and model selection read the eval set. One call cost 107.8 ms
+        # at 498k rows, and on a 200k-row bed the fit went 10.3s (builtin logloss) -> 15.5s (ICE on both sets) -> 12.7s
+        # (ICE on the eval set alone). Skipping by SIZE alone would silently zero a large eval set's metric and break
+        # early stopping, so ICE skips the largest set only once it has seen more than one size, i.e. only when an eval
+        # set exists.
+        CB_CALIB_CLASSIF.update({"eval_metric": ICE(metric=final_integral_calibration_error, higher_is_better=False, skip_largest_set=True)})
 
     # Same gating story as XGB. ``has_gpu and LGB_GPU_AVAILABLE`` respects
     # the LightGBM build's actual GPU support (default LightGBM wheels are

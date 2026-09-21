@@ -136,6 +136,9 @@ class PipelineCache:
         # OrderedDict so ``move_to_end`` (LRU promotion on get) and ``popitem(last=False)`` (LRU eviction on overflow) are explicit. Plain dict happens to preserve insertion order in CPython 3.7+ but the LRU contract demands the explicit type.
         self._cache: "OrderedDict[str, Tuple[Any, Any, Any]]" = OrderedDict()
         self._entry_sizes: Dict[str, int] = {}
+        # The fitted pre_pipeline that produced each cached entry. A model served from cached frames never fits its own
+        # (freshly built) pre_pipeline, so it must carry this one or predict would feed its inner untransformed columns.
+        self._fitted_pipelines: Dict[str, Any] = {}
         self._total_bytes: int = 0
         self.n_hits: int = 0
         self.n_misses: int = 0
@@ -204,6 +207,7 @@ class PipelineCache:
                 continue
             slot_bytes = self._entry_sizes.pop(key, 0)
             self._cache.pop(key, None)
+            self._fitted_pipelines.pop(key, None)
             self._total_bytes -= slot_bytes
             bytes_freed += slot_bytes
             evicted_count += 1
@@ -214,6 +218,15 @@ class PipelineCache:
                 evicted_count, bytes_freed, self._total_bytes, self._bytes_limit, len(self._cache),
             )
 
+    def set_fitted_pipeline(self, cache_key: str, pre_pipeline: Any) -> None:
+        """Record the fitted ``pre_pipeline`` whose output is cached under ``cache_key``."""
+        if pre_pipeline is not None:
+            self._fitted_pipelines[cache_key] = pre_pipeline
+
+    def get_fitted_pipeline(self, cache_key: str) -> Any:
+        """The fitted ``pre_pipeline`` that produced the frames cached under ``cache_key`` (``None`` when not recorded)."""
+        return self._fitted_pipelines.get(cache_key)
+
     def has(self, cache_key: str) -> bool:
         """Check if a cache key exists (does NOT promote to MRU)."""
         return cache_key in self._cache
@@ -222,6 +235,7 @@ class PipelineCache:
         """Clear all cached DataFrames and reset the byte-budget accounting."""
         self._cache.clear()
         self._entry_sizes.clear()
+        self._fitted_pipelines.clear()
         self._total_bytes = 0
 
     def cache_size_bytes(self) -> int:

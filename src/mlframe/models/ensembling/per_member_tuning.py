@@ -171,7 +171,7 @@ def run_per_member_sweep(observed_elements: int | None = None, max_elements: int
         logger.info("per_member sweep: numba unavailable -> numpy everywhere")
         return [{"elements_per_member_max": None, "backend_choice": "numpy"}]
     cap = _resolve_max_elements(observed_elements, max_elements)
-    grid = sorted({e for e in _SWEEP_ELEMENTS if e <= cap} | ({int(observed_elements)} if observed_elements and observed_elements <= _SWEEP_CEILING else set()))
+    grid = sorted({e for e in _SWEEP_ELEMENTS if e <= cap} | ({int(observed_elements)} if observed_elements is not None and observed_elements != 0 and observed_elements <= _SWEEP_CEILING else set()))
     if not grid:
         grid = [_SWEEP_ELEMENTS[0]]
     rng = np.random.default_rng(0)

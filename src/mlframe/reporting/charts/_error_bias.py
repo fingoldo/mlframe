@@ -117,70 +117,17 @@ def error_bias_per_feature(
     global_worst_text = ""
 
     for j in sel:
-        col = col_vals[j]
-        finite = np.isfinite(col)
-        cf = col[finite]
-        if cf.size == 0:
+        built = _error_bias_panel(col_vals[j], names[j], masks=masks, resid_signed=resid_signed, nbins=nbins, group_colors=group_colors)
+        if built is None:
             continue
-        try:
-            edges = np.histogram_bin_edges(cf, bins=nbins)
-        except ValueError:
-            # A near-constant finite column (e.g. an MLP-engineered feature with ~zero variance) has a range so
-            # tiny that numpy can't carve it into ``nbins`` distinct finite-precision edges -- raises "Too many
-            # bins for data range" (caught live via a fuzz combo with mlp in the model mix). This one feature's
-            # bias panel isn't meaningful anyway (no spread to bin), so skip it rather than aborting the whole
-            # diagnostic (best-effort, matches every other panel in this dispatcher).
-            continue
-        if edges.size < 2 or not np.all(np.diff(edges) > 0):
-            # numpy doesn't always raise on a near-constant huge-magnitude column -- it can instead
-            # return edges collapsed to fewer distinct floats than requested (zero-width bins), which
-            # silently produces NaN/inf densities downstream via divide-by-zero in np.histogram's
-            # normalization instead of raising. Skip this feature's panel the same way as above.
-            continue
-        centers = (edges[:-1] + edges[1:]) / 2.0
-        series: List[np.ndarray] = []
-        labels: List[str] = []
-        cols: List[str] = []
+        panel, means, worst_abs, worst_text = built
         for g in ("OVER", "UNDER", "MAJORITY"):
-            gvals = col[masks[g] & finite]
-            dens, _ = np.histogram(gvals, bins=edges, density=True)
-            series.append(dens)
-            labels.append(g)
-            cols.append(group_colors[g])
-            rows[g].append(float(gvals.mean()) if gvals.size else float("nan"))
+            rows[g].append(means[g])
         feat_index.append(names[j])
-
-        # Per-segment signed-residual bias: bin this feature's values, take the mean residual (y_true - y_pred) in each
-        # bin. The segment with the largest |mean residual| is the model's worst-bias slice for this feature; its sign
-        # tells direction (> 0 UNDER-predict, < 0 OVER-predict). Aggregated O(n) via two bincounts, no per-row Python.
-        bin_idx = np.clip(np.digitize(col[finite], edges[1:-1]), 0, len(centers) - 1)
-        nbin = len(centers)
-        cnt = np.bincount(bin_idx, minlength=nbin).astype(np.float64)
-        ssum = np.bincount(bin_idx, weights=resid_signed[finite], minlength=nbin)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            seg_bias = np.where(cnt > 0, ssum / np.where(cnt > 0, cnt, 1.0), np.nan)
-        worst_b = int(np.nanargmax(np.where(np.isfinite(seg_bias), np.abs(seg_bias), -np.inf))) if np.isfinite(seg_bias).any() else -1
-        if worst_b >= 0:
-            wb = float(seg_bias[worst_b])
-            direction = "UNDER-predicts" if wb > 0 else "OVER-predicts"
-            seg_lo, seg_hi = float(edges[worst_b]), float(edges[worst_b + 1])
-            worst_note = f"worst-bias segment: {names[j]} in [{seg_lo:.3g}, {seg_hi:.3g}] -> model {direction} (mean resid {wb:+.3g})"
-            if abs(wb) > global_worst_abs:
-                global_worst_abs = abs(wb)
-                global_worst_text = f"{names[j]} in [{seg_lo:.3g}, {seg_hi:.3g}] {direction} (resid {wb:+.3g})"
-        else:
-            worst_note = "worst-bias segment: n/a"
-
-        panels.append(LinePanelSpec(
-            x=centers,
-            y=tuple(series),
-            series_labels=tuple(labels),
-            colors=tuple(cols),
-            line_styles=("-", "-", "--"),
-            title=f"{names[j]} value distribution by error group\n{worst_note}",
-            xlabel=names[j],
-            ylabel="Density",
-        ))
+        panels.append(panel)
+        if worst_abs > global_worst_abs:
+            global_worst_abs = worst_abs
+            global_worst_text = worst_text
 
     group_means = pd.DataFrame(
         {g: rows[g] for g in ("OVER", "UNDER", "MAJORITY")},
@@ -202,11 +149,98 @@ def error_bias_per_feature(
             f"Rows are split by signed residual (y_true - y_pred) into the bottom {tail_fraction:.0%} where the model "
             f"OVER-predicts, the top {tail_fraction:.0%} where it UNDER-predicts, and the middle MAJORITY. Each panel "
             "overlays those three groups' value distributions for one feature: wherever the tail curves pull away "
-            "from the majority, that feature's values are what drive the extreme errors. y is a density, so each "
-            "curve integrates to 1 and the three groups' heights are NOT comparable as counts."
+            "from the majority, that feature's values are what drive the extreme errors. y is each group's density "
+            "(on an asinh axis, its share of rows per bin), so each curve integrates or sums to 1 and the three groups' "
+            "heights are NOT comparable as counts. Worst-bias segments must hold at least 30 rows (0.5% of the split)."
         ),
     )
     return ErrorBiasResult(fig, group_means, masks)
+
+
+def _error_bias_panel(col: np.ndarray, name: str, *, masks: Dict[str, np.ndarray], resid_signed: np.ndarray, nbins: int,
+                      group_colors: Dict[str, str]) -> Optional[tuple]:
+    """One feature's error-group panel: ``(panel, per-group mean value, worst |bias|, worst-bias text)``, or None.
+
+    None means the feature cannot be binned meaningfully (all values missing, or a near-constant column numpy cannot
+    carve into distinct edges), in which case the caller skips it rather than aborting the whole diagnostic.
+    """
+    finite = np.isfinite(col)
+    cf = col[finite]
+    if cf.size == 0:
+        return None
+    try:
+        edges = np.histogram_bin_edges(cf, bins=nbins)
+    except ValueError:
+        # A near-constant finite column (e.g. an MLP-engineered feature with ~zero variance) has a range so
+        # tiny that numpy can't carve it into ``nbins`` distinct finite-precision edges -- raises "Too many
+        # bins for data range" (caught live via a fuzz combo with mlp in the model mix). This one feature's
+        # bias panel isn't meaningful anyway (no spread to bin), so skip it rather than aborting the whole
+        # diagnostic (best-effort, matches every other panel in this dispatcher).
+        return None
+    if edges.size < 2 or not np.all(np.diff(edges) > 0):
+        # numpy doesn't always raise on a near-constant huge-magnitude column -- it can instead
+        # return edges collapsed to fewer distinct floats than requested (zero-width bins), which
+        # silently produces NaN/inf densities downstream via divide-by-zero in np.histogram's
+        # normalization instead of raising. Skip this feature's panel the same way as above.
+        return None
+    # Heavy-tailed feature: equal-width bins put nearly every row in the first bin and the three group curves
+    # overlap at 0 (a production budget column spanning 0..1e6). asinh-spaced bins spread the bulk and the tail.
+    from mlframe.reporting.charts.regression import _asinh_edges_if_heavy, asinh_linear_width
+
+    heavy = _asinh_edges_if_heavy(cf, float(cf.min()), float(cf.max()), nbins)
+    if heavy is not None:
+        edges = heavy
+    centers = (edges[:-1] + edges[1:]) / 2.0
+    means: Dict[str, float] = {}
+    series: List[np.ndarray] = []
+    labels: List[str] = []
+    cols: List[str] = []
+    for g in ("OVER", "UNDER", "MAJORITY"):
+        gvals = col[masks[g] & finite]
+        dens, _ = np.histogram(gvals, bins=edges, density=True)
+        # Uneven bins: plot each group's share of rows per bin so narrow and wide bins are comparable.
+        series.append(dens * np.diff(edges) if heavy is not None else dens)
+        labels.append(g)
+        cols.append(group_colors[g])
+        means[g] = float(gvals.mean()) if gvals.size else float("nan")
+
+    # Per-segment signed-residual bias: bin this feature's values, take the mean residual (y_true - y_pred) in each
+    # bin. The segment with the largest |mean residual| is the model's worst-bias slice for this feature; its sign
+    # tells direction (> 0 UNDER-predict, < 0 OVER-predict). Aggregated O(n) via two bincounts, no per-row Python.
+    bin_idx = np.clip(np.digitize(col[finite], edges[1:-1]), 0, len(centers) - 1)
+    nbin = len(centers)
+    cnt = np.bincount(bin_idx, minlength=nbin).astype(np.float64)
+    ssum = np.bincount(bin_idx, weights=resid_signed[finite], minlength=nbin)
+    # A segment must hold enough rows for its mean residual to mean something: the tail bins of a heavy feature held a
+    # handful of rows and won "worst segment" on noise (a production chart named hourly_budget_mid in [476, 501]).
+    min_rows = max(30, int(0.005 * finite.sum()))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        seg_bias = np.where(cnt >= min_rows, ssum / np.where(cnt > 0, cnt, 1.0), np.nan)
+    worst_b = int(np.nanargmax(np.where(np.isfinite(seg_bias), np.abs(seg_bias), -np.inf))) if np.isfinite(seg_bias).any() else -1
+    if worst_b >= 0:
+        wb = float(seg_bias[worst_b])
+        direction = "UNDER-predicts" if wb > 0 else "OVER-predicts"
+        seg_lo, seg_hi = float(edges[worst_b]), float(edges[worst_b + 1])
+        worst_note = f"worst-bias segment: {name} in [{seg_lo:.3g}, {seg_hi:.3g}] -> model {direction} (mean resid {wb:+.3g})"
+        worst_abs = abs(wb)
+        worst_text = f"{name} in [{seg_lo:.3g}, {seg_hi:.3g}] {direction} (resid {wb:+.3g})"
+    else:
+        worst_note = "worst-bias segment: n/a"
+        worst_abs, worst_text = -1.0, ""
+
+    panel = LinePanelSpec(
+        x=centers,
+        y=tuple(series),
+        series_labels=tuple(labels),
+        colors=tuple(cols),
+        line_styles=("-", "-", "--"),
+        title=f"{name} value distribution by error group\n{worst_note}",
+        xlabel=name + (" (asinh scale)" if heavy is not None else ""),
+        ylabel="share of rows per bin" if heavy is not None else "Density",
+        xscale="asinh" if heavy is not None else "linear",
+        xscale_linear_width=asinh_linear_width(cf) if heavy is not None else 1.0,
+    )
+    return panel, means, worst_abs, worst_text
 
 
 __all__ = ["ErrorBiasResult", "error_bias_per_feature"]

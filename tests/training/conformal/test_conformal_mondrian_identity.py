@@ -110,6 +110,7 @@ def test_mondrian_string_group_labels_identity():
     conf.calibrate_conformal_mondrian(stub, None, y_true, groups, alpha=alphas)
     new = stub._mondrian_q_
     # The string labels must be present as dict keys (plus the None fallback).
+    assert len(new) > 0
     for k in new:
         assert set(map(str, new[k].keys() - {None})) == set(labels)
     _assert_dicts_identical(expected, new)

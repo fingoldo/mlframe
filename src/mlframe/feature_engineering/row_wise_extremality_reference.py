@@ -17,6 +17,8 @@ and the extremality is the same ``|percentile - 0.5| * 2``.
 from __future__ import annotations
 
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -30,50 +32,53 @@ logger = logging.getLogger(__name__)
 # memory and buy nothing measurable. Sampling the SORTED array (not the raw rows) keeps it deterministic.
 DEFAULT_MAX_REFERENCE_ROWS = 100_000
 
+# Below this many cells the thread-pool start-up outweighs the per-column work; score serially.
+_THREADED_MIN_CELLS = 200_000
 
-@njit(cache=True, parallel=False)
-def _extremality_vs_reference_njit(values: np.ndarray, ref_flat: np.ndarray, ref_starts: np.ndarray, ref_lens: np.ndarray, out: np.ndarray) -> None:
-    """Fill ``out`` with ``|p - 0.5| * 2`` where ``p`` is each value's position in its column's reference.
 
-    Serial for the same reason the within-batch kernel is: a ``parallel=True`` twin caused a Windows access
-    violation when numba's threading layer ran alongside CatBoost's own during the preprocessing step.
+@njit(cache=True, nogil=True)
+def _extremality_column_vs_unique_reference_njit(
+    col: np.ndarray, uniq: np.ndarray, count_below: np.ndarray, count_at: np.ndarray, denom: float, out_col: np.ndarray
+) -> None:
+    """One column's ``|p - 0.5| * 2`` against a tie-compressed reference; bit-identical to the v1 mid-rank.
+
+    ``uniq`` holds the distinct reference values, ``count_below[u]`` how many reference values are strictly below
+    ``uniq[u]`` and ``count_at[u]`` how many equal it. One binary search over the distinct values yields both the
+    strict and the inclusive count that v1 found with two searches over the full reference, and on tie-heavy columns
+    (ratios, counts, mostly-zero columns) the search space shrinks from 100k values to a handful. ``col`` and
+    ``out_col`` are contiguous, unlike v1's strided walk down a C-ordered matrix. ``nogil`` lets the caller score
+    columns on Python threads without numba's threading layer, which crashed alongside CatBoost's.
     """
-    n_rows, n_cols = values.shape
-    for j in range(n_cols):
-        start = ref_starts[j]
-        length = ref_lens[j]
-        if length == 0:
+    m = uniq.shape[0]
+    for i in range(col.shape[0]):
+        v = col[i]
+        if np.isnan(v):
             continue
-        denom = length + 1.0
-        for i in range(n_rows):
-            v = values[i, j]
-            if np.isnan(v):
-                continue
-            # MID-RANK across the tie block: ``lo`` counts values strictly below v, ``hi`` counts values at or
-            # below it, and the percentile is the midpoint. Using ``lo`` alone gives every row of a constant or
-            # heavily-tied column a percentile of ~0, i.e. maximal extremality -- which collapsed the feature to a
-            # constant and got it dropped by the zero-variance pre-screen on a production frame full of ratios,
-            # counts and mostly-zero columns. The within-batch ranking spreads ties over the whole range instead;
-            # neither is more "correct" per row, but the midpoint is the only one that puts the MODE at the median
-            # where it belongs, and it is what makes a lone row score the same as it does in a batch.
-            lo = 0
-            hi = length
-            while lo < hi:
-                mid = (lo + hi) // 2
-                if ref_flat[start + mid] < v:
-                    lo = mid + 1
-                else:
-                    hi = mid
-            upper = lo
-            hi2 = length
-            while upper < hi2:
-                mid = (upper + hi2) // 2
-                if ref_flat[start + mid] <= v:
-                    upper = mid + 1
-                else:
-                    hi2 = mid
-            frac = ((lo + upper) * 0.5 + 0.5) / denom
-            out[i, j] = abs(frac - 0.5) * 2.0
+        lo = 0
+        hi = m
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if uniq[mid] < v:
+                lo = mid + 1
+            else:
+                hi = mid
+        if lo < m:
+            below = count_below[lo]
+            upper = below + count_at[lo] if uniq[lo] == v else below
+        else:
+            below = count_below[m - 1] + count_at[m - 1]
+            upper = below
+        frac = ((below + upper) * 0.5 + 0.5) / denom
+        out_col[i] = abs(frac - 0.5) * 2.0
+
+
+def _compress_reference(ref: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Distinct values of a sorted reference with the count strictly below and the count equal to each."""
+    uniq, count_at = np.unique(ref, return_counts=True)
+    count_below = np.zeros(uniq.size, dtype=np.int64)
+    if uniq.size > 1:
+        count_below[1:] = np.cumsum(count_at)[:-1]
+    return uniq, count_below, count_at.astype(np.int64)
 
 
 def fit_extremality_reference(
@@ -88,17 +93,33 @@ def fit_extremality_reference(
     for an all-NaN column.
     """
     cols = list(columns) if columns is not None else list(X.select_dtypes(include=[np.number]).columns)
-    reference: Dict[str, np.ndarray] = {}
-    for col in cols:
-        vals = np.asarray(X[col].to_numpy(dtype=np.float64))
+    sorted_refs: List[np.ndarray] = [_EMPTY] * len(cols)
+
+    def _fit(j: int) -> None:
+        """Store the sorted finite reference values of column ``j``, subsampled to ``max_reference_rows``."""
+        vals = np.asarray(X[cols[j]].to_numpy(dtype=np.float64, na_value=np.nan))
         vals = vals[np.isfinite(vals)]
         vals.sort()
         if vals.size > max_reference_rows:
             # Uniform stride over the SORTED values: keeps the quantile grid even, and is reproducible.
             idx = np.linspace(0, vals.size - 1, max_reference_rows).astype(np.int64)
             vals = vals[idx]
-        reference[col] = vals
-    return reference
+        sorted_refs[j] = vals
+
+    # Per-column sorts release the GIL, so threads cut the 3.3s serial fit on 500k x 85.
+    _map_columns(_fit, len(cols), len(X))
+    return dict(zip(cols, sorted_refs))
+
+
+def _map_columns(fn, n_cols: int, n_rows: int) -> None:
+    """Run ``fn(j)`` for every column, on threads when the frame is big enough to pay for them."""
+    n_threads = min(n_cols, os.cpu_count() or 1)
+    if n_threads > 1 and n_rows * n_cols >= _THREADED_MIN_CELLS:
+        with ThreadPoolExecutor(max_workers=n_threads) as pool:
+            list(pool.map(fn, range(n_cols)))
+    else:
+        for j in range(n_cols):
+            fn(j)
 
 
 def extremality_matrix_from_reference(
@@ -110,8 +131,7 @@ def extremality_matrix_from_reference(
     column the fit never saw has no reference distribution, and inventing one would restore the skew.
     """
     cols = list(columns) if columns is not None else list(X.select_dtypes(include=[np.number]).columns)
-    values = np.ascontiguousarray(X[cols].to_numpy(dtype=np.float64))
-    n_rows, n_cols = values.shape
+    n_rows, n_cols = len(X), len(cols)
     out = np.full((n_rows, n_cols), np.nan, dtype=np.float64)
     if n_cols == 0 or n_rows == 0:
         return out, cols
@@ -124,12 +144,24 @@ def extremality_matrix_from_reference(
             len(_missing), ", ".join(_missing[:10]) + (", ..." if len(_missing) > 10 else ""),
         )
 
-    lens = np.array([int(reference.get(c, _EMPTY).size) for c in cols], dtype=np.int64)
-    starts = np.zeros(n_cols, dtype=np.int64)
-    if n_cols > 1:
-        starts[1:] = np.cumsum(lens)[:-1]
-    flat = np.concatenate([reference.get(c, _EMPTY) for c in cols]) if lens.sum() else _EMPTY
-    _extremality_vs_reference_njit(values, np.ascontiguousarray(flat, dtype=np.float64), starts, lens, out)
+    # v2: tie-compressed reference, contiguous columns, columns scored on threads (nogil kernel). The v1 kernel
+    # (``_benchmarks/bench_extremality_reference.py::_extremality_vs_reference_njit_v1``, kept) walked a C-ordered matrix column by column with two binary searches
+    # per value; it was 8.7s of a 10.6s call on 500k x 85 and 23.9s of a production preprocessing phase.
+    # Each thread reads its own column straight from the frame: no C-ordered float64 copy of the whole frame and no
+    # Fortran re-layout of it (0.66s of the remaining 4.3s when the matrix was built first).
+    out_f = np.full((n_rows, n_cols), np.nan, dtype=np.float64, order="F")
+
+    def _score(j: int) -> None:
+        """Fill column ``j`` of the output with each row's extremality against the stored reference."""
+        ref = reference.get(cols[j], _EMPTY)
+        if ref.size == 0:
+            return
+        uniq, count_below, count_at = _compress_reference(ref)
+        col = np.ascontiguousarray(X[cols[j]].to_numpy(dtype=np.float64, na_value=np.nan))
+        _extremality_column_vs_unique_reference_njit(col, uniq, count_below, count_at, float(ref.size) + 1.0, out_f[:, j])
+
+    _map_columns(_score, n_cols, n_rows)
+    out[...] = out_f
     return out, cols
 
 

@@ -363,6 +363,7 @@ def test_escape_does_not_admit_monotone_redundant_remaps():
     # Exactly one survivor (A and its monotone remaps are the SAME binned column).
     assert len(admitted) == 1, f"monotone-redundant remap FALSELY ADMITTED as extra info: {admitted}"
     _REDUNDANT_REASONS = {"redundant_below_floor", "redundant_partition_duplicate"}
+    assert len(group) > 0
     for nm in group:
         if nm not in admitted:
             assert diag[nm]["reason"] in _REDUNDANT_REASONS, (

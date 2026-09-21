@@ -65,10 +65,34 @@ _HIGHER_IS_BETTER_METRICS = frozenset({"auc", "roc_auc", "aucpr", "pr_auc", "ave
                                        "f1", "map", "ndcg", "r2", "precision", "recall", "balanced_accuracy"})
 
 
+def _sampled_positions(length: int, n_iter: int, metric_period: Optional[int]) -> Optional[np.ndarray]:
+    """Iteration positions of a series the booster recorded only every ``metric_period`` iterations, else None.
+
+    CatBoost with ``metric_period=k`` logs the learn metric at iterations 0, k, 2k, ... (plus, in some versions, the
+    final one), while the validation metric is logged EVERY iteration (early stopping needs it), so the two arrays have
+    different lengths. The positions are returned only when ``length`` matches that grid exactly, with or without the
+    final iteration; a series that is short for another reason (an eval set that genuinely stopped early) returns None
+    and must not be stretched. A production CatBoost chart (metric_period=5, 259 iterations) drew the train curve
+    ending at iteration 51 because its 52 points lacked the final iteration and only the 53-point grid was accepted.
+    """
+    if length < 2 or n_iter < 2:
+        return None
+    if not metric_period or metric_period <= 1:
+        return None
+    for k in (int(metric_period),):
+        pos = list(range(0, n_iter, k))
+        if len(pos) == length:
+            return np.asarray(pos, dtype=np.float64)
+        if pos[-1] != n_iter - 1 and len(pos) + 1 == length:
+            return np.asarray(pos + [n_iter - 1], dtype=np.float64)
+    return None
+
+
 def _metric_panel(
     metric: str,
     splits: Mapping[str, np.ndarray],
     es_iteration: Optional[int],
+    metric_period: Optional[int] = None,
 ) -> LinePanelSpec:
     """One metric's train/val curves vs iteration, with the ES point marked + post-ES shaded."""
     series: List[np.ndarray] = []
@@ -90,19 +114,31 @@ def _metric_panel(
         n_iter = max(n_iter, splits["val"].shape[0])
 
     x = np.arange(n_iter, dtype=np.float64)
-    # Shared x requires every series to span n_iter; a booster that early-stops one eval set leaves train/val ragged.
-    # Right-pad the short series with NaN (renders as a gap) so the shared-x panel stays valid instead of crashing.
+    # Shared x requires every series to span n_iter. A series recorded every ``metric_period`` iterations is placed at
+    # its real iterations and interpolated onto the grid; plotting it against its array index instead squashed it
+    # k-fold (the CatBoost train curve "ended" at iteration ~n/5) and paired train[i] with val[i] from different
+    # iterations in the gap numbers. A series that genuinely stopped early is right-padded with NaN (renders as a gap).
     if any(s.shape[0] != n_iter for s in series):
-        series = [s if s.shape[0] == n_iter else np.concatenate([s, np.full(n_iter - s.shape[0], np.nan)]) for s in series]
+        _aligned = []
+        for s in series:
+            if s.shape[0] == n_iter:
+                _aligned.append(s)
+                continue
+            _pos = _sampled_positions(s.shape[0], n_iter, metric_period)
+            if _pos is not None and np.isfinite(s).all():
+                _aligned.append(np.interp(x, _pos, s))
+            else:
+                _aligned.append(np.concatenate([s, np.full(n_iter - s.shape[0], np.nan)]))
+        series = _aligned
     vlines = None
     vspans = None
-    title = f"{metric} vs iteration"
+    # The early-stop iteration is carried by the legend (vline label), so the title does not repeat it.
+    title = str(metric)
     if es_iteration is not None and 0 <= es_iteration < n_iter:
         vlines = ((float(es_iteration), "firebrick", f"early stop @ {es_iteration}"),)
         if es_iteration < n_iter - 1:
             # Shade the iterations a non-early-stopping fit would have wasted past the ES point.
             vspans = ((float(es_iteration), float(n_iter - 1), "firebrick", 0.08),)
-        title = f"{metric} vs iteration (ES @ {es_iteration})"
 
     point_markers = None
     if "train" in splits and "val" in splits:
@@ -116,8 +152,10 @@ def _metric_panel(
             # The gap WIDENING between the stop and the last iteration is the signal: it means the extra rounds
             # bought train fit that validation never saw. A gap that stays flat is a model that is merely imperfect.
             _widened = abs(_gap_last) - abs(_gap_stop)
-            _verdict = "widening -- the extra rounds are memorising" if _widened > 0 else "not widening"
-            title += "\n" + f"val-train gap {_gap_stop:+.4g} at the stop, {_gap_last:+.4g} at the last iteration " f"({_verdict})"
+            # Kept to one line at the default width; the figure caption explains how to read a widening gap.
+            _verdict = "widening" if _widened > 0 else "not widening"
+            _where = "early stop" if _at_stop != _last else f"iter {_last}"
+            title += "\n" + f"val-train gap {_gap_stop:+.3g} at {_where}, {_gap_last:+.3g} at iter {_last} ({_verdict})"
         # Mark the validation optimum: the iteration the early-stopping rule was trying to find.
         if np.isfinite(_va).any():
             _lower_is_better = str(metric).lower() not in _HIGHER_IS_BETTER_METRICS
@@ -148,6 +186,7 @@ def compose_training_curve_figure(
     max_cols: int = 2,
     cell_width: float = 9.0,
     cell_height: float = 4.5,
+    metric_period: Optional[int] = None,
 ) -> FigureSpec:
     """Build a train-vs-val training-curve FigureSpec, one panel per metric.
 
@@ -157,6 +196,8 @@ def compose_training_curve_figure(
       every panel. ``None`` (no early stopping) draws plain curves. Out-of-range values are
       ignored gracefully (no marker) rather than raising.
     - ``metrics``: optional explicit ordering / subset of metric names; default = history order.
+    - ``metric_period``: the booster's metric-logging period; a series logged every k-th iteration is placed at its
+      real iterations instead of its array index.
     """
     norm = normalize_history(history)
     if not norm:
@@ -170,10 +211,12 @@ def compose_training_curve_figure(
         )
 
     order = list(metrics) if metrics is not None else list(norm.keys())
-    panels: List[PanelSpec] = [_metric_panel(m, norm[m], es_iteration) for m in order if m in norm]
-    grid = pack_panels(panels, max_cols=max_cols)
+    panels: List[PanelSpec] = [_metric_panel(m, norm[m], es_iteration, metric_period) for m in order if m in norm]
+    # Pack to no more columns than there are panels: padding a lone panel to (panel, None) made the renderer lay out a
+    # 2-wide grid inside a figure sized for 1, so the plot filled half the width and its title wrapped into narrow shards.
+    grid = pack_panels(panels, max_cols=max(1, min(max_cols, len(panels))))
     n_rows = len(grid)
-    n_cols = max_cols if n_rows > 1 else len(panels)
+    n_cols = len(grid[0]) if grid else 1
     return FigureSpec(
         suptitle=suptitle,
         panels=grid,

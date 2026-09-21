@@ -104,6 +104,7 @@ class TestParallelDiscoveryEquivalence:
         # `equal_nan`: auto-chain specs are built with mi_y/mi_t set to NaN deliberately (_opt_in_steps.py
         # carries the chain candidate's mi_gain but never computes a standalone MI for them), so NaN on both
         # sides is agreement. Without it these comparisons report a divergence for every chain spec.
+        assert list(zip(serial.specs_, parallel.specs_))
         for ser_spec, par_spec in zip(serial.specs_, parallel.specs_):
             assert np.isclose(
                 ser_spec.mi_gain, par_spec.mi_gain, atol=1e-12, equal_nan=True

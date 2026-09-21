@@ -57,6 +57,32 @@ def _common_edges(groups: Dict[str, np.ndarray], nbins: int) -> Optional[np.ndar
     return np.linspace(finite_min, finite_max, nbins + 1)
 
 
+def _heavy_tail_edges(groups: Dict[str, np.ndarray], nbins: int):
+    """(asinh-spaced edges, linear width) when the pooled values are heavy-tailed enough that equal-width bins would put
+    most rows in one bin, else None.
+
+    A production target (mostly 0, tail past 1 000) had 60 equal bins of width ~17: every split's mass sat in the first
+    bin, the curves started at 17 and train/val/test were drawn identical although their means were 2.11 / 1.26 / 0.26.
+    """
+    parts = [a[np.isfinite(a)] for a in (_as_float_1d(v) for v in groups.values()) if a.size]
+    if not parts:
+        return None
+    pooled = np.concatenate(parts)
+    if pooled.size < 50:
+        return None
+    lo, hi = float(pooled.min()), float(pooled.max())
+    q_lo, q_hi = np.percentile(pooled, [1, 99])
+    if hi <= lo or (q_hi - q_lo) > 0.2 * (hi - lo):
+        return None
+    width = float(np.median(np.abs(pooled - np.median(pooled))))
+    if width <= 0:
+        width = max(float(np.percentile(np.abs(pooled[pooled != 0]), 10)) if np.any(pooled != 0) else 1.0, 1e-12)
+    u = np.linspace(np.arcsinh(lo / width), np.arcsinh(hi / width), nbins + 1)
+    edges = np.sinh(u) * width
+    edges[0], edges[-1] = lo, hi
+    return np.unique(edges), width
+
+
 def _density_overlay_panel(
     groups: Dict[str, np.ndarray],
     *,
@@ -76,6 +102,9 @@ def _density_overlay_panel(
     from mlframe.reporting import colors as _colors
 
     edges = _common_edges(groups, nbins)
+    heavy = _heavy_tail_edges(groups, nbins)
+    if heavy is not None:
+        edges, linear_width = heavy
     if edges is None:
         from mlframe.reporting.spec import AnnotationPanelSpec
         return AnnotationPanelSpec(text=f"{title}\n(no finite data)", title=title)
@@ -122,6 +151,26 @@ def _density_overlay_panel(
             if full_span > 0 and (vis_hi - vis_lo) < 0.3 * full_span:
                 xlim = (max(vis_lo, float(edges[0])), min(vis_hi, float(edges[-1])))
 
+    if heavy is not None:
+        # asinh-spaced bins: "density" per unit of y would make the narrow near-zero bins tower over the wide tail ones,
+        # so each point is the split's SHARE OF ROWS in the bin, which is comparable across bins and across splits.
+        series = [d * np.diff(edges) for d in series]
+        centers = np.sinh((np.arcsinh(edges[:-1] / linear_width) + np.arcsinh(edges[1:] / linear_width)) / 2.0) * linear_width
+        return LinePanelSpec(
+            x=centers,
+            y=tuple(series),
+            series_labels=tuple(labels),
+            colors=tuple(cols),
+            title=title,
+            xlabel=f"{xlabel} (asinh scale: linear near 0, logarithmic in the tails)",
+            ylabel="share of rows per bin (log)",
+            vlines=vlines,
+            vspans=vspans,
+            yscale="log",
+            xscale="asinh",
+            xscale_linear_width=linear_width,
+            xlim=(float(edges[0]), float(edges[-1])),
+        )
     return LinePanelSpec(
         x=centers,
         y=tuple(series),
@@ -192,7 +241,15 @@ def _target_drift_verdict(
     is_clf = task == "classification"
     tr_var = float(tr.var())
     tr_std = float(np.sqrt(tr_var))
-    effect_thr = 0.25 * tr_std  # regression-only "materiality" floor, unchanged
+    # Regression "materiality" floor: a quarter of a ROBUST train spread. A quarter of the std let a heavy tail hide real
+    # shifts: a production target whose mean fell 2.11 -> 0.26 was reported "No material drift" because a few huge values
+    # inflated the std. IQR/1.349 estimates the std of the bulk; when most values are equal (IQR 0, e.g. mostly zeros) the
+    # mean absolute deviation from the median is used; the std stays the ceiling.
+    _q25, _q50, _q75 = np.percentile(tr, [25, 50, 75]) if tr.size else (0.0, 0.0, 0.0)
+    _robust = float(_q75 - _q25) / 1.349
+    if _robust <= 0:
+        _robust = float(np.mean(np.abs(tr - _q50))) if tr.size else 0.0
+    effect_thr = 0.25 * (min(_robust, tr_std) if _robust > 0 else tr_std)
     parts: List[str] = []
     flagged: List[str] = []
     excluded: List[str] = []
@@ -224,7 +281,7 @@ def _target_drift_verdict(
     scale = (
         " (class-1 rate shift vs train; flagged when it clears 1.96 two-proportion SE)"
         if is_clf
-        else " (vs train, in target units; flagged when it clears both 1.96 SE and 0.25*train_std)"
+        else f" (vs train, in target units; flagged when it clears both 1.96 SE and {effect_thr:.3g} = 0.25 x robust train spread)"
     )
     head = f"Mean shift{scale}: " + ", ".join(parts) + f"; train mean={tr_mean:.3g}.{excluded_note}"
     if flagged:
@@ -262,7 +319,7 @@ def target_dist_overlay(
             y_true_by_split, nbins=nbins, title="Target (y) distribution by split",
             xlabel="y", train_key=train_key,
         )
-        if getattr(target_panel, "xlim", None) is not None:
+        if getattr(target_panel, "xlim", None) is not None and getattr(target_panel, "xscale", "linear") == "linear":
             _any_cropped = True
         panels.append(target_panel)
         if pred_by_split:
@@ -270,7 +327,7 @@ def target_dist_overlay(
                 pred_by_split, nbins=nbins, title="Prediction distribution by split (incl. OOF vs test)",
                 xlabel="prediction", train_key=train_key if train_key in pred_by_split else None,
             )
-            if getattr(pred_panel, "xlim", None) is not None:
+            if getattr(pred_panel, "xlim", None) is not None and getattr(pred_panel, "xscale", "linear") == "linear":
                 _any_cropped = True
             panels.append(pred_panel)
     grid = pack_panels(panels, max_cols=2)

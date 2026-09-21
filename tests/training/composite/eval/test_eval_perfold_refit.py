@@ -216,6 +216,7 @@ def test_biz_val_perfold_refit_removes_global_fit_optimism():
     )
     # And per seed the honest number is never BETTER than the leaky one by
     # more than tiny noise -- the leak can only inflate (lower) the score.
+    assert list(zip(opt_rmses, hon_rmses))
     for o, h in zip(opt_rmses, hon_rmses):
         assert (
             h >= o * 0.98

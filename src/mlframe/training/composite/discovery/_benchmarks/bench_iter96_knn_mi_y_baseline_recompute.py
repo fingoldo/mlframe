@@ -33,6 +33,7 @@ from ..screening import (
     _mi_per_feature_knn,
     _mi_to_target,
 )
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def _old_per_base(full_x, y, drop_indices, *, n_neighbors, random_state, aggregation):
@@ -75,8 +76,10 @@ def main(argv):
     def timed(fn):
         best = float("inf")
         for _ in range(3):
+            synchronize_gpu_if_available()
             t0 = time.perf_counter()
             fn(full_x, y, drop_indices, n_neighbors=3, random_state=42, aggregation="mean")
+            synchronize_gpu_if_available()
             best = min(best, time.perf_counter() - t0)
         return best
 

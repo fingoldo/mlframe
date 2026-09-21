@@ -165,18 +165,29 @@ def signed_power_y_fit(y: np.ndarray) -> Dict[str, Any]:
         finite = finite[::stride]
     sign = np.sign(finite)
     absval = np.abs(finite)
-    best_p = 1.0
-    best_skew = np.inf
-    for p in _SIGNED_POWER_GRID:
+
+    def _abs_skew(p: float) -> float:
+        """|skew| of ``sign(y) * |y|^p`` on the fit sample (inf when T is constant)."""
         t = sign * absval**p
         std = float(t.std())
         if std <= 0.0:
-            continue
+            return float("inf")
         m = float(t.mean())
-        skew = abs(float((((t - m) / std) ** 3).mean()))
+        return abs(float((((t - m) / std) ** 3).mean()))
+
+    best_p = 1.0
+    best_skew = np.inf
+    for p in _SIGNED_POWER_GRID:
+        skew = _abs_skew(float(p))
         if skew < best_skew:
             best_skew = skew
             best_p = float(p)
+    # Identity (p = 1) is kept unless the best grid exponent reduces |skew| by more than twice the skew's sampling SE (sqrt(6/n)). An odd power
+    # keeps a symmetric target symmetric, so on such a target every p has |skew| ~ 0 and the grid minimum was pure noise: the fit always picked
+    # some p <= 0.9, an unneeded warp whose inverse |T|^(1/p) only amplifies T_hat error.
+    identity_skew = _abs_skew(1.0)
+    if not best_skew < identity_skew - 2.0 * float(np.sqrt(6.0 / finite.size)):
+        best_p = 1.0
     return {"p": best_p}
 
 
@@ -277,6 +288,29 @@ def _yj_inverse_scalar(t: float, lam: float) -> float:
     return float(-(np.power(base, 1.0 / (2.0 - lam)) - 1.0))
 
 
+def _fitted_t_range(t: np.ndarray) -> Dict[str, float]:
+    """Train-time range of the forward-transformed target, stored so the inverse can clamp an inner prediction to it.
+
+    For lambda < 0 the power inverse has an asymptote at ``t = -1/lambda``; an inner model predicting past it hit the
+    base floor and saturated at ``floor**(1/lambda)`` (1e6 at lambda=-2), so one such row out of ~15k val rows made a
+    y-scale RMSE of ~8167 on two unrelated targets. Clamping to the train T range keeps the inverse inside the y range
+    the transform was fitted on, which is where it is invertible without saturation.
+    """
+    finite_t = t[np.isfinite(t)]
+    if finite_t.size == 0:
+        return {}
+    return {"t_lo": float(finite_t.min()), "t_hi": float(finite_t.max())}
+
+
+def _clamp_to_fitted_t_range(arr: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Clamp inner T predictions to the train T range recorded by ``_fitted_t_range``; params fitted before the range was recorded pass through unchanged."""
+    lo = params.get("t_lo")
+    hi = params.get("t_hi")
+    if lo is None or hi is None:
+        return arr
+    return np.clip(arr, lo, hi)
+
+
 def _yj_forward_numpy(y: np.ndarray, lam: float) -> np.ndarray:
     """Vectorised numpy reference implementation of the Yeo-Johnson forward transform (fancy-indexed split on sign(y)); used by ``_yj_forward`` below the numba size threshold or when numba is unavailable."""
     out = np.empty_like(y, dtype=np.float64)
@@ -358,9 +392,14 @@ def yeo_johnson_y_fit(y: np.ndarray) -> Dict[str, Any]:
         result = minimize_scalar(neg_loglik, bounds=(-2.0, 4.0), method="bounded", options={"xatol": 1e-4})
         lam = float(result.x) if result.success else 1.0
     except Exception as e:
-        logger.debug("Box-Cox lambda MLE optimization failed, defaulting to 1.0: %s", e)
+        from mlframe.utils.log_throttle import log_throttle
+        log_throttle(
+            logger, "yeo_johnson_lambda_mle_failed", logging.WARNING,
+            "Yeo-Johnson lambda MLE optimization failed (%s: %s); defaulting to lambda=1.0 (near-identity transform).", type(e).__name__, e,
+        )
         lam = 1.0
-    return {"lambda": float(np.clip(lam, -2.0, 4.0))}
+    lam = float(np.clip(lam, -2.0, 4.0))
+    return {"lambda": lam, **_fitted_t_range(_yj_forward(finite, lam))}
 
 
 def yeo_johnson_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
@@ -370,7 +409,8 @@ def yeo_johnson_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
 
 def yeo_johnson_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Closed-form inverse of the Yeo-Johnson transform for the fitted ``params["lambda"]``."""
-    return _yj_inverse(np.asarray(t, dtype=np.float64), float(params["lambda"]))
+    arr = _clamp_to_fitted_t_range(np.asarray(t, dtype=np.float64), params)
+    return _yj_inverse(arr, float(params["lambda"]))
 
 
 def yeo_johnson_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
@@ -407,7 +447,8 @@ def box_cox_y_fit(y: np.ndarray) -> Dict[str, Any]:
     except Exception as e:
         logger.debug("Box-Cox lambda computation failed, defaulting to 1.0: %s", e)
         lam = 1.0
-    return {"lambda": float(np.clip(lam, *_BOX_COX_LAMBDA_RANGE))}
+    lam = float(np.clip(lam, *_BOX_COX_LAMBDA_RANGE))
+    return {"lambda": lam, **_fitted_t_range(box_cox_y_forward(pos, {"lambda": lam}))}
 
 
 def box_cox_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
@@ -422,7 +463,7 @@ def box_cox_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
 def box_cox_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Closed-form Box-Cox inverse ``(t*lam + 1)**(1/lam)`` (``exp(t)`` at lam=0), flooring the power base at ``_BC_INV_BASE_FLOOR`` so out-of-range t saturates instead of producing NaN."""
     lam = float(params["lambda"])
-    arr = np.asarray(t, dtype=np.float64)
+    arr = _clamp_to_fitted_t_range(np.asarray(t, dtype=np.float64), params)
     if abs(lam) < 1e-12:
         return np.exp(arr)
     base = np.maximum(arr * lam + 1.0, _BC_INV_BASE_FLOOR)
@@ -459,6 +500,17 @@ def quantile_normal_y_fit(y: np.ndarray, n_quantiles: int = 1000) -> Dict[str, A
     return {"knots_y": knots_y, "knots_q": knots_q}
 
 
+def _qn_clip_eps(knots_q: np.ndarray) -> float:
+    """Clip bound for the ECDF value: the smaller tail mass beyond the extreme knots, so every knot stays inside ``[eps, 1-eps]`` (exactly invertible)
+    while ``ndtri`` stays finite. Degenerate knot tables (the 2-point ``[0, 1]`` fallback) keep the legacy ``1/(2*n)``."""
+    if knots_q.size == 0:
+        return 0.25
+    eps = float(min(knots_q[0], 1.0 - knots_q[-1]))
+    if not (0.0 < eps < 0.5):
+        eps = 1.0 / (2.0 * max(knots_q.size, 2))
+    return eps
+
+
 def quantile_normal_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Map ``y`` to a standard Normal via the fitted empirical CDF knots then the Normal quantile function."""
     from scipy.special import ndtri
@@ -467,7 +519,9 @@ def quantile_normal_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarr
     arr = np.asarray(y, dtype=np.float64)
     # Map y -> uniform via interp; clip to (eps, 1-eps) so the Normal quantile stays finite at the tails.
     q = np.interp(arr, knots_y, knots_q)
-    eps = 1.0 / (2.0 * len(knots_q))
+    # Clip at the extreme stored plotting positions, not at 1/(2*n_knots): with n > n_knots the knot-count eps sat inside the knot range and
+    # collapsed the bottom/top train rows onto one T value, a lossy round trip on exactly the tail rows this transform exists for.
+    eps = _qn_clip_eps(knots_q)
     q = np.clip(q, eps, 1.0 - eps)
     # ndtri is the bare standard-normal inverse-CDF kernel underlying norm.ppf -- bit-identical, ~2.4x faster (no rv_continuous wrapper).
     return np.asarray(ndtri(q))
@@ -508,13 +562,39 @@ def chain_bivariate_then_unary_fit(
     bivariate_fit: Callable[[np.ndarray, np.ndarray], Dict[str, Any]],
     bivariate_forward: Callable[[np.ndarray, np.ndarray, Dict[str, Any]], np.ndarray],
     unary: UnaryFns,
+    sample_weight: np.ndarray | None = None,
 ) -> Dict[str, Any]:
-    """Fit the bivariate on (y, base), apply forward to get T1, then fit the unary on T1."""
-    bi_params = bivariate_fit(y, base)
+    """Fit the bivariate on (y, base), apply forward to get T1, then fit the unary on T1.
+
+    ``sample_weight`` reaches the bivariate fit when it accepts one (the chain used to drop it, so a weighted ``linear_residual`` and its own
+    chains were fitted differently); the unary stage, whose fits take no weights, is fitted on the rows with positive weight.
+    """
+    bi_params, keep = _chain_fit_bivariate(bivariate_fit, y, base, sample_weight)
     t1 = bivariate_forward(y, base, bi_params)
     unary_fit_fn = unary[0]
-    un_params = unary_fit_fn(t1)
+    un_params = unary_fit_fn(t1 if keep is None else np.asarray(t1)[keep])
     return {"bivariate_params": bi_params, "unary_params": un_params}
+
+
+def _chain_fit_bivariate(
+    bivariate_fit: Callable[..., Dict[str, Any]], y: np.ndarray, base: np.ndarray, sample_weight: np.ndarray | None,
+) -> tuple[Dict[str, Any], np.ndarray | None]:
+    """Fit a chain's bivariate half, forwarding ``sample_weight`` when its fit declares it; also return the positive-weight row mask the unary
+    stages fit on (``None`` when unweighted). A bivariate that takes no weights is fitted unweighted, with a throttled warning."""
+    if sample_weight is None:
+        return bivariate_fit(y, base), None
+    from ._call_gateway import callable_accepts
+    w = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+    keep = np.isfinite(w) & (w > 0)
+    if callable_accepts(bivariate_fit, "sample_weight"):
+        return bivariate_fit(y, base, sample_weight=w), keep
+    from mlframe.utils.log_throttle import log_throttle
+    log_throttle(
+        logger, "chain_bivariate_ignores_sample_weight", logging.WARNING,
+        "chain transform: bivariate fit %s takes no sample_weight; its half of the chain is fitted unweighted.",
+        getattr(bivariate_fit, "__name__", bivariate_fit),
+    )
+    return bivariate_fit(y, base), keep
 
 
 def chain_bivariate_then_unary_forward(
@@ -557,17 +637,19 @@ def chain_multi_stage_fit(
     bivariate_fit: Callable[[np.ndarray, np.ndarray], Dict[str, Any]],
     bivariate_forward: Callable[[np.ndarray, np.ndarray, Dict[str, Any]], np.ndarray],
     unary_stages: list[UnaryFns],
+    sample_weight: np.ndarray | None = None,
 ) -> Dict[str, Any]:
     """Fit a bivariate composite + N unary stages sequentially.
 
     Returns ``{"bivariate_params": ..., "unary_stage_params": [params_1, params_2, ...]}``.
     Each unary's ``fit`` runs on the OUTPUT of the previous stage so the per-stage params reflect the actual distribution that stage sees.
+    ``sample_weight`` is honoured as in :func:`chain_bivariate_then_unary_fit`.
     """
-    bi_params = bivariate_fit(y, base)
+    bi_params, keep = _chain_fit_bivariate(bivariate_fit, y, base, sample_weight)
     t = bivariate_forward(y, base, bi_params)
     stage_params: list[Dict[str, Any]] = []
     for fit_fn, forward_fn, _inv_fn in unary_stages:
-        p = fit_fn(t)
+        p = fit_fn(t if keep is None else np.asarray(t)[keep])
         stage_params.append(p)
         t = forward_fn(t, p)
     return {"bivariate_params": bi_params, "unary_stage_params": stage_params}

@@ -59,6 +59,7 @@ def test_concurrent_col_cache_is_correct_and_counter_does_not_drift():
 
     # Every thread's output must equal the reference kernel column-for-column (bit-identical by construction).
     for cols, out in results:
+        assert list(enumerate(cols))
         for _i, c in enumerate(cols):
             assert np.array_equal(out[:, _i], reference[:, c]), f"cached codes for column {c} diverged from the kernel"
 

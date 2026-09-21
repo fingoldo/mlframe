@@ -111,6 +111,7 @@ class TestTheFastpath:
         train, val, test = _frames()
         t, _v, _s, _ = _row_wise_summary_polars_fastpath(train, val, test, _config(), verbose=0)
         expected = row_wise_summary_stats(train.to_pandas())
+        assert len(expected.columns) > 0
         for col in expected.columns:
             assert np.allclose(t[col].to_numpy(), expected[col].to_numpy(), equal_nan=True, atol=1e-12)
 

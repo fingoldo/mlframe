@@ -98,5 +98,6 @@ def test_sample_weight_marker_still_stamped_via_setattr():
     outer = pre_pipelines[0]
     assert getattr(outer, "_mlframe_use_sample_weights_in_fs_") is True
     # The marker is NOT routed through set_params (kept suite-internal) on the inner instance.
+    assert len(inst._set_params_calls) > 0
     for call in inst._set_params_calls:
         assert "_mlframe_use_sample_weights_in_fs_" not in call

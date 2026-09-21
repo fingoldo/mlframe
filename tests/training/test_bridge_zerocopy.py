@@ -159,6 +159,7 @@ def test_f4_f5_dict_of_numpy_back_merge_behaviour_matches_from_pandas():
     )
     expected = pl.from_pandas(pdf)
     actual = pl.DataFrame({c: pdf[c].to_numpy() for c in pdf.columns})
+    assert len(pdf.columns) > 0
     for c in pdf.columns:
         assert expected[c].to_list() == actual[c].to_list(), c
     assert actual.shape == expected.shape

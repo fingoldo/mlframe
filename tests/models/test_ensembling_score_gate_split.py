@@ -172,3 +172,65 @@ def test_catastrophic_drop_kn_drops_outlier(gate_sibling):
     assert out_short == ["a", "b", "c"]
     assert len(out_lvl) == 3
     assert len(out_preds) == 3
+
+
+def _select(gate_sibling, members, require_oof=True):
+    """Calls select_gate_source_split with the default suite thresholds."""
+    return gate_sibling.select_gate_source_split(
+        level_models_and_predictions=members, require_oof_for_gate=require_oof, coarse_gate_max_mae_relative=5.0,
+        coarse_gate_max_std_relative=5.0, max_mae=0.0, max_std=0.0, max_mae_relative=2.5, max_std_relative=2.5, verbose=True,
+    )
+
+
+def test_select_gate_source_prefers_calib_slice_over_val_when_no_oof(gate_sibling, caplog):
+    """Without OOF, the ES-free calib slice wins over the early-stopping val split and gets the FINE thresholds."""
+    import logging
+
+    rng = np.random.default_rng(0)
+    members = [SimpleNamespace(oof_preds=None, calib_preds=rng.standard_normal(40), val_preds=rng.standard_normal(50),
+                               test_preds=rng.standard_normal(50), train_preds=rng.standard_normal(60)) for _ in range(3)]
+    with caplog.at_level(logging.INFO, logger="mlframe.models.ensembling"):
+        preds, label, coarse, _mae, _std, mae_r, std_r = _select(gate_sibling, members)
+    assert label == "calib"
+    assert coarse is False and mae_r == 2.5 and std_r == 2.5
+    assert len(preds[0]) == 40
+    assert any("source=calib" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("require_oof", [True, False])
+def test_select_gate_source_never_uses_test(gate_sibling, require_oof):
+    """Only test preds available -> no gate source at all (test must never drive member selection)."""
+    rng = np.random.default_rng(0)
+    members = [SimpleNamespace(test_preds=rng.standard_normal(50), val_preds=None, train_preds=None) for _ in range(3)]
+    preds, label, coarse, *_ = _select(gate_sibling, members, require_oof=require_oof)
+    assert preds is None and label is None and coarse is False
+
+
+def test_coarse_val_log_states_source_and_reason(gate_sibling, caplog):
+    """The coarse fallback line names the split used and why the honest sources were unavailable."""
+    import logging
+
+    rng = np.random.default_rng(0)
+    members = [SimpleNamespace(val_preds=rng.standard_normal(50), test_preds=rng.standard_normal(50), train_preds=None) for _ in range(3)]
+    with caplog.at_level(logging.INFO, logger="mlframe.models.ensembling"):
+        _p, label, coarse, *_ = _select(gate_sibling, members)
+    assert label == "val-coarse" and coarse is True
+    msgs = [r.getMessage() for r in caplog.records if "source=val-coarse" in r.getMessage()]
+    assert msgs and "calib slice" in msgs[0] and "test is never" in msgs[0]
+
+
+def test_catastrophic_drop_k2_uses_calib_target_for_calib_source(gate_sibling):
+    """K=2 catastrophic check on the calib source reads the members' calib_target and drops the disaster."""
+    rng = np.random.default_rng(1)
+    target = rng.standard_normal(40)
+    good = target + rng.standard_normal(40) * 0.05
+    bad = target + 100.0
+    members = [SimpleNamespace(calib_target=target), SimpleNamespace(calib_target=target)]
+    res = {}
+    _lvl, _out_tags, _short, _name, early = gate_sibling.catastrophic_drop_k2(
+        level_models_and_predictions=members, _gate_preds_for_check=[good, bad], _gate_source_split="calib",
+        _ensemble_member_tags=["good_model", "bad_model"], _ensemble_short_tags=["g", "b"], ensemble_name="e",
+        train_target_arr=None, val_target_arr=None, test_target_arr=None, k2_catastrophic_mae_ratio=20.0, verbose=False, res=res,
+    )
+    assert early is True
+    assert res.get("_dropped_member") == "bad_model"

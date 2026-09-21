@@ -81,6 +81,30 @@ def apply_base_leakage_guard(
     return base_candidates
 
 
+def order_rows_by_time(row_idx: np.ndarray, time_ordering: Any) -> np.ndarray | None:
+    """Stable time order for ``row_idx`` under ``time_ordering``, or ``None`` when the key cannot be applied.
+
+    ``order_screen_by_time`` orders the MI screen only. A consumer that draws its OWN sample (the tiny rerank, the drift
+    gate) holds rows in whatever order the sampler produced, so a TimeSeriesSplit over them walks row positions rather
+    than time. This returns the permutation to apply to such a sample, so the split is the forward walk it claims to be.
+    """
+    if time_ordering is None or row_idx is None:
+        return None
+    try:
+        _time_all = np.asarray(time_ordering)
+        _rows = np.asarray(row_idx)
+        if _rows.size == 0 or _time_all.shape[0] < int(np.max(_rows)) + 1:
+            return None
+        return np.argsort(_time_all[_rows], kind="stable")
+    except (TypeError, ValueError, IndexError) as _to_err:
+        logger.warning(
+            "[CompositeTargetDiscovery] time_ordering supplied but could not order a consumer's sample (%s); "
+            "its split runs in row order.",
+            _to_err,
+        )
+        return None
+
+
 def order_screen_by_time(train_idx_screen: np.ndarray, sample_idx: np.ndarray, time_ordering: Any) -> tuple:
     """Sort the MI-screening sample into time order so downstream tiny-model CV is a forward-walk.
 

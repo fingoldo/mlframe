@@ -272,6 +272,7 @@ class TestBizValStabilityCheck:
         # genuine survivors (counts >= 3) -- never a single-seed luck.
         if disc.specs_:
             counts = disc.stability_counts_
+            assert len(disc.specs_) > 0
             for spec in disc.specs_:
                 assert counts.get(spec.name, 0) >= 3, f"spec '{spec.name}' kept despite stability count {counts.get(spec.name, 0)} < 3 -- lucky-split survivor"
 

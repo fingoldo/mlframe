@@ -68,5 +68,6 @@ def test_the_threaded_and_serial_paths_still_agree(monkeypatch):
     threaded = _adaptive_nbins.per_feature_edges(cols, y, method="fayyad_irani", n_jobs=4)
     serial = _adaptive_nbins.per_feature_edges(cols, y, method="fayyad_irani", n_jobs=1)
     assert len(threaded) == len(serial) == cols.shape[1]
+    assert list(enumerate(zip(threaded, serial)))
     for i, (a, b) in enumerate(zip(threaded, serial)):
         assert np.array_equal(np.asarray(a), np.asarray(b)), f"column {i} differs between the threaded and serial paths"

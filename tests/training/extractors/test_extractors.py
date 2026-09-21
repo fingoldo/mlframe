@@ -98,6 +98,7 @@ class TestIntizeTargets:
 
         intize_targets(targets)
 
+        assert targets.items()
         for name, arr in targets.items():
             assert isinstance(arr, np.ndarray), f"{name} should be numpy array"
             assert arr.dtype == np.int8, f"{name} should be int8"

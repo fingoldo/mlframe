@@ -488,6 +488,7 @@ def test_w9e_f9_multiclass_diversity_per_class_correlation():
     assert ("m_a", "m_b") in found or ("m_b", "m_a") in found, f"per-class avg should detect highly-correlated multiclass pair; got pairs={pairs}"
     # m_a vs m_c should NOT be flagged (independent random).
     if pairs:
+        assert len(pairs) > 0
         for p in pairs:
             assert not ({p["m1"], p["m2"]} == {"m_a", "m_c"}), f"independent multiclass pair must not be flagged at threshold=0.95: {p}"
 

@@ -165,5 +165,6 @@ def test_fused_prologue_bit_identical(name, new_fn, old_fn, nc, n):
 def test_edge_empty_coef():
     """Edge empty coef."""
     x = np.array([1.0, 2.0, 3.0])
+    assert len(_CASES) > 0
     for _, new_fn, old_fn in _CASES:
         assert np.array_equal(new_fn(x, np.empty(0)), old_fn(x, np.empty(0)))

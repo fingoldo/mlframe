@@ -291,6 +291,7 @@ def test_d8_report_kept_flags_reconciled_under_alpha_drift_reject() -> None:
     assert kept_names == final_names
 
     # No linear_residual spec on the drifting base should survive AND claim kept.
+    assert len(report) > 0
     for r in report:
         if r.get("transform_name") == "linear_residual" and r["name"] not in final_names:
             assert not r.get("kept"), f"dropped drifting spec {r['name']} still claims kept=True"

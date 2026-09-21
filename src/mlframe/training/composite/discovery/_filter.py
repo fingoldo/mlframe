@@ -27,6 +27,20 @@ logger = logging.getLogger(__name__)
 _LEAK_CORR_MIN_SAMPLE_ROWS = 500_000
 
 
+def _leak_corr_sample_rows(n_rows: int) -> np.ndarray | None:
+    """Row positions the leak-corr test reads, or ``None`` when every row is kept.
+
+    The test is ``|corr(x, y)| >= 0.99999``, whose standard error near 1 is ``(1 - r**2) / sqrt(n)``: past the minimum
+    sample it is decided identically on a stride of the rows. Choosing them BEFORE the columns are gathered is what
+    bounds the peak: the previous order held every numeric column over every train row, then stacked a second full copy,
+    and only sampled once both were already allocated -- about 14 GB on a 3.2M x 500 frame.
+    """
+    if n_rows <= _LEAK_CORR_MIN_SAMPLE_ROWS:
+        return None
+    stride = max(2, n_rows // _LEAK_CORR_MIN_SAMPLE_ROWS)
+    return np.arange(0, n_rows, stride)
+
+
 # Headroom guard the sampler enforces. The leak-corr matrix is materialised at
 # ``rows * cols * 4 B`` in one shot (column_stack copy); we sample down when
 # that single allocation would consume more than this fraction of currently-
@@ -120,58 +134,12 @@ def _maybe_sample_for_leak_corr(
     return sampled, y_sampled
 
 
-def _filter_features(
-    self,
-    df: Any,
-    feature_cols: Sequence[str],
-    y_train: np.ndarray,
-    train_idx: np.ndarray,
-) -> list[str]:
-    """Drop columns that are non-numeric, near-constant on train, match a
-    forbidden name pattern, or correlate suspiciously highly with y on
-    train (likely derived-from-y leakage).
+def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, corr_drops):
+    """Split the survivors into kept columns and leak-corr drops, appending each drop to ``drops``/``corr_drops``.
 
-    Drops are recorded on ``self._filter_drops`` (list of dicts with name +
-    reason + value) so :meth:`fit` can surface them in the report and so
-    callers can audit false positives -- the corr filter in particular is
-    prone to misfiring on legitimate autoregressive lag features such as
-    a ``y_prev`` column.
+    Carved out of ``_filter_features`` so the gather loop and the correlation decision stay separately readable;
+    the rules are unchanged.
     """
-    # First pass: cheap-fail filters (name patterns, type, finite count,
-    # near-constant). Build a list of survivors + their train-row arrays so the
-    # corr check can be vectorised across all survivors in ONE matrix op
-    # (~2.2x faster vs per-column ``_safe_corr`` loop on 200 cols x 80K rows).
-    drops: list[dict[str, Any]] = []
-    corr_drops: list[tuple[str, float]] = []
-    candidates: list[str] = []
-    candidate_arrays: list[np.ndarray] = []
-    for col in feature_cols:
-        if col == self._target_col:
-            continue
-        if any(p.search(col) for p in self._patterns_compiled):
-            drops.append({"name": col, "reason": "forbidden_pattern"})
-            continue
-        if not _is_numeric_column(df, col):
-            drops.append({"name": col, "reason": "non_numeric"})
-            continue
-        arr = _extract_column_array(df, col, rows=train_idx)
-        finite_mask = np.isfinite(arr)
-        if finite_mask.sum() < 50:
-            drops.append({
-                "name": col, "reason": "insufficient_finite_rows",
-                "n_finite": int(finite_mask.sum()),
-            })
-            continue
-        ptp = float(np.ptp(arr[finite_mask]))
-        if ptp <= self.config.constant_base_eps:
-            drops.append({
-                "name": col, "reason": "constant_or_near_constant",
-                "ptp": ptp,
-            })
-            continue
-        candidates.append(col)
-        candidate_arrays.append(arr)
-
     # Vectorised corr filter on survivors. Replaces the per-column
     # ``abs(_safe_corr(arr, y_train))`` loop. NaN rows in the survivor matrix
     # are imputed with column-mean before the corr-vs-y dot product, which is
@@ -187,7 +155,7 @@ def _filter_features(
         # precision, well inside the leak-filter threshold tolerance. See helper
         # docstring for the why/why-not analysis.
         _sampled_arrays, _y_for_corr = _maybe_sample_for_leak_corr(
-            candidates, candidate_arrays, y_train,
+            candidates, candidate_arrays, _y_leak,
         )
         X_train = np.column_stack(_sampled_arrays)
         # Free the per-column ndarrays the moment they land in the stacked matrix:
@@ -243,6 +211,72 @@ def _filter_features(
                 corr_drops.append((col, float(corr_val)))
             else:
                 kept.append(col)
+    return kept
+
+
+def _filter_features(
+    self,
+    df: Any,
+    feature_cols: Sequence[str],
+    y_train: np.ndarray,
+    train_idx: np.ndarray,
+) -> list[str]:
+    """Drop columns that are non-numeric, near-constant on train, match a
+    forbidden name pattern, or correlate suspiciously highly with y on
+    train (likely derived-from-y leakage).
+
+    Drops are recorded on ``self._filter_drops`` (list of dicts with name +
+    reason + value) so :meth:`fit` can surface them in the report and so
+    callers can audit false positives -- the corr filter in particular is
+    prone to misfiring on legitimate autoregressive lag features such as
+    a ``y_prev`` column.
+    """
+    # First pass: cheap-fail filters (name patterns, type, finite count,
+    # near-constant). Build a list of survivors + their train-row arrays so the
+    # corr check can be vectorised across all survivors in ONE matrix op
+    # (~2.2x faster vs per-column ``_safe_corr`` loop on 200 cols x 80K rows).
+    drops: list[dict[str, Any]] = []
+    corr_drops: list[tuple[str, float]] = []
+    candidates: list[str] = []
+    candidate_arrays: list[np.ndarray] = []
+    _leak_rows = _leak_corr_sample_rows(int(np.asarray(train_idx).size))
+    _y_leak = y_train if _leak_rows is None or y_train is None else np.asarray(y_train)[_leak_rows]
+    if _leak_rows is not None:
+        logger.info(
+            "[CompositeTargetDiscovery] leak-corr test reads a %d-row stride of the %d train rows; the constancy and "
+            "finite-row checks still read every row, so only the correlation is sampled.",
+            _leak_rows.size, int(np.asarray(train_idx).size),
+        )
+    for col in feature_cols:
+        if col == self._target_col:
+            continue
+        if any(p.search(col) for p in self._patterns_compiled):
+            drops.append({"name": col, "reason": "forbidden_pattern"})
+            continue
+        if not _is_numeric_column(df, col):
+            drops.append({"name": col, "reason": "non_numeric"})
+            continue
+        arr = _extract_column_array(df, col, rows=train_idx)
+        finite_mask = np.isfinite(arr)
+        if finite_mask.sum() < 50:
+            drops.append({
+                "name": col, "reason": "insufficient_finite_rows",
+                "n_finite": int(finite_mask.sum()),
+            })
+            continue
+        ptp = float(np.ptp(arr[finite_mask]))
+        if ptp <= self.config.constant_base_eps:
+            drops.append({
+                "name": col, "reason": "constant_or_near_constant",
+                "ptp": ptp,
+            })
+            continue
+        candidates.append(col)
+        # Keep only the rows the leak-corr test will read: the constancy and finite-count checks above are done with,
+        # so the full column can be released here instead of being held until the stack.
+        candidate_arrays.append(arr if _leak_rows is None else arr[_leak_rows])
+
+    kept = _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, corr_drops)
     self._filter_drops = drops
     # Loud warning for corr-threshold drops: this is the filter most likely to
     # misfire on legitimate strong predictors (autoregressive lags,

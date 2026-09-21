@@ -92,8 +92,11 @@ def test_plot_pit_diagram_multi_backend_dsl(tmp_path):
         plot_file=base,
         plot_outputs="matplotlib[png] + plotly[html]",
     )
-    assert os.path.exists(base + ".matplotlib.png")
-    assert os.path.exists(base + ".plotly.html")
+    # resolve_output_path drops the backend from the filename unless two backends write the SAME format
+    # (660948c37); png and html do not collide, so the files are ``pit.png`` / ``pit.html``.
+    assert os.path.exists(base + ".png")
+    assert os.path.exists(base + ".html")
+    assert not os.path.exists(base + ".matplotlib.png")
 
 
 def test_show_plots_unless_agg_does_not_flip_interactive_mode():

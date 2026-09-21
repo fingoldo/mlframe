@@ -39,6 +39,7 @@ def test_forward_only_order():
 def test_no_overlap_plain():
     """No overlap plain."""
     cv = PurgedTimeSeriesSplit(n_splits=5)
+    assert list(cv.split(n_samples=200))
     for train_idx, test_idx in cv.split(n_samples=200):
         assert len(np.intersect1d(train_idx, test_idx)) == 0
 
@@ -60,6 +61,7 @@ def test_embargo_removes_right_count():
     cv_e = PurgedTimeSeriesSplit(n_splits=4, purge=3, embargo=10)
     f0 = list(cv0.split(n_samples=n))
     fe = list(cv_e.split(n_samples=n))
+    assert list(zip(f0, fe))
     for (tr0, te0), (tre, tee) in zip(f0, fe):
         assert np.array_equal(te0, tee), "test folds unaffected by embargo"
         # embargo=10 trims exactly 10 more rows off the train tail
@@ -78,6 +80,7 @@ def test_fractional_embargo():
 def test_max_train_size_rolling_window():
     """Max train size rolling window."""
     cv = PurgedTimeSeriesSplit(n_splits=4, max_train_size=30)
+    assert list(cv.split(n_samples=300))
     for train_idx, _ in cv.split(n_samples=300):
         assert train_idx.size <= 30
 

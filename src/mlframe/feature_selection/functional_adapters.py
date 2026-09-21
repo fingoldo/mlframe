@@ -370,7 +370,14 @@ class CascadeSelectSelector(_FunctionalSelectorBase):
             cv=self.cv, scoring=scoring, random_state=self.random_state, rfecv_kwargs=self.rfecv_kwargs,
         )
         self.cascade_result_ = result
-        self._finalize(X, result.get("final_selected") or [])
+        selected = result.get("final_selected") or []
+        # cascade_select saw the synthetic "x{i}" names, but ``_finalize`` resolves an ndarray fit's selection
+        # by POSITION (as the other adapters' functions return it), so map the names back to their positions.
+        # Passing the names straight through raised IndexError from ``mask[list(selected)]``.
+        if not hasattr(X, "columns"):
+            _pos = {str(c): i for i, c in enumerate(numeric_view.columns)}
+            selected = [_pos[str(s)] for s in selected]
+        self._finalize(X, selected)
         return self
 
 

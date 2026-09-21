@@ -41,6 +41,7 @@ def test_clean_strips_documented_inference_irrelevant_fields():
     model.inner = object()
     cleaned = clean_mlframe_model(model)
     # Every documented field stripped.
+    assert len(_LEAN_STRIP_FIELDS) > 0
     for field in _LEAN_STRIP_FIELDS:
         assert not hasattr(cleaned, field), f"{field} should have been stripped"
     # Other fields preserved.

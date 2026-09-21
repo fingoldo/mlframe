@@ -84,6 +84,7 @@ def _assert_identical(res_legacy, res_buffer) -> None:
         for cand, folds_l in fl.items():
             folds_b = fb[cand]
             assert len(folds_l) == len(folds_b), f"step {step} cand {cand} fold count diverged"
+            assert list(enumerate(zip(folds_l, folds_b)))
             for fi, (xl, xb) in enumerate(zip(folds_l, folds_b)):
                 assert xl == xb, f"step {step} cand {cand} fold {fi} RMSE not bit-identical: {xl!r} vs {xb!r}"
 

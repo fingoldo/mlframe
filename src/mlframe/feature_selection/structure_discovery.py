@@ -21,6 +21,8 @@ Usage
 >>> y = np.gcd(a, b)                      # y is literally gcd(price, quantity)
 >>> report = discover_structure(X, y)
 >>> print(report)                         # ranked human-readable block
+StructureReport: ... discovered relationship(s) over 3 columns ...
+   1. y depends on gcd(price, quantity) ...
 >>> report.relations[0].kind, report.relations[0].columns
 ('gcd', ('price', 'quantity'))
 
@@ -322,10 +324,17 @@ def discover_structure(
 
     Examples
     --------
-    >>> report = discover_structure(X, y)
+    >>> import numpy as np, pandas as pd
+    >>> rng = np.random.default_rng(0)
+    >>> a = rng.integers(1, 40, 2000); b = rng.integers(1, 40, 2000)
+    >>> X = pd.DataFrame({"price": a, "quantity": b, "noise": rng.normal(size=2000)})
+    >>> report = discover_structure(X, np.gcd(a, b))
     >>> print(report)
-    >>> for rel in report:
-    ...     print(rel.kind, rel.columns, rel.parameter, rel.mi)
+    StructureReport: ... relationship(s) over 3 columns ...
+       1. y depends on gcd(price, quantity) ...
+    >>> rel = report.relations[0]
+    >>> rel.kind, rel.columns, bool(rel.mi > 0.5)
+    ('gcd', ('price', 'quantity'), True)
     """
     from .filters._fe_accuracy_gate import class_mi_fe_applicable, bin_y_for_class_mi
 

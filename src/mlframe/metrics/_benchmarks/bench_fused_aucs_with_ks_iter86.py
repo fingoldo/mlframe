@@ -36,6 +36,7 @@ def aucs_with_ks(y_true, y_score, desc):
 
 from mlframe.metrics._core_auc_brier import _argsort_desc_for_metrics, fast_numba_aucs
 from mlframe.metrics.classification._classification_extras import ks_statistic
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 if __name__ == "__main__":
     rng = np.random.default_rng(1)
@@ -61,7 +62,8 @@ if __name__ == "__main__":
     def best(fn,k=7):
         ts=[]
         for _ in range(k):
-            t=time.perf_counter(); fn(); ts.append(time.perf_counter()-t)
+            synchronize_gpu_if_available()
+            t=time.perf_counter(); fn(); synchronize_gpu_if_available(); ts.append(time.perf_counter()-t)
         return min(ts)*1000
     aucs_with_ks(yt,yp,descc)
     print("fused auc+ks :", round(best(lambda: aucs_with_ks(yt,yp,descc)),2))

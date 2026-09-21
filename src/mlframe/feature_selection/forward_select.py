@@ -50,6 +50,8 @@ def forward_select(
     patience: Optional[int] = None,
     significance_level: float = 0.05,
     return_report: bool = False,
+    mask_redundant: bool = True,
+    masking_r2: float = 0.95,
 ) -> Union[List[Any], Tuple[List[Any], ForwardSelectReport]]:
     """Greedily grow a feature subset one column at a time by best CV-score marginal improvement.
 
@@ -96,6 +98,13 @@ def forward_select(
         ``ForwardSelectReport`` with one ``MarginalGainStep`` per round (the round's best candidate, its
         mean CV-score improvement, and - when computable - the paired-t-test p-value/significance flag
         used by ``patience``). Default False preserves the original ``List[Any]`` return type exactly.
+    mask_redundant
+        Skip a candidate whose values the currently-selected columns explain linearly with R^2 >= ``masking_r2``.
+    masking_r2
+        R^2 threshold for ``mask_redundant`` (default 0.95, i.e. VIF >= 20). A CV-score gain cannot see redundancy: the second member of a
+        near-duplicate pair (or the third column of an exact identity ``x3 = 2*x1 - x2``) adds the same fold-level
+        jitter as any noise column, so the greedy loop admitted it and the returned subset was near-singular. Only
+        numeric columns are tested; a column that cannot be read as float is never masked.
 
     Returns
     -------
@@ -134,7 +143,27 @@ def forward_select(
     report = ForwardSelectReport()
     non_significant_streak = 0
 
+    def _numeric(cols: List[Any]) -> Optional[np.ndarray]:
+        """Float view of ``cols`` for the masking test, or None when any of them is non-numeric."""
+        try:
+            return np.asarray(_subset(cols), dtype=np.float64)
+        except (TypeError, ValueError):
+            return None
+
     while remaining and len(selected) < cap:
+        if mask_redundant and selected:
+            from ._linear_masking import linear_r2
+
+            kept_arr = _numeric(selected)
+            if kept_arr is not None:
+                unmasked = []
+                for candidate in remaining:
+                    cand_arr = _numeric([candidate])
+                    if cand_arr is None or linear_r2(kept_arr, cand_arr[:, 0]) < masking_r2:
+                        unmasked.append(candidate)
+                remaining = unmasked
+            if not remaining:
+                break
         trial_scores: dict[Any, float] = {}
         trial_fold_scores: dict[Any, np.ndarray] = {}
         for candidate in remaining:

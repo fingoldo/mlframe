@@ -56,6 +56,7 @@ class TestFourier:
     def test_coef_size(self):
         """Coef size."""
         b = EXTRA_BASES["fourier"]
+        assert list(range(1, 6))
         for d in range(1, 6):
             assert b["coef_size_func"](d) == 2 * d
 
@@ -274,6 +275,7 @@ class TestPade:
     def test_coef_size(self):
         """Coef size."""
         b = EXTRA_BASES["pade"]
+        assert list(range(1, 5))
         for d in range(1, 5):
             assert b["coef_size_func"](d) == 2 * d + 1
 
@@ -330,6 +332,7 @@ class TestRegistryMetadata:
 
     def test_kind_field(self):
         """Kind field."""
+        assert EXTRA_BASES.values()
         for info in EXTRA_BASES.values():
             assert info["kind"] == "non-polynomial"
             assert isinstance(info["dist_note"], str)

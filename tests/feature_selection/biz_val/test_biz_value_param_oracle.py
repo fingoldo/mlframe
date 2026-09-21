@@ -137,9 +137,11 @@ def test_persistence_is_stat_only(tmp_path):
     rows = oracle.store.read_rows()
     # Every persisted value must be a scalar or a JSON string of scalars.
     for r in rows:
+        assert r.items()
         for col, val in r.items():
             assert not isinstance(val, (list, tuple, dict, np.ndarray)), f"non-scalar persisted in {col}: {type(val)}"
         fp_bucket = orjson.loads(r["fp_bucket_json"])
+        assert fp_bucket.values()
         for v in fp_bucket.values():
             assert isinstance(v, (int, float, str)), f"non-scalar in fp_bucket: {v!r}"
     # The raw data magnitude must NOT be reconstructable: the store size is

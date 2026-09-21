@@ -93,6 +93,7 @@ def test_documented_symbol_imports(module_path, attr):
 def test_documented_bound_methods_exist(module_path, cls_name, methods):
     """Documented bound methods exist."""
     cls = getattr(importlib.import_module(module_path), cls_name)
+    assert len(methods) > 0
     for m in methods:
         assert hasattr(cls, m), f"{cls_name}.{m}() is documented but missing"
 

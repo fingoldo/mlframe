@@ -162,3 +162,32 @@ class TestBizValueMultiplicativeDGP:
         ), f"mul-synthetic must correlate more strongly with y than either parent; got synth={corr_synth:.3f}, b1={corr_b1:.3f}, b2={corr_b2:.3f}"
         # And the corr is high (the DGP IS the synthetic).
         assert corr_synth > 0.95
+
+
+class TestTrainMaskScale:
+    """The div eps floor is a scale statistic, so it must be derived from train rows and say so when it cannot be."""
+
+    @staticmethod
+    def _candidates() -> dict[str, np.ndarray]:
+        """Two columns whose second half is 100x the first, so a train-only floor differs from an all-rows floor."""
+        b1 = np.concatenate([np.full(50, 2.0), np.full(50, 200.0)])
+        b2 = np.concatenate([np.full(50, 1.0), np.full(50, 100.0)])
+        return {"b1": b1, "b2": b2}
+
+    def test_no_train_mask_warns_that_the_div_floor_sees_every_row(self, caplog) -> None:
+        """Without a mask the floor's median covers test rows too; the caller is told once instead of only in the docstring."""
+        with caplog.at_level("WARNING"):
+            generate_interaction_bases(self._candidates(), ops=("div",), top_k=2)
+        assert [r for r in caplog.records if "no train_mask given" in r.getMessage()], "a div without train_mask must warn that the eps floor sees every row"
+
+    def test_train_mask_floor_uses_train_rows_only(self) -> None:
+        """With a mask the recorded eps comes from the train half's median, not the 100x test half's."""
+        mask = np.zeros(100, dtype=bool)
+        mask[:50] = True
+        _, prov = generate_interaction_bases(self._candidates(), ops=("div",), top_k=2, eps_div_floor_factor=1.0, train_mask=mask)
+        assert prov["b1__div__b2"]["scale_eps_b"] == pytest.approx(1.0), "the floor must be the train-half median |b2| = 1.0, not the all-rows median 50.5"
+
+    def test_mask_of_the_wrong_length_raises(self) -> None:
+        """A mis-shaped mask is caller misuse: it must raise instead of silently falling back to every row."""
+        with pytest.raises(ValueError, match="train_mask has 7 rows"):
+            generate_interaction_bases(self._candidates(), ops=("div",), top_k=2, train_mask=np.ones(7, dtype=bool))

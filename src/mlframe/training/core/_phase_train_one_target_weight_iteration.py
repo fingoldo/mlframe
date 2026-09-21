@@ -185,6 +185,10 @@ def _run_one_weight_iteration(
         current_common_params["plot_file"] = current_common_params["plot_file"] + weight_name + "_"
 
     cached_dfs = pipeline_cache.get(cache_key)
+    # Cached frames came out of the pre_pipeline fitted by the model that populated the entry; this model never fits its
+    # own, so it carries that fitted one (otherwise predict would skip the transform and feed its inner raw columns).
+    if cached_dfs is not None and pipeline_cache.get_fitted_pipeline(cache_key) is not None:
+        pre_pipeline = pipeline_cache.get_fitted_pipeline(cache_key)
 
     # INTENTIONAL: clone() lives INSIDE the weight loop. Each weight schema produces a
     # different trained model stored separately in models[type][target]; without per-iteration
@@ -424,6 +428,7 @@ def _run_one_weight_iteration(
 
     if cached_dfs is None:
         pipeline_cache.set(cache_key, train_df_transformed, val_df_transformed, test_df_transformed)
+        pipeline_cache.set_fitted_pipeline(cache_key, pre_pipeline)
 
     # After the first model trains, if the pre_pipeline is identity-equivalent (kept all
     # columns) AND the ordinary branch is in the suite, the remaining models would see

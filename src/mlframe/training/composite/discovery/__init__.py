@@ -146,7 +146,8 @@ class CompositeTargetDiscovery:
     elapsed_seconds_: float
     _df_ref: Any
     _screen_time_ordered_: bool
-    _fit_data_signature: str
+    _fit_data_signature: str | None
+    _fit_data_signature_inputs: tuple | None
     # Sweep-shared honest holdout set by ``fit_with_stability_check`` (consumed by
     # ``carve_screening_holdout``); ``None`` outside a stability sweep.
     _stability_shared_holdout_idx: np.ndarray | None
@@ -166,10 +167,30 @@ class CompositeTargetDiscovery:
         # iter_transform path. Pickling/deep-copy would otherwise serialise the
         # whole frame and pin it against GC -- exclude both from the pickled
         # state (re-pass ``df`` to iter_transform after unpickling).
+        # The fit signature is computed lazily from ``_df_ref``; materialise it before the frame is dropped so a pickled
+        # result keeps the byte-identical warm-start fast path of ``discover_incremental``.
+        self.fit_data_signature()
         state = self.__dict__.copy()
         state.pop("_df_ref", None)
         state.pop("_auto_base_pool", None)
+        state.pop("_screen_matrix_stash", None)  # holds the frame and a screen-sized matrix if a fit stopped mid-way
         return state
+
+    def fit_data_signature(self) -> str:
+        """The ``data_signature`` of the frame ``fit`` ran on, computed on first request; ``""`` when unavailable."""
+        sig = getattr(self, "_fit_data_signature", "")
+        if sig is not None:
+            return sig or ""
+        inputs = getattr(self, "_fit_data_signature_inputs", None)
+        df = getattr(self, "_df_ref", None)
+        sig = ""
+        if inputs is not None and df is not None:
+            try:
+                sig = data_signature(df, inputs[0], inputs[1])
+            except Exception as e:  # -- signature is an optimisation, never load-bearing
+                logger.debug("data signature computation failed: %s", e)
+        self._fit_data_signature = sig
+        return sig
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
@@ -622,7 +643,8 @@ def discover_incremental(
     ``eps_mi_gain``) forward to :func:`incremental_discovery_check`.
     """
     prior_specs = list(getattr(prior_result, "specs_", []) or [])
-    prior_sig = getattr(prior_result, "_fit_data_signature", "") or ""
+    _sig_of = getattr(prior_result, "fit_data_signature", None)
+    prior_sig = (_sig_of() if callable(_sig_of) else getattr(prior_result, "_fit_data_signature", "")) or ""
     if config is None:
         config = getattr(prior_result, "config", None)
     return incremental_discovery_check(

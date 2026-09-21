@@ -97,9 +97,39 @@ class TestCategoricalFeaturesKeepCategoricalAdvice:
         """The actionable part of the categorical warning must survive the branch."""
         assert "suggested actions" in _line_about(messages, "Category drift suspect: region")
 
-    def test_a_categorical_is_still_warned_about_the_crash_path(self, messages):
-        """For a real categorical the val-DMatrix crash is a genuine risk and must still be named."""
-        assert "DMatrix" in _line_about(messages, "Category drift suspect: region")
+    def test_aligned_categorical_does_not_claim_a_crash(self, messages):
+        """With the default train+val category-domain alignment the val DMatrix cannot crash; the line says so."""
+        line = _line_about(messages, "Category drift suspect: region")
+        assert "DMatrix" not in line
+        assert "prevents a crash" in line
+
+    def test_unaligned_categorical_is_still_warned_about_the_crash_path(self, caplog):
+        """With alignment off the val-DMatrix crash is a genuine risk and must still be named."""
+        reset_throttle_counts()
+        train, val, test = _frames()
+        with caplog.at_level(logging.INFO, logger="mlframe.training.core._phase_drift_snapshot"):
+            _log_cardinality_and_drift_snapshot(
+                train_df=train, val_df=val, test_df=test,
+                cat_features=["region"], text_features=["skills_text"], embedding_features=[], align_categorical_dicts=False,
+            )
+        assert "DMatrix" in _line_about([r.getMessage() for r in caplog.records], "Category drift suspect: region")
+
+
+def test_low_cardinality_aligned_drift_is_reported_as_handled(caplog):
+    """A production log warned "XGB/CB may crash" and told the user to add an ``__UNSEEN__`` bucket for one unseen
+    value of a 4-level column, which the shared train+val Enum domain already handles. That case is INFO now."""
+    reset_throttle_counts()
+    cat = lambda v: pl.Series(v, dtype=pl.Categorical)
+    train = pl.DataFrame({"job_post_type": cat([f"t{i % 4}" for i in range(400)])})
+    val = pl.DataFrame({"job_post_type": cat([f"t{i % 4}" for i in range(80)] + ["brand_new"] * 20)})
+    test = pl.DataFrame({"job_post_type": cat([f"t{i % 4}" for i in range(100)])})
+    with caplog.at_level(logging.INFO, logger="mlframe.training.core._phase_drift_snapshot"):
+        _log_cardinality_and_drift_snapshot(
+            train_df=train, val_df=val, test_df=test, cat_features=["job_post_type"], text_features=[], embedding_features=[],
+        )
+    records = [r for r in caplog.records if "job_post_type --" in r.getMessage()]
+    assert records and all(r.levelno == logging.INFO for r in records)
+    assert "Handled automatically" in records[0].getMessage()
 
     def test_a_categorical_does_not_get_the_text_line(self, messages):
         """Each column gets exactly one kind of advice."""

@@ -27,6 +27,7 @@ def test_batch_accepts_noise_count_halflife_kwarg():
 
     result = ordered_target_encode_batch(cols, y, order=order, smoothing=1.0, noise_std=0.5, noise_count_halflife=3.0, random_state=1)
     assert set(result.keys()) == set(cols.keys())
+    assert result.values()
     for arr in result.values():
         assert arr.shape == (n,)
         assert np.isfinite(arr).all()

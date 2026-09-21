@@ -39,6 +39,7 @@ def test_numpy_backend_default_path_unchanged():
     kept = _dedup_collinear_source_cols(X, cols, corr_threshold=0.999)
     assert "dup" not in kept, f"near-duplicate 'dup' survived: {kept}"
     assert "base" in kept
+    assert len(cols) > 0
     for c in cols:
         if c not in ("base", "dup"):
             assert c in kept

@@ -366,10 +366,33 @@ def render_target_drift_diagnostics(
 
     has_time = timestamps is not None and len(np.asarray(timestamps)) > 0
 
+    # Calendar encodings of the timestamp (day/weekday/hour sin-cos, ...) differ between time buckets and between an
+    # earlier and a later split BY CONSTRUCTION; left in, they dominate both the PSI heatmap and the adversarial ranking.
+    _calendar: list = []
+    if has_time and test_frame is not None:
+        try:
+            from mlframe.reporting.charts._calendar_features import calendar_feature_names
+
+            _calendar = calendar_feature_names(test_frame, np.asarray(timestamps)[: _row_count(test_frame)], feature_names)
+        except Exception:
+            logger.debug("calendar-feature detection failed; drift charts keep every feature.", exc_info=True)
+    _all_names = list(feature_names) if feature_names is not None else None
+    if _calendar:
+        if _all_names is None:
+            from mlframe.reporting.charts._drift_shared import _frame_columns
+
+            _all_names = [str(n) for n in _frame_columns(test_frame, None)[1]]
+        _non_calendar = [n for n in _all_names if str(n) not in set(_calendar)]
+        logger.info("drift charts: excluding %d calendar feature(s) derived from the timestamp: %s", len(_calendar), ", ".join(_calendar))
+    else:
+        _non_calendar = _all_names
+
     if has_time and test_frame is not None:
         ts = np.asarray(timestamps)
         try:
-            spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=feature_names)
+            spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=_non_calendar)
+            if _calendar:
+                spec = _with_caption_note(spec, f"Excluded {len(_calendar)} calendar feature(s) derived from the timestamp (they differ between time buckets by construction): {', '.join(_calendar)}.")
             ok = _save_spec(spec, plot_outputs, base_path + "_psi")
             _record(charts, "psi_heatmap", ok)
             if ok:
@@ -446,29 +469,75 @@ def render_target_drift_diagnostics(
                 )
 
     if adversarial_validation and train_frame is not None and (test_frame is not None or val_frame is not None):
-        try:
-            # Its own LightGBM classifier fit cost scales with COLUMN count, not just row count -- unlike
-            # every other builder in this dispatcher (all row/histogram capped), this one had no bound on a
-            # very wide frame at all. Capped the same way this module's OWN dense-matrix builders already
-            # are (DIAG_MAX_FEATURES), by restricting feature_names before the fit rather than after: the
-            # underlying frame-reader already narrows to exactly the given names, so no extra frame slicing
-            # is needed. Traced to a production profile alongside the (separately fixed) PDP categorical-
-            # sweep cost -- the same "cost scales with an unbounded dimension" bug class.
-            _adv_names = list(feature_names) if feature_names is not None else _column_names(train_frame)
-            if _adv_names is not None and len(_adv_names) > DIAG_MAX_FEATURES:
-                _adv_names = _adv_names[:DIAG_MAX_FEATURES]
+        _render_adversarial_panel(train_frame=train_frame, test_frame=test_frame, val_frame=val_frame, non_calendar=_non_calendar,
+                                  calendar=_calendar, plot_outputs=plot_outputs, base_path=base_path, charts=charts, seed=seed)
+
+
+def _render_adversarial_panel(*, train_frame: Any, test_frame: Any, val_frame: Any, non_calendar: Any, calendar: list,
+                              plot_outputs: str, base_path: str, charts: Optional[dict], seed: int) -> None:
+    """The train-vs-test separability panel, cached across targets since it depends only on the feature frames."""
+    # Imported per call, not at module import: the builder's real home is the patch point tests reach for.
+    from mlframe.reporting.charts.drift import adversarial_validation as _adversarial_validation_fn
+
+    try:
+        # Its own LightGBM classifier fit cost scales with COLUMN count, not just row count -- unlike
+        # every other builder in this dispatcher (all row/histogram capped), this one had no bound on a
+        # very wide frame at all. Capped the same way this module's OWN dense-matrix builders already
+        # are (DIAG_MAX_FEATURES), by restricting feature_names before the fit rather than after: the
+        # underlying frame-reader already narrows to exactly the given names, so no extra frame slicing
+        # is needed. Traced to a production profile alongside the (separately fixed) PDP categorical-
+        # sweep cost -- the same "cost scales with an unbounded dimension" bug class.
+        _adv_names = list(non_calendar) if non_calendar is not None else _column_names(train_frame)
+        if _adv_names is not None and len(_adv_names) > DIAG_MAX_FEATURES:
+            _adv_names = _adv_names[:DIAG_MAX_FEATURES]
+        # The adversarial classifier depends only on the feature frames, not on the target: every target of a run
+        # (raw and composite alike) re-fitted the same 3-fold LightGBM, ~15 s x 32 targets in one production log.
+        _adv_key = _adversarial_cache_key(train_frame, test_frame, val_frame, _adv_names, seed)
+        spec = _ADVERSARIAL_CACHE.get(_adv_key) if _adv_key is not None else None
+        if spec is None:
             spec = _adversarial_validation_fn(
                 train_frame, test_frame if test_frame is not None else val_frame,
                 val_frame=val_frame if test_frame is not None else None,
                 feature_names=_adv_names, seed=seed,
             )
-            ok = _save_spec(spec, plot_outputs, base_path + "_adversarial")
-            _record(charts, "adversarial", ok)
-            if ok:
-                _record_path(charts, base_path + "_adversarial")
-        except Exception:
-            logger.exception("diagnostics_dispatch: adversarial_validation failed; continuing.")
-            _record(charts, "adversarial", False)
+            if _adv_key is not None:
+                while len(_ADVERSARIAL_CACHE) >= 8:
+                    _ADVERSARIAL_CACHE.pop(next(iter(_ADVERSARIAL_CACHE)))
+                _ADVERSARIAL_CACHE[_adv_key] = spec
+        if calendar:
+            spec = _with_caption_note(spec, f"Excluded {len(calendar)} calendar feature(s) derived from the timestamp (an earlier and a later period differ in them by construction): {', '.join(calendar)}.")
+        ok = _save_spec(spec, plot_outputs, base_path + "_adversarial")
+        _record(charts, "adversarial", ok)
+        if ok:
+            _record_path(charts, base_path + "_adversarial")
+    except Exception:
+        logger.exception("diagnostics_dispatch: adversarial_validation failed; continuing.")
+        _record(charts, "adversarial", False)
+
+
+_ADVERSARIAL_CACHE: dict = {}
+
+
+def _adversarial_cache_key(train_frame: Any, test_frame: Any, val_frame: Any, names: Any, seed: int) -> Optional[tuple]:
+    """Content key for an adversarial-validation figure: frame signatures (columns, shape, row-sample hash) + features."""
+    try:
+        from mlframe.training._dataset_cache_fingerprint import compute_signature
+
+        sig = tuple(compute_signature(f)[:4] if f is not None else None for f in (train_frame, test_frame, val_frame))
+        return sig + (tuple(str(n) for n in names) if names is not None else None, int(seed))
+    except Exception:
+        return None
+
+
+def _with_caption_note(spec: Any, note: str) -> Any:
+    """Return ``spec`` with ``note`` appended to its caption (FigureSpec is a frozen dataclass)."""
+    import dataclasses
+
+    try:
+        cap = getattr(spec, "caption", "") or ""
+        return dataclasses.replace(spec, caption=(cap + " " + note).strip())
+    except Exception:
+        return spec
 
 
 def _record_path(charts: Optional[dict], path: str) -> None:

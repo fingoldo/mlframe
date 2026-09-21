@@ -51,6 +51,7 @@ def test_nested_precomputes_fold_universes_and_flag_off_disables():
     assert isinstance(r_on._prescreen_fold_universes, dict) and len(r_on._prescreen_fold_universes) >= 1
     # every fold universe is a subset of the full pre-prescreen feature set
     full = set(r_on._prescreen_full_features)
+    assert r_on._prescreen_fold_universes.values()
     for _u in r_on._prescreen_fold_universes.values():
         assert set(_u).issubset(full)
 

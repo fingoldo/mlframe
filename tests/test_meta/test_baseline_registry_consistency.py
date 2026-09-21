@@ -30,6 +30,8 @@ FLAG_EXEMPT: dict[str, str] = {
     # Refreshed by the batch entry point instead of a per-gate flag.
     "_stale_comment_baseline.json": "python tests/test_meta/regen_baselines.py",
     "_value_bearing_asserts_baseline.json": "python tests/test_meta/regen_baselines.py",
+    "_vacuous_loop_baseline.json": "python tests/test_meta/regen_baselines.py",
+    "_function_length_baseline.json": "python tests/test_meta/regen_baselines.py",
     # The shared py_ci_shared.loc_budget module names its own flag, one for every repo that uses it.
     "_loc_over_1k_baseline.json": "--refresh-loc-budget-baseline",
     # Shares the src-level scanner's flag rather than a file-derived one: `assert_no_new_code_audit_findings`

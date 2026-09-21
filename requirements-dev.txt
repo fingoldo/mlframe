@@ -43,4 +43,12 @@
 # Bumped 2026-09-11 from v1.4.2 to da63ad7: test_pyutilz_pin imports git_dependency_pins' pins-agree and
 # installed-includes-pin checks, which do not exist before v1.14.0, and the source-text detector there sees two
 # claim shapes v1.4.2 missed, and its git calls ignore the GIT_DIR a hook exports; the source-text baseline moves in the same commit.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@da63ad7280a1724ddcbe0b9db9e827a6ede70556
+# Bumped 2026-09-19 from da63ad7 to 7809d32: test_shared_checks_wired wires identity_comparisons and
+# vacuous_loop_assertions (absent at da63ad7), relies on the ordinal floorless-loop keys and the faster
+# gpu_timing_sync scan; _vacuous_loop_baseline.json is added in the same commit.
+# Bumped 2026-09-19 from 7809d32 to 65fb0a9: package_doctests gains skip_parts and imports only modules with examples.
+# Bumped 2026-09-19 from 65fb0a9 to b6622b1: audit_disposition_parity reads **Disposition:** lines and takes search_roots.
+# Bumped 2026-09-19 from b6622b1 to 36ace7a: repo_hygiene reads git's view of text files once (test_repo_hygiene 15 min -> seconds).
+# Bumped 2026-09-20 from 36ace7a to 861b595: unresolved_imports detects import guards once per file instead of once per import,
+# and inert_patch_targets builds each module's facts in one walk.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@861b595342f1a9c72bf113407372277ae3f39975

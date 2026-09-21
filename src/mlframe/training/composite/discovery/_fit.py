@@ -33,9 +33,10 @@ from .screening import (
     _sample_indices,
 )
 from ..transforms import UnknownTransformError, get_transform
+from ._skew_gate import left_skewed_right_tail_skips
 from ._fit_ram import _phase_ram_report, _process_mem_mb  # noqa: F401 -- _process_mem_mb re-exported for back-compat
 from ._eval import build_unary_base_context, eval_one_transform
-from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidates_report_entry
+from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidates_report_entry, take_screen_matrix
 from ._fit_multibase import apply_multi_base_forward_stepwise
 from ._eval_stats import near_collinear_keep_mask
 from mlframe.utils.log_throttle import log_throttle
@@ -49,6 +50,134 @@ logger = logging.getLogger(__name__)
 # ``CompositeTargetEstimator`` default ``base_column`` for base-less specs, and
 # ``compose_target_name(..., base="")`` renders the base-free 2-segment name.
 _UNARY_BASE_SENTINEL = ""
+
+
+def _apply_honest_holdout_stages(self, df, target_col, kept_specs, usable_features, train_idx, y_full, _honest_holdout_idx, _ram_profiler_on, _ram_state, _phase_ram_report):
+    """Run the holdout RMSE gate on the selection rows, then stamp the honest gain from the report rows.
+
+    The gate drops specs, so it reads only the selection half; the stamped number comes from rows no gate saw, which
+    is what keeps it free of the winner's curse. A holdout too small to halve gives both stages the whole of it.
+    """
+    # Honest-holdout OOS predictive-error gate. MI (and the MI-based honest re-score below) is
+    # monotone-invariant, so a spec can raise MI while WORSENING the y-scale OOS RMSE (canonical case:
+    # a ratio dividing by a small noisy base amplifies noise). Replicate the real prediction objective
+    # on the never-touched holdout with a tiny model and DROP specs whose y-scale holdout RMSE loses to
+    # raw y. This is the only OOS predictive gate on the ``screening="mi"`` path. Runs before the MI
+    # re-score so the heavier per-spec MI pass only touches survivors (``honest_rmse_gate_enabled``).
+    if kept_specs and getattr(self.config, "honest_rmse_gate_enabled", True):
+        from ._honest_rmse_gate import apply_honest_rmse_gate
+
+        # The SELECTION half: this gate drops specs, so it must not read the rows the reported honest number comes from.
+        kept_specs = apply_honest_rmse_gate(
+            self, df, target_col, kept_specs, usable_features,
+            train_idx, getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx), y_full,
+        )
+        if _ram_profiler_on:
+            _phase_ram_report(_ram_state, "honest_rmse_gate_done")
+
+    # Honest holdout re-score (SA27). The winner set is now FINAL; re-score ONLY these
+    # survivors on the holdout the discovery never touched (see ``apply_honest_holdout``).
+    if kept_specs and _honest_holdout_idx is not None and _honest_holdout_idx.size:
+        from ._honest_holdout import apply_honest_holdout
+
+        # The REPORT half: no gate or ranking reads these rows, so the stamped gain is free of the winner's curse the
+        # carve exists to remove (with a holdout too small to halve, both roles share it and this is the old behaviour).
+        apply_honest_holdout(
+            self, df, target_col, kept_specs, usable_features,
+            train_idx, getattr(self, "honest_holdout_report_idx_", _honest_holdout_idx), y_full,
+        )
+        if _ram_profiler_on:
+            _phase_ram_report(_ram_state, "honest_holdout_rescore_done")
+    return kept_specs
+
+
+def _evaluate_work_items(self, base_candidates, _base_contexts, _skip_right_tail, _unary_evaluated, _unary_context_available, y_train, y_screen, target_col) -> list:
+    """Score every (base, transform) pair against its base context, in (base, transform) order.
+
+    Unary transforms go to the full-X sentinel context once each; base transforms run per base. The dispatch is a
+    threading pool, so the large per-base matrices are shared by reference rather than pickled.
+    """
+    _work_items: list[tuple[str, str, Any]] = []
+    for base in base_candidates:
+        if base not in _base_contexts:
+            continue
+        for transform_name in self.config.transforms:
+            if transform_name in _skip_right_tail:
+                continue
+            try:
+                transform = get_transform(transform_name)
+            except UnknownTransformError as exc:
+                log_throttle(
+                    logger, "composite_discovery_fit_unknown_transform", logging.WARNING,
+                    "[CompositeTargetDiscovery] %s; skipping.",
+                    exc,
+                )
+                continue
+            if not transform.requires_base:
+                if transform_name in _unary_evaluated:
+                    continue
+                _unary_evaluated.add(transform_name)
+                # Score the unary against the FULL-X sentinel context, not the
+                # current loop's ``base``. Fall back to the real base only if
+                # the sentinel context could not be built (degenerate empty
+                # feature matrix) so the unary still gets evaluated.
+                _unary_base = _UNARY_BASE_SENTINEL if _unary_context_available else base
+                _work_items.append((_unary_base, transform_name, transform))
+                continue
+            _work_items.append((base, transform_name, transform))
+
+    # Single parallel dispatch over the flat
+    # ``_work_items`` list. Joblib preserves input order so
+    # ``candidates`` ends up in (base, transform) iteration order
+    # identical to the legacy nested-loop serial path. joblib
+    # threading backend keeps closure capture cheap (no pickling),
+    # which is critical for the large ``x_remaining_matrix`` /
+    # ``_x_prebinned`` arrays the body reads. Most of the compute
+    # (transform.fit / transform.forward / _mi_to_target_prebinned
+    # / bootstrap MI loop) is numpy / numba which releases the GIL,
+    # so threading scales close to linearly up to cpu_count.
+    # 0 = auto: cap at the number of work items and cpu_count. 1 = serial.
+    _n_jobs_raw = getattr(self.config, "discovery_n_jobs", 1)
+    _n_jobs_raw = 1 if _n_jobs_raw is None else int(_n_jobs_raw)
+    if _n_jobs_raw == 0:
+        _n_jobs_disc = max(1, min(len(_work_items), os.cpu_count() or 1))
+    else:
+        _n_jobs_disc = max(1, _n_jobs_raw)
+    if _n_jobs_disc > 1 and len(_work_items) > 1:
+        from joblib import Parallel as _Parallel, delayed as _delayed
+
+        _results = _Parallel(
+            n_jobs=_n_jobs_disc,
+            backend="threading",
+            prefer="threads",
+        )(
+            _delayed(eval_one_transform)(
+                self,
+                _b,
+                _tn,
+                _t,
+                base_contexts=_base_contexts,
+                y_train=y_train,
+                y_screen=y_screen,
+                target_col=target_col,
+            )
+            for _b, _tn, _t in _work_items
+        )
+    else:
+        _results = [
+            eval_one_transform(
+                self,
+                _b,
+                _tn,
+                _t,
+                base_contexts=_base_contexts,
+                y_train=y_train,
+                y_screen=y_screen,
+                target_col=target_col,
+            )
+            for _b, _tn, _t in _work_items
+        ]
+    return [c for _r in _results if _r for c in _r]
 
 
 def fit(
@@ -242,6 +371,9 @@ def fit(
     from ._fit_temporal import order_screen_by_time
 
     train_idx_screen, sample_idx, self._screen_time_ordered_ = order_screen_by_time(train_idx_screen, sample_idx, time_ordering)
+    # Keep the key itself, not just the flag: consumers that draw their OWN sample (the tiny rerank, the drift gate)
+    # must re-apply the order, otherwise they run a "forward walk" over whatever order their rows happen to be in.
+    self._time_ordering_ = time_ordering
     y_screen = y_full[train_idx_screen]
 
     # knn-MI cost guard: probe one column's Kraskov cost on the real screen sample and downgrade
@@ -341,8 +473,8 @@ def fit(
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "lazy_prebin_features_done")
     else:
-        _full_x_matrix = self._build_feature_matrix(
-            df,
+        _full_x_matrix = take_screen_matrix(
+            self, df,
             _usable_features_list,
             train_idx_screen,
         )
@@ -547,87 +679,18 @@ def fit(
     # dedups so each unary appears once. Keeping the build serial outside the
     # parallel dispatch preserves deterministic (base, transform) ordering.
     _unary_context_available = _UNARY_BASE_SENTINEL in _base_contexts
-    _work_items: list[tuple[str, str, Any]] = []
-    for base in base_candidates:
-        if base not in _base_contexts:
-            continue
-        for transform_name in self.config.transforms:
-            try:
-                transform = get_transform(transform_name)
-            except UnknownTransformError as exc:
-                log_throttle(
-                    logger, "composite_discovery_fit_unknown_transform", logging.WARNING,
-                    "[CompositeTargetDiscovery] %s; skipping.",
-                    exc,
-                )
-                continue
-            if not transform.requires_base:
-                if transform_name in _unary_evaluated:
-                    continue
-                _unary_evaluated.add(transform_name)
-                # Score the unary against the FULL-X sentinel context, not the
-                # current loop's ``base``. Fall back to the real base only if
-                # the sentinel context could not be built (degenerate empty
-                # feature matrix) so the unary still gets evaluated.
-                _unary_base = _UNARY_BASE_SENTINEL if _unary_context_available else base
-                _work_items.append((_unary_base, transform_name, transform))
-                continue
-            _work_items.append((base, transform_name, transform))
-
-    # Single parallel dispatch over the flat
-    # ``_work_items`` list. Joblib preserves input order so
-    # ``candidates`` ends up in (base, transform) iteration order
-    # identical to the legacy nested-loop serial path. joblib
-    # threading backend keeps closure capture cheap (no pickling),
-    # which is critical for the large ``x_remaining_matrix`` /
-    # ``_x_prebinned`` arrays the body reads. Most of the compute
-    # (transform.fit / transform.forward / _mi_to_target_prebinned
-    # / bootstrap MI loop) is numpy / numba which releases the GIL,
-    # so threading scales close to linearly up to cpu_count.
-    # 0 = auto: cap at the number of work items and cpu_count. 1 = serial.
-    _n_jobs_raw = getattr(self.config, "discovery_n_jobs", 1)
-    _n_jobs_raw = 1 if _n_jobs_raw is None else int(_n_jobs_raw)
-    if _n_jobs_raw == 0:
-        _n_jobs_disc = max(1, min(len(_work_items), os.cpu_count() or 1))
-    else:
-        _n_jobs_disc = max(1, _n_jobs_raw)
-    if _n_jobs_disc > 1 and len(_work_items) > 1:
-        from joblib import Parallel as _Parallel, delayed as _delayed
-
-        _results = _Parallel(
-            n_jobs=_n_jobs_disc,
-            backend="threading",
-            prefer="threads",
-        )(
-            _delayed(eval_one_transform)(
-                self,
-                _b,
-                _tn,
-                _t,
-                base_contexts=_base_contexts,
-                y_train=y_train,
-                y_screen=y_screen,
-                target_col=target_col,
-            )
-            for _b, _tn, _t in _work_items
+    _skip_right_tail = left_skewed_right_tail_skips(y_train)
+    if _skip_right_tail:
+        logger.info(
+            "[CompositeTargetDiscovery] target is left-skewed; skipping right-tail compressors %s (they would deepen the "
+            "skew). yeo_johnson_y stays: it fits lambda > 1 for a left tail.", sorted(_skip_right_tail),
         )
-    else:
-        _results = [
-            eval_one_transform(
-                self,
-                _b,
-                _tn,
-                _t,
-                base_contexts=_base_contexts,
-                y_train=y_train,
-                y_screen=y_screen,
-                target_col=target_col,
-            )
-            for _b, _tn, _t in _work_items
-        ]
-    for _r in _results:
-        if _r:
-            candidates.extend(_r)
+    candidates.extend(_evaluate_work_items(
+        self, base_candidates, _base_contexts, _skip_right_tail, _unary_evaluated, _unary_context_available, y_train, y_screen, target_col,
+    ))
+    # The per-base float and prebinned copies and the full matrices are read by nothing past this point; holding them
+    # kept (bases + 1) x rows x features x 6 bytes resident through the rerank, the holdout gates and the re-score.
+    _base_contexts = _full_x_matrix = _full_x_prebinned = _unary_full_x = _unary_ctx = x_remaining_matrix = _x_prebinned = self._screen_matrix_stash = None
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "transforms_evaluated")
 
@@ -707,33 +770,10 @@ def fit(
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "yscale_holdout_gate_done")
 
-    # Honest-holdout OOS predictive-error gate. MI (and the MI-based honest re-score below) is
-    # monotone-invariant, so a spec can raise MI while WORSENING the y-scale OOS RMSE (canonical case:
-    # a ratio dividing by a small noisy base amplifies noise). Replicate the real prediction objective
-    # on the never-touched holdout with a tiny model and DROP specs whose y-scale holdout RMSE loses to
-    # raw y. This is the only OOS predictive gate on the ``screening="mi"`` path. Runs before the MI
-    # re-score so the heavier per-spec MI pass only touches survivors (``honest_rmse_gate_enabled``).
-    if kept_specs and getattr(self.config, "honest_rmse_gate_enabled", True):
-        from ._honest_rmse_gate import apply_honest_rmse_gate
-
-        kept_specs = apply_honest_rmse_gate(
-            self, df, target_col, kept_specs, usable_features,
-            train_idx, _honest_holdout_idx, y_full,
-        )
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "honest_rmse_gate_done")
-
-    # Honest holdout re-score (SA27). The winner set is now FINAL; re-score ONLY these
-    # survivors on the holdout the discovery never touched (see ``apply_honest_holdout``).
-    if kept_specs and _honest_holdout_idx is not None and _honest_holdout_idx.size:
-        from ._honest_holdout import apply_honest_holdout
-
-        apply_honest_holdout(
-            self, df, target_col, kept_specs, usable_features,
-            train_idx, _honest_holdout_idx, y_full,
-        )
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "honest_holdout_rescore_done")
+    kept_specs = _apply_honest_holdout_stages(
+        self, df, target_col, kept_specs, usable_features, train_idx, y_full,
+        _honest_holdout_idx, _ram_profiler_on, _ram_state, _phase_ram_report,
+    )
 
     elapsed = timer() - t0
     logger.info(
@@ -813,14 +853,11 @@ def fit(
                 )
             _entry["kept"] = False
 
-    # Stash the data signature the specs were fit on so a later ``discover_incremental(prior_result, new_df, ...)`` warm-start compares it against the appended frame without recomputing. Failures non-fatal -- the incremental path recomputes new_sig regardless; empty prior_sig just skips the byte-identical fast path.
-    try:
-        from ..cache import data_signature as _data_signature
-
-        self._fit_data_signature = _data_signature(df, target_col, feature_cols)
-    except Exception as e:  # -- signature is an optimisation, never load-bearing
-        logger.debug("data signature computation failed: %s", e)
-        self._fit_data_signature = ""
+    # The data signature the specs were fit on is read only by ``discover_incremental``, but it cost 84-308 ms at 200k x 50
+    # (seconds on wide polars frames) on every fit, stability replicate and per-group fit. Record what it needs and let
+    # ``fit_data_signature()`` compute it on first use; pickling computes it before the frame reference is dropped.
+    self._fit_data_signature = None
+    self._fit_data_signature_inputs = (target_col, list(feature_cols))
 
     # Bookkeeping. (target_col + df_ref + train_idx already stashed.)
     self.specs_ = kept_specs

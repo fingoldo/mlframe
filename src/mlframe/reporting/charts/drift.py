@@ -137,7 +137,12 @@ def _psi_one(baseline_props: np.ndarray, bucket_props: np.ndarray, eps: float = 
 
 def _psi_verdict(matrix, noise_floor: float, row_labels) -> str:
     """One-line pass/fail over the whole PSI grid: how many features drift, and which is worst."""
-    per_feature = np.nanmax(matrix, axis=1) if matrix.size else np.empty(0)
+    matrix = np.asarray(matrix, dtype=np.float64)
+    per_feature = np.full(matrix.shape[0] if matrix.ndim == 2 else 0, np.nan)
+    # Rows with no computable PSI stay NaN; nanmax over them would only emit "All-NaN slice encountered".
+    _has = np.isfinite(matrix).any(axis=1) if per_feature.size else np.zeros(0, dtype=bool)
+    if _has.any():
+        per_feature[_has] = np.nanmax(matrix[_has], axis=1)
     real = per_feature[np.isfinite(per_feature)]
     if real.size == 0:
         return " -- no feature has a computable PSI"
@@ -428,6 +433,18 @@ def _format_x(v: float) -> str:
     return f"{v:.6g}"
 
 
+def _time_as_epoch_ns(ts: np.ndarray) -> np.ndarray:
+    """Timestamps as float epoch NANOseconds (the unit ``_format_x`` and the time-axis renderers assume); numbers pass through.
+
+    ``datetime64[us]`` (polars' default Datetime unit) cast straight to float gives MICROseconds, which the renderers
+    read as nanoseconds -- a production test split from 2026-08-10 to 2026-09-13 was drawn as 1970-01-21 16:14..16:47.
+    """
+    ts = np.asarray(ts)
+    if np.issubdtype(ts.dtype, np.datetime64):
+        return ts.astype("datetime64[ns]").astype(np.int64).astype(np.float64)
+    return ts.astype(np.float64)
+
+
 def _time_bucket_edges(ts: np.ndarray, n_buckets: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Equal-count time buckets by sorted timestamp order.
 
@@ -441,7 +458,7 @@ def _time_bucket_edges(ts: np.ndarray, n_buckets: int) -> Tuple[np.ndarray, np.n
     bounds = np.linspace(0, n, nb + 1).astype(np.int64)
     bucket_of = np.empty(n, dtype=np.int64)
     centers = np.empty(nb, dtype=np.float64)
-    ts_f = ts.astype(np.float64)
+    ts_f = _time_as_epoch_ns(ts)
     for b in range(nb):
         idx = order[bounds[b] : bounds[b + 1]]
         bucket_of[idx] = b
@@ -652,7 +669,7 @@ def cusum_residual_drift(
         ts = np.asarray(timestamps).ravel()[mask]
         order = np.argsort(ts, kind="stable")
         resid = (yt - yp)[order]
-        x_full = ts[order].astype(np.float64)
+        x_full = _time_as_epoch_ns(ts[order])
     else:
         resid = yt - yp
         x_full = np.arange(n, dtype=np.float64)

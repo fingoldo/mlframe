@@ -78,6 +78,7 @@ class TestObjectiveKwargs:
     def test_wrapper_strategies_return_empty(self):
         """Wrapper strategies return empty."""
         qr = QuantileRegressionConfig()
+        assert list(_wrapper_strategies())
         for strat in _wrapper_strategies():
             assert strat.get_quantile_objective_kwargs(qr) == {}
 
@@ -95,6 +96,7 @@ class TestWrapDispatch:
                 return {"alpha": 0.5}
 
         stub = _Stub()
+        assert list(_native_strategies())
         for strat in _native_strategies():
             assert strat.wrap_quantile(stub, qr) is stub
 

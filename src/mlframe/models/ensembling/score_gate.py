@@ -23,6 +23,19 @@ logger = logging.getLogger("mlframe.models.ensembling")
 _ENSEMBLE_LABEL_RE = re.compile(r"\[[^\]]+\]")
 
 
+def _calib_target_of(members) -> Optional[np.ndarray]:
+    """Calib-slice target stamped on the members (the slice is shared, so the first member's copy is the target for all)."""
+    _t = getattr(members[0], "calib_target", None) if members else None
+    if _t is None or not hasattr(_t, "__len__"):
+        return None
+    try:
+        _arr = np.asarray(_t.to_numpy() if hasattr(_t, "to_numpy") else _t)
+        return _arr if _arr.dtype.kind in "biuf" else None
+    except Exception:
+        logger.debug("could not materialise calib_target for the ensemble gate", exc_info=True)
+        return None
+
+
 def select_gate_source_split(
     *,
     level_models_and_predictions,
@@ -41,19 +54,26 @@ def select_gate_source_split(
     """
     _gate_source_split: Optional[str] = None
     _gate_preds_for_check: Optional[List[np.ndarray]] = None
-    # GATE-DOUBLE-DIP / GATE-NO-OOF: prefer oof_* exclusively; fall back to val/test/train only when require_oof_for_gate is False. When True and any member lacks OOF we WARN and skip the gate entirely (better to run all members than to gate on the same surface the early-stopper / test-set selector burned). The "all members must share a split" condition stays the same -- mixing splits across members would compare incomparable rows.
+    # GATE-DOUBLE-DIP / GATE-NO-OOF: gate on a surface no member early-stopped on. Preference order:
+    #   1. oof_* -- cross_val_predict held-out rows (only stamped when oof_n_splits>=2, off by default);
+    #   2. calib_* -- the disjoint calibration slice (TrainingSplitConfig.calib_size>0). It never drives early stopping or model
+    #      selection, so a FINE gate on it is honest; the post-calibrators also fit on it, but gating on member-vs-peer outliers
+    #      does not select a calibrator, so the reuse does not bias either decision.
+    # Only when neither exists do we fall back: with require_oof_for_gate=True to a COARSE val gate below, with it False to the legacy
+    # fine val -> train chain. test_* is never a candidate: the gate SELECTS members, and any selection on test turns the one honest
+    # split into a tuning surface. All members must share a split -- mixing splits across members would compare incomparable rows.
     _candidate_attrs: Tuple[Tuple[str, str], ...] = (
         ("oof_preds", "oof"),
         ("oof_probs", "oof"),
+        ("calib_preds", "calib"),
+        ("calib_probs", "calib"),
     )
     if not require_oof_for_gate:
         _candidate_attrs = (
             *_candidate_attrs,
             ("val_preds", "val"),
-            ("test_preds", "test"),
             ("train_preds", "train"),
             ("val_probs", "val"),
-            ("test_probs", "test"),
             ("train_probs", "train"),
         )
     for _attr, _label in _candidate_attrs:
@@ -63,15 +83,23 @@ def select_gate_source_split(
             _gate_preds_for_check = _candidate  # type: ignore[assignment]  # narrowed to list[np.ndarray] by the all(isinstance(...)) check above
             _gate_source_split = _label
             break
-    # COARSE-GATE-FALLBACK: when OOF is unavailable AND require_oof_for_gate=True, the fine-grained 2.5x gate is intentionally skipped to avoid double-dipping on val. But that lets catastrophic outliers (R^2=-4.75 alongside R^2=0.99 members) survive into the ensemble. Run a SECOND coarse-threshold pass against the val/test/train fallback chain to catch only the disasters. Marked separately in logs (split=val-coarse) so it can't be confused with the strict gate.
+    if verbose and _gate_source_split in ("oof", "calib"):
+        logger.info(
+            "[ensemble] member gate source=%s (%s; no member early-stopped on it).", _gate_source_split,
+            "cross_val_predict held-out rows" if _gate_source_split == "oof" else "disjoint calibration slice",
+        )
+    # COARSE-GATE-FALLBACK: with neither OOF nor a calib slice, the only ES-free surfaces left are test (forbidden for selection) and
+    # train (in-sample: an overfit member looks BEST there, the opposite of what the gate must catch). Val is the least-bad honest
+    # choice: every member early-stopped on it, so per-member val errors are optimistic, but that optimism is shared by all members
+    # and the gate compares each member to the peer median, so a FINE threshold would still over-trust val noise while a COARSE one
+    # (5x median by default) only fires on catastrophic outliers (R^2=-4.75 next to R^2~0.99 members) whose gap dwarfs any ES bias.
+    # train is kept only as the last resort for callers that stamped no val preds at all. Marked split=val-coarse in logs.
     _coarse_gate_active = False
     if require_oof_for_gate and _gate_preds_for_check is None and (coarse_gate_max_mae_relative > 0.0 or coarse_gate_max_std_relative > 0.0):
         _coarse_fallback_attrs = (
             ("val_preds", "val-coarse"),
-            ("test_preds", "test-coarse"),
             ("train_preds", "train-coarse"),
             ("val_probs", "val-coarse"),
-            ("test_probs", "test-coarse"),
             ("train_probs", "train-coarse"),
         )
         for _attr, _label in _coarse_fallback_attrs:
@@ -88,13 +116,20 @@ def select_gate_source_split(
                 break
         if verbose:
             if _coarse_gate_active:
-                logger.warning(
-                    "[ensemble] OOF unavailable; running COARSE gate on %s at %.1fx median MAE / %.1fx median STD (catches catastrophic outliers only; theoretical val double-dip risk acknowledged).",
-                    _gate_source_split, max_mae_relative, max_std_relative,
+                # Once per process at INFO: it describes the run's configuration, not an event, and a production log
+                # printed it as a WARNING for every ensemble of every target (32 times).
+                from mlframe.utils.log_throttle import log_throttle
+
+                log_throttle(
+                    logger, "ensemble_member_gate_val_coarse", logging.INFO,
+                    "[ensemble] member gate source=%s: no OOF preds (oof_n_splits<2) and no calib slice (calib_size unset), and test is never "
+                    "used for selection, so running a COARSE gate on the early-stopping val split at %.1fx median MAE / %.1fx median STD (catches "
+                    "catastrophic outliers only; set oof_n_splits>=2 or calib_size>0 for a fine, ES-free gate).",
+                    _gate_source_split, max_mae_relative, max_std_relative, max_count=1,
                 )
             else:
                 logger.warning(
-                    "[ensemble] require_oof_for_gate=True but at least one member lacks OOF preds AND no val/test/train fallback available; skipping quality gate entirely."
+                    "[ensemble] require_oof_for_gate=True but at least one member lacks OOF / calib preds AND no val/train fallback available; skipping quality gate entirely."
                 )
     elif require_oof_for_gate and _gate_preds_for_check is None and verbose:
         logger.warning(
@@ -109,6 +144,21 @@ def select_gate_source_split(
         max_mae_relative,
         max_std_relative,
     )
+
+
+def realign_gate_preds(
+    pre_gate_members: List[Any], post_gate_members: List[Any], gate_preds: Optional[List[np.ndarray]]
+) -> Optional[List[np.ndarray]]:
+    """Slice the gate-source preds to the members that survived ``apply_quality_gate_kn``.
+
+    That gate slices members / tags but not the gate preds; the stale full-length list then fed the stacking-aware weight gate, which
+    indexed the (shorter) tag list with it -- ``IndexError`` swallowed as "stacking_aware_gate failed", i.e. NNLS / Caruana weights were
+    silently dropped whenever the quality gate excluded anyone. Matched by object identity, preserving order.
+    """
+    if gate_preds is None or len(post_gate_members) == len(pre_gate_members):
+        return gate_preds
+    _kept_ids = {id(m) for m in post_gate_members}
+    return [p for m, p in zip(pre_gate_members, gate_preds) if id(m) in _kept_ids]
 
 
 def catastrophic_drop_kn(
@@ -142,6 +192,8 @@ def catastrophic_drop_kn(
         _gate_target_arr_kn = train_target_arr
     elif _gate_source_split == "oof":
         _gate_target_arr_kn = train_target_arr
+    elif _gate_source_split == "calib":
+        _gate_target_arr_kn = _calib_target_of(level_models_and_predictions)
     if not (isinstance(_gate_target_arr_kn, np.ndarray) and _gate_target_arr_kn.size > 0):
         return level_models_and_predictions, _gate_preds_for_check, _ensemble_member_tags, _ensemble_short_tags
     try:
@@ -271,6 +323,8 @@ def catastrophic_drop_k2(
         _gate_target_arr = train_target_arr
     elif _gate_source_split == "oof":
         _gate_target_arr = train_target_arr
+    elif _gate_source_split == "calib":
+        _gate_target_arr = _calib_target_of(level_models_and_predictions)
     if not (isinstance(_gate_target_arr, np.ndarray) and _gate_target_arr.size > 0):
         return level_models_and_predictions, _ensemble_member_tags, _ensemble_short_tags, ensemble_name, False
     try:

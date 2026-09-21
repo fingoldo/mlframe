@@ -111,7 +111,10 @@ def test_adaptive_degree_near_zero_baseline_does_not_pass_gate():
         min_uplift=1.05,
     )
     # No engineered column off the constant source should survive via an
-    # exploded uplift.
+    # exploded uplift. A constant column carries no signal at any degree, so the
+    # gate rejects every candidate: the emptiness IS the contract, stated here so
+    # the per-entry check below cannot pass by simply having nothing to check.
+    assert list(mlmeta.values()) == [], f"constant source 'a' must emit no engineered column, got {sorted(mlmeta)}"
     for info in mlmeta.values():
         assert info["uplift"] != float("inf") or info["engineered_mi"] >= adeg._ABS_MI_FLOOR
 

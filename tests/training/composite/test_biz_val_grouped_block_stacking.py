@@ -110,6 +110,7 @@ def test_grouped_block_stacker_valid_rates_match_synthetic_group_assignment():
     )
     stacker.fit(X, y)
     # Each row belongs to exactly one of 4 groups, so each group's valid rate should be close to 25%.
+    assert stacker.group_valid_rates_.values()
     for rate in stacker.group_valid_rates_.values():
         assert 0.15 < rate < 0.35
 

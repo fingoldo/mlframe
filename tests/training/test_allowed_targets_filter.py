@@ -93,6 +93,7 @@ def test_allowed_targets_drops_target_type_with_no_match():
     )
     out = fte.build_targets(df)
     # No bucket should contain 'b' or 'reg_y'.
+    assert out.values()
     for _named in out.values():
         if isinstance(_named, dict):
             assert "b" not in _named

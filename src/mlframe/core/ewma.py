@@ -63,8 +63,10 @@ def ewma(x, alpha: float, adjust: bool = False) -> np.ndarray:
 
     >>> alpha = 0.55
     >>> x = np.arange(15, dtype=float)
-    >>> np.allclose(ewma(x, alpha, adjust=False),
-    ...             [alpha * xi + (1 - alpha) * p for xi, p in zip(x, np.concatenate([[x[0]], []]))] or True)
+    >>> import pandas as pd
+    >>> bool(np.allclose(ewma(x, alpha, adjust=False), pd.Series(x).ewm(alpha=alpha, adjust=False).mean()))
+    True
+    >>> bool(np.allclose(ewma(x, alpha, adjust=True), pd.Series(x).ewm(alpha=alpha, adjust=True).mean()))
     True
 
     Parameters:

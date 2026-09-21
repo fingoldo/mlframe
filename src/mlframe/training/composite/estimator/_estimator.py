@@ -148,6 +148,10 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         cumulatively across calls.
     """
 
+    # Marks a model whose predict reads its base from the untransformed frame and accepts ``inner_X`` for the inner's own
+    # pipeline stage; wrappers that apply a pre_pipeline (PrePipelinePredictShim, predict entry points) key on it.
+    _routes_inner_input = True
+
     def __init__(
         self,
         base_estimator: Any = None,
@@ -221,24 +225,30 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
     # surface is discoverable to mypy / IDE / help() while the heavy bodies
     # stay carved out in ``_predict``.
 
-    def predict(self, X: Any) -> "np.ndarray":
-        """y-scale point prediction (inner predict on T-scale, then invert). See ``_composite_target_estimator_predict.predict``."""
+    def predict(self, X: Any, inner_X: Any = None) -> "np.ndarray":
+        """y-scale point prediction (inner predict on T-scale, then invert). See ``_predict.predict``."""
         from . import _predict as _pred
-        return _pred.predict(self, X)
+        return _pred.predict(self, X, inner_X=inner_X)
 
-    def predict_quantile(self, X: Any, alpha: "float | Sequence[float] | np.ndarray" = 0.5) -> "np.ndarray":
-        """y-scale quantile prediction by inverting the inner's T-scale quantile. See ``_composite_target_estimator_predict.predict_quantile``."""
+    def predict_quantile(self, X: Any, alpha: "float | Sequence[float] | np.ndarray" = 0.5, inner_X: Any = None) -> "np.ndarray":
+        """y-scale quantile prediction by inverting the inner's T-scale quantile. See ``_predict.predict_quantile``."""
         from . import _predict as _pred
-        return _pred.predict_quantile(self, X, alpha)
+        return _pred.predict_quantile(self, X, alpha, inner_X=inner_X)
 
-    def predict_pre_clip(self, X: Any) -> "np.ndarray":
+    def predict_from_t(self, X: Any, t_hat: "np.ndarray") -> "np.ndarray":
+        """Map externally made T-scale predictions (e.g. a composite ensemble's) to y-scale. See ``_predict.predict_from_t``."""
+        from . import _predict as _pred
+
+        return _pred.predict_from_t(self, X, t_hat)
+
+    def predict_pre_clip(self, X: Any, inner_X: Any = None) -> "np.ndarray":
         """Inverse-of-transform y-prediction WITHOUT the train-envelope clip. See ``_predict.predict_pre_clip``.
 
         In-body delegating stub so the method is discoverable to mypy / IDE /
         ``help()``; the heavy body stays carved out in ``_predict``.
         """
         from . import _predict as _pred
-        return _pred.predict_pre_clip(self, X)
+        return _pred.predict_pre_clip(self, X, inner_X=inner_X)
 
     # Streaming-buffer update / inspect (heavy bodies in ``_update``); in-body
     # stubs keep the public surface discoverable.
@@ -304,6 +314,11 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         y_train: np.ndarray,
         fallback_predict: str = "y_train_median",
         base_columns: Sequence[str] | None = None,
+        inner_pre_pipeline: Any = None,
+        base_train: np.ndarray | None = None,
+        group_column: str | None = None,
+        recurrence_continuation: bool = False,
+        target_name: str | None = None,
     ) -> CompositeTargetEstimator:
         """Build a wrapper around an ALREADY-FITTED inner model.
 
@@ -340,139 +355,32 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             data later.
         fallback_predict
             See :meth:`__init__`.
+        inner_pre_pipeline
+            The fitted pipeline the inner was trained behind (scaler / imputer / encoder). ``predict(X)`` then reads the base from
+            ``X`` and feeds the inner ``inner_pre_pipeline.transform(X)``, so one suite-stage frame serves both.
+        base_train
+            Train-row base values (``(n,)`` or ``(n, K)``); records the calibration range the soft base-shrink guard needs.
+        group_column, recurrence_continuation
+            See :meth:`__init__`; required to wrap grouped / continuation-seeded transforms.
+        target_name
+            Original target name, used to resolve the causal-lag column for the deep-OOD fallback.
 
         Note: a lambda / closure ``runtime_stats_callback`` makes the fitted wrapper unpicklable; pass a module-level callable when persisting.
         """
-        instance = cls(
-            base_estimator=fitted_inner,
-            transform_name=transform_name,
-            base_column=base_column,
-            base_columns=base_columns,
-            fallback_predict=fallback_predict,
-            drop_invalid_rows=True,
+        from . import _from_fitted
+        return _from_fitted.from_fitted_inner(
+            cls, fitted_inner, transform_name, base_column, transform_fitted_params, y_train,
+            fallback_predict=fallback_predict, base_columns=base_columns, inner_pre_pipeline=inner_pre_pipeline,
+            base_train=base_train, group_column=group_column, recurrence_continuation=recurrence_continuation,
+            target_name=target_name,
         )
-        # Validate we can lookup the transform up-front so a typo
-        # surfaces here, not on first predict.
-        get_transform(transform_name)
 
-        y_train = np.asarray(y_train).reshape(-1).astype(np.float64)
-        finite = np.isfinite(y_train)
-        if finite.size == 0 or not finite.any():
-            y_train_median = float("nan")
-            y_clip_low, y_clip_high = float("-inf"), float("inf")
-        else:
-            y_train_median = float(np.median(y_train[finite]))
-            y_clip_low, y_clip_high = _y_train_clip_bounds(y_train[finite])
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore pickled state, re-registering an auto-discovered ``chain_*`` transform the loading process has never seen."""
+        super().__setstate__(state)
+        from ._routing import ensure_transforms_registered
 
-        # T-scale clip bounds. This route has no direct T_train (caller passed
-        # y_train + params). For UNARY transforms (``requires_base=False``: log_y,
-        # cbrt_y, yeo_johnson_y, quantile_normal_y, y_quantile_clip) the T-scale
-        # is a fitted function of y ALONE, so T_train is OFFSET from 0; a symmetric
-        # ``+/-10*std(y)`` band centered at 0 mis-centers it and clips the
-        # in-distribution T_hat flat. The unary forward needs no base, so we
-        # reconstruct the EXACT T_train via ``transform.forward(y, zeros, params)``
-        # and apply the same MAD envelope the .fit() path uses (median(T)+/-10*MAD,
-        # widened to the observed [T_min, T_max]). For BASE-dependent transforms
-        # base is unavailable here, so we keep the conservative ``+/-10*y_std``
-        # proxy -- correct because the additive-residual cores (diff /
-        # linear_residual) have T centered near 0 by OLS construction.
-        # The gate counts FINITE values (``finite.sum()``), mirroring .fit(); using
-        # ``finite.size`` let a mostly-NaN y_train estimate the band from ~2 points.
-        t_clip_low, t_clip_high = float("-inf"), float("inf")
-        if int(finite.sum()) >= 10:
-            _transform = get_transform(transform_name)
-            _t_train_recon: np.ndarray | None = None
-            if not _transform.requires_base:
-                # Unary: reconstruct exact T from y alone (base ignored by the
-                # unary registry adapter, so a zeros placeholder is sound).
-                try:
-                    _y_fin = y_train[finite]
-                    _t_train_recon = np.asarray(
-                        _transform.forward(
-                            _y_fin, np.zeros_like(_y_fin), dict(transform_fitted_params),
-                        ),
-                        dtype=np.float64,
-                    ).reshape(-1)
-                except Exception as _recon_err:  # pragma: no cover - defensive
-                    logger.debug(
-                        "[CompositeTargetEstimator.from_fitted_inner] unary T "
-                        "reconstruction failed for transform '%s' (%r); falling "
-                        "back to the y_std envelope proxy.",
-                        transform_name, _recon_err,
-                    )
-                    _t_train_recon = None
-            if _t_train_recon is not None:
-                t_finite = _t_train_recon[np.isfinite(_t_train_recon)]
-                if t_finite.size >= 10:
-                    t_med = float(np.median(t_finite))
-                    t_mad = float(np.median(np.abs(t_finite - t_med)))
-                    if t_mad > 0:
-                        t_clip_low = t_med - 10.0 * t_mad
-                        t_clip_high = t_med + 10.0 * t_mad
-                        t_clip_low = min(t_clip_low, float(t_finite.min()))
-                        t_clip_high = max(t_clip_high, float(t_finite.max()))
-            else:
-                y_std = float(np.std(y_train[finite]))
-                if y_std > 0:
-                    t_envelope = 10.0 * y_std
-                    t_clip_low = -t_envelope
-                    t_clip_high = +t_envelope
-
-        instance.estimator_ = fitted_inner
-        instance.fitted_params_ = {
-            **dict(transform_fitted_params),
-            "y_clip_low": y_clip_low,
-            "y_clip_high": y_clip_high,
-            "y_train_median": y_train_median,
-            "t_clip_low": t_clip_low,
-            "t_clip_high": t_clip_high,
-        }
-        # Inherit feature_names_in_ from the already-fitted inner so the
-        # predict-side column-subset fallback can resolve the wrapper's expected
-        # columns; without it the wrapper is fed the post-extensions pca/svd-only
-        # frame while its inner was trained on the raw-plus-extension frame, and
-        # CatBoost raises a feature-name mismatch.
-        _inner_names = getattr(fitted_inner, "feature_names_in_", None)
-        if _inner_names is None:
-            _inner_names = getattr(fitted_inner, "feature_names_", None)
-        if _inner_names is not None:
-            try:
-                instance.feature_names_in_ = list(_inner_names)
-            except TypeError as _names_err:
-                # Slotted / read-only inner instance rejected the assignment. Surface
-                # so the operator sees this rather than waiting for the CatBoost
-                # ``At position 0 should be feature with name x0 (found pca0)`` crash
-                # at predict time which doesn't trace back to this propagation step.
-                logger.warning(
-                    "CompositeEstimator: failed to propagate inner.feature_names_in_ "
-                    "onto wrapper (%s); predict-time may raise feature-name mismatch "
-                    "on CB/LGB/XGB inner model. Inner type: %s, inner names count: %d.",
-                    _names_err, type(fitted_inner).__name__, len(list(_inner_names)),
-                )
-        # Stamp the wrapper-level feature count so ``n_features_in_`` is
-        # consistent with ``feature_names_in_``. ``from_fitted_inner`` does not
-        # support grouped transforms (no group_column arg), so the inner's
-        # feature count already equals what the wrapper exposes; prefer the
-        # inherited name list when present, else the inner's scalar.
-        _ffi_names = getattr(instance, "feature_names_in_", None)
-        if _ffi_names is not None:
-            instance._n_features_in_wrapper = len(_ffi_names)
-        else:
-            _inner_n = getattr(fitted_inner, "n_features_in_", None)
-            if _inner_n is not None:
-                instance._n_features_in_wrapper = int(_inner_n)
-        instance.runtime_stats_ = {
-            "predict_calls": 0,
-            "predict_rows_total": 0,
-            "domain_violation_rows": 0,
-            "y_clip_low_hits": 0,
-            "y_clip_high_hits": 0,
-            "t_clip_low_hits": 0,
-            "t_clip_high_hits": 0,
-        }
-        # Stamp the construction-source flag so __sklearn_clone__ can refuse cloning a wrapper whose fitted state lives outside the __init__ signature. sklearn.base.clone() would otherwise return a silent unfitted shell and the first predict() call on the clone would raise NotFittedError mid-pipeline. The legitimate clone-on-unfitted-spec flow (sklearn.Pipeline, GridSearchCV) goes through __init__ and never trips this flag.
-        instance._built_via_from_fitted_inner = True
-        return instance
+        ensure_transforms_registered([getattr(self, "transform_name", None)])
 
     def __sklearn_clone__(self) -> "CompositeTargetEstimator":
         """Refuse cloning a wrapper built via :meth:`from_fitted_inner`.
@@ -838,6 +746,13 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             t_clip_low, t_clip_high = float("-inf"), float("inf")
 
         self.estimator_ = estimator
+        from ._smearing import SMEARED_TRANSFORMS, residual_quantiles
+
+        _smear_q = (
+            residual_quantiles(estimator, X_valid, t_train)
+            if self.transform_name in SMEARED_TRANSFORMS and getattr(self, "smearing", True)
+            else None
+        )
         self.fitted_params_ = {
             **transform_params,
             "y_clip_low": y_clip_low,
@@ -847,6 +762,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             "t_clip_high": t_clip_high,
             "n_train_valid": int(y_train.size),
             "n_train_invalid": n_invalid,
+            "smearing_quantiles": _smear_q,
         }
         # Soft base-shrink: capture the base calibration range (min/max + robust IQR per base column) so
         # predict can gently soft-clip an out-of-range base toward the seen boundary instead of the

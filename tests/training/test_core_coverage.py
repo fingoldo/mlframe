@@ -469,6 +469,7 @@ class TestPipelineFitting:
         _, metadata = self._call(df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
         assert "columns" in metadata
         cols = list(metadata["columns"])
+        assert len(feature_names) > 0
         for f in feature_names:
             assert f in cols
 
@@ -505,6 +506,7 @@ class TestPipelineFitting:
         pl_df = pl.from_pandas(df)
         _, metadata = self._call(pl_df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
         cols = list(metadata["columns"])
+        assert len(feature_names) > 0
         for f in feature_names:
             assert f in cols
 
@@ -928,6 +930,7 @@ class TestCrossCuttingParametrized:
         assert isinstance(models, dict)
         assert len(models) > 0
         for targets in models.values():
+            assert targets.values()
             for model_list in targets.values():
                 assert len(model_list) > 0
 
@@ -969,6 +972,7 @@ class TestMetadataCompleteness:
             "val_size",
             "test_size",
         ]
+        assert len(expected_keys) > 0
         for key in expected_keys:
             assert key in metadata, f"Expected metadata key '{key}' not found"
 

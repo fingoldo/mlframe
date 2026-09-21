@@ -7,14 +7,16 @@ The base-side domain mask, the T-scale clip, the domain-aware inverse-with-fallb
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 from sklearn.exceptions import NotFittedError
 
 from . import _extract_groups
 from . import _soft_shrink as _soft_shrink
-from ..transforms import get_transform
+from ._estimator_helpers import _carry_forward_fill
+from ._routing import inner_input as _inner_input
+from ._routing import resolve_transform as get_transform
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +104,12 @@ def _inverse_with_fallback(
     NaN/out-of-domain bases identically.
     """
     if domain_ok.all():
-        y_hat = np.asarray(
-            transform.inverse(t_hat, base_arr, params, **inverse_kwargs),
-            dtype=np.float64,
+        # Smearing (see ``_smearing``): average the inverse over the inner model's residual quantiles so a curved inverse
+        # returns the conditional MEAN of y, not the inverse of the mean of T. Absent quantiles -> the plain inverse.
+        from ._smearing import smeared_inverse
+
+        y_hat = smeared_inverse(
+            lambda t: transform.inverse(t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles")
         ).reshape(-1)
     else:
         y_hat = np.full_like(t_hat, fill_value=np.nan, dtype=np.float64)
@@ -114,7 +119,18 @@ def _inverse_with_fallback(
         # row mask along the column axis (a flat np.where would raise a
         # (n,) vs (n,K) broadcast ValueError for K>=2).
         mask = domain_ok if base_arr.ndim == 1 else domain_ok[:, None]
-        base_safe = np.where(mask, base_arr, 1.0)
+        if getattr(transform, "recurrent", False):
+            # A recurrent inverse walks the whole base sequence, so a placeholder is NOT irrelevant here: 1.0 next to a
+            # base of ~1e3 drags the EWMA / rolling state for every LATER row, far beyond the row that was flagged (and
+            # those rows stay in the output, since only the flagged ones are overwritten). Carry the last valid value
+            # forward instead, exactly as fit does for its own dropped rows.
+            keep = np.isfinite(base_arr) & mask
+            if base_arr.ndim == 1:
+                base_safe = _carry_forward_fill(base_arr, keep)
+            else:
+                base_safe = np.column_stack([_carry_forward_fill(base_arr[:, j], keep[:, j]) for j in range(base_arr.shape[1])])
+        else:
+            base_safe = np.where(mask, base_arr, 1.0)
         y_hat_valid = np.asarray(
             transform.inverse(t_hat, base_safe, params, **inverse_kwargs),
             dtype=np.float64,
@@ -204,8 +220,11 @@ def _record_runtime_stats(
             )
 
 
-def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
+def _predict_unclipped(self, X: Any, inner_X: Any = None, t_hat_override: Optional[np.ndarray] = None) -> tuple[np.ndarray, int, dict[str, Any]]:
     """Internal: compute the pre-clip y-scale prediction plus the row count and the params dict.
+
+    ``X`` is the suite-stage frame: base columns, group labels and the causal lag are read from it. ``inner_X`` is an optional
+    frame already prepared for the inner estimator (its pipeline applied by the caller); when absent it is derived from ``X``.
 
     Pulled out of ``predict`` so callers that need the raw (un-clipped) y-hat for diagnostics (e.g. honest pre-clip train
     RMSE - which the clip cannot improve on rows that are in-envelope by construction) can get it without re-running
@@ -260,18 +279,17 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
             )
         inverse_kwargs["groups"] = _extract_groups(X, self.group_column)
 
-    # Pass X through to the inner unchanged. NEVER materialise the
-    # frame here -- on a 100 GB polars frame a silent conversion
-    # blows the host out of memory. Caller is responsible for
-    # ensuring the frame type is acceptable to the inner estimator
-    # (mlframe strategies handle this at the suite level).
-    # For grouped transforms: strip group_column from X before
-    # predict so the inner doesn't see the (typically string)
-    # plumbing column -- same logic as fit().
-    X_for_inner = self._drop_columns(X, [self.group_column]) if transform.requires_groups and self.group_column else X
-    t_hat = np.asarray(
-        self.estimator_.predict(X_for_inner), dtype=np.float64,
-    ).reshape(-1)
+    if t_hat_override is not None:
+        # T-scale predictions made elsewhere (an ensemble of this composite's members): skip the inner, keep the rest.
+        t_hat = np.asarray(t_hat_override, dtype=np.float64).reshape(-1)
+    else:
+        # The inner reads its own pipeline stage (the entry's fitted pre_pipeline applied to X, group plumbing column dropped),
+        # while the base above was read from X itself, the stage the transform params were fit on. No frame-flavour conversion
+        # happens here: a 100 GB polars frame must never be silently materialised.
+        X_for_inner = inner_X if inner_X is not None else _inner_input(self, X, transform)
+        t_hat = np.asarray(
+            self.estimator_.predict(X_for_inner), dtype=np.float64,
+        ).reshape(-1)
 
     # T-scale clip BEFORE inverse (shared with predict_quantile). The hit
     # counts are returned so predict() can surface them in runtime_stats_ /
@@ -311,7 +329,7 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
     return y_hat, n_rows, meta
 
 
-def predict_pre_clip(self, X: Any) -> np.ndarray:
+def predict_pre_clip(self, X: Any, inner_X: Any = None) -> np.ndarray:
     """Return the inverse-of-transform y-prediction WITHOUT the train-envelope clip applied.
 
     The post-hoc clip ``[y_clip_low, y_clip_high]`` is a no-op on train rows by construction (they ARE the envelope) so any
@@ -319,18 +337,33 @@ def predict_pre_clip(self, X: Any) -> np.ndarray:
     test rows that drift outside the train range. Computing pre- AND post-clip RMSE separately exposes the clip's actual
     contribution per split instead of folding the no-op train case into a falsely "improved" headline number.
     """
-    y_hat_unclipped, _, _ = self._predict_unclipped(X)
+    y_hat_unclipped, _, _ = self._predict_unclipped(X, inner_X=inner_X)
     return np.asarray(y_hat_unclipped)
 
 
-def predict(self, X: Any) -> np.ndarray:
+def predict_from_t(self, X: Any, t_hat: np.ndarray) -> np.ndarray:
+    """Map T-scale predictions made outside this wrapper (e.g. an ensemble of its composite's members) to y-scale.
+
+    Same T-clip, inverse (with smearing), soft base-shrink, fallback and y-clip as :func:`predict`; ``X`` supplies the base
+    column. Composite ensembles carry T-scale predictions only, so without this they had no y-scale metric and never
+    entered the composite-vs-raw verdict.
+    """
+    y_hat, _, meta = self._predict_unclipped(X, t_hat_override=t_hat)
+    params = meta["params"]
+    return np.asarray(np.clip(y_hat, params["y_clip_low"], params["y_clip_high"]))
+
+
+def predict(self, X: Any, inner_X: Any = None) -> np.ndarray:
     """Predict on the original target scale (bound as ``CompositeTargetEstimator.predict``).
+
+    ``X`` is the suite-stage frame (base columns at the scale the transform was fit on); ``inner_X`` optionally overrides the
+    frame handed to the inner estimator when the caller already applied the inner's pipeline.
 
     Runs the inner estimator, inverts the fitted target transform (with domain-aware fallback for
     out-of-domain / NaN bases), then clips predictions to the fitted train envelope, counting
     violations for observability. Returns the original-scale ``y_hat``.
     """
-    y_hat, n, meta = self._predict_unclipped(X)
+    y_hat, n, meta = self._predict_unclipped(X, inner_X=inner_X)
     params = meta["params"]
     n_violation = meta["n_violation"]
     n = meta["n_rows"]
@@ -356,7 +389,7 @@ def predict(self, X: Any) -> np.ndarray:
 
 
 def predict_quantile(
-    self, X: Any, alpha: float | Sequence[float] | np.ndarray = 0.5,
+    self, X: Any, alpha: float | Sequence[float] | np.ndarray = 0.5, inner_X: Any = None,
 ) -> np.ndarray:
     """y-scale quantile prediction by inverting the inner's
     T-scale quantile.
@@ -449,14 +482,13 @@ def predict_quantile(
     # Grouped-transform parity with predict(). The grouped inverse needs per-row
     # group labels, and the inner must NOT see the (string) group_column.
     inverse_kwargs: dict[str, Any] = {}
-    X_for_inner = X
     if transform.requires_groups:
         if not self.group_column:
             raise ValueError(
                 f"CompositeTargetEstimator.predict_quantile: transform " f"'{self.transform_name}' requires groups but group_column is " f"not configured."
             )
         inverse_kwargs["groups"] = _extract_groups(X, self.group_column)
-        X_for_inner = self._drop_columns(X, [self.group_column])
+    X_for_inner = inner_X if inner_X is not None else _inner_input(self, X, transform)
 
     alpha_is_scalar = np.isscalar(alpha)
     try:

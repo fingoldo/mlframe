@@ -98,6 +98,7 @@ def test_build_frame_for_combo_with_text_col_does_not_oom_at_50k():
             iterator = col_data.to_list()
         except AttributeError:
             iterator = list(col_data)
+        assert len(iterator) > 0
         for s in iterator:
             assert isinstance(s, str)
             assert len(s.split()) == 3

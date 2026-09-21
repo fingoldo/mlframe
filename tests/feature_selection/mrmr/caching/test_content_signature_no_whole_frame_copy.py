@@ -38,7 +38,8 @@ def no_whole_frame_to_numpy(monkeypatch):
     monkeypatch.setattr(pd.DataFrame, "to_numpy", _boom)
 
 
-def test_content_signature_samples_per_column(no_whole_frame_to_numpy):
+@pytest.mark.usefixtures("no_whole_frame_to_numpy")
+def test_content_signature_samples_per_column():
     """The cheap signature must be usable without a frame-wide conversion, and must still tell different content apart."""
     a = _content_array_signature(_mixed(0))
     b = _content_array_signature(_mixed(1))
@@ -47,7 +48,8 @@ def test_content_signature_samples_per_column(no_whole_frame_to_numpy):
     assert a == _content_array_signature(_mixed(0)), "the signature is not deterministic for identical content"
 
 
-def test_full_content_hash_streams_per_column(no_whole_frame_to_numpy):
+@pytest.mark.usefixtures("no_whole_frame_to_numpy")
+def test_full_content_hash_streams_per_column():
     """The full-content hash must be computed without a frame-wide conversion and must distinguish content, names and dtypes."""
     base = _full_x_content_hash(_mixed(0))
     assert base, "the full-content hash gave up (empty digest)"

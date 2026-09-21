@@ -343,3 +343,404 @@ def test_every_database_effect_is_asserted_by_an_importing_test():
     assert len(import_map) > 1000, f"only {len(import_map)} modules resolved -- the scan lost its subject and this gate would pass vacuously"
 
     assert_effects_are_asserted(REPO_ROOT, import_map, ())
+
+
+def _src_files() -> list[Path]:
+    """Production modules, minus frozen bench copies (kept in the shape they were measured with)."""
+    return sorted(p for p in (REPO_ROOT / "src").rglob("*.py") if "_benchmarks" not in p.parts and "_cpx36_baseline" not in p.parts)
+
+
+# `path::function` -> why the reported timer does not time GPU work. Both are loops the checker reads too widely.
+_GPU_TIMING_NOT_GPU_WORK: dict[str, str] = {
+    "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_score.py::_score_one_pair": "times numpy transforms and the CPU numba discretizer; the stop sits in a nested else, so the checker treats the rest of the loop as timed",
+    "src/mlframe/feature_selection/filters/_screen_predictors.py::screen_predictors": "start_time is a runtime-budget origin passed down to callees; nothing is timed here, the only GPU call is cp.random.seed()",
+}
+
+
+def test_gpu_timings_synchronize_the_device():
+    """A timer stopped right after a CUDA launch measures the launch, not the work.
+
+    The first run found 46 such timings: benchmark scripts, and the kernel-tuning-cache dispatch timings whose
+    numbers are persisted and pick backends on every later run. `mlframe.utils.gpu_sync.synchronize_gpu_if_available`
+    is the fix at each of them.
+    """
+    from py_ci_shared.gpu_timing_sync import assert_no_unsynchronized_gpu_timings
+
+    files = sorted(p for d in ("src", "tests", "benchmarks", "profiling") for p in (REPO_ROOT / d).rglob("*.py"))
+    assert len(files) > 1000, f"only {len(files)} files scanned -- the walk lost its subject"
+    assert_no_unsynchronized_gpu_timings(files, root=REPO_ROOT, allowlist=frozenset(_GPU_TIMING_NOT_GPU_WORK))
+
+
+def test_no_identity_comparison_of_string_constants():
+    """`x is SOME_STRING` holds only while CPython happens to intern both sides.
+
+    The sentinel in polynom_pair_fe is a string on purpose -- it crosses the loky process boundary, where an
+    `object()` sentinel loses its identity -- so it must be compared by value.
+    """
+    from py_ci_shared.identity_comparisons import assert_no_identity_comparisons
+
+    assert_no_identity_comparisons(_src_files(), root=REPO_ROOT, min_files=500)
+
+
+def test_no_naive_utcnow():
+    """`datetime.utcnow()` is deprecated for removal and returns a naive value."""
+    from py_ci_shared.naive_utcnow import assert_no_naive_utcnow
+
+    assert_no_naive_utcnow(REPO_ROOT / "src")
+
+
+def test_optional_numbers_are_tested_for_none():
+    """`if seed:` on an `int | None` reads 0 as absent.
+
+    Two of the 32 first reported were real: `best_desired_score=0.0` never stopped the search and
+    `min_relevance_gain=0.0` switched verbose candidate logging off. The rest now say `is not None`, or state
+    explicitly that 0 means disabled, so the accepted list is empty.
+    """
+    from py_ci_shared.optional_truthiness import assert_optionals_test_for_none
+
+    assert_optionals_test_for_none(files=_src_files(), repo_root=REPO_ROOT, baseline=(), min_subjects=100)
+
+
+_VACUOUS_LOOP_BASELINE = Path(__file__).resolve().parent / "_vacuous_loop_baseline.json"
+
+
+def _test_files() -> list[Path]:
+    """Return every test_*.py file under tests/, sorted."""
+    return sorted((REPO_ROOT / "tests").rglob("test_*.py"))
+
+
+def test_no_new_floorless_assert_loop():
+    """A test whose only assertions sit inside a loop passes when the loop runs zero times.
+
+    The baseline is EMPTY: all 451 such loops have been given a floor, and five of them turned out to iterate zero
+    times, so the tests named after a behaviour were checking nothing. A new one fails; record it only when the
+    loop's own emptiness IS the contract, and say so.
+    """
+    from py_ci_shared.vacuous_loop_assertions import assert_no_new_floorless_loop
+
+    assert_no_new_floorless_loop(files=_test_files(), repo_root=REPO_ROOT, baseline_path=_VACUOUS_LOOP_BASELINE)
+
+
+def regenerate_vacuous_loop_baseline() -> None:
+    """Rewrite the floorless-loop baseline from the current tree. Called by `regen_baselines.py`."""
+    import orjson
+
+    from py_ci_shared.vacuous_loop_assertions import find_floorless_loops
+
+    found = {loop.key: "pre-existing, recorded when the check was wired; not yet individually triaged" for loop in find_floorless_loops(_test_files(), REPO_ROOT)}
+    payload = orjson.dumps(dict(sorted(found.items())), option=orjson.OPT_INDENT_2).decode("utf-8")
+    _VACUOUS_LOOP_BASELINE.write_text(payload + chr(10), encoding="utf-8")
+
+
+# Synthetic timestamps for generated benchmark data: naive on purpose, like the user frames they stand in for.
+_TIMEZONE_ALLOWED: dict = {
+    ("profiling/profile_metrics_blocks.py", "DTZ001"): "synthetic naive timestamps for a generated benchmark frame",
+    ("profiling/profile_training.py", "DTZ001"): "synthetic naive timestamps for a generated benchmark frame",
+}
+
+
+def test_timezone_honest(monkeypatch, tmp_path):
+    """Non-test code states its time frame: no naive `datetime.now()` / `datetime(...)`, elapsed time is monotonic.
+
+    Runs ruff's DTZ rules over every directory that holds Python, including ones `[tool.ruff] exclude` drops.
+    pyproject's ruff config `extend`s `$PY_CI_SHARED_DIR/configs/ruff-base.toml`; the DTZ rules are selected
+    explicitly, so when no checkout is configured an empty base stands in for it.
+    """
+    import os
+
+    from py_ci_shared.timezone_honest import assert_timezone_honest
+
+    if not os.environ.get("PY_CI_SHARED_DIR"):
+        (tmp_path / "configs").mkdir()
+        (tmp_path / "configs" / "ruff-base.toml").write_text("", encoding="utf-8")
+        monkeypatch.setenv("PY_CI_SHARED_DIR", str(tmp_path))
+    assert_timezone_honest(REPO_ROOT, scan_paths=("src", "profiling", "scripts", "benchmarks"), allowed=_TIMEZONE_ALLOWED)
+
+
+_FUNCTION_LENGTH_BASELINE = Path(__file__).resolve().parent / "_function_length_baseline.json"
+
+
+def test_long_functions_do_not_grow():
+    """No new function over 150 lines, and the long ones already there may not get longer.
+
+    Ratcheted per `path::qualname`, so moving a function does not reset it. A function that shrinks must have its
+    ceiling lowered: refresh via `python tests/test_meta/regen_baselines.py`.
+    """
+    from py_ci_shared.function_length import assert_functions_do_not_grow
+
+    assert_functions_do_not_grow(_src_files(), REPO_ROOT, _FUNCTION_LENGTH_BASELINE, limit=150, min_functions=5000)
+
+
+def regenerate_function_length_baseline() -> None:
+    """Rewrite the function-length ceilings from the current tree. Called by `regen_baselines.py`."""
+    from py_ci_shared.function_length import function_lengths, write_length_baseline
+
+    write_length_baseline(_FUNCTION_LENGTH_BASELINE, function_lengths(_src_files(), REPO_ROOT), limit=150)
+
+
+# Documents that legitimately name things the code does not contain.
+_DOC_PARITY_EXCLUDED = {
+    "CHANGELOG.md",  # names symbols as they were when each entry was written
+    "audits/",  # historical findings and dispositions
+    "research/",  # design notes for things not built yet
+    "docs/MRMR_RESEARCH.md",
+    "docs/pysr_fe_upgrade_research.md",
+    "docs/date_features_kaggle_research.md",
+    "docs/BENCHMARK_PREREGISTRATION.md",  # binding pre-registration: frozen by design, never edited after the fact
+    "src/mlframe/feature_selection/_benchmarks/fs_hybrid/AGENT_IDEAS_ROUND4.md",  # idea backlog
+    "src/mlframe/feature_engineering/transformer/RESULTS.md",  # experiment log
+    "tests/perf/results/",  # measurement logs
+    "tests/feature_selection/MRMR_AUDIT_2026_06_22.md",  # audit record
+}
+# Names that exist only once formatted at runtime, or that belong to another tool.
+_DOC_PARITY_IGNORED = {
+    "rolling_mean_w30",  # f"rolling_mean_w{W} (ts)" for W in (7, 30)
+    "test_log_loss_micro",  # f"{split_name}_log_loss_micro"
+    "--python-backtrace",  # nsys CLI flags, documented as absent/present in nsys itself
+    "--python-functions-trace",
+    # CLAUDE.md: flags of external tools, a deliberately bad example name, and a rename it records
+    "--write",  # py_ci_shared.black_filtered_apply
+    "--metrics",  # nvprof
+    "--events",  # nvprof
+    "test_thing_works",  # the name CLAUDE.md tells you NOT to use
+    "test_fused_bundle_returns_none_on_tied_scores",  # "was X, now Y" history
+}
+
+
+def test_docs_name_real_identifiers():
+    """A backticked flag or snake_case identifier in a document must occur somewhere in the code.
+
+    Its first run found a classification baseline table listing two time-series baselines that were never built,
+    a scenario name that had since gained a word, and a guide citing an internal note as if it were code.
+    """
+    from py_ci_shared.doc_identifier_parity import assert_doc_identifiers_exist
+
+    assert_doc_identifiers_exist(REPO_ROOT, exclude_docs=_DOC_PARITY_EXCLUDED, ignore=_DOC_PARITY_IGNORED)
+
+
+_EXTRAS_BULLET = r'(?m)mlframe\[([\w-]+)\]"\s+#\s*(.+)$'
+_ALL_EXTRAS_LINE = r'mlframe\[(all)\]"\s+#\s*all runtime extras: ([\w, ]+?) \('
+
+
+def test_readme_install_block_matches_the_extras():
+    """Every extras group has a README install line naming exactly its packages, and `[all]` names its groups.
+
+    Its first run found `[transformer_ann]` advertised as hnswlib while the group installs pynndescent, `[signal]`
+    advertised with antropy it does not contain, six groups missing packages, and nine groups with no line at all.
+    Aggregates (`all`, `transformer_full`, `gpu-cuda12`) are checked by member group instead; `dev` names its
+    headline tools only, the full list being pyproject's.
+    """
+    import re
+
+    from py_ci_shared.docs_inventory_parity import assert_no_inventory_drift, find_aggregate_group_drift, find_extras_documentation_drift
+
+    readme = REPO_ROOT / "README.md"
+    assert re.search(_ALL_EXTRAS_LINE, readme.read_text(encoding="utf-8")), "the [all] line no longer states its member groups"
+    problems = find_extras_documentation_drift(PYPROJECT, readme, _EXTRAS_BULLET, undocumented_groups=("all", "dev", "transformer_full", "gpu-cuda12"))
+    problems += find_aggregate_group_drift(PYPROJECT, readme, _ALL_EXTRAS_LINE)
+    assert_no_inventory_drift(problems, "README install block vs pyproject extras")
+
+
+def _user_docs() -> list[Path]:
+    """The maintained, user-facing prose: root docs plus docs/ guides and recipes, minus research and roadmap notes."""
+    docs = [REPO_ROOT / name for name in PROSE_FILES if (REPO_ROOT / name).exists()]
+    docs += sorted((REPO_ROOT / "docs").glob("*.md")) + sorted((REPO_ROOT / "docs" / "examples").glob("*.md"))
+    return [p for p in docs if not any(k in p.name for k in ("RESEARCH", "research", "PREREGISTRATION", "ROADMAP", "BACKLOG"))]
+
+
+def test_docs_name_real_paths():
+    """A backticked repo path in the docs must exist; paths may be written relative to the subpackage they sit in."""
+    from py_ci_shared.docs_inventory_parity import assert_no_inventory_drift, find_phantom_doc_paths
+
+    src = REPO_ROOT / "src" / "mlframe"
+    roots = [REPO_ROOT / "src", src, src / "training", src / "training" / "composite", src / "feature_selection", src / "feature_selection" / "filters"]
+    problems = find_phantom_doc_paths(
+        _user_docs(), REPO_ROOT, search_roots=roots,
+        ignore=("infer/my_featureset/lgb.dump", "infer/my_featureset/lgb.dump.sha256"),  # an example layout, not a repo path
+    )
+    assert_no_inventory_drift(problems, "backticked paths in the docs")
+
+
+def test_docs_use_only_declared_markers():
+    """A `@pytest.mark.<name>` shown in the docs is a collection error under --strict-markers if undeclared."""
+    from py_ci_shared.docs_inventory_parity import assert_no_inventory_drift, find_undeclared_markers
+
+    assert_no_inventory_drift(find_undeclared_markers([*_user_docs(), REPO_ROOT / "CLAUDE.md"], PYPROJECT), "pytest markers named in the docs")
+
+
+def test_package_doctests_pass():
+    """The examples in docstrings run and print what they say.
+
+    Nothing ran them before: the first run failed 26 of 80, every one a documentation error (undefined names,
+    stale API, missing expected output, a `>>>` where `...` belonged). Modules under `_benchmarks` are skipped:
+    they are scripts that execute on import. The floor keeps deleting examples from turning this green.
+    """
+    import doctest
+
+    from py_ci_shared.package_doctests import assert_package_doctests_pass
+
+    assert_package_doctests_pass("mlframe", skip_parts=("_benchmarks",), min_examples=100, optionflags=doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE)
+
+
+# Rounds whose findings carry a `**Disposition:** VERDICT. text` line. The older rounds record status only in their
+# tracker table, which this check does not read; listing the rounds keeps a format change from passing vacuously.
+_DISPOSITION_ROUNDS = ("audits/ci_review_2026-09-08", "audits/full_audit_2026-09-01")
+
+
+@pytest.mark.parametrize("round_dir", _DISPOSITION_ROUNDS)
+def test_resolved_dispositions_name_real_files(round_dir):
+    """A finding marked RESOLVED/PARTIAL that names a file must name one that exists (repo- or package-relative)."""
+    from py_ci_shared.audit_disposition_parity import assert_dispositions_name_real_artefacts
+
+    src = REPO_ROOT / "src" / "mlframe"
+    roots = [REPO_ROOT / "src", src, *sorted(p for p in src.iterdir() if p.is_dir())]
+    assert_dispositions_name_real_artefacts(REPO_ROOT / round_dir, REPO_ROOT, search_roots=roots)
+
+
+# Names the reference detector reads as tests but that are not test functions.
+_DISPOSITION_TEST_NAMES_KNOWN = (
+    "xcut_nondiscriminating_asserts.md: `test_preds`: no test of that name in tests/",  # a dict key, not a test
+    "xcut_test_quality.md: `test_no_single_shot_timing_assertion`: no test of that name in tests/",  # a meta-test module name
+)
+
+
+def test_tests_named_by_audits_exist():
+    """A disposition saying "covered by test_x" must name a test that exists."""
+    from py_ci_shared.disposition_test_references import assert_disposition_tests_exist
+
+    files = sorted((REPO_ROOT / "audits").rglob("*.md"))
+    assert_disposition_tests_exist(files, REPO_ROOT, known=_DISPOSITION_TEST_NAMES_KNOWN, min_files=100)
+
+
+_NON_PRODUCT = "tests/scripts/benchmarks/profiling are not the shipped package; tests have their own blocking twin hook"
+# Every place a blocking gate narrows its scope or lowers its bar, with why. A new narrowing fails until it is
+# written down here; a removed one fails until its entry goes.
+_DECLARED_NARROWINGS: dict[str, str] = {
+    r"pre-commit::check-added-large-files::exclude=^uv\.lock$": "the lockfile is large by nature and generated",
+    r"pre-commit::mixed-line-ending::exclude=\.(bat|cmd|ps1)$": "Windows scripts keep CRLF",
+    r"pre-commit::check-json::exclude=\.vscode/": "VS Code settings are JSON with comments",
+    r"pre-commit::end-of-file-fixer::exclude=\.secrets\.baseline$": "generated by detect-secrets, rewritten on every scan",
+    r"pre-commit::trailing-whitespace::exclude=\.secrets\.baseline$": "generated by detect-secrets, rewritten on every scan",
+    r"pre-commit::detect-secrets::exclude=\.secrets\.baseline$": "the baseline lists the accepted hashes itself",
+    r"pre-commit::ruff::--ignore=C901": "complexity is ratcheted by test_c901_debt_ratchet and the function-length ratchet instead",
+    r"pre-commit::ruff::exclude=(^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/": _NON_PRODUCT,
+    r"pre-commit::codespell-blocking::exclude=(^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/": _NON_PRODUCT,
+    r"pre-commit::black-filtered-blocking::exclude=(^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/": _NON_PRODUCT,
+    r"pre-commit::bandit-blocking::exclude=(^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/": _NON_PRODUCT,
+    r"pre-commit::interrogate-blocking::--fail-under=100": "100 is the strictest bar, not a lowered one",
+    r"pre-commit::interrogate-blocking::exclude=(^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/": _NON_PRODUCT,
+    r"pre-commit::ruff::files=^tests/": "the tests twin of the src ruff hook, with the tests ruff config",
+    r"pre-commit::black-filtered-tests-blocking::files=^tests/": "the tests twin of the src hook",
+    r"pre-commit::bandit-tests-blocking::files=^tests/": "the tests twin of the src hook",
+    r"pre-commit::interrogate-tests-blocking::files=^tests/": "the tests twin of the src hook",
+    r"pre-commit::codespell-tests-blocking::files=^tests/": "the tests twin of the src hook",
+    r"pre-commit::yamllint-blocking::files=^(\.github/workflows/.*\.ya?ml|\.pre-commit-config\.yaml)$": "yamllint targets the CI and hook configs",
+    r"pre-commit::zizmor-blocking::files=^\.github/workflows/.*\.ya?ml$": "zizmor audits GitHub workflows only",
+    r"pre-commit::mypy-full-manual::exclude=(^|/)(legacy|_?benchmarks|profiling)/": "frozen bench/profiling scripts, not the package",
+    r"ci.yml::run::--ignore=tests/training/test_core.py": "run by the dedicated serial test-heavy-serial job on every Python version",
+    r"ci.yml::with::ignore=C901": "complexity is ratcheted by test_c901_debt_ratchet and the function-length ratchet instead",
+    r"ci.yml::with::interrogate-fail-under=100": "100 is the strictest bar, not a lowered one",
+    r"ci.yml::run::--ignore=": "a parse of mypy's --ignore-missing-imports in the consumer-position type check, not a path ignore",
+    r"deep-nightly.yml::run::--ignore=tests/training/test_core.py": "the RuntimeWarning census mirrors the per-push selection; test_core.py has its own job",
+    r"numba-coverage.yml::run::--ignore=tests/feature_selection/biz_val": "business-value fits are slow and gate outcomes, not line coverage of numba bodies",
+    r"numba-coverage.yml::run::--ignore=tests/training/test_core.py": "run by the dedicated serial test-heavy-serial job",
+    r"pre-commit::mypy::files=^(src/mlframe/calibration/|src/mlframe/utils/safe_pickle\.py$|src/mlframe/system/_gpu_guard\.py$|src/mlframe/metrics/(_numba_params|rank_correlation|_core_precision_mape)\.py$)": "the strict-typed beachhead modules; pinned to pyproject's override list by test_precommit_mypy_beachhead_coverage",
+    r"pyproject::[tool.ruff]::exclude": "tests use the tests ruff config via their own hook; the rest is not the shipped package",
+    r"pyproject::[tool.mypy]::exclude": "frozen bench/profiling scripts, not the package",
+}
+
+
+def test_blocking_gate_narrowings_are_declared():
+    """A blocking gate that skips files or lowers its bar says why, here; an undeclared one is a gate quietly shrinking."""
+    from py_ci_shared.gate_integrity import assert_coverage_gate_parity, assert_narrowings_declared
+
+    assert_narrowings_declared(REPO_ROOT / ".pre-commit-config.yaml", WORKFLOWS_DIR, _DECLARED_NARROWINGS, PYPROJECT,
+                               ("tool.ruff", "tool.mypy", "tool.pytest.ini_options", "tool.coverage.report"))
+    assert_coverage_gate_parity(PYPROJECT, WORKFLOWS_DIR)
+
+
+def test_gates_run_their_tools_with_the_project_config():
+    """A hook or CI step running a configured tool must pass its config, and a gate called blocking must be able to fail.
+
+    Its first run found both blocking bandit hooks running without `-c pyproject.toml`, so `[tool.bandit]` never
+    applied there.
+    """
+    from py_ci_shared.gate_config_honesty import assert_gates_honest
+
+    assert_gates_honest(REPO_ROOT / ".pre-commit-config.yaml", sorted(WORKFLOWS_DIR.glob("*.yml")), PYPROJECT)
+
+
+def _pytest_runner_commands() -> list:
+    """Every CI step that runs pytest, as (label, command) pairs."""
+    from py_ci_shared.gate_config_honesty import gate_commands
+
+    return [(label, command) for label, (command, _name) in gate_commands(None, sorted(WORKFLOWS_DIR.glob("*.yml"))).items() if "pytest" in command]
+
+
+def _pytest_addopts() -> str:
+    """Return the pytest addopts from pyproject.toml as a single string."""
+    from py_ci_shared._toml_compat import tomllib
+
+    addopts = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"].get("addopts", "")
+    return " ".join(addopts) if isinstance(addopts, list) else str(addopts)
+
+
+@pytest.mark.parametrize("marker,min_marked", [("slow", 100), ("gpu", 50), ("fuzz", 1)])
+def test_marked_tests_are_selected_by_some_ci_run(marker, min_marked):
+    """The per-push run deselects `slow`/`gpu`; some other CI run must select them, or they never run anywhere."""
+    from py_ci_shared.marker_runner_coverage import assert_every_marked_test_is_selected
+
+    assert_every_marked_test_is_selected(REPO_ROOT / "tests", REPO_ROOT, marker=marker, commands=_pytest_runner_commands(),
+                                         addopts=_pytest_addopts(), min_marked=min_marked)
+
+
+# Every status word a tracker row in audits/ uses. Wider than the checker's default four because the rounds were
+# written weeks apart with their own words (DONE in the mrmr rounds, CLOSED per report in 2026-07-21, FIXED /
+# CONSOLIDATED in 2026-09-05, COMPLETE per cluster in 2026-08-28); mapping them onto four would change what the
+# rows say. A new word has to be added here, which is the point: a typo'd status is otherwise uncounted.
+_TRACKER_STATUSES = (
+    "RESOLVED", "WON'T FIX", "DEFERRED", "NOT A DEFECT", "TODO", "DONE", "FIXED", "CLOSED", "COMPLETE", "REJECTED",
+    "DOC", "FUTURE", "PARTIAL", "PARTIALLY RESOLVED", "CONSOLIDATED", "NOT CONSOLIDATED", "SUPERSEDED", "CHECKED",
+    "UNRESOLVED",
+)
+_TRACKERS = sorted((REPO_ROOT / "audits").glob("*/_TRACKER.md"))
+# The eleven rounds that exist today; the floor stops a moved or renamed audits/ tree from parametrising to nothing.
+_MIN_TRACKERS = 11
+
+
+def test_audit_trackers_exist():
+    """The tracker glob still finds the rounds, so the parametrised check below is not silently empty."""
+    assert len(_TRACKERS) >= _MIN_TRACKERS, f"only {len(_TRACKERS)} audits/*/_TRACKER.md found; expected at least {_MIN_TRACKERS}"
+
+
+@pytest.mark.parametrize("tracker", _TRACKERS, ids=lambda p: p.parent.name)
+def test_audit_tracker_statuses_are_countable(tracker):
+    """Every tracker row that names a status names it as the first cell in the one `**WORD**` spelling.
+
+    Its first run found no tracker in that form: every status was free text in the LAST column
+    (``RESOLVED (base_seed forwarded; ...)``), so nothing could count a round. Converting them surfaced ten
+    2026-08-05 rows in a table with no header that no count had ever included, one round (2026-09-01) whose
+    tracker carried no status at all, and one (reporting 2026-09-06) with no tracker.
+    """
+    from py_ci_shared.audit_round_format import assert_tracker_statuses_countable
+
+    assert_tracker_statuses_countable(tracker, statuses=_TRACKER_STATUSES, min_rows=5)
+
+
+# Trackers carrying a `| File | Findings | <STATUS> ... |` summary over `### `<file>`` sections of rows. The older
+# rounds keep their counts in prose and per-severity headings, which this check does not parse; they were
+# recounted by hand when their rows were converted.
+_SUMMARISED_TRACKERS = ("audits/reporting_audit_2026-09-06/_TRACKER.md",)
+
+
+@pytest.mark.parametrize("tracker", _SUMMARISED_TRACKERS)
+def test_audit_tracker_summaries_agree_with_rows(tracker):
+    """A tracker's summary counts are recomputed from its rows and must match.
+
+    Its first run was on a summary written for it. The hand recount that preceded it found three stale summaries:
+    2026-08-05 said 67 P1 over 68 rows, 2026-08-28's per-cluster dispositions predated the reconciliation its own
+    prose describes (13 FUTURE against 3), and 2026-09-05's 124 findings sit on 125 rows.
+    """
+    from py_ci_shared.tracker_summary_parity import assert_tracker_summaries_agree
+
+    assert_tracker_summaries_agree(REPO_ROOT / "audits", REPO_ROOT / tracker, statuses=_TRACKER_STATUSES)

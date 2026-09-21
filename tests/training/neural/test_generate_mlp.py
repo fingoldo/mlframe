@@ -133,6 +133,7 @@ def test_constant_architecture():
 
     arch = get_model_architecture(model)
     # All hidden layers should have 50 neurons
+    assert len(arch[:-1]) > 0
     for _in_feat, out_feat in arch[:-1]:  # Exclude final layer
         assert out_feat == 50
 
@@ -152,6 +153,7 @@ def test_declining_architecture():
 
     arch = get_model_architecture(model)
     # Each layer should have fewer neurons than previous (excluding final)
+    assert list(range(len(arch) - 2))
     for i in range(len(arch) - 2):
         assert arch[i + 1][1] < arch[i][1]
 
@@ -170,6 +172,7 @@ def test_expanding_architecture():
 
     arch = get_model_architecture(model)
     # Each layer should have more neurons than previous (excluding final)
+    assert list(range(len(arch) - 2))
     for i in range(len(arch) - 2):
         assert arch[i + 1][1] > arch[i][1]
 
@@ -904,6 +907,7 @@ def test_weight_init_applies_to_2d_weights():
     )
 
     # Check Linear layer weights were initialized with our value
+    assert list(model.modules())
     for m in model.modules():
         if isinstance(m, nn.Linear):
             assert torch.allclose(m.weight, torch.full_like(m.weight, init_value))
@@ -922,6 +926,7 @@ def test_weight_init_bias_handling():
         verbose=0,
     )
 
+    assert list(model.modules())
     for m in model.modules():
         if isinstance(m, nn.Linear):
             # Bias should exist and be properly initialized
@@ -990,6 +995,7 @@ def test_min_layer_neurons_enforcement():
     )
     arch = get_model_architecture(model)
     # All hidden layers should have at least min_layer_neurons
+    assert len(arch[:-1]) > 0
     for _, out_features in arch[:-1]:
         assert out_features >= 10, f"Layer has {out_features} < min_layer_neurons"
 

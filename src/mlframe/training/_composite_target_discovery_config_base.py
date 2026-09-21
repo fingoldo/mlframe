@@ -45,7 +45,10 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     engineer_causal_lags: Tuple[int, ...] = (1,)  # per-group lag_k bases to build
     engineer_causal_trailing_windows: Tuple[int, ...] = (3,)  # causal trailing-mean window sizes
     engineer_causal_ops: Tuple[str, ...] = ("lag", "trailing_mean", "expanding_mean")
-    engineer_causal_first_fill: str = "group_first"  # first-in-group fill: "group_first" (finite) or "nan"
+    # First-in-group fill: "nan" (default) or "group_first". A row at in-group position 0 has no prior value, and
+    # "group_first" fills it with ``y`` of that same row -- its own target, which at serve time does not exist for a new
+    # group's first row. Downstream pairwise masking already drops NaN rows, so the honest fill is NaN.
+    engineer_causal_first_fill: str = "nan"
 
     # Exempt strictly-causal bases (grouped-causal engineered ``__gcausal_*`` or a named ``{y}_prev`` lag) from the
     # near-copy-of-y and structural-fragility gates. Those gates drop bases whose additive inverse extrapolates on unseen
@@ -516,6 +519,11 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # specs across the whole run rather than an equal share per target. ``None`` disables the cap (the
     # previous, per-target-only behaviour).
     max_total_composite_targets: Optional[int] = 25
+    # Floor on that same honest score (fraction of baseline RMSE saved OOS): a spec at or below it is not trained.
+    # The cap alone only picks the BEST 25, so on a run where few specs help it still ships ones that lose to raw y --
+    # a production run trained 12 specs with gain <= 0 (down to -0.008), ~4 min each, and none of its 25 composites beat
+    # raw at the end. Specs scored by the MI fallback (no honest RMSE) are not subject to it. None disables the floor.
+    min_honest_gain_to_train: Optional[float] = 0.001
     tiny_model_n_jobs: int = 0  # CV-fold joblib parallelism for the tiny models; 0 = auto (physical core count), >=1 = explicit, 1 = serial folds
 
     # Parallelise the per-spec rerank loop in

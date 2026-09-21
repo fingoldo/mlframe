@@ -1901,6 +1901,7 @@ class TestPredictMLFrameModelsSuite:
 
         # Verify predictions
         assert len(results["predictions"]) > 0
+        assert results['predictions'].values()
         for preds in results["predictions"].values():
             assert len(preds) == n_test
             assert all(p in [0, 1] for p in preds)
@@ -1951,6 +1952,7 @@ class TestPredictMLFrameModelsSuite:
 
         # Verify predictions
         assert len(results["predictions"]) > 0
+        assert results['predictions'].values()
         for preds in results["predictions"].values():
             assert len(preds) == n_test
             assert all(isinstance(p, (int, float, np.integer, np.floating)) for p in preds)
@@ -3906,6 +3908,7 @@ class TestTextAndEmbeddingFeatures:
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
 
+        assert captured_dfs.items()
         for model_name, cols in captured_dfs.items():
             assert "text_feat" not in cols, f"{model_name} received text_feat column — should have been dropped"
 
@@ -3961,6 +3964,7 @@ class TestTextAndEmbeddingFeatures:
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
 
+        assert captured_dfs.items()
         for model_name, cols in captured_dfs.items():
             assert "emb_feat" not in cols, f"{model_name} received emb_feat column — should have been dropped"
 

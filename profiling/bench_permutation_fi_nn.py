@@ -21,6 +21,7 @@ import time
 
 import numpy as np
 import psutil
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 _RNG = np.random.default_rng(20260526)
@@ -299,6 +300,7 @@ def variant_cuda_batched(model, X, y, *, n_repeats: int, chunk_size: int = 16, s
     net = net.to(device)
     net.eval()
 
+    synchronize_gpu_if_available()
     t0 = time.perf_counter()
     rss0 = _rss_mb()
 
@@ -333,6 +335,7 @@ def variant_cuda_batched(model, X, y, *, n_repeats: int, chunk_size: int = 16, s
     net.to("cpu")
     torch.cuda.empty_cache()
     rss1 = _rss_mb()
+    synchronize_gpu_if_available()
     return importances, time.perf_counter() - t0, max(rss1 - rss0, 0.0)
 
 

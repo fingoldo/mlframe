@@ -114,6 +114,7 @@ def test_stability_runs_subfits_votes_and_keeps_signal():
     assert set(sel.stability_accept_counts_) == set(X.columns)
     assert max(sel.stability_accept_counts_.values()) <= 8
     # Strong signal features must survive the vote.
+    assert len(signal) > 0
     for s in signal:
         assert s in sel.accepted, f"signal feature {s} not accepted by stability vote"
     # sklearn-style outputs stay consistent.

@@ -85,6 +85,7 @@ def test_group_aware_relevance_matches_mask_reference():
     got = group_aware_relevance(cols, arr, y, groups)
     ref = _old_reference(cols, arr, y, groups)
     assert set(got) == set(ref)
+    assert len(cols) > 0
     for c in cols:
         assert abs(got[c] - ref[c]) < 1e-9, f"{c}: {got[c]!r} vs {ref[c]!r} (exceeds selection-equivalence tolerance)"
 
@@ -107,6 +108,7 @@ def test_group_aware_relevance_matches_mask_reference_with_non_finite_fallback()
     cols = [f"f{j}" for j in range(nf)]
     got = group_aware_relevance(cols, arr, y, groups)
     ref = _old_reference(cols, arr, y, groups)
+    assert len(cols) > 0
     for c in cols:
         assert abs(got[c] - ref[c]) < 1e-9, f"{c}: {got[c]!r} vs {ref[c]!r} (exceeds selection-equivalence tolerance)"
 

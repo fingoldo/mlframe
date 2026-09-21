@@ -60,7 +60,7 @@ logger = logging.getLogger("mlframe.training.composite_transforms_extended")
 
 
 _RECIPROCAL_EPS_FLOOR: float = 1e-12
-_POLY_DEG2_RIDGE: float = 1e-8  # tiny diag ridge for normal-eq stability
+_RECIPROCAL_Y_CAP_MULT: float = 1e3  # the inverse's z-floor bounds |y_hat| at this multiple of the train max|y|
 _SPLINE_DEFAULT_K: int = 3
 _SPLINE_DEFAULT_S_MULT: float = 1.0  # smoothing = m * var_noise * s_mult (scipy s bounds the residual SS)
 
@@ -125,17 +125,28 @@ _asinh_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray]
 def _centered_ratio_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
-    """Fit a shift ``c`` that pushes the train-set minimum of ``base + c`` slightly positive, plus an eps floor scaled to the median absolute base value, so ``y / (base + c)`` is well-defined even on constant-on-train columns."""
+    """Fit a shift ``c`` so ``base + c`` is strictly positive on train, plus an eps floor scaled to the median absolute base value.
+
+    A strictly positive base needs no shift (``c = 0``, the transform is then ``ratio``): shifting it so the train minimum lands at ~0 put a pole just
+    below the train range, so a predict base a few percent under the train minimum flipped the sign of ``y_hat``. A base that reaches zero or goes
+    negative is shifted by a margin proportional to its spread (the larger of the median |base| and the IQR), not a 1% sliver, so the train minimum
+    sits a full scale unit away from the pole.
+    """
     base_arr = np.asarray(base, dtype=np.float64)
     finite = np.isfinite(base_arr)
     if not finite.any():
         return {"c": 0.0, "eps": _RECIPROCAL_EPS_FLOOR}
-    b_min = float(base_arr[finite].min())
-    b_scale = float(np.median(np.abs(base_arr[finite])))
-    # c = -b_min + 0.01 * scale: shift the minimum slightly above zero.
-    # Tiny safety floor so even constant-on-train base stays nonzero.
-    c = -b_min + 0.01 * max(b_scale, 1e-6)
+    b_fin = base_arr[finite]
+    b_min = float(b_fin.min())
+    b_scale = float(np.median(np.abs(b_fin)))
     eps = max(b_scale * 1e-6, _RECIPROCAL_EPS_FLOOR)
+    if b_min > eps:
+        return {"c": 0.0, "eps": eps}
+    q25, q75 = np.percentile(b_fin, [25, 75])
+    margin = max(b_scale, float(q75 - q25))
+    if not margin > 0.0:
+        margin = max(abs(b_min), 1.0)
+    c = -b_min + margin
     return {"c": float(c), "eps": eps}
 
 
@@ -168,58 +179,66 @@ _centered_ratio_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray]
 # ============================================================
 # 3. polynomial_residual_deg2: T = y - a1*base - a2*base^2 - b
 # ============================================================
-# Degree-2 OLS via normal equations on the (1, base, base^2)
-# design matrix. Tiny diag ridge keeps the solve stable on
-# near-constant base columns.
+# Degree-2 least squares on the centred/scaled (1, z, z^2) design.
 
 def _polynomial_residual_deg2_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
-    """Fit y ~ alpha1*base + alpha2*base^2 + beta via normal equations on the (1, base, base^2) design matrix, ridge-stabilised on the quadratic terms; falls back to a constant fit when solve fails or too few finite rows."""
+    """Fit y ~ g0 + g1*z + g2*z^2 with ``z = (base - center) / scale`` by least squares (QR/SVD, not normal equations), then store both the
+    z-space coefficients the forward/inverse evaluate and the equivalent raw-base ``(alpha1, alpha2, beta)`` for reporting.
+
+    Solving the raw ``[1, b, b^2]`` normal equations squares an already huge condition number once the base is offset from zero (years, prices,
+    timestamps), leaving about a third of the signal in T. Centring and scaling first keeps the design well conditioned at any offset, and
+    evaluating in z space keeps the forward free of the ``alpha2*b^2`` cancellation. Too few finite rows fall back to ``T = y - mean(y)``.
+    """
     yv = np.asarray(y, dtype=np.float64)
     bv = np.asarray(base, dtype=np.float64)
     finite = np.isfinite(yv) & np.isfinite(bv)
     if finite.sum() < 10:
-        return {"alpha1": 1.0, "alpha2": 0.0, "beta": 0.0}
+        y_mean = float(yv[finite].mean()) if finite.any() else 0.0
+        return {"alpha1": 0.0, "alpha2": 0.0, "beta": y_mean, "b_center": 0.0, "b_scale": 1.0, "g0": y_mean, "g1": 0.0, "g2": 0.0}
     yc = yv[finite]
     bc = bv[finite]
-    # Design matrix (1, base, base^2) with column-mean removal for
-    # numerical stability; intercept absorbed into beta post-solve.
-    X = np.column_stack([np.ones_like(bc), bc, bc * bc])
-    XtX = X.T @ X
-    XtX[1, 1] += _POLY_DEG2_RIDGE
-    XtX[2, 2] += _POLY_DEG2_RIDGE
-    try:
-        coef = np.linalg.solve(XtX, X.T @ yc)
-    except np.linalg.LinAlgError:
-        coef = np.array([float(yc.mean()), 0.0, 0.0])
+    center = float(bc.mean())
+    scale = float(bc.std())
+    if not (np.isfinite(scale) and scale > 0.0):
+        y_mean = float(yc.mean())
+        return {"alpha1": 0.0, "alpha2": 0.0, "beta": y_mean, "b_center": center, "b_scale": 1.0, "g0": y_mean, "g1": 0.0, "g2": 0.0}
+    z = (bc - center) / scale
+    X = np.column_stack([np.ones_like(z), z, z * z])
+    coef, *_ = np.linalg.lstsq(X, yc, rcond=None)
+    g0, g1, g2 = (float(c) for c in coef)
+    # Raw-base coefficients of the same polynomial, for provenance / gates that read alpha1/alpha2/beta.
+    alpha2 = g2 / (scale * scale)
+    alpha1 = g1 / scale - 2.0 * g2 * center / (scale * scale)
+    beta = g0 - g1 * center / scale + g2 * center * center / (scale * scale)
     return {
-        "beta": float(coef[0]),
-        "alpha1": float(coef[1]),
-        "alpha2": float(coef[2]),
+        "beta": float(beta), "alpha1": float(alpha1), "alpha2": float(alpha2),
+        "b_center": center, "b_scale": scale, "g0": g0, "g1": g1, "g2": g2,
     }
+
+
+def _polynomial_residual_deg2_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Evaluate the fitted quadratic at ``base``: in centred z space when the params carry it, else (params pickled before centring) on the raw base."""
+    bv = np.asarray(base, dtype=np.float64)
+    if "b_center" in params:
+        z = (bv - float(params["b_center"])) / float(params["b_scale"])
+        return float(params["g0"]) + float(params["g1"]) * z + float(params["g2"]) * z * z
+    return float(params["alpha1"]) * bv + float(params["alpha2"]) * bv * bv + float(params["beta"])
 
 
 def _polynomial_residual_deg2_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    """Compute the degree-2 residual y - alpha1*base - alpha2*base^2 - beta."""
-    a1 = float(params["alpha1"])
-    a2 = float(params["alpha2"])
-    b = float(params["beta"])
-    bv = np.asarray(base, dtype=np.float64)
-    return np.asarray(y, dtype=np.float64) - a1 * bv - a2 * bv * bv - b
+    """Compute the degree-2 residual y - (alpha1*base + alpha2*base^2 + beta)."""
+    return np.asarray(np.asarray(y, dtype=np.float64) - _polynomial_residual_deg2_g(base, params))
 
 
 def _polynomial_residual_deg2_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     """Invert the degree-2 residual: y = t_hat + alpha1*base + alpha2*base^2 + beta."""
-    a1 = float(params["alpha1"])
-    a2 = float(params["alpha2"])
-    b = float(params["beta"])
-    bv = np.asarray(base, dtype=np.float64)
-    return np.asarray(t_hat, dtype=np.float64) + a1 * bv + a2 * bv * bv + b
+    return np.asarray(np.asarray(t_hat, dtype=np.float64) + _polynomial_residual_deg2_g(base, params))
 
 
 _polynomial_residual_deg2_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_plain
@@ -229,78 +248,94 @@ _polynomial_residual_deg2_domain: Callable[[Optional[np.ndarray], np.ndarray], n
 # 4. rank_residual: T = rank(y)/n - alpha * rank(base)/n
 # ============================================================
 # Distribution-free monotone residual. Forward maps via the
-# train-fitted rank-to-value tables (one per axis). Inverse uses
-# bisect on the train y-rank table to recover y.
+# train-fitted rank-to-value knot tables (one per axis). Inverse reads
+# the y table backwards to recover y.
+
+_RANK_MAX_KNOTS: int = 2048
+"""Cap on the rank-to-value knots ``rank_residual`` stores per axis. The params used to carry both full sorted train arrays (O(n): 160 MB at 10M
+rows, pickled into every saved model); a piecewise-linear knot table of this size reproduces the train rank map to within one knot spacing and
+keeps the round trip exact on every train row (linear interpolation is inverted exactly by the reverse interpolation)."""
+
+
+def _rank_knots(sorted_x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Strictly increasing ``(values, rank_fraction)`` knots of a sorted sample: each unique value at its mid-rank ``(first + last + 1) / (2n)``,
+    thinned to at most ``_RANK_MAX_KNOTS`` knots (both extremes always kept)."""
+    n = sorted_x.size
+    uniq, first = np.unique(sorted_x, return_index=True)
+    last = np.append(first[1:], n) - 1
+    q = (first + last + 1).astype(np.float64) / (2.0 * n)
+    if uniq.size > _RANK_MAX_KNOTS:
+        keep = np.unique(np.linspace(0, uniq.size - 1, _RANK_MAX_KNOTS).round().astype(np.int64))
+        uniq, q = uniq[keep], q[keep]
+    if uniq.size == 1:
+        # Constant axis: a zero-width ramp would divide by zero in interp; a scale-relative sliver keeps it invertible.
+        span = max(abs(float(uniq[0])) * 1e-12, 1e-300)
+        return np.array([uniq[0], uniq[0] + span]), np.array([q[0], q[0] + 1e-12])
+    return uniq.astype(np.float64), q
+
 
 def _rank_residual_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
-    """Fit the rank-space residual: OLS of empirical-CDF rank(y) on rank(base), storing the sorted train arrays needed to reproduce mid-rank fractions and to invert back to y-space."""
+    """Fit the rank-space residual: OLS of empirical-CDF rank(y) on rank(base), storing bounded (value, rank-fraction) knot tables for each axis
+    that reproduce the rank map and invert it back to y-space."""
     yv = np.asarray(y, dtype=np.float64)
     bv = np.asarray(base, dtype=np.float64)
     finite = np.isfinite(yv) & np.isfinite(bv)
     if finite.sum() < 10:
         return {
-            "y_sorted": np.array([0.0, 1.0]),
-            "b_sorted": np.array([0.0, 1.0]),
+            "y_knots": np.array([0.0, 1.0]), "y_q": np.array([0.0, 1.0]),
+            "b_knots": np.array([0.0, 1.0]), "b_q": np.array([0.0, 1.0]),
             "alpha": 0.0,
             "beta": 0.5,
         }
     yc = yv[finite]
     bc = bv[finite]
-    y_sorted = np.sort(yc)
-    b_sorted = np.sort(bc)
-    n = yc.size
-    # Empirical CDF rank-fractions (mid-rank to avoid 0/1 endpoints).
-    yr = (np.searchsorted(y_sorted, yc, side="left").astype(np.float64) + 0.5) / n
-    br = (np.searchsorted(b_sorted, bc, side="left").astype(np.float64) + 0.5) / n
+    y_knots, y_q = _rank_knots(np.sort(yc))
+    b_knots, b_q = _rank_knots(np.sort(bc))
+    yr = np.interp(yc, y_knots, y_q)
+    br = np.interp(bc, b_knots, b_q)
     b_mean = float(br.mean())
     bc_ranks = br - b_mean
     denom = float(np.dot(bc_ranks, bc_ranks))
+    out: dict[str, Any] = {"y_knots": y_knots, "y_q": y_q, "b_knots": b_knots, "b_q": b_q}
     if denom <= 0:
-        return {
-            "y_sorted": y_sorted,
-            "b_sorted": b_sorted,
-            "alpha": 0.0,
-            "beta": float(yr.mean()),
-        }
+        out.update(alpha=0.0, beta=float(yr.mean()))
+        return out
     alpha = float(np.dot(bc_ranks, yr - yr.mean()) / denom)
-    beta = float(yr.mean() - alpha * b_mean)
-    return {
-        "y_sorted": y_sorted,
-        "b_sorted": b_sorted,
-        "alpha": alpha,
-        "beta": beta,
-    }
+    out.update(alpha=alpha, beta=float(yr.mean() - alpha * b_mean))
+    return out
+
+
+def _rank_residual_ranks(x: np.ndarray, params: dict[str, Any], axis: str) -> np.ndarray:
+    """Train-calibrated rank fraction of ``x`` on axis ``"y"`` or ``"b"``; params pickled before the knot tables keep their sorted-array lookup."""
+    xv = np.asarray(x, dtype=np.float64)
+    if f"{axis}_knots" in params:
+        return np.interp(xv, np.asarray(params[f"{axis}_knots"], dtype=np.float64), np.asarray(params[f"{axis}_q"], dtype=np.float64))
+    srt = np.asarray(params[f"{axis}_sorted"], dtype=np.float64)
+    return (np.searchsorted(srt, xv, side="left").astype(np.float64) + 0.5) / max(srt.size, 1)
 
 
 def _rank_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     """Map y and base to train-calibrated rank fractions and return the residual rank(y) - alpha * rank(base) - beta."""
-    y_sorted = np.asarray(params["y_sorted"], dtype=np.float64)
-    b_sorted = np.asarray(params["b_sorted"], dtype=np.float64)
     alpha = float(params["alpha"])
     beta = float(params["beta"])
-    yv = np.asarray(y, dtype=np.float64)
-    bv = np.asarray(base, dtype=np.float64)
-    yr = (np.searchsorted(y_sorted, yv, side="left").astype(np.float64) + 0.5) / max(y_sorted.size, 1)
-    br = (np.searchsorted(b_sorted, bv, side="left").astype(np.float64) + 0.5) / max(b_sorted.size, 1)
-    return yr - alpha * br - beta
+    return _rank_residual_ranks(y, params, "y") - alpha * _rank_residual_ranks(base, params, "b") - beta
 
 
 def _rank_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    """Invert the rank residual by recovering the predicted y-rank fraction, then looking it up against the train-sorted y table (nearest bucket, not interpolated)."""
-    y_sorted = np.asarray(params["y_sorted"], dtype=np.float64)
-    b_sorted = np.asarray(params["b_sorted"], dtype=np.float64)
+    """Invert the rank residual by recovering the predicted y-rank fraction and reading the train rank-to-value map backwards; a rank outside the
+    train knot range clamps to the train y-range."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
-    bv = np.asarray(base, dtype=np.float64)
-    br = (np.searchsorted(b_sorted, bv, side="left").astype(np.float64) + 0.5) / max(b_sorted.size, 1)
-    yr_hat = np.asarray(t_hat, dtype=np.float64) + alpha * br + beta
-    # Clip to [0, 1] then map back to y via the train y-sorted table.
+    yr_hat = np.asarray(t_hat, dtype=np.float64) + alpha * _rank_residual_ranks(base, params, "b") + beta
+    if "y_knots" in params:
+        return np.asarray(np.interp(yr_hat, np.asarray(params["y_q"], dtype=np.float64), np.asarray(params["y_knots"], dtype=np.float64)))
+    y_sorted = np.asarray(params["y_sorted"], dtype=np.float64)
     n_y = y_sorted.size
     if n_y < 2:
         return np.full(yr_hat.shape, float(y_sorted[0]) if n_y else 0.0)
@@ -364,31 +399,52 @@ def _smoothing_spline_residual_fit(
     else:
         var_noise = float(np.var(yc_avg))
     s = max(unique_b.size, 1) * var_noise * _SPLINE_DEFAULT_S_MULT
-    return {
+    params: dict[str, Any] = {
         "knots_b": unique_b.astype(np.float64, copy=False),
         "knots_y": yc_avg.astype(np.float64, copy=False),
         "s": float(s),
         "y_mean": float(yc.mean()),
     }
+    # Build the spline once at fit: a construction failure would otherwise turn the transform into ``T = y - mean(y)`` at every forward/inverse
+    # call with nothing but a log line. Flag it so discovery rejects the spec instead of training on a silently degraded target.
+    params["is_degenerate"] = _build_smoothing_spline(params) is None
+    return params
+
+
+def _build_smoothing_spline(params: dict[str, Any]) -> Any:
+    """Rebuild the ``UnivariateSpline`` from the stored knots, or ``None`` (logged at WARNING, throttled) when scipy cannot build it."""
+    from mlframe.utils.log_throttle import log_throttle
+    knots_b = np.asarray(params.get("knots_b", []), dtype=np.float64)
+    knots_y = np.asarray(params.get("knots_y", []), dtype=np.float64)
+    if knots_b.size < 4:
+        return None
+    try:
+        from scipy.interpolate import UnivariateSpline
+        return UnivariateSpline(knots_b, knots_y, k=_SPLINE_DEFAULT_K, s=float(params.get("s", 0.0)), ext="const")
+    except Exception as exc:
+        log_throttle(
+            logger, "smoothing_spline_build_failed", logging.WARNING,
+            "smoothing_spline_residual: UnivariateSpline build failed (%s: %s); g(base) falls back to the train y mean, so T = y - mean(y).",
+            type(exc).__name__, exc,
+        )
+        return None
 
 
 def _smoothing_spline_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
-    """Rebuild the UnivariateSpline from the stored train knots and evaluate g(base); falls back to the constant train y-mean when there are too few knots or the spline construction/evaluation raises."""
-    knots_b = np.asarray(params.get("knots_b", []), dtype=np.float64)
-    knots_y = np.asarray(params.get("knots_y", []), dtype=np.float64)
+    """Rebuild the UnivariateSpline from the stored train knots and evaluate g(base); falls back to the constant train y-mean when there are too few knots or the spline construction/evaluation raises (logged at WARNING)."""
+    from mlframe.utils.log_throttle import log_throttle
     bv = np.asarray(base, dtype=np.float64).reshape(-1)
     y_mean = float(params.get("y_mean", 0.0))
-    if knots_b.size < 4:
+    spl = _build_smoothing_spline(params)
+    if spl is None:
         return np.full(bv.shape, y_mean, dtype=np.float64)
     try:
-        from scipy.interpolate import UnivariateSpline
-        spl = UnivariateSpline(
-            knots_b, knots_y, k=_SPLINE_DEFAULT_K,
-            s=float(params.get("s", 0.0)), ext="const",
-        )
         g = np.asarray(spl(bv), dtype=np.float64)
     except Exception as exc:
-        logger.debug("smoothing spline forward: fit/eval failed, falling back to y_mean: %s", exc)
+        log_throttle(
+            logger, "smoothing_spline_eval_failed", logging.WARNING,
+            "smoothing_spline_residual: spline evaluation failed (%s: %s); g(base) falls back to the train y mean.", type(exc).__name__, exc,
+        )
         return np.full(bv.shape, y_mean, dtype=np.float64)
     return np.where(np.isfinite(g), g, y_mean)
 
@@ -418,15 +474,33 @@ _smoothing_spline_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], 
 def _reciprocal_residual_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
-    """Derive eps floors for y and base (scaled to each column's median absolute value) used to guard the 1/x terms against division blow-up near zero."""
+    """Derive eps floors for y and base (scaled to each column's median absolute value) used to guard the 1/x terms against division blow-up near zero,
+    plus the inverse's floor on ``z = T_hat + 1/base``, which lives in 1/y units and so is derived from the y range, never from the base scale."""
     yv = np.asarray(y, dtype=np.float64)
     bv = np.asarray(base, dtype=np.float64)
-    y_scale = float(np.median(np.abs(yv[np.isfinite(yv)]))) if np.isfinite(yv).any() else 1.0
+    y_fin = yv[np.isfinite(yv)]
+    y_scale = float(np.median(np.abs(y_fin))) if y_fin.size else 1.0
     b_scale = float(np.median(np.abs(bv[np.isfinite(bv)]))) if np.isfinite(bv).any() else 1.0
+    y_absmax = float(np.max(np.abs(y_fin))) if y_fin.size else 1.0
     return {
         "eps_y": max(y_scale * 1e-6, _RECIPROCAL_EPS_FLOOR),
         "eps_b": max(b_scale * 1e-6, _RECIPROCAL_EPS_FLOOR),
+        "eps_z": _reciprocal_eps_z(y_absmax),
     }
+
+
+def _reciprocal_eps_z(y_absmax: float) -> float:
+    """Floor on ``|z|`` (z ~ 1/y) that caps ``|y_hat|`` at ``_RECIPROCAL_Y_CAP_MULT`` times the train ``max|y|``; every train row has ``|z| >= 1/max|y|`` so the floor never touches them."""
+    ref = y_absmax if np.isfinite(y_absmax) and y_absmax > 0 else 1.0
+    return max(1.0 / (_RECIPROCAL_Y_CAP_MULT * ref), 1e-300)
+
+
+def _reciprocal_resolve_eps_z(params: dict[str, Any]) -> float:
+    """``eps_z`` from params; params pickled before it existed derive it from ``eps_y`` (= 1e-6 * median|y|), so old models get the y-unit floor too."""
+    if "eps_z" in params:
+        return float(params["eps_z"])
+    eps_y = float(params.get("eps_y", 1e-6))
+    return _reciprocal_eps_z(eps_y / 1e-6)
 
 
 def _reciprocal_residual_forward(
@@ -450,9 +524,9 @@ def _reciprocal_residual_inverse(
     bv = np.asarray(base, dtype=np.float64)
     safe_b = np.where(np.abs(bv) < eps_b, np.sign(bv + 1e-300) * eps_b, bv)
     z = np.asarray(t_hat, dtype=np.float64) + 1.0 / safe_b
-    # y = 1 / z; guard near-zero z by clamping to eps (prediction would
-    # otherwise blow up).
-    eps_z = max(eps_b, _RECIPROCAL_EPS_FLOOR)
+    # y = 1 / z; a near-zero z would blow the prediction up. The floor is in z (1/y) units: a base-unit eps here collapsed every
+    # prediction to the constant 1/eps_b once |y| exceeded ~1e6/median|base|.
+    eps_z = _reciprocal_resolve_eps_z(params)
     safe_z = np.where(np.abs(z) < eps_z, np.sign(z + 1e-300) * eps_z, z)
     return 1.0 / safe_z
 
@@ -510,13 +584,15 @@ def _geometric_mean_residual_inverse(
     bv = np.asarray(base, dtype=np.float64)
     log_b = np.log(np.where(bv > eps, bv, eps))
     g = np.exp(log_b.mean(axis=1))
-    return np.asarray(np.asarray(t_hat, dtype=np.float64) * g)
+    # Mirror the forward's floor on the geomean so the round trip is exact on rows where it binds.
+    return np.asarray(np.asarray(t_hat, dtype=np.float64) * np.where(g > eps, g, eps))
 
 
 def _geometric_mean_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
-    """Row mask for geometric_mean_residual: every base column on the row must be finite and strictly positive (required for the log-mean-exp geomean and, when y is supplied, for T = y / geomean to be well-defined for a subsequent log/ratio-style downstream use)."""
+    """Row mask for geometric_mean_residual: every base column on the row must be finite and strictly positive (required for the log-mean-exp
+    geomean); y only needs to be finite, since ``T = y / geomean`` and its inverse are a plain division and multiplication defined for any real y."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     bv = np.asarray(base, dtype=np.float64)
@@ -524,7 +600,7 @@ def _geometric_mean_residual_domain(
     if y is None:
         return np.asarray(base_ok)
     yv = np.asarray(y, dtype=np.float64)
-    return np.asarray(base_ok & np.isfinite(yv) & (yv > 0))
+    return np.asarray(base_ok & np.isfinite(yv))
 
 
 # ============================================================

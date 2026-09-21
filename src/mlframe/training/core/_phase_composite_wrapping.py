@@ -12,6 +12,7 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple  # noqa: F401
 
 import numpy as np
+from ._prediction_memo import memo_predict
 
 # dependencies needed by the moved _run_composite_target_wrapping.
 # _ADDITIVE_TRANSFORMS is defined inside the function body itself, not at
@@ -19,6 +20,7 @@ import numpy as np
 # reference but Python resolves it from function-local scope.
 from ..composite import CompositeTargetEstimator, get_transform, _extract_base_matrix
 from .._format import format_metric as _fmt, strip_shim_suffix as _strip
+from ._composite_wrap_helpers import build_composite_wrapper
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -84,14 +86,16 @@ def _emit_yscale_composite_chart(
     rmse_y: float,
     mae_y: float,
     r2_y: float,
+    split_name: str = "test",
+    y_train_mean: float | None = None,
 ) -> None:
-    """Emit a y-scale chart for a composite-target model.
+    """Emit a y-scale chart for a composite-target model on one split.
 
-    Called from the wrap pass on the TEST split. The chart's
-    ``targets`` and ``preds`` are both already on the raw y scale
-    (wrapper.predict returns y-scale; y_target is the original raw
-    target sliced to test rows). Model name format mirrors raw-target
-    reports (``MTTR/MTTS``) so the chart sits alongside them.
+    The chart's ``targets`` and ``preds`` are both already on the raw y scale (wrapper.predict returns y-scale; y_target is
+    the original raw target sliced to the split's rows). The in-training chart for a composite model is skipped (its
+    metrics are on the transformed T-scale), so THIS is the model's perfplot / residuals / res_dist_and_acf: it is written
+    under the model's own chart prefix (``inner_entry.plot_file``, recorded by the trainer) as ``{prefix}_{split}_perfplot``,
+    i.e. exactly where and how the raw-target model's charts are named.
     """
     try:
         from ..evaluation import report_regression_model_perf
@@ -106,20 +110,50 @@ def _emit_yscale_composite_chart(
     _outer = getattr(inner_entry, "model", None) or inner_entry
     from mlframe.training.reporting import display_estimator_name
     _inner_class = display_estimator_name(type(getattr(_outer, "estimator_", _outer)).__name__)
-    # Header stats are the TEST-split mean/std (y_target is the test slice), distinct from the suite's MTTR (TRAIN-split mean) -- label them as such to avoid cross-reading drift.
+    # Header stats are the split's own mean/std (y_target is the split slice), distinct from the suite's MTTR (TRAIN-split mean) -- label them as such to avoid cross-reading drift.
+    _split = str(split_name) if split_name else "test"  # an empty split name labels as "test" too, on purpose
     _mttr = float(np.mean(y_target))
     _mtts = float(np.std(y_target))
-    chart_model_name = f"{_inner_class} {target_name} {composite_name} " f"[y-scale wrap-pass] test_mean/test_std={_mttr:.2f}/{_mtts:.2f}"
-    # Per-composite plot file (so the chart doesn't overwrite the
-    # raw-target one and shows up as a sibling file alongside it).
-    if plot_file:
+    chart_model_name = f"{_inner_class} {target_name} [y-scale] {_split}_mean/{_split}_std={_mttr:.2f}/{_mtts:.2f}"
+    _report_title = _split.upper()
+    # Same header as the raw-target model's own charts (dates, trained-on rows, @iter, feature count): reuse the title the
+    # trainer recorded for this model and swap its T-scale token (MTRESID = mean of the transformed train target) for the
+    # y-scale train mean, then let the shared helper append this split's mean exactly as it does for every other chart.
+    _native_title = getattr(inner_entry, "chart_model_name", None)
+    if _native_title and y_train_mean is not None and np.isfinite(y_train_mean):
+        from .._eval_helpers import _MTTR_RE, _append_split_rate_suffix
+        from .._format import format_metric as _fmt
+
+        _t = _MTTR_RE.sub(f"MTTR={_fmt(float(y_train_mean))}", str(_native_title), count=1)
+        if _MTTR_RE.search(_t):
+            _t = _t.replace(f" {target_name} ", f" {target_name} [y-scale] ", 1)
+            if "[y-scale]" not in _t:
+                _t = _MTTR_RE.sub(lambda m: "[y-scale] " + m.group(0), _t, count=1)
+            chart_model_name = _append_split_rate_suffix(_t, split_name=_split, target=y_target)
+            _details = (getattr(inner_entry, "chart_split_details", None) or {}).get(_split, "")
+            _report_title = " ".join([_split.upper(), _details]).strip()
+    # Preferred: the model's own chart prefix (recorded on the entry by the trainer), joined to the split exactly like the
+    # regular eval path (_eval_helpers: a trailing os.sep is a directory -> join, else underscore-join). The composite model's
+    # T-scale chart is never written, so there is nothing to collide with and no disambiguating suffix is needed.
+    _entry_prefix = getattr(inner_entry, "plot_file", None)
+    if _entry_prefix:
+        import os as _os
+
+        _plot_path = _os.path.join(_entry_prefix, _split) if _entry_prefix.endswith(_os.sep) else f"{_entry_prefix}_{_split}"
+    elif plot_file:
+        # Fallback for entries without a recorded prefix (e.g. ensemble pseudo-entries) when the caller supplies a base:
+        # keep a per-composite, per-split suffix so it cannot overwrite a raw-target chart sharing that base.
         if "." in plot_file:
             _stem, _ext = plot_file.rsplit(".", 1)
-            _plot_path = f"{_stem}_yscale_{composite_name}.{_ext}"
+            _plot_path = f"{_stem}_yscale_{composite_name}_{_split}.{_ext}"
         else:
-            _plot_path = f"{plot_file}_yscale_{composite_name}"
+            _plot_path = f"{plot_file}_yscale_{composite_name}_{_split}"
     else:
-        _plot_path = ""
+        logger.debug(
+            "[CompositeTargetEstimator] no chart path for composite='%s' split=%s (entry has no plot_file, none supplied); chart skipped.",
+            composite_name, _split,
+        )
+        return
     _plot_outputs = getattr(reporting_config, "plot_outputs", None) if reporting_config else None
     _plot_dpi = getattr(reporting_config, "plot_dpi", None) if reporting_config else None
     report_regression_model_perf(
@@ -128,7 +162,7 @@ def _emit_yscale_composite_chart(
         columns=(),
         model_name=chart_model_name,
         model=None,
-        report_title="TEST",
+        report_title=_report_title,
         print_report=True,
         show_perf_chart=True,
         plot_file=_plot_path,
@@ -141,6 +175,68 @@ def _emit_yscale_composite_chart(
         "n_test=%d)",
         composite_name, _inner_class, mae_y, rmse_y, r2_y, int(y_target.size),
     )
+
+
+def _record_ensemble_y_scale_metrics(*, entries: list, y_full: np.ndarray, metadata: dict, target_type: Any, composite_name: str, splits: tuple) -> None:
+    """y-scale val/test metrics for ensemble entries of a composite target, recorded like a single model's.
+
+    Ensembles carry T-scale ``val_preds`` / ``test_preds`` and no model, so they never got a y-scale metric and never
+    entered the composite-vs-raw verdict ("no y-scale metric: EnsARITHM ..." for every composite in a production log).
+    Their predictions are mapped to y with a member's wrapper (``predict_from_t``): members share the transform and
+    its fitted params, and the wrapper supplies the base column from the split frame.
+    """
+    _sibling = next(
+        (getattr(e, "model", None) for e in entries if callable(getattr(getattr(e, "model", None), "predict_from_t", None))),
+        None,
+    )
+    if _sibling is None:
+        return
+    for _entry in entries:
+        _m = getattr(_entry, "model", None)
+        if _m is not None and callable(getattr(_m, "predict", None)):
+            continue  # a real model: scored by the per-model hook
+        _scores: dict[str, dict[str, float]] = {}
+        for _split, _idx, _df in splits:
+            _t = getattr(_entry, f"{_split}_preds", None)
+            if _idx is None or _df is None or _t is None:
+                continue
+            _t = np.asarray(_t, dtype=np.float64).reshape(-1)
+            _y = np.asarray(y_full, dtype=np.float64)[_idx]
+            if _t.shape[0] != _y.shape[0]:
+                continue
+            try:
+                _yp = np.asarray(_sibling.predict_from_t(_df, _t), dtype=np.float64)
+            except Exception as e:
+                logger.debug("ensemble y-scale mapping failed for %s: %s", getattr(_entry, "model_name", "?"), e)
+                continue
+            _ok = np.isfinite(_yp) & np.isfinite(_y)
+            if not _ok.any():
+                continue
+            _d = _yp[_ok] - _y[_ok]
+            _ss = float(np.sum((_y[_ok] - _y[_ok].mean()) ** 2))
+            _scores[_split] = {
+                "RMSE": float(np.sqrt(np.mean(_d * _d))), "MAE": float(np.mean(np.abs(_d))),
+                "R2": (1.0 - float(np.sum(_d * _d)) / _ss) if _ss > 0 else float("nan"), "n_rows_finite": int(_ok.sum()),
+            }
+        if _scores:
+            record_composite_y_scale_metrics(
+                metadata=metadata, target_type=target_type, composite_name=composite_name,
+                model_name=getattr(_entry, "model_name", None) or "ensemble", scores=_scores,
+            )
+
+
+def record_composite_y_scale_metrics(*, metadata: dict, target_type: Any, composite_name: str, model_name: Any, scores: dict) -> None:
+    """Upsert one model's y-scale split metrics into ``metadata["composite_target_y_scale_metrics"][tt][composite]``.
+
+    Keyed by ``model_name`` so a re-run of the hook for the same model replaces its row instead of duplicating it.
+    """
+    _rows = metadata.setdefault("composite_target_y_scale_metrics", {}).setdefault(str(target_type), {}).setdefault(composite_name, [])
+    _row = {"model_name": model_name, "metrics": {k: dict(v) for k, v in scores.items()}, "source": "per_model_hook"}
+    for _i, _r in enumerate(_rows):
+        if isinstance(_r, dict) and model_name is not None and _r.get("model_name") == model_name:
+            _rows[_i] = _row
+            return
+    _rows.append(_row)
 
 
 def emit_per_model_composite_y_scale_test(
@@ -156,6 +252,12 @@ def emit_per_model_composite_y_scale_test(
     train_idx=None,
     plot_file: str | None = None,
     reporting_config: Any = None,
+    val_idx=None,
+    val_df=None,
+    metadata: dict | None = None,
+    target_type: str | None = None,
+    train_df=None,
+    group_column: str | None = None,
 ) -> None:
     """Wrap a freshly-fit composite-target inner model in
     CompositeTargetEstimator (IDEMPOTENT -- safe to call again at end-of-target)
@@ -182,8 +284,6 @@ def emit_per_model_composite_y_scale_test(
         if isinstance(_inner, CompositeTargetEstimator):
             _wrapper = _inner
         else:
-            _extra = tuple(composite_spec.get("extra_base_columns") or ())
-            _base_columns = (composite_spec["base_column"], *_extra) if _extra else None
             _y_full_arr = np.asarray(y_full)
             # y-clip envelope MUST be train-only: this wrapper persists (the
             # end-of-target pass skips already-wrapped entries for idempotency),
@@ -200,13 +300,9 @@ def emit_per_model_composite_y_scale_test(
                     _y_train_arr = _y_full_arr
             else:
                 _y_train_arr = _y_full_arr
-            _wrapper = CompositeTargetEstimator.from_fitted_inner(
-                fitted_inner=_inner,
-                transform_name=composite_spec["transform_name"],
-                base_column=composite_spec["base_column"],
-                base_columns=_base_columns,
-                transform_fitted_params=composite_spec["fitted_params"],
-                y_train=_y_train_arr,
+            _wrapper = build_composite_wrapper(
+                entry=entry, inner=_inner, spec=composite_spec, y_train=_y_train_arr,
+                train_df=train_df, target_name=orig_target_name, group_column=group_column,
             )
             # Mutate the entry so downstream callers (and the end-of-target
             # wrap-pass idempotency check) see the wrapped form.
@@ -218,41 +314,52 @@ def emit_per_model_composite_y_scale_test(
                     # end-of-target pass will rebuild the wrapper.
                     logger.debug("entry.model assignment failed (likely read-only): %s", e)
         _y_arr = np.asarray(y_full)
-        _y_test = _y_arr[test_idx]
-        _y_pred = np.asarray(
-            _wrapper.predict(test_df_pd), dtype=np.float64,
-        ).reshape(-1)
-        _finite = np.isfinite(_y_pred) & np.isfinite(_y_test)
-        if int(_finite.sum()) == 0:
-            return
-        _yt = _y_test.astype(np.float64)[_finite]
-        _yp = _y_pred[_finite]
-        _diff = _yp - _yt
-        _rmse = float(np.sqrt(np.mean(_diff * _diff)))
-        _mae = float(np.mean(np.abs(_diff)))
-        _ss_tot = float(np.sum((_yt - _yt.mean()) ** 2))
-        _r2 = (1.0 - float(np.sum(_diff * _diff)) / _ss_tot) if _ss_tot > 0 else float("nan")
         # Inner class name for the log line, matching raw-target reports.
         _inner_for_label = _wrapper.estimator_ if hasattr(_wrapper, "estimator_") else _inner
         from mlframe.training.reporting import display_estimator_name
         _inner_cls = display_estimator_name(type(_inner_for_label).__name__)
-        logger.info(
-            "TEST %s %s %s [y-scale, per-model immediate] "
-            "MAE=%.4f RMSE=%.4f R2=%.4f n=%d",
-            _inner_cls, target_name, composite_name,
-            _mae, _rmse, _r2, int(_finite.sum()),
-        )
-        _emit_yscale_composite_chart(
-            y_target=_yt, y_pred=_yp,
-            inner_entry=entry,
-            composite_name=composite_name,
-            orig_tname=orig_target_name,
-            target_name=target_name,
-            plot_file=plot_file,
-            reporting_config=reporting_config,
-            rmse_y=_rmse, mae_y=_mae, r2_y=_r2,
-        )
-        # Mark the entry so the end-of-target wrap pass skips re-emitting the identical test-split chart (same _yscale_{composite} path -> overwrite + duplicate predict).
+        _entry_scores: dict[str, dict[str, float]] = {}
+        # VAL + TEST, like a raw-target model's `{prefix}_val_perfplot` / `{prefix}_test_perfplot` pair.
+        for _split_name, _split_idx, _split_df in (("val", val_idx, val_df), ("test", test_idx, test_df_pd)):
+            if _split_idx is None or _split_df is None:
+                continue
+            _y_split = _y_arr[_split_idx]
+            _y_pred = np.asarray(_wrapper.predict(_split_df), dtype=np.float64).reshape(-1)
+            _finite = np.isfinite(_y_pred) & np.isfinite(_y_split)
+            if int(_finite.sum()) == 0:
+                continue
+            _yt = _y_split.astype(np.float64)[_finite]
+            _yp = _y_pred[_finite]
+            _diff = _yp - _yt
+            _rmse = float(np.sqrt(np.mean(_diff * _diff)))
+            _mae = float(np.mean(np.abs(_diff)))
+            _ss_tot = float(np.sum((_yt - _yt.mean()) ** 2))
+            _r2 = (1.0 - float(np.sum(_diff * _diff)) / _ss_tot) if _ss_tot > 0 else float("nan")
+            logger.info(
+                "%s %s %s %s [y-scale, per-model immediate] MAE=%.4f RMSE=%.4f R2=%.4f n=%d",
+                _split_name.upper(), _inner_cls, target_name, composite_name,
+                _mae, _rmse, _r2, int(_finite.sum()),
+            )
+            _entry_scores[_split_name] = {"RMSE": _rmse, "MAE": _mae, "R2": _r2, "n_rows_finite": int(_finite.sum())}
+            _emit_yscale_composite_chart(
+                y_target=_yt, y_pred=_yp,
+                inner_entry=entry,
+                composite_name=composite_name,
+                orig_tname=orig_target_name,
+                target_name=target_name,
+                plot_file=plot_file,
+                reporting_config=reporting_config,
+                rmse_y=_rmse, mae_y=_mae, r2_y=_r2,
+                split_name=_split_name,
+            )
+        # The end-of-target wrap pass may skip its metric block (skip_wrap_pass_predict=True), in which case these per-model
+        # numbers are the ONLY y-scale metrics the suite-end verdict can compare against raw-y models; record them.
+        if metadata is not None and target_type is not None and _entry_scores:
+            record_composite_y_scale_metrics(
+                metadata=metadata, target_type=target_type, composite_name=composite_name,
+                model_name=getattr(entry, "model_name", None) or _inner_cls, scores=_entry_scores,
+            )
+        # Mark the entry so the end-of-target wrap pass skips re-emitting the identical charts (same path -> overwrite + duplicate predict).
         try:
             entry._yscale_chart_emitted = True
         except Exception as e:
@@ -283,6 +390,7 @@ def _run_composite_target_wrapping(
     target_name: str | None = None,
     plot_file: str | None = None,
     reporting_config: Any = None,
+    group_column: str | None = None,
 ) -> dict[tuple, np.ndarray]:
     """Wrap T-scale inner models in CompositeTargetEstimator so predict() returns y-scale; record y-scale RMSE/MAE/R2 per split.
 
@@ -342,24 +450,12 @@ def _run_composite_target_wrapping(
                 if isinstance(_inner, CompositeTargetEstimator):
                     continue
                 try:
-                    # Multi-base specs (linear_residual_multi / future
-                    # multi-base transforms) carry extra base columns
-                    # alongside the primary. Build the full base_columns
-                    # tuple so the wrapper's predict() reconstructs the
-                    # (n, K) base matrix to match the K alphas saved in
-                    # fitted_params. Without this the wrapper defaults to
-                    # base_columns=None and _resolve_base_columns()
-                    # falls back to (base_column,) -> predict raises
-                    # "base has 1 columns but fitted alphas has K entries".
-                    _extra = tuple(_spec.get("extra_base_columns") or ())
-                    _base_columns = (_spec["base_column"], *_extra) if _extra else None
-                    _wrapper = CompositeTargetEstimator.from_fitted_inner(
-                        fitted_inner=_inner,
-                        transform_name=_spec["transform_name"],
-                        base_column=_spec["base_column"],
-                        base_columns=_base_columns,
-                        transform_fitted_params=_spec["fitted_params"],
-                        y_train=_y_train_for_wrap,
+                    # Multi-base specs (linear_residual_multi / future multi-base transforms) carry extra base columns alongside the
+                    # primary; the builder passes the full base_columns tuple so predict() reconstructs the (n, K) base matrix matching
+                    # the K alphas in fitted_params (else it raises "base has 1 columns but fitted alphas has K entries").
+                    _wrapper = build_composite_wrapper(
+                        entry=_entry, inner=_inner, spec=_spec, y_train=_y_train_for_wrap,
+                        train_df=filtered_train_df, target_name=_orig_tname, group_column=group_column,
                     )
                 except Exception as _wrap_err:
                     log_throttle(
@@ -388,6 +484,14 @@ def _run_composite_target_wrapping(
                 _n_wrapped,
                 _composite_name,
             )
+            if metadata is not None:
+                _y_full_ens = target_by_type.get(_tt_w, {}).get(_orig_tname)
+                if _y_full_ens is not None:
+                    _record_ensemble_y_scale_metrics(
+                        entries=_entries, y_full=np.asarray(_y_full_ens), metadata=metadata, target_type=_tt_w,
+                        composite_name=_composite_name,
+                        splits=(("val", filtered_val_idx, filtered_val_df), ("test", test_idx, test_df_pd)),
+                    )
             # Compute y-scale RMSE/MAE/R2 per split so composite is comparable to raw (per-target metrics were T-scale).
             # ``skip_predict``: bypass the per-split predict + metric block; wrap step above already ran so downstream
             # predict-path callers see y-scale predictions. Pack G watchdog on additive transforms (T-MAE == y-MAE) is
@@ -416,6 +520,10 @@ def _run_composite_target_wrapping(
                                 continue
                             try:
                                 _wrap_chart = getattr(_entry, "model", None) or _entry
+                                if not callable(getattr(_wrap_chart, "predict", None)):
+                                    # Ensemble pseudo-entries carry predictions, not a model: there is nothing to predict with
+                                    # (a production log warned "'SimpleNamespace' object has no attribute 'predict'" per entry).
+                                    continue
                                 _y_split_chart = _y_arr_chart[test_idx]
                                 _y_pred_chart = np.asarray(
                                     _wrap_chart.predict(test_df_pd),
@@ -453,13 +561,20 @@ def _run_composite_target_wrapping(
             _metrics_dict = metadata.setdefault(
                 "composite_target_y_scale_metrics", {},
             ).setdefault(str(_tt_w), {}).setdefault(_composite_name, [])
-            _metrics_dict.clear()
+            # Re-scored below per real model; ensemble rows (no model, scored by _record_ensemble_y_scale_metrics) stay.
+            _ens_names = {
+                getattr(e, "model_name", None) for e in _entries
+                if not callable(getattr(getattr(e, "model", None), "predict", None))
+            }
+            _metrics_dict[:] = [row for row in _metrics_dict if row.get("model_name") in _ens_names]
             _y_full_metric = target_by_type.get(_tt_w, {}).get(_orig_tname)
             if _y_full_metric is None:
                 continue
             _y_arr_metric = np.asarray(_y_full_metric)
             for _entry in _entries:
                 _wrapper_for_score = getattr(_entry, "model", None) or _entry
+                if not callable(getattr(_wrapper_for_score, "predict", None)):
+                    continue  # ensemble pseudo-entry without a model (see the chart loop above)
                 _entry_y_scores: dict[str, dict[str, float]] = {}
                 for _split_name, _split_idx, _split_df in (
                     ("train", filtered_train_idx, filtered_train_df),
@@ -474,10 +589,7 @@ def _run_composite_target_wrapping(
                         # the clip is [y_train_min, y_train_max], train rows are in-envelope, clip is a no-op. Val / test rows
                         # may drift outside; the clip then narrows the headline RMSE. To make that contribution explicit we ALSO
                         # capture the raw (pre-clip) prediction via ``predict_pre_clip`` and emit a parallel metric block.
-                        _y_pred_wrapped = np.asarray(
-                            _wrapper_for_score.predict(_split_df),
-                            dtype=np.float64,
-                        ).reshape(-1)
+                        _y_pred_wrapped = memo_predict(_wrapper_for_score, _split_df)
                         if hasattr(_wrapper_for_score, "predict_pre_clip"):
                             _y_pred_raw = np.asarray(
                                 _wrapper_for_score.predict_pre_clip(_split_df),
@@ -542,7 +654,11 @@ def _run_composite_target_wrapping(
                         # axes). The T-scale residual chart in
                         # ``_reporting_regression`` is skipped exactly
                         # to make room for this y-scale chart.
-                        if _split_name == "test" and target_name is not None:
+                        if (
+                            _split_name in ("val", "test")
+                            and target_name is not None
+                            and not getattr(_entry, "_yscale_chart_emitted", False)  # per-model hook already wrote these
+                        ):
                             try:
                                 _emit_yscale_composite_chart(
                                     y_target=_y_split.astype(np.float64)[_finite],
@@ -554,6 +670,12 @@ def _run_composite_target_wrapping(
                                     plot_file=plot_file,
                                     reporting_config=reporting_config,
                                     rmse_y=_rmse_wrapped, mae_y=_mae_wrapped, r2_y=_r2,
+                                    split_name=_split_name,
+                                    y_train_mean=(
+                                        float(np.nanmean(_y_arr_metric[filtered_train_idx].astype(np.float64)))
+                                        if filtered_train_idx is not None and len(filtered_train_idx)
+                                        else None
+                                    ),
                                 )
                             except Exception as _chart_err:
                                 log_throttle(
@@ -602,9 +724,8 @@ def _run_composite_target_wrapping(
                                 if _wi_uni is not None and _spec_t_name and _bcs_uni and all(_c in _split_df for _c in _bcs_uni):
                                     _bivar_uni = get_transform(_spec_t_name)
                                     _base_uni = _watchdog_extract_base(_split_df, _bcs_uni)
-                                    _t_pred_uni = np.asarray(
-                                        _wi_uni.predict(_split_df), dtype=np.float64,
-                                    ).reshape(-1)
+                                    # Memoised: the additive check below predicts the same inner on the same frame.
+                                    _t_pred_uni = memo_predict(_wi_uni, _split_df)
                                     _y_reconstructed = _bivar_uni.inverse(
                                         _t_pred_uni, _base_uni,
                                         _spec.get("fitted_params", {}),
@@ -649,9 +770,7 @@ def _run_composite_target_wrapping(
                                         _base_arr,
                                         _spec.get("fitted_params", {}),
                                     )
-                                    _t_pred = np.asarray(
-                                        _wi.predict(_split_df), dtype=np.float64,
-                                    ).reshape(-1)
+                                    _t_pred = memo_predict(_wi, _split_df)
                                     _dt = _t_pred - _t_true
                                     _ft = np.isfinite(_dt)
                                     if int(_ft.sum()) > 0:

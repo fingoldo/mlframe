@@ -31,8 +31,9 @@ class TestTheWorkIsBounded:
 
     def test_a_wide_frame_is_subsampled_harder(self):
         """Cells, not rows: 2000 columns must take far fewer rows than 4 columns do."""
-        narrow = po._subsample_rows(np.zeros((1_000_000, 4)), 1_000_000, 4).shape[0]
-        wide = po._subsample_rows(np.zeros((1_000_000, 2000)), 1_000_000, 2000).shape[0]
+        # Zero-strided views: sampling only slices rows, and a dense 1M x 2000 float64 (15 GiB) cannot be committed on a 16 GB host.
+        narrow = po._subsample_rows(np.broadcast_to(np.zeros(1), (1_000_000, 4)), 1_000_000, 4).shape[0]
+        wide = po._subsample_rows(np.broadcast_to(np.zeros(1), (1_000_000, 2000)), 1_000_000, 2000).shape[0]
         assert wide < narrow
 
     def test_a_small_frame_is_untouched(self):

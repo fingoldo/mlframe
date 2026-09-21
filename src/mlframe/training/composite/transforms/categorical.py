@@ -17,14 +17,13 @@ fall back to the global mean (encoding == ``global_mean``).
 
 LEAKAGE (the cardinal sin). The per-category means are computed TRAIN-ONLY: the
 wrapper passes only the train rows into ``fit`` and never re-fits at predict.
-That makes the in-sample encoding optimistic for high-cardinality bases (each
-train row sees its OWN ``y`` folded into its category mean). For *discovery /
-model fitting* the category mean should ideally be OUT-OF-FOLD (a CV / KFold
-target encoder) so the inner model is not handed a leaked signal; the smoothing
-strength ``a`` is the cheap in-fold guard that keeps a singleton category from
-memorising its lone ``y``. Callers wiring this into a leakage-sensitive pipeline
-should pair it with OOF target means; this transform supplies the smoothing knob
-and the strict train-only fit, the OOF discipline is the pipeline's job.
+An in-sample encoding would be optimistic for high-cardinality bases (each train
+row would see its OWN ``y`` folded into its category mean), so by default the fit
+records ``oof_folds`` and a content fingerprint of its (y, category) rows, and a
+forward on exactly those rows returns OUT-OF-FOLD T (each row encoded from the
+other folds). Predict-time inverses, and forwards on any other rows, use the
+full-train encoding. The smoothing strength ``a`` additionally keeps a tiny
+category from overfitting its lone ``y``.
 
 Registered as a GROUPED-style transform (``requires_groups=True``): the category
 column is threaded through the existing ``group_column`` plumbing as the
@@ -45,6 +44,9 @@ import numpy as np
 # so tests / callers can override via the ``smoothing`` fit kwarg.
 _TARGET_ENCODING_DEFAULT_SMOOTHING: float = 20.0
 
+_TARGET_ENCODING_DEFAULT_OOF_FOLDS: int = 5
+"""Folds for the out-of-fold train T (on by default; pass ``oof_folds=None`` to the fit for the in-sample encoding)."""
+
 
 def _target_encoding_residual_fit(
     y: np.ndarray,
@@ -52,6 +54,7 @@ def _target_encoding_residual_fit(
     groups: np.ndarray | None = None,
     sample_weight: np.ndarray | None = None,  # -- see note below
     smoothing: float = _TARGET_ENCODING_DEFAULT_SMOOTHING,
+    oof_folds: int | None = _TARGET_ENCODING_DEFAULT_OOF_FOLDS,
 ) -> dict[str, Any]:
     """Fit per-category smoothed means on TRAIN rows only.
 
@@ -73,6 +76,11 @@ def _target_encoding_residual_fit(
         Additive-smoothing strength ``a`` (pseudo-count toward the global mean).
         ``a = 0`` is the raw (unsmoothed) category mean; larger ``a`` shrinks
         small categories harder toward the global mean.
+    oof_folds
+        Out-of-fold folds for the TRAIN T (default 5; ``None`` / ``< 2`` turns it off). A forward on exactly the fit's (y, groups) returns each
+        row's T against an encoding computed without its own fold, so no train row's own y is folded into its own encoding (the in-sample
+        encoding shrank every train T toward 0 by the row's own share, 1/(count + a) of it, relative to the T of an unseen row of the same
+        category). Every other forward, and every inverse, uses the full-train encoding.
 
     Returns
     -------
@@ -99,7 +107,8 @@ def _target_encoding_residual_fit(
     global_mean = float(np.mean(y_f)) if len(y_f) > 0 else 0.0
 
     # Group-wise sum + count in one pass via np.unique inverse-index scatter-add.
-    unique_groups, inverse_idx = np.unique(groups, return_inverse=True)
+    from . import _unique_group_labels
+    unique_groups, inverse_idx = _unique_group_labels(groups)
     counts = np.bincount(inverse_idx, minlength=len(unique_groups)).astype(np.float64)
     sums = np.bincount(inverse_idx, weights=y_f, minlength=len(unique_groups))
     # Empirical-Bayes additive smoothing toward the global mean.
@@ -110,11 +119,50 @@ def _target_encoding_residual_fit(
     from . import _canonical_group_key
 
     encoding: dict[str, float] = {_canonical_group_key(g): float(v) for g, v in zip(unique_groups, smoothed)}
-    return {
+    params: dict[str, Any] = {
         "global_mean": global_mean,
         "encoding": encoding,
         "smoothing": a,
     }
+    k = int(oof_folds) if oof_folds is not None else 0
+    if k >= 2 and y_f.size >= 2 * k:
+        params["oof_folds"] = k
+        params["train_fingerprint"] = _train_fingerprint(y_f, unique_groups, inverse_idx)
+    return params
+
+
+def _train_fingerprint(y_f: np.ndarray, uniq: np.ndarray, inverse_idx: np.ndarray) -> str:
+    """Content hash of the fit's (y, category) rows, so a forward can recognise the exact training batch it must encode out-of-fold."""
+    import hashlib
+    from . import _canonical_group_key
+    h = hashlib.blake2b(digest_size=16)
+    # Hash the existing buffer instead of a second copy of the whole column: same bytes, same digest.
+    from mlframe._array_buffer import array_buffer
+
+    h.update(array_buffer(np.ascontiguousarray(y_f, dtype=np.float64)))
+    h.update(array_buffer(np.ascontiguousarray(inverse_idx, dtype=np.int64)))
+    h.update("\x1f".join(_canonical_group_key(g) for g in uniq.tolist()).encode("utf-8"))
+    return h.hexdigest()
+
+
+def _oof_encoding(y_f: np.ndarray, inverse_idx: np.ndarray, n_cats: int, a: float, k: int) -> np.ndarray:
+    """Per-row out-of-fold smoothed category mean: fold ``i % k`` rows are encoded from the other folds' sums/counts and their global mean."""
+    n = y_f.size
+    fold = np.arange(n, dtype=np.int64) % k
+    tot_s = np.bincount(inverse_idx, weights=y_f, minlength=n_cats)
+    tot_c = np.bincount(inverse_idx, minlength=n_cats).astype(np.float64)
+    cell = fold * n_cats + inverse_idx
+    fold_s = np.bincount(cell, weights=y_f, minlength=k * n_cats)
+    fold_c = np.bincount(cell, minlength=k * n_cats).astype(np.float64)
+    fold_ys = np.bincount(fold, weights=y_f, minlength=k)
+    fold_n = np.bincount(fold, minlength=k).astype(np.float64)
+    out_n = n - fold_n
+    gm_out = np.where(out_n > 0, (y_f.sum() - fold_ys) / np.maximum(out_n, 1.0), 0.0)
+    s_out = tot_s[inverse_idx] - fold_s[cell]
+    c_out = tot_c[inverse_idx] - fold_c[cell]
+    g = gm_out[fold]
+    den = c_out + a
+    return np.where(den > 0, (s_out + a * g) / np.where(den > 0, den, 1.0), g)
 
 
 def _category_encoding_lookup(
@@ -137,7 +185,8 @@ def _category_encoding_lookup(
     groups = np.asarray(groups).reshape(-1)
     if groups.size == 0:
         return np.empty(0, dtype=np.float64)
-    uniq, inverse_idx = np.unique(groups, return_inverse=True)
+    from . import _unique_group_labels
+    uniq, inverse_idx = _unique_group_labels(groups)
     # One dict lookup per DISTINCT label (unseen -> global mean fallback).
     # Canonical key matches the fit-side keying so an int->float dtype shift at
     # predict does not miss every category and silently fall back to global mean.
@@ -154,11 +203,19 @@ def _target_encoding_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
     groups: np.ndarray | None = None,
 ) -> np.ndarray:
-    """T = y - smoothed_category_mean(cat)."""
+    """T = y - smoothed_category_mean(cat); out-of-fold encoding when (y, groups) is exactly the fit's training batch (see ``oof_folds``)."""
     if groups is None:
         raise ValueError("target_encoding_residual.forward: groups kwarg is required.")
+    y_f = np.asarray(y, dtype=np.float64).reshape(-1)
+    fp = params.get("train_fingerprint")
+    if fp is not None and y_f.size == np.asarray(groups).size:
+        from . import _unique_group_labels
+        uniq, inverse_idx = _unique_group_labels(np.asarray(groups).reshape(-1))
+        if _train_fingerprint(y_f, uniq, inverse_idx) == fp:
+            enc = _oof_encoding(y_f, inverse_idx, uniq.size, float(params["smoothing"]), int(params["oof_folds"]))
+            return np.asarray(y_f - enc)
     enc = _category_encoding_lookup(groups, params)
-    return np.asarray(np.asarray(y, dtype=np.float64).reshape(-1) - enc)
+    return np.asarray(y_f - enc)
 
 
 def _target_encoding_residual_inverse(

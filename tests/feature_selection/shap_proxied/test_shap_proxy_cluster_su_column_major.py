@@ -74,6 +74,7 @@ def test_pack_bins_shape_is_column_major():
     bins_packed = packed[0]
     assert bins_packed.shape == (n_features, n_samples), f"expected column-major (n_features={n_features}, n_samples={n_samples}); got {bins_packed.shape}"
     # row i of packed == feature i's bin ids
+    assert list(enumerate(arrays))
     for i, arr in enumerate(arrays):
         assert np.array_equal(bins_packed[i, :], arr.astype(np.int32, copy=False)), f"row {i} mismatch — packer didn't write per-feature contiguous strips"
     # contiguous so the kernel's inner sample loop walks one stride-1 row.

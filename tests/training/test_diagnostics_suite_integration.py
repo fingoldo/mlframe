@@ -74,12 +74,52 @@ def _collect_charts_acc(obj):
     return saved
 
 
+def _heavy_opt_in_cfg() -> ReportingConfig:
+    """Same as ``reporting_cfg`` plus the opt-in heavy diagnostics (PDP/ICE, slice finder, SHAP, model card, risk-coverage)."""
+    return ReportingConfig(
+        show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]",
+        pdp_ice=True, slice_finder=True, shap_panels=True, model_card=True, risk_coverage_charts=True,
+    )
+
+
 @pytest.fixture
 def reporting_cfg():
     # Suppress the legacy per-class calibration matplotlib figure + FI plot; the
     # new diagnostics still render default-ON via the DSL plot_outputs path.
     """Reporting cfg."""
     return ReportingConfig(show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]")
+
+
+def test_binary_suite_renders_opt_in_heavy_diagnostics_when_enabled(tmp_path):
+    """PDP/ICE, slice finder, SHAP, model card and risk-coverage are opt-in; enabling them explicitly renders every one."""
+    skip_if_dependency_missing("hgb")
+    df = _make_frame(900, binary=True)
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False, ts_field="timestamp")
+    cfg = ReportingConfig(
+        show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]",
+        pdp_ice=True, slice_finder=True, shap_panels=True, model_card=True, risk_coverage_charts=True,
+    )
+    data_dir = str(tmp_path)
+    train_mlframe_models_suite(
+        df=df,
+        target_name="diag_bin_optin",
+        model_name="hgb_bin_optin",
+        features_and_targets_extractor=fte,
+        mlframe_models=["hgb"],
+        hyperparams_config=get_cpu_config("hgb", 20),
+        reporting_config=cfg,
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
+        verbose=0,
+    )
+    files = _saved_chart_files(data_dir)
+    joined = " ".join(files)
+    assert "pdp_ice" in joined, f"PDP/ICE not saved; files={files}"
+    assert "weak_slices" in joined, f"slice-finder not saved; files={files}"
+    assert "shap" in joined, f"SHAP panels not saved for tree model; files={files}"
+    assert "model_card" in joined, f"model card not saved; files={files}"
+    assert "risk_coverage" in joined, f"risk-coverage not saved; files={files}"
 
 
 def test_binary_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):
@@ -111,17 +151,16 @@ def test_binary_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):
     assert "error_bias" in joined, f"error-bias chart not saved; files={files}"
     # INV-11 / R-3 + R-1: per-target distribution overlay + adversarial.
     assert "target_dist" in joined, f"target distribution overlay not saved; files={files}"
-    # Wave A+B default-on diagnostics: PDP/ICE, slice-finder, decision-curve render by default; SHAP for the tree
-    # model; calibration-drift + target-ACF when timestamps cover the split (the frame carries a monotone timestamp).
-    assert "pdp_ice" in joined, f"PDP/ICE not saved; files={files}"
-    assert "weak_slices" in joined, f"slice-finder not saved; files={files}"
+    # Default-on diagnostics: decision-curve; calibration-drift + target-ACF when timestamps cover the split (the frame
+    # carries a monotone timestamp); decile gain/lift table for binary.
     assert "decision_curve" in joined, f"decision-curve not saved; files={files}"
-    assert "shap" in joined, f"SHAP panels not saved for tree model; files={files}"
     assert "calibration_drift" in joined, f"calibration-drift not saved; files={files}"
     assert "target_acf" in joined, f"target ACF/PACF not saved; files={files}"
-    # Loop-17 integration: decile gain/lift table + per-(model, split) model card default-on for binary.
     assert "decile_table" in joined, f"decile table not saved; files={files}"
-    assert "model_card" in joined, f"model card not saved; files={files}"
+    # PDP/ICE, slice finder, SHAP, model card and risk-coverage dominated production diagnostics wall time, so they are
+    # opt-in: none may render under the default config (their rendering is covered by the explicit opt-in test below).
+    for _optin in ("pdp_ice", "weak_slices", "shap", "model_card", "risk_coverage"):
+        assert not any(_optin in f for f in files), f"{_optin} rendered while opt-in off; files={files}"
     # Per-model cross-split overfit panel rendered once all splits exist (>=2 usable splits).
     assert "split_comparison" in joined, f"split-comparison panel not saved; files={files}"
     # Combined single-page HTML index stitched from the artifacts.
@@ -261,7 +300,7 @@ def test_regression_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
         features_and_targets_extractor=fte,
         mlframe_models=["hgb"],
         hyperparams_config=get_cpu_config("hgb", 20),
-        reporting_config=reporting_cfg,
+        reporting_config=_heavy_opt_in_cfg(),
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
@@ -275,7 +314,7 @@ def test_regression_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
     assert "target_dist" in joined, f"target distribution overlay not saved; files={files}"
     # INV-26 / INV-9: temporal residual + metric panels when timestamps cover the split.
     assert "residual_vs_time" in joined, f"residual-vs-time not saved; files={files}"
-    # Wave A+B default-on diagnostics for regression: PDP/ICE, slice-finder, SHAP (tree), target-ACF (timestamps).
+    # Opt-in heavy diagnostics (enabled explicitly via _heavy_opt_in_cfg) + default-on target-ACF (timestamps).
     assert "pdp_ice" in joined, f"PDP/ICE not saved; files={files}"
     assert "weak_slices" in joined, f"slice-finder not saved; files={files}"
     assert "shap" in joined, f"SHAP panels not saved for tree model; files={files}"
@@ -288,6 +327,17 @@ def test_regression_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
     assert html, f"combined HTML report not saved; files={files}"
     saved_acc = _collect_charts_acc(metadata) + _collect_charts_acc(models)
     assert saved_acc, "no charts accounting recorded in metadata/models"
+    # Every trained entry records the chart prefix its own charts were written under; charts rendered for the model
+    # after the fit (the composite-target y-scale perfplot, the split-comparison panel) are named from it.
+    for _entries in models[TargetTypes.REGRESSION].values():
+        # Every entry carries a unique model_name: metadata blocks (bootstrap CI, calibration, fairness...) key by it.
+        _names = [getattr(_e, "model_name", None) for _e in _entries]
+        assert all(_names) and len(set(_names)) == len(_names), f"entry model_name missing or not unique: {_names}"
+        for _e in _entries:
+            _prefix = os.path.basename(getattr(_e, "plot_file", "") or "")
+            assert _prefix, f"trained entry carries no chart prefix: {vars(_e).keys()}"
+            assert any(f.startswith(_prefix + "_") and "perfplot" in f for f in files), f"no perfplot named from {_prefix!r}; files={files}"
+            assert any(f.startswith(_prefix + "_split_comparison") for f in files), f"split_comparison not named from {_prefix!r}; files={files}"
 
 
 def _make_multiclass_frame(n: int, *, n_classes: int = 3, seed: int = 0) -> pd.DataFrame:
@@ -319,7 +369,7 @@ def test_multiclass_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
         features_and_targets_extractor=fte,
         mlframe_models=["hgb"],
         hyperparams_config=get_cpu_config("hgb", 20),
-        reporting_config=reporting_cfg,
+        reporting_config=_heavy_opt_in_cfg(),
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
@@ -331,7 +381,7 @@ def test_multiclass_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
     assert "multiclass_panels" in joined, f"multiclass panel grid not saved; files={files}"
     # Loop-17 integration: CONFUSION_MARGINS is now a default multiclass panel token (rendered inside the grid file).
     assert "CONFUSION_MARGINS" in ReportingConfig().multiclass_panels, "CONFUSION_MARGINS missing from default multiclass_panels"
-    # Model/preds-based diagnostics default-on regardless of class count.
+    # Model/preds-based opt-in diagnostics (enabled explicitly via _heavy_opt_in_cfg) render regardless of class count.
     assert "pdp_ice" in joined, f"PDP/ICE not saved; files={files}"
     assert "weak_slices" in joined, f"slice-finder not saved; files={files}"
     assert "shap" in joined, f"SHAP panels not saved for tree model; files={files}"

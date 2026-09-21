@@ -337,6 +337,7 @@ class TestTransformerContract:
         assert "split2_test_score" in rfecv.cv_results_
         # Per-split arrays must be the same length as nfeatures.
         n_evals = len(rfecv.cv_results_["nfeatures"])
+        assert list(range(3))
         for k in range(3):
             assert len(rfecv.cv_results_[f"split{k}_test_score"]) == n_evals
 

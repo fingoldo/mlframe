@@ -684,6 +684,7 @@ class TestVerdictFormat:
         info_text = rep.format_text(default_level="INFO")
         debug_text = rep.format_text(default_level="DEBUG")
         assert len(debug_text) > len(info_text)
+        assert len(rep.table.index) > 0
         for baseline_name in rep.table.index:
             assert str(baseline_name) in debug_text
 
@@ -941,10 +942,10 @@ class TestBootstrapCI:
 
 class TestStatsmodelsFallback:
     """Groups tests covering statsmodels fallback."""
-    def test_acf_returns_empty_when_statsmodels_missing(self, monkeypatch):
-        """When statsmodels is unavailable, _detect_acf_periods returns []
-        without raising; the rest of TS detection (step-size defaults)
-        continues normally (D17)."""
+    def test_acf_period_detection_unaffected_by_missing_statsmodels(self, monkeypatch):
+        """ACF period detection no longer depends on statsmodels (it uses mlframe's numpy FFT ACF, because a
+        statsmodels/pandas version clash raised a TypeError the old ImportError guard missed): with statsmodels
+        unimportable it still runs and still finds a genuine period (D17)."""
         from mlframe.training.baselines import dummy as db
 
         # Monkey-patch the import to raise ImportError.
@@ -960,10 +961,10 @@ class TestStatsmodelsFallback:
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
         rng = np.random.default_rng(0)
-        y_train = rng.normal(size=200)
-        # Should return [] gracefully, not raise.
+        t = np.arange(2000)
+        y_train = 10.0 * np.sin(2 * np.pi * t / 7) + rng.normal(size=t.size)
         periods = db._detect_acf_periods(y_train, len(y_train))
-        assert periods == []
+        assert 7 in periods, periods
 
 
 # ---------------------------------------------------------------------

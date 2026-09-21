@@ -139,12 +139,15 @@ class EmbeddingProvider(BaseModel):
     Examples
     --------
     >>> EmbeddingProvider(kind="huggingface", model="intfloat/multilingual-e5-small")
+    EmbeddingProvider(kind='huggingface', model='intfloat/multilingual-e5-small', params={})
     >>> EmbeddingProvider.from_uri("hf://BAAI/bge-small-en-v1.5?device=cuda:0")
+    EmbeddingProvider(kind='huggingface', model='BAAI/bge-small-en-v1.5', params={'device': 'cuda:0'})
     >>> EmbeddingProvider(
     ...     kind="openai",
     ...     model="text-embedding-3-small",
     ...     params={"api_key": "env:OPENAI_API_KEY", "dimensions": 512},
     ... )
+    EmbeddingProvider(kind='openai', model='text-embedding-3-small', params={'api_key': '***', 'dimensions': 512})
     """
 
     model_config = ConfigDict(extra="forbid")

@@ -60,6 +60,7 @@ def test_returns_4_tuple_of_pipelines():
     out = get_binningprocess_featureselectors(df, n_jobs=1)
     assert isinstance(out, tuple), f"must return tuple; got {type(out).__name__}"
     assert len(out) == 4, f"must return 4-tuple; got len={len(out)}"
+    assert list(enumerate(out))
     for i, pipe in enumerate(out):
         assert isinstance(pipe, Pipeline), f"output[{i}] must be sklearn Pipeline; got {type(pipe).__name__}"
 
@@ -79,6 +80,7 @@ def test_withcats_pipelines_have_encoder_step():
 def test_all_pipelines_have_binningprocess_step():
     """All pipelines have binningprocess step."""
     df, _ = _make_synthetic_binary_df()
+    assert list(get_binningprocess_featureselectors(df, n_jobs=1))
     for pipe in get_binningprocess_featureselectors(df, n_jobs=1):
         assert "BP" in dict(pipe.steps), f"every pipeline must include the 'BP' (BinningProcess) step; got {[n for n, _ in pipe.steps]}"
 

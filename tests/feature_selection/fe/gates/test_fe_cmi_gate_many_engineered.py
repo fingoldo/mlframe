@@ -142,6 +142,7 @@ def test_canonical_form_preferred_over_redundant_remap():
     for which, v0 in base.items():
         cands[f"zzz_remap_{which}"] = _mk(2.5 * v0 + 7.0, yb)
     accepted, _ = apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
+    assert len(base) > 0
     for drv in base:
         assert drv in accepted, f"canonical {drv} not admitted: accepted={sorted(accepted)}"
         assert f"zzz_remap_{drv}" not in accepted, f"redundant remap of {drv} wrongly admitted"
@@ -204,6 +205,7 @@ def test_cap_keeps_genuine_drops_low_marginal_tail():
         seed=0,
     )
     # All three genuine drivers survive the cap (high marginal MI).
+    assert len(base) > 0
     for drv in base:
         assert drv in accepted, f"genuine {drv} dropped by the cap: {diag.get(drv)}"
     # Some noise was dropped by the cap (the cap actually fired).

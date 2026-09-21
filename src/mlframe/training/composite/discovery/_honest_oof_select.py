@@ -21,9 +21,11 @@ group-internal CV-RMSE rather than auto-killing the spec.
 """
 from __future__ import annotations
 
+from ..estimator._smearing import smeared_prediction
 from ._spec_shared import spec_base_columns, rmse
 
 import logging
+import threading
 from typing import Any, Sequence
 
 import numpy as np
@@ -35,6 +37,54 @@ from .screening import _extract_column_array, base_arg as _base_arg
 from ._screening_tiny import _build_tiny_model
 
 logger = logging.getLogger(__name__)
+
+
+def prediction_key(valid: np.ndarray) -> int:
+    """A fingerprint of the fit-row mask a prediction was made under; two measurements match only on equal masks."""
+    return hash(np.packbits(np.asarray(valid, dtype=bool)).tobytes())
+
+
+def cached_honest_prediction(self, fit_idx: np.ndarray, eval_idx: np.ndarray, spec_name: str | None = None, valid: np.ndarray | None = None):
+    """Honest-OOF's holdout prediction for ``spec_name`` (or the raw baseline when ``None``), if it was made on these rows.
+
+    The honest RMSE gate fits the same tiny model on the same screen rows and predicts the same holdout rows whenever
+    both samples fit under their caps, which is when neither draws at random: its numbers were measured identical to
+    honest-OOF's to full precision. A prediction is returned only when the fit rows, the eval rows and the spec's fit
+    mask all match, so a gate whose sample or domain refinement differs always refits.
+    """
+    cache = getattr(self, "_honest_oof_predictions", None)
+    if not cache or not np.array_equal(cache["fit_idx"], fit_idx) or not np.array_equal(cache["eval_idx"], eval_idx):
+        return None
+    if spec_name is None:
+        return cache["raw"]
+    hit = cache["specs"].get(spec_name)
+    if hit is None or valid is None or hit[0] != prediction_key(valid):
+        return None
+    return hit[1]
+
+
+def _raw_baseline_prediction(new_model, x_fit, y_fit, x_eval):
+    """The raw-y tiny model's holdout prediction, or ``None`` (logged) when it cannot be fit, which disables the selector."""
+    try:
+        raw_model = new_model()
+        raw_model.fit(x_fit, y_fit)
+        return np.asarray(raw_model.predict(x_eval), dtype=np.float64)
+    except Exception as exc:  # -- baseline failure -> no ranking key produced
+        logger.warning("[CompositeTargetDiscovery.honest_oof_select] raw-y baseline fit failed (%s); selector skipped.", exc)
+        return None
+
+
+def _honest_lag_floor(df, target_col, eval_idx, y_eval) -> float:
+    """The AR failsafe (``y_hat = y_prev``) RMSE on the honest holdout rows, or ``nan`` when there is no usable lag column."""
+    lag_col = detect_causal_lag_column(df, target_col)
+    if lag_col is None:
+        return float("nan")
+    try:
+        lag_eval = _extract_column_array(df, lag_col, rows=eval_idx).astype(np.float64)
+        return float(causal_lag_predict_rmse(lag_eval, y_eval))
+    except Exception as exc:  # -- lag probe failure -> no lag floor (raw floor still applies)
+        logger.debug("[honest_oof_select] lag floor probe failed for %s: %s", lag_col, exc)
+        return float("nan")
 
 
 def honest_oof_reconstruction_rmse(
@@ -60,6 +110,7 @@ def honest_oof_reconstruction_rmse(
     # Reset the per-target honest-OOF floor references so a stale value from a prior target cannot leak into this gate.
     self._honest_oof_raw_rmse = float("nan")
     self._honest_oof_lag_rmse = float("nan")
+    self._honest_oof_predictions = None
     if holdout_idx is None or not kept_specs:
         return out
     screen_idx = np.asarray(screen_idx)
@@ -105,27 +156,23 @@ def honest_oof_reconstruction_rmse(
             learning_rate=learning_rate, random_state=rs, inner_n_jobs=inner_n_jobs,
         )
 
-    try:
-        raw_model = _new_model()
-        raw_model.fit(x_fit, y_fit)
-        raw_rmse = rmse(y_eval, np.asarray(raw_model.predict(x_eval), dtype=np.float64))
-        self._honest_oof_raw_rmse = float(raw_rmse) if np.isfinite(raw_rmse) else float("nan")
-    except Exception as exc:  # -- baseline failure -> no ranking key produced
-        logger.warning("[CompositeTargetDiscovery.honest_oof_select] raw-y baseline fit failed (%s); selector skipped.", exc)
+    raw_pred = _raw_baseline_prediction(_new_model, x_fit, y_fit, x_eval)
+    if raw_pred is None:
         return out
+    raw_rmse = rmse(y_eval, raw_pred)
+    self._honest_oof_raw_rmse = float(raw_rmse) if np.isfinite(raw_rmse) else float("nan")
 
     # AR failsafe (lag_predict) floor on the SAME group-disjoint holdout rows. On a strong-AR sequential target the
     # deployed model is often just ``y_hat = y_prev``; a composite spec whose honest reconstruction cannot beat that
     # failsafe is worthless even if it beats the raw-y model. Measure the lag baseline here so the gate can floor every
     # spec against ``min(raw, lag)`` rather than raw alone (prod incident: 13.30 ensemble vs 11.58 lag floor).
-    lag_col = detect_causal_lag_column(df, target_col)
-    if lag_col is not None:
-        try:
-            lag_eval = _extract_column_array(df, lag_col, rows=eval_idx).astype(np.float64)
-            lag_rmse = causal_lag_predict_rmse(lag_eval, y_eval)
-            self._honest_oof_lag_rmse = float(lag_rmse)
-        except Exception as exc:  # -- lag probe failure -> no lag floor (raw floor still applies)
-            logger.debug("[honest_oof_select] lag floor probe failed for %s: %s", lag_col, exc)
+    self._honest_oof_lag_rmse = _honest_lag_floor(df, target_col, eval_idx, y_eval)
+
+    # Keep what was measured so the honest RMSE gate, which fits the same models on the same rows when both samples are
+    # under their caps, can reuse a prediction instead of refitting it (see ``cached_honest_prediction``).
+    _spec_preds: dict = {}
+    _pred_lock = threading.Lock()
+    self._honest_oof_predictions = {"fit_idx": fit_idx, "eval_idx": eval_idx, "raw": raw_pred, "specs": _spec_preds}
 
     def _score_one(spec) -> tuple[str, float | None]:
         """Fit-and-invert one spec's transform on the screen/holdout split, returning ``(spec.name, rmse)``; ``rmse=None`` signals a degenerate measurement (unknown transform, no valid rows) that should NOT auto-kill the spec, distinct from ``+inf`` which signals a genuine reconstruction collapse."""
@@ -156,7 +203,10 @@ def honest_oof_reconstruction_rmse(
             model = _new_model(inner_n_jobs=_inner_n_jobs)
             model.fit(x_fit[valid], t_fit)
             t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
-            y_hat = np.asarray(transform.inverse(t_hat, base_eval, params), dtype=np.float64)
+            # Smearing for curved unary inverses: score the conditional mean of y, as the trained composite predicts.
+            y_hat = smeared_prediction(spec.transform_name, model, x_fit[valid], t_fit, t_hat, lambda t: transform.inverse(t, base_eval, params))
+            with _pred_lock:
+                _spec_preds[spec.name] = (prediction_key(valid), y_hat)
         except Exception as exc:  # -- fit/inverse blew up -> fall back
             logger.debug("[honest_oof_select] fit/inverse failed for %s: %s", spec.name, exc)
             return spec.name, None

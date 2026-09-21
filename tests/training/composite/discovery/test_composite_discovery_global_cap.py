@@ -72,15 +72,34 @@ class TestGlobalCompositeCap:
         assert cfg.max_total_composite_targets > 0
 
     def test_none_disables_the_cap_keeping_every_discovered_spec(self):
-        """The escape hatch: an explicit None must not drop anything the per-target discovery accepted."""
+        """The escape hatch: an explicit None must not drop anything the per-target discovery accepted.
+
+        ``min_honest_gain_to_train`` is the other, independent reason a spec is not trained; switched off here so the
+        assertion measures the cap alone (its own test is below).
+        """
         feats_df, targets = _synthetic_two_targets()
-        cfg = CompositeTargetDiscoveryConfig(enabled=True, max_total_composite_targets=None)
+        cfg = CompositeTargetDiscoveryConfig(enabled=True, max_total_composite_targets=None, min_honest_gain_to_train=None)
         target_by_type, metadata = _run(cfg, targets, feats_df)
 
         n_discovered = sum(len(v) for tt_specs in metadata["composite_target_specs"].values() for v in tt_specs.values())
         n_in_target_by_type = len(target_by_type[TargetTypes.REGRESSION]) - len(targets)
         assert n_discovered > 0, "both targets are strong-AR near-copies; discovery must accept at least one spec each"
         assert n_in_target_by_type == n_discovered
+
+    def test_gain_floor_drops_specs_that_do_not_beat_raw(self, caplog):
+        """A spec whose honest-holdout RMSE gain is at or below the floor is not trained: the cap alone only picks the
+        best N, so on a run where few specs help it still shipped specs that lose to raw y (12 of 25 in production)."""
+        feats_df, targets = _synthetic_two_targets()
+        no_floor = CompositeTargetDiscoveryConfig(enabled=True, max_total_composite_targets=None, min_honest_gain_to_train=None)
+        tbt_all, _ = _run(no_floor, targets, feats_df)
+        n_all = len(tbt_all[TargetTypes.REGRESSION]) - len(targets)
+
+        floored = CompositeTargetDiscoveryConfig(enabled=True, max_total_composite_targets=None, min_honest_gain_to_train=0.5)
+        with caplog.at_level(logging.INFO, logger="mlframe.training.core._phase_composite_discovery"):
+            tbt_floor, _ = _run(floored, targets, feats_df)
+        n_floor = len(tbt_floor[TargetTypes.REGRESSION]) - len(targets)
+        assert n_floor < n_all, "a 50%-of-baseline floor must drop specs this DGP cannot clear"
+        assert "min_honest_gain_to_train" in caplog.text
 
     def test_cap_keeps_only_the_global_budget_across_both_targets(self, caplog):
         """A cap smaller than the total discovered across BOTH targets must still leave target_by_type

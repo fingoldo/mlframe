@@ -80,6 +80,9 @@ def _centered_ratio_domain_fitted(y, base, params):
     ``domain_check`` ``y=None`` predict-time contract: with ``y`` unknown we
     still gate the base-side ``|base + c| >= eps`` condition (knowable from
     params), so the same rows are flagged at predict time.
+
+    Every train row has ``base + c > 0`` by construction of ``c``, so the valid side is ``base + c >= eps`` (same sign as train). A predict row with
+    ``base + c <= -eps`` is past the pole: its inverse ``T_hat * (base + c)`` flips the sign of the prediction, so it goes to the fallback instead.
     """
     base_arr = np.asarray(base, dtype=np.float64)
     if params is None:
@@ -88,7 +91,7 @@ def _centered_ratio_domain_fitted(y, base, params):
     c = float(params.get("c", 0.0))
     eps = float(params.get("eps", 0.0))
     shifted = base_arr + c
-    base_ok = np.isfinite(base_arr) & (np.abs(shifted) >= eps)
+    base_ok = np.isfinite(base_arr) & (shifted >= eps)
     if y is None:
         return base_ok
     return base_ok & np.isfinite(np.asarray(y, dtype=np.float64))

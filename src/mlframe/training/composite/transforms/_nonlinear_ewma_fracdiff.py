@@ -116,11 +116,80 @@ if _HAS_NUMBA:
                     lag_sum += weights_batch[s, k_idx] * anchor
                 out[s, i] = (t_batch[s, i] - lag_sum) * inv_w0
         return out
+
+    @_numba.njit(cache=True)
+    def _frac_diff_inverse_kernel_prefix(
+        t_f: np.ndarray, lags: int, weights: np.ndarray, prefix: np.ndarray,
+    ) -> np.ndarray:
+        """Frac-diff-inverse recurrence seeded by an explicit length-``lags`` history ``prefix`` (oldest first) instead of one scalar anchor."""
+        n = t_f.size
+        out = np.empty(n, dtype=np.float64)
+        inv_w0 = 1.0 / weights[0]
+        for i in range(n):
+            lag_sum = 0.0
+            for k_idx in range(1, lags + 1):
+                j = i - k_idx
+                if j >= 0:
+                    lag_sum += weights[k_idx] * out[j]
+                else:
+                    lag_sum += weights[k_idx] * prefix[lags + j]
+            out[i] = (t_f[i] - lag_sum) * inv_w0
+        return out
 else:
     _ewma_kernel = None
     _ewma_kernel_njit_par_batched = None
     _frac_diff_inverse_kernel = None
     _frac_diff_inverse_kernel_njit_par_batched = None
+    _frac_diff_inverse_kernel_prefix = None
+
+
+def _frac_diff_inverse_prefix(t_f: np.ndarray, lags: int, weights: np.ndarray, prefix: np.ndarray) -> np.ndarray:
+    """Frac-diff inverse seeded by a length-``lags`` observed-history prefix (njit kernel, pure-Python fallback)."""
+    t_f = np.ascontiguousarray(np.asarray(t_f, dtype=np.float64).reshape(-1))
+    weights = np.ascontiguousarray(np.asarray(weights, dtype=np.float64).reshape(-1))
+    prefix = np.ascontiguousarray(np.asarray(prefix, dtype=np.float64).reshape(-1))
+    if _HAS_NUMBA:
+        return np.asarray(_frac_diff_inverse_kernel_prefix(t_f, int(lags), weights, prefix))
+    out = np.empty(t_f.size, dtype=np.float64)
+    for i in range(t_f.size):
+        lag_sum = 0.0
+        for k_idx in range(1, lags + 1):
+            j = i - k_idx
+            lag_sum += weights[k_idx] * (out[j] if j >= 0 else prefix[lags + j])
+        out[i] = (t_f[i] - lag_sum) / weights[0]
+    return out
+
+
+def _history_prefix(default_prefix: np.ndarray, history: Optional[np.ndarray], lags: int) -> np.ndarray:
+    """Last ``lags`` values of ``default_prefix`` followed by the finite values of ``history`` (the rows immediately preceding a batch)."""
+    if history is None:
+        return np.asarray(default_prefix, dtype=np.float64)[-lags:]
+    h = np.asarray(history, dtype=np.float64).reshape(-1)
+    h = h[np.isfinite(h)]
+    return np.concatenate([np.asarray(default_prefix, dtype=np.float64), h])[-lags:]
+
+
+def _with_history(arr: np.ndarray, history: Optional[np.ndarray]) -> tuple[np.ndarray, int]:
+    """Prepend the rows preceding a batch so a recurrence warms up on them; returns the extended array and the number of prepended rows to drop."""
+    arr_f = np.asarray(arr, dtype=np.float64).reshape(-1)
+    if history is None:
+        return arr_f, 0
+    h = np.asarray(history, dtype=np.float64).reshape(-1)
+    return np.concatenate([h, arr_f]), int(h.size)
+
+
+def _warn_cold_recurrence(name: str, n_rows: int, horizon: int, params: dict[str, Any], history: Optional[np.ndarray]) -> None:
+    """Throttled warning when a recurrent inverse restarts its state on a batch shorter than the recurrence horizon (a batch boundary is a state
+    reset, so single-row / micro-batch serving diverges from batch scoring of the same rows unless the caller supplies the preceding rows)."""
+    if history is not None or params.get("recurrence_continuation") or n_rows >= horizon:
+        return
+    from mlframe.utils.log_throttle import log_throttle
+    log_throttle(
+        logger, f"recurrent_cold_start_{name}", logging.WARNING,
+        "%s: inverse on a %d-row batch restarts the recurrence from its train-mean seed (horizon %d rows), so these rows differ from the same rows "
+        "scored inside a longer batch. Pass the preceding rows as history (or fit with recurrence_continuation for a batch that follows train).",
+        name, n_rows, horizon,
+    )
 
 
 def _ewma_residual_fit(
@@ -357,18 +426,25 @@ def _frac_diff_inverse_compute_batched(
     return out
 def _ewma_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    history_base: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Apply ``T = y - EWMA_k(base)``, recomputing the EWMA trace from the fitted ``k``/mean-anchor at call time."""
-    return np.asarray(np.asarray(y, dtype=np.float64) - _ewma_compute(
-        base, int(params["k"]), float(params["anchor"]),
-    ))
+    """Apply ``T = y - EWMA_k(base)``, recomputing the EWMA trace from the fitted ``k``/mean-anchor at call time.
+
+    ``history_base``: the base rows immediately preceding this batch; the EWMA runs over them first so the batch continues their state (a batch
+    evaluated with its full prefix as history equals the same rows inside one longer batch, bit for bit).
+    """
+    ext, h = _with_history(base, history_base)
+    return np.asarray(np.asarray(y, dtype=np.float64).reshape(-1) - _ewma_compute(ext, int(params["k"]), float(params["anchor"]))[h:])
 def _ewma_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    history_base: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Undo the transform: ``y = T_hat + EWMA_k(base)``, using :func:`_ewma_anchor` to pick the mean- vs tail-anchor seed."""
-    return np.asarray(np.asarray(t_hat, dtype=np.float64) + _ewma_compute(
-        base, int(params["k"]), _ewma_anchor(params),
-    ))
+    """Undo the transform: ``y = T_hat + EWMA_k(base)``, using :func:`_ewma_anchor` to pick the mean- vs tail-anchor seed; ``history_base`` as in
+    :func:`_ewma_residual_forward`."""
+    t_f = np.asarray(t_hat, dtype=np.float64).reshape(-1)
+    _warn_cold_recurrence("ewma_residual", t_f.size, int(params["k"]), params, history_base)
+    ext, h = _with_history(base, history_base)
+    return np.asarray(t_f + _ewma_compute(ext, int(params["k"]), _ewma_anchor(params))[h:])
 _ewma_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped
 def _rolling_median_pandas(arr_f: np.ndarray, k: int) -> np.ndarray:
     """Reference centred rolling median: pandas ``rolling(window=k, center=True, min_periods=1).median()``. This is the CONTRACT both backends reproduce. ``arr_f`` must already be float64 / 1-D / non-empty; ``k`` already clamped to ``>= 1``."""
@@ -455,33 +531,71 @@ def _frac_diff_fit(
     # whole-train mean. Opt-in via recurrence_continuation; default stays mean.
     tail_anchor = anchor
     _yt = y_f[finite]
+    tail_y = np.full(lags, anchor, dtype=np.float64)
     if _yt.size:
         tail_anchor = float(np.mean(_yt[-lags:]))
+        # The actual last ``lags`` train values (oldest first): a continuation batch's true pre-window history, which a forward over the
+        # concatenated train+continuation series would read. Padded with the anchor when train is shorter than ``lags``.
+        _last = _yt[-lags:]
+        tail_y[lags - _last.size :] = _last
+    weights = _frac_diff_weights(d, lags)
+    w_sum = float(weights.sum())
+    logger.debug(
+        "frac_diff fit: d=%.3g lags=%d; the batch inverse reconstructs past y from its own predictions, so a constant T-bias is amplified "
+        "~%.3gx in y (1/sum(w)) unless observed history is supplied.", d, lags, (1.0 / abs(w_sum)) if w_sum else float("inf"),
+    )
     return {
-        "d": d, "lags": lags, "anchor": anchor, "tail_anchor": tail_anchor,
-        "weights": _frac_diff_weights(d, lags).tolist(),
+        "d": d, "lags": lags, "anchor": anchor, "tail_anchor": tail_anchor, "tail_y": tail_y.tolist(),
+        "weights": weights.tolist(),
     }
+
+
+def _frac_diff_default_prefix(params: dict[str, Any], continuation: bool) -> np.ndarray:
+    """Pre-window history a batch starts from: the train tail values under recurrence continuation (tail mean for params pickled before
+    ``tail_y`` existed), else ``lags`` copies of the train-mean anchor."""
+    lags = int(params["lags"])
+    if continuation and params.get("recurrence_continuation"):
+        if "tail_y" in params:
+            return np.asarray(params["tail_y"], dtype=np.float64)
+        return np.full(lags, float(params.get("tail_anchor", params["anchor"])), dtype=np.float64)
+    return np.full(lags, float(params["anchor"]), dtype=np.float64)
+
+
 def _frac_diff_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    history_y: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """T_i = sum_{k=0}^{lags} w_k * y_{i-k}, padding y_{i-k} with the train anchor for k > i. Vectorised via ``np.convolve(y_padded, weights, 'valid')`` after left-padding ``y`` with ``lags`` copies of the train anchor (~340x over the nested Python loop on n=1M, lags=30)."""
+    """T_i = sum_{k=0}^{lags} w_k * y_{i-k}, padding y_{i-k} with the train anchor for k > i. Vectorised via ``np.convolve(y_padded, weights, 'valid')`` after left-padding ``y`` with ``lags`` copies of the train anchor (~340x over the nested Python loop on n=1M, lags=30).
+
+    ``history_y``: observed y rows immediately preceding this batch; they replace the anchor padding for the lags that reach before the batch."""
     lags = int(params["lags"])
     weights = np.asarray(params["weights"], dtype=np.float64)
-    anchor = float(params["anchor"])
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     if y_f.size == 0:
         return np.asarray(y_f.copy())
-    y_padded = np.concatenate([np.full(lags, anchor, dtype=np.float64), y_f])
+    prefix = _history_prefix(_frac_diff_default_prefix(params, continuation=False), history_y, lags)
+    y_padded = np.concatenate([prefix, y_f])
     return np.convolve(y_padded, weights, mode="valid")
 def _frac_diff_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    history_y: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Invert: T_i = w_0 * y_i + sum_{k=1}^{lags} w_k * y_{i-k}, so y_i = (T_i - sum_{k=1}^{lags} w_k * y_{i-k}) / w_0. w_0 == 1 by construction. Past y values are unknown at predict, so we ITERATIVELY reconstruct them: y_0 from T_0 + lag-anchors, y_1 from T_1 + y_0 + lag-anchors, etc. Routes through :func:`_frac_diff_inverse_compute` -> :func:`_frac_diff_inverse_dispatch` so kernel_tuning_cache + env-var force-override choose the backend; default keeps the scalar njit kernel (~260x over pure Python on n=1M, lags=30)."""
+    """Invert: T_i = w_0 * y_i + sum_{k=1}^{lags} w_k * y_{i-k}, so y_i = (T_i - sum_{k=1}^{lags} w_k * y_{i-k}) / w_0. w_0 == 1 by construction.
+
+    Past y inside the batch are reconstructed ITERATIVELY from the batch's own predictions, so a constant T-bias is amplified by ``1/sum(w)``
+    (~9.75x at d=0.5, lags=30). Past y BEFORE the batch come from ``history_y`` when the caller supplies the observed
+    values (online serving: one row per call with the observed history gives gain 1 and no dependence on batch composition), else from the
+    train tail under recurrence continuation, else from the train-mean anchor. The anchor-seeded default routes through
+    :func:`_frac_diff_inverse_compute` -> :func:`_frac_diff_inverse_dispatch` (kernel_tuning_cache + env-var force-override pick the backend)."""
     lags = int(params["lags"])
     weights = np.ascontiguousarray(np.asarray(params["weights"], dtype=np.float64))
-    anchor = _ewma_anchor(params)  # mean by default, train-tail when opted in
     t_f = np.ascontiguousarray(np.asarray(t_hat, dtype=np.float64).reshape(-1))
-    return _frac_diff_inverse_compute(t_f, lags, weights, anchor)
+    _warn_cold_recurrence("frac_diff", t_f.size, lags, params, history_y)
+    if history_y is None and not (params.get("recurrence_continuation") and "tail_y" in params):
+        anchor = _ewma_anchor(params)  # mean by default, train-tail mean for params pickled before tail_y
+        return _frac_diff_inverse_compute(t_f, lags, weights, anchor)
+    prefix = _history_prefix(_frac_diff_default_prefix(params, continuation=True), history_y, lags)
+    return _frac_diff_inverse_prefix(t_f, lags, weights, prefix)
 def _frac_diff_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:

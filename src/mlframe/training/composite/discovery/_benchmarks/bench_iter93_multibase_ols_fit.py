@@ -25,6 +25,7 @@ import time
 import numpy as np
 
 from ...transforms.linear import _linear_residual_multi_fit
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 _TINY = np.finfo(np.float64).tiny
 _COND = 30.0
@@ -65,8 +66,10 @@ def _timeit(fn, r=60):
         fn()
     ts = []
     for _ in range(r):
+        synchronize_gpu_if_available()
         t = time.perf_counter()
         fn()
+        synchronize_gpu_if_available()
         ts.append(time.perf_counter() - t)
     return float(np.median(ts) * 1e3)
 

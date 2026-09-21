@@ -417,6 +417,13 @@ def run_recurrent_finalize_and_composite_post(
         verbose=bool(verbose),
         ctx=ctx,
     )
+    # finalize_suite saved before post-processing wrapped the composite models, built the CT ensemble and stamped its
+    # metadata; persist those now so the on-disk suite matches the returned one.
+    ctx.models = models
+    ctx.metadata = metadata
+    from ._phase_persist_post import persist_after_composite_post
+
+    persist_after_composite_post(ctx)
     return models, metadata
 
 
@@ -596,10 +603,13 @@ def run_optional_diagnostics_and_composite_discovery(
     except (TypeError, OSError) as e:
         logger.debug("discovery cache dir disabled (data_dir=%r): %s", data_dir, e)
         _discovery_cache_dir = None
-    if not maybe_apply_composite_target_specs_precomputed(
+    # The precomputed specs seed metadata AND are replayed through discovery, which is what actually builds the
+    # composite target columns. Skipping the phase, as this branch used to, left the documented reuse path training no
+    # composite target at all.
+    _pre_specs = metadata["composite_target_specs"] if maybe_apply_composite_target_specs_precomputed(
         _precomp_fp_ok=_precomp_fp_ok, precomputed=precomputed, metadata=metadata, verbose=verbose,
-    ):
-        target_by_type, metadata = pr_module.run_composite_target_discovery(
+    ) else None
+    target_by_type, metadata = pr_module.run_composite_target_discovery(
             composite_target_discovery_config=composite_target_discovery_config,
             target_by_type=target_by_type, mlframe_models=mlframe_models, metadata=metadata,
             filtered_train_df=filtered_train_df, filtered_train_idx=filtered_train_idx,
@@ -608,5 +618,6 @@ def run_optional_diagnostics_and_composite_discovery(
             baseline_diagnostics_config=baseline_diagnostics_config, cat_features=cat_features,
             verbose=bool(verbose), discovery_cache_dir=_discovery_cache_dir, group_ids=group_ids,
             split_config=split_config, data_dir=data_dir, save_charts=save_charts,
+            precomputed_specs=_pre_specs,
         )
     return target_by_type, metadata

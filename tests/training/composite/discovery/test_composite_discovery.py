@@ -206,6 +206,7 @@ class TestAutoBase:
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2", "x3"], train_idx=np.arange(1200))
         # Only TVT_prev was offered, so all kept specs use it.
+        assert len(disc.specs_) > 0
         for s in disc.specs_:
             assert s.base_column == "TVT_prev"
 
@@ -388,6 +389,7 @@ class TestForbiddenFilters:
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2", "x3", "target_enc_grp"], train_idx=np.arange(1200))
         # target_enc_grp must NOT appear as a base in any kept spec.
+        assert len(disc.specs_) > 0
         for s in disc.specs_:
             assert s.base_column != "target_enc_grp"
 
@@ -405,6 +407,7 @@ class TestForbiddenFilters:
         )
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "leaked"], train_idx=np.arange(1200))
+        assert len(disc.specs_) > 0
         for s in disc.specs_:
             assert s.base_column != "leaked"
 
@@ -420,6 +423,7 @@ class TestForbiddenFilters:
         )
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "const_col"], train_idx=np.arange(1200))
+        assert len(disc.specs_) > 0
         for s in disc.specs_:
             assert s.base_column != "const_col"
 
@@ -435,6 +439,7 @@ class TestForbiddenFilters:
         )
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "category"], train_idx=np.arange(1200))
+        assert len(disc.specs_) > 0
         for s in disc.specs_:
             assert s.base_column != "category"
 
@@ -602,6 +607,7 @@ class TestIterTransform:
         # One T-array per discovered spec.
         assert set(outputs) == {s.name for s in disc.specs_}
         # Each T has length matching df.
+        assert outputs.values()
         for t in outputs.values():
             assert len(t) == len(df)
             assert t.dtype == np.float64
@@ -740,6 +746,7 @@ class TestPolarsAndEdgeCases:
             train_idx=np.arange(1200),
         )
         # Same seed -> same MI gains.
+        assert list(zip(disc_a.specs_, disc_b.specs_))
         for sa, sb in zip(disc_a.specs_, disc_b.specs_):
             assert sa.name == sb.name
             assert abs(sa.mi_gain - sb.mi_gain) < 1e-10

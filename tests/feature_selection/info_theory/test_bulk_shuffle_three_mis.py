@@ -179,6 +179,7 @@ def test_bulk_deterministic_for_same_seed():
         seed,
         np.int32,
     )
+    assert list(zip(out_a, out_b))
     for arr_a, arr_b in zip(out_a, out_b):
         assert np.array_equal(arr_a, arr_b), "bulk should be deterministic under same base_seed"
 

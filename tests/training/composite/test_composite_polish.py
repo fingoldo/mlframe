@@ -58,6 +58,7 @@ class TestDeriveSeeds:
     def test_returns_32bit_unsigned(self) -> None:
         """Returns 32bit unsigned."""
         seeds = derive_seeds(42, ["a", "b", "c"])
+        assert seeds.values()
         for v in seeds.values():
             assert isinstance(v, int)
             assert 0 <= v < 2**32

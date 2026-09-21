@@ -88,6 +88,7 @@ def test_cupy_stats_bit_identical_to_cpu(n, k, seed):
     sel, data, nbins, tgt = _synthetic_selected_set(n=n, k=k, seed=seed)
     cpu = _friend_graph_cpu_stats(sel, data, nbins, tgt, np.int32)
     gpu = friend_graph_stats_cupy(sel, data, nbins, tgt, np.int32)
+    assert len(sel) > 0
     for i in sel:
         assert gpu.H[i] == cpu.H[i], f"node {i} entropy differs"
         assert gpu.rel[i] == cpu.rel[i], f"node {i} relevance differs"
@@ -104,6 +105,7 @@ def test_cuda_stats_bit_identical_to_cpu(n, k, seed):
     sel, data, nbins, tgt = _synthetic_selected_set(n=n, k=k, seed=seed)
     cpu = _friend_graph_cpu_stats(sel, data, nbins, tgt, np.int32)
     gpu = friend_graph_stats_cuda(sel, data, nbins, tgt, np.int32)
+    assert len(sel) > 0
     for i in sel:
         assert gpu.H[i] == cpu.H[i], f"node {i} entropy differs"
         assert gpu.rel[i] == cpu.rel[i], f"node {i} relevance differs"
@@ -163,6 +165,7 @@ def test_cuda_node_codes_ondevice_cast_matches_forced_reupload_fallback(monkeypa
     monkeypatch.setattr(fgg, "_CUPY_AVAIL", False)
     gpu_fallback = fgg.friend_graph_stats_cuda(sel, data, nbins, tgt, np.int32)
 
+    assert len(sel) > 0
     for i in sel:
         assert gpu_fast.H[i] == gpu_fallback.H[i], f"node {i} entropy differs between on-device-cast and re-upload fallback"
         assert gpu_fast.rel[i] == gpu_fallback.rel[i], f"node {i} relevance differs between on-device-cast and re-upload fallback"
@@ -286,8 +289,10 @@ def test_multi_target_relevance_falls_back_to_cpu():
     assert gpu.rel is None
     # H + edges still bit-identical to the CPU reference.
     cpu = _friend_graph_cpu_stats(sel, data2, nbins2, tgt2, np.int32)
+    assert len(sel) > 0
     for i in sel:
         assert gpu.H[i] == cpu.H[i]
+    assert len(cpu.edge_mi) > 0
     for e in cpu.edge_mi:
         assert gpu.edge_mi[e] == cpu.edge_mi[e]
     # And the full build with this multi-target still matches the CPU build. Disable the

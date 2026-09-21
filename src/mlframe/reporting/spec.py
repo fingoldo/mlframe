@@ -133,6 +133,9 @@ class HistogramPanelSpec:
     overlay_normal: Optional[Tuple[float, float]] = None
     overlay_label: Optional[str] = None
     yscale: Literal["linear", "log"] = "linear"
+    # "asinh" x-axis for pre-binned heavy-tailed values (see LinePanelSpec.xscale); plotly keeps a linear axis.
+    xscale: Literal["linear", "asinh"] = "linear"
+    xscale_linear_width: float = 1.0
     grid: bool = True
     density: bool = True  # normalize histogram to PDF (matplotlib density=True)
     # When ``values`` is pre-binned (e.g. calibration ``hits``), pass the
@@ -345,7 +348,12 @@ class LinePanelSpec:
     # Log-scale the y-axis. A small sampled trace (e.g. a 20-row eyeball-traceable subsample of a
     # heavy-tailed target) can span single digits to the thousands, which crushes a linear axis into an
     # unreadable spike -- mirrors HistogramPanelSpec.yscale.
-    yscale: Literal["linear", "log"] = "linear"
+    yscale: Literal["linear", "log", "asinh"] = "linear"
+    # "asinh" x-axis for heavy-tailed values: linear within +-``xscale_linear_width`` of zero, logarithmic beyond, so a
+    # spike at 0 and a tail to 1e4 are both readable (a linear axis put a whole target distribution in one bin). The
+    # plotly backend has no asinh scale and keeps a linear axis.
+    xscale: Literal["linear", "asinh"] = "linear"
+    xscale_linear_width: float = 1.0
     # Explicit tick labels at the corresponding positions in ``x`` (same length as ``x``, or as the first
     # series' x when ``x`` is a per-series tuple). Use this when ``x`` is deliberately an evenly-spaced
     # RANK (0, 1, 2, ...) rather than the feature's own value -- e.g. a quantile-spaced PDP grid over a

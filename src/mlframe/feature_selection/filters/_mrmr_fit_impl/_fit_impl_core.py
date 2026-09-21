@@ -1701,7 +1701,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         cat_fe_state.recipes[_ri] = r.with_extra(cat_code_maps=_maps_for_recipe)
                     except Exception as e:
                         # Without its train-time code maps the recipe replays categories with fresh codes at transform: silent train/serve skew.
-                        logger.warning("mrmr: attaching cat_code_maps to recipe %r failed (%s: %s); its transform-time category codes may not match fit", getattr(r, "name", "?"), type(e).__name__, e)
+                        log_throttle(
+                            logger, "mrmr_cat_code_maps_attach_failed", logging.WARNING,
+                            "mrmr: attaching cat_code_maps to recipe %r failed (%s: %s); its transform-time category codes may not match fit",
+                            getattr(r, "name", "?"), type(e).__name__, e,
+                        )
         # Cat-FE recipes feed the same engineered_recipes dict numeric FE uses; the fit-end splitter copies
         # any recipe whose engineered name appears in selected_vars_names into ``self._engineered_recipes_``.
         for r in cat_fe_state.recipes:
@@ -1736,6 +1740,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             )
     else:
         _effective_min_relevance_gain = float(self.min_relevance_gain)
+    # Read by the post-screen usability-aware pure-form retention, which builds its own candidate pool and
+    # must not admit an engineered form below a caller-pinned absolute relevance floor.
+    self._effective_min_relevance_gain_ = _effective_min_relevance_gain
 
     num_fs_steps = 0
     # Tracks whether the post-FE confirming re-screen has run, so it

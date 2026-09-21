@@ -337,6 +337,12 @@ def _setup_per_target_mlframe_models(
 
     # Audits are precomputed once for all targets via the batch API; this lookup is the per-target render.
     _audit = _all_target_audits.get(target_type, {}).get(cur_target_name)
+    # A composite target is a residual / transform of a raw target whose own audit is already logged: its "mean rate"
+    # per week and the advice to "train on the most recent stable segment" describe the residual, not anything to act on.
+    from ..composite.transforms import is_composite_target_name
+
+    if _audit is not None and is_composite_target_name(str(cur_target_name)):
+        _audit = None
     if _audit is not None:
         try:
             logger.info(_format_temporal_audit_report(_audit))
@@ -550,10 +556,13 @@ def _setup_per_target_mlframe_models(
     # the composite residual T for composite-target paths; in both
     # cases the inner boosting fits this distribution directly, so
     # the auto-switch matches the actual signal-vs-noise regime.
+    # The kurtosis is read from the rows the booster actually fits (post-OD train), not the full-length target:
+    # the full vector still carries the outliers the detector just removed (and the val / test rows), so a
+    # contaminated target picked Huber for a fit on already-cleaned rows.
     if _is_regression_target_type(target_type):
         _apply_loss_recommendation_in_place(
             models_params=models_params,
-            target_values=cur_target_values,
+            target_values=current_train_target if current_train_target is not None else cur_target_values,
             composite_name=cur_target_name,
             logger_=logger,
             verbose=verbose,
@@ -616,6 +625,14 @@ def _setup_per_target_mlframe_models(
     # residual-vs-time / metric-over-time temporal-drift panels under the same FTE-timestamp gate as the target audit.
     if timestamps is not None:
         common_params["timestamps"] = timestamps
+
+    # A composite target's T depends on its spec's fitted params, so the model cache must not reuse an inner trained on a
+    # different T; process_model compares this digest with the one stamped on the cached wrapper.
+    from ._composite_wrap_helpers import composite_spec_digest, find_composite_spec
+
+    _cspec = find_composite_spec(metadata, target_type, cur_target_name)
+    if _cspec is not None:
+        common_params["composite_spec_digest"] = composite_spec_digest(_cspec)
 
     return {
         "plot_file": plot_file,

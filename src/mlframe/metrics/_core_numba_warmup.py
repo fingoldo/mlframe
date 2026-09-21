@@ -146,6 +146,10 @@ def prewarm_numba_cache(include_feature_selection: bool = True, include_heavy_li
 
 def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_heavy_libs=None):
     """Trigger JIT compilation of every numba-backed metric kernel by importing them (module-level ``@njit`` decoration compiles on first import/call), while kicking off the loky physical-core-count probe on a background thread so its ~1.5s wmic subprocess overlaps the JIT wait instead of stacking after it."""
+    # Every block is attributed: a production log showed the step at 64s while the per-group line (then covering only
+    # the three tail groups) summed to 0.0s, so the metric-kernel compiles that dominate it were invisible.
+    _group_times: dict = {}
+    _t_body = _perf_counter()
     from .core import (
         fast_roc_auc, fast_aucs, fast_calibration_binning, fast_calibration_metrics,
         brier_score_loss, fast_brier_score_loss, fast_log_loss,
@@ -532,7 +536,7 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
     # suite gates this on whether feature selection was actually requested; a caller that cannot tell leaves
     # the default on, because paying the warm-up needlessly is a slow run while skipping it wrongly is a slow
     # first fit plus a confusing profile. Lazy import keeps this module's import cost unchanged.
-    _group_times: dict = {}
+    _group_times["metric_kernels"] = _perf_counter() - _t_body
     if include_feature_selection:
         _t_fs = _perf_counter()
         try:
@@ -643,14 +647,6 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
     # line said dummy_baselines=0.0s, feature_selection=0.0s, because the import cascade was timed by nothing.
     _group_times["heavy_lib_imports"] = 0.0 if _skip_heavy else _perf_counter() - _t_heavy
 
-    # A production log once showed this whole step at 511.71s with nothing saying which group spent it, which
-    # left "is the prewarm warming things this run never calls?" unanswerable from the log alone.
-    if _group_times:
-        logger.info(
-            "  [JIT prewarm] per-group: %s",
-            ", ".join(f"{_name}={_secs:.1f}s" for _name, _secs in sorted(_group_times.items(), key=lambda kv: -kv[1])),
-        )
-
     # Warm cupy GPU AUC kernels. `compute_batch_aucs` dispatches to `gpu_multiple_roc_auc_scores` / `gpu_multiple_pr_auc_scores` when N>=100k AND M>=5. cupy compiles CUDA kernels via NVRTC on first call (~128s per fresh process). No-op when cupy isn't installed.
     # Gate the WHOLE block on is_gpu_metrics_available() (which now probes
     # via an NVRTC compile, so it returns False on broken cupy / mismatched
@@ -659,6 +655,7 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
     # rather than raising, leaving the prewarm phase wedged (observed on a
     # box with cupy CUDA-Devices-Unavailable: prewarm timed out at 180s
     # before any test ran).
+    _t_gpu = _perf_counter()
     if is_gpu_metrics_available():
         try:
             from mlframe.metrics.core import (
@@ -675,6 +672,9 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
         except Exception as e:  # nosec B110 - non-trivial body
             logger.warning("GPU roc_auc/pr_auc/rmse kernels warmup failed, skipping: %s", e, exc_info=True)
 
+    _group_times["gpu_metric_kernels"] = _perf_counter() - _t_gpu
+
+    _t_rank = _perf_counter()
     # Warm `ranking_metrics._summary_batched_kernel` (parallel njit). On LTR combos `compute_ranking_summary` is called once per dummy baseline; the first call eats the entire JIT-compile budget. Compile with the canonical dtype combo used by `compute_ranking_summary` itself.
     try:
         from mlframe.metrics.ranking import _summary_batched_kernel
@@ -685,3 +685,13 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
         _ = _summary_batched_kernel(_yt_rank, _ys_rank, _gs_rank, _ks_rank)
     except Exception as e:  # nosec B110 - non-trivial body
         logger.warning("ranking _summary_batched_kernel warmup failed, skipping: %s", e, exc_info=True)
+    _group_times["ranking"] = _perf_counter() - _t_rank
+
+    # A production log once showed this whole step at 511.71s with nothing saying which group spent it, which
+    # left "is the prewarm warming things this run never calls?" unanswerable from the log alone.
+    if _group_times:
+        logger.info(
+            "  [JIT prewarm] total=%.1fs, per-group: %s",
+            _perf_counter() - _t_body,
+            ", ".join(f"{_name}={_secs:.1f}s" for _name, _secs in sorted(_group_times.items(), key=lambda kv: -kv[1])),
+        )

@@ -38,6 +38,7 @@ import threading
 from typing import Sequence
 
 import numpy as np
+from ._fourier_core_cycles import core_span, freq_is_tail_aliased
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,44 @@ def _vander4_gpu(cp, z):
     return cp.stack([z2 * z, z2, z, cp.ones_like(z)], axis=1)
 
 
+def _host_split_for_detect(z01: np.ndarray, y: np.ndarray, f_grid: Sequence[float], *, min_rows: int, fourier_detect_max_n: int):
+    """Host-side guards, SEEDED held-out split and row-subsample cap, mirroring the CPU detector exactly.
+
+    Returns ``(grid, z_tr, z_va, y_tr, y_va)`` as host arrays, or ``None`` when the column cannot carry a detection.
+    """
+    z01 = np.asarray(z01, dtype=np.float64).ravel()
+    y = np.asarray(y, dtype=np.float64).ravel()
+    n = z01.size
+    if n != y.size or n < int(min_rows):
+        return None
+    if not np.all(np.isfinite(z01)) or not np.all(np.isfinite(y)):
+        return None
+    if float(np.std(z01)) < 1e-12 or float(np.std(y)) < 1e-12:
+        return None
+    grid = [float(f) for f in f_grid if float(f) > 0.0]
+    if not grid:
+        return None
+    # SEEDED held-out split - IDENTICAL RNG seed/recipe to the CPU detector so the resident path operates on
+    # the byte-identical train/val rows (selection-equivalence depends on this matching exactly).
+    train_mask, val_mask = _seeded_split_masks(n)
+    z_tr_h, z_va_h = z01[train_mask], z01[val_mask]
+    y_tr_h = y[train_mask].copy()
+    y_va_h = y[val_mask].copy()
+    if z_tr_h.size < 16 or z_va_h.size < 8:
+        return None
+    # Row-subsample cap - IDENTICAL seed/recipe to the CPU detector.
+    _fdet_cap = int(fourier_detect_max_n)
+    if _fdet_cap > 0 and z_tr_h.size > _fdet_cap:
+        _va_cap = max(8, _fdet_cap // 2)
+        _sub_tr, _sub_va = _seeded_subsample_idx(z_tr_h.size, _fdet_cap, z_va_h.size, _va_cap)
+        z_tr_h = np.ascontiguousarray(z_tr_h[_sub_tr]); y_tr_h = np.ascontiguousarray(y_tr_h[_sub_tr])
+        if _sub_va is not None:
+            z_va_h = np.ascontiguousarray(z_va_h[_sub_va]); y_va_h = np.ascontiguousarray(y_va_h[_sub_va])
+    if float(np.std(y_tr_h)) < 1e-12 or float(np.std(y_va_h)) < 1e-12:
+        return None
+    return grid, z_tr_h, z_va_h, y_tr_h, y_va_h
+
+
 def detect_fourier_freqs_for_col_gpu(
     z01: np.ndarray,
     y: np.ndarray,
@@ -224,35 +263,10 @@ def detect_fourier_freqs_for_col_gpu(
     import cupy as cp
 
     z01 = np.asarray(z01, dtype=np.float64).ravel()
-    y = np.asarray(y, dtype=np.float64).ravel()
-    n = z01.size
-    if n != y.size or n < int(min_rows):
+    prepared = _host_split_for_detect(z01, y, f_grid, min_rows=min_rows, fourier_detect_max_n=fourier_detect_max_n)
+    if prepared is None:
         return []
-    if not np.all(np.isfinite(z01)) or not np.all(np.isfinite(y)):
-        return []
-    if float(np.std(z01)) < 1e-12 or float(np.std(y)) < 1e-12:
-        return []
-    grid = [float(f) for f in f_grid if float(f) > 0.0]
-    if not grid:
-        return []
-    # SEEDED held-out split - IDENTICAL RNG seed/recipe to the CPU detector so the resident path operates on
-    # the byte-identical train/val rows (selection-equivalence depends on this matching exactly).
-    train_mask, val_mask = _seeded_split_masks(n)
-    z_tr_h, z_va_h = z01[train_mask], z01[val_mask]
-    y_tr_h = y[train_mask].copy()
-    y_va_h = y[val_mask].copy()
-    if z_tr_h.size < 16 or z_va_h.size < 8:
-        return []
-    # Row-subsample cap - IDENTICAL seed/recipe to the CPU detector.
-    _fdet_cap = int(fourier_detect_max_n)
-    if _fdet_cap > 0 and z_tr_h.size > _fdet_cap:
-        _va_cap = max(8, _fdet_cap // 2)
-        _sub_tr, _sub_va = _seeded_subsample_idx(z_tr_h.size, _fdet_cap, z_va_h.size, _va_cap)
-        z_tr_h = np.ascontiguousarray(z_tr_h[_sub_tr]); y_tr_h = np.ascontiguousarray(y_tr_h[_sub_tr])
-        if _sub_va is not None:
-            z_va_h = np.ascontiguousarray(z_va_h[_sub_va]); y_va_h = np.ascontiguousarray(y_va_h[_sub_va])
-    if float(np.std(y_tr_h)) < 1e-12 or float(np.std(y_va_h)) < 1e-12:
-        return []
+    grid, z_tr_h, z_va_h, y_tr_h, y_va_h = prepared
 
     # ---- ONE bulk H2D of the 4 columns; everything below stays resident -------------------------------
     # z_tr/z_va are the per-column z split -> distinct, a genuine upload each. y_tr/y_va are the FIXED held-out
@@ -296,6 +310,7 @@ def detect_fourier_freqs_for_col_gpu(
         return []
 
     _eff_min_val_corr = max(float(min_val_corr), 0.30)
+    _core_span = core_span(z01)  # tail-aliasing guard, identical to the CPU detector
 
     # Coarse-grid sin/cos plane on TRAIN, built ONCE (depends only on z). Resident (nf, n).
     grid_dev = cp.asarray(np.asarray(grid, dtype=np.float64))  # tiny H2D (grid is O(48))
@@ -329,6 +344,10 @@ def detect_fourier_freqs_for_col_gpu(
         best_f = grid[best_gi]
         refined_f = _refine_peak_freq_gpu(cp, z_tr, yc, y_ss, best_f)
         if any(abs(refined_f - g) < 0.25 for g in out):
+            y_tr = _deflate_sincos_gpu(cp, z_tr, y_tr, refined_f)
+            y_va = _deflate_sincos_gpu(cp, z_va, y_va, refined_f)
+            continue
+        if freq_is_tail_aliased(refined_f, _core_span):
             y_tr = _deflate_sincos_gpu(cp, z_tr, y_tr, refined_f)
             y_va = _deflate_sincos_gpu(cp, z_va, y_va, refined_f)
             continue

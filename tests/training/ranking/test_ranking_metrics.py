@@ -196,6 +196,7 @@ class TestSummary:
             np.array([], dtype=int),
             eval_at=(1, 5),
         )
+        assert out.values()
         for v in out.values():
             assert np.isnan(v)
 

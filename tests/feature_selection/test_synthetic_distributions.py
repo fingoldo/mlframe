@@ -156,6 +156,7 @@ def test_reproducible_same_seed(profile):
     doms = {"a": sd.DOMAIN_ANY, "b": sd.DOMAIN_DIVISOR, "c": sd.DOMAIN_POSITIVE}
     d1 = sd.sample_operands(seed=42, n=3000, domains=doms, profile=profile)
     d2 = sd.sample_operands(seed=42, n=3000, domains=doms, profile=profile)
+    assert len(doms) > 0
     for k in doms:
         assert np.array_equal(d1[k], d2[k]), f"[{profile}] operand {k} not reproducible"
 

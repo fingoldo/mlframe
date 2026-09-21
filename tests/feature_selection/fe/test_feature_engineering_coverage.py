@@ -218,6 +218,7 @@ class TestUnaryInputConstraints:
             "pos",
             "nonzero",
         }
+        assert UNARY_INPUT_CONSTRAINTS.items()
         for name, tag in UNARY_INPUT_CONSTRAINTS.items():
             assert isinstance(name, str) and name
             assert tag in valid_tags, f"unknown constraint tag '{tag}' for '{name}'"
@@ -243,6 +244,7 @@ class TestUnaryInputConstraints:
     def test_keys_are_subset_of_maximal_preset_or_doc_only(self):
         """Every constraint key must be a real transform name in the maximal preset."""
         maximal = create_unary_transformations(preset="maximal")
+        assert len(UNARY_INPUT_CONSTRAINTS) > 0
         for k in UNARY_INPUT_CONSTRAINTS:
             assert k in maximal, f"UNARY_INPUT_CONSTRAINTS lists '{k}' but the maximal preset doesn't expose it"
 
@@ -422,6 +424,7 @@ class TestComputePairsMis:
             fe_min_pair_mi_prevalence=0.0,
         )
         # No pair key should be present (only singletons).
+        assert len(cached_MIs) > 0
         for k in cached_MIs:
             assert not isinstance(k, tuple) or len(k) == 1
 
@@ -491,6 +494,7 @@ class TestComputePairsMis:
             # All 3 pair MIs must have been COMPUTED.
             assert pair_calls_pass1 == 3, f"expected 3 pair-MI computes, got {pair_calls_pass1}"
             # Post-fix: every pair MI is cached even though prevalence rejected.
+            assert len(pairs) > 0
             for p in pairs:
                 assert p in cached_MIs, f"pair {p} MI must be cached after compute regardless of prevalence; got cached_MIs keys: {sorted(cached_MIs.keys())}"
 

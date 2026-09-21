@@ -67,7 +67,7 @@ def test_param_oracle_rss_mb_logs_on_failure(caplog):
 
 
 def test_composite_cache_int_digest_logs_on_failure(caplog, monkeypatch):
-    """The int/bool column min/max digest except (`_col_stats`, a closure inside
+    """The int/bool column min/max digest except (`_canonical_hash.pandas_column_stats`, called by
     `data_signature`) must log on failure. Driven through a real `data_signature` call on a
     small int-column frame, with `np.min` monkeypatched (on the cache module's own `np`) to
     raise only for integer dtypes."""
@@ -86,7 +86,7 @@ def test_composite_cache_int_digest_logs_on_failure(caplog, monkeypatch):
     monkeypatch.setattr(cache_mod.np, "min", _raising_min)
 
     df = pd.DataFrame({"f0": [1, 2, 3, 4, 5]})
-    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.cache"):
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite._canonical_hash"):
         sig = cache_mod.data_signature(df, target_col="y", feature_cols=["f0"])
     assert isinstance(sig, str) and len(sig) == 32
     assert any("cache: int/bool column min/max digest failed" in rec.message for rec in caplog.records)

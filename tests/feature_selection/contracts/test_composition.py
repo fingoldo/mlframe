@@ -155,8 +155,9 @@ class TestComposePairFE:
         """User-supplied names are reused in engineered-column labels (``r1_pair_<a>_<b>_...``)."""
         rng = np.random.default_rng(4)
         X = rng.normal(size=(400, 2))
-        # Strong additive signal so at least one engineered feature is appended.
-        y = (X[:, 0] + X[:, 1] > 0).astype(np.int64)
+        # Quadratic-minus-linear signal: a plain a+b would already be a trivial baseline, which the
+        # uplift gate rightly refuses to beat, so nothing would be appended and the name check below would never run.
+        y = (X[:, 0] ** 2 - X[:, 1] > 0.5).astype(np.int64)
         out = compose_pair_fe(
             X,
             y,
@@ -167,7 +168,8 @@ class TestComposePairFE:
             feature_names=["alpha", "beta"],
         )
         assert out["names"][:2] == ["alpha", "beta"]
-        # If an engineered column was added, its label must reference the parent names.
+        # The engineered column's label must reference the parent names.
+        assert len(out['names'][2:]) > 0
         for nm in out["names"][2:]:
             assert "alpha" in nm and "beta" in nm
 

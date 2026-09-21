@@ -57,6 +57,7 @@ def test_grouped_fit_segment_bit_identical(n, K, seed):
     # must be bit-identical to the mask reference. Shrinkage is applied uniformly
     # afterwards from those same raw values, so reproduce it here to compare the
     # final stored alphas too.
+    assert ref_a.keys()
     for g_key in ref_a.keys():
         # The stored alpha may be shrunk; invert is not needed -- instead refit
         # via the reference and confirm the loop saw the SAME inputs by checking
@@ -91,6 +92,7 @@ def test_grouped_fit_segment_raw_alpha_matches_mask_no_shrink():
     )
     assert params["shrinkage_factor"] == 0.0
     ref_a, ref_b, _ = _reference_mask_fit(y, base, labels, 30)
+    assert len(ref_a) > 0
     for g_key in ref_a:
         assert params["per_group_alphas"][g_key] == ref_a[g_key]
         assert params["per_group_betas"][g_key] == ref_b[g_key]

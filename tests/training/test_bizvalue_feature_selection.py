@@ -366,6 +366,7 @@ def test_selected_features_surface_for_inspection(tmp_path):
         """Parents in df."""
         return {col for col in df_cols if re.search(r"(?<![A-Za-z0-9])" + re.escape(col) + r"(?![A-Za-z0-9])", name)}
 
+    assert len(engineered_selected) > 0
     for name in engineered_selected:
         assert _parents_in_df(name), (
             f"Engineered selected feature {name!r} references no real input column "

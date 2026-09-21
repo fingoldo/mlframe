@@ -160,7 +160,7 @@ def engineer_grouped_causal_bases(
     lags: Sequence[int] = (1,),
     trailing_windows: Sequence[int] = (3,),
     ops: Sequence[str] = ("lag", "trailing_mean", "expanding_mean"),
-    first_fill: str = "group_first",
+    first_fill: str = "nan",
 ) -> dict[str, np.ndarray]:
     """Build strictly-causal PER-GROUP base columns from the target series, aligned to the frame's original row order.
 
@@ -173,8 +173,10 @@ def engineer_grouped_causal_bases(
     lags : lag offsets ``k >= 1`` for the ``"lag"`` op (lag 0 would be the current target = leakage).
     trailing_windows : trailing window sizes ``w >= 1`` for ``"trailing_mean"`` (window excludes the current row).
     ops : subset of ``{"lag", "trailing_mean", "expanding_mean"}``.
-    first_fill : ``"group_first"`` fills a group's history-less head rows with the group's first observed value (base
-        stays finite / in-range); ``"nan"`` leaves them NaN (honest "no causal history yet").
+    first_fill : ``"nan"`` (default) leaves a group's history-less head rows NaN ("no causal history yet"), which the
+        downstream pairwise masking drops. ``"group_first"`` fills them with the group's first observed value, which for
+        the row AT that position is its own ``y`` -- target leakage on those rows, and not computable when a new group's
+        first row arrives at serve time. Kept only for reproducing legacy runs.
 
     Returns
     -------
@@ -301,7 +303,14 @@ def maybe_add_grouped_causal_bases(
     lags = getattr(config, "engineer_causal_lags", (1,))
     trailing_windows = getattr(config, "engineer_causal_trailing_windows", (3,))
     ops = getattr(config, "engineer_causal_ops", ("lag", "trailing_mean", "expanding_mean"))
-    first_fill = getattr(config, "engineer_causal_first_fill", "group_first")
+    first_fill = getattr(config, "engineer_causal_first_fill", "nan")
+    if first_fill == "group_first":
+        logger.warning(
+            "[composite] engineer_causal_first_fill='group_first' writes each group's FIRST row its own y into the "
+            "engineered causal bases (%s), which is target leakage on those rows and is not computable at serve time. "
+            "Use 'nan' unless you are reproducing a legacy run.",
+            ", ".join(ops),
+        )
 
     # Route through the (formerly dormant) pool helper so grouped bases flow via the one engineered-base entry point.
     engineered = add_engineered_bases_to_pool(

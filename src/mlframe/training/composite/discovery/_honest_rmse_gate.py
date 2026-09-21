@@ -33,13 +33,21 @@ materialised; never a frame copy.
 """
 from __future__ import annotations
 
+_DUPLICATE_OF_RAW_RMSE_FRAC = 1e-3
+"""How close a spec's honest y-RMSE must be to raw's before it is even considered a possible copy of raw."""
+
+_DUPLICATE_OF_RAW_MIN_CORR = 0.9999
+"""And how strongly its reconstruction must track the raw model's prediction for it to be one."""
+
 from ._spec_shared import spec_base_columns, rmse
+from ._honest_oof_select import cached_honest_prediction
 
 import logging
 from typing import Any, Sequence
 
 import numpy as np
 
+from ..estimator._smearing import N_SMEAR_QUANTILES, SMEARED_TRANSFORMS, smeared_inverse
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array
 from ._rejection_ledger import RejectStage, ledger_append
@@ -55,6 +63,42 @@ def _base_arg(df: Any, base_columns: Sequence[str], rows: np.ndarray) -> np.ndar
     if len(base_columns) == 1:
         return _extract_column_array(df, base_columns[0], rows=rows).astype(np.float64)
     return np.column_stack([_extract_column_array(df, c, rows=rows).astype(np.float64) for c in base_columns])
+
+
+def _spec_fit_mask(transform, y_fit, base_fit, params, spec_name: str) -> np.ndarray:
+    """The rows a spec's T is fit on: the transform's domain, refined by its fitted-domain check (the screen's two stages)."""
+    try:
+        valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
+        if valid.shape != y_fit.shape:
+            valid = np.ones(y_fit.shape, dtype=bool)
+    except Exception as e:
+        logger.debug("domain_check failed, treating all rows as valid: %s", e)
+        valid = np.ones(y_fit.shape, dtype=bool)
+    _dcf = getattr(transform, "domain_check_fitted", None)
+    if _dcf is not None:
+        try:
+            vf = np.asarray(_dcf(y_fit, base_fit, params), dtype=bool)
+            if vf.shape == valid.shape:
+                valid = valid & vf
+        except Exception as e:  # -- treat as no refinement
+            logger.debug("honest_rmse_gate domain_check_fitted failed for %s: %s", spec_name, e)
+    return valid
+
+
+def _correlation_if_duplicate_of_raw(y_hat: np.ndarray, raw_pred: np.ndarray, rmse_y: float, raw_rmse: float) -> float | None:
+    """The spec-vs-raw prediction correlation when the reconstruction duplicates the raw model, else ``None``.
+
+    A spec whose reconstruction IS the raw model's prediction ships a second trained model for nothing: no lift and no
+    ensemble diversity, since the two prediction vectors are the same. The 5% tolerance keeps specs that trade a little
+    accuracy for a different view of the data, not copies of raw. The canonical case is a unary transform whose T is y
+    shifted by a constant on data with none of the structure it models.
+    """
+    if raw_pred.size <= 2 or abs(rmse_y - raw_rmse) > _DUPLICATE_OF_RAW_RMSE_FRAC * raw_rmse:
+        return None
+    if float(np.std(y_hat)) <= 0 or float(np.std(raw_pred)) <= 0:
+        return None
+    corr = float(np.corrcoef(y_hat, raw_pred)[0, 1])
+    return corr if corr >= _DUPLICATE_OF_RAW_MIN_CORR else None
 
 
 def apply_honest_rmse_gate(
@@ -111,6 +155,9 @@ def apply_honest_rmse_gate(
     learning_rate = float(getattr(cfg, "tiny_model_learning_rate", 0.1))
     rs = int(getattr(cfg, "random_state", 0))
 
+    # Residual quantiles of the last tiny-model fit on its own fit rows, for the smearing correction (``_smearing``).
+    _last_residual_q: dict = {"q": None}
+
     def _fit_predict(target_fit: np.ndarray, row_mask: np.ndarray | None = None) -> np.ndarray:
         """Fit a fresh tiny model on ``target_fit`` (optionally masked to the transform's valid fit rows) and predict on the shared holdout matrix."""
         xf = x_fit if row_mask is None else x_fit[row_mask]
@@ -120,10 +167,16 @@ def apply_honest_rmse_gate(
             learning_rate=learning_rate, random_state=rs,
         )
         model.fit(xf, tf)
+        _res = np.asarray(tf, dtype=np.float64) - np.asarray(model.predict(xf), dtype=np.float64)
+        _res = _res[np.isfinite(_res)]
+        _last_residual_q["q"] = np.quantile(_res, (np.arange(N_SMEAR_QUANTILES) + 0.5) / N_SMEAR_QUANTILES) if _res.size >= 4 * N_SMEAR_QUANTILES else None
         return np.asarray(model.predict(x_eval), dtype=np.float64)
 
     try:
-        raw_rmse = rmse(y_eval, _fit_predict(y_fit))
+        _raw_pred = cached_honest_prediction(self, fit_idx, eval_idx)
+        if _raw_pred is None:
+            _raw_pred = _fit_predict(y_fit)
+        raw_rmse = rmse(y_eval, _raw_pred)
     except Exception as exc:  # -- no baseline, no sound gate
         logger.warning("[CompositeTargetDiscovery.honest_rmse_gate] raw-y baseline fit failed (%s); gate skipped.", exc)
         return kept_specs
@@ -145,30 +198,20 @@ def apply_honest_rmse_gate(
         base_cols = spec_base_columns(spec)
         base_fit = _base_arg(df, base_cols, fit_idx)
         base_eval = _base_arg(df, base_cols, eval_idx)
-        # Same two-stage domain gate the screen applies, so T is fit on the spec's real domain.
-        try:
-            valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
-            if valid.shape != y_fit.shape:
-                valid = np.ones(y_fit.shape, dtype=bool)
-        except Exception as e:
-            logger.debug("domain_check failed, treating all rows as valid: %s", e)
-            valid = np.ones(y_fit.shape, dtype=bool)
-        _dcf = getattr(transform, "domain_check_fitted", None)
-        if _dcf is not None:
-            try:
-                vf = np.asarray(_dcf(y_fit, base_fit, params), dtype=bool)
-                if vf.shape == valid.shape:
-                    valid = valid & vf
-            except Exception as e:  # -- treat as no refinement
-                logger.debug("honest_rmse_gate domain_check_fitted failed for %s: %s", spec.name, e)
+        valid = _spec_fit_mask(transform, y_fit, base_fit, params, spec.name)
         if int(valid.sum()) < 50:
             survivors.append(spec)
             continue
         base_fit_v = base_fit[valid] if base_fit.ndim == 1 else base_fit[valid, :]
         try:
-            t_fit = np.asarray(transform.forward(y_fit[valid], base_fit_v, params), dtype=np.float64)
-            t_hat = _fit_predict_masked(_fit_predict, t_fit, valid)
-            y_hat = np.asarray(transform.inverse(t_hat, base_eval, params), dtype=np.float64)
+            y_hat = cached_honest_prediction(self, fit_idx, eval_idx, spec.name, valid)
+            if y_hat is None:
+                t_fit = np.asarray(transform.forward(y_fit[valid], base_fit_v, params), dtype=np.float64)
+                t_hat = _fit_predict_masked(_fit_predict, t_fit, valid)
+                # Score the spec the way the trained composite will predict: with smearing for the curved unary inverses,
+                # so a log/cbrt target is judged on the conditional mean of y, not on the (lower) geometric mean.
+                _q = _last_residual_q["q"] if spec.transform_name in SMEARED_TRANSFORMS else None
+                y_hat = smeared_inverse(lambda t: transform.inverse(t, base_eval, params), t_hat, _q)
         except Exception as exc:  # -- a spec the tiny pipeline cannot evaluate keeps its MI verdict
             logger.debug("honest_rmse_gate fit/inverse failed for %s: %s", spec.name, exc)
             survivors.append(spec)
@@ -196,6 +239,14 @@ def apply_honest_rmse_gate(
             rejected.append((spec.name, _r))
             ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
                           numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "tol": float(tol)}, **_led_kw)
+            continue
+        # A reconstruction that duplicates the raw model ships a second model for nothing (see the helper).
+        _corr = _correlation_if_duplicate_of_raw(y_hat[finite], np.asarray(_raw_pred, dtype=np.float64)[finite], rmse_y, raw_rmse)
+        if _corr is not None:
+            _r = f"reconstruction duplicates the raw model (corr={_corr:.6f}, y-RMSE={rmse_y:.6g} vs raw {raw_rmse:.6g})"
+            rejected.append((spec.name, _r))
+            ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
+                          numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "corr_with_raw": _corr}, **_led_kw)
             continue
         object.__setattr__(spec, "honest_holdout_rmse", float(rmse_y))
         object.__setattr__(spec, "honest_holdout_raw_rmse", float(raw_rmse))

@@ -229,6 +229,29 @@ def _set_panel_title(ax, title) -> None:
     ax.set_title("\n".join(lines), fontsize=_TITLE_FONTSIZE)
 
 
+def _apply_asinh_x(ax: Any, linear_width: float, axis: str = "x") -> None:
+    """asinh x-axis with ticks at 0 and +-10^k beyond the linear zone, at least 1 asinh unit apart.
+
+    matplotlib's default asinh locator also ticks inside the linear zone, and on a narrow panel "-10^-1", "0" and "10^-1"
+    printed on top of each other.
+    """
+    lw = max(float(linear_width), 1e-12)
+    (ax.set_xscale if axis == "x" else ax.set_yscale)("asinh", linear_width=lw)
+    lo, hi = ax.get_xlim() if axis == "x" else ax.get_ylim()
+    k0 = int(np.floor(np.log10(lw)))
+    cand = sorted({0.0, *(s * 10.0**k for k in range(k0 + 1, k0 + 18) for s in (-1.0, 1.0))})
+    cand = [v for v in cand if lo <= v <= hi]
+    gap = 1.0
+    ticks: list = [0.0] if lo <= 0.0 <= hi else []
+    for v in sorted(cand, key=abs):  # outward from 0, so 0 wins over its crowded neighbours
+        if all(abs(np.arcsinh(v / lw) - np.arcsinh(t / lw)) >= gap for t in ticks):
+            ticks.append(v)
+    ticks.sort()
+    if len(ticks) >= 2:
+        (ax.set_xticks if axis == "x" else ax.set_yticks)(ticks)
+        (ax.set_xticklabels if axis == "x" else ax.set_yticklabels)([f"{v:g}" for v in ticks])
+
+
 # Wrap budgets, mirroring the plotly renderer: ~90 chars for the full-figure suptitle, ~110 for the
 # wider caption band beneath it.
 _SUPTITLE_WRAP_CHARS = SUPTITLE_WRAP_CHARS
@@ -330,13 +353,16 @@ class MatplotlibRenderer:
         axes_grid: list[list] = []
         for r, row in enumerate(spec.panels):
             row_axes: list = []
+            # An odd panel count leaves the last row holding one panel and (cols - 1) empty cells, which rendered as a
+            # lone half-width panel against blank space. It spans the row instead, so no cell of the grid is empty.
+            _lone_trailing = r == len(spec.panels) - 1 and cols > 1 and sum(p is not None for p in row) == 1 and row[0] is not None
             for c, panel in enumerate(row):
                 if panel is None:
                     row_axes.append(None)
                     continue
                 share_x = axes_grid[0][c] if (spec.sharex and r > 0 and c < len(axes_grid[0]) and axes_grid[0][c] is not None) else None
                 share_y = row_axes[0] if (spec.sharey and c > 0 and row_axes and row_axes[0] is not None) else None
-                ax = fig.add_subplot(gs[r, c], sharex=share_x, sharey=share_y)
+                ax = fig.add_subplot(gs[r, :] if _lone_trailing else gs[r, c], sharex=share_x, sharey=share_y)
                 row_axes.append(ax)
                 col_axes.setdefault(c, []).append(ax)
             axes_grid.append(row_axes)
@@ -555,6 +581,8 @@ class MatplotlibRenderer:
                 ax.plot(x_grid, normal_pdf, "r--", linewidth=1.4, label=label)
                 _place_legend(ax)
 
+        if getattr(p, "xscale", "linear") == "asinh":
+            _apply_asinh_x(ax, float(getattr(p, "xscale_linear_width", 1.0)))
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, p.title)
@@ -661,7 +689,15 @@ class MatplotlibRenderer:
             # ``truncate_bar_label`` exists as a safety valve against. The two thinning constants are the module
             # ones now rather than 25 and 20 written out again, so the same numbers stop living in four places.
             n_cat = len(p.categories)
-            _cats_v = [truncate_bar_label(c, maxlen=p.label_maxlen, keep_tail=p.label_keep_tail) for c in p.categories]
+            # Builders that label only some bars (the ACF labels every k-th lag) keep the rest unique with runs of spaces;
+            # measured and drawn as-is, a 50-space label rotated 45 degrees reserved an inch below the axis, squashing
+            # the panel and pushing "Lag" far below it. Blank labels are dropped and only the labelled bars get ticks.
+            _cats_v = [truncate_bar_label(c, maxlen=p.label_maxlen, keep_tail=p.label_keep_tail).strip() for c in p.categories]
+            _labelled = [i for i, c in enumerate(_cats_v) if c]
+            _sparse = 0 < len(_labelled) < len(_cats_v)
+            if _sparse:
+                _cats_v = [_cats_v[i] for i in _labelled]
+                n_cat = len(_cats_v)
             # Unrotated labels on a horizontal axis sit end to end, so what has to fit is the widest one's
             # WIDTH; rotated ones are parallel lines and clear each other at a line height perpendicular to
             # themselves. Either way the budget comes from the axis's measured length, not the count.
@@ -676,7 +712,8 @@ class MatplotlibRenderer:
                     _rotation = 45.0
             _pitch = rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, _rotation) if _rotation else label_width_pitch_in(_cats_v, _HEATMAP_TICK_FONTSIZE)
             _keep_v = _thin_tick_positions(n_cat, ticks_that_fit(_axis_in, n_cat, pitch_in=_pitch))
-            ax.set_xticks(pos[np.asarray(_keep_v, dtype=np.int64)])
+            _tick_pos = np.asarray(_labelled, dtype=np.int64)[np.asarray(_keep_v, dtype=np.int64)] if _sparse else np.asarray(_keep_v, dtype=np.int64)
+            ax.set_xticks(pos[_tick_pos])
             ax.set_xticklabels(
                 [_cats_v[i] for i in _keep_v],
                 rotation=_rotation,
@@ -779,6 +816,12 @@ class MatplotlibRenderer:
             ax.set_xlim(*p.xlim)
         if p.yscale == "log":
             ax.set_yscale("log")
+        elif p.yscale == "asinh":
+            _y = np.concatenate([np.asarray(v, dtype=float).ravel() for v in (p.y if isinstance(p.y, tuple) else (p.y,))])
+            _y = np.abs(_y[np.isfinite(_y) & (_y != 0)])
+            _apply_asinh_x(ax, float(np.percentile(_y, 10)) if _y.size else 1.0, axis="y")
+        if getattr(p, "xscale", "linear") == "asinh":
+            _apply_asinh_x(ax, float(getattr(p, "xscale_linear_width", 1.0)))
         if p.x_tick_labels is not None:
             _tick_x = _xi(0)
             ax.set_xticks(_tick_x, labels=list(p.x_tick_labels), rotation=30, ha="right")

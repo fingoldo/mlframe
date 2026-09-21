@@ -267,6 +267,7 @@ class TestMlpOutputActivationKnob:
         )
 
         model = generate_mlp(num_features=8, num_classes=1, nlayers=2, verbose=0)
+        assert list(model.modules())
         for m in model.modules():
             assert not isinstance(m, _BoundedTanhOutput), "default output_activation='linear' must NOT append _BoundedTanhOutput to the head."
 

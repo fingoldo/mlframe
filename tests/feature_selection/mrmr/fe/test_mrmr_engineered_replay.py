@@ -193,6 +193,7 @@ class TestRecipeBuilding:
         assert mrmr.support_ is not None
         # And the recipes list is well-formed (downstream consumers
         # iterate over it via .kind / .src_names).
+        assert len(mrmr._engineered_recipes_) > 0
         for r in mrmr._engineered_recipes_:
             assert isinstance(r, EngineeredRecipe)
 

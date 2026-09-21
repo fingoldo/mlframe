@@ -35,6 +35,7 @@ def test_build_cache_stats_returns_all_four_blocks():
     ctx = _StubMetadataCtx()
     stats = _build_cache_stats(ctx)
     assert set(stats.keys()) == {"pipeline_cache", "discovery_cache", "fingerprint_cache", "pandas_view_cache"}
+    assert stats.values()
     for _block in stats.values():
         assert "hits" in _block
         assert "misses" in _block
@@ -47,6 +48,7 @@ def test_build_cache_stats_hit_rate_none_when_no_accesses():
 
     ctx = _StubMetadataCtx()
     stats = _build_cache_stats(ctx)
+    assert stats.values()
     for _block in stats.values():
         assert _block["hits"] == 0
         assert _block["misses"] == 0

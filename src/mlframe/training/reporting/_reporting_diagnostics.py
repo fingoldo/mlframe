@@ -87,6 +87,27 @@ def _extract_training_history(model: Any) -> tuple[dict | None, int | None]:
     return by_metric, es_iteration
 
 
+def _booster_metric_period(model: Any) -> int | None:
+    """The booster's metric-logging period (CatBoost ``metric_period``), or None when it logs every iteration / is unknown."""
+    est = _unwrap_booster(model)
+    for getter in ("get_all_params", "get_params"):
+        fn = getattr(est, getter, None)
+        if not callable(fn):
+            continue
+        try:
+            period = (fn() or {}).get("metric_period")
+        except Exception:
+            logger.debug("training-curve: %s() raised while reading metric_period.", getter, exc_info=True)
+            continue
+        if period is not None:
+            try:
+                period = int(period)
+            except (TypeError, ValueError):
+                return None
+            return period if period > 1 else None
+    return None
+
+
 def _render_training_curves(
     model: Any,
     *,
@@ -114,7 +135,10 @@ def _render_training_curves(
         from mlframe.reporting.output import parse_plot_output_dsl
         from mlframe.reporting.renderers import render_and_save
 
-        spec = compose_training_curve_figure(history, es_iteration=es_iteration, suptitle=f"{model_name} training curves")
+        spec = compose_training_curve_figure(
+            history, es_iteration=es_iteration, suptitle=f"{model_name} training curves",
+            metric_period=_booster_metric_period(model),
+        )
         if plot_dpi is not None:
             from dataclasses import replace
             spec = replace(spec, dpi=plot_dpi)
@@ -341,7 +365,7 @@ def _render_post_fit_diagnostics(
     else:
         _collapsed = False  # gate disabled -> behave as before
 
-    if getattr(cfg, "pdp_ice", True) and y_arr is not None and not _collapsed:
+    if getattr(cfg, "pdp_ice", False) and y_arr is not None and not _collapsed:
         _budget.run("pdp_ice", lambda: render_pdp_ice_diagnostic(
                 model=model, df=df, feature_names=names, feature_importances=importances,
                 plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
@@ -394,7 +418,7 @@ def _render_post_fit_diagnostics(
         )
 
     if (
-        getattr(cfg, "slice_finder", True) and df is not None
+        getattr(cfg, "slice_finder", False) and df is not None
         and y_arr is not None and y_pred is not None and not _multilabel
         and len(y_pred) == len(y_arr) and not _collapsed
     ):
@@ -423,7 +447,7 @@ def _render_post_fit_diagnostics(
                     y_true=y_arr, y_score=_score, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
             ))
 
-    if getattr(cfg, "risk_coverage_charts", True) and y_arr is not None and not _multilabel:
+    if getattr(cfg, "risk_coverage_charts", False) and y_arr is not None and not _multilabel:
         from mlframe.reporting import render_risk_coverage_diagnostic
         if tt == "binary_classification":
             _bs = _binary_positive_score(probs)
@@ -447,7 +471,7 @@ def _render_post_fit_diagnostics(
                     base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
             ))
 
-    if getattr(cfg, "model_card", True) and y_arr is not None:
+    if getattr(cfg, "model_card", False) and y_arr is not None:
         _mc_task = "regression" if task == "regression" else ("binary" if tt == "binary_classification" else "classification")
         # Card title must carry the ESTIMATOR identity (e.g. "LGBMRegressor"), not the target_type --
         # ``model_name_for_title(target_type)`` returns "regression"/"classification", which rendered a
@@ -476,7 +500,7 @@ def _render_post_fit_diagnostics(
                         base_path=plot_file, metrics_dict=metrics, model_name=_card_name, split=_split,
                 ))
 
-    if getattr(cfg, "shap_panels", True) and model is not None and df is not None and not _collapsed:
+    if getattr(cfg, "shap_panels", False) and model is not None and df is not None and not _collapsed:
         _budget.run("shap", lambda: render_shap_diagnostic(
                 model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
                 metrics_dict=metrics, max_rows=getattr(cfg, "shap_max_rows", 20000), plot_dpi=plot_dpi,

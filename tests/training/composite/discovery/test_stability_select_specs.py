@@ -71,6 +71,7 @@ def test_frequencies_in_unit_interval_and_genuine_is_one():
     )
     assert isinstance(res, StabilityResult)
     assert res.frequencies
+    assert res.frequencies.values()
     for f in res.frequencies.values():
         assert 0.0 <= f <= 1.0
     # The genuine spec is selected in every replicate.
@@ -131,6 +132,7 @@ def test_n_replicates_respected():
     assert res.n_replicates == 5
     assert res.n_successful == 5
     # All frequencies are multiples of 1/5.
+    assert res.frequencies.values()
     for f in res.frequencies.values():
         assert abs(f * 5 - round(f * 5)) < 1e-9
 
@@ -250,5 +252,6 @@ def test_biz_val_stability_keeps_genuine_drops_noise():
     assert genuine_freqs, f"no genuine-base spec discovered; got {res.frequencies}"
     assert max(genuine_freqs) >= 0.8, f"genuine-base spec frequency {max(genuine_freqs):.2f} below 0.8 floor"
     # Every stable spec references the genuine base, never a pure-noise column.
+    assert len(res.stable_specs) > 0
     for name in res.stable_specs:
         assert not any(f"noise{j}" in name for j in range(6)), f"noise-based spec {name!r} should not be stable; freqs={res.frequencies}"

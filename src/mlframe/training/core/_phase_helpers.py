@@ -46,7 +46,7 @@ _FORCED_GC_MIN_DF_MB = float(os.environ.get("MLFRAME_FORCED_GC_MIN_DF_MB", "256"
 def _should_force_post_pipeline_gc(df_size_mb: Optional[float]) -> bool:
     """Whether the post-pipeline forced 2x gc.collect is worth its ~0.85s cost: only once the released Polars frame
     is large enough that downstream commit-charge pressure is real (gate ``_FORCED_GC_MIN_DF_MB``)."""
-    return (df_size_mb or 0) >= _FORCED_GC_MIN_DF_MB
+    return (df_size_mb if df_size_mb is not None else 0) >= _FORCED_GC_MIN_DF_MB
 _DEFAULT_VAL_SIZE = 0.15
 _DEFAULT_LTR_ITER = 200
 _DEFAULT_LTR_LR = 0.1
@@ -747,6 +747,17 @@ def _phase_load_and_preprocess(
     baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=bool(verbose), reason="post-FTE")
     if verbose:
         log_ram_usage()
+
+    # The split key is read here (after the extractor, which may reshape the frame) and then dropped with the other
+    # non-feature columns so it can never become a model feature.
+    _split_id_column = getattr(ctx.split_config, "id_column", None)
+    if _split_id_column:
+        from .._fixed_splits import extract_row_ids
+
+        ctx.split_row_ids = extract_row_ids(df, _split_id_column)
+        additional_columns_to_drop = list(additional_columns_to_drop or [])
+        if _split_id_column not in additional_columns_to_drop:
+            additional_columns_to_drop.append(_split_id_column)
 
     # Drop columns AFTER the extractor: it may consume or create columns.
     df = drop_columns_from_dataframe(

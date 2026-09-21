@@ -270,7 +270,13 @@ from ._calibration_models import (  # noqa: F401
 )
 
 
-def _train_model_with_fallback(
+def _train_model_with_fallback(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+    """Fit under ``CatBoostGpuFitGuard`` (GPU CatBoost: no callbacks, progress monitor, time budget / runaway stop that keeps the model; else a no-op)."""
+    from .cb._cb_gpu_budget import fit_with_cb_gpu_guard
+    return fit_with_cb_gpu_guard(_train_model_with_fallback_unguarded, model, model_obj, model_type_name, train_df, train_target, fit_params, verbose)
+
+
+def _train_model_with_fallback_unguarded(
     model: Any,
     model_obj: Any,
     model_type_name: str,
@@ -652,14 +658,19 @@ def _train_model_with_fallback(
         try_again = False
         error_str = str(e)
 
+        if "KeyboardInterrupt" in error_str:
+            # CatBoost catches whatever a python-side custom metric / callback raises and re-raises it as CatBoostError,
+            # so a Ctrl+C during the fit arrived here as a model FAILURE: with continue_on_model_failure the suite went
+            # on to the next model instead of stopping. KeyboardInterrupt is not an Exception, so re-raising it here
+            # passes through every ``except Exception`` between this frame and the caller.
+            raise KeyboardInterrupt("interrupted during model fit (CatBoost re-raised it as CatBoostError)") from e
+
         if "out of memory" in error_str:
             try_again = _handle_oom_error(model_obj, model_type_name)
 
-        elif "User defined callbacks are not supported for GPU" in error_str:
-            if "callbacks" in fit_params:
-                logger.warning(e)
-                try_again = True
-                del fit_params["callbacks"]
+        elif "User defined callbacks are not supported for GPU" in error_str and "callbacks" in fit_params:
+            logger.warning("%s; retrying without callbacks (backstop: CatBoostGpuFitGuard normally strips them before fit)", e)
+            try_again, _ = True, fit_params.pop("callbacks")
 
         elif "CUDA Tree Learner" in error_str:
             logger.warning("CUDA is not enabled in this LightGBM build. Falling back to CPU.")

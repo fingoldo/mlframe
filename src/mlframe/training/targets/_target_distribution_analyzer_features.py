@@ -249,6 +249,21 @@ def _normalise_X(
     return df, numeric_cols, categorical_cols
 
 
+def _split_polars_categoricals(X) -> tuple[Any, list[str], dict[str, int]]:
+    """For a polars DataFrame with numeric AND non-numeric columns: (numeric-only frame, non-numeric names, their
+    null-inclusive distinct counts). Anything else, or a frame without numeric columns, passes through unchanged."""
+    if not (type(X).__module__.startswith("polars") and type(X).__name__ == "DataFrame"):
+        return X, [], {}
+    import polars as pl
+
+    numeric = [c for c, dt in X.schema.items() if dt.is_numeric() or dt == pl.Boolean]
+    other = [c for c in X.columns if c not in set(numeric)]
+    if not numeric or not other:
+        return X, [], {}
+    nunique = {c: int(v) for c, v in X.select(pl.col(other).n_unique()).row(0, named=True).items()}
+    return X.select(numeric), other, nunique
+
+
 def analyze_feature_distribution(
     X,
     y: Optional[np.ndarray] = None,
@@ -268,9 +283,14 @@ def analyze_feature_distribution(
     mutates X / y. Recommendations are observational; the suite caller decides
     whether to action them.
     """
-    df, numeric_cols, categorical_cols = _normalise_X(X, feature_names=feature_names)
+    # A polars frame converts only its numeric/bool columns to pandas: the categorical/string columns need nothing but
+    # a distinct count, which polars computes natively. Converting them too cost 3.4s on a 498k x 109 production frame
+    # (a 232k-distinct text column among them) for a count that takes milliseconds.
+    X_numeric, polars_cat_cols, polars_cat_nunique = _split_polars_categoricals(X)
+    df, numeric_cols, categorical_cols = _normalise_X(X_numeric, feature_names=feature_names)
+    categorical_cols = categorical_cols + polars_cat_cols
     n_samples = int(df.shape[0])
-    n_features = int(df.shape[1])
+    n_features = int(df.shape[1]) + len(polars_cat_cols)
     diagnostics: dict[str, Any] = {
         "n_samples": n_samples, "n_features": n_features,
         "n_numeric": len(numeric_cols), "n_categorical": len(categorical_cols),
@@ -339,7 +359,7 @@ def analyze_feature_distribution(
     high_card_features: list[str] = []
     for c in categorical_cols:
         try:
-            n_unique = int(df[c].nunique(dropna=False))
+            n_unique = polars_cat_nunique[c] if c in polars_cat_nunique else int(df[c].nunique(dropna=False))
         except TypeError:
             # An object column whose values are themselves unhashable (e.g. an embedding column
             # storing one ndarray per row) was classified "categorical" by the numeric/bool dtype

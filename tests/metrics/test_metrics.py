@@ -48,6 +48,7 @@ from mlframe.metrics.core import (
 )
 import functools
 import operator
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 # =============================================================================
 # Test Strategies
@@ -394,9 +395,11 @@ class TestLogLossPerformance:
             """Helper: Best time."""
             best = float("inf")
             for _ in range(5):
+                synchronize_gpu_if_available()
                 start = time.perf_counter()
                 for _ in range(10):
                     res = fn(y_true, y_score)
+                synchronize_gpu_if_available()
                 best = min(best, time.perf_counter() - start)
             return best, res
 

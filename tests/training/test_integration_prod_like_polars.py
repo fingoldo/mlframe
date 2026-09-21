@@ -372,6 +372,7 @@ def test_polars_to_pandas_dtype_preservation(dtype_setup):
         expected = {"a": "int8", "b": "float32"}
 
     out = get_pandas_view_of_polars_df(df)
+    assert expected.items()
     for col, exp_dtype in expected.items():
         assert str(out[col].dtype) == exp_dtype, f"{dtype_setup}: {col} expected {exp_dtype}, got {out[col].dtype}"
 

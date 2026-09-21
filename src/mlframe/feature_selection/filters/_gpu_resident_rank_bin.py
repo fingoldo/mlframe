@@ -199,7 +199,7 @@ def plugin_mi_classif_batch_rank_cuda_resident(
             _ymm = cp.asnumpy(cp.stack((cp.min(yg), cp.max(yg))))
             y_min = int(_ymm[0])
             n_classes = int(_ymm[1]) - y_min + 1
-        if y_min:
+        if y_min != 0:
             yg = yg - y_min
         codes = rank_bin_codes_batch_gpu_resident(Xg, int(n_bins))
         if codes is None:

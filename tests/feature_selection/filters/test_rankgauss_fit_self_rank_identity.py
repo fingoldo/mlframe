@@ -84,5 +84,6 @@ def test_generate_rankgauss_fit_bit_identical_and_no_searchsorted(monkeypatch):
     monkeypatch.undo()
 
     assert calls["n"] == 0, f"fit path must not call searchsorted on the data, used {calls['n']}"
+    assert ref.items()
     for name, exp in ref.items():
         assert np.array_equal(enc[name].to_numpy(), exp), f"{name} fit output diverged from two-sweep reference"

@@ -55,17 +55,44 @@ def _fit(df, config):
     return disc
 
 
+_WIDE = dict(top_m_after_tiny=10, top_k_after_mi=20, transforms=("diff", "ratio", "logratio", "linear_residual", "additive_residual", "monotonic_residual"))
+
+
 def test_waic_scores_populated_only_when_flag_enabled():
-    """Waic scores populated only when flag enabled."""
+    """With the flag on, the specs sitting in an RMSE tie near the top get a finite WAIC; with it off, none do.
+
+    WAIC only re-orders specs inside a noise band that reaches the top-m window, so those are the only ones scored:
+    ``diff`` and ``additive_residual`` tie here, and a spread-out spec's score could never change the result.
+    """
     df = _linear_residual_dataset()
-    on = _fit(df, _make_config(transform_waic_validation_enabled=True))
-    off = _fit(df, _make_config(transform_waic_validation_enabled=False))
+    on = _fit(df, _make_config(transform_waic_validation_enabled=True, **_WIDE))
+    off = _fit(df, _make_config(transform_waic_validation_enabled=False, **_WIDE))
 
     on_scores = getattr(on, "_tiny_rerank_waic_scores", {}) or {}
     off_scores = getattr(off, "_tiny_rerank_waic_scores", {}) or {}
-    assert on_scores, "flag ON must populate _tiny_rerank_waic_scores for the reranked specs"
+    assert on_scores, "flag ON must score the specs tied near the top of the rerank"
     assert all(np.isfinite(v) for v in on_scores.values()), f"WAIC scores must be finite: {on_scores}"
     assert not off_scores, f"flag OFF must not compute WAIC; got {off_scores}"
+
+
+def test_only_tied_specs_near_the_top_are_scored():
+    """Every scored spec has a partner within the 2% band, and the untied leaders are left unscored."""
+    df = _linear_residual_dataset()
+    on = _fit(df, _make_config(transform_waic_validation_enabled=True, **_WIDE))
+    scores = on.tiny_rerank_scores_ or {}
+    scored = set(on._tiny_rerank_waic_scores)
+    for name in scored:
+        partners = [o for o in scores if o != name and abs(scores[o] - scores[name]) <= 0.02 * abs(min(scores[o], scores[name]))]
+        assert partners, f"{name} was WAIC-scored without being tied to any other spec"
+    assert len(scored) < len(scores), "specs outside every tie must not be scored"
+
+
+def test_rmse_bands_group_consecutive_ties():
+    """Bands are runs within 2% of their first member's RMSE; a non-finite score always stands alone."""
+    from mlframe.training.composite.discovery._tiny_rerank_waic import rmse_bands
+
+    scores = [1.00, 1.01, 1.05, 1.06, 2.0, float("inf")]
+    assert rmse_bands(list(range(6)), scores, 0.02) == [[0, 1], [2, 3], [4], [5]]
 
 
 def test_waic_prefers_generalising_over_overfit_transform():

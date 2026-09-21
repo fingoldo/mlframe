@@ -230,9 +230,18 @@ def _scatter_panel(
         hi = float(max(yp.max(), yt.max())) if n else 1.0
         if hi <= lo:
             hi = lo + 1.0
-        edges = np.linspace(lo, hi, density_bins + 1)
-        # Uniform edges -> arithmetic binning (bit-identical to np.histogram2d, ~1.7x faster at 1e7); binning is this panel's dominant O(n) cost.
-        counts = _hist2d_uniform(yp, yt, edges, density_bins)
+        heavy_edges = _asinh_edges_if_heavy(np.concatenate([yp, yt]), lo, hi, density_bins)
+        if heavy_edges is not None:
+            # Heavy tail: equal-width bins put nearly every row in the corner cell (a production target spanning
+            # 0..130 had all its mass in the first row and column). asinh-spaced edges, identical on both axes, keep
+            # y=x the main diagonal while giving the bulk and the tail their own cells.
+            edges = heavy_edges
+            counts, _, _ = np.histogram2d(yp, yt, bins=[edges, edges])
+            density_bins = edges.size - 1
+        else:
+            edges = np.linspace(lo, hi, density_bins + 1)
+            # Uniform edges -> arithmetic binning (bit-identical to np.histogram2d, ~1.7x faster at 1e7); binning is this panel's dominant O(n) cost.
+            counts = _hist2d_uniform(yp, yt, edges, density_bins)
         # log1p so a few dense bins don't wash out the long tail; transpose so matrix[row=y_true, col=y_pred] reads bottom-up.
         density = np.log1p(counts.T)
         centers = (edges[:-1] + edges[1:]) / 2.0
@@ -243,7 +252,7 @@ def _scatter_panel(
             matrix=density,
             row_labels=row_labels,
             col_labels=col_labels,
-            title=ht + f"\n(density binned {density_bins}x{density_bins}; y=x is the main diagonal)",
+            title=ht + f"\n(density binned {density_bins}x{density_bins}{', asinh-spaced bins' if heavy_edges is not None else ''}; y=x is the main diagonal)",
             xlabel="Predictions",
             ylabel="True values",
             colorbar_label="log(1 + count)",
@@ -291,6 +300,33 @@ DEFAULT_PRED_SAMPLE_SIZE: int = 20
 DEFAULT_PRED_SAMPLE_LOG_RATIO: float = 20.0
 
 
+def asinh_linear_width(values: np.ndarray) -> float:
+    """Linear half-width for an asinh axis: the MAD, or (when most values are equal, e.g. mostly zeros) the 10th
+    percentile of the non-zero magnitudes."""
+    width = float(np.median(np.abs(values - np.median(values))))
+    if width <= 0:
+        nz = np.abs(values[values != 0])
+        width = float(np.percentile(nz, 10)) if nz.size else 1.0
+    return max(width, 1e-12)
+
+
+def _asinh_edges_if_heavy(values: np.ndarray, lo: float, hi: float, bins: int) -> Optional[np.ndarray]:
+    """asinh-spaced edges over [lo, hi] when equal-width bins would crush the bulk into a few bins, else None."""
+    if values.size < 100 or hi <= lo:
+        return None
+    q_lo, q_med, q_hi = np.percentile(values, [1, 50, 99])
+    # Heavy when the 1-99% range is under 30% of the span, or the median sits within 5% of the span from an edge
+    # (the bulk is crushed into the first or last few equal-width bins either way).
+    squeezed = (q_hi - q_lo) <= 0.3 * (hi - lo) or min(q_med - lo, hi - q_med) < 0.05 * (hi - lo)
+    if not squeezed:
+        return None
+    width = asinh_linear_width(values)
+    edges = np.sinh(np.linspace(np.arcsinh(lo / width), np.arcsinh(hi / width), bins + 1)) * width
+    edges[0], edges[-1] = lo, hi
+    edges = np.unique(edges)
+    return edges if edges.size >= 3 else None
+
+
 def _pred_sample_trace_panel(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -312,25 +348,31 @@ def _pred_sample_trace_panel(
         return _empty_annotation("Predictions vs true (sample)", int(np.asarray(y_true).size))
     n = yt.size
     k = min(sample_size, n)
-    rng = np.random.default_rng(seed)
-    idx = rng.choice(n, size=k, replace=False)
-    idx = idx[np.argsort(yt[idx])]
+    # Rows at evenly spaced RANKS of the true value, not a random draw: on a mostly-zero target a random 20 were all
+    # zeros (a production chart showed 19 zeros and one 2.2), which says nothing about how the model does elsewhere.
+    order = np.argsort(yt, kind="stable")
+    idx = order[np.unique(np.linspace(0, n - 1, k).round().astype(np.int64))]
+    k = idx.size
     s_true, s_pred = yt[idx], yp[idx]
 
     combined = np.concatenate([s_true, s_pred])
     use_log = bool(np.all(combined > 0)) and float(combined.max()) / float(combined.min()) > log_ratio_threshold
+    # Zeros or negatives rule out a log axis; a wide range then goes on an asinh axis (linear near 0, log in the tail),
+    # otherwise the top quantile's value flattens every other row into a line at 0.
+    _abs = np.abs(combined[combined != 0])
+    use_asinh = (not use_log) and _abs.size > 0 and float(_abs.max()) / max(float(np.median(_abs)), 1e-12) > log_ratio_threshold
 
-    x = np.arange(k, dtype=np.float64)
+    x = np.linspace(0.0, 1.0, k) if k > 1 else np.zeros(k)
     return LinePanelSpec(
         x=x,
         y=(s_true, s_pred),
         series_labels=("true", "predicted"),
-        title=f"Predictions vs true -- sample of {k} row(s), traceable by eye" + (" [log y]" if use_log else ""),
-        xlabel="sample index (sorted by true value)",
+        title=f"Predictions vs true -- {k} row(s) at evenly spaced quantiles of the true value" + (" [log y]" if use_log else " [asinh y]" if use_asinh else ""),
+        xlabel="row's quantile of the true value (left = smallest y, right = largest)",
         ylabel="value",
         line_styles=("lines+markers", "lines+markers"),
         colors=("steelblue", "darkorange"),
-        yscale="log" if use_log else "linear",
+        yscale="log" if use_log else ("asinh" if use_asinh else "linear"),
     )
 
 
@@ -364,6 +406,26 @@ def _resid_hist_panel(
         title = "Residuals" + sampled_note
         overlay = None
     from mlframe.reporting.spec import HistogramPanelSpec
+
+    finite_r = resid[np.isfinite(resid)]
+    heavy = _asinh_edges_if_heavy(finite_r, float(finite_r.min()), float(finite_r.max()), n_bins) if finite_r.size else None
+    if heavy is not None:
+        # A heavy residual tail stretched a linear axis to +-60 while the bulk sat in two bars near 0 (production
+        # chart). asinh-spaced bins, row share per bin and a log y show the bulk and the tail at once; the fitted-Normal
+        # overlay is a density and is not comparable with per-bin shares on uneven bins, so it is left out here.
+        counts, _ = np.histogram(finite_r, bins=heavy)
+        return HistogramPanelSpec(
+            values=counts / max(finite_r.size, 1),
+            bin_centers=(heavy[:-1] + heavy[1:]) / 2.0,
+            bin_width=np.diff(heavy),
+            title=title,
+            xlabel="Residual (y_true - y_pred), asinh scale",
+            ylabel="share of rows per bin (log)",
+            density=False,
+            yscale="log",
+            xscale="asinh",
+            xscale_linear_width=asinh_linear_width(finite_r),
+        )
     return HistogramPanelSpec(
         values=resid,
         bins=n_bins,
@@ -698,7 +760,7 @@ ALLOWED_REGRESSION_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
 # panels that were not on their figure.
 _TOKEN_CAPTIONS: Dict[str, str] = {
     "PRED_SAMPLE": (
-        "A small random sample of rows, drawn as true/predicted line-and-marker pairs so a reader can trace an individual row's error by eye instead of reading it off a dense cloud."
+        "A few rows picked at evenly spaced quantiles of the true value (smallest to largest), drawn as true/predicted line-and-marker pairs so a reader can trace an individual row's error by eye across the whole range instead of reading it off a dense cloud."
     ),
     "SCATTER": (
         "The predicted-versus-actual scatter puts the identity line where a perfect model would sit; curvature away from it is bias the residual panels then localise."
@@ -840,6 +902,9 @@ def compose_regression_report_figures(
     ``panels_template`` on ``compose_regression_figure`` directly).
     """
     figures: Dict[str, FigureSpec] = {}
+    # Every figure of the report gets the width of the widest one: the one-column perfplot at 6 in wrapped the same
+    # model-identity header its two-column siblings print on one or two lines, and the wrapped lines collided.
+    _widest_cols = max(mc for _, mc in DEFAULT_REGRESSION_REPORT_GROUPS.values())
     for _key, (_template, _max_cols) in DEFAULT_REGRESSION_REPORT_GROUPS.items():
         figures[_key] = compose_regression_figure(
             y_true, y_pred,
@@ -853,7 +918,7 @@ def compose_regression_report_figures(
             worst_k_indices=worst_k_indices,
             trend_line=None,
             max_cols=_max_cols,
-            cell_width=cell_width,
+            cell_width=cell_width * _widest_cols / max(_max_cols, 1),
             cell_height=cell_height,
         )
     return figures

@@ -62,6 +62,7 @@ def test_retention_prep_pure_forms_equivalence():
         with_prep = retain_usable_pure_forms(_Stub(df.columns, seed), df, y, seed=seed, _prep=prep)
 
     assert [n for _, n in baseline] == [n for _, n in with_prep]
+    assert list(zip(baseline, with_prep))
     for (r0, n0), (r1, n1) in zip(baseline, with_prep):
         assert n0 == n1
         assert getattr(r0, "src_names", None) == getattr(r1, "src_names", None)

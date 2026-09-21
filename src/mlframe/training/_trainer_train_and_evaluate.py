@@ -1026,6 +1026,11 @@ def train_and_evaluate_model(
             train_od_idx=train_od_idx,
             val_od_idx=val_od_idx,
             trainset_features_stats=trainset_features_stats,
+            plot_file=plot_file or "",  # this model's chart prefix; charts rendered for it after the fit (composite y-scale) reuse it
+            # The chart title and split date details of THIS model, so charts rendered for it later (composite y-scale)
+            # carry the same header as its own charts instead of a hand-built shorter one.
+            chart_model_name=model_name,
+            chart_split_details={"val": val_details or "", "test": test_details or ""},
         ),
         _orig_train_df,
         _orig_val_df,

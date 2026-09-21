@@ -106,6 +106,7 @@ def test_stratify_is_subsampled_to_match_rows():
 
     _self, calls = _orchestrate_with_stub(sel, X, y, accepted_for=lambda k, s: [])
     expected_size = min(n, max(10, round(0.5 * n)))  # = 20
+    assert len(calls) > 0
     for c in calls:
         assert c["n_rows"] == expected_size
         # Pre-fix: stratify stayed the original length-n array; post-fix it is sliced to the sub-fit rows.

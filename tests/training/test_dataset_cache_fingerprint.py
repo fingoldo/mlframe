@@ -231,6 +231,7 @@ class TestCBTrainPoolCacheKeyUsesHelper:
         src = Path(mod.__file__).read_text(encoding="utf-8")
         assert "compute_signature" in src, "_cb_pool_build.py no longer uses compute_signature for the train Pool cache key -- regression vs 2026-05-23 fix."
         args = _key_call_arguments(mod, "_cb_pool_build train Pool")
+        assert len(args) > 0
         for arg in args:
             assert "id(" not in arg, f"_cb_pool_build train Pool cache key is built from an object address: {arg!r}"
 
@@ -274,6 +275,7 @@ class TestCBValPoolCacheKeyUsesHelper:
         src = Path(mod.__file__).read_text(encoding="utf-8")
         assert "compute_signature" in src, "_cb_pool.py no longer uses compute_signature for val Pool cache key -- regression vs 2026-05-23 fix."
         args = _key_call_arguments(mod, "_cb_pool val Pool")
+        assert len(args) > 0
         for arg in args:
             assert "id(" not in arg, f"_cb_pool val Pool cache key is built from an object address: {arg!r}"
 

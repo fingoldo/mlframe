@@ -2,8 +2,9 @@
 
 The adversarial fold-selection diagnostic 5-fold cross-validates a train-vs-test classifier over the whole
 train+test union. On a 2.4M-row fit that is five fits of a 2.05M-row frame -- about two minutes and 10.26M
-materialised rows -- on a run whose model list was a single CatBoost. Subsampling would change what it returns
-(it has to score EVERY train row to rank it by test-likeness), so the budget skips it and names the knob.
+materialised rows -- on a run whose model list was a single CatBoost. Skipping it above a budget disabled it on exactly
+the data sizes it matters for, so each fold now FITS on a capped stratified subsample and still PREDICTS every row it
+held out: every train row keeps an honest OOF score and the cost is bounded at any size.
 
 Separately, two adjacent log lines read ``Done. RAM usage: 45.2GB`` and ``process_model(cb) START -- RAM=6.2GB``.
 Both were true of different quantities: ``get_own_memory_usage`` reports private commit on Windows, while a raw
@@ -13,7 +14,6 @@ now goes through one helper, and the message says which quantity it is.
 
 from __future__ import annotations
 
-import logging
 
 import numpy as np
 import pandas as pd
@@ -37,42 +37,63 @@ def _frames(n_train: int, n_test: int, n_cols: int = 3):
 
 
 class TestTheAdversarialFoldBudget:
-    """When the diagnostic runs and when it declines."""
+    """Above the budget the diagnostic still runs, on capped fits, and still ranks every train row."""
 
-    def test_an_oversized_union_is_skipped(self):
-        """The production shape: a 2.05M-row union costing five fits of that size."""
+    def test_an_oversized_union_still_runs(self):
+        """A 559k-row union used to be skipped by a 500k budget; it must now produce a fold."""
         train, test = _frames(400, 400)
         out = adapt_adversarial_fold_selection(train, None, test, None, [], None, None, max_union_rows=100)
-        assert out["status"] == "skipped"
-        assert out["n_union_rows"] == 800
-
-    def test_the_skip_names_the_knob(self, caplog):
-        """A silent skip is a missing diagnostic; a named one is a decision the reader can reverse."""
-        train, test = _frames(400, 400)
-        with caplog.at_level(logging.WARNING, logger="mlframe.training.core._diagnostics_registry"):
-            adapt_adversarial_fold_selection(train, None, test, None, [], None, None, max_union_rows=100)
-        text = " ".join(r.getMessage() for r in caplog.records)
-        assert "max_union_rows" in text
-
-    def test_a_small_union_still_runs(self):
-        """The budget must not disable the diagnostic on the frames it was affordable on all along."""
-        train, test = _frames(300, 200)
-        out = adapt_adversarial_fold_selection(train, None, test, None, [], None, None)
         assert out.get("status") != "skipped"
-        assert "n_selected" in out or "error" in out
+        assert out["n_selected"] + out["n_remaining"] == 400
+
+    def test_capped_fits_score_every_train_row(self, monkeypatch):
+        """Each fold fits on at most the budget but predicts all of its held-out rows."""
+        import lightgbm as lgb
+
+        fit_sizes, predicted = [], []
+        orig_fit, orig_predict = lgb.LGBMClassifier.fit, lgb.LGBMClassifier.predict_proba
+
+        def _fit(self, X, y, *a, **k):
+            """Record the fit size, then delegate to the original LGBMClassifier.fit."""
+            fit_sizes.append(len(X))
+            return orig_fit(self, X, y, *a, **k)
+
+        def _predict(self, X, *a, **k):
+            """Record the number of predicted rows, then delegate to the original predict_proba."""
+            predicted.append(len(X))
+            return orig_predict(self, X, *a, **k)
+
+        monkeypatch.setattr(lgb.LGBMClassifier, "fit", _fit)
+        monkeypatch.setattr(lgb.LGBMClassifier, "predict_proba", _predict)
+        from mlframe.evaluation.adversarial_fold_selection import build_test_like_validation_fold
+
+        train, test = _frames(600, 400)
+        val_idx, rest_idx = build_test_like_validation_fold(train, test, max_fit_rows=300)
+        assert len(fit_sizes) == 5 and max(fit_sizes) <= 300
+        assert sum(predicted) == 1000
+        assert len(val_idx) + len(rest_idx) == 600
+
+    def test_a_small_union_is_unchanged(self):
+        """Below the budget the classic full-size cross_val_predict path runs, so small frames keep their result."""
+        from mlframe.evaluation.adversarial_fold_selection import build_test_like_validation_fold
+
+        train, test = _frames(300, 200)
+        a = build_test_like_validation_fold(train, test)
+        b = build_test_like_validation_fold(train, test, max_fit_rows=10_000)
+        np.testing.assert_array_equal(a[0], b[0])
 
     def test_zero_disables_the_budget(self):
-        """The escape hatch for a caller who wants the diagnostic whatever it costs."""
+        """The escape hatch for a caller who wants full-size fits whatever they cost."""
         train, test = _frames(300, 200)
         out = adapt_adversarial_fold_selection(train, None, test, None, [], None, None, max_union_rows=0)
-        assert out.get("status") != "skipped"
+        assert "n_selected" in out
 
-    def test_the_default_budget_would_have_caught_the_production_run(self):
-        """2.05M union rows against the default: the case this exists for."""
-        assert ADVERSARIAL_FOLD_MAX_UNION_ROWS < 2_052_546
+    def test_the_default_budget_caps_the_production_run(self):
+        """A 2.05M-row union must be fit on capped folds, not five 1.6M-row fits."""
+        assert ADVERSARIAL_FOLD_MAX_UNION_ROWS < 2_052_546 * 4 // 5
 
     def test_the_default_budget_leaves_ordinary_frames_alone(self):
-        """A few hundred thousand rows is a normal fit and should keep its diagnostic."""
+        """A few hundred thousand rows is a normal fit and keeps full-size folds."""
         assert ADVERSARIAL_FOLD_MAX_UNION_ROWS >= 200_000
 
 

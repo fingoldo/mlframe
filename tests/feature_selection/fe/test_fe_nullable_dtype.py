@@ -256,6 +256,11 @@ def test_transform_nullable_matches_float64_baseline_selection(dtype):
     # Engineered-recipe columns (orthogonal-basis hinge / spline etc. can appear
     # even at fe_max_steps=0) come out as a dense float column, never object.
     engineered = [r.name for r in m_null._engineered_recipes_]
+    # The FE-OFF path (fe_max_steps=0 is the master switch for every FE family) emits
+    # no recipe on this fixture, so state that outright rather than let the dtype loop
+    # below pass on an empty list; the engineered-replay dtype contract is exercised
+    # with real recipes by test_fit_produced_recipes_replay_on_nullable_transform_frame.
+    assert engineered == [], f"{dtype}: FE-OFF fit must not emit engineered recipes, got {engineered}"
     for nm in engineered:
         if nm in out.columns:
             assert out[nm].dtype.kind == "f", f"{dtype}: engineered replay column {nm!r} should be dense float, got dtype {out[nm].dtype}."
@@ -336,20 +341,34 @@ def test_unary_binary_recipe_replays_on_nullable_frame(dtype):
 
 @pytest.mark.parametrize("dtype", _NULLABLE_DTYPES)
 def test_fit_produced_recipes_replay_on_nullable_transform_frame(dtype):
-    """Whatever recipes the FE-OFF fit naturally produced (orthogonal hinge /
-    spline basis recipes can appear even at ``fe_max_steps=0``) replay through
-    ``transform`` on a nullable test frame WITHOUT crashing, producing dense float
-    columns. This exercises the real ``_append_engineered`` -> ``apply_recipe``
-    path with a nullable ``X`` rather than an injected recipe."""
-    _df_f64, df_null, y = _build_nullable_synergy(dtype)
-    m = _fit_fe_off(df_null, y)
+    """Whatever recipes the fit naturally produced replay through ``transform`` on a
+    nullable test frame WITHOUT crashing, producing dense float columns. This
+    exercises the real ``_append_engineered`` -> ``apply_recipe`` path with a
+    nullable ``X`` rather than an injected recipe.
 
+    FE must be ON (``fe_max_steps>=1``): that flag gates every FE family, so the
+    FE-OFF fit this test used to run emitted zero recipes and the per-recipe dtype
+    check below never executed."""
+    _df_f64, df_null, y = _build_nullable_synergy(dtype, n=2000)
+    m = MRMR(
+        full_npermutations=3,
+        baseline_npermutations=2,
+        fe_max_steps=2,
+        fe_npermutations=3,
+        verbose=0,
+        n_jobs=1,
+        random_seed=42,
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
+        m.fit(df_null, y)
         out = m.transform(df_null.iloc[:150])
 
     # Transform did not crash and surfaced every selected name.
     assert list(out.columns) == list(m.get_feature_names_out())
+    # Floor: the FE-ON fit really produced recipes to replay (measured 2-3 on this
+    # fixture); zero recipes would make the dtype loop below a silent pass.
+    assert m._engineered_recipes_, f"{dtype}: FE-ON fit produced no engineered recipe to replay"
     for r in m._engineered_recipes_:
         if r.name in out.columns:
             assert (

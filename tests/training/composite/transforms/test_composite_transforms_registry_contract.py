@@ -164,12 +164,20 @@ def test_transform_fit_returns_json_serializable_dict(name: str):
 @pytest.mark.parametrize("name", sorted(TRANSFORMS_REGISTRY))
 def test_transform_forward_inverse_round_trip(name: str):
     """``inverse(forward(y, base, params), base, params)`` must equal
-    ``y`` within the transform-specific tolerance on training data."""
+    ``y`` within the transform-specific tolerance on training data.
+
+    A transform declaring ``oof_train_forward`` (target encoding) answers a forward on its OWN fit rows out-of-fold, so the round trip is checked
+    on a slice instead -- a different array, which takes the full-train statistics exactly as predict does.
+    """
     t = TRANSFORMS_REGISTRY[name]
     domain = _call_domain(t, _Y, _BASE)
-    y_train = _Y[domain]
-    base_train = _BASE[domain]
-    params = _call_fit(t, y_train, base_train)
+    y_fit = _Y[domain]
+    base_fit = _BASE[domain]
+    params = _call_fit(t, y_fit, base_fit)
+    if getattr(t, "oof_train_forward", False):
+        y_train, base_train = y_fit[: len(y_fit) // 2].copy(), base_fit[: len(y_fit) // 2].copy()
+    else:
+        y_train, base_train = y_fit, base_fit
     t_train = _call_forward(t, y_train, base_train, params)
     assert t_train.shape == y_train.shape
     assert np.all(np.isfinite(t_train) | ~np.isfinite(y_train))

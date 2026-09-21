@@ -31,6 +31,7 @@ import numpy as np
 # the second thread -- the lazy import silently raised NameError, the outer ``except Exception`` swallowed
 # it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module level so there
 # is no circular-dep concern.
+from ..estimator._smearing import smeared_prediction
 from ..estimator import _y_train_clip_bounds
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,9 @@ from ._screening_tiny import (
     _cached_kfold_splits,
     _silence_tiny_model_output,
 )
+from ._eval import refit_transform_on_fold
+from ._lgb_shared_fold import fit_on_shared_fold, lgb_params
+from ._ridge_shared_fold import fit_ridge_on_shared_fold
 
 
 def _per_bin_rmse(
@@ -106,6 +110,86 @@ def _per_bin_from_fold_preds(
     per_bin_stack = np.stack(per_bin_arrays, axis=0)
     with np.errstate(invalid="ignore"):
         return np.asarray(np.nanmean(per_bin_stack, axis=0))
+
+
+def _fold_fit_inputs(transform, fitted_params, y_clean, base_clean, t_clean, groups_clean, fit_rows):
+    """The params, rows and T this fold trains on, with the transform refit on the fold's own training rows.
+
+    The global ``fitted_params`` were fit on every screening row, so they already saw this fold's held-out rows:
+    scoring the fold with them credits the spec for structure its own parameters absorbed. A degenerate refit keeps
+    the global params, so a spec that scored before still scores.
+    """
+    # Per-fold transform refit. The global ``fitted_params`` were fit on every screening row, so they already saw
+    # this fold's held-out rows: scoring that fold with them credits the spec for structure its own parameters
+    # absorbed (linear_residual's alpha/beta, a spline's knots), and the flexible residuals win the rerank on it.
+    # A degenerate fold returns None and keeps the global params, so a spec that scored before still scores.
+    fold_params = fitted_params
+    t_fit = t_clean[fit_rows]
+    _refit = refit_transform_on_fold(
+        transform,
+        y_clean[fit_rows], base_clean[fit_rows],
+        groups_fold=(groups_clean[fit_rows] if groups_clean is not None else None),
+    )
+    if _refit is not None:
+        _p_fold, _valid_fold = _refit
+        _rows_fold = fit_rows[_valid_fold]
+        if _rows_fold.shape[0] >= 2:
+            _t_try = np.asarray(transform.forward(y_clean[_rows_fold], base_clean[_rows_fold], _p_fold), dtype=np.float64)
+            if np.all(np.isfinite(_t_try)):
+                fold_params, fit_rows, t_fit = _p_fold, _rows_fold, _t_try
+    return fold_params, fit_rows, t_fit
+
+
+def _tiny_fold_model(family, *, n_estimators, num_leaves, learning_rate, random_state, deterministic, inner_n_jobs, n_jobs):
+    """A fresh tiny model for one fold, with its intra-fit threads capped when the folds themselves run in parallel."""
+    model = _build_tiny_model(
+        family,
+        n_estimators=n_estimators,
+        num_leaves=num_leaves,
+        learning_rate=learning_rate,
+        random_state=random_state,
+        deterministic=deterministic,
+        inner_n_jobs=inner_n_jobs,
+    )
+    # When folds run in parallel, cap LightGBM's intra-fit
+    # threads to avoid CPU oversubscription.
+    if n_jobs > 1 and hasattr(model, "set_params"):
+        try:
+            model.set_params(n_jobs=1)
+        except Exception as _njobs_err:
+            # Same oversubscription warning as the sibling branch above
+            # (transformed-target variant): without this log, an operator
+            # tracking "discovery wallclock regressed" never connects it
+            # to a silently-failed n_jobs cap on the inner model.
+            logger.warning(
+                "composite_screening (transformed): failed to cap n_jobs=1 on "
+                "inner %s under outer n_jobs=%d (oversubscription risk): %s: %s",
+                type(model).__name__, n_jobs, type(_njobs_err).__name__, _njobs_err,
+            )
+    return model
+
+
+def _fit_fold_model(x_clean, train_fold, fit_rows, t_fit, *, family, n_estimators, num_leaves, learning_rate, random_state, deterministic, inner_n_jobs, n_jobs):
+    """Fit one fold's tiny model, reusing the fold's binned dataset when every row of the fold trains.
+
+    A LightGBM fold that trains on all its rows shares its binned dataset with the other specs on this matrix:
+    predictions are bit-identical and one construction is saved per spec. A masked fold, or another family, keeps the
+    fresh fit, since a row subset would keep bin boundaries that a fit on fewer rows places differently.
+    """
+    if family.lower() in ("lgb", "lightgbm") and isinstance(x_clean, np.ndarray) and fit_rows.shape[0] == train_fold.shape[0]:
+        params = lgb_params(
+            num_leaves=num_leaves, learning_rate=learning_rate, random_state=random_state,
+            deterministic=deterministic, num_threads=1 if n_jobs > 1 else inner_n_jobs,
+        )
+        return fit_on_shared_fold(x_clean, train_fold, t_fit, params=params, n_estimators=n_estimators)
+    if family.lower() in ("linear", "ridge") and isinstance(x_clean, np.ndarray) and fit_rows.shape[0] == train_fold.shape[0]:
+        return fit_ridge_on_shared_fold(x_clean, train_fold, t_fit)
+    model = _tiny_fold_model(
+        family, n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate,
+        random_state=random_state, deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs,
+    )
+    model.fit(x_clean[fit_rows], t_fit)
+    return model
 
 
 def _tiny_cv_rmse_y_scale(
@@ -274,35 +358,12 @@ def _tiny_cv_rmse_y_scale(
         # Hoisted split cache: identical (n,cv_folds,seed) across N_SPECS -> identical splits.
         splits = _cached_kfold_splits(x_clean.shape[0], cv_folds, random_state)
 
+
     def _one_fold(
         train_fold: np.ndarray, val_fold: np.ndarray,
     ) -> tuple[float, np.ndarray | None]:
         """Return (fold_rmse, per_bin_rmse_or_None)."""
         try:
-            model = _build_tiny_model(
-                family,
-                n_estimators=n_estimators,
-                num_leaves=num_leaves,
-                learning_rate=learning_rate,
-                random_state=random_state,
-                deterministic=deterministic,
-                inner_n_jobs=inner_n_jobs,
-            )
-            # When folds run in parallel, cap LightGBM's intra-fit
-            # threads to avoid CPU oversubscription.
-            if n_jobs > 1 and hasattr(model, "set_params"):
-                try:
-                    model.set_params(n_jobs=1)
-                except Exception as _njobs_err:
-                    # Same oversubscription warning as the sibling branch above
-                    # (transformed-target variant): without this log, an operator
-                    # tracking "discovery wallclock regressed" never connects it
-                    # to a silently-failed n_jobs cap on the inner model.
-                    logger.warning(
-                        "composite_screening (transformed): failed to cap n_jobs=1 on "
-                        "inner %s under outer n_jobs=%d (oversubscription risk): %s: %s",
-                        type(model).__name__, n_jobs, type(_njobs_err).__name__, _njobs_err,
-                    )
             # Under fallback emulation the train fold may contain off-domain rows (NaN T); fit ONLY on the domain-valid train rows (forward is undefined off-domain) -- production fits the inner the same way. ``_fit_rows`` == the full train fold on the legacy / all-valid path.
             if _split_valid_mask is not None:
                 _tr_valid = train_fold[_split_valid_mask[train_fold]]
@@ -311,8 +372,14 @@ def _tiny_cv_rmse_y_scale(
                 _fit_rows = _tr_valid
             else:
                 _fit_rows = train_fold
+            _fold_params, _fit_rows, _t_fit = _fold_fit_inputs(
+                transform, fitted_params, y_clean, base_clean, t_clean, groups_clean, _fit_rows,
+            )
             with _silence_tiny_model_output(family):
-                model.fit(x_clean[_fit_rows], t_clean[_fit_rows])
+                model = _fit_fold_model(
+                    x_clean, train_fold, _fit_rows, _t_fit, family=family, n_estimators=n_estimators, num_leaves=num_leaves,
+                    learning_rate=learning_rate, random_state=random_state, deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs,
+                )
                 t_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
             # Domain-invalid val rows have a meaningless base for the inverse; supply a safe placeholder and overwrite with the median fallback below (mirrors estimator/_predict.py base_safe + y_train_median).
             if _split_valid_mask is not None:
@@ -321,7 +388,11 @@ def _tiny_cv_rmse_y_scale(
             else:
                 _val_valid = None
                 _base_for_inverse = base_clean[val_fold]
-            y_hat = transform.inverse(t_hat, _base_for_inverse, fitted_params)
+            # Smearing for curved unary inverses (see ``estimator._smearing``), as the trained composite predicts.
+            y_hat = smeared_prediction(
+                getattr(transform, "name", ""), model, x_clean[_fit_rows], _t_fit, t_hat,
+                lambda t: transform.inverse(t, _base_for_inverse, _fold_params),
+            )
             # Wrapper-aware clipping. The
             # production CompositeTargetEstimator.predict applies
             # the same y-clip on inverse output to keep predictions

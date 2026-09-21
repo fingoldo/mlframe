@@ -847,20 +847,24 @@ class ShapProxiedFitMixin:
                 # parsimony_tol pruner re-drops them unless explicitly protected (gt_09 sec 3.4).
                 _residual_protected = residual_protected_working_cols & set(member_cols) or None
 
+                _legacy_refine_memo: list = []
+
                 def _run_legacy_refine():
-                    """Legacy greedy-backward parsimony_tol refine; also the honest-gate fallback for refine_mode='core'."""
-                    return within_cluster_refine(
-                        member_cols, model_template, X_search, y_search, X_hold, y_hold,
-                        classification=self.classification, metric=self.metric,
-                        parsimony_tol=self.parsimony_tol, n_jobs=self.n_jobs, cache=honest_cache,
-                        member_groups=member_groups, refine_n_estimators=self.refine_n_estimators,
-                        ucb_enabled=self.refine_ucb_enabled,
-                        ucb_min_eval_size=self.refine_ucb_min_eval_size,
-                        ucb_slack=self.refine_ucb_slack,
-                        ucb_stdev_multiplier=self.refine_ucb_stdev_multiplier,
-                        inner_n_jobs_cap=self.inner_n_jobs_cap,
-                        disk_cache_dir=self.cache_dir,
-                        protected_cols=_residual_protected)
+                    """Legacy greedy parsimony_tol refine; core's honest-gate baseline and fallback, so memoised."""
+                    if not _legacy_refine_memo:
+                        _legacy_refine_memo.append(within_cluster_refine(
+                            member_cols, model_template, X_search, y_search, X_hold, y_hold,
+                            classification=self.classification, metric=self.metric,
+                            parsimony_tol=self.parsimony_tol, n_jobs=self.n_jobs, cache=honest_cache,
+                            member_groups=member_groups, refine_n_estimators=self.refine_n_estimators,
+                            ucb_enabled=self.refine_ucb_enabled,
+                            ucb_min_eval_size=self.refine_ucb_min_eval_size,
+                            ucb_slack=self.refine_ucb_slack,
+                            ucb_stdev_multiplier=self.refine_ucb_stdev_multiplier,
+                            inner_n_jobs_cap=self.inner_n_jobs_cap,
+                            disk_cache_dir=self.cache_dir,
+                            protected_cols=_residual_protected))
+                    return list(_legacy_refine_memo[0])
 
                 _refine_mode_effective = self.refine_mode
                 _core_disk_cache = None
@@ -933,12 +937,22 @@ class ShapProxiedFitMixin:
                     core_evaluator = _Evaluator(phi, base, y_phi, resolve_metric(self.classification, self.metric))
 
                     def _honest_gate(cols):
-                        """Accept the core proposal iff its honest holdout loss stays within parsimony_tol of the pre-refine loss."""
+                        """Accept core iff its honest loss is within parsimony_tol of pre-refine AND no worse than greedy's result (core's
+                        documented contract). The band alone let core keep 14/41 cols on breast_cancer+decoys vs greedy's 23, -0.006 AUC."""
+                        _metric = resolve_metric(self.classification, self.metric)
                         candidate_loss = _honest_loss(
                             model_template, X_search, y_search, X_hold, y_hold, cols,
-                            self.classification, resolve_metric(self.classification, self.metric),
-                            cache=honest_cache, disk_cache=_core_disk_cache)
-                        return candidate_loss <= _tol_threshold
+                            self.classification, _metric, cache=honest_cache, disk_cache=_core_disk_cache)
+                        if candidate_loss > _tol_threshold:
+                            return False
+                        greedy_cols = _run_legacy_refine()
+                        if not greedy_cols or sorted(greedy_cols) == sorted(cols):
+                            return True
+                        greedy_loss = _honest_loss(
+                            model_template, X_search, y_search, X_hold, y_hold, list(greedy_cols),
+                            self.classification, _metric, cache=honest_cache, disk_cache=_core_disk_cache)
+                        # Keeping MORE than greedy is core's purpose (weak-but-real recall): parsimony_tol of slack. Keeping FEWER must not cost loss.
+                        return candidate_loss <= greedy_loss + (self.parsimony_tol * abs(greedy_loss) if len(cols) >= len(greedy_cols) else 0.0)
 
                     refined, core_info = core_refine(
                         core_member_cols, tuple(int(u) for u in best_idx), core_evaluator, _honest_gate,

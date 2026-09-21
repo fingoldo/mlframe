@@ -361,40 +361,10 @@ def _greedy_rank_index(predictors: Iterable[Any]) -> dict[str, int]:
             _en = entry.get("name")
             if _en is not None:
                 index.setdefault(simplify_fe_name(str(_en)), idx)
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-entry fault isolation, as in _greedy_rank_for_name
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-entry fault isolation: one malformed log entry must not blank the whole rank index
             logging.getLogger(__name__).debug("suppressed: %s", e)
             continue
     return index
-
-
-def _greedy_rank_for_name(name: str, predictors: Iterable[Any]) -> int:
-    """Find the support_rank of ``name`` in the greedy predictor log.
-    Returns -1 when the name is not in the log (e.g. raw column carried
-    via the empty-support fallback). Tests treat -1 as "no greedy rank".
-
-    DEPENDENCY: the match is correct only while ``simplify_fe_name`` maps the provenance-side ``name`` and the predictor
-    log's RAW op-name to the SAME canonical string. If that simplifier's normalisation ever diverges between the two sides
-    (e.g. a new op alias simplified on one path but not the other), the rank silently resolves to -1 here - the column then
-    shows as "no greedy rank" in the report rather than erroring. ``simplify_fe_name`` is idempotent, which is what keeps the
-    already-simplified provenance name and the raw log name agreeing today.
-    """
-    # Compare on the SIMPLIFIED name on BOTH sides: ``name`` arrives already simplified
-    # (it is a ``_final_feature_order`` entry, which mirrors get_feature_names_out's
-    # value-preserving DISPLAY canonicalisation), but the predictor log stores the RAW
-    # op-name, so a raw-vs-simplified compare would miss the rank of any column whose
-    # name canonicalises (e.g. a dead ``neg(b)`` under an ``abs``). ``simplify_fe_name``
-    # is idempotent, so simplifying an already-simplified ``name`` is a no-op.
-    from .engineered_recipes._recipe_name_simplify import simplify_fe_name
-    _target = simplify_fe_name(str(name)) if name is not None else name
-    for idx, entry in enumerate(predictors or ()):
-        try:
-            _en = entry.get("name")
-            if _en is not None and simplify_fe_name(str(_en)) == _target:
-                return idx
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-            logging.getLogger(__name__).debug("suppressed: %s", e)
-            continue
-    return -1
 
 
 def _final_feature_order(mrmr_self: Any) -> list[str]:

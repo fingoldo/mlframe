@@ -19,6 +19,7 @@ import pstats
 import time
 
 import numpy as np
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def make_data(n: int, f: int, seed: int = 0):
@@ -32,8 +33,10 @@ def make_data(n: int, f: int, seed: int = 0):
 def _best_of(fn, n: int = 5) -> float:
     times = []
     for _ in range(n):
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         fn()
+        synchronize_gpu_if_available()
         times.append(time.perf_counter() - t0)
     return min(times)
 

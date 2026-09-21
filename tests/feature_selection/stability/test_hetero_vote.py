@@ -29,6 +29,7 @@ def test_hetero_vote_keeps_signal_drops_noise():
     accepted, info = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=4, vote_threshold=0.5, random_state=0)
     acc = set(accepted)
     # All strong (marginal) signals survive the majority vote.
+    assert len(signal) > 0
     for s in signal:
         assert s in acc, f"signal {s} dropped (vote_fraction={info['vote_fraction'][s]})"
     # Cross-model voting admits very few noise columns (single-model gates leak more).
@@ -63,6 +64,7 @@ def test_skill_weighting_on_runs_and_reports_weights():
 
     X, y, signal, _ = _data(seed=2)
     accepted, info = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, weight_by_cv_skill=True, cv_skill_folds=3, random_state=0)
+    assert len(signal) > 0
     for s in signal:
         assert s in set(accepted), f"skill-weighted vote dropped strong signal {s}"
     w = info["model_weights"]

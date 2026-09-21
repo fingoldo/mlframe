@@ -5,8 +5,11 @@ reaches either hash and every existing entry becomes unreachable -- not corrupt,
 permanent miss that reads as a cold cache. On the frames this package caches that is hours of
 recomputation, and the only symptom is that the cache "stopped helping".
 
-Neither function carries a version constant, so there is no way to invalidate deliberately either.
-That makes the literals below the only thing standing between a refactor and a silently dead cache.
+`hash_array_summary` carries no version constant; `data_signature` names its encoding epoch but nothing
+checks that an edit bumped it. That makes the literals below the only thing standing between a refactor
+and a silently dead cache. The key must also not move when a LIBRARY moves: `data_signature` reads only
+mlframe's canonical encoding of the data, so a pandas / polars / numpy upgrade that fails these pins is a
+bug in that encoding, not a reason to re-capture.
 If a change makes them fail, the correct response is a decision, not an edit: either the change was
 not meant to move the keys (fix it), or it was (re-capture, and say so in the commit message so the
 next person knows their caches went cold on purpose). Editing the literals to match new output
@@ -63,20 +66,18 @@ _SIGNATURE_CASES: dict[str, tuple[pd.DataFrame, list[str]]] = {
     "pandas_bool": (_frame({"b": (np.arange(60) % 2).astype(bool)}), ["num", "b"]),
 }
 
-#: Captured with no version constant in either module. See the module docstring before changing one.
+#: Captured under the canonical encoding (``_canonical_hash``). pandas and polars frames of the same data key identically, so
+#: one literal per case serves both. The previous literals went cold with no mlframe change when the environment moved:
+#: pandas 3 re-typed strings (``object`` -> ``str``) and inferred ``us`` / ``s`` datetime resolutions, and numpy's platform
+#: default int width changed the ``cat`` column -- all folded in via ``str(dtype)`` / ``hash_pandas_object`` / raw bytes.
+#: See the module docstring before changing one.
 _EXPECTED_SIGNATURES = {
-    "pandas_plain": "1990ecb733801a76c57b47b470533e3a",  # pragma: allowlist secret
-    "pandas_plain_polars": "0ec88242b8b027030c2e51d7dcda51a6",  # pragma: allowlist secret
-    "pandas_datetime": "7ccf4ade7fd8d61343c9821c293e2be4",  # pragma: allowlist secret
-    "pandas_datetime_polars": "6741ccd8d95806bf71418a6af3c64747",  # pragma: allowlist secret
-    "pandas_timedelta": "4fae0d80ab2c5f4b804af315d7bc29e0",  # pragma: allowlist secret
-    "pandas_timedelta_polars": "78f8999a01290d2d0542b56f2f863c1e",  # pragma: allowlist secret
-    "pandas_object": "4d05c43a5e9f21cfa8706e572a1d7b97",  # pragma: allowlist secret
-    "pandas_object_polars": "b6fd45e053671153bbffa8d5c8c25eca",  # pragma: allowlist secret
-    "pandas_float32": "4fcaeb0c1804233717da173b497ae420",  # pragma: allowlist secret
-    "pandas_float32_polars": "355081316ae34608695763301a7a8e7b",  # pragma: allowlist secret
-    "pandas_bool": "636d624f4706eb2bcc314606746df799",  # pragma: allowlist secret
-    "pandas_bool_polars": "2ff51ec6182aa85b4d750327941217db",  # pragma: allowlist secret
+    "pandas_bool": "768de72060a9658012e1082cc9ac33b1",  # pragma: allowlist secret
+    "pandas_datetime": "57238ddd55e05163458f78ff4d70b335",  # pragma: allowlist secret
+    "pandas_float32": "40711b6020311af157829ae4fa4cf60a",  # pragma: allowlist secret
+    "pandas_object": "03bcf5e51caf4840df3192149248c9f0",  # pragma: allowlist secret
+    "pandas_plain": "d1972c5eff4248feb71f3cc44e2e62a5",  # pragma: allowlist secret
+    "pandas_timedelta": "bd4ce72611507cf8e4db5ac265a727dd",  # pragma: allowlist secret
 }
 
 
@@ -134,18 +135,12 @@ class TestTheSignatureKeysAreUnchanged:
 
     @pytest.mark.parametrize("name", sorted(_SIGNATURE_CASES))
     def test_the_polars_signature_is_unchanged(self, name):
-        """Polars is the other supported frame type and takes a different branch throughout, so it
-        needs its own pins rather than being assumed to agree with pandas."""
+        """Polars takes a different branch throughout (native select for stats, gather for the sample), so
+        it is pinned separately. It pins to the SAME literal: the key encodes the data, not the frame library,
+        so a polars caller hits the entries a pandas run wrote."""
         frame, features = _SIGNATURE_CASES[name]
 
-        assert data_signature(pl.from_pandas(frame), "y", features) == _EXPECTED_SIGNATURES[f"{name}_polars"], _KEY_CHANGED
-
-    def test_the_two_frame_types_key_differently_and_that_is_pinned_too(self):
-        """They do NOT agree today. Pinned so the difference is a known property rather than
-        something discovered when a polars caller misses every entry a pandas run wrote."""
-        frame, features = _SIGNATURE_CASES["pandas_plain"]
-
-        assert data_signature(frame, "y", features) != data_signature(pl.from_pandas(frame), "y", features)
+        assert data_signature(pl.from_pandas(frame), "y", features) == _EXPECTED_SIGNATURES[name], _KEY_CHANGED
 
 
 class TestTheArrayDigestsAreUnchanged:

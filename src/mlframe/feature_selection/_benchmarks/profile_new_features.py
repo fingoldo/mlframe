@@ -34,6 +34,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression, Ridge
 
 from mlframe.feature_selection.wrappers import RFECV, get_feature_importances
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 RESULTS = Path(__file__).parent / "_results"
 RESULTS.mkdir(parents=True, exist_ok=True)
@@ -41,10 +42,12 @@ RESULTS.mkdir(parents=True, exist_ok=True)
 
 def _profile(label: str, fn) -> tuple[pstats.Stats, float]:
     profiler = cProfile.Profile()
+    synchronize_gpu_if_available()
     t0 = perf_counter()
     profiler.enable()
     fn()
     profiler.disable()
+    synchronize_gpu_if_available()
     t1 = perf_counter()
     stats = pstats.Stats(profiler).strip_dirs().sort_stats("cumulative")
     stream = io.StringIO()

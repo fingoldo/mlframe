@@ -224,6 +224,7 @@ class TestDefaultIsLegacyByteIdentical:
         X, _y, m = _linear_off_fit(seed)
         Xt = m.transform(X)
         # Output frame contains only raw selected columns; no hybrid suffixes.
+        assert len(Xt.columns) > 0
         for c in Xt.columns:
             assert "__He" not in str(c)
             assert "__T" not in str(c).replace("noise_", "noise_")

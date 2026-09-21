@@ -28,7 +28,7 @@ def _validate_score_ensemble_inputs(
     is_regression : bool
         Inferred from the first member's probs availability.
     ensembling_methods : Any
-        The original list with ``"rrf"`` filtered out on the regression path.
+        The original list, unchanged (target-type flavour filtering happens in ``flavour_policy``).
     ensure_prob_limits : bool
         Possibly toggled to False on the regression path.
     """
@@ -81,12 +81,8 @@ def _validate_score_ensemble_inputs(
         is_regression = True
         ensure_prob_limits = False
 
-    # RRF is a rank-fusion flavour that only makes sense on classifier probabilities (where per-row ranks across the n_samples axis encode "confidence ordering"). For regression there is no analogous per-sample rank operation, so drop "rrf" silently from the candidate list rather than fail late inside _process_single_ensemble_method.
-    if is_regression and ensembling_methods:
-        _pre = list(ensembling_methods)
-        ensembling_methods = [m for m in ensembling_methods if m != "rrf"]
-        if verbose and len(ensembling_methods) != len(_pre):
-            logger.info("[ensemble] target_type=REGRESSION: skipping rrf candidate (rank-fusion only meaningful on classifier probabilities).")
+    # Rank-fusion flavours (rrf / rank_average) are filtered by target type in ``flavour_policy.filter_flavours_for_target_type``,
+    # called by ``score_ensemble`` right after this prelude; keeping the decision in one place lets learning-to-rank keep them.
 
     # Multi-level stacking requires OOF predictions on EVERY member: the level-2 (and deeper) meta-learner consumes
     # level-1 ensemble outputs as features, and if any member contributes an in-sample ``train_preds`` row instead of

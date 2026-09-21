@@ -125,6 +125,7 @@ def test_batched_kernel_matches_loop_kernel():
     rbf, ridge = _fit_rff_ridge(Xs, y, n_components=400, gamma=1.0 / P, alpha=1.0, seed=0)
     en_loop = _rff_analytic_mixed_partial_energy_loop(rbf, ridge, Xs, pairs)
     en_batch = _rff_analytic_mixed_partial_energy(rbf, ridge, Xs, pairs, chunk=128)
+    assert len(pairs) > 0
     for p in pairs:
         assert abs(en_loop[p] - en_batch[p]) <= 1e-9 * (1 + abs(en_loop[p]))
 

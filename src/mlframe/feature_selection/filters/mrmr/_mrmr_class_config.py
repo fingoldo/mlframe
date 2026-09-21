@@ -61,7 +61,8 @@ class _MRMRConfigMixin:
         """Drain the process-wide MRMR fit cache. Returns the entry count that was dropped. Call between
         suites (model retraining boundary, JupyterHub kernel reuse, web-service request boundary) when
         long-lived workers must release fitted-MRMR memory. Without this, the cache holds up to
-        ``fit_cache_max`` (default 4) full MRMR instances per process for as long as the process lives."""
+        ``fit_cache_max`` (default 4) full MRMR instances per process for as long as the process lives. Also drops the memoised
+        target encodings (``_y_encoding``)."""
         # Must take the SAME canonical lock every _FIT_CACHE read/write site in _fit_impl_core.py uses -
         # otherwise this can interleave between another thread's lock-protected membership check and its
         # immediately-following subscript read, raising KeyError in that concurrently-fitting thread.
@@ -73,6 +74,10 @@ class _MRMRConfigMixin:
         with _MRMR_FIT_CACHE_LOCK:
             n = len(cls._FIT_CACHE)
             cls._FIT_CACHE.clear()
+        # The memoised target encodings are fit-scoped memory of the same kind; a retraining boundary releases them too.
+        from .._y_encoding import _clear_encode_cache
+
+        _clear_encode_cache()
         return n
 
     @classmethod
@@ -98,7 +103,7 @@ class _MRMRConfigMixin:
 
     @classmethod
     def _populate_fast_search_subsample_n(cls) -> int:
-        """Resolve and store the fast-search screen size; caller holds ``_CLASS_CACHES_LOCK``."""
+        """Resolve and store the fast-search screen size; the store takes ``_CLASS_CACHES_LOCK`` (re-entrant, callers normally hold it already)."""
         _fallback = 90_000
         _result = _fallback
         try:
@@ -113,7 +118,8 @@ class _MRMRConfigMixin:
                         _result = _v
         except Exception as exc:
             logger.debug("mrmr: fast_search screen_n KTC lookup failed; using fallback %d: %r", _fallback, exc, exc_info=True)
-        _FAST_SEARCH_SUBSAMPLE_N_CACHE[cls] = _result
+        with _CLASS_CACHES_LOCK:  # re-entrant: the normal caller already holds it, a direct call must not race
+            _FAST_SEARCH_SUBSAMPLE_N_CACHE[cls] = _result
         return _result
 
     @classmethod
@@ -132,7 +138,7 @@ class _MRMRConfigMixin:
 
     @classmethod
     def _populate_default_screen_subsample_n(cls) -> int:
-        """Resolve and store the default screen size; caller holds ``_CLASS_CACHES_LOCK``."""
+        """Resolve and store the default screen size; the store takes ``_CLASS_CACHES_LOCK`` (re-entrant, callers normally hold it already)."""
         _fallback = int(cls._DEFAULT_SCREEN_SUBSAMPLE_N)
         _result = _fallback
         try:
@@ -147,7 +153,8 @@ class _MRMRConfigMixin:
                         _result = _v
         except Exception as exc:
             logger.debug("mrmr: default screen_n KTC lookup failed; using fallback %d: %r", _fallback, exc, exc_info=True)
-        _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE[cls] = _result
+        with _CLASS_CACHES_LOCK:  # re-entrant: the normal caller already holds it, a direct call must not race
+            _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE[cls] = _result
         return _result
 
     def _override_if_at_default(self, attr: str, new_value, defaults: dict, saved: dict) -> None:

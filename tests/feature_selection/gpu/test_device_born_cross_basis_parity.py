@@ -215,5 +215,6 @@ def test_pair_scorer_selection_equivalent(monkeypatch):
     # engineered_mi agrees to selection precision (both via the resident plug-in vs host njit -> ~1e-3 drift ok)
     hm = dict(zip(host_sc["engineered_col"], host_sc["engineered_mi"]))
     dm = dict(zip(dev_sc["engineered_col"], dev_sc["engineered_mi"]))
+    assert len(hm) > 0
     for c in hm:
         assert abs(hm[c] - dm[c]) < 5e-2, f"engineered_mi for {c}: host {hm[c]:.4f} dev {dm[c]:.4f}"

@@ -125,6 +125,7 @@ def plot_feature_importance(
     log_fi: bool = True,
     max_zero_fi_to_plot: int = _FI_DEFAULT_MAX_ZERO,
     importances_std: np.ndarray | None = None,
+    importance_label: str = "Importance",
 ):
     """Plot + log top-N feature importances.
 
@@ -267,7 +268,7 @@ def plot_feature_importance(
         )
         ax.set(yticks=range(len(_abs_order)), yticklabels=_picked_cols)
         ax.set_title(f"{kind} feature importances", fontsize=11)
-        ax.set_xlabel("Importance")
+        ax.set_xlabel(importance_label)
         ax.axvline(0, color="k", linewidth=0.5, alpha=0.5)
         ax.grid(True, axis="x", alpha=0.3)
         ax.set_axisbelow(True)

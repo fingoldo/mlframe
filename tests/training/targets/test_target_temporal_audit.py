@@ -749,6 +749,7 @@ def test_audit_targets_returns_dict_keyed_by_name(synthetic_multi_target_df):
         },
     )
     assert set(results.keys()) == {"drifty", "stable"}
+    assert results.values()
     for r in results.values():
         assert isinstance(r, TemporalAuditResult)
 
@@ -825,6 +826,7 @@ def test_audit_targets_equivalent_to_single_calls(synthetic_multi_target_df):
     )
     assert len(batch["drifty"].segments) == len(single.segments)
     assert batch["drifty"].granularity == single.granularity
+    assert list(zip(batch['drifty'].segments, single.segments))
     for s_batch, s_single in zip(batch["drifty"].segments, single.segments):
         assert s_batch["start_idx"] == s_single["start_idx"]
         assert s_batch["end_idx"] == s_single["end_idx"]
@@ -905,3 +907,19 @@ def test_recommended_mask_no_segments_returns_all_false():
     mask = empty.recommended_filter_mask(ts)
     assert mask.shape == (3,)
     assert not mask.any()
+
+
+def test_report_does_not_print_segments_twice():
+    """A warning that lists the segments must not repeat lines already printed above it."""
+    from types import SimpleNamespace
+
+    from mlframe.training.targets.target_temporal_audit import format_temporal_audit_report
+
+    seg = {"start_label": "a", "end_label": "b", "n_bins": 5, "n_obs": 100, "mean_rate": 1.0}
+    seg_line = "  segment a..b (5 bins, n_obs=100): mean_rate=1.000"
+    res = SimpleNamespace(
+        target_name="t", target_type="regression", granularity="W", bins=[0] * 5, segments=[seg],
+        warnings=["target rate is NOT stable", seg_line], actionable={},
+    )
+    text = format_temporal_audit_report(res)
+    assert text.count("segment a..b") == 1

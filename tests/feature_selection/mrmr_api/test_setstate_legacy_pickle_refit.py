@@ -33,6 +33,7 @@ def test_legacy_pickle_missing_ctor_params_reinjected():
         state.pop(k, None)
     m = MRMR.__new__(MRMR)
     m.__setstate__(state)
+    assert len(_PARAMS_PREDATING_ROSTER) > 0
     for k in _PARAMS_PREDATING_ROSTER:
         assert hasattr(m, k), f"__setstate__ did not re-inject ctor default for {k!r}"
 

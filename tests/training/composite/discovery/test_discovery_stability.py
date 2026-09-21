@@ -216,6 +216,7 @@ def test_m3_legacy_full_sample_opt_out(monkeypatch):
     shared_holdout = holdout_snapshots[0]
     assert all(np.array_equal(h, shared_holdout) for h in holdout_snapshots), "the shared holdout must be identical across every run in the sweep"
     expected_pool = np.setdiff1d(full_train, shared_holdout)
+    assert len(calls) > 0
     for _, ti in calls:
         assert set(ti.tolist()).issubset(set(full_train.tolist())), "opt-out rows must still come from train_idx"
         assert np.array_equal(

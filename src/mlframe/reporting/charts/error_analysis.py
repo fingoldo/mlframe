@@ -519,7 +519,7 @@ def segments_bar(
         categories=cats,
         values=vals,
         series_labels=(metric_name,),
-        title=title + f"\n(worst-first; global reference = {global_value:.3g}; worst segment {cats[0]} is {vals[0] / global_value:.2f}x the global)" if (vals.size and global_value) else title,
+        title=title + f"\n(worst-first; global reference = {global_value:.3g}; worst segment {cats[0]} is {vals[0] / global_value:.2f}x the global)" if (vals.size and global_value is not None and global_value != 0) else title,
         xlabel=str(group_col),
         ylabel=metric_name,
         colors=("steelblue",),

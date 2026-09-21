@@ -1,0 +1,239 @@
+# composite audit 2026-09-19 -- master tracker
+
+Six read-only reports on `src/mlframe/training/composite/` and the training-suite code that drives it:
+transforms ([transforms.md](transforms.md)), discovery ([discovery.md](discovery.md)), estimator and ensemble wrapping
+([estimator_ensemble.md](estimator_ensemble.md)), training-suite integration ([suite_integration.md](suite_integration.md)),
+performance ([performance.md](performance.md)) and the test suite ([tests.md](tests.md)). Preventive checks designed from
+their root causes are in [preventive_meta_tests.md](preventive_meta_tests.md); those are tracked as rows too.
+
+Statuses: **RESOLVED** (fixed in code; the note names the test that pins it), **PARTIAL** (part fixed; the note says what
+remains), **TODO** (open), **REJECTED** (measured and declined; evidence in the note), **NOT A DEFECT** (the claimed
+behaviour does not occur, or was already fixed on master before implementation started; the note names the commit).
+Each report's own `- **Disposition**:` line is updated together with its row here.
+
+## Summary
+
+| File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
+|---|---|---|---|---|---|---|
+| `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
+| `discovery.md` | 30 | 5 | 0 | 25 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
+| `suite_integration.md` | 19 | 6 | 0 | 13 | 0 | 0 |
+| `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
+| `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
+| `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
+| **Total** | **179** | **54** | **10** | **114** | **1** | **0** |
+
+### `transforms.md`
+
+| Status | Sev | ID | Finding | Evidence / what remains |
+|---|---|---|---|---|
+| **RESOLVED** | P1 | `TRF-01` | `reciprocal_residual` inverse clamps `z = T_hat + 1/base` with an epsilon in base units, so every prediction collapses to a constant once /y/ is larger than about 1e6/median/base/ | inverse floor derived from the train y range, bounding |y_hat| at 1000x max|y| (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P1 | `TRF-02` | `centered_ratio` shifts even a strictly positive base down to about 0 at the train minimum, so a predict base slightly below the train min flips the sign of `y_hat` | a strictly positive base keeps c=0 and the fitted domain requires base+c >= eps, so sign-crossing rows take the fallback (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P1 | `TRF-03` | `monotonic_residual` sends under-populated knots to the global median before the cumulative max/min, which flattens half the spline on small and mid-size train sets | the knot-population threshold scales with n and a sparse knot is interpolated from its populated neighbours (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P1 | `TRF-04` | `frac_diff` inverse amplifies any T-bias about 10x and makes each row's prediction depend on which other rows are in the predict batch | observed history_y seeds the lag terms, so per-row serving has gain 1; the fit logs the amplification (168e79ee8; test_transform_defects_recurrent.py) |
+| **RESOLVED** | P2 | `TRF-05` | Predictions from the recurrent family (`ewma_residual`, `volatility_normalized_residual`, `rolling_quantile_ratio*`, and their `_grouped` variants) depend on the composition of the predict batch | every recurrent forward/inverse warms up on history_base/history_y, so a chunked predict equals the one-batch predict (168e79ee8; test_transform_defects_recurrent.py) |
+| **RESOLVED** | P2 | `TRF-06` | `quantile_normal_y` and `gaussian_copula_residual` clip the ECDF with an epsilon from the knot count, not the sample size, so their round-trip is lossy on tails (continuous y) and on the extreme values (tied/discrete y) | the ECDF clip is the tail mass beyond the extreme knots instead of an eps from the knot count (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P2 | `TRF-07` | `linear_residual` (and every transform built on `_linear_residual_fit`) returns a minimum-norm, non-zero alpha on a zero-variance base, which extrapolates wrongly on any different base value | a zero-variance base returns (0, mean y); a constant-base group keeps the global slope and its own level (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P2 | `TRF-08` | The `logratio` soft-cap floor is `1e-3 * std(y)` in raw y units while the cap applies to log-scale T, so the cap switches off for large-scale targets and is scale-dependent | the soft-cap MAD floor is unitless instead of 1e-3*std(y) in raw y units (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P2 | `TRF-09` | `polynomial_residual_deg2` solves raw (uncentred) normal equations, so the quadratic fit breaks down once the base is offset from zero; the comment claims centring that the code does not do | least squares on the centred/scaled (1, z, z^2) design, evaluated in z space; raw alphas kept for provenance (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P2 | `TRF-10` | Grouped and categorical transforms crash with `TypeError` on a group column holding missing values (`None`/`NaN` mixed with strings) | grouped and categorical transforms accept a group column mixing strings with None/NaN (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P2 | `TRF-11` | `seasonal_residual` period selection maximises in-sample fit with no complexity penalty: the largest candidate period always wins on noise and nested multiples beat the true period | period selection is held-out error over alternating cycles with period 1 a candidate, taking the smallest within one SE (168e79ee8; test_transform_defects_recurrent.py) |
+| **RESOLVED** | P2 | `TRF-12` | At predict, `seasonal_residual` assumes the batch starts at phase 0 and there is no continuation offset, so a chronological test split usually gets wrong phase means | forward/inverse take absolute row_index positions and continuation starts at the phase following the train series (168e79ee8; test_transform_defects_recurrent.py) |
+| **RESOLVED** | P2 | `TRF-13` | `second_diff` with a 1-D base becomes `T = y - 2*b1`, which keeps the full (negated) level; the docstring calls this "still a valid, if weaker, detrend" | a single-column fit records single_lag_as_diff so T = y - b1 and warns about the missing lag-2 wiring; old params keep their algebra (84c125ddf; test_biz_val_second_diff.py) |
+| **RESOLVED** | P3 | `TRF-14` | `nadaraya_watson_residual` sets the bandwidth from the full n but only averages over at most 2000 single-observation knots, so accuracy stops improving with more data | count-weighted rank-bucket means replace the 2000 single-observation knots, so accuracy improves with n (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-15` | `monotonic_residual_grouped` shrinks per-group medians toward the global **mean** (`y_train_mean`), so skewed targets get a one-sided level shift instead of a shrink toward the global fit | the grouped monotonic fit shrinks toward the global MEDIAN (`_grouped_extra.py:573` global_median_key="y_train_median", stored by `nonlinear.py:428`) |
+| **RESOLVED** | P3 | `TRF-16` | The `rank_ecdf_residual` / `gaussian_copula_residual` constant-column ECDF adds a synthetic knot at `value + 1.0` in raw units, so a tiny T error inverts to `y + 1` | the constant-column ramp knot is scale-relative instead of a raw +1.0 (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-17` | The `smoothing_spline_residual` registry description gives the wrong smoothing formula, and spline build/eval failures are swallowed at `debug` level | spline build failures log at WARNING and set is_degenerate; the stale description is corrected (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-18` | `quantile_residual` per-bin IQR floor is an absolute `1e-6`, not scale-relative, so heteroscedastic scaling is silently disabled for small-scale targets | the per-bin IQR floor is relative to the global IQR instead of an absolute 1e-6 (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P3 | `TRF-19` | `signed_power_y` never tries `p = 1` (identity), so an already-symmetric target is always compressed | p = 1 (identity) is in the search, so a symmetric target is no longer compressed (428a76f75; test_transform_defects_fits.py) |
+| **RESOLVED** | P3 | `TRF-20` | `geometric_mean_residual` domain requires `y > 0` even though `T = y / geomean(bases)` is defined for any finite y | y <= 0 rows are kept: T = y / geomean is defined for any finite y (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-21` | Chain transforms silently drop `sample_weight`, while their standalone bivariate half honours it | call_transform forwards sample_weight exactly when the target accepts it, so chains honour it (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-22` | `_grouped_extra` stores the global `anchor` as `tail_anchor`, so unseen groups under `recurrence_continuation` get the mean seed, unlike the ungrouped transforms | the grouped seed is the ungrouped train-tail state: `_grouped_extra.py:90-94` computes the global EWMA trace tail instead of reusing the mean anchor |
+| **RESOLVED** | P3 | `TRF-23` | `rank_residual` stores the full sorted train `y` and `base` arrays in params | bounded knot tables replace the two full sorted train arrays (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-24` | `generate_interaction_bases` defaults `train_mask=None` (the divisor epsilon leaks test-set scale) and silently ignores a mask of the wrong length | a mis-shaped mask raises ValueError and a div without train_mask warns that the eps floor sees every row (1f8f92837; test_composite_interaction_bases.py::TestTrainMaskScale) |
+| **RESOLVED** | P3 | `TRF-25` | The Yeo-Johnson fit failure log says "Box-Cox", and `_registry_extended.py` rebuilds all six unary adapters but uses only one | the Yeo-Johnson failure log names Yeo-Johnson and _registry_extended no longer builds the five unregistered adapters (428a76f75; test_transform_defects_extended.py) |
+| **RESOLVED** | P3 | `TRF-26` | `target_encoding_residual` fits category means in-sample: each train row's own y is included in its encoding | train T is out-of-fold by default (predict keeps the full encoding), declared as oof_train_forward on the registry (428a76f75, 61c3bae14; test_composite_target_encoding_residual.py) |
+
+### `discovery.md`
+
+| Status | Sev | ID | Finding | Evidence / what remains |
+|---|---|---|---|---|
+| **RESOLVED** | P1 | `DSC-01` | Grouped causal bases copy each row's own target into the first row of every group | engineer_causal_first_fill defaults to 'nan' (config and the builder), so a history-less row is left undefined for the downstream masking to drop instead of being handed its own y; opting back into 'group_first' logs a warning naming the leak (test_biz_val_grouped_causal_bases.py::test_default_fill_never_writes_a_rows_own_target_into_its_causal_base and ::test_single_row_group_is_nan_not_its_own_value, which pinned the old fill) |
+| **RESOLVED** | P1 | `DSC-02` | Engineered `__gcausal_*` bases exist only in discovery's private frame, so kept specs cannot be rebuilt downstream | the discovery phase drops any kept spec whose base (or extra base) column is in none of the train/val/test frames, recording one failure entry each, and the shared column builder now warns instead of answering a name it cannot find with a silent all-NaN column. Engineered causal bases stay screening-only: they are functions of past y, which a predict frame does not carry, so there is nothing to rebuild downstream (test_composite_spec_base_materialisable.py, 5 tests; the builder probe fails at origin/master) |
+| **RESOLVED** | P1 | `DSC-03` | The "never-touched" honest holdout is used for selection and then reported as an honest post-selection estimate | the carve halves the holdout into honest_holdout_select_idx_ and honest_holdout_report_idx_: the drop gate and the honest-OOF ranking key read the selection half, the final re-score stamps its gain from the report half that no gate or ranking touched. A holdout too small to leave two usable halves keeps both roles on all rows (prior behaviour). The two winner's-curse biz tests now run on 2x the rows so the report half carries the sample size their thresholds were calibrated on; thresholds unchanged (test_honest_holdout_select_report_split.py, 5 tests) |
+| **RESOLVED** | P1 | `DSC-04` | Tiny-rerank CV scores every fold with transform params fit on all rows; the per-fold refit fix exists but is never called | _tiny_cv_rmse_y_scale's _one_fold now calls refit_transform_on_fold on the fold's own train rows and forwards/inverses that fold with the fold-local params (the helper existed and was tested but had no production caller); a degenerate fold returns None and keeps the global params, so a spec that scored before still scores (test_tiny_cv_refits_transform_per_fold.py, which fails at origin/master where both scores are identical) |
+| **RESOLVED** | P1 | `DSC-05` | `time_ordering` sorts only the MI screen; the CVs that claim to be forward-walks run on row-position order | fit stores the caller's time key on the instance and the new _fit_temporal.order_rows_by_time re-applies it where a consumer draws its own rows: the tiny rerank orders its sample before the TimeSeriesSplit, and the alpha-drift gate orders train_idx (and the cached base pool with it) so its halves are the time halves (test_time_ordering_reaches_consumers.py: a 1.0 -> 5.0 slope break scores z=3.92 ordered vs z=0.89 in row order, the latter under the 3.0 threshold, and the probe fails at origin/master) |
+| **TODO** | P2 | `DSC-06` | The bin-MI `mi_gain` compares a de-duplicated `MI(T,X)` with a non-de-duplicated `MI(y,X)` | |
+| **TODO** | P2 | `DSC-07` | The tiny rerank ranks and gates on a mix of honest-holdout RMSE and optimistic in-group CV RMSE | |
+| **TODO** | P2 | `DSC-08` | The y-scale gates score a spec on its finite rows only, while raw-y is scored on every row | |
+| **TODO** | P2 | `DSC-09` | Gate exceptions keep the spec (fail-open), and an all-NaN tiny-CV score passes the raw-baseline gate | |
+| **TODO** | P2 | `DSC-10` | The WAIC tie-break compares log predictive densities of different target scales | |
+| **TODO** | P2 | `DSC-11` | WAIC and auto-chain CVs use shuffled KFold, ignoring groups and time | |
+| **TODO** | P2 | `DSC-12` | The discovery disk-cache key leaves out inputs that change the result | |
+| **TODO** | P2 | `DSC-13` | The yscale gate's fallback path evaluates on rows the transform params were fit on | |
+| **TODO** | P2 | `DSC-14` | Stacked and stability-check fits drop `time_ordering`, `val_df` and `val_y` | |
+| **TODO** | P2 | `DSC-15` | The stability-check majority threshold is truncated, so n=3 keeps specs found once | |
+| **TODO** | P2 | `DSC-16` | Incremental drift detection cannot fire under default config | |
+| **TODO** | P2 | `DSC-17` | The cross-target composite budget sorts three incompatible gain units together | |
+| **TODO** | P2 | `DSC-18` | The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection | |
+| **TODO** | P2 | `DSC-19` | The group-disjoint honest-holdout carve can hold out most of the training rows | |
+| **TODO** | P3 | `DSC-20` | Auto-chain proposals are not required to beat raw y, and duplicate the hard-coded default chains | |
+| **TODO** | P3 | `DSC-21` | The raw-y baseline and the per-spec CV can use different splitters | |
+| **TODO** | P3 | `DSC-22` | `_group_ids_for_rerank` is read under two alignment conventions | |
+| **TODO** | P3 | `DSC-23` | Report reasons misattribute specs dropped by the late gates | |
+| **TODO** | P3 | `DSC-24` | FDR control is "on by default" but inert by default | |
+| **TODO** | P3 | `DSC-25` | Alpha-drift flags leak between fits of one instance; the reject flag's code fallback contradicts the config default | |
+| **TODO** | P3 | `DSC-26` | The corr-filter log recommends an escape hatch that does not work | |
+| **TODO** | P3 | `DSC-27` | Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids | |
+| **TODO** | P3 | `DSC-28` | Multi-base upgraded specs inherit unmeasured statistics from their seed | |
+| **TODO** | P3 | `DSC-29` | The knn cost guard runs after the most expensive knn work | |
+| **TODO** | P3 | `DSC-30` | The stratified MI sampler gives non-finite-y rows a full stratum share | |
+
+### `estimator_ensemble.md`
+
+| Status | Sev | ID | Finding | Evidence / what remains |
+|---|---|---|---|---|
+| **RESOLVED** | P0 | `EST-01` | One `X` is used both for the inner model's features and for the raw base, so every call path gives wrong y-scale predictions for composite models trained behind a value-transforming pre_pipeline | the wrapper owns inner_pre_pipeline_ and derives the inner frame from the suite-stage frame, with an inner_X override for callers that already applied it; PipelineCache now carries the fitted pipeline (dbe77db39; a8d1f9b06 pins both stages against an oracle at every predict entry point, test_composite_suite_persistence.py) |
+| **RESOLVED** | P1 | `EST-02` | The default-ON MoE gate routes every row of a group it did not see at fit time to `lag_predict`, so on group-disjoint val/test splits it replaces the deployed ensemble with lag everywhere | the unseen/low-data fallback is the pooled-best expert over the matched selection rows with lag among the candidates, since such a group contributes no rows to the pooled sums the vs-lag guarantee is proved on (test_biz_val_moe_gate.py::test_global_fallback_for_unseen_group_is_the_pooled_best_expert, which fails at origin/master with 'lag' == 'composite'; the companion test keeps lag when lag is pooled-best) |
+| **RESOLVED** | P1 | `EST-03` | When a component fails at predict time, `CompositeCrossTargetEnsemble.predict` drops it but keeps the other components' raw weights, which biases predictions toward 0 by the dropped weight mass | a dropped component's column is rebuilt from its own OOF mean so every surviving weight stays the one it was solved with (no refit, still deterministic); models pickled before the means were stored derive them from the stashed OOF design, and the component-failure log no longer claims to re-normalise (test_composite_ensemble_linear_stack_dropout.py: at origin/master all 3 rows are off by up to 25.5, 26%) |
+| **RESOLVED** | P1 | `EST-04` | At predict time the recurrent inverses get `1.0` in place of an out-of-domain (NaN/inf) base, which corrupts the EWMA/rolling state of every later row in the batch | a recurrent inverse carry-forward-fills an out-of-domain base instead of substituting 1.0, matching what fit does for its own dropped rows (test_recurrent_predict_out_of_domain_base.py: at origin/master one blanked row moved 73 of 239 other rows by up to 75.9) |
+| **TODO** | P2 | `EST-05` | The CT-ensemble "honest OOF gate" can never fire for the default `nnls_stack` (and in practice for `linear_stack`), because the stack weights are fit on the same OOF matrix the gate scores | |
+| **TODO** | P2 | `EST-06` | `cap_inference_components` trims non-convex stacks without refitting or renormalising, after the gate has already accepted the full stack | |
+| **TODO** | P2 | `EST-07` | On the time-sorted OOF holdout path, the polars branch misaligns X and y rows, in both the refit-train slice and the holdout slice | |
+| **TODO** | P2 | `EST-08` | The wrap-pass watchdog is off by default, cannot detect the failures it names, raises a false alarm on every `quantile_residual` run, and swallows its own errors at DEBUG | |
+| **TODO** | P2 | `EST-09` | The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit | |
+| **TODO** | P2 | `EST-10` | `predict_quantile` returns zero-width intervals on fallback rows and crossed quantiles for sign-flipping multiplicative inverses | |
+| **TODO** | P2 | `EST-11` | The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE | |
+| **TODO** | P2 | `EST-12` | `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path | |
+| **TODO** | P2 | `EST-13` | The CT_ENSEMBLE val/test metrics and charts describe the pre-MoE predictor, not the model that ships | |
+| **TODO** | P2 | `EST-14` | A streaming `update()` refit leaves the soft-shrink base range at the dead regime, and its T-clip refresh leaves out the widening to the observed range that `fit()` applies | |
+| **TODO** | P3 | `EST-15` | In the default shuffled K-fold OOF, recurrent composite components run their EWMA/rolling state over gapped (train) and scattered (holdout) row sequences | |
+| **TODO** | P3 | `EST-16` | The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level | |
+| **TODO** | P3 | `EST-17` | OOF refits reuse the entry's pre_pipeline, fitted on the full train (including supervised MRMR/RFECV selection that saw each fold's holdout y) | |
+| **TODO** | P3 | `EST-18` | The five `moe_*` constructor parameters of `CompositeTargetEstimator` are never read | |
+| **TODO** | P3 | `EST-19` | The `lag_predict` component that ships in CT_ENSEMBLE is never fit, so NaN lag rows at predict time are imputed with the median of the predict batch itself | |
+| **TODO** | P3 | `EST-20` | `predict` / `predict_quantile` change shared state without synchronisation | |
+| **TODO** | P3 | `EST-21` | `from_fitted_inner` cannot express grouped transforms or recurrence continuation | |
+| **TODO** | P3 | `EST-22` | Routers and vetoes chosen on the val split are then reported with val-split metrics as if those were held-out | |
+
+### `suite_integration.md`
+
+| Status | Sev | ID | Finding | Evidence / what remains |
+|---|---|---|---|---|
+| **RESOLVED** | P0 | `INT-01` | A saved suite serves composite-target models in T-scale: the on-disk `.dump` is the unwrapped inner model | post-processing re-saves each wrapped dump, so a loaded suite serves the wrapper; predict_from_models 10.361 -> 0.301 RMSE on the TVT fixture (dbe77db39; test_composite_suite_persistence.py::test_composite_dumps_hold_the_y_scale_wrapper) |
+| **RESOLVED** | P1 | `INT-02` | `finalize_suite` saves metadata and persists `_CT_ENSEMBLE__*` before composite post-processing creates them | post-processing persists the CT-ensemble entries and rewrites metadata after it creates them (dbe77db39; test_cross_target_ensemble_entry_and_metadata_reach_disk) |
+| **RESOLVED** | P1 | `INT-03` | Every y-scale consumer feeds `CompositeTargetEstimator` a frame from the wrong pipeline stage | the predict entry points hand the wrapper the suite-stage frame instead of the per-model subset; recorded y-scale test RMSE 0.607 -> 0.334, equal to the inner T-scale error (dbe77db39; test_additive_composite_y_error_equals_inner_t_error) |
+| **RESOLVED** | P1 | `INT-04` | Auto-enabled discovery is not propagated: post-processing still sees `enabled=False` and skips the cross-target ensemble and lag failsafe | the discovery phase publishes metadata['composite_discovery_effective_enabled'] and the three post-processing gates (value report, lag failsafe, cross-target ensemble) read config.enabled OR that flag, so an auto-enabled heavy-tail suite gets the same pipeline as an explicit opt-in; an explicit enabled=False still publishes nothing and stays off (test_auto_enabled_discovery_reaches_postprocessing.py, 4 tests) |
+| **RESOLVED** | P1 | `INT-05` | Auto-chain transforms exist only in the training process's registry, so a pickled composite model fails in a fresh process | the wrapper re-registers its own auto-chain transform on unpickle and the loaders re-register every transform named by the saved specs (dbe77db39; test_fresh_process_serves_every_composite_target) |
+| **RESOLVED** | P1 | `INT-06` | The documented precomputed `composite_target_specs` fast path never trains any composite target | caller-supplied specs are now replayed through the discovery phase exactly like a cache hit (same forward-applier, auto-chain re-registration, dedup and global cap) instead of only seeding metadata, and the replay runs even with enabled=False since reuse means skipping the search, not the training (test_precomputed_composite_specs_train.py, 4 tests; they fail at origin/master, where the phase has no such parameter) |
+| **TODO** | P2 | `INT-07` | `transforms=[...]` does not restrict auto-chain: chain specs are added outside the user's whitelist | |
+| **TODO** | P2 | `INT-08` | Suite logic identifies composite targets by a name heuristic that misses auto-chain names and matches dashed raw targets | |
+| **TODO** | P2 | `INT-09` | Listing any grouped transform in `transforms` makes discovery raise, which removes every composite for that target | |
+| **TODO** | P2 | `INT-10` | The suite-end "TARGETS QUALITY" table reports composite rows on T-scale beside raw rows on y-scale, and is never persisted | |
+| **TODO** | P2 | `INT-11` | Specs dropped by the global `max_total_composite_targets` cap stay in `metadata["composite_target_specs"]` with no failure record | |
+| **TODO** | P2 | `INT-12` | On the supported pandas range, discovery materialises a full copy of the train frame for every regression target | |
+| **TODO** | P3 | `INT-13` | The default model cache reuses a composite inner model whose target definition has changed | |
+| **TODO** | P3 | `INT-14` | The discovery "winning-spec" charts plot y and T over all rows, including test rows and median-imputed T values | |
+| **TODO** | P3 | `INT-15` | Two config fields are accepted and documented as effective but do nothing, with no warning | |
+| **TODO** | P3 | `INT-16` | Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on | |
+| **TODO** | P3 | `INT-17` | The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target | |
+| **TODO** | P3 | `INT-18` | A composite spec name that equals an existing target name silently overwrites that target's values | |
+| **TODO** | P3 | `INT-19` | The predict-time composite env-signature check warns on any patch or Python bump, contrary to its documented major/minor policy | |
+
+### `performance.md`
+
+| Status | Sev | ID | Finding | Evidence / what remains |
+|---|---|---|---|---|
+| **REJECTED** | P1 | `PRF-01` | Near-collinear dedup runs a serial, strided O(B²·n) njit walk once per base; a single GEMM correlation matrix per target is about 70x faster | the 70x does not reproduce: kernel 239 ms (not 11.5 s) at 80k x 120, matrix path 1.1-1.9x on all-finite and 0.8x with 5% NaN, masks identical; bench_near_collinear_gemm.py carries the numbers |
+| **RESOLVED** | P1 | `PRF-02` | The prebinned code matrix is C-order, so every per-feature MI call reads strided columns; F-order is 8.7x faster and bit-identical | both prebin paths allocate the code matrix column-major, which is how every consumer reads it. Measured on this host (2 threads): the per-feature MI pass on the shipped prebin output went 239 ms -> 19.1 ms at n=100k, F=100, and an isolated A/B gives 6.8x at F=100 and 23.9x at F=300, max|diff| 0.0. The one path that reads ROWS (the opt-in bootstrap replicate loop) takes a C-order copy once, since a row gather costs 102 ms against 14 ms in this layout (test_prebinned_matrix_is_column_major.py, 4 tests: layout, bit-identical MI, np.delete keeps the layout, exclude_col parity) |
+| **RESOLVED** | P1 | `PRF-03` | With group ids, the tiny rerank runs the full multi-family CV for every spec, then honest-OOF replaces nearly all of those scores | honest-OOF measured before the sweep; measured specs skip the CV fits (32 -> 0 calls, fit 8.44 s -> 6.47 s, identical spec order); sweep kept whole when the per-bin or Wilcoxon gate consumes it |
+| **RESOLVED** | P1 | `PRF-04` | The OOF pre-screen that skips refitting hopeless components never runs under the default `oof_holdout_source="kfold"` | pre-screen decoupled from the OOF source (falls back to the val split), carved into `_prescreen.py` with 8 tests |
+| **RESOLVED** | P1 | `PRF-05` | The honest-holdout re-score gathers the full, uncapped holdout feature matrix once per spec, in parallel threads, and re-bins every column twice per spec | matrix built once per base set, rows capped by mi_sample_n, bin codes shared: 10.77 s -> 0.75 s on 200k x 60 x 10 specs, gains unchanged |
+| **PARTIAL** | P1 | `PRF-06` | `_filter_features` holds every numeric feature over all train rows, then stacks a second full copy for a leak-corr test that a sample would decide | leak-corr rows chosen before the columns are gathered (peak now one column + sample matrix); per-column stats still gathered individually, no RSS bench |
+| **PARTIAL** | P2 | `PRF-07` | Tiny-model LightGBM fits re-bin the same feature matrix for every spec, seed and fold; `LgbFoldCache` exists but only auto-chain uses it | y-scale tiny CV shares one binned fold dataset per thread (bit-identical, 1.32x on the fits, 177/281 fits); raw-y CV, holdout gates and WAIC still per-fit. Found and fixed the LgbFoldCache zero-label bug (4a240d450) |
+| **RESOLVED** | P2 | `PRF-08` | The `"linear"` screening family refits `SimpleImputer + Ridge` for every spec on the same X; one multi-output solve is 9.4x faster | per-thread cached fold factorisation, one solve per spec (22x isolated; float64, specs unchanged, scores within 1.9e-7) |
+| **PARTIAL** | P2 | `PRF-09` | Per-base float and prebinned matrix copies stay alive through the rerank and all later gates, although the default bin path never reads the float values; the lazy prebin path is dead under defaults | matrices released after the candidate loop (RSS at rerank start 1080 -> 725 MB at 100k x 300); peak inside the candidate loop unchanged |
+| **PARTIAL** | P2 | `PRF-10` | The honest-OOF selector, the honest RMSE gate and the y-scale gate each rebuild feature matrices from the frame and refit a raw baseline and each spec on nearly the same screen-to-holdout design | gate reuses honest-OOF predictions when rows and mask match (93 -> 84 fits, identical verdicts); caps still differ above 20k rows, y-scale gate untouched |
+| **PARTIAL** | P2 | `PRF-11` | The WAIC tie-break scores every kept spec, although the score is used only inside multi-member RMSE bands | WAIC scored only for tied specs reaching top-m (18 -> 6 computations, identical specs); float64 copy and fold reuse not done |
+| **RESOLVED** | P2 | `PRF-12` | The auto-base permutation null is a serial Python loop over features x 20 permutations | permutations pre-drawn in loop order, one parallel njit kernel per column; bit-identical, 1.7-2.3x |
+| **PARTIAL** | P2 | `PRF-13` | The composite post-phases re-predict the same models on the same val and test frames several times | phase-scoped (model, frame) prediction memo; MoE reuses the report's ensemble val predict (3 -> 2 val predicts); component-level combine path not done |
+| **PARTIAL** | P2 | `PRF-14` | The wrap-pass metric block runs four full inner predicts per (entry, split) where one would do | watchdogs share one memoised inner predict (4 -> 3 per entry/split); predict + predict_pre_clip kept separate because runtime_stats_ feeds the model card |
+| **RESOLVED** | P2 | `PRF-15` | Under the supported pandas range, the per-target discovery frame is a full copy of the train frame | no column-list selection + copy=False on pandas<3; shares memory with the train frame, caller untouched (verified on pandas 3.0.3) |
+| **RESOLVED** | P2 | `PRF-16` | K-fold OOF re-runs a shared `pre_pipeline.transform` for every component on every fold | per-fold cache for fitted shared pipelines (half the transforms were repeats; 20 -> 15 calls, OOF bit-identical) |
+| **PARTIAL** | P3 | `PRF-17` | Every `fit` computes a full `data_signature` that only `discover_incremental` reads | signature computed lazily (and on pickle) instead of on every fit; phase-signature reuse and polars batching not done |
+| **RESOLVED** | P3 | `PRF-18` | Auto-base and `fit` build the identical 100k-row screen feature matrix twice | fit reuses auto-base's screening matrix (permuted for time order); one full-frame gather saved per auto-base fit, specs identical |
+| **RESOLVED** | P3 | `PRF-19` | Auto-chain upcasts each base's matrix to float64 and copies `x_tr` for every candidate on every fold, even when the fold Dataset is already cached | float32 kept for LightGBM, built folds reuse their holdout and skip train slices; all candidate scores identical |
+| **PARTIAL** | P3 | `PRF-20` | The interaction-base step, on by default, synthesises its columns twice, and its output never becomes a spec | columns synthesised once (scorer hands them back, identical output); whether the step should feed specs or be gated is left open |
+| **RESOLVED** | P3 | `PRF-21` | The opt-in bootstrap MI recomputes the same `MI(y, X)` replicates for every transform on a base | MI(y,X) replicates + row-major copy built once per base/mask/seed under a per-key lock (concurrent-safe); LCB and p-values identical |
+| **PARTIAL** | P3 | `PRF-22` | The prebin content cache hashes the screen matrix on every fit but misses across targets | key hash blake2b -> xxh3-128 (509 -> 39 ms on 200 MB); cross-target misses under stratified sampling remain inherent |
+| **RESOLVED** | P3 | `PRF-23` | Region-adaptive, which is opt-in, fits full-region parameters for every candidate in every region, then keeps only the winner's | candidates score only, winner fitted once per region; specs identical to the old implementation over 3 seeds |
+| **RESOLVED** | P3 | `PRF-24` | The multi-target OOF polars slice converts fold indices to a Python list | polars gathers by the ndarray directly; dead filter branch removed; slices equal |
+
+### `tests.md`
+
+| Status | Sev | ID | Finding | Evidence / what remains |
+|---|---|---|---|---|
+| **TODO** | P1 | `TST-01` | The suite-level composite tests pass with a composite model that is almost 2x worse than raw y, because every assertion is a range check that the y-clip guarantees | |
+| **TODO** | P1 | `TST-02` | No test round-trips a real composite suite or ensemble through disk or a fresh process; the persistence tests use surrogates | |
+| **TODO** | P1 | `TST-03` | The per-transform registry contract test cannot detect the transform defects: one benign fixture, median error, exact-T round trip on train bases only, and a tolerance table up to 1e9x looser than the measured error | |
+| **TODO** | P1 | `TST-04` | Seven tests pin behaviour that the sibling reports show is wrong, so fixing those defects turns the suite red | |
+| **TODO** | P1 | `TST-05` | No test checks that predict is independent of how rows are batched, and the recurrent-transform tests invert over the full series, which hides every batch-state defect | |
+| **TODO** | P2 | `TST-06` | The discovery time-awareness tests shuffle rows correctly but assert only the `_screen_time_ordered_` flag, which is the one thing the sort changes | |
+| **TODO** | P2 | `TST-07` | The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04 | |
+| **TODO** | P2 | `TST-08` | Group handling is tested only with clean string/int labels on row-random splits, and the unseen-group tests assert only finiteness | |
+| **TODO** | P2 | `TST-09` | Polars coverage is limited to four pointwise transforms and a monotone-time OOF case, which hides the polars row-misalignment bug | |
+| **TODO** | P2 | `TST-10` | The CTE fuzz suite asserts only finiteness and a y-envelope that the post-inverse clip guarantees, on small-scale data, and states "found NO production bug" | |
+| **TODO** | P2 | `TST-11` | Several biz_val tests have no honest baseline, compare against a baseline starved of the base column, or assert only "not worse" | |
+| **TODO** | P2 | `TST-12` | Targeted transform and ensemble tests use the one parameter region where the filed defect is silent | |
+| **TODO** | P2 | `TST-13` | Data-dependent skips and conditional asserts let tests pass without checking anything | |
+| **TODO** | P2 | `TST-14` | The selection-gate modules with the most leverage have no direct tests, and the cache-key tests check only the key function's own arguments | |
+| **TODO** | P2 | `TST-15` | Composite tests check the CTE-raw-X routing by inspecting source text, and the behavioural half fits the inner on raw features, so it cannot see EST-01 | |
+| **TODO** | P3 | `TST-16` | Timing-based asserts in the composite suite can flake on the shared host | |
+| **TODO** | P3 | `TST-17` | The composite integration tests run eight independent full-suite trainings for loose assertions, and the recorded durations are contaminated | |
+
+### `preventive_meta_tests.md`
+
+| Status | Sev | ID | Finding | Evidence / what remains |
+|---|---|---|---|---|
+| **TODO** | P1 | `PMT-01` | Registry-driven transform property matrix: max-error round trip across regimes, degenerate legs, and registry metadata completeness | |
+| **TODO** | P2 | `PMT-02` | Call-budget harness: expensive primitives are invoked at most their ideal count per discovery fit and per post-phase | |
+| **TODO** | P1 | `PMT-03` | Fail-open and below-WARNING substitution handlers in gates (shared AST scanner) | |
+| **TODO** | P1 | `PMT-04` | Non-discriminating test-assertion shapes: literal wide ranges, median-of-error, isinstance-only biz tests, data-dependent skips | |
+| **TODO** | P1 | `PMT-05` | Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe | |
+| **TODO** | P1 | `PMT-06` | Splitter and sampler consistency: one splitter factory, time order and groups honoured everywhere, sampler returns usable rows | |
+| **TODO** | P1 | `PMT-07` | Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform | |
+| **TODO** | P1 | `PMT-08` | Scale and shift metamorphic property over every registered transform | |
+| **TODO** | P2 | `PMT-09` | Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery | |
+| **TODO** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | |
+| **TODO** | P1 | `PMT-11` | Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test | |
+| **TODO** | P1 | `PMT-12` | Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered | |
+| **TODO** | P1 | `PMT-13` | Ensemble combiner invariants for every stacking strategy, including "the gate can fire" | |
+| **TODO** | P2 | `PMT-14` | Transform-call gateway: every registry-transform fit/forward/inverse call goes through one signature-gated helper, and weights are honoured | |
+| **TODO** | P2 | `PMT-15` | Cache-key completeness by input perturbation, plus a code-version gate on discovery sources | |
+| **TODO** | P2 | `PMT-16` | polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared) | |
+| **TODO** | P1 | `PMT-17` | Absorption and consistency on each transform's canonical DGP | |
+| **TODO** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | |
+| **TODO** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | |
+| **TODO** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | |
+| **TODO** | P1 | `PMT-21` | Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST) | |
+| **TODO** | P1 | `PMT-22` | One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts | |
+| **TODO** | P2 | `PMT-23` | State parity across alternate constructors: fit() vs from_fitted_inner() vs update() vs unpickle | |
+| **TODO** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | |
+| **TODO** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | |
+| **TODO** | P2 | `PMT-26` | Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test | |
+| **TODO** | P3 | `PMT-27` | Diagnostics truthfulness: report reasons come from the ledger, printed advice is executed, alert policy matches its docstring | |
+| **TODO** | P3 | `PMT-28` | Test timing and cost hygiene: relative timing races need real slack, and repeated heavy trainings share a fixture | |
+| **TODO** | P1 | `PMT-29` | Split-role ledger: selection rows and report rows never overlap, and verdicts read test | |
+| **TODO** | P1 | `PMT-30` | Config-restriction and per-candidate isolation contract: every registry transform is accepted, isolated and honoured | |
+| **TODO** | P1 | `PMT-31` | Stage-sentinel inner: wrappers and every predict entry point must feed the inner its own pipeline stage and the base its raw stage | |
+| **TODO** | P1 | `PMT-32` | Fresh-process persistence round trip for every registry transform and the whole auto-chain name space | |
+| **TODO** | P1 | `PMT-33` | Runtime registry mutation must have a load-time replay (shared scanner) | |
+| **TODO** | P2 | `PMT-34` | getattr default parity: `getattr(cfg, "field", literal)` must match the pydantic field default (shared scanner) | |
+| **TODO** | P3 | `PMT-35` | Unread constructor parameters in estimator classes (shared scanner) | |
+| **TODO** | P3 | `PMT-36` | Environment flags parsed through one shared parser (shared scanner) | |
+| **TODO** | P3 | `PMT-37` | Deferred-dead config fields must warn when set, and no allowlisted field may advertise how to enable it | |
+| **TODO** | P1 | `PMT-38` | A config rebuilt with `model_copy(update=...)` must reach its consumers (shared scanner) | |
+| **TODO** | P2 | `PMT-39` | Survivorship-scored metrics: a metric computed only on rows where the prediction is finite (shared scanner) | |
+| **TODO** | P2 | `PMT-40` | `source_text_claims` misses source text accumulated with `+=`: close the taint gap and drain the composite allowlist | |
+| **TODO** | P3 | `PMT-41` | Advisory scan for tests that pin a conceded defect | |

@@ -716,6 +716,10 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
     # Validate version envelope here too (the second predict
     # entry point at predict_from_models had the same dead-stamp blind spot).
     _validate_metadata_version_envelope(metadata, models_path)
+    # Auto-chain transforms live only in the training process's registry; rebuild them before any model is unpickled.
+    from ._predict_composite_routing import register_spec_transforms
+
+    register_spec_transforms(metadata)
 
     slug_to_original_target_type = metadata.get("slug_to_original_target_type", {})
     slug_to_original_target_name = metadata.get("slug_to_original_target_name", {})

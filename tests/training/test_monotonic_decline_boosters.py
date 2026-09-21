@@ -349,6 +349,7 @@ def test_monotonic_n3_does_not_false_stop_on_realistic_noisy_improving_curve():
     s = MonotonicDeclineStopper(3, mode="max")
     # Improving trend with single-step dips, each followed by a bounce-up (resets the streak): never 3 strict declines in a row.
     curve = [0.50, 0.58, 0.55, 0.62, 0.60, 0.66, 0.64, 0.70, 0.68, 0.74]
+    assert list(enumerate(curve))
     for i, v in enumerate(curve):
         assert not s.update(v), f"N=3 false-stopped at idx {i} on a noisy-but-improving curve (no 3 consecutive declines)"
     assert s.best == 0.74
@@ -380,3 +381,44 @@ def test_universal_callback_has_no_worsening_detector():
     assert not hasattr(cb, "worsening_enabled")
     assert not hasattr(cb, "_update_worsening_streak")
     assert not hasattr(cb, "_worsening_threshold")
+
+
+@pytest.mark.parametrize(
+    "metric",
+    ["huber", "mphe", "Huber:delta=1.345", "Quantile:alpha=0.9", "Lq:q=2", "Expectile:alpha=0.5", "RMSEWithUncertainty",
+     "LogCosh", "Tweedie:variance_power=1.5", "Poisson", "poisson-nloglik", "tweedie-nloglik@1.5", "MultiRMSE", "mlogloss"],
+)
+def test_resolve_mode_robust_regression_losses_are_minimised(metric, caplog):
+    """Booster loss-type eval metrics (incl. CatBoost ``Name:param=..`` forms) resolve to 'min' so the detector stays armed."""
+    import logging
+
+    from mlframe.training.callbacks.monotonic_decline import _resolve_mode
+
+    with caplog.at_level(logging.WARNING):
+        assert _resolve_mode(metric, None) == "min"
+    assert not any("unknown optimization direction" in r.getMessage() for r in caplog.records)
+
+
+def test_resolve_mode_parameterised_higher_is_better_metric_is_max():
+    """Stripping ':param' must not flip direction for higher-is-better CatBoost metrics."""
+    from mlframe.training.callbacks.monotonic_decline import _resolve_mode
+
+    assert _resolve_mode("AUC:type=Ranking", None) == "max"
+    assert _resolve_mode("NDCG:top=10", None) == "max"
+
+
+def test_lgb_callback_huber_metric_fires_on_monotone_worsening():
+    """End-to-end on the LGB callback: an eval series named 'huber' (LightGBM huber objective) must stop on 3 strict rises."""
+    lgb = pytest.importorskip("lightgbm")
+    from mlframe.training.callbacks.monotonic_decline import LGBMonotonicDeclineStop
+
+    cb = LGBMonotonicDeclineStop(patience=3)
+
+    def _env(it, value):
+        """Env."""
+        return type("E", (), {"iteration": it, "evaluation_result_list": [("valid_0", "huber", value, False)]})()
+
+    for it, v in enumerate([0.5, 0.3, 0.31, 0.32]):
+        cb(_env(it, v))
+    with pytest.raises(lgb.callback.EarlyStopException):
+        cb(_env(4, 0.33))

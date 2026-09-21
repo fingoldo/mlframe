@@ -104,6 +104,7 @@ def test_seeded_cached_MIs_reduces_relevance_recomputation():
     out_seeded = screen_predictors(**_common_kwargs(fd, fn, td, tn, seed_caches=seed))
     post_cached_MIs = out_seeded[4]
     # Every key present before seeding must still be present (never evicted) and unchanged in value.
+    assert len(pre_seeded_keys) > 0
     for k in pre_seeded_keys:
         assert k in post_cached_MIs
         assert post_cached_MIs[k] == pytest.approx(cached_MIs[k])

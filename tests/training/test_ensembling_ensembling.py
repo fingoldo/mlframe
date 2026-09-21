@@ -260,6 +260,10 @@ def test_gate_falls_back_to_coarse_when_require_oof_for_gate_and_oof_missing(cap
     """COARSE-GATE-FALLBACK: require_oof_for_gate=True with some members lacking OOF now runs a
     COARSE gate against val/test/train at 5x median (catches catastrophic outliers only)
     instead of skipping silently."""
+    from mlframe.utils.log_throttle import reset_throttle_counts
+
+    reset_throttle_counts()  # the coarse-gate note is logged once per process
+
 
     def _make(val_preds, has_oof: bool):
         """Make."""
@@ -281,7 +285,7 @@ def test_gate_falls_back_to_coarse_when_require_oof_for_gate_and_oof_missing(cap
     members[0].oof_preds = arr.copy()  # only one has OOF
     target = pd.Series(arr.copy())
 
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         score_ensemble(
             members,
             ensemble_name="[m+m+m]",
@@ -665,6 +669,10 @@ def test_coarse_gate_drops_catastrophic_outlier_member(caplog):
     was skipped via require_oof_for_gate=True. The coarse fallback at 5x median MAE must catch
     that outlier; this test reproduces the scenario with a synthetic 4-member set whose 4th
     member is ~30x further from median than the cluster."""
+    from mlframe.utils.log_throttle import reset_throttle_counts
+
+    reset_throttle_counts()  # the coarse-gate note is logged once per process
+
 
     def _make(val_preds):
         """Make."""
@@ -702,6 +710,8 @@ def test_coarse_gate_drops_catastrophic_outlier_member(caplog):
     messages = " | ".join(rec.message for rec in caplog.records)
     assert "COARSE gate" in messages, f"Coarse gate did not run: {messages}"
     assert "kept 3/4" in messages, f"Expected catastrophic outlier dropped (3/4 kept), got: {messages}"
+    # The gate-source preds must be sliced to the survivors too; a stale 4-long list crashed the stacking-aware weight gate.
+    assert "stacking_aware_gate failed" not in messages, f"stacking gate saw unsliced gate preds: {messages}"
 
 
 # --------------------------- VOTENRANK ---------------------------

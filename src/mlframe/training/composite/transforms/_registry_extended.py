@@ -140,61 +140,14 @@ from ._grouped_extra import (
     _rolling_quantile_ratio_grouped_inverse,
 )
 from .unary import (
-    cbrt_y_domain as _cbrt_y_domain_raw,
-    cbrt_y_fit as _cbrt_y_fit_raw,
-    cbrt_y_forward as _cbrt_y_forward_raw,
-    cbrt_y_inverse as _cbrt_y_inverse_raw,
-    log_y_domain as _log_y_domain_raw,
-    log_y_fit as _log_y_fit_raw,
-    log_y_forward as _log_y_forward_raw,
-    log_y_inverse as _log_y_inverse_raw,
-    quantile_normal_y_domain as _qn_y_domain_raw,
-    quantile_normal_y_fit as _qn_y_fit_raw,
-    quantile_normal_y_forward as _qn_y_forward_raw,
-    quantile_normal_y_inverse as _qn_y_inverse_raw,
-    signed_power_y_domain as _sp_y_domain_raw,
-    signed_power_y_fit as _sp_y_fit_raw,
-    signed_power_y_forward as _sp_y_forward_raw,
-    signed_power_y_inverse as _sp_y_inverse_raw,
-    yeo_johnson_y_domain as _yj_y_domain_raw,
-    yeo_johnson_y_fit as _yj_y_fit_raw,
-    yeo_johnson_y_forward as _yj_y_forward_raw,
-    yeo_johnson_y_inverse as _yj_y_inverse_raw,
     box_cox_y_domain as _bc_y_domain_raw,
     box_cox_y_fit as _bc_y_fit_raw,
     box_cox_y_forward as _bc_y_forward_raw,
     box_cox_y_inverse as _bc_y_inverse_raw,
 )
 
-# Pre-build per-unary adapters (cheap, done once at import). The 5th element
-# is the fitted-params-aware domain adapter (``None`` for transforms whose
-# params-free domain is exact).
-_cbrt_fit, _cbrt_forward, _cbrt_inverse, _cbrt_domain, _cbrt_domain_fitted = _make_unary_registry_adapter(
-    _cbrt_y_fit_raw, _cbrt_y_forward_raw, _cbrt_y_inverse_raw, _cbrt_y_domain_raw,
-)
-_log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a, _log_domain_fitted_a = _make_unary_registry_adapter(
-    _log_y_fit_raw, _log_y_forward_raw, _log_y_inverse_raw,
-    # log_y_domain is the 2-arg form (y, params); wrap to drop params at fit-time.
-    lambda y: _log_y_domain_raw(y),
-    # The pre-fit domain only checks isfinite(y); the TRUE log_y domain is
-    # ``y + offset > 0``, knowable only after ``fit`` sets offset. Without
-    # this hook, screening forwards log() over ``y <= -offset`` rows (silent
-    # NaN T -> biased MI gain) and the wrapper later hard-raises
-    # DomainViolationError on the same rows. Pass the params-aware raw form.
-    domain_fitted_fn=_log_y_domain_raw,
-)
-_yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a, _yj_domain_fitted_a = _make_unary_registry_adapter(
-    _yj_y_fit_raw, _yj_y_forward_raw, _yj_y_inverse_raw,
-    lambda y: _yj_y_domain_raw(y),
-)
-_qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a = _make_unary_registry_adapter(
-    _qn_y_fit_raw, _qn_y_forward_raw, _qn_y_inverse_raw,
-    lambda y: _qn_y_domain_raw(y),
-)
-_sp_fit_a, _sp_forward_a, _sp_inverse_a, _sp_domain_a, _sp_domain_fitted_a = _make_unary_registry_adapter(
-    _sp_y_fit_raw, _sp_y_forward_raw, _sp_y_inverse_raw,
-    lambda y: _sp_y_domain_raw(y),
-)
+# Only the Box-Cox adapter is registered here; the other unary adapters (cbrt / log / yeo-johnson / quantile-normal / signed-power) are built once
+# in ``registry.py``, so a second copy here could only drift from the registered one.
 _bc_fit_a, _bc_forward_a, _bc_inverse_a, _bc_domain_a, _bc_domain_fitted_a = _make_unary_registry_adapter(
     _bc_y_fit_raw, _bc_y_forward_raw, _bc_y_inverse_raw,
     lambda y: _bc_y_domain_raw(y),
@@ -228,9 +181,10 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         # would be clamped to the eps-floor (T then no longer the true ratio).
         domain_check_fitted=_centered_ratio_domain_fitted,
         description=(
-            "T = y / (base + c) with ``c`` fitted on train so (base + c) > 0 "
-            "subject to an eps floor. Extension of ``ratio`` to signed bases. "
-            "Inverse y_hat = T_hat * (base + c)."
+            "T = y / (base + c) with ``c = 0`` for a strictly positive train base (then identical to ``ratio``) and, for a base that reaches "
+            "zero or goes negative, ``c`` shifting the train minimum a full scale unit (max of median|base| and IQR) above zero. "
+            "Extension of ``ratio`` to signed bases. Inverse y_hat = T_hat * (base + c); predict rows with base + c < eps (past the pole, "
+            "where the inverse would flip sign) are out of the fitted domain and take the fallback."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),
@@ -242,8 +196,8 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         domain_check=_polynomial_residual_deg2_domain,
         description=(
             "T = y - alpha1*base - alpha2*base^2 - beta with (alpha1, alpha2, beta) "
-            "fitted via ridge-stabilised OLS on the (1, base, base^2) design "
-            "matrix. Adds curvature that ``linear_residual`` leaves in the "
+            "fitted by least squares on the centred/scaled (1, z, z^2) design, z = (base - mean) / std, "
+            "evaluated in z space (well conditioned at any base offset). Adds curvature that ``linear_residual`` leaves in the "
             "residual. Inverse y_hat = T_hat + alpha1*base + alpha2*base^2 + beta."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
@@ -256,9 +210,9 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         domain_check=_rank_residual_domain,
         description=(
             "Distribution-free monotone residual: T = rank(y)/n - alpha*rank(base)/n - beta. "
-            "Forward uses the train-fitted (sorted-y, sorted-base) lookup; "
-            "inverse clips the recovered y-rank to [0, 1] and maps back via "
-            "the train sorted-y table. Heavy-tail targets where Yeo-Johnson "
+            "Forward uses train-fitted (value, mid-rank) knot tables, at most 2048 per axis; "
+            "inverse reads the y table backwards (a rank outside the knots clamps to the "
+            "train y-range). Heavy-tail targets where Yeo-Johnson "
             "doesn't fully whiten still respond to rank-space linear residual."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
@@ -271,7 +225,8 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         domain_check=_smoothing_spline_residual_domain,
         description=(
             "T = y - g(base) where g is a scipy ``UnivariateSpline`` fitted on "
-            "deduped train pairs with smoothing factor s = n_unique * std(y) * 1.0. "
+            "per-unique-base mean pairs with smoothing factor s = n_unique * var_noise, var_noise the lag-1 (Rice) "
+            "difference estimate on the base-sorted means. A spline scipy cannot build is flagged is_degenerate. "
             "Generalises ``monotonic_residual`` to arbitrary smooth "
             "(non-monotone) dependence. Inverse y_hat = T_hat + g(base). "
             "Params store knots + ``s`` only; spline is rebuilt on call "
@@ -287,7 +242,8 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         domain_check=_reciprocal_residual_domain,
         description=(
             "T = 1/y - 1/base with train-scale-derived eps floors guarding "
-            "near-zero divisions. Inverse y_hat = 1 / (T_hat + 1/base). "
+            "near-zero divisions. Inverse y_hat = 1 / (T_hat + 1/base), with |T_hat + 1/base| floored in 1/y units so "
+            "|y_hat| stays within 1000x the train max|y|. "
             "Niche but useful when y has multiplicative-jump dynamics or "
             "reciprocal-scale noise."
         ),
@@ -302,7 +258,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         description=(
             "Multi-base: T = y / geomean(bases) via log-mean-exp on a K-column "
             "base matrix. Requires every base column > 0 on the row "
-            "(strict positivity). Inverse y_hat = T_hat * geomean(bases). "
+            "(strict positivity); y may be any finite value. Inverse y_hat = T_hat * geomean(bases). "
             "Multiplicative multi-base variant of ``ratio``. Not in default "
             "auto-discovery list (needs multi-base orchestration like "
             "``linear_residual_multi``)."
@@ -359,7 +315,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
             "level AND linear drift of a doubly-integrated (I(2)) series that a "
             "single diff leaves trending. Inverse y_hat = T_hat + 2*b1 - b2 is "
             "pure-additive and in-range on real per-row lags; no fitted parameters. "
-            "A 1-D base degenerates to T = y - 2*b1. NOT in the default transform "
+            "A single base column (no lag-2) degrades to diff, T = y - b1, with a warning. NOT in the default transform "
             "list -- reach it via explicit transforms=(..., 'second_diff')."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
@@ -406,6 +362,8 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         requires_groups=True,
         requires_base=False,
+        # A forward on the fit's own rows returns out-of-fold T (no row's own y in its encoding), so it does not invert to those rows.
+        oof_train_forward=True,
     ),
     # Grouped variants of the recurrent trio: recurrence state resets at every group boundary (rows of one group need not be contiguous; each group is
     # processed in its stable original order). For stacked panels where the ungrouped recurrences bleed one entity's level into the next entity's first rows.
@@ -416,7 +374,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         fit=_ewma_residual_grouped_fit,
         domain_check=_ewma_residual_grouped_domain,
         description=(
-            "Per-group ewma_residual: T = y - EWMA_k(base) with the EWMA recursion reset at each group boundary and seeded by the GROUP's train-base mean (per-group tail state under recurrence continuation). Unseen groups at predict fall back to the global anchor. Caller is responsible for chronological order within each group."
+            "Per-group ewma_residual: T = y - EWMA_k(base) with the EWMA recursion reset at each group boundary and seeded by the GROUP's train-base mean (per-group tail state under recurrence continuation). Unseen groups at predict fall back to the global anchor (the ungrouped train-tail state under continuation). Caller is responsible for chronological order within each group. A predict batch boundary is a state reset unless the preceding rows are passed as ``history_base`` + ``history_groups``."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         requires_groups=True,
@@ -495,7 +453,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         fit=_seasonal_residual_fit,
         domain_check=_seasonal_residual_domain,
         description=(
-            "T = y - seasonal_mean(phase) with phase = row_index % period. ``period`` may be supplied via fit kwargs or is selected on train by minimum residual variance over a small grid ({4, 5, 7, 12, 24, 52} capped at n/3). Index-position-based like ewma_residual: phase is the row's ABSOLUTE position in the full input sequence, not a calendar field -- caller supplies chronological, gap-free rows and a predict batch starts at phase 0. recurrent=True (even though the transform is pointwise given the phase, with no neighbour reads) so CompositeTargetEstimator.fit()'s domain-filter never compacts the sequence before computing phase: compacting shifts every later row's ARRAY position (hence its phase) whenever a mid-series row is dropped for a domain violation, silently corrupting the learned per-phase means."
+            "T = y - seasonal_mean(phase) with phase = row_index % period. ``period`` may be supplied via fit kwargs or is selected on train from period 1 (no seasonality) and {4, 5, 7, 12, 24, 52} (capped at n/3) by held-out error over alternating cycles, taking the smallest period within one standard error of the best. Index-position-based like ewma_residual: phase is the row's ABSOLUTE position in the full input sequence, not a calendar field -- caller supplies chronological, gap-free rows; a predict batch starts at phase 0, or at the train length's phase under recurrence continuation, or at explicit ``row_index`` positions. recurrent=True (even though the transform is pointwise given the phase, with no neighbour reads) so CompositeTargetEstimator.fit()'s domain-filter never compacts the sequence before computing phase: compacting shifts every later row's ARRAY position (hence its phase) whenever a mid-series row is dropped for a domain violation, silently corrupting the learned per-phase means."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         requires_base=False,
@@ -543,7 +501,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         fit=_nadaraya_watson_residual_fit,
         domain_check=_nadaraya_watson_residual_domain,
         description=(
-            "T = y - g(base) where g is a Gaussian-kernel Nadaraya-Watson regression with Silverman's-rule bandwidth on the train base. fit stores (base, y) knots subsampled to ~2000 points evenly along the base-sorted order (bounded O(n*m) predict); far-from-support rows converge to the nearest knot's y. Captures arbitrary non-monotone local dependence that monotonic_residual (monotone) and smoothing_spline_residual (global smoothness) miss. Inverse y_hat = T_hat + g(base)."
+            "T = y - g(base) where g is a Gaussian-kernel Nadaraya-Watson regression with Silverman's-rule bandwidth on the train base. fit stores (base, y) knots, above 2000 train rows the count-weighted means of 2000 rank-contiguous buckets (binned NW; bounded O(n*m) predict); far-from-support rows converge to the nearest knot's y. Captures arbitrary non-monotone local dependence that monotonic_residual (monotone) and smoothing_spline_residual (global smoothness) miss. Inverse y_hat = T_hat + g(base)."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),

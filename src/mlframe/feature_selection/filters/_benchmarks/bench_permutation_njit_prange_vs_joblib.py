@@ -31,6 +31,7 @@ from mlframe.feature_selection.filters.permutation import (
     parallel_mi_prange,
     distribute_permutations,
 )
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def make_classes(n: int, k_x: int = 5, k_y: int = 2, seed: int = 0):
@@ -85,8 +86,10 @@ def inner_prange(classes_x, freqs_x, classes_y, freqs_y, npermutations, original
 def best_of(fn, n_reps=5):
     times = []
     for _ in range(n_reps):
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         result = fn()
+        synchronize_gpu_if_available()
         times.append(time.perf_counter() - t0)
     return min(times), result
 

@@ -18,6 +18,7 @@ import numpy as np
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_subsetrank import brute_force_top_n_dispatch
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def main():
@@ -29,9 +30,11 @@ def main():
     brute_force_top_n_dispatch(phi, base, y, classification=True, max_card=mc, top_n=30)
 
     def wall(fn):
+        synchronize_gpu_if_available()
         t = time.perf_counter()
         for _ in range(3):
             fn()
+        synchronize_gpu_if_available()
         return (time.perf_counter() - t) / 3
 
     t_bare = wall(lambda: brute_force_top_n(phi, base, y, classification=True, max_card=mc, top_n=30, parallel=True))

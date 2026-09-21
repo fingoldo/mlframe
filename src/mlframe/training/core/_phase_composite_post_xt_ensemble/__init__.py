@@ -17,6 +17,8 @@ from ...composite.post_shim import PrePipelinePredictShim
 from ..utils import _build_full_column_from_splits
 from .._phase_composite_post_lag_predict import _LagPredictDeployableModel
 from ._post_xt_ensemble_mtr import _build_mtr_per_column_ensemble
+from ._prescreen import PRESCREEN_SAFETY, dummy_floor_from_metadata, leaky_rmse_keep_mask, prescreen_frame
+from .._prediction_memo import memo_predict
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")
@@ -521,53 +523,24 @@ def _build_cross_target_ensemble_for_target(
         # with a generous safety margin. Final dummy-floor gate STILL
         # runs after OOF on the honest refit RMSE, so this is a
         # speed-up only; correctness contract unchanged.
-        _PRESCREEN_SAFETY = 1.5  # leaky RMSE * 1.5 must still clear floor
-        if _ext_X is not None and _ext_y is not None and len(_components) >= 4:
+        _prescreen_X, _prescreen_y = prescreen_frame(_ext_X, _ext_y, filtered_val_df, _oof_y_full, filtered_val_idx)
+        if _prescreen_X is not None and len(_components) >= 4:
             try:
-                _raw_dbl_pre = metadata.get("dummy_baselines", {}).get(str(_tt_e), {}).get(str(_orig_tname), {})
-                _data_pre = _raw_dbl_pre.get("data", {}) if isinstance(_raw_dbl_pre, dict) else {}
-                _strongest_pre = _raw_dbl_pre.get("strongest") if isinstance(_raw_dbl_pre, dict) else None
-                _pm_pre = _raw_dbl_pre.get("primary_metric") if isinstance(_raw_dbl_pre, dict) else None
-                _dummy_floor_for_prescreen = None
-                # Assumes an RMSE-family regression primary_metric: the dummy's primary_metric value is compared directly against component RMSEs, so this floor is only unit-consistent while the regression primary is RMSE (currently the only option).
-                if _strongest_pre and _pm_pre and _strongest_pre in _data_pre:
-                    _v = _data_pre[_strongest_pre].get(_pm_pre)
-                    if _v is not None and np.isfinite(float(_v)):
-                        _dummy_floor_for_prescreen = float(_v)
+                _dummy_floor_for_prescreen = dummy_floor_from_metadata(metadata, _tt_e, _orig_tname)
                 if _dummy_floor_for_prescreen is not None:
-                    _keep_mask = []
-                    _dropped_pre: list[str] = []
-                    _ext_y_arr_np = np.asarray(_ext_y, dtype=np.float64)
-                    for _comp, _name in zip(_components, _component_names):
-                        try:
-                            _p = np.asarray(
-                                _comp.predict(_ext_X), dtype=np.float64,
-                            ).reshape(-1)
-                            _finite = np.isfinite(_p) & np.isfinite(_ext_y_arr_np)
-                            if _finite.sum() < 10:
-                                _keep_mask.append(True)
-                                continue
-                            _r = _p[_finite] - _ext_y_arr_np[_finite]
-                            _leaky_rmse = float(np.sqrt(np.mean(_r * _r)))
-                            if _leaky_rmse / _PRESCREEN_SAFETY > _dummy_floor_for_prescreen:
-                                _keep_mask.append(False)
-                                _dropped_pre.append(f"{_name}(leakyRMSE={_leaky_rmse:.4g})")
-                            else:
-                                _keep_mask.append(True)
-                        except Exception as e:
-                            logger.debug("leaky-RMSE pre-check failed for this candidate, keeping it (err on the safe side): %s", e)
-                            _keep_mask.append(True)  # err on the safe side
+                    _keep_mask, _dropped_pre = leaky_rmse_keep_mask(
+                        _components, _component_names, _prescreen_X, _prescreen_y, _dummy_floor_for_prescreen,
+                    )
                     if _dropped_pre and sum(_keep_mask) >= 2:
                         _kept = [i for i, k in enumerate(_keep_mask) if k]
                         logger.warning(
                             "[CompositeCrossTargetEnsemble] target='%s' "
-                            "OOF pre-screen (leaky val-RMSE speed gate, runs only under "
-                            "oof_holdout_source='external_val') dropped %d/%d component(s) "
+                            "OOF pre-screen (leaky val-RMSE speed gate) dropped %d/%d component(s) "
                             "whose leaky val_RMSE / %.1f > dummy floor "
                             "%.4g. Dropped: %s. Saves ~%d minute(s) of "
                             "refit time.",
                             _orig_tname, len(_dropped_pre),
-                            len(_components), _PRESCREEN_SAFETY,
+                            len(_components), PRESCREEN_SAFETY,
                             _dummy_floor_for_prescreen, _dropped_pre,
                             len(_dropped_pre) * 5,  # ~5 min/component
                         )
@@ -1116,10 +1089,7 @@ def _build_cross_target_ensemble_for_target(
                     continue
                 try:
                     _y_split = _ens_y_arr[_split_idx]
-                    _ens_preds = np.asarray(
-                        _ensemble.predict(_split_df),
-                        dtype=np.float64,
-                    ).reshape(-1)
+                    _ens_preds = memo_predict(_ensemble, _split_df)
                     # Stamp val/test scalar metrics for this ensemble into metadata so the
                     # suite-end verdict block can compare CT_ENSEMBLE against the dummy floor.
                     # Without this the verdict only sees the SINGLE best model and falsely

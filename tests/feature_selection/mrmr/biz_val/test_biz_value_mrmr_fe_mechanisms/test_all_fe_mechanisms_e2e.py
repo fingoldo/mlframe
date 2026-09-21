@@ -565,6 +565,7 @@ class TestPickleAndCloneAllEnabled:
         m2 = clone(m)
         params_orig = m.get_params()
         params_clone = m2.get_params()
+        assert _all_fe_kwargs().keys()
         for key in _all_fe_kwargs().keys():
             assert params_orig[key] == params_clone[key], f"clone lost FE param '{key}': orig={params_orig[key]!r} clone={params_clone[key]!r}"
         # Clone is unfitted.

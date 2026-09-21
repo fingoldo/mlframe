@@ -553,6 +553,7 @@ class TestNdarraySameShapeReorderedIsPositional:
         assert out_orig.shape == out_rev.shape, f"transform shape changed under content reorder; seed={seed}"
         # Positional contract: out_orig[:, k] == X_test[:, support_idx[k]],
         # out_rev[:, k] == X_test_rev[:, support_idx[k]]
+        assert list(enumerate(support_idx))
         for k, j in enumerate(support_idx):
             assert np.array_equal(out_orig[:, k], X_test[:, j]), f"unreordered ndarray transform did not select position {j} at output slot {k}; seed={seed}"
             assert np.array_equal(

@@ -12,6 +12,7 @@ from typing import Any
 import pandas as pd
 import polars as pl
 
+from mlframe.training.core._phase_polars_fixes import _DICT_ALIGN_SKIP_CARD
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ def _log_cardinality_and_drift_snapshot(
     train_df_polars_pre: Any | None = None,
     val_df_polars_pre: Any | None = None,
     test_df_polars_pre: Any | None = None,
+    align_categorical_dicts: bool = True,
 ) -> None:
     """Pre-train cardinality + val/test drift logging (pure side-effect).
 
@@ -41,6 +43,11 @@ def _log_cardinality_and_drift_snapshot(
     IterativeDMatrix construction when val/test contain categories absent from train; we emit
     a WARNING with a healing suggestion keyed on train-side cardinality. Columns with
     cardinality > 100k (free-text) are skipped.
+
+    With ``align_categorical_dicts`` (the ``align_polars_categorical_dicts`` default) the fit casts every cat column up
+    to ``_DICT_ALIGN_SKIP_CARD`` values to a shared train+val ``pl.Enum``, and the pandas path uses the joint train+val
+    categories: val-only values are known categories and test-only values become missing, so nothing can crash. Such
+    drift is reported at INFO as handled; the crash WARNING is kept for columns that alignment does not cover.
     """
     all_cat_cols = list(cat_features or []) + list(text_features or []) + list(embedding_features or [])
     if not (all_cat_cols and train_df is not None):
@@ -175,18 +182,36 @@ def _log_cardinality_and_drift_snapshot(
                                 "          b) widen the training window (temporal split) so "
                                 "val_only categories are observed at fit time."
                             )
+                        _aligned = align_categorical_dicts and card_tr + v_only <= _DICT_ALIGN_SKIP_CARD
+                        if _aligned and card_tr < 100:
+                            log_throttle(
+                                logger,
+                                "phase_drift_snapshot_category_drift_handled",
+                                logging.INFO,
+                                "  Category drift: %s -- val has %s categor%s (%s of train card %s) that train never "
+                                "saw. Handled automatically: the fit shares one train+val category domain across "
+                                "splits, so val-only values are known categories and test-only values become missing.",
+                                c, v_only, "y" if v_only == 1 else "ies", f"{v_frac:.1%}", f"{card_tr:_}",
+                            )
+                            continue
+                        _crash_note = (
+                            "The shared train+val category domain prevents a crash, but train-only levels generalize poorly."
+                            if _aligned
+                            else "XGB/CB may crash when constructing val DMatrix with ref=train."
+                        )
                         log_throttle(
                             logger,
                             "phase_drift_snapshot_category_drift_suspect",
                             logging.WARNING,
                             "  Category drift suspect: %s -- val has %s categories "
                             "(%s of train card %s) that train never saw. "
-                            "XGB/CB may crash when constructing val DMatrix with ref=train.\n"
+                            "%s\n"
                             "%s",
                             c,
                             v_only,
                             f"{v_frac:.1%}",
                             f"{card_tr:_}",
+                            _crash_note,
                             _healing,
                         )
     except Exception as _e:

@@ -393,6 +393,7 @@ class TestFitAndTransformPipeline:
         # Verify dtypes are float32 (or compatible)
         if isinstance(train_transformed, pd.DataFrame):
             # Check that numeric columns are float32
+            assert len(train_transformed.select_dtypes(include=[np.number]).columns) > 0
             for col in train_transformed.select_dtypes(include=[np.number]).columns:
                 assert train_transformed[col].dtype == np.float32 or train_transformed[col].dtype == np.float64
 

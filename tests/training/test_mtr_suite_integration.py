@@ -70,6 +70,7 @@ def test_mtr_metric_computation_on_synthetic():
     assert "rmse_macro" in results
     assert "r2_macro" in results
     # All values finite.
+    assert results.items()
     for name, value in results.items():
         assert np.isfinite(value), f"{name} = {value} is not finite"
     # On near-perfect preds, R2 macro should be near 1.0.

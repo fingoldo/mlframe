@@ -213,7 +213,17 @@ def _overfit_verdict(task: str, per_metrics: Mapping[str, Dict[str, float]]) -> 
 
     r_train = per_metrics[lo].get("RMSE", float("nan"))
     r_test = per_metrics[hi].get("RMSE", float("nan"))
-    ratio = float(r_test / r_train) if r_train > 0 else float("inf")
+    # Compare RMSE relative to each split's own target spread (~sqrt(1 - R^2)), not raw RMSE: when a later split's
+    # target is simply smaller its raw RMSE drops with it. A production chart called a model GENERALIZES on a 0.30x raw
+    # ratio (12.4 -> 3.7) while R^2 fell from 0.02 to -0.90, because test's target mean was 0.26 against val's 1.26.
+    s_train = float(per_metrics[lo].get("y_std", 0.0) or 0.0)
+    s_test = float(per_metrics[hi].get("y_std", 0.0) or 0.0)
+    scaled = s_train > 0 and s_test > 0
+    if scaled:
+        n_train, n_test = r_train / s_train, r_test / s_test
+        ratio = float(n_test / n_train) if n_train > 0 else float("inf")
+    else:
+        ratio = float(r_test / r_train) if r_train > 0 else float("inf")
     if not np.isfinite(ratio):
         return OverfitVerdict("unknown", "NOT MEASURED", "RMSE undefined on a split (zero train error?)", 0.0, "RMSE")
     if ratio >= RMSE_RATIO_RED:
@@ -222,7 +232,11 @@ def _overfit_verdict(task: str, per_metrics: Mapping[str, Dict[str, float]]) -> 
         color, label = "amber", "MILD OVERFIT"
     else:
         color, label = "green", "GENERALIZES"
-    reason = f"{lo}->{hi} RMSE ratio {ratio:.2f}x ({r_train:.4g} -> {r_test:.4g})"
+    reason = (
+        f"{lo}->{hi} RMSE/std(y) ratio {ratio:.2f}x ({r_train / s_train:.3g} -> {r_test / s_test:.3g}; raw RMSE {r_train:.4g} -> {r_test:.4g})"
+        if scaled
+        else f"{lo}->{hi} RMSE ratio {ratio:.2f}x ({r_train:.4g} -> {r_test:.4g})"
+    )
     return OverfitVerdict(color, label, reason, ratio, "RMSE")
 
 
@@ -253,6 +267,10 @@ def _grouped_bar_panel(
     hatches: List[str] = []
     for i, s in enumerate(splits):
         m = per_metrics[s]
+        # Each split's error is scaled by ITS OWN target spread: splits whose targets differ in size are otherwise
+        # compared on units, and a split with a smaller target looks better for no reason.
+        _own = float(m.get("y_std", 0.0) or 0.0)
+        split_std = _own if np.isfinite(_own) and _own > 0 else y_std
         row: List[float] = []
         for _, key, higher in headline:
             raw = m.get(key, float("nan"))
@@ -265,7 +283,7 @@ def _grouped_bar_panel(
                 if not scaled_ok:
                     row.append(float("nan"))  # NaN leaves a gap; a zero bar would read as "perfectly wrong"
                     continue
-                q = 1.0 - min(1.0, abs(raw) / y_std)
+                q = 1.0 - min(1.0, abs(raw) / split_std)
             else:
                 q = 1.0 - abs(raw)
             row.append(float(np.clip(q, 0.0, 1.0)))

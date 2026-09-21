@@ -120,6 +120,8 @@ class TrainingContext:
     baseline_rss_mb: float = 0.0
     df_size_mb: float = 0.0
     sequences: list[np.ndarray] | None = None
+    # Row keys from TrainingSplitConfig.id_column (read before the column is dropped); consumed by the split phase.
+    split_row_ids: np.ndarray | None = None
 
     train_idx: np.ndarray | None = None
     val_idx: np.ndarray | None = None

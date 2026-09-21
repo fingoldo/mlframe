@@ -199,6 +199,7 @@ def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
             extra.append(np.maximum(x - bt, 0.0))
         return found
 
+    n_pairs_compared = 0
     for seed in range(40):
         rng = np.random.default_rng(seed)
         n = int(rng.choice([200, 500, 1200, 4000]))
@@ -217,8 +218,12 @@ def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
         ref = legacy(x, y)
         got = _detect_hinge_breakpoints(x, y)
         assert len(ref) == len(got), f"seed={seed} kind={kind}: tau count {got} != legacy {ref}"
-        for a, b in zip(ref, got):
+        pairs = list(zip(ref, got))
+        n_pairs_compared += len(pairs)
+        for a, b in pairs:
             assert abs(a - b) <= 1e-9, f"seed={seed} kind={kind}: tau {b} != legacy {a}"
+    # Linear / noise seeds legitimately yield no taus; the hinge seeds must still produce some to compare.
+    assert n_pairs_compared > 0
 
 
 def test_bad_side_raises():

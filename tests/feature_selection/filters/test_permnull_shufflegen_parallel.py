@@ -30,6 +30,7 @@ def test_parallel_gen_rows_are_uniform_permutations():
     out = _gen_target_shuffles_par_njit(y, 32, np.int64(123))
     assert out.shape == (32, 5000)
     sorted_y = np.sort(y)
+    assert list(range(out.shape[0]))
     for k in range(out.shape[0]):
         assert np.array_equal(np.sort(out[k]), sorted_y), f"row {k} is not a permutation of y"
 

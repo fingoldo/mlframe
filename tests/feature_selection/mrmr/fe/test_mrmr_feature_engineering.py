@@ -317,6 +317,7 @@ class TestMRMRFeatureEngineering:
         # falsifiable: if FE failed to combine the pair, neither a nor b would
         # appear in any survivor.
         referenced = _referenced_columns(mrmr)
+        assert len(expected_features) > 0
         for feat in expected_features:
             assert feat in referenced, f"Feature '{feat}' should be selected (raw or engineered); names={list(mrmr.get_feature_names_out())}"
 
@@ -340,6 +341,7 @@ class TestMRMRFeatureEngineering:
         # recovery. Credit both source columns when referenced by ANY selected
         # feature (raw or engineered). Falsifiable as above.
         referenced = _referenced_columns(mrmr)
+        assert len(expected_features) > 0
         for feat in expected_features:
             assert feat in referenced, f"Feature '{feat}' should be selected (raw or engineered); names={list(mrmr.get_feature_names_out())}"
 

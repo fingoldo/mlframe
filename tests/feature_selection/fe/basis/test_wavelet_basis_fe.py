@@ -267,6 +267,7 @@ def test_scale_selection_bounds_candidate_count():
     for nm in eng.columns:
         per_src.setdefault(meta[nm]["src"], 0)
         per_src[meta[nm]["src"]] += 1
+    assert per_src.items()
     for src, cnt in per_src.items():
         assert cnt <= 6, f"{src} emitted {cnt} legs > max_legs=6"
 

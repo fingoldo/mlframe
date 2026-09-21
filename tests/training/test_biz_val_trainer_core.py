@@ -47,6 +47,12 @@ def test_biz_val_trainer_get_function_param_names_parametrized(func, expected_in
     from mlframe.training.trainer import get_function_param_names
 
     names = get_function_param_names(func)
+    # The ``*args``-only case expects no NAMED parameter; the helper reports the varargs
+    # container itself. Stated here so the loop's zero iterations are not a silent pass.
+    if not expected_in:
+        assert names == ["args"], f"a *args-only signature must yield only the varargs container; got {names}"
+    else:
+        assert len(expected_in) == len(names), f"expected exactly {expected_in} from {func.__code__.co_varnames[:5]}; got {names}"
     for e in expected_in:
         assert e in names, f"expected '{e}' in names from {func.__code__.co_varnames[:5]}; got {names}"
 

@@ -5,6 +5,7 @@ Bound back into the parent's namespace via re-export at the parent's module bott
 from __future__ import annotations
 
 from ._domain_shared import residual_domain_reshaped
+from .._quantile_edges import quantile_bin_edges
 
 import logging
 from typing import (
@@ -167,7 +168,8 @@ def _row_alpha_beta(
     # Canonical key matches the grouped-fit keying so int<->float dtype drift at
     # predict does not miss every group and silently fall back to global alpha/beta.
     from . import _canonical_group_key
-    uniq, inv = np.unique(groups, return_inverse=True)
+    from . import _unique_group_labels
+    uniq, inv = _unique_group_labels(groups)
     uniq_alpha = np.array(
         [pg_alphas.get(_canonical_group_key(g), alpha_global) for g in uniq],
         dtype=np.float64,
@@ -177,6 +179,13 @@ def _row_alpha_beta(
         dtype=np.float64,
     )
     return uniq_alpha[inv], uniq_beta[inv]
+
+
+_QR_BIN_IQR_REL_FLOOR: float = 1e-6
+"""A bin's IQR below this fraction of the global (robust) y scale counts as a constant bin and takes the global IQR. Relative, not the historic
+absolute ``1e-6``: that disabled per-bin scaling on every bin of a 1e-7-scale target and let a near-constant bin of a 1e9-scale target inflate T."""
+
+
 def _quantile_residual_per_bin_stats_v1_pyloop(
     y_clean: np.ndarray, bin_idx: np.ndarray, actual_n_bins: int,
     min_bin_n: int, global_median: float, global_iqr: float,
@@ -194,7 +203,7 @@ def _quantile_residual_per_bin_stats_v1_pyloop(
         bin_y = y_clean[mask]
         bin_medians[b] = float(np.median(bin_y))
         bin_iqr = float(np.subtract(*np.percentile(bin_y, [75, 25])))
-        bin_iqrs[b] = bin_iqr if bin_iqr > 1e-6 else global_iqr
+        bin_iqrs[b] = bin_iqr if bin_iqr > _QR_BIN_IQR_REL_FLOOR * global_iqr else global_iqr
     return bin_medians, bin_iqrs, bin_sizes
 
 
@@ -221,7 +230,7 @@ def _quantile_residual_per_bin_stats_v2_pandas_groupby(
         q75 = qs[0.75].to_numpy()[keep]
         bin_medians[kept_idx] = q50
         raw_iqr = q75 - q25
-        bin_iqrs[kept_idx] = np.where(raw_iqr > 1e-6, raw_iqr, global_iqr)
+        bin_iqrs[kept_idx] = np.where(raw_iqr > _QR_BIN_IQR_REL_FLOOR * global_iqr, raw_iqr, global_iqr)
     return bin_medians, bin_iqrs, bin_sizes
 
 
@@ -240,6 +249,28 @@ def _quantile_residual_per_bin_stats(
     return _quantile_residual_per_bin_stats_v1_pyloop(
         y_clean, bin_idx, actual_n_bins, min_bin_n, global_median, global_iqr,
     )
+
+
+def _robust_y_scale(y_clean: np.ndarray) -> float:
+    """Scale used to standardise quantile_residual T: IQR, falling back to 1.4826*MAD, then std, then 1.0.
+
+    A bare ``max(IQR, 1e-6)`` floor turns a zero-inflated target (>50% of rows at one value, so IQR == 0) into
+    T = (y - median) * 1e6: T values in the millions that no T-scale clip envelope or booster handles sanely, and the
+    inverse collapses predictions to a constant.
+    """
+    y_clean = np.asarray(y_clean, dtype=np.float64)
+    if y_clean.size == 0:
+        return 1.0
+    q25, q50, q75 = np.percentile(y_clean, [25, 50, 75])
+    ref = max(float(np.max(np.abs(y_clean))), 1.0)
+    iqr = float(q75 - q25)
+    if iqr > 1e-9 * ref:
+        return iqr
+    mad = 1.4826 * float(np.median(np.abs(y_clean - q50)))
+    if mad > 1e-9 * ref:
+        return mad
+    sd = float(np.std(y_clean))
+    return sd if sd > 1e-9 * ref else 1.0
 
 
 def _quantile_residual_fit(
@@ -261,8 +292,7 @@ def _quantile_residual_fit(
     if finite.sum() < n_bins * 2:
         # Degenerate: fall back to global stats so the inverse is still safe.
         med = float(np.median(y_f[finite])) if finite.any() else 0.0
-        iqr_v = float(np.subtract(*np.percentile(y_f[finite], [75, 25]))) if finite.sum() >= 4 else 1.0
-        iqr_v = max(iqr_v, 1e-6)
+        iqr_v = _robust_y_scale(y_f[finite]) if finite.sum() >= 4 else 1.0
         return {
             "bin_edges": np.array([-np.inf, np.inf], dtype=np.float64),
             "bin_medians": np.array([med], dtype=np.float64),
@@ -275,14 +305,12 @@ def _quantile_residual_fit(
     y_clean = y_f[finite]
     base_clean = base_f[finite]
     # Quantile edges on train base; ``np.quantile`` with linspace covers the open-open envelope, and the outermost edges become +/-inf below so predict-time digitize never produces an out-of-range bucket.
-    inner_qs = np.linspace(0.0, 1.0, n_bins + 1)
-    edges = np.quantile(base_clean, inner_qs)
-    # Deduplicate edges (ties at one quantile collapse several edges, else empty bins emerge); tolerate up to n_bins-1 unique edges, clip n_bins downstream.
-    edges = np.unique(edges)
+    # Tie-safe edges; a discrete base with <= n_bins values gets one bin per value (a binary base used to collapse to one bin).
+    edges = quantile_bin_edges(base_clean, n_bins)
     if edges.size < 2:
         # All base values identical: degenerate single bucket.
         med = float(np.median(y_clean))
-        iqr_v = max(float(np.subtract(*np.percentile(y_clean, [75, 25]))), 1e-6)
+        iqr_v = _robust_y_scale(y_clean)
         return {
             "bin_edges": np.array([-np.inf, np.inf], dtype=np.float64),
             "bin_medians": np.array([med], dtype=np.float64),
@@ -297,7 +325,7 @@ def _quantile_residual_fit(
     actual_n_bins = edges.size - 1
     # Global stats: fallback for under-populated bins.
     global_median = float(np.median(y_clean))
-    global_iqr = max(float(np.subtract(*np.percentile(y_clean, [75, 25]))), 1e-6)
+    global_iqr = _robust_y_scale(y_clean)
     # Per-bin assignment via np.searchsorted (right-side: edges[i-1] <= x < edges[i]).
     bin_idx = np.clip(np.searchsorted(edges[1:-1], base_clean, side="right"), 0, actual_n_bins - 1)
     bin_medians, bin_iqrs, bin_sizes_arr = _quantile_residual_per_bin_stats(
@@ -397,6 +425,7 @@ def _monotonic_residual_fit(
             "knots_x": np.array([0.0, 1.0], dtype=np.float64),
             "knots_y": np.array([y_med, y_med], dtype=np.float64),
             "y_train_mean": y_med,
+            "y_train_median": y_med,
             "monotone_direction": 0,
             "n_knots_effective": 2,
             "is_degenerate": True,
@@ -414,6 +443,7 @@ def _monotonic_residual_fit(
             "knots_x": np.array([base_clean.min(), base_clean.max()], dtype=np.float64),
             "knots_y": np.array([y_med, y_med], dtype=np.float64),
             "y_train_mean": y_med,
+            "y_train_median": y_med,
             "monotone_direction": 0,
             "n_knots_effective": 2,
             "is_degenerate": True,
@@ -428,13 +458,22 @@ def _monotonic_residual_fit(
     slab_edges[-1] = np.inf
     slab_edges[1:-1] = 0.5 * (knots_x[:-1] + knots_x[1:])
     slab_idx = np.clip(np.searchsorted(slab_edges[1:-1], base_clean, side="right"), 0, n_eff - 1)
+    # The two edge slabs are only half a quantile wide (~n / (2*(n_knots-1)) rows), so a fixed min_knot_n starved them below ~660 rows. Scale the
+    # population threshold down with n so a small train set still fills its edge knots from their own rows.
+    min_knot_eff = max(3, min(min_knot_n, y_clean.size // (2 * n_eff)))
+    populated = np.zeros(n_eff, dtype=bool)
     for k in range(n_eff):
         mask = slab_idx == k
         n_in_slab = int(mask.sum())
-        if n_in_slab < min_knot_n:
-            knots_y[k] = y_global_med
-        else:
+        if n_in_slab >= min_knot_eff:
             knots_y[k] = float(np.median(y_clean[mask]))
+            populated[k] = True
+    if not populated.any():
+        knots_y[:] = y_global_med
+    elif not populated.all():
+        # An under-populated knot takes the value interpolated from its populated neighbours (edge knots: the nearest populated one). Injecting the
+        # GLOBAL median into an ordered knot sequence let the cumulative max below drag every lower knot up to it, flattening half the spline.
+        knots_y[~populated] = np.interp(knots_x[~populated], knots_x[populated], knots_y[populated])
     # Orient monotonicity by the SIGN of the Spearman correlation between y and base;
     # tie -> increasing (arbitrary but stable). Only the sign is consumed (it flips the
     # orientation, never scales it), so the full scipy.stats.spearmanr (tie-averaged
@@ -477,6 +516,7 @@ def _monotonic_residual_fit(
         "knots_x": knots_x,
         "knots_y": knots_y,
         "y_train_mean": float(np.mean(y_clean)),
+        "y_train_median": y_global_med,
         "monotone_direction": direction,
         "n_knots_effective": int(n_eff),
         "is_degenerate": _is_degenerate,
@@ -540,13 +580,14 @@ def _make_chain_transform(
     from . import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_fit_raw, _chain_forward_raw, _chain_inverse_raw
     unary_tup = (unary_fit, unary_forward, unary_inverse)
 
-    def _fit(y, base):
-        """Fit the bivariate half then the unary half on its output, per :func:`_chain_fit_raw`."""
+    def _fit(y, base, sample_weight=None):
+        """Fit the bivariate half (weighted when it accepts ``sample_weight``) then the unary half on its output, per :func:`_chain_fit_raw`."""
         return _chain_fit_raw(
             y=y, base=base,
             bivariate_fit=bivariate_fit,
             bivariate_forward=bivariate_forward,
             unary=unary_tup,
+            sample_weight=sample_weight,
         )
 
     def _forward(y, base, params):
@@ -586,13 +627,14 @@ def _make_multi_chain_transform(
     # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
     from . import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_multi_fit_raw, _chain_multi_forward_raw, _chain_multi_inverse_raw
 
-    def _fit(y, base):
-        """Fit the bivariate half then each unary stage in order on its predecessor's output, per :func:`_chain_multi_fit_raw`."""
+    def _fit(y, base, sample_weight=None):
+        """Fit the bivariate half (weighted when it accepts ``sample_weight``) then each unary stage on its predecessor's output, per :func:`_chain_multi_fit_raw`."""
         return _chain_multi_fit_raw(
             y=y, base=base,
             bivariate_fit=bivariate_fit,
             bivariate_forward=bivariate_forward,
             unary_stages=unary_stages,
+            sample_weight=sample_weight,
         )
 
     def _forward(y, base, params):

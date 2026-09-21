@@ -164,7 +164,7 @@ def survivor_count(
     # 1.4826 scales MAD to a normal-consistent sigma estimate.
     thresh = med + mad_c * 1.4826 * mad
     knee = int(np.count_nonzero(fused > thresh))
-    floor = max(20 * int(k_target or 0), 1000)
+    floor = max(20 * (int(k_target) if k_target is not None else 0), 1000)
     m = max(knee, floor)
     if ram_cap is not None:
         # RAM cap SUPERSEDES the floor (a hard memory budget wins over the "never starve downstream" intent).

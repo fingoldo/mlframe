@@ -80,78 +80,153 @@ def _lazy_pyplot():
     return plt
 
 
+def _moments(arr: np.ndarray, cap: int = 100_000) -> tuple[float, float, float, str]:
+    """std, skew, excess kurtosis of ``arr`` (on a seeded ``cap``-row subsample for large inputs) plus a subsample note."""
+    from scipy.stats import kurtosis, skew
+
+    note = ""
+    if arr.size > cap:
+        arr = arr[np.random.default_rng(0).choice(arr.size, size=cap, replace=False)]
+        note = f" (moments on {cap:,} rows)"
+    return float(np.std(arr)), float(skew(arr)), float(kurtosis(arr)), note
+
+
+def _top_value_share(arr: np.ndarray) -> tuple[float, float]:
+    """Most frequent value and its share of rows (a spike such as 70% zeros dominates every other feature of the shape)."""
+    vals, counts = np.unique(arr, return_counts=True)
+    i = int(np.argmax(counts))
+    return float(vals[i]), float(counts[i] / arr.size)
+
+
+def _asinh_panel(ax, arr: np.ndarray, color: str, name: str, bins: int) -> None:
+    """Histogram of ``arr`` on an asinh-scaled x axis over its [0.1%, 99.9%] range, log density, tails counted in the label.
+
+    A linear axis over a heavy-tailed target puts almost every row into the first bar (a production chart spanned 0..90 000
+    with one visible bar). asinh is linear near zero and logarithmic in both tails, so zeros, negatives and the tail all
+    stay readable; the tick labels are in original units.
+    """
+    lo, hi = np.quantile(arr, [0.001, 0.999])
+    if lo == hi:
+        lo, hi = float(arr.min()), float(arr.max())
+    if lo == hi:
+        lo, hi = lo - 0.5, hi + 0.5
+    scale = max(float(np.quantile(np.abs(arr - np.median(arr)), 0.5)), 1e-12)
+    fwd = lambda v: np.arcsinh(np.asarray(v, dtype=np.float64) / scale)  # noqa: E731
+    inv = lambda u: np.sinh(np.asarray(u, dtype=np.float64)) * scale  # noqa: E731
+    edges = inv(np.linspace(fwd(lo), fwd(hi), bins + 1))
+    inside = (arr >= lo) & (arr <= hi)
+    counts, _ = np.histogram(arr[inside], bins=edges)
+    ax.bar(edges[:-1], counts / arr.size, width=np.diff(edges), align="edge", color=color, alpha=0.8, edgecolor="none")
+    ax.set_xscale("function", functions=(fwd, inv))
+    # Decade ticks on both signs, thinned so neighbours are at least ~0.8 asinh units apart (no overlapping labels).
+    k0 = int(np.floor(np.log10(scale)))
+    mags = [0.0] + [10.0**k for k in range(k0, k0 + 16)]
+    cand = sorted({v for m in mags for v in (m, -m) if lo <= v <= hi})
+    ticks: list[float] = []
+    for v in cand:
+        if not ticks or fwd(v) - fwd(ticks[-1]) >= 0.8:
+            ticks.append(v)
+    if ticks:
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([f"{v:g}" for v in ticks], fontsize=8)
+    ax.set_yscale("log")
+    n_lo, n_hi = int((arr < lo).sum()), int((arr > hi).sum())
+    ax.set_xlabel(f"{name} value (asinh scale; {n_lo:,} rows below / {n_hi:,} above the shown 0.1-99.9% range)", fontsize=8)
+    ax.set_ylabel("share of rows per bin (log)")
+
+
 def plot_target_distribution(
     y: np.ndarray,
     t: np.ndarray,
     *,
     title: str = "Target distribution: y vs T",
     bins: int = 60,
-    figsize: tuple[float, float] = (8, 5),
+    figsize: tuple[float, float] = (13, 6.5),
+    y_name: str | None = None,
+    transform_name: str | None = None,
+    base_column: str | None = None,
 ):
-    """Overlay histograms of ``y`` and ``T = transform(y, base)``.
+    """Side-by-side distributions of ``y`` and ``T = transform(y, base)`` with a plain-language verdict.
 
-    Visualises the distributional shift the transform applied. For
-    ``logratio`` on heavy-tail y, T should look much more Gaussian.
-    For ``diff`` on autoregressive lag, T should be a tight residual
-    centred near zero with much smaller std than y.
+    The question the chart answers: did the transform make the target easier to model -- a less skewed, lighter-tailed,
+    smaller-spread T -- or did it barely change the shape? Each panel has its own asinh-scaled x axis (y and T generally
+    live on different scales) and a log density axis, so both the spike and the tail are visible. The header states
+    std / skew / excess kurtosis before and after, the change, and the most frequent value's share.
 
-    Both ``y`` and ``t`` are flattened and finite-filtered before
-    plotting; rows where either is NaN are dropped.
+    A footer explains what y and T are, since a reader seeing this chart without the discovery docs has no way to know:
+    y is the original target, T the substitute target the models train on, built from y and a base column and converted
+    back to y after prediction. ``y_name`` / ``transform_name`` / ``base_column`` make that footer concrete (the
+    transform's registry description is quoted when available).
     """
     plt = _lazy_pyplot()
-    y_arr = np.asarray(y).reshape(-1)
-    t_arr = np.asarray(t).reshape(-1)
-    finite_y = y_arr[np.isfinite(y_arr)]
-    finite_t = t_arr[np.isfinite(t_arr)]
-    fig, ax = plt.subplots(figsize=figsize)
-    # Pre-bin once with np.histogram on shared edges instead of two full-n ax.hist calls: matplotlib re-bins each series internally,
-    # which dominates wall time on multi-million-row inputs; shared edges also make the two overlaid densities directly comparable.
-    if finite_y.size or finite_t.size:
-        lo = min([float(a.min()) for a in (finite_y, finite_t) if a.size])
-        hi = max([float(a.max()) for a in (finite_y, finite_t) if a.size])
-        if lo == hi:
-            lo, hi = lo - 0.5, hi + 0.5
-        edges = np.linspace(lo, hi, bins + 1)
-        width = edges[1] - edges[0]
-        for arr, color, name in ((finite_y, "tab:blue", "y"), (finite_t, "tab:orange", "T")):
-            if arr.size == 0:
-                continue
-            counts, _ = np.histogram(arr, bins=edges)
-            ax.bar(edges[:-1], counts / (arr.size * width), width=width, align="edge", alpha=0.5, color=color, label=f"{name} (n={arr.size})")
-    ax.set_xlabel("value")
-    ax.set_ylabel("density")
-    ax.set_title(title)
-    ax.legend(loc="best")
-    # Annotate skew + std for a quick read. Moments are annotation-only precision: on huge inputs a 100k subsample is statistically
-    # indistinguishable at the 2-decimal display resolution and saves several full-array passes; the subsample size is disclosed.
-    if finite_y.size > 1 and finite_t.size > 1:
-        from scipy.stats import skew, kurtosis
-        moment_cap = 100_000
-        sub_y, sub_t = finite_y, finite_t
-        sub_note = ""
-        if max(finite_y.size, finite_t.size) > moment_cap:
-            rng = np.random.default_rng(0)
-            if finite_y.size > moment_cap:
-                sub_y = finite_y[rng.choice(finite_y.size, size=moment_cap, replace=False)]
-            if finite_t.size > moment_cap:
-                sub_t = finite_t[rng.choice(finite_t.size, size=moment_cap, replace=False)]
-            sub_note = f"\n(moments on {moment_cap:,}-row subsample)"
+    y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
+    t_arr = np.asarray(t, dtype=np.float64).reshape(-1)
+    fy = y_arr[np.isfinite(y_arr)]
+    ft = t_arr[np.isfinite(t_arr)]
+    fig, (ax_y, ax_t) = plt.subplots(1, 2, figsize=figsize)
+    for ax, arr, color, name in ((ax_y, fy, "tab:blue", "y"), (ax_t, ft, "tab:orange", "T")):
+        if arr.size == 0:
+            ax.text(0.5, 0.5, f"no finite {name}", ha="center", va="center", transform=ax.transAxes)
+            continue
+        _asinh_panel(ax, arr, color, name, bins)
+        top_v, top_share = _top_value_share(arr)
+        spike = f"; {top_share:.0%} of rows equal {top_v:.4g}" if top_share >= 0.05 else ""
+        ax.set_title(f"{name}  (n={arr.size:,}{spike})", fontsize=9)
+
+    verdict = ""
+    if fy.size > 1 and ft.size > 1:
         try:
-            text = (
-                f"y: std={np.std(sub_y):.3g}, skew={skew(sub_y):.2f}, "
-                f"excess kurt={kurtosis(sub_y):.2f}\n"
-                f"T: std={np.std(sub_t):.3g}, skew={skew(sub_t):.2f}, "
-                f"excess kurt={kurtosis(sub_t):.2f}" + sub_note
+            sy, ky_skew, ky_kurt, note = _moments(fy)
+            st, kt_skew, kt_kurt, _ = _moments(ft)
+
+            def _chg(a: float, b: float) -> str:
+                """Relative change from ``a`` to ``b`` as a signed percentage, or ``n/a`` when ``a`` is zero."""
+                return f"{(b - a) / abs(a):+.0%}" if a else "n/a"
+
+            tail_better = abs(kt_skew) < 0.5 * abs(ky_skew) and kt_kurt < 0.5 * ky_kurt
+            tail_worse = abs(kt_skew) > 1.25 * abs(ky_skew) or kt_kurt > 1.25 * ky_kurt
+            verdict = (
+                f"std {sy:.3g} -> {st:.3g} ({_chg(sy, st)}),  skew {ky_skew:.2f} -> {kt_skew:.2f},  "
+                f"excess kurtosis {ky_kurt:.1f} -> {kt_kurt:.1f}{note}\n"
+                + (
+                    "Verdict: T is much less skewed / heavy-tailed than y -- the transform makes the target easier for the models."
+                    if tail_better
+                    else "Verdict: T is MORE skewed or heavy-tailed than y -- the transform makes the shape harder, not easier."
+                    if tail_worse
+                    else "Verdict: T keeps roughly the shape of y -- any gain must come from the base explaining part of y, "
+                    "not from a nicer distribution (judge it by the holdout RMSE, not this chart)."
+                )
             )
-            ax.text(0.02, 0.98, text, transform=ax.transAxes,
-                    va="top", ha="left",
-                    fontsize=8, family="monospace",
-                    bbox={"facecolor": "white", "alpha": 0.7, "edgecolor": "gray"})
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
-    fig.tight_layout()
+        except Exception as e:  # nosec B110 - annotation only
+            logger.debug("target-distribution verdict failed: %s", e)
+    fig.text(0.01, 0.01, _explain_y_and_t(y_name, transform_name, base_column), ha="left", va="bottom", fontsize=8, wrap=True,
+             bbox={"facecolor": "#f4f4f4", "edgecolor": "#bbbbbb"})
+    fig.suptitle(f"{title}\n{verdict}" if verdict else title, fontsize=10)
+    fig.tight_layout(rect=(0, 0.14, 1, 1))
     return fig
+
+
+def _explain_y_and_t(y_name: str | None, transform_name: str | None, base_column: str | None) -> str:
+    """Plain-language footer: what y is, what T is, and how the models use T."""
+    y_label = f"'{y_name}'" if y_name else "the target"
+    how = ""
+    if transform_name:
+        try:
+            from .transforms import get_transform
+
+            desc = str(getattr(get_transform(transform_name), "description", "") or "").strip()
+            how = f" Here T = {transform_name}(y{', ' + base_column if base_column else ''}): {desc.split('. ')[0].rstrip('.')}."
+        except Exception as e:  # nosec B110 - an unknown name just drops the formula line
+            logger.debug("transform description lookup failed for %r: %s", transform_name, e)
+            how = f" Here T = {transform_name}(y{', ' + base_column if base_column else ''})."
+    return (
+        f"y = the original target {y_label}, as it is in the data.   "
+        f"T = a substitute target the models are trained on INSTEAD of y, computed from y"
+        f"{' and the base column ' + repr(base_column) if base_column else ''}; each model's prediction of T is converted "
+        f"back to y, so the final forecast is still in y units.{how}\n"
+        "Why look: a model fits a compact, symmetric target more easily than a spiky, heavy-tailed one. "
+        "If T's panel is narrower and less lopsided than y's, the substitution helps."
+    )
 
 
 def _qq_decimation_indices(n: int, max_points: int = 2000, tail_keep: int = 20) -> np.ndarray:
@@ -303,8 +378,19 @@ def plot_mi_gain_with_jitter(
         List of dicts in the format ``CompositeTargetDiscovery.export_specs()`` returns.
     n_jitter
         Number of jitter replicates (controls error-bar smoothness, not statistical power).
+    title
+        Chart title.
+    figsize
+        Figure size in inches.
+    random_state
+        Seed of the jitter noise.
     jitter_scale
         Multiplier on ``|mi_gain|`` for the per-replicate Gaussian noise.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The bar chart (a placeholder figure when ``specs`` is empty).
     """
     plt = _lazy_pyplot()
     if not specs:
@@ -337,9 +423,19 @@ def plot_mi_gain_with_jitter(
     ax.axhline(0, color="black", lw=0.5)
     ax.set_xticks(x)
     ax.set_xticklabels(names, rotation=30, ha="right", fontsize=8)
-    ax.set_ylabel("mi_gain (T-vs-y MI delta)")
+    ax.set_ylabel("mi_gain (MI with T - MI with y)")
     ax.set_title(title)
-    fig.tight_layout()
+    fig.text(
+        0.01, 0.01,
+        "Each bar is one composite target that survived discovery (name = target-transform-base column). mi_gain is how "
+        "much MORE mutual information the features carry about the substitute target T than about the original y: "
+        "positive means T is easier to predict from the features than y is. The absolute values are small by nature; "
+        "compare bars with each other, not with 1. Error bars are a visual noise cue (5% jitter), not a confidence "
+        "interval. The final keep/drop decision is made on holdout RMSE in y units, not on this number.",
+        ha="left", va="bottom", fontsize=8, wrap=True,
+        bbox={"facecolor": "#f4f4f4", "edgecolor": "#bbbbbb"},
+    )
+    fig.tight_layout(rect=(0, 0.16, 1, 1))
     return fig
 
 

@@ -812,6 +812,7 @@ DEP002 = [
     "codespell", "deptry", "interrogate", "vulture", "yamllint",  # invoked by pre-commit hooks as `python -m ...`, never imported
     "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette",
     "py-ci-shared",  # invoked as `python -m py_ci_shared.*` CLI/pre-commit-hook commands, never `import py_ci_shared`
+    "statsmodels",  # the [stats] extra is for users and benchmarks/bench_robust_linres_1M.py; src/ computes ACF with numpy since statsmodels' import broke under pandas 3
 ]
 
 # DEP001 (import missing from declared deps): genuinely optional third-party libs behind
@@ -824,6 +825,7 @@ DEP001 = [
     "powershap", "ngboost", "autogluon", "lightautoml", "quantile_forest", "sksurv", "tensorflow",
     "keras", "experiment_impact_tracker", "concepts", "gudhi", "loky", "mist_statinf",
     "infer", "model", "finance", "pyod",
+    "pynvml",  # _gpu_state_probe imports it inside try/except and falls back to nvidia-smi
     # pytorch_lightning (2026-07-18, moved here from a stale DEP002 entry -- found via the new
     # test_deptry_ignores_not_stale meta-test): this is genuinely a missing-declared-dep case, not
     # unused-declared -- the package is deliberately NOT depended on (see the `lightning>=2.0`

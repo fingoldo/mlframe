@@ -34,6 +34,7 @@ def test_equal_length_fast_path_bit_identical():
     out = extract_sequences(df, columns=COLUMNS)
     ref = _reference(df, COLUMNS)
     assert len(out) == len(ref) == n_rows
+    assert list(zip(out, ref))
     for a, b in zip(out, ref):
         assert a.dtype == np.float32
         assert a.shape == (seq_len, len(COLUMNS))
@@ -50,6 +51,7 @@ def test_ragged_fallback_bit_identical():
     out = extract_sequences(df, columns=COLUMNS)
     ref = _reference(df, COLUMNS)
     assert len(out) == len(ref) == n_rows
+    assert list(zip(out, ref, lens))
     for a, b, ln in zip(out, ref, lens):
         assert a.dtype == np.float32
         assert a.shape == (ln, len(COLUMNS))
@@ -67,5 +69,6 @@ def test_indices_subset_and_column_order():
     out = extract_sequences(df, indices=idx, columns=cols)
     ref = _reference(df[idx], cols)
     assert len(out) == len(idx)
+    assert list(zip(out, ref))
     for a, b in zip(out, ref):
         assert np.array_equal(a, b)

@@ -84,6 +84,7 @@ def test_pair_su_diagonal_returns_one(synth_factors):
     optimization preserves the short-circuit at the top of the function)."""
     fd, fn, _ = synth_factors
     state = DCDState(distance="su", factors_data=fd, factors_nbins=fn)
+    assert list(range(fn.shape[0]))
     for a in range(fn.shape[0]):
         assert pair_su(state, a, a) == 1.0
 

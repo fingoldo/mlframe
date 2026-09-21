@@ -306,6 +306,7 @@ class TestIdentityCacheThreadSafe:
         for t in threads:
             t.join()
         # All 50 keys should be present in the cache.
+        assert len(keys) > 0
         for k in keys:
             assert k in _MRMR_IDENTITY_FP_CACHE
 

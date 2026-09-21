@@ -61,9 +61,23 @@ class TestTheBreakdownIsReported:
         with caplog.at_level(logging.INFO, logger="mlframe.metrics._core_numba_warmup"):
             prewarm_numba_cache(include_feature_selection=False)
         text = " ".join(r.getMessage() for r in caplog.records)
-        assert "[JIT prewarm] per-group:" in text
+        assert "[JIT prewarm] total=" in text
         assert "feature_selection=" in text
         assert "dummy_baselines=" in text
+
+    def test_groups_account_for_the_total(self, caplog):
+        """A production log showed 64s for the step while the groups summed to 0.0s: the metric-kernel compiles that
+        dominate it were timed by nothing. The groups must now cover the body, so their sum matches the total."""
+        import re
+
+        with caplog.at_level(logging.INFO, logger="mlframe.metrics._core_numba_warmup"):
+            prewarm_numba_cache(include_feature_selection=False)
+        line = next(r.getMessage() for r in caplog.records if "[JIT prewarm] total=" in r.getMessage())
+        total = float(re.search(r"total=([0-9.]+)s", line).group(1))
+        groups = {k: float(v) for k, v in re.findall(r"(\w+)=([0-9.]+)s", line.split("per-group:")[1])}
+        assert {"metric_kernels", "gpu_metric_kernels", "ranking", "heavy_lib_imports"} <= set(groups)
+        # Each figure is rounded to 0.1s, so allow that much slack per group.
+        assert abs(sum(groups.values()) - total) <= 0.05 * len(groups) + 0.1
 
 
 class TestTheSuiteGate:

@@ -167,8 +167,26 @@ class PrePipelinePredictShim(BaseEstimator):
         self._shim_fitted = True
         return self
 
+    def _routes_to_composite(self) -> bool:
+        """True when the nested model is a composite wrapper that reads its base column from the untransformed frame."""
+        return bool(getattr(self.model, "_routes_inner_input", False))
+
+    def _composite_call(self, method: str, X: Any, *args: Any) -> Any:
+        """Call a composite wrapper with the suite-stage ``X`` (its base source) and, when needed, the inner's pipeline stage.
+
+        A wrapper that owns its inner's pipeline derives the inner frame itself; one that does not (legacy) gets the shim's
+        ``pre_pipeline`` output as ``inner_X``. Either way the base is read from the raw ``X``, never from scaled columns.
+        """
+        model = self.model
+        if self.pre_pipeline is None or getattr(model, "inner_pre_pipeline_", None) is not None:
+            return getattr(model, method)(X, *args)
+        inner = getattr(model, "estimator_", None)
+        return getattr(model, method)(X, *args, inner_X=subset_to_fit_columns(self._transform(X), inner))
+
     def predict(self, X: Any) -> Any:
         """Predict on ``pre_pipeline``-transformed ``X``, mirroring the scaling applied during ``fit``."""
+        if self._routes_to_composite():
+            return self._composite_call("predict", X)
         # Tree-tier components carry no pre_pipeline (docstring above), so ``self.model`` -- not just
         # ``pre_pipeline`` -- can see a superset of its own fit-time columns (e.g. row-wise extension
         # columns added to the frame after this model was fit). Subset to the model's OWN
@@ -192,6 +210,8 @@ class PrePipelinePredictShim(BaseEstimator):
         attribute does not exist so ``hasattr(shim, "predict_quantile")`` is
         ``False`` and duck-typing callers route around it.
         """
+        if self._routes_to_composite():
+            return self._composite_call("predict_quantile", X, alpha)
         return self.model.predict_quantile(subset_to_fit_columns(self._transform(X), self.model), alpha)
 
     def __sklearn_is_fitted__(self) -> bool:

@@ -26,6 +26,7 @@ from ._achievable_ceiling import run_achievable_ceiling_precheck
 from ._ar_skip import (
     _RERANK_SKIP_RATIO_BOUNDED_DEFAULT,
     _extreme_ar_discovery_skip,
+    _extreme_ar_skip_blocked_by_missing_info,
     _recompute_lag1_ar_per_group,
     _zoo_is_bounded_only,
 )
@@ -115,6 +116,91 @@ def _maybe_auto_enable_discovery(composite_target_discovery_config, *, target_by
     return composite_target_discovery_config.model_copy(update={"enabled": True})
 
 
+def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, target_name: str) -> list[dict]:
+    """Drop kept specs whose base columns are absent from every split frame, returning one failure record each.
+
+    Discovery may build extra base columns on its OWN frame -- the engineered per-group causal bases are the default
+    case. Those columns never reach the suite's split frames, and the column builder silently yields all-NaN for a name
+    it cannot find, so such a spec would be trained on a NaN target and every gate verdict recorded for it was measured
+    on a column the trainer does not have. They are screening-only by construction: the bases are functions of past y,
+    which a predict frame does not carry, so there is nothing to rebuild downstream either.
+    """
+    specs = list(getattr(disc, "specs_", ()) or ())
+    if not specs:
+        return []
+    available: set = set()
+    for _frame in split_frames:
+        if _frame is None:
+            continue
+        try:
+            available.update(str(c) for c in _frame.columns)
+        except Exception as e:
+            logger.debug("reading split frame columns failed while checking spec bases: %s", e)
+    if not available:  # nothing to check against: keep the specs rather than drop them on a failed lookup
+        return []
+    kept, dropped = [], []
+    for _spec in specs:
+        _needed = [str(getattr(_spec, "base_column", "") or "")]
+        _needed += [str(_c) for _c in (getattr(_spec, "extra_base_columns", ()) or ())]
+        _missing = [_c for _c in _needed if _c and _c not in available]
+        if _missing:
+            dropped.append({
+                "name": getattr(_spec, "name", None) or getattr(_spec, "transform_name", "?"),
+                "kept": False,
+                "rejected": True,
+                "reason": f"base column(s) {_missing} exist only in discovery's own frame, so the suite cannot build this target",
+            })
+        else:
+            kept.append(_spec)
+    if dropped:
+        disc.specs_ = kept
+        log_throttle(
+            logger, "composite_spec_base_not_materialisable", logging.WARNING,
+            "[CompositeTargetDiscovery] target='%s': dropped %d spec(s) whose base column is not in the training frames "
+            "(%s). Engineered bases are screening-only; pass such a column in your own frame to train on it.",
+            target_name, len(dropped), "; ".join(str(d["reason"]) for d in dropped[:3]),
+        )
+    return dropped
+
+
+def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_dir):
+    """The discovery cache, its key and any cached payload for this target; a failed key build yields no cache.
+
+    The key carries the data fingerprint, the target column and the config signature (which embeds the library
+    versions, so a poisoned entry cannot survive an upgrade). A hit skips the whole MI / rerank path.
+    """
+    cache = None
+    cache_key = None
+    try:
+        cache = DiscoveryCache(cache_dir)
+        # ``random_state=0`` is a legitimate sklearn seed and MUST
+        # reach the row-sampler verbatim. The previous ``or 42`` form
+        # silently rewrote 0->42, collapsing seed=0 and seed=42 to
+        # the same data_signature and breaking reproducibility for
+        # any caller that passed 0. ``None`` (no attribute / unset)
+        # still folds to 42 (the historical default).
+        _rs_raw = getattr(disc_cfg, "random_state", 42)
+        _df_sig = data_signature(
+            disc_df, target_name, feature_cols,
+            random_state=int(42 if _rs_raw is None else _rs_raw),
+        )
+        _cfg_sig = _discovery_config_signature(disc_cfg)
+        # random_state is already folded into _df_sig (seeds the row-sample) and into _cfg_sig (via the dataclass dump). Passing it again to make_discovery_cache_key would be a double-fold (DISC-RANDOM-STATE-DBL): the same data + same config but with random_state mutated would produce three independent hash mixes. We rename the kwarg here to ``_legacy_random_state_sentinel=0`` so a future reader cannot misread "random_state=0" as the actual seed in use.
+        cache_key = make_discovery_cache_key(
+            _df_sig, target_name, _cfg_sig,
+            _legacy_random_state_sentinel=0,
+        )
+        payload = cache.get(cache_key)
+    except Exception as _cache_err:
+        logger.info(
+            "[CompositeTargetDiscovery] cache key build failed for " "target='%s' (%s); proceeding without cache.",
+            target_name,
+            _cache_err,
+        )
+        payload = None
+    return cache, cache_key, payload
+
+
 def run_composite_target_discovery(
     *,
     composite_target_discovery_config,
@@ -137,6 +223,7 @@ def run_composite_target_discovery(
     split_config: Any = None,
     data_dir: Any = None,
     save_charts: bool = False,
+    precomputed_specs: dict | None = None,
 ) -> tuple[dict, dict]:
     """Run composite-target discovery for regression targets.
 
@@ -149,6 +236,10 @@ def run_composite_target_discovery(
         composite_target_discovery_config = _maybe_auto_enable_discovery(
             composite_target_discovery_config, target_by_type=target_by_type, train_idx=train_idx, metadata=metadata,
         )
+        # The auto-enabled copy is local to this phase, while post-processing is handed the caller's original config and
+        # would read enabled=False there: the cross-target ensemble and the lag failsafe would be skipped for exactly the
+        # heavy-tail targets auto-enable exists for. Publish the effective decision so those gates see it.
+        metadata["composite_discovery_effective_enabled"] = bool(composite_target_discovery_config.enabled)
 
     _gpu_families, _kept_spec_total = _init_composite_discovery_metadata(
         composite_target_discovery_config=composite_target_discovery_config,
@@ -156,7 +247,9 @@ def run_composite_target_discovery(
         mlframe_models=mlframe_models,
         metadata=metadata,
     )
-    if not (composite_target_discovery_config.enabled and TargetTypes.REGRESSION in target_by_type):
+    # Caller-supplied specs are an explicit request to train those targets, so they run the replay even when discovery
+    # itself is off: the reuse path exists precisely to skip the search, not the training.
+    if not ((composite_target_discovery_config.enabled or precomputed_specs) and TargetTypes.REGRESSION in target_by_type):
         return target_by_type, metadata
 
     target_by_type = _defensive_copy_and_expand_multilabel_regression(
@@ -329,12 +422,19 @@ def run_composite_target_discovery(
                 continue
             elif _extreme_ar_skip:
                 # The skip is enabled but did NOT fire. On a strongly-AR group-aware target this is a missed
-                # optimisation (discovery + composite-train wall wasted). Log EVERY input UNCONDITIONALLY so the
-                # blocking precondition is visible in one shot -- in particular whether the target_distribution_report
-                # (which carries lag1_autocorr_per_group / picked_target_name / prefer_group_aware) actually reached
-                # discovery: an empty ``_td_report`` makes lag1=None + recommended=False, silently disabling the skip.
+                # optimisation (discovery + composite-train wall wasted). Log EVERY input so the blocking precondition
+                # is visible in one shot -- in particular whether the target_distribution_report (which carries
+                # lag1_autocorr_per_group / picked_target_name / prefer_group_aware) actually reached discovery: an
+                # empty ``_td_report`` makes lag1=None + recommended=False, silently disabling the skip.
+                # WARNING only when the skip was applicable but blocked by missing information (see the helper).
+                _skip_blocked_by_missing_info = _extreme_ar_skip_blocked_by_missing_info(
+                    group_aware_active=_grp_active_eff, bounded_only_zoo=_bounded_only_zoo, lag1_ar=_lag1_eff,
+                    is_picked_target=_is_picked_eff, threshold=_extreme_ar_threshold,
+                )
                 log_throttle(
-                    logger, "composite_discovery_extreme_ar_skip_not_fired", logging.WARNING,
+                    logger,
+                    "composite_discovery_extreme_ar_skip_not_fired" if _skip_blocked_by_missing_info else "composite_discovery_extreme_ar_skip_not_applicable",
+                    logging.WARNING if _skip_blocked_by_missing_info else logging.DEBUG,
                     "[CompositeTargetDiscovery] extreme-AR skip did NOT fire for target=%r: skip_enabled=%s "
                     "lag1_report=%r lag1_eff=%r recomputed=%s (threshold=%.2f) group_aware_active=%s (recommended=%s "
                     "splitter=%s use_groups=%s gid=%s) bounded_only_zoo=%s zoo=%s picked_target_name=%r is_picked_eff=%s "
@@ -512,34 +612,22 @@ def run_composite_target_discovery(
             # multi-million-row frames.
             _disc_cache: DiscoveryCache | None = None
             _disc_cache_key: str | None = None
-            if discovery_cache_dir is not None:
-                try:
-                    _disc_cache = DiscoveryCache(discovery_cache_dir)
-                    # ``random_state=0`` is a legitimate sklearn seed and MUST
-                    # reach the row-sampler verbatim. The previous ``or 42`` form
-                    # silently rewrote 0->42, collapsing seed=0 and seed=42 to
-                    # the same data_signature and breaking reproducibility for
-                    # any caller that passed 0. ``None`` (no attribute / unset)
-                    # still folds to 42 (the historical default).
-                    _rs_raw = getattr(_disc_cfg, "random_state", 42)
-                    _df_sig = data_signature(
-                        _disc_df, _tname_disc, _disc_feature_cols,
-                        random_state=int(42 if _rs_raw is None else _rs_raw),
-                    )
-                    _cfg_sig = _discovery_config_signature(_disc_cfg)
-                    # random_state is already folded into _df_sig (seeds the row-sample) and into _cfg_sig (via the dataclass dump). Passing it again to make_discovery_cache_key would be a double-fold (DISC-RANDOM-STATE-DBL): the same data + same config but with random_state mutated would produce three independent hash mixes. We rename the kwarg here to ``_legacy_random_state_sentinel=0`` so a future reader cannot misread "random_state=0" as the actual seed in use.
-                    _disc_cache_key = make_discovery_cache_key(
-                        _df_sig, _tname_disc, _cfg_sig,
-                        _legacy_random_state_sentinel=0,
-                    )
-                    _cached_payload = _disc_cache.get(_disc_cache_key)
-                except Exception as _cache_err:
-                    logger.info(
-                        "[CompositeTargetDiscovery] cache key build failed for " "target='%s' (%s); proceeding without cache.",
-                        _tname_disc,
-                        _cache_err,
-                    )
-                    _cached_payload = None
+            # A caller-supplied spec set (a prior run's metadata, the documented reuse path) replays exactly like a cache
+            # hit: the same forward-applier builds the T columns, the same auto-chain re-registration runs, and the same
+            # dedup and global cap apply. Seeding only metadata, as the old fast path did, trained nothing at all.
+            _pre_specs = None
+            if precomputed_specs:
+                _pre_specs = (precomputed_specs.get(str(_tt_disc)) or {}).get(_tname_disc)
+            if _pre_specs:
+                _cached_payload = {"specs_export": list(_pre_specs), "failures": [], "filter_drops": {}}
+                logger.info(
+                    "[CompositeTargetDiscovery] replaying %d caller-supplied spec(s) for target='%s'; skipping discovery.",
+                    len(_cached_payload["specs_export"]), _tname_disc,
+                )
+            elif discovery_cache_dir is not None:
+                _disc_cache, _disc_cache_key, _cached_payload = _discovery_cache_lookup(
+                    _disc_cfg, _disc_df, _tname_disc, _disc_feature_cols, discovery_cache_dir,
+                )
             else:
                 _cached_payload = None
 
@@ -763,10 +851,13 @@ def run_composite_target_discovery(
                         }]
                     continue
 
+                _unbuildable = _drop_specs_whose_bases_the_suite_cannot_materialise(
+                    _disc, (train_df_pd, val_df_pd, test_df_pd), _tname_disc,
+                )
                 metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
                 metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = _disc.export_specs()
                 metadata["composite_target_failures"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = [r for r in _disc.report() if r.get("rejected")]
+                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = [r for r in _disc.report() if r.get("rejected")] + _unbuildable
                 metadata.setdefault("composite_target_filter_drops", {})
                 metadata["composite_target_filter_drops"].setdefault(str(_tt_disc), {})
                 metadata["composite_target_filter_drops"][str(_tt_disc)][_tname_disc] = _disc.filter_drops()
@@ -860,15 +951,24 @@ def run_composite_target_discovery(
                 _rel_gain: float
                 if _raw_rmse is not None and _rmse_gain is not None and _raw_rmse > 0:
                     _rel_gain = float(_rmse_gain) / float(_raw_rmse)
+                    _gain_is_rmse = True
                 else:
+                    _gain_is_rmse = False
                     # Honest-holdout RMSE re-score didn't run for this spec (disabled / too few holdout rows) --
                     # fall back to the honest MI-gain (still holdout-measured, just not RMSE-scaled) so the spec
                     # is still globally rankable rather than silently excluded from the budget entirely.
                     _honest_mi = getattr(_spec, "honest_holdout_gain", None)
                     _rel_gain = float(_honest_mi) if _honest_mi is not None else float(_spec.mi_gain)
                 _pending_composite.append({
-                    "tt": _tt_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain,
+                    "tt": _tt_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain, "rmse_gain": _gain_is_rmse,
                 })
+            # Each shipped spec costs a full model-zoo fit: drop ones whose T is equivalent to raw y or to a better spec's T.
+            from ._phase_composite_discovery_dedup import prune_equivalent_composite_specs
+            for _dropped_name in prune_equivalent_composite_specs(
+                specs=list(_disc.specs_), t_by_name=_t_by_spec_for_charts, y_full=_y_arr, train_idx=filtered_train_idx,
+                pending=_pending_composite, metadata=metadata, target_type=str(_tt_disc), target_name=_tname_disc,
+            ):
+                _t_by_spec_for_charts.pop(_dropped_name, None)
 
             # Render the winning-spec diagnostics (target-distribution + MI-gain) into the chart dir; the
             # discovery accept-path is the only point where the original y, the per-spec T column, and the
@@ -895,6 +995,16 @@ def run_composite_target_discovery(
     # quality score is comparable at once. Keep the best-scoring specs across the WHOLE run (not an equal
     # share per target) up to max_total_composite_targets; None keeps every discovered spec (old behaviour).
     _max_total = getattr(composite_target_discovery_config, "max_total_composite_targets", None)
+    _min_gain = getattr(composite_target_discovery_config, "min_honest_gain_to_train", None)
+    if _min_gain is not None:
+        _below = [p for p in _pending_composite if p.get("rmse_gain") and p["gain"] <= float(_min_gain)]
+        if _below:
+            _pending_composite = [p for p in _pending_composite if p not in _below]
+            logger.info(
+                "[CompositeTargetDiscovery] not training %d composite target(s) whose honest-holdout RMSE gain is <= %.3f "
+                "(min_honest_gain_to_train): %s",
+                len(_below), float(_min_gain), ", ".join(f"{d['name']}({d['gain']:+.3f})" for d in _below),
+            )
     _pending_composite.sort(key=lambda item: item["gain"], reverse=True)
     if _max_total is not None and len(_pending_composite) > int(_max_total):
         _kept_composite = _pending_composite[: int(_max_total)]

@@ -100,7 +100,7 @@ def _ensure_lgbm_gets_pandas(model: Any, X: Any, method: str) -> Any:
 # ═══════════════════════════════════════════════════════════════════════════
 
 _CB_VAL_POOL_CACHE: dict[tuple, Any] = {}
-"""Module-level cache: (id, cols, shape) → catboost.Pool for val frames.
+"""Module-level cache: ``compute_signature(val_df, extra=(cat, text, emb))`` → catboost.Pool for val frames.
 
 Populated at fit time by ``trainer._maybe_get_or_build_cb_pool``;
 read at predict time by ``_predict_with_fallback``.  Same dict object
@@ -109,29 +109,13 @@ is imported by trainer.py so both paths share state.
 
 
 def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
-    """Two-stage CB val Pool cache lookup.
+    """CB val Pool cache lookup by content signature.
 
-    **Why**: CB's sklearn wrapper short-circuits rebuild on
-    ``isinstance(X, Pool)``. Passing the cached Pool skips a 50-70s
-    rebuild on 7M-row frames. Two-stage lookup because the Python
-    object identity (``id(X)``) can change between fit and metrics
-    phases (pre_pipeline transforms return fresh DataFrames).
-
-    Stage 1 — exact ``id(X)`` match (fast, common case).
-    Stage 2 — content fallback on cols + shape + dtypes (safe for
-    predict-only reuse: the Pool's label isn't read at predict time).
+    **Why**: CB's sklearn wrapper short-circuits rebuild on ``isinstance(X, Pool)``. Passing the cached Pool skips a
+    50-70s rebuild on 7M-row frames. The key is the same content signature the fit side writes (columns, shape and a
+    row-sample hash), not ``id(X)``, because pre_pipeline transforms return fresh frames between fit and metrics. dtypes
+    are checked as well; the Pool's label is not read at predict time, so a label difference does not matter here.
     """
-    try:
-        _cols = tuple(X.columns) if hasattr(X, "columns") else None
-    except Exception as exc:
-        logger.debug("val-pool cache lookup: column read failed, skipping cache reuse: %s", exc)
-        return None
-    try:
-        _shape = X.shape
-        _shape_sig = (int(_shape[0]), int(_shape[1]))
-    except Exception as e:
-        logger.debug("computing X shape signature failed: %s", e)
-        _shape_sig = None
     try:
         if hasattr(X, "dtypes"):
             _dtypes_sig = tuple(str(d) for d in X.dtypes)
@@ -143,23 +127,25 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
         logger.debug("computing X dtypes signature failed: %s", e)
         _dtypes_sig = None
 
-    _id = id(X)
-    # Stage 1: id match, CO-VALIDATED by the content key (cols + shape + dtypes). The id() alone can recycle
-    # onto an unrelated frame after GC; requiring cols/shape/dtypes to also match makes an id false-hit
-    # return a pool that is genuinely compatible (or fall through to the stage-2 content match / miss).
+    # The fit-side writer (``cb._cb_pool``) keys the cache by ``compute_signature(val_df, extra=(cat, text, emb))`` =
+    # ``(cols, n_rows, n_cols, content_hash, extra)``. This reader still matched the retired ``(id, cols, shape)`` layout,
+    # so it never hit and every predict on the val frame rebuilt the Pool (53-66 s per metrics call on a 7M-row run).
+    # Match on the same content signature; ``extra`` is not known here and does not change a predict.
+    try:
+        from ._dataset_cache_fingerprint import compute_signature
+
+        _sig = compute_signature(X)[:4]
+    except Exception as e:
+        logger.debug("val-pool cache lookup: signature failed, skipping cache reuse: %s", e)
+        return None
     for key, pool in _CB_VAL_POOL_CACHE.items():
-        if key[0] == _id and key[1] == _cols and key[2] == _shape_sig:
-            if _dtypes_sig is not None:
-                cached_dtypes = getattr(pool, "_mlframe_dtypes_sig", None)
-                if cached_dtypes is not None and cached_dtypes != _dtypes_sig:
-                    continue
-            return pool
-    # Stage 2: content fallback
-    if _shape_sig is not None and _dtypes_sig is not None:
-        for key, pool in _CB_VAL_POOL_CACHE.items():
+        if tuple(key[:4]) != _sig:
+            continue
+        if _dtypes_sig is not None:
             cached_dtypes = getattr(pool, "_mlframe_dtypes_sig", None)
-            if key[1] == _cols and key[2] == _shape_sig and cached_dtypes == _dtypes_sig:
-                return pool
+            if cached_dtypes is not None and cached_dtypes != _dtypes_sig:
+                continue
+        return pool
     return None
 
 

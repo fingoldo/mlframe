@@ -188,6 +188,7 @@ def test_codep112_train_recurrent_models_reads_from_ctx():
     rec_line = [l for l in block.splitlines() if "recurrent_models=" in l and "ctx" not in l.split("=")[0]]
     if rec_line:
         # Either it reads from ctx or there is no recurrent_models= line at all.
+        assert len(rec_line) > 0
         for l in rec_line:
             assert (
                 "ctx.recurrent_models" in l

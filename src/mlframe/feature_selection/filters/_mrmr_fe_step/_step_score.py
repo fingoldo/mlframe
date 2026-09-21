@@ -327,7 +327,10 @@ def materialise_and_finalise_fe_candidates(
                     _name_marg[_nm0] = float(_vm0[1])
                 except Exception as e:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                     # The candidate then counts as 0.0 marginal MI when gate composites are compared against clean survivors.
-                    logger.warning("fe step: marginal MI unreadable for candidate %r (%s: %s); it counts as 0.0 in gate-composite pruning", _nm0, type(e).__name__, e)
+                    log_throttle(
+                        logger, "fe_step_marginal_mi_unreadable", logging.WARNING,
+                        "fe step: marginal MI unreadable for candidate %r (%s: %s); it counts as 0.0 in gate-composite pruning", _nm0, type(e).__name__, e,
+                    )
         _clean_forms = [(_bare_tokens(_nm), _name_marg.get(_nm, 0.0)) for _nm in _all_names if not _gate_cols_in(_nm)]
 
         # A gate-operand COMPOSITE is over-materialization (DROP) when its whole raw coverage is already
@@ -721,8 +724,11 @@ def materialise_and_finalise_fe_candidates(
                         # Per-operand pre-warp: when a side used the learned
                         # ``prewarp`` pseudo-unary, hand its fitted spec to the
                         # recipe so replay reproduces the closed-form warp.
-                        _pw_a = _prewarp_specs.get(var_a_idx) if unary_a_name == "prewarp" else None
-                        _pw_b = _prewarp_specs.get(var_b_idx) if unary_b_name == "prewarp" else None
+                        # Pair-scoped spec first (the warp this pair's column was actually built with); var key is the legacy fallback.
+                        from .._feature_engineering_pairs._pairs_gates import _prewarp_pair_spec_key
+
+                        _pw_a = _prewarp_specs.get(_prewarp_pair_spec_key(raw_vars_pair, var_a_idx), _prewarp_specs.get(var_a_idx)) if unary_a_name == "prewarp" else None
+                        _pw_b = _prewarp_specs.get(_prewarp_pair_spec_key(raw_vars_pair, var_b_idx), _prewarp_specs.get(var_b_idx)) if unary_b_name == "prewarp" else None
                         # Per-operand median gate: when a side used the
                         # ``gate_med`` pseudo-unary, hand its fitted TRAIN
                         # median to the recipe so replay reproduces the

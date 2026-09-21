@@ -23,13 +23,16 @@ import scipy.stats  # noqa: F401  (import before mlframe to avoid the cold-impor
 import numba  # noqa: F401
 
 from mlframe.reporting.charts import prediction_stability as ps
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def _bench(fn, r=7):
     ts = []
     for _ in range(r):
+        synchronize_gpu_if_available()
         t = time.perf_counter()
         fn()
+        synchronize_gpu_if_available()
         ts.append(time.perf_counter() - t)
     return min(ts) * 1000.0, float(np.median(ts)) * 1000.0
 

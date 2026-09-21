@@ -11,6 +11,7 @@ sys.modules.setdefault("cupy", None)
 import time
 import numpy as np
 import numba
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 NP = dict(cache=True, fastmath=True)
 
@@ -46,8 +47,10 @@ def main():
         def b(f, n=9):
             ts = []
             for _ in range(n):
+                synchronize_gpu_if_available()
                 t = time.perf_counter()
                 r = f(yt, yp)
+                synchronize_gpu_if_available()
                 ts.append(time.perf_counter() - t)
             return min(ts), r
 

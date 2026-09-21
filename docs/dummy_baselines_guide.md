@@ -163,7 +163,7 @@ retained for full table inspection.
   indistinguishable from real signal at `n_val < 2000`.
 - `per_group_prior` — per-category positive rate (same gates as regression
   `per_group_mean`).
-- TS-only: `naive_last_class`, `rolling_majority_w24`.
+- No time-series-specific baselines exist for classification (the `(ts)` baselines above are regression-only).
 
 **Headline metric = `log_loss`** (D5). Constant baselines all collapse to
 `AUC = 0.5` by construction, so AUC cannot discriminate them. AUC is shown

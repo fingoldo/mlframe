@@ -129,7 +129,8 @@ def test_tiny_rerank_ram_log_logs_on_memory_probe_failure(caplog, monkeypatch):
 def test_transforms_extended_smoothing_spline_logs_on_fit_failure(caplog):
     """The smoothing-spline forward transform must log and fall back to y_mean on a fit failure.
     ``UnivariateSpline`` requires a strictly increasing x -- constant (non-increasing) knots_b
-    with >=4 points reaches the try block but fails construction."""
+    with >=4 points reaches the try block but fails construction, which the builder reports before the caller
+    substitutes the y-mean."""
     import numpy as np
 
     from mlframe.training.composite.transforms.extended import _smoothing_spline_g
@@ -138,7 +139,7 @@ def test_transforms_extended_smoothing_spline_logs_on_fit_failure(caplog):
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite_transforms_extended"):
         out = _smoothing_spline_g(np.array([1.0, 2.0, 3.0]), params)
     np.testing.assert_array_equal(out, np.full(3, 7.5))
-    assert any("smoothing spline forward: fit/eval failed" in rec.message for rec in caplog.records)
+    assert any("UnivariateSpline build failed" in rec.message for rec in caplog.records), "the failed spline build must say so; the fallback to the train y-mean is silent otherwise"
 
 
 def test_grouped_extra_per_group_fit_logs_on_failure(caplog):

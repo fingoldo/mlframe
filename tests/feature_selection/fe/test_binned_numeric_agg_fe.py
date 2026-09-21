@@ -360,3 +360,15 @@ def test_fit_binned_numeric_agg_oof_skew_kurt_stable_on_large_offset_agg_column(
         vals = feat_df[c].to_numpy()
         assert np.isfinite(vals).all()
         assert np.abs(vals).max() < 50.0, f"{c}: OOF value blew up to {np.abs(vals).max():.3e} -- large-offset raw-moment cancellation regressed"
+
+
+def test_redundancy_gate_controls_family_wise_noise_on_wide_frame():
+    """Every (group, agg, stat) candidate faces the permutation ceiling, so the ceiling must be family-wise: on a wide
+    pure-noise aggregate pool no binagg column whose aggregated source is noise may be appended."""
+    from mlframe.feature_selection.filters._binned_numeric_agg_fe import binned_numeric_agg_with_recipes
+    from tests.feature_selection.mrmr.biz_val.test_biz_value_mrmr_order2_maxt_floor import _wide_synergy_frame
+
+    X, y = _wide_synergy_frame(n_noise=74)
+    _, appended, _ = binned_numeric_agg_with_recipes(X, y.to_numpy())
+    noise_agg = [c for c in appended if c.split("(", 1)[1].startswith("noise_")]
+    assert not noise_agg, f"noise-aggregate binagg columns passed the redundancy gate: {noise_agg}"

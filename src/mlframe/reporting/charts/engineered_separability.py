@@ -201,6 +201,63 @@ def _robust_axis_lim(values: np.ndarray) -> Optional[Tuple[float, float]]:
     return None
 
 
+# More distinct target values than this and the target is treated as continuous (regression), not as classes.
+_MAX_CLASS_VALUES = 20
+
+
+def _is_continuous_target(yv: np.ndarray) -> bool:
+    """True for a regression target: more than ``_MAX_CLASS_VALUES`` distinct finite values."""
+    return np.unique(yv[np.isfinite(yv)]).size > _MAX_CLASS_VALUES
+
+
+def _rank(v: np.ndarray) -> np.ndarray:
+    """Average-free ordinal ranks scaled to [0, 1] (ties broken by position; fine for a visual percentile)."""
+    r = np.empty(v.size, dtype=np.float64)
+    r[np.argsort(v, kind="stable")] = np.arange(v.size, dtype=np.float64)
+    return r / max(v.size - 1, 1)
+
+
+def _continuous_target_panel(z0: np.ndarray, z1: np.ndarray, yv: np.ndarray, f0: Any, f1: Any) -> PanelSpec:
+    """Regression version: points coloured by the target's percentile, titled with rank correlations and a rank-R^2.
+
+    Treating a continuous target as classes gave a production chart "class (141 values)", Fisher J=nan and "AUC ~0.50",
+    none of which means anything for a regression target. Here the colour is the row's y percentile (so a gradient
+    across the cloud is the signal) and the numbers say how much of the ORDER of y the two features explain.
+    """
+    ok = np.isfinite(z0) & np.isfinite(z1) & np.isfinite(yv)
+    a, b, t = _rank(z0[ok]), _rank(z1[ok]), _rank(yv[ok])
+    rho0 = float(np.corrcoef(a, t)[0, 1]) if t.size > 2 else float("nan")
+    rho1 = float(np.corrcoef(b, t)[0, 1]) if t.size > 2 else float("nan")
+    r2 = float("nan")
+    if t.size > 3:
+        design = np.column_stack([a, b, np.ones_like(a)])
+        coef, *_ = np.linalg.lstsq(design, t, rcond=None)
+        resid = t - design @ coef
+        r2 = 1.0 - float(resid.var()) / max(float(t.var()), 1e-12)
+    strength = "strong" if r2 >= 0.3 else "moderate" if r2 >= 0.1 else "weak"
+    pct = np.full(yv.shape, np.nan)
+    pct[ok] = t
+    return ScatterPanelSpec(
+        x=z0,
+        y=z1,
+        point_color=pct,
+        colormap="viridis",
+        color_vmin=0.0,
+        color_vmax=1.0,
+        title=(
+            f"{f0} vs {f1}, coloured by target percentile\nSpearman with y: {rho0:+.2f} / {rho1:+.2f}; "
+            f"together they explain {r2:.0%} of the target's rank variance ({strength})"
+        ),
+        xlabel=str(f0),
+        ylabel=str(f1),
+        point_alpha=0.4,
+        colorbar_label="target percentile (0 = lowest y, 1 = highest)",
+        equal_aspect=False,
+        xlim=_robust_axis_lim(z0),
+        ylim=_robust_axis_lim(z1),
+    )
+
+
 def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample: int = DEFAULT_SAMPLE, seed: int = 0) -> PanelSpec:
     """ScatterPanelSpec of the two named ``features`` coloured by ``y``, titled with the 2-D Fisher separability score.
 
@@ -227,6 +284,8 @@ def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample
         rng = np.random.default_rng(seed)
         idx = np.sort(rng.choice(n, size=sample, replace=False))
         z0, z1, yv = z0[idx], z1[idx], yv[idx]
+    if _is_continuous_target(yv):
+        return _continuous_target_panel(z0, z1, yv, f0, f1)
     score = separability_score(np.column_stack([z0, z1]), yv)
     # The class vector is remapped to CONTIGUOUS codes and drawn through a qualitative colormap pinned to
     # whole-number bounds. It used to go straight into "coolwarm", a DIVERGING continuous scale, which says
@@ -286,6 +345,19 @@ def compose_separability_figure(X: Any, y: np.ndarray, features: Optional[Sequen
         else:
             features = [names[0], names[1]]
     panel = separability_panel(X, y, features, sample=sample, seed=seed)
+    if _is_continuous_target(np.asarray(y, dtype=np.float64)):
+        return FigureSpec(
+            suptitle="Top-2 features vs the target",
+            panels=((panel,),),
+            figsize=FIGSIZE_SQUARE,
+            caption=(
+                "Each point is one row, placed by the two most important features and coloured by where its target value "
+                "ranks (dark = low y, yellow = high y). A clear colour gradient across the cloud means these two features "
+                "order the target well; speckled colours mean they don't. The numbers are rank (Spearman) correlations "
+                "and the share of the target's rank variance a linear rule on the two ranks explains. Axes are cropped to "
+                "0.5-99.5% when outliers would squash the bulk; the scatter is subsampled."
+            ),
+        )
     return FigureSpec(
         suptitle=suptitle,
         panels=((panel,),),

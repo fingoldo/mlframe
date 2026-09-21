@@ -76,6 +76,13 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
 
     Example
     -------
+    >>> import numpy as np, pandas as pd
+    >>> df = pd.DataFrame({
+    ...     "date": pd.date_range("2024-01-01", periods=20, freq="D"),
+    ...     "x": np.arange(20.0),
+    ...     "price": np.linspace(1, 20, 20),
+    ...     "quality": np.tile([1, 5, 9, 4], 5),
+    ... })
     >>> extractor = SimpleFeaturesAndTargetsExtractor(
     ...     regression_targets=["price"],
     ...     classification_targets=["quality"],
@@ -84,6 +91,8 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     ...     ts_field="date",
     ... )
     >>> df, targets, *rest = extractor.transform(df)
+    >>> sorted(name for per_type in targets.values() for name in per_type)
+    ['price', 'quality_above_3', 'quality_below_8']
     """
 
     def __init__(

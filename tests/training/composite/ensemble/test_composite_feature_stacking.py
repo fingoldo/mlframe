@@ -276,6 +276,7 @@ class TestOOFN19GroupsAndSampleWeight:
         # Group-honesty: for each fold, the val rows' groups are disjoint from
         # that fold's train rows' groups (GroupKFold guarantee, but it only
         # holds if `groups` actually reached split()).
+        assert len(_SpyWrapper.train_row_sets) > 0
         for train_gids in _SpyWrapper.train_row_sets:
             assert train_gids, "fold saw zero train rows"
 

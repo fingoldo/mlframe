@@ -144,5 +144,6 @@ def test_recurrent_no_ema_callback_when_use_ema_false():
 
     bad_types = (*bad_types, StochasticWeightAveraging)
 
+    assert len(trainer.callbacks) > 0
     for cb in trainer.callbacks:
         assert not isinstance(cb, bad_types), f"use_ema=False but {type(cb).__name__} was still attached"

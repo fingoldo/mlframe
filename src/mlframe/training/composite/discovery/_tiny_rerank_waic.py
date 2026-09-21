@@ -57,7 +57,8 @@ def apply_honest_oof_floor(self, kept_specs, agg_scores, honest_oof, honest_oof_
 def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen, per_base_cache, rel_tol: float = 0.02):
     """Re-order the RMSE-ascending ``order`` so that, within each relative-RMSE noise band, transforms are ranked by
     WAIC (higher = better out-of-fold generalisation). Only bands where every member has a valid WAIC are re-ordered;
-    everything else keeps its RMSE+name position. Stores the per-spec WAIC on ``self._tiny_rerank_waic_scores``.
+    everything else keeps its RMSE+name position. Stores the WAIC of every scored spec on ``self._tiny_rerank_waic_scores``:
+    only members of multi-spec bands that reach the top-m window are scored, since no other score can change the result.
     Returns a new integer order array (the input ``order`` unchanged when no usable WAIC was produced)."""
     from ._eval_waic import compute_transform_waic
 
@@ -68,48 +69,81 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     # default, silently pinning this K-fold split to seed 0 regardless of the caller's random_state.
     rs = int(getattr(self.config, "random_state", 0) or 0)
     yb = np.asarray(y_screen, dtype=np.float64).ravel()
-    waic: dict[int, float] = {}
-    for i, spec in enumerate(kept_specs):
+
+    def _waic_for(i: int):
+        """WAIC of spec ``i`` on the screen sample, or None when it cannot be scored."""
+        spec = kept_specs[i]
         cached = per_base_cache.get(getattr(spec, "base_column", None))
         if cached is None:
-            continue
+            return None
         base_screen, x_mat = cached
         try:
             transform = get_transform(spec.transform_name)
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
-            continue
+            return None
         bb = np.asarray(base_screen, dtype=np.float64).ravel()
         valid = np.isfinite(yb) & np.isfinite(bb)
         if int(valid.sum()) < 2 * n_folds:
-            continue
+            return None
         try:
             target = np.asarray(transform.forward(yb[valid], bb[valid], spec.fitted_params), dtype=np.float64).ravel()
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
-            continue
+            return None
         xv = np.asarray(x_mat, dtype=np.float64)[valid]
         fin = np.isfinite(target)
         if int(fin.sum()) < 2 * n_folds or xv.shape[0] != target.shape[0]:
-            continue
+            return None
         score = compute_transform_waic(target[fin], xv[fin], n_folds=n_folds, random_state=rs)
         if getattr(score, "valid", False) and math.isfinite(score.waic):
-            waic[i] = float(score.waic)
+            return float(score.waic)
+        return None
+
+    # Specs are independent and each runs 4 single-threaded tiny-GBM folds (LightGBM releases the GIL), so they go on
+    # threads: the serial loop was 73s of a 139s discovery on a 300k-row tie-heavy target.
+    from joblib import Parallel, delayed
+    from pyutilz.parallel import cpu_count_physical
+
+    # The bands depend only on the RMSE order, so find them first and score WAIC only where it can change the result:
+    # a singleton band has nothing to re-order, and a band starting past the top-m cut is trimmed away whatever its order.
+    # Scoring every spec ran 4 folds each for scores that were then discarded.
+    bands = rmse_bands([int(i) for i in order], agg_scores, rel_tol)
+    top_m = max(1, int(getattr(self.config, "top_m_after_tiny", len(order)) or len(order)))
+    to_score: list[int] = []
+    pos = 0
+    for band in bands:
+        if len(band) > 1 and pos < top_m:
+            to_score.extend(band)
+        pos += len(band)
+
+    n_jobs = max(1, min(len(to_score), cpu_count_physical()))
+    if n_jobs > 1:
+        results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_waic_for)(i) for i in to_score)
+    else:
+        results = [_waic_for(i) for i in to_score]
+    waic: dict[int, float] = {i: v for i, v in zip(to_score, results) if v is not None}
     self._tiny_rerank_waic_scores = {kept_specs[i].name: v for i, v in waic.items()}
     if not waic:
         return order
 
-    idx = [int(i) for i in order]
     new_order: list[int] = []
+    for band in bands:
+        if len(band) > 1 and all(b in waic for b in band):
+            band = sorted(band, key=lambda b: (-waic[b], names[b]))
+        new_order.extend(band)
+    return np.asarray(new_order, dtype=int)
+
+
+def rmse_bands(idx: list, agg_scores, rel_tol: float) -> list:
+    """Split the RMSE-ascending ``idx`` into consecutive noise bands: members within ``rel_tol`` of the band's first score."""
+    bands: list = []
     j = 0
     while j < len(idx):
         s0 = agg_scores[idx[j]]
         k = j + 1
         while k < len(idx) and math.isfinite(s0) and math.isfinite(agg_scores[idx[k]]) and (agg_scores[idx[k]] - s0) <= abs(s0) * rel_tol:
             k += 1
-        band = idx[j:k]
-        if len(band) > 1 and all(b in waic for b in band):
-            band = sorted(band, key=lambda b: (-waic[b], names[b]))
-        new_order.extend(band)
+        bands.append(idx[j:k])
         j = k
-    return np.asarray(new_order, dtype=int)
+    return bands

@@ -24,11 +24,15 @@ REPO_ROOT = TEST_META_DIR.parent.parent
 SRC_DIR = REPO_ROOT / "src" / "mlframe"
 
 _FINDING_RE = re.compile(r"^\s+(\d+): (DOC\d+): (.*)$")
+_SYMBOL_RE = re.compile(r"`([^`]+)`")
 REFRESH_FLAG = "--refresh-pydoclint-baseline"
 
 
 def _run_pydoclint() -> dict[str, str]:
-    """Run ``pydoclint src/mlframe`` and parse its text report into ``{path:line:code: message}``.
+    """Run ``pydoclint src/mlframe`` and parse its text report into ``{path::symbol:code: message}``.
+
+    Keyed on the function/class the message names, not the line: a line number goes stale on any edit above the
+    docstring, which reported every moved finding as new. A symbol with the same code twice in one file gets ``#2``.
 
     pydoclint prints every scanned file's path unconditionally (even with zero findings) followed by an
     indented ``LINE: CODE: message`` line per violation, so only the indented lines are findings; the most
@@ -57,8 +61,13 @@ def _run_pydoclint() -> dict[str, str]:
             continue
         match = _FINDING_RE.match(line)
         if match:
-            line_no, code, message = match.groups()
-            key = f"{current_file}:{line_no}:{code}"
+            _line_no, code, message = match.groups()
+            symbol = _SYMBOL_RE.search(message)
+            base = f"{current_file}::{symbol.group(1) if symbol else '?'}:{code}"
+            key, n = base, 1
+            while key in found:
+                n += 1
+                key = f"{base}#{n}"
             found[key] = message.strip()
         elif line.strip() and not line.startswith(" "):
             current_file = line.strip().replace("\\", "/")

@@ -55,6 +55,7 @@ def test_override_allowlist_is_actually_divergent():
     comparing it to the ctor default proves the divergence is real."""
     m = _legacy_setstate_attrs()
     ctor = MRMR._ctor_defaults()
+    assert len(MRMR._SETSTATE_LEGACY_OVERRIDES) > 0
     for k in MRMR._SETSTATE_LEGACY_OVERRIDES:
         assert k in ctor, f"override key {k!r} is not a constructor parameter"
         assert hasattr(m, k), f"override key {k!r} was not injected by __setstate__"
@@ -95,6 +96,7 @@ def test_full_pickle_round_trip_preserves_params():
     est.fit(X, y)
     blob = pickle.dumps(est)
     back = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+    assert list(MRMR._ctor_defaults())
     for k in MRMR._ctor_defaults():
         if hasattr(est, k):
             assert getattr(back, k) == getattr(est, k) or (isinstance(getattr(est, k), float) and np.isnan(getattr(est, k))), f"pickle round-trip changed {k!r}"

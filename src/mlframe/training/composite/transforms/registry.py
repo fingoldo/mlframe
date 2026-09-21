@@ -111,10 +111,6 @@ from .unary import (
     yeo_johnson_y_fit as _yj_y_fit_raw,
     yeo_johnson_y_forward as _yj_y_forward_raw,
     yeo_johnson_y_inverse as _yj_y_inverse_raw,
-    box_cox_y_domain as _bc_y_domain_raw,
-    box_cox_y_fit as _bc_y_fit_raw,
-    box_cox_y_forward as _bc_y_forward_raw,
-    box_cox_y_inverse as _bc_y_inverse_raw,
 )
 
 # Pre-build per-unary adapters (cheap, done once at import). The 5th element
@@ -145,10 +141,6 @@ _qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a = _ma
 _sp_fit_a, _sp_forward_a, _sp_inverse_a, _sp_domain_a, _sp_domain_fitted_a = _make_unary_registry_adapter(
     _sp_y_fit_raw, _sp_y_forward_raw, _sp_y_inverse_raw,
     lambda y: _sp_y_domain_raw(y),
-)
-_bc_fit_a, _bc_forward_a, _bc_inverse_a, _bc_domain_a, _bc_domain_fitted_a = _make_unary_registry_adapter(
-    _bc_y_fit_raw, _bc_y_forward_raw, _bc_y_inverse_raw,
-    lambda y: _bc_y_domain_raw(y),
 )
 
 
@@ -334,7 +326,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         fit=_ewma_residual_fit,
         domain_check=_ewma_residual_domain,
         description=(
-            "Time-ordered exponentially-weighted moving-average residual: T = y - EWMA_k(base) with alpha = 2/(k+1). Captures slow drift / regime persistence beyond a single lag. Caller is responsible for chronological row order at fit and predict; non-finite base values carry the previous EWMA state forward."
+            "Time-ordered exponentially-weighted moving-average residual: T = y - EWMA_k(base) with alpha = 2/(k+1). Captures slow drift / regime persistence beyond a single lag. Caller is responsible for chronological row order at fit and predict; non-finite base values carry the previous EWMA state forward. A predict batch boundary is a state reset: pass the rows preceding the batch as ``history_base`` (or fit with recurrence continuation for a batch that follows train) to score it as the continuation of its prefix."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         # EWMA carries state forward across the row sequence; the fit-time
@@ -349,7 +341,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         fit=_rolling_quantile_ratio_fit,
         domain_check=_rolling_quantile_ratio_domain,
         description=(
-            "Localised multiplicative residual: T = y / RollingMedian_k(base), with a TRAILING (past-only) window of ``k`` rows and an eps floor derived from train base scale to keep division safe at near-zero rolling medians. Inverse: y_hat = T_hat * RollingMedian_k(base). Like logratio but tracks the LOCAL base level instead of the global scale -- useful when y scales with a windowed median of base rather than the instantaneous value. The trailing window never reads future rows, so the transform is safe in time-ordered deployment; the legacy look-ahead centred window remains available as ``rolling_quantile_ratio_centered``. Params fitted before the mode field existed keep their historical centred behaviour on load."
+            "Localised multiplicative residual: T = y / RollingMedian_k(base), with a TRAILING (past-only) window of ``k`` rows and an eps floor derived from train base scale to keep division safe at near-zero rolling medians. Inverse: y_hat = T_hat * RollingMedian_k(base). Like logratio but tracks the LOCAL base level instead of the global scale -- useful when y scales with a windowed median of base rather than the instantaneous value. The trailing window never reads future rows, so the transform is safe in time-ordered deployment; the legacy look-ahead centred window remains available as ``rolling_quantile_ratio_centered``. Params fitted before the mode field existed keep their historical centred behaviour on load. A predict batch boundary is a state reset: pass the rows preceding the batch as ``history_base`` (or fit with recurrence continuation for a batch that follows train) to score it as the continuation of its prefix."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         # The rolling median reads neighbouring rows (past rows in trailing
@@ -365,7 +357,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         fit=_rolling_quantile_ratio_centered_fit,
         domain_check=_rolling_quantile_ratio_domain,
         description=(
-            "Centred-window variant of ``rolling_quantile_ratio``: T = y / RollingMedian_k(base) with a CENTRED window of ``k`` rows. LOOK-AHEAD: the centred window reads FUTURE base rows, so in time-ordered deployment T leaks forward -- use only on non-chronological / cross-sectional row sequences; the trailing default is the time-safe choice."
+            "Centred-window variant of ``rolling_quantile_ratio``: T = y / RollingMedian_k(base) with a CENTRED window of ``k`` rows. LOOK-AHEAD: the centred window reads FUTURE base rows, so in time-ordered deployment T leaks forward -- use only on non-chronological / cross-sectional row sequences; the trailing default is the time-safe choice. Because the window reads rows AFTER each position, the last k//2 rows of any batch depend on what follows them in that batch."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         recurrent=True,
@@ -377,7 +369,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         fit=_frac_diff_fit,
         domain_check=_frac_diff_domain,
         description=(
-            "Lopez de Prado fractional differencing: T_i = sum_k w_k * y_{i-k} with w_k = -w_{k-1} * (d - k + 1) / k truncated at ``lags`` terms. Preserves long-memory while making the target stationary. Inverse iteratively reconstructs y from T + the previously-reconstructed past terms. Pre-window padding uses the train-y mean."
+            "Lopez de Prado fractional differencing: T_i = sum_k w_k * y_{i-k} with w_k = -w_{k-1} * (d - k + 1) / k truncated at ``lags`` terms. Preserves long-memory while making the target stationary. Inverse iteratively reconstructs y from T + the previously-reconstructed past terms, so a constant T-bias is amplified ~1/sum(w) in y (~9.75x at d=0.5, lags=30). Pre-window padding uses the train-y mean, the actual train tail under recurrence continuation, or the observed ``history_y`` rows when supplied (one row per call with observed history: gain 1, no batch dependence). A predict batch boundary is otherwise a state reset."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         # y-only transform: forward/inverse never read base, so a single spec must be emitted (not one per base) and base-finiteness must not drop y rows.
@@ -556,5 +548,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
 # Second half of the registry (newer G2-G8 transforms) lives in the sibling below,
 # carved out to keep this module under the 1k-LOC ceiling.
 from ._registry_extended import _TRANSFORMS_REGISTRY_EXTENDED
+# The Box-Cox adapter is built once, in the sibling that registers it; re-exported here for transforms/__init__.py.
+from ._registry_extended import _bc_domain_a, _bc_domain_fitted_a, _bc_fit_a, _bc_forward_a, _bc_inverse_a  # noqa: F401
 
 _TRANSFORMS_REGISTRY.update(_TRANSFORMS_REGISTRY_EXTENDED)

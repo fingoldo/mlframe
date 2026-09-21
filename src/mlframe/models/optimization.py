@@ -203,7 +203,7 @@ def optimize_finite_onedimensional_search_space(
                 logger.info("Search space fully checked, quitting")
             break
 
-        if predict_runtimes and max_runtime_mins and optimizer.evaluated_candidates:
+        if predict_runtimes and max_runtime_mins is not None and max_runtime_mins != 0 and optimizer.evaluated_candidates:
             mean_eval_duration = float(np.mean([c["duration"] for c in optimizer.evaluated_candidates if c["duration"] is not None]))
             if np.isfinite(mean_eval_duration) and (timer() - start_time) + mean_eval_duration > max_runtime_mins * 60:
                 ran_out_of_time = True
@@ -224,7 +224,7 @@ def optimize_finite_onedimensional_search_space(
         # Checking exit conditions
         # ----------------------------------------------------------------------------------------------------------------------------
 
-        if best_desired_score:
+        if best_desired_score is not None:
             if direction == OptimizationDirection.Maximize:
                 if optimizer.best_evaluation >= best_desired_score:
                     if verbose:
@@ -236,19 +236,19 @@ def optimize_finite_onedimensional_search_space(
                         logger.info("best_desired_score=%s reached.", f"{optimizer.best_evaluation:_.6f}")
                     break
 
-        if max_runtime_mins and not ran_out_of_time:
+        if max_runtime_mins is not None and max_runtime_mins != 0 and not ran_out_of_time:
             ran_out_of_time = (timer() - start_time) > max_runtime_mins * 60
             if ran_out_of_time:
                 if verbose:
                     logger.info("max_runtime_mins=%s reached.", f"{max_runtime_mins:_.1f}")
                 break
 
-        if max_fevals and optimizer.nsteps >= max_fevals:
+        if max_fevals is not None and max_fevals != 0 and optimizer.nsteps >= max_fevals:
             if verbose:
                 logger.info("max_fevals=%s reached.", f"{max_fevals:_}")
             break
 
-        if max_noimproving_iters and optimizer.n_noimproving_iters >= max_noimproving_iters:
+        if max_noimproving_iters is not None and max_noimproving_iters != 0 and optimizer.n_noimproving_iters >= max_noimproving_iters:
             if verbose:
                 logger.info("Max # of noimproved iters reached: %s", optimizer.n_noimproving_iters)
             break

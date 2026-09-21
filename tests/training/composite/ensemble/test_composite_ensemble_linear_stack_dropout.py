@@ -1,11 +1,10 @@
-"""Regression: linear_stack predict on component dropout is a deterministic
-no-refit combine.
+"""Regression: linear_stack predict on component dropout is a deterministic no-refit combine that keeps the prediction's level.
 
-When a component returns None / raises at predict time, predict keeps the
-surviving columns' ORIGINAL Ridge coefficients plus the original intercept
-and recombines -- no solver refit. This keeps predict a pure deterministic
-function of the inputs (no batch-order dependence) and lets the multi-GB
-train-matrix stash be dropped from every pickle.
+When a component returns None / raises at predict time, predict rebuilds the full design with that component's own OOF column
+mean and applies the ORIGINAL Ridge coefficients plus the original intercept -- no solver refit. Keeping only the surviving
+columns instead dropped that component's whole contribution, so a stack whose weights sum to ~1 served a fraction of the
+forecast. Filling the column keeps predict a pure deterministic function of the inputs (no batch-order dependence) and lets the
+multi-GB train-matrix stash stay out of every pickle.
 """
 
 from __future__ import annotations
@@ -60,8 +59,8 @@ def test_linear_stack_all_components_ok_no_warning(caplog):
 def test_linear_stack_one_component_dropped_no_refit_warns(caplog):
     """When one component returns None at predict, predict must:
     (a) emit a 'dropped out' warning, and
-    (b) return the surviving columns' ORIGINAL coefficients @ preds plus
-        the original intercept -- no solver refit, fully deterministic.
+    (b) apply the ORIGINAL coefficients to a design whose missing column is that component's OOF mean -- no solver refit,
+        fully deterministic, and without the level shift that dropping the column outright caused.
     """
     ens, models, _y_train = _build_stack_with_three_components(seed=1)
 
@@ -79,19 +78,25 @@ def test_linear_stack_one_component_dropped_no_refit_warns(caplog):
 
     full_w = np.asarray(ens.weights, dtype=np.float64)
     intercept = float(ens._linear_stack_intercept)
-    expected = full_w[0] * p0_test + full_w[2] * p2_test + intercept
+    # From the stashed OOF design, so the expectation is independent of where the deployed code keeps its column means.
+    col_mean = float(np.asarray(ens._linear_stack_train_preds, dtype=np.float64)[:, 1].mean())
+    expected = full_w[0] * p0_test + full_w[1] * col_mean + full_w[2] * p2_test + intercept
     np.testing.assert_allclose(preds, expected, rtol=1e-9, atol=1e-9)
+
+    # The level survives the dropout: predictions stay around the target, instead of shrinking by the dropped weight.
+    assert np.all(np.abs(preds - test_y) < 2.0), f"dropout moved the prediction off the target level: {preds} vs {test_y}"
 
     # Determinism: repeated predict gives identical output.
     np.testing.assert_array_equal(preds, ens.predict("X_dummy"))
 
 
 def test_linear_stack_dropout_is_deterministic_combine():
-    """No-refit dropout is a deterministic linear combine of surviving columns.
+    """No-refit dropout is a deterministic combine over the mean-filled design.
 
-    The deployed policy keeps the surviving columns' original Ridge coefficients plus the original intercept.
-    It is NOT a fresh refit, so it does not perfectly reconstruct y when a load-bearing component drops -- but
-    it is a pure deterministic function of the inputs (the property that matters for batched serving).
+    The deployed policy keeps the original Ridge coefficients and the original intercept, standing the dropped component's
+    OOF mean in for its column. It is NOT a fresh refit, so it does not perfectly reconstruct y when a load-bearing component
+    drops -- but it is a pure deterministic function of the inputs (the property that matters for batched serving) and it
+    does not shrink the prediction by the dropped component's weight.
     """
     rng = np.random.default_rng(42)
     n = 600
@@ -121,6 +126,10 @@ def test_linear_stack_dropout_is_deterministic_combine():
 
     full_w = np.asarray(ens.weights, dtype=np.float64)
     intercept = float(ens._linear_stack_intercept)
-    expected = full_w[0] * (test_y - 20.0) + full_w[2] * (test_y - 20.0) + intercept
+    # From the stashed OOF design, so the expectation is independent of where the deployed code keeps its column means.
+    col_mean = float(np.asarray(ens._linear_stack_train_preds, dtype=np.float64)[:, 1].mean())
+    expected = full_w[0] * (test_y - 20.0) + full_w[1] * col_mean + full_w[2] * (test_y - 20.0) + intercept
     np.testing.assert_allclose(preds, expected, rtol=1e-9, atol=1e-9)
+    # Three near-identical components: losing one must not move the served level by ~a third.
+    assert np.all(np.abs(preds - test_y) < 5.0), f"dropout shifted the level: {preds} vs {test_y}"
     np.testing.assert_array_equal(preds, ens.predict("X_dummy"))

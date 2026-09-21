@@ -27,6 +27,7 @@ import pandas as pd
 
 import mlframe.feature_selection.filters._extra_fe_families as M
 from mlframe.feature_selection.filters._internals import canonical_group_token
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 NEW = M._column_to_str
 
@@ -42,8 +43,10 @@ def _best(fn, s, k=3):
     out = []
     for _ in range(k):
         gc.collect()
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         fn(s)
+        synchronize_gpu_if_available()
         out.append(time.perf_counter() - t0)
     return min(out)
 

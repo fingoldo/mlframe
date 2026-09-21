@@ -126,6 +126,7 @@ def test_artifacts_populated_then_survive_dump_load(fitted):
     assert est._stability_replay_state_ is not None
 
     reloaded, _ = _roundtrip(est)
+    assert len(_ARTIFACTS) > 0
     for attr in _ARTIFACTS:
         assert hasattr(reloaded, attr), f"{attr} dropped by pickle round-trip"
 
@@ -180,5 +181,6 @@ def test_clone_preserves_params_and_refits(fitted):
     c = clone(est)
     c.fit(X, y)
     assert isinstance(c.explain_selection(), str)
+    assert len(_ARTIFACTS) > 0
     for attr in _ARTIFACTS:
         assert hasattr(c, attr)

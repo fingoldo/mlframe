@@ -732,6 +732,33 @@ def get_model_feature_importances(
     return feature_importances
 
 
+def describe_importance_kind(model: Any, importances_std: Any = None) -> str:
+    """Axis label naming WHAT the importance numbers are, so a reader knows how to compare them.
+
+    The bar chart used to say only "Importance", which for CatBoost means PredictionValuesChange (sums to 100), for
+    LightGBM the split count by default, for XGBoost the gain, and for a fallback the permutation drop in the score.
+    """
+    inner = model
+    for attr in ("regressor_", "estimator_", "base_estimator_", "best_estimator_", "estimator", "model"):
+        nxt = getattr(inner, attr, None)
+        if nxt is not None and nxt is not inner and hasattr(nxt, "fit"):
+            inner = nxt
+    name = type(inner).__name__
+    if name.startswith("CatBoost"):
+        return "Importance: CatBoost PredictionValuesChange (share of prediction change, sums to 100)"
+    if name.startswith("LGBM"):
+        return f"Importance: LightGBM {getattr(inner, 'importance_type', 'split')} ({'number of splits using the feature' if getattr(inner, 'importance_type', 'split') == 'split' else 'total loss reduction'})"
+    if name.startswith("XGB"):
+        return f"Importance: XGBoost {getattr(inner, 'importance_type', None) or 'gain'}"
+    if hasattr(inner, "feature_importances_"):
+        return "Importance: impurity decrease (model's feature_importances_)"
+    if hasattr(inner, "coef_"):
+        return "Importance: |coefficient| (scale-dependent)"
+    if importances_std is not None:
+        return "Importance: permutation drop in score (mean +- std)"
+    return "Importance"
+
+
 def plot_model_feature_importances(
     model: Any,
     columns: Sequence[str],
@@ -795,6 +822,7 @@ def plot_model_feature_importances(
                 show_plots=show_plots,
                 max_zero_fi_to_plot=max_zero_fi_to_plot,
                 importances_std=feature_importances_std,
+                importance_label=describe_importance_kind(model, feature_importances_std),
             )
         except (ValueError, AttributeError, IndexError, TypeError):
             logger.warning("Could not plot feature importances. Maybe data shape changed within a pipeline?", exc_info=True)

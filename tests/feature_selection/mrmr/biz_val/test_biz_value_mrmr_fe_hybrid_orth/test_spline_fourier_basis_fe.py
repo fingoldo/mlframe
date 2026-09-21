@@ -490,10 +490,10 @@ class TestDefaultDisabledByteIdentical:
         # No spline/fourier columns appended -- enforced even if
         # hybrid_orth_enable were ever flipped on at default config.
         appended = list(m.hybrid_orth_features_)
-        for c in appended:
-            assert "__sp" not in c
-            assert "__sin" not in c
-            assert "__cos" not in c
+        # At the default config the hybrid-orth stage appends nothing at all (measured on
+        # every seed), so the contract is stated as a list equality: a per-column loop over
+        # an empty list would hold even if a spline/Fourier column did leak.
+        assert [c for c in appended if "__sp" in c or "__sin" in c or "__cos" in c] == [], f"no spline/Fourier column may appear at default config; got {appended}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_hybrid_on_extra_bases_empty_no_spline_fourier(self, seed):
@@ -507,10 +507,10 @@ class TestDefaultDisabledByteIdentical:
         )
         m.fit(X, y)
         appended = list(m.hybrid_orth_features_)
-        for c in appended:
-            assert "__sp" not in c, f"unexpected spline col {c}"
-            assert "__sin" not in c, f"unexpected fourier sin col {c}"
-            assert "__cos" not in c, f"unexpected fourier cos col {c}"
+        # extra_bases=() means the spline/Fourier generators never run; on this plain linear
+        # fixture the polynomial path clears no uplift gate either, so ``appended`` is empty.
+        # Stated as a list equality so the check cannot pass merely by having nothing to loop over.
+        assert [c for c in appended if "__sp" in c or "__sin" in c or "__cos" in c] == [], f"extra_bases=() must emit no spline/Fourier column; got {appended}"
 
 
 # ---------------------------------------------------------------------------

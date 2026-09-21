@@ -254,6 +254,7 @@ class TestShutdown:
         assert providers[0].release_calls == 1
         # Now shutdown
         shutdown_all()
+        assert len(providers[1:]) > 0
         for p in providers[1:]:
             assert p.release_calls == 1, f"{p.signature} should be released on shutdown"
 

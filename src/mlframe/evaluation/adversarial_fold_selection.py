@@ -44,6 +44,7 @@ def _oof_is_test_proba(
     seed: int,
     need_importance: bool,
     feature_names: Optional[Sequence[str]] = None,
+    max_fit_rows: int = 0,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Fit the OOF train-vs-test classifier on the given feature columns and return (oof_proba, importances).
 
@@ -51,9 +52,14 @@ def _oof_is_test_proba(
     entirely, so it costs nothing when the caller never asked for iterative peel-back) comes from a classifier
     fit on the FULL union (not OOF); it never contributes to the returned probabilities, which stay OOF-honest
     via ``cross_val_predict``.
+
+    ``max_fit_rows`` (0 = unlimited) caps how many rows each fold's classifier is FIT on, drawn stratified from that
+    fold's training part. Every row is still PREDICTED by the fold that held it out, so each train row keeps an honest
+    OOF score and the ranking still covers all of them; only the fit cost is bounded. Without it a 559k-row union
+    meant five full-size fits (about two minutes), which is why the suite used to skip this diagnostic on real data.
     """
     import lightgbm as lgb
-    from sklearn.model_selection import StratifiedKFold, cross_val_predict
+    from sklearn.model_selection import StratifiedKFold, cross_val_predict, train_test_split
 
     n_train = train_arr.shape[0]
     n_test = test_arr.shape[0]
@@ -83,7 +89,24 @@ def _oof_is_test_proba(
     _lgb_n_jobs = min(4, _cpu_count_for_diagnostics())
     clf = lgb.LGBMClassifier(n_estimators=100, max_depth=6, random_state=seed, verbosity=-1, n_jobs=_lgb_n_jobs)
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    oof_is_test_proba = cross_val_predict(clf, union, source_label, cv=cv, method="predict_proba")[:, 1]
+    n_union = n_train + n_test
+    fold_fit_rows = n_union - n_union // n_splits
+    if max_fit_rows <= 0 or fold_fit_rows <= max_fit_rows:
+        oof_is_test_proba = cross_val_predict(clf, union, source_label, cv=cv, method="predict_proba")[:, 1]
+    else:
+        from sklearn.base import clone
+
+        def _rows(idx):
+            """Rows ``idx`` of the train+test union, by position, for a pandas frame or an array."""
+            return union.iloc[idx] if isinstance(union, pd.DataFrame) else union[idx]
+
+        oof_is_test_proba = np.empty(n_union, dtype=np.float64)
+        for fold_i, (fit_idx, held_idx) in enumerate(cv.split(np.zeros(n_union), source_label)):
+            fit_idx, _ = train_test_split(
+                fit_idx, train_size=max_fit_rows, stratify=source_label[fit_idx], random_state=seed + fold_i
+            )
+            fold_clf = clone(clf).fit(_rows(fit_idx), source_label[fit_idx])
+            oof_is_test_proba[held_idx] = fold_clf.predict_proba(_rows(held_idx))[:, 1]
 
     importances: Optional[np.ndarray] = None
     if need_importance:
@@ -91,7 +114,11 @@ def _oof_is_test_proba(
         # massive, near-perfectly-separating split ranks low by split COUNT (it's used sparingly) but should
         # rank highest for peel-back purposes -- gain reflects how much it actually drove the classification.
         importance_clf = lgb.LGBMClassifier(n_estimators=100, max_depth=6, random_state=seed, verbosity=-1, importance_type="gain", n_jobs=_lgb_n_jobs)
-        importance_clf.fit(union, source_label)
+        if 0 < max_fit_rows < n_union:
+            imp_idx, _ = train_test_split(np.arange(n_union), train_size=max_fit_rows, stratify=source_label, random_state=seed)
+            importance_clf.fit(union.iloc[imp_idx] if isinstance(union, pd.DataFrame) else union[imp_idx], source_label[imp_idx])
+        else:
+            importance_clf.fit(union, source_label)
         importances = importance_clf.feature_importances_
 
     return oof_is_test_proba, importances
@@ -108,6 +135,7 @@ def build_test_like_validation_fold(
     n_iterations: int = 1,
     top_k_drop_per_iteration: int = 0,
     return_history: Literal[False] = False,
+    max_fit_rows: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Overload: ``return_history=False`` -> ``(val_idx, train_remainder_idx)``."""
 @overload
@@ -122,6 +150,7 @@ def build_test_like_validation_fold(
     top_k_drop_per_iteration: int = 0,
     *,
     return_history: Literal[True],
+    max_fit_rows: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
     """Overload: ``return_history=True`` -> ``(val_idx, train_remainder_idx, iteration_history)``."""
 def build_test_like_validation_fold(
@@ -134,13 +163,16 @@ def build_test_like_validation_fold(
     n_iterations: int = 1,
     top_k_drop_per_iteration: int = 0,
     return_history: bool = False,
+    max_fit_rows: int = 0,
 ) -> Union[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]]:
     """Select the train rows most similar to the test distribution as a validation fold.
 
     Parameters
     ----------
-    X_train, X_test
-        Numeric feature frames/arrays sharing the same columns (encode categoricals to numeric first, same
+    X_train
+        Training feature frame/array; see ``X_test`` for the input contract.
+    X_test
+        Numeric feature frames/arrays sharing the same columns as ``X_train`` (encode categoricals to numeric first, same
         contract as :func:`mlframe.reporting.charts.drift.adversarial_auc`'s ``_encode_pair`` path handles
         internally for that function -- this helper expects already-numeric input for a lean, dependency-free
         OOF classifier fit).
@@ -168,6 +200,9 @@ def build_test_like_validation_fold(
         When True, also return the per-iteration AUC-decay history (adversarial AUC of the OOF probabilities
         vs. remaining feature count, plus which features were dropped each round). Default False keeps the
         original 2-tuple return contract unchanged.
+    max_fit_rows
+        Per-fold cap on the classifier's FIT rows (stratified subsample of that fold's training part); 0 = no cap.
+        Prediction still covers every held-out row, so every train row is ranked by an honest OOF score.
 
     Returns
     -------
@@ -228,7 +263,8 @@ def build_test_like_validation_fold(
         is_last_iteration = it == n_effective_iterations - 1
         can_drop = not is_last_iteration and top_k_drop_per_iteration > 0 and len(active_cols) > top_k_drop_per_iteration
         oof_is_test_proba, importances = _oof_is_test_proba(
-            train_arr, test_arr, n_splits, seed, need_importance=can_drop, feature_names=[cols[i] for i in active_cols]
+            train_arr, test_arr, n_splits, seed, need_importance=can_drop, feature_names=[cols[i] for i in active_cols],
+            max_fit_rows=max_fit_rows,
         )
         auc = float(fast_roc_auc(source_label, oof_is_test_proba))
 

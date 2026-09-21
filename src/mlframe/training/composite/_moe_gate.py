@@ -18,7 +18,8 @@ Selection rule (per group ``g``, on the fit / selection split)
 * When ``M_g`` is empty (lag NaN across the whole group) the tier-2 set ``N_g`` (drop lag, keep the rest)
   decides among the non-lag experts.
 * Groups with fewer than ``min_group_rows`` matched rows, and groups unseen at predict, DEFER to the GLOBAL
-  fallback, which is the lag failsafe itself whenever a lag expert is present (else the pooled-best expert).
+  fallback: the pooled-best expert over the matched selection rows, with lag among the candidates. Such a
+  group contributes no rows to the pooled sums below, so deferring to lag would buy no guarantee there.
 
 Not-worse-than-lag guarantee (proof)
 -------------------------------------
@@ -184,7 +185,7 @@ class MoESelectionGate:
     tie_rtol
         Relative band within which two non-lag experts count as tied; ties break toward ``prefer`` order.
     min_group_rows
-        Groups with fewer matched selection rows defer to the global fallback (the lag failsafe when present).
+        Groups with fewer matched selection rows defer to the global fallback (the pooled-best expert, lag included).
     prefer
         Preference order (earlier = preferred) for breaking ties; defaults to failsafe-first, then the order
         the experts appear in ``preds``.
@@ -311,17 +312,21 @@ class MoESelectionGate:
         return self
 
     def _pick_global(self, sse_all, W_all, sse_nl, W_nl) -> int:
-        """Fallback expert for unseen / low-data groups: the lag failsafe when present, else the pooled best."""
-        if self._lag_idx >= 0 and float(W_all.sum()) > 0:
-            return self._lag_idx
-        # No lag anywhere: pooled-best non-lag expert on the nolag matched set.
-        pooled_W = float(W_nl.sum()) if float(W_nl.sum()) > 0 else float(W_all.sum())
-        sse_src = sse_nl if float(W_nl.sum()) > 0 else sse_all
+        """Fallback expert for unseen / low-data groups: the pooled-best expert on the matched selection rows, lag included.
+
+        A group with no selection rows contributes nothing to the pooled sums the vs-lag guarantee is proved on, so handing it to
+        lag buys no guarantee -- it only serves the failsafe to every row of a group the fit never saw, which on a group-disjoint
+        split is the whole deployed frame. The pooled argmin keeps lag whenever lag really is the best expert overall.
+        """
+        pooled_W = float(W_all.sum())
+        sse_src = sse_all
         if pooled_W <= 0:
-            return self._priority_idx[0]
-        pooled_sse = sse_src.sum(axis=0)
-        rmse = np.sqrt(pooled_sse / pooled_W)
-        return self._argmin_pref(rmse, exclude_lag=(self._lag_idx >= 0))
+            # Nothing matched with lag: score on the no-lag set, whose experts are defined on more rows.
+            pooled_W, sse_src = float(W_nl.sum()), sse_nl
+        if pooled_W <= 0:
+            return self._lag_idx if self._lag_idx >= 0 else self._priority_idx[0]
+        rmse = np.sqrt(sse_src.sum(axis=0) / pooled_W)
+        return self._argmin_pref(rmse, exclude_lag=(sse_src is sse_nl and self._lag_idx >= 0))
 
     def _argmin_pref(self, rmse: np.ndarray, *, exclude_lag: bool) -> int:
         """Argmin of ``rmse`` breaking near-ties (within ``tie_rtol``) toward ``_priority_idx`` order."""

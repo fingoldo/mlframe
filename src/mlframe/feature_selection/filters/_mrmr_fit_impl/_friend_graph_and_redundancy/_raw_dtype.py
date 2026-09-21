@@ -1,11 +1,13 @@
 """Dtype checks on raw input columns for the post-selection protection passes."""
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
 
-def raw_column_is_numeric(X, name, data, col_idx) -> bool:
+def raw_column_is_numeric(X: Any, name: str, data: np.ndarray, col_idx: int) -> bool:
     """True when the selected raw column ``name`` is numeric (bool counts as numeric).
 
     ``data`` is the categorize output: integer bin codes for EVERY column, string and categorical ones included, so its dtype says nothing

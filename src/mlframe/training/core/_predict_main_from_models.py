@@ -21,8 +21,10 @@ from .utils import (
     _validate_input_columns_against_metadata,
 )
 from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
+from .._fixed_splits import split_id_columns_from_metadata
 from ..utils import _dtype_family
 from mlframe.utils.log_throttle import log_throttle
+from ._predict_composite_routing import composite_predict, is_composite_wrapper, register_spec_transforms
 
 logger = logging.getLogger("mlframe.training.core.predict")
 
@@ -140,6 +142,8 @@ def predict_from_models(
     if features_and_targets_extractor is not None:
         df, _, _, _predict_group_ids, _predict_timestamps, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
         df = _drop_cols_df(df, columns_to_drop)
+    # The training split key (TrainingSplitConfig.id_column) is not a model feature.
+    df = _drop_cols_df(df, split_id_columns_from_metadata(metadata))
 
     # Polars fastpath probe (Fix 1). If every in-memory model is CB / XGB sklearn-API AND the input is polars,
     # keep polars all the way; non-native models on the same source frame share one cached pandas view.
@@ -172,6 +176,7 @@ def predict_from_models(
     df = replay_event_proximity_decay_composite_fe(df, metadata, _predict_timestamps, verbose=verbose)
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=bool(verbose))
+    register_spec_transforms(metadata)
 
     # Preserve the pre-main-pipeline frame as a fallback for models whose
     # internal categorical handling (sklearn HGB's auto-detected
@@ -348,6 +353,16 @@ def predict_from_models(
 
                 try:
                     model = model_obj.model
+
+                    if is_composite_wrapper(model):
+                        # The wrapper reads its base from the suite-stage frame and applies its own inner pipeline to it, so it
+                        # skips the per-model subset + pre_pipeline step raw models get below.
+                        preds = composite_predict(model, model_obj, df, df_pre_pipeline, lambda _f: _ensure_pandas_view(_f, _pandas_view_cache))
+                        results["predictions"][model_name] = preds
+                        all_preds.append(preds)
+                        per_target_preds.setdefault((target_type, target_name), []).append(preds)
+                        results["models_used"].append(model_name)
+                        continue
 
                     input_for_model = df
                     # Lazy polars->pandas when this specific model is NOT polars-native; mirrors the training
@@ -551,20 +566,7 @@ def predict_from_models(
                             verbose=verbose,
                         )
 
-                    # CompositeTargetEstimator's predict
-                    # reads the base column directly from X to apply the transform's
-                    # inverse (e.g. linear_residual: y = t_hat + alpha*base + beta).
-                    # The alpha/beta were fit on the RAW base column at discovery
-                    # time, but the default predict path passes the
-                    # pre-pipeline-scaled X (input_for_model) where the base column
-                    # is z-scored. Result: alpha*base_scaled ~ alpha*1 instead of
-                    # alpha*base_raw ~ alpha*~10000, so the inverse degenerates to
-                    # y_hat ~ t_hat (predictions stay in residual scale: mean~0,
-                    # std=residual_std). This branch hands the wrapper the RAW
-                    # frame; the inner non-composite estimators stay on the
-                    # post-pipeline path.
-                    from ..composite import CompositeTargetEstimator as _CTE_cls
-                    _primary_for_model = df_pre_pipeline if isinstance(model, _CTE_cls) else input_for_model
+                    _primary_for_model = input_for_model
                     if return_probabilities and hasattr(model, "predict_proba"):
                         probs = _try_predict(model.predict_proba, _primary_for_model, df_pre_pipeline)
                         _ml_classes = getattr(model_obj, "classes_", None)
@@ -605,7 +607,6 @@ def predict_from_models(
                         all_preds.append(preds)
                         per_target_preds.setdefault((target_type, target_name), []).append(preds)
                     else:
-                        # CTE-RAW-X: same rationale as the probs path above.
                         preds = _try_predict(model.predict, _primary_for_model, df_pre_pipeline)
                         results["predictions"][model_name] = preds
                         all_preds.append(preds)
@@ -721,7 +722,13 @@ def predict_from_models(
         _stacked = np.stack(all_preds)
         if np.issubdtype(_stacked.dtype, np.floating):
             from mlframe.models.ensembling import combine_float_predictions
+            from ._predict_composite_routing import per_original_target_float_ensembles
             from ._predict_main_suite import _resolve_float_ensemble_flavour
+
+            # Per original target: raw, composite-target and CT-ensemble members predict the same y, other targets do not.
+            results["per_target_predictions"] = per_original_target_float_ensembles(
+                per_target_preds, metadata, lambda _m: combine_float_predictions(_m, flavour=_resolve_float_ensemble_flavour(metadata)),
+            )
             results["ensemble_predictions"] = combine_float_predictions(
                 _stacked, flavour=_resolve_float_ensemble_flavour(metadata),
             )

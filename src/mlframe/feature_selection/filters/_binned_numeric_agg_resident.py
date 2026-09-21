@@ -373,7 +373,7 @@ def local_mi_gate_binagg_resident(
         n = len(feat_df)
     else:
         cand_cols = list(cand_cols or [])
-        n = int(n_rows or 0)
+        n = int(n_rows) if n_rows is not None else 0
     if not cand_cols or n <= 0:
         return []
     # Every emitted feat column MUST have a recipe carrying its operand basis; if any is missing fall back to

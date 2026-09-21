@@ -104,6 +104,7 @@ def test_empty_input_returns_zeros():
 
     empty = np.array([], dtype=np.int64)
     result = pid_decomposition(empty, empty, empty, 2, 2, 2)
+    assert result.values()
     for v in result.values():
         assert v == 0.0
 

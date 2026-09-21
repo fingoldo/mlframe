@@ -93,4 +93,8 @@ def test_pysr_replay_parity(tmp_path):
         a = train[col].to_numpy(dtype=np.float32)
         b = replayed[col].to_numpy(dtype=np.float32)
         # Byte-identical for deterministic PySR evaluation (same fitted model, same input).
-        assert np.array_equal(a, b), f"PySR column {col} drift after reload: {a[:4]} vs {b[:4]}"
+        # equal_nan: an equation with log/sqrt/division evaluates to NaN on out-of-domain rows, and NaN != NaN made
+        # plain array_equal report "drift" on columns whose every finite value and every NaN position matched
+        # (CI showed identical leading values). NaN positions must still coincide exactly.
+        _diff = ~((a == b) | (np.isnan(a) & np.isnan(b)))
+        assert np.array_equal(a, b, equal_nan=True), f"PySR column {col} drift after reload at {int(_diff.sum())} row(s): {a[_diff][:4]} vs {b[_diff][:4]}"

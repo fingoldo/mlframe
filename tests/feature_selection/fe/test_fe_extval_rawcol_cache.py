@@ -110,6 +110,7 @@ def test_extval_rawcol_memo_contract_pandas(n, p):
     # var id, never the array contents).
     seen_ids = {id(cache[v]) for v in vars_}
     assert len(seen_ids) == p, "distinct var keys aliased to the same cached buffer"
+    assert len(vars_) > 0
     for v in vars_:
         assert np.array_equal(cache[v], X[v].values), f"var {v} cached wrong column"
 

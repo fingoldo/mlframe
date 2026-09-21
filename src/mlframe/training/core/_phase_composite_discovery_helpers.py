@@ -14,6 +14,9 @@ from ..composite.cache import ConfigSignatureV1, compute_config_signature_v1
 
 logger = logging.getLogger(__name__)
 
+_CONCAT_NO_COPY: Dict[str, Any] = {} if int(pd.__version__.split(".")[0]) >= 3 else {"copy": False}
+"""``pd.concat`` keywords that avoid copying the frame: ``copy=False`` before pandas 3, nothing on 3+ (copy-on-write)."""
+
 
 def _render_composite_discovery_diagnostics(
     *,
@@ -67,11 +70,17 @@ def _render_composite_discovery_diagnostics(
             _save(plot_mi_gain_with_jitter(specs_export), "mi_gain")
         except Exception as _mi_err:
             logger.info("[CompositeTargetDiscovery] mi-gain diagnostic render failed for '%s': %s.", raw_target_name, _mi_err)
+    _spec_meta = {str(d.get("name")): d for d in (specs_export or []) if isinstance(d, dict)}
     for _spec_name, _t_full in t_by_spec.items():
         _safe_spec = "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(_spec_name))
         try:
             _save(
-                plot_target_distribution(y_full, _t_full, title=f"Target distribution: y vs T ({_spec_name})"),
+                plot_target_distribution(
+                    y_full, _t_full, title=f"Target distribution: y vs T ({_spec_name})",
+                    y_name=str(raw_target_name),
+                    transform_name=_spec_meta.get(_spec_name, {}).get("transform_name"),
+                    base_column=_spec_meta.get(_spec_name, {}).get("base_column") or None,
+                ),
                 f"tdist_{_safe_spec}",
             )
         except Exception as _td_err:
@@ -101,8 +110,13 @@ def _build_disc_df_for_target(filtered_train_df, target_name: str, y_train_align
         target_series = pd.Series(
             y_train_aligned, index=filtered_train_df.index, name=target_name,
         )
-        cols_wo_target = [c for c in filtered_train_df.columns if c != target_name]
-        return pd.concat([filtered_train_df[cols_wo_target], target_series], axis=1)
+        # Under pandas 1.5-2.x (no copy-on-write) a list-column selection materialises the whole frame and concat's default
+        # copy=True copies it again: up to two transient train-frame copies per target just to attach y. Skip the selection
+        # when the target is not already a column (the usual case) and ask concat not to copy; the result is still a new
+        # frame, so the caller's is untouched, and discovery only reads it. pandas 3 is zero-copy here and deprecates the
+        # ``copy`` keyword, so it is passed only on older versions.
+        base = filtered_train_df.drop(columns=[target_name]) if target_name in filtered_train_df.columns else filtered_train_df
+        return pd.concat([base, target_series], axis=1, **_CONCAT_NO_COPY)
     return filtered_train_df.with_columns(pl.Series(target_name, y_train_aligned))
 
 

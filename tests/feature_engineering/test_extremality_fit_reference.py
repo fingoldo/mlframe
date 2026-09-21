@@ -224,3 +224,35 @@ class TestTiedAndLowCardinalityColumns:
         batch, _ = extremality_matrix_from_reference(df, ref, list(df.columns))
         lone, _ = extremality_matrix_from_reference(df.iloc[[42]], ref, list(df.columns))
         assert lone[0] == pytest.approx(batch[42], abs=1e-12)
+
+
+class TestV2KernelMatchesV1:
+    """The tie-compressed, threaded v2 scorer must reproduce the v1 mid-rank kernel exactly."""
+
+    @pytest.mark.parametrize("n_rows", [50, 20_000])  # serial path and threaded path
+    def test_bit_identical_with_ties_nans_and_out_of_range(self, n_rows):
+        """The v2 kernel reproduces v1 bit-for-bit on columns with ties, NaNs and values outside the fit range."""
+        from mlframe.feature_engineering._benchmarks.bench_extremality_reference import run_v1
+
+        rng = np.random.default_rng(3)
+        fit = pd.DataFrame(
+            {
+                "cont": rng.normal(size=5000),
+                "ties": rng.integers(0, 4, size=5000).astype(float),
+                "mostly_zero": np.where(rng.random(5000) < 0.9, 0.0, rng.lognormal(size=5000)),
+                "all_nan": np.full(5000, np.nan),
+            }
+        )
+        reference = fit_extremality_reference(fit)
+        score = pd.DataFrame(
+            {
+                "cont": rng.normal(scale=3.0, size=n_rows),
+                "ties": rng.integers(-1, 6, size=n_rows).astype(float),
+                "mostly_zero": np.where(rng.random(n_rows) < 0.5, 0.0, rng.lognormal(size=n_rows)),
+                "all_nan": rng.normal(size=n_rows),
+            }
+        )
+        score.iloc[::7, 0] = np.nan
+        v2, _ = extremality_matrix_from_reference(score, reference)
+        v1 = run_v1(score, reference)
+        np.testing.assert_array_equal(v2, v1)

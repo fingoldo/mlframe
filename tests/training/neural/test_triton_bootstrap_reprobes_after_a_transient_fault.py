@@ -76,6 +76,7 @@ def test_repeated_faults_stop_re_probing(on_windows, monkeypatch):
 
     monkeypatch.setattr("site.getsitepackages", _always_failing)
 
+    assert list(range(10))
     for _ in range(10):
         assert tb.ensure_triton_loaded() is False
     assert len(attempts) == tb._MAX_BOOTSTRAP_RETRIES + 1, (
@@ -95,6 +96,7 @@ def test_the_permanent_verdict_is_still_cached_on_the_first_call(on_windows, mon
 
     monkeypatch.setattr("site.getsitepackages", _empty)
 
+    assert list(range(5))
     for _ in range(5):
         assert tb.ensure_triton_loaded() is False
     assert len(attempts) == 1, f"the permanent 'not installed' verdict was re-probed {len(attempts)} times"

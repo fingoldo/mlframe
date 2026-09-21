@@ -204,6 +204,10 @@ def try_load_key_bank(
                     ann_indices.append(safe_load(str(idx_path)))
                 else:
                     # Legacy hnswlib path.
+                    from mlframe.utils.native_import_probe import native_module_importable
+
+                    if not native_module_importable("hnswlib"):
+                        raise ImportError("hnswlib cannot be imported in this environment")
                     import hnswlib
                     idx = hnswlib.Index(space=metadata.get("ann_space", "cosine"), dim=bank.head_dim)
                     idx.load_index(str(idx_path))

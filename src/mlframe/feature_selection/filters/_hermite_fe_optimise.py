@@ -492,7 +492,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
                 "_run_cma_search_batch: es.tell() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc,
             )
             break
-        if early_stop_no_improve_gens and early_stop_no_improve_gens > 0:
+        if early_stop_no_improve_gens is not None and early_stop_no_improve_gens > 0:
             if best_score > _last_gen_best_score:
                 _plateau_gens = 0
                 _last_gen_best_score = best_score
@@ -783,7 +783,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
         # Plateau early-stop check (after es.tell so the generation is
         # complete). Compare end-of-generation best_score to start-of-
         # generation; if no improvement, increment plateau counter.
-        if early_stop_no_improve_gens and early_stop_no_improve_gens > 0:
+        if early_stop_no_improve_gens is not None and early_stop_no_improve_gens > 0:
             if best_score > _last_gen_best_score:
                 _plateau_gens = 0
                 _last_gen_best_score = best_score

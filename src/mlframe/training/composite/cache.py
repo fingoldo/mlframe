@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import os
-from typing import Any, Dict, List, NewType, Optional, Sequence
+from typing import Any, Dict, NewType, Optional, Sequence
 
 # The disk-backed ``DiscoveryCache`` store (which owns the pickle / filelock / tempfile / glob
 # machinery and the ``mlframe.utils.safe_pickle`` imports) lives in the sibling
@@ -98,6 +98,7 @@ except ImportError:  # pragma: no cover
 
 
 from ._composite_utils import is_polars_df as _is_polars_df
+from . import _canonical_hash as _canonical
 
 # Discovery caching layer: key discovery results by a content hash of (data-sample, target-column, config-signature, random_state) so re-runs that only vary inner hyperparameters skip the minutes-long MI-null / Wilcoxon / tiny-rerank phases.
 # Primitives: ``data_signature`` (blake2b over a deterministic sample + dtypes + a reorder-sensitive row fingerprint), ``DiscoveryCache(cache_dir)`` (disk key->pickle store: get/set/invalidate/clear/__contains__), ``make_discovery_cache_key`` (stable hex key), ``compute_config_signature_v1`` (config -> ConfigSignatureV1). The layer does NOT auto-integrate with fit(); callers manage lookup/store at their orchestration level to keep the discovery class free of I/O.
@@ -119,25 +120,21 @@ _DISCOVERY_DEFAULT_SEED: int = 42
 _ROW_ORDER_PREFIX_ROWS: int = 256
 
 
-def _row_order_fingerprint(df: Any, n_edge: int = 8) -> str:
+def _row_order_fingerprint(df: Any, n_edge: int = _ROW_ORDER_PREFIX_ROWS) -> str:
     """Cheap fingerprint of a frame's row order, sensitive to INNER reorders.
 
     Folded into ``data_signature`` so a shuffled frame produces a different signature than the
-    original. Pre-fix only the first/last ``n_edge`` rows were hashed -- an inner shuffle
-    (``df.sample(frac=0.99)``) that did not touch the head or tail rows produced an identical
-    fingerprint, silently replaying stale specs on R&D workflows.
+    original. A first/last-few-rows fingerprint missed an inner shuffle (``df.sample(frac=0.99)``)
+    that did not touch the head or tail rows, silently replaying stale specs on R&D workflows, so
+    both frame types hash a bounded head window of ``n_edge`` rows plus a distinct tail window of up
+    to ``n_edge`` rows (the tail is skipped when the head already covers every row).
 
-    The polars path uses ``hash_rows()`` which produces a row hash for every row in O(N)
-    (vectorised C++); we slice the first ``_ROW_ORDER_PREFIX_ROWS`` and hash those bytes, so an
-    inner reorder that lands inside the prefix bursts the cache. The pandas path hashes the head
-    ``n_edge`` rows' raw bytes (``to_numpy().tobytes()``) rather than a ``to_csv`` round-trip
-    (CSV-roundtrip hashing is the slowest path).
-
-    The polars branch also hashes a bounded TAIL slice in addition to the prefix, mirroring the
-    pandas head+tail coverage: a prefix-only fingerprint misses a reorder that touches only the
-    tail rows (e.g. ``df`` vs ``df`` with the last block shuffled), producing an identical
-    fingerprint -- a blind spot relative to the pandas path. Both slices are bounded
-    (``_ROW_ORDER_PREFIX_ROWS`` head + tail) so the O(N)-scan hazard does not return.
+    The bytes come from ``_canonical_hash`` (mlframe's own encoding), NOT ``hash_pandas_object`` or
+    polars ``hash_rows()``: neither is guaranteed stable across library versions (``hash_rows`` is
+    documented as unstable, and pandas 3 re-typed strings and datetime resolutions under it), and a
+    cache key that moves with the installed library orphans every entry written before the upgrade.
+    The canonical encoding also makes pandas and polars frames of the same data fingerprint equally.
+    Both windows are sliced BEFORE encoding, so the cost is O(window * columns), never O(N).
 
     KNOWN RESIDUAL BLIND SPOT: this is an edge-sampling fingerprint, NOT a whole-frame hash. A
     reorder confined to the MIDDLE of a frame larger than head+tail rows (and disjoint from the
@@ -147,61 +144,14 @@ def _row_order_fingerprint(df: Any, n_edge: int = 8) -> str:
     sensitivity should bump ``random_state`` (re-seeds the ``data_signature`` sample) or raise
     ``_ROW_ORDER_PREFIX_ROWS``.
 
-    ``n_edge`` retained as parameter for the pandas branch only; polars now hashes a bounded
-    head + tail unconditionally.
-
     Returns ``""`` on any access failure (degrades to the prior reorder-stable behaviour rather
     than crashing on exotic frame types).
     """
     try:
-        if _is_polars_df(df):
-            # ``hash_rows()`` produces one u64 per row (vectorised); slicing head + tail gives a
-            # bounded-cost fingerprint that catches inner reorders inside either edge window.
-            height = df.height
-            n_take = min(height, _ROW_ORDER_PREFIX_ROWS)
-            if n_take == 0:
-                return ""
-            # Slice FIRST, then hash: hash_rows() is row-local so slicing an
-            # edge before hashing is digest-identical to hashing the whole
-            # frame and slicing after -- but O(n_take*C) instead of O(N*C) plus
-            # an N-row u64 allocation. On the 100+ GB frames this module targets
-            # the prior whole-frame scan silently undid the data_signature
-            # gather optimisation (multi-second + multi-GB per cache lookup).
-            head_hashes = df.slice(0, n_take).hash_rows().to_numpy()
-            # Fed incrementally rather than concatenated: the byte sequence hashed is the same, and a buffer
-            # read cannot be joined with `+` the way a bytes copy could.
-            _h = hashlib.blake2b(digest_size=8)
-            _h.update(array_buffer(head_hashes))
-            # Tail slice: only add a distinct tail when the frame is wider than the prefix,
-            # else head already covers every row and a tail slice would re-hash the same rows
-            # (the head-only digest stays unchanged for small frames -- bounded duplication).
-            if height > n_take:
-                n_tail = min(height - n_take, _ROW_ORDER_PREFIX_ROWS)
-                tail_hashes = df.slice(height - n_tail, n_tail).hash_rows().to_numpy()
-                _h.update(b"|")
-                _h.update(array_buffer(tail_hashes))
-            return _h.hexdigest()
-        elif isinstance(df, pd.DataFrame):
-            n_take = min(len(df), n_edge)
-            if n_take == 0:
-                return ""
-            # ``df.to_numpy().tobytes()`` on a frame with object/string columns
-            # coerces the whole block to an object ndarray whose bytes are
-            # PyObject* ADDRESSES -> non-deterministic across processes (and
-            # re-materialised strings within one), silently breaking the cache.
-            # ``hash_pandas_object`` is the content-based, row-order-sensitive
-            # pandas analogue of polars ``hash_rows`` (uint64 per row).
-            from pandas.util import hash_pandas_object
-
-            head_bytes = np.ascontiguousarray(hash_pandas_object(df.head(n_take), index=False).to_numpy()).tobytes()
-            n_tail = min(len(df), n_edge)
-            tail_bytes = np.ascontiguousarray(hash_pandas_object(df.tail(n_tail), index=False).to_numpy()).tobytes()
-            payload = head_bytes + b"|" + tail_bytes
-            return hashlib.blake2b(payload, digest_size=8).hexdigest()
-        else:
-            return ""
+        fp = _canonical.row_order_fingerprint(df, int(n_edge))
+        return "" if fp is None else fp.decode("ascii")
     except Exception as exc:
-        logger.debug("cache: head/tail row-hash signature failed, returning empty signature: %s", exc)
+        logger.warning("cache: head/tail row-order fingerprint failed, so this signature is NOT sensitive to row order: %s", exc)
         return ""
 
 
@@ -215,7 +165,15 @@ def data_signature(
 ) -> str:
     """Content-hash signature for a (df, target_col, feature_cols) triple.
 
-    Deterministic sample of ``min(n_rows, sample_n)`` rows + column names + dtypes + a cheap first-and-last row fingerprint, hashed via blake2b to a 16-byte hex fingerprint.
+    Deterministic sample of ``min(n_rows, sample_n)`` rows + column names + canonical logical types
+    + whole-column min/max/null stats + a head/tail row-order fingerprint, hashed via blake2b to a
+    16-byte hex fingerprint.
+
+    Library-version independence: every byte comes from ``_canonical_hash``, which encodes the
+    logical data (see its module docstring for the rules) instead of a library's representation.
+    The same data keys identically whether its strings are numpy ``object``, ``string[python]``,
+    ``string[pyarrow]`` or pandas-3 ``str``, whatever datetime resolution pandas inferred, whatever
+    int width the platform defaulted to, and whether the frame is pandas or polars.
 
     Row-order sensitivity: the signature is SENSITIVE TO ROW ORDER.
     ``_row_order_fingerprint`` hashes the head and tail of the frame, so a
@@ -230,8 +188,10 @@ def data_signature(
     ----------
     df
         pandas / polars frame.
-    target_col, feature_cols
-        Column identifiers used to scope the signature; changes here invalidate the cache.
+    target_col
+        Target column; part of the signature, so a different target invalidates the cache.
+    feature_cols
+        Feature columns used to scope the signature; changes here invalidate the cache.
     sample_n
         Rows sampled for the hash; lower is faster, higher is more discriminating.
     random_state
@@ -241,6 +201,9 @@ def data_signature(
     -------
     32-character hex string (blake2b digest, 16 bytes).
     """
+    is_polars = _is_polars_df(df)
+    if not is_polars and not isinstance(df, pd.DataFrame):
+        raise TypeError(f"data_signature: unsupported df type {type(df).__name__}")
     n_rows = len(df)
     if n_rows == 0:
         return hashlib.blake2b(b"empty", digest_size=16).hexdigest()
@@ -248,6 +211,8 @@ def data_signature(
     sample_n_eff = min(n_rows, int(sample_n))
     sample_idx = np.sort(rng.choice(n_rows, size=sample_n_eff, replace=False))
     h = hashlib.blake2b(digest_size=16)
+    # Encoding epoch: the canonical scheme is a wire format of its own, so it is named in the digest.
+    h.update(b"sig=canonical-v1|")
     # Row count goes into the hash so appending rows invalidates the cache
     # even when the deterministic sample happens to coincide.
     h.update(b"nrows=")
@@ -258,206 +223,42 @@ def data_signature(
     # spec).
     h.update(b"|roworder=")
     h.update(_row_order_fingerprint(df).encode("utf-8"))
-    # Hash 1: target column + feature cols (names + order).
-    h.update(target_col.encode("utf-8"))
+    # Target column + feature cols (names + order).
+    h.update(b"|target=")
+    h.update(str(target_col).encode("utf-8"))
     for c in feature_cols:
         h.update(b"|")
         h.update(str(c).encode("utf-8"))
 
-    def _col_stats(arr: np.ndarray) -> bytes:
-        """Per-column WHOLE-frame summary (min, max, null count).
-
-        Folded into the hash so a single appended row that lands in the unsampled portion still
-        changes the signature - which the sampled-values-only hash misses.
-
-        Dtype-aware: falling through to ``np.unique(arr.astype(str))`` for anything that does not
-        coerce cleanly to float64 collapses integer columns with NaN sentinels onto a
-        stringified-distinct-values summary and drops the min/max/null distribution information.
-        The integer branch is handled explicitly instead: when the dtype kind is in {'i','u','b'}
-        we read min/max/uniques without ever trying the float-cast that NaN sentinels would
-        corrupt.
-        """
-        if arr.size == 0:
-            return b"empty"
-        kind = getattr(arr.dtype, "kind", "")
-        if kind in ("i", "u", "b"):
-            # Integer / bool: no NaN possible at the numpy-dtype level (NaN sentinels are
-            # represented as out-of-range ints), so min/max + nunique distinguish dtype-equal
-            # columns without going through the lossy str-uniques path.
-            try:
-                # ``null=0`` instead of an ``nuniq`` full ``np.unique`` sort: numpy int/bool dtypes hold no NaN so the null count is structurally zero (mirrors the polars int digest; drops the per-int-column O(n log n) sort -- one-time on-disk cache invalidation).
-                return (f"intmin={int(np.min(arr))};" f"intmax={int(np.max(arr))};" f"null=0").encode()
-            except Exception as exc:
-                logger.debug("cache: int/bool column min/max digest failed, using opaque marker: %s", exc)
-                return b"int_opaque"
-        if kind == "f":
-            # Numba kernel wins from n=~50k upward (bench: bench_arch_d.bench_col_stats_numba
-            # measured ~187x at n=500k, 200 cols). Below threshold the JIT call overhead +
-            # bytes-shuffling between numpy and numba dominates the arithmetic; the boolean-mask
-            # numpy path is faster.
-            if _HAS_NUMBA and arr.size >= _COL_STATS_NUMBA_MIN_N and arr.dtype == np.float64:
-                mn_v, mx_v, n_null = _col_stats_float_numba_kernel(arr)
-                if not np.isfinite(mn_v):
-                    return f"all_null:{int(n_null)}".encode()
-                return (f"min={float(mn_v):.12g};" f"max={float(mx_v):.12g};" f"null={int(n_null)}").encode()
-            isnan = ~np.isfinite(arr)
-            n_null = int(isnan.sum())
-            finite = arr[~isnan]
-            if finite.size == 0:
-                return f"all_null:{n_null}".encode()
-            return (f"min={float(np.min(finite)):.12g};" f"max={float(np.max(finite)):.12g};" f"null={n_null}").encode()
-        # Generic numeric fallback (datetime / timedelta / complex via float coerce).
-        try:
-            arr_f = arr.astype(np.float64, copy=False)
-            isnan = ~np.isfinite(arr_f)
-            n_null = int(isnan.sum())
-            finite = arr_f[~isnan]
-            if finite.size == 0:
-                return f"all_null:{n_null}".encode()
-            return (f"fmin={float(np.min(finite)):.12g};" f"fmax={float(np.max(finite)):.12g};" f"null={n_null}").encode()
-        except (TypeError, ValueError):
-            pass
-        # Object / string dtype: hash a fingerprint of distinct values.
-        try:
-            u = np.unique(arr.astype(str, copy=False))
-            return (f"uniq={int(u.size)};first={u[0] if u.size else ''};" f"last={u[-1] if u.size else ''}").encode()
-        except Exception as exc:
-            logger.debug("cache: object/string column distinct-value digest failed, using opaque marker: %s", exc)
-            return b"opaque"
-
-    # Hash 2: per-column dtype + whole-column stats + per-column sampled values.
-    # The per-column ``to_numpy()`` of the WHOLE column is the dominant cost of ``data_signature``
-    # on multi-million-row frames -- 200 columns x 10M rows = 2 full materialisations per signature
-    # call (one for stats, one for the sample gather). Polars can compute min / max / null-count
-    # natively in a single lazy ``select``
-    # over all needed columns, and the sample gather is ``col.gather(sample_idx)`` which is
-    # O(sample_n) instead of O(N). Result on a 200-col 10M-row frame: ~100x speedup measured
-    # in tests/training/_benchmarks/bench_data_signature.py.
+    # Per column: logical type + whole-column stats + sampled values. Only the stats touch the whole
+    # column (vectorised min/max/null: one lazy ``select`` over all columns on polars, numba/numpy
+    # reductions on pandas); the sample is an O(sample_n) gather, never a full materialisation.
     cols_to_hash = [target_col] + [c for c in feature_cols if c != target_col]
-    if _is_polars_df(df):
+    if is_polars:
         present = [c for c in cols_to_hash if c in df.columns]
-        if present:
-            # Single polars expression returning min/max/null for every column in one pass.
-            # ``cast(Utf8)`` on min/max keeps the digest dtype-agnostic so int / float / string /
-            # categorical all flow through the same byte path. The numeric branches inside
-            # ``_col_stats`` produce more discriminating digests for floats (NaN-aware) and ints,
-            # so we delegate to ``_col_stats`` for numeric columns by sampling-then-stats. For
-            # non-numeric columns we fold min/max/null directly without ever materialising the
-            # column.
-            numeric_cols: List[str] = []
-            non_numeric_cols: List[str] = []
-            for c in present:
-                dt = df.schema[c]
-                if dt.is_numeric():
-                    numeric_cols.append(c)
-                else:
-                    non_numeric_cols.append(c)
-            # Non-numeric: one single ``select`` for min / max / null_count across all of them.
-            #
-            # Duration has no String cast in polars (`casting from Duration('ns') to String not
-            # supported`), so a frame carrying one raised here rather than producing a signature --
-            # and this is the cache KEY, so it took the whole discovery path down. Its physical
-            # representation is Int64 and orders identically, so min/max are unchanged by going
-            # through it. Datetime and Date cast to String directly and are left alone.
-            def _as_text(col: str):
-                """*col* as a String expression, routing Duration through its physical Int64."""
-                if isinstance(df.schema[col], pl.Duration):
-                    return pl.col(col).cast(pl.Int64).cast(pl.Utf8)
-                return pl.col(col).cast(pl.Utf8)
-
-            if non_numeric_cols:
-                _stats_row = df.select(
-                    [_as_text(c).min().alias(f"_mn_{c}") for c in non_numeric_cols]
-                    + [_as_text(c).max().alias(f"_mx_{c}") for c in non_numeric_cols]
-                    + [pl.col(c).null_count().alias(f"_nc_{c}") for c in non_numeric_cols]
-                ).row(0)
-                n = len(non_numeric_cols)
-                for i, c in enumerate(non_numeric_cols):
-                    h.update(str(df.schema[c]).encode("utf-8"))
-                    h.update(b"|stats=")
-                    mn = _stats_row[i]
-                    mx = _stats_row[i + n]
-                    nc = _stats_row[i + 2 * n]
-                    h.update(f"strmin={mn};strmax={mx};null={int(nc) if nc is not None else 0}".encode())
-                    # Sample bytes via gather (O(sample_n), no full materialisation).
-                    # Hash the string CONTENT, not the object array's pointer bytes:
-                    # ``.to_numpy()`` on a Utf8 column yields an object array whose
-                    # ``.tobytes()`` is PyObject* addresses -> non-deterministic across
-                    # processes (and re-materialised strings within one) -> the cache
-                    # NEVER hits on real string/datetime/categorical frames.
-                    # Same Duration detour as the stats select above: no String cast exists, so go
-                    # through the physical Int64 rather than raising on the cache key.
-                    _sampled_col = df.get_column(c).gather(sample_idx)
-                    if isinstance(df.schema[c], pl.Duration):
-                        _sampled_col = _sampled_col.cast(pl.Int64)
-                    sampled = _sampled_col.cast(pl.Utf8).to_list()
-                    h.update("\x00".join("\x01" if v is None else v for v in sampled).encode("utf-8"))
-            # Numeric branch: compute min / max / null in one polars expression for ALL numeric
-            # columns at once (one Arrow batch), then route the per-column stats through the
-            # existing ``_col_stats`` byte format for digest stability. We rebuild a tiny
-            # ``stats_arr`` from the polars-computed scalars rather than materialising the column.
-            if numeric_cols:
-                _agg_row = df.select(
-                    [pl.col(c).min().alias(f"_mn_{c}") for c in numeric_cols]
-                    + [pl.col(c).max().alias(f"_mx_{c}") for c in numeric_cols]
-                    + [pl.col(c).null_count().alias(f"_nc_{c}") for c in numeric_cols]
-                ).row(0)
-                n = len(numeric_cols)
-                for i, c in enumerate(numeric_cols):
-                    h.update(str(df.schema[c]).encode("utf-8"))
-                    h.update(b"|stats=")
-                    mn = _agg_row[i]
-                    mx = _agg_row[i + n]
-                    nc = int(_agg_row[i + 2 * n] or 0)
-                    # Match the legacy ``_col_stats`` byte format so a digest computed before
-                    # this refactor (replayed against the same frame) is stable. Float branch:
-                    # ``min=...;max=...;null=...``; int / bool branch: ``intmin=...;intmax=...;
-                    # nuniq=...``. ``nuniq`` previously required a full column scan; we drop it
-                    # in favour of ``null=`` for ints too -- this is a deliberate digest shape
-                    # change (digest will differ from pre-fix for int columns), accepted because
-                    # the pre-fix digest required the full-column materialisation we are
-                    # eliminating. Downstream callers that need cache invalidation across this
-                    # refactor must clear their on-disk caches once.
-                    dt = df.schema[c]
-                    kind = "f" if dt in (pl.Float32, pl.Float64) else ("i" if dt.is_integer() else "u")
-                    if kind == "f":
-                        if mn is None or mx is None:
-                            h.update(f"all_null:{nc}".encode())
-                        else:
-                            h.update(f"min={float(mn):.12g};max={float(mx):.12g};null={nc}".encode())
-                    else:
-                        if mn is None or mx is None:
-                            h.update(f"all_null:{nc}".encode())
-                        else:
-                            h.update(f"intmin={int(mn)};intmax={int(mx)};null={nc}".encode())
-                    # Sample bytes via gather (O(sample_n) materialisation only).
-                    sampled = df.get_column(c).gather(sample_idx).to_numpy()
-                    h.update(array_buffer(sampled))
-    elif isinstance(df, pd.DataFrame):
-        # Pandas: no equivalent of polars lazy-frame multi-column aggregate without materialising
-        # the column, so we still call ``df[c].to_numpy()`` once per column. We at least avoid the
-        # second materialisation for the sample bytes by reusing ``full`` (the gather slice is a
-        # view on ``full``). bench-attempt-rejected: a single ``df[cols_to_hash].to_numpy()`` batches the dispatch but coerces all columns to
-        # the common dtype (object on mixed-dtype frames), which breaks the per-column ``str(dtype)`` folded into the signature.
+        tokens = {c: _canonical.polars_logical_type(df.schema[c]) for c in present}
+        stats = _canonical.polars_column_stats(df, present, tokens) if present else {}
+        for c in present:
+            _fold_column(h, tokens[c], stats[c], _canonical.encode_polars_slice(df.get_column(c).gather(sample_idx), tokens[c]))
+    else:
         for c in cols_to_hash:
             if c not in df.columns:
                 continue
-            h.update(str(df[c].dtype).encode("utf-8"))
-            full = df[c].to_numpy()
-            h.update(b"|stats=")
-            h.update(_col_stats(full))
-            sampled = full[sample_idx]
-            if full.dtype.kind in ("O", "U", "S"):
-                # Object/str: tobytes() on an object array hashes PyObject*
-                # ADDRESSES, which differ across processes (and re-materialised
-                # strings within one) -> non-deterministic signature -> the
-                # discovery cache never hits on real frames. Hash the content.
-                h.update("\x00".join(map(str, sampled.tolist())).encode("utf-8"))
-            else:
-                h.update(array_buffer(sampled))
-    else:
-        raise TypeError(f"data_signature: unsupported df type {type(df).__name__}")
+            s = df[c]
+            sampled = s.iloc[sample_idx]
+            token = _canonical.pandas_logical_type(s, sampled)
+            _fold_column(h, token, _canonical.pandas_column_stats(s, token), _canonical.encode_pandas_slice(sampled, token))
     return h.hexdigest()
+
+
+def _fold_column(h: Any, token: str, stats: bytes, sample: bytes) -> None:
+    """Fold one column's (type, stats, sample) into *h* with explicit delimiters so fields cannot run into each other."""
+    h.update(b"|col|type=")
+    h.update(token.encode("utf-8"))
+    h.update(b"|stats=")
+    h.update(stats)
+    h.update(b"|sample=")
+    h.update(sample)
 
 
 def compute_config_signature_v1(
@@ -594,10 +395,16 @@ def prebin_matrix_signature(feature_matrix: np.ndarray, nbins: int) -> str:
     digest gives a key that hits iff a later call would recompute byte-identical codes, and misses
     on any change (a different sample, a re-ordered/rescaled column, a different nbins). The hash
     is over the contiguous matrix buffer -- O(matrix bytes), no copy of the source frame.
+
+    The digest is xxh3-128 rather than blake2b: the key only has to tell matrices apart inside one process (the cache is
+    never persisted), and hashing the screen matrix on every fit cost about 11% of the binning it guards while the cache
+    hits only on re-discovery of the same target. On a 100k x 500 float32 screen: 509 ms -> 39 ms.
     """
+    import xxhash
+
     arr = np.ascontiguousarray(feature_matrix)
-    h = hashlib.blake2b(digest_size=16)
-    h.update(b"prebin_v1|nbins=")
+    h = xxhash.xxh3_128()
+    h.update(b"prebin_v2|nbins=")
     h.update(str(int(nbins)).encode("utf-8"))
     h.update(b"|dtype=")
     h.update(str(arr.dtype).encode("utf-8"))

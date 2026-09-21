@@ -777,6 +777,7 @@ def test_stratified_anchor_sampler_overweights_high_f_columns():
     high_u = counts_u[:5].sum()
     assert high_w > high_u * 1.5, f"stratified sampler did not over-weight high-F columns: high_w={high_w} vs high_u={high_u}"
     # Sanity: every anchor still has exactly 5 distinct columns (no replacement bug).
+    assert len(a_weighted) > 0
     for a in a_weighted:
         assert len(a) == 5 and len(set(a)) == 5
 
@@ -1378,6 +1379,7 @@ def test_revalidate_top_n_cap_none_is_backward_compat(planted):
     )
     assert set(best) == {0, 1, 2}
     # No capped sentinel keys when the cap is disabled.
+    assert len(ranked) > 0
     for d in ranked:
         assert "honest_loss_capped" not in d
 

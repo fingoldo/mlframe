@@ -140,11 +140,13 @@ def test_forward_stepwise_persist_fold_scores_populates_diagnostics(stable_vs_un
         time_aware=False,
         cv_persist_fold_scores=True,
     )
+    assert len(diag_off) > 0
     for step in diag_off:
         assert "fold_rmses_per_candidate" not in step, "default OFF must not surface the dict"
     for step in diag_on:
         per_cand = step.get("fold_rmses_per_candidate")
         assert isinstance(per_cand, dict) and per_cand, "ON must populate per-candidate fold scores"
+        assert per_cand.items()
         for cand_name, fold_rmses in per_cand.items():
             assert isinstance(cand_name, str)
             assert isinstance(fold_rmses, list)

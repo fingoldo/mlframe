@@ -210,10 +210,13 @@ class TestRecipeCountParity:
         """Engineered features and recipes count match."""
         X, y = _kitchen_sink(seed=seed)
         X_tr, y_tr, _, _ = _train_holdout_split(X, y, seed=seed)
-        m = _make_mrmr(**_all_fe_kwargs())
+        # fe_max_steps is the master switch for every FE family, so at the factory default of 0 both counts are
+        # zero and the parity below holds vacuously.
+        m = _make_mrmr(fe_max_steps=1, **_all_fe_kwargs())
         m.fit(X_tr, y_tr)
         eng_feats = list(getattr(m, "_engineered_features_", []) or [])
         eng_recipes = list(getattr(m, "_engineered_recipes_", []) or [])
+        assert eng_feats, f"seed={seed}: all-FE kitchen sink produced no engineered features at all"
         assert len(eng_feats) == len(
             eng_recipes
         ), f"seed={seed}: recipe-count parity FAILED: {len(eng_feats)} engineered features but {len(eng_recipes)} recipes; _engineered_features_={eng_feats}"
@@ -226,15 +229,24 @@ class TestRecipeCountParity:
         """
         X, y = _kitchen_sink(seed=seed)
         X_tr, y_tr, _, _ = _train_holdout_split(X, y, seed=seed)
-        m = _make_mrmr(**_all_fe_kwargs())
+        # fe_max_steps must be >= 1: it is the master switch for EVERY FE family
+        # (``_fe_family_on`` requires it), so the 11 mechanisms in _all_fe_kwargs()
+        # emit nothing at the factory default of 0 and the replay check below has
+        # no recipe to check.
+        m = _make_mrmr(fe_max_steps=1, **_all_fe_kwargs())
         m.fit(X_tr, y_tr)
         out = m.transform(X_tr)
         eng_feats = list(getattr(m, "_engineered_features_", []) or [])
         eng_recipes = list(getattr(m, "_engineered_recipes_", []) or [])
         out_cols = set(out.columns)
+        # Floor: the kitchen sink really did engineer something to replay (measured
+        # 3-4 columns per seed); zero would make the loop below a silent pass.
+        pairs = list(zip(eng_feats, eng_recipes))
+        assert pairs, f"seed={seed}: all-FE kitchen sink produced no engineered features at all"
+        assert len(eng_recipes) == len(eng_feats), f"seed={seed}: {len(eng_feats)} engineered features but {len(eng_recipes)} recipes"
         # Every engineered name in _engineered_features_ that also has a
         # recipe MUST land in transform output.
-        for col, recipe in zip(eng_feats, eng_recipes):
+        for col, recipe in pairs:
             assert (
                 col in out_cols
             ), f"seed={seed}: engineered col {col!r} has a recipe ({type(recipe).__name__}) but did NOT materialise in transform output ({sorted(out_cols)})"

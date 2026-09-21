@@ -436,6 +436,7 @@ def test_p18_memo_present_on_base_contexts_and_used() -> None:
         target_col="y",
     )
     assert set(memo) == cached_keys, "second call added a memo key (not a hit)"
+    assert cached_vals.items()
     for k, v in cached_vals.items():
         assert memo[k] == v, "memo value changed between bit-identical calls"
     # Both calls produced the same spec mi_y (the memoised baseline).

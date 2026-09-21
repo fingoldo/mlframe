@@ -29,11 +29,17 @@ from typing import Sequence
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 
+from ._linear_masking import DEFAULT_MASKING_R2, drop_linearly_masked
+
 logger = logging.getLogger(__name__)
 
 # Default contrast-pool percentile the real importance must beat. 100 = strongest single contrast
 # (the Boruta MAX-shadow gate); Tuv 2009 uses a high percentile (95-100) to keep accepted-noise low.
 _DEFAULT_CONTRAST_PERCENTILE = 100.0
+
+# R^2 of an accepted feature on the more important kept ones above which it is masked (dropped). 0.95 == VIF 20,
+# the conventional "severe collinearity" line; genuinely distinct correlated drivers sit well below it.
+_DEFAULT_MASKING_R2 = DEFAULT_MASKING_R2
 
 
 @dataclass
@@ -181,6 +187,8 @@ def ace_select(
     fdr_control: bool = True,
     feature_names: Sequence | None = None,
     random_state: int = 0,
+    mask_redundant: bool = True,
+    masking_r2: float = _DEFAULT_MASKING_R2,
 ) -> ACEResult:
     """Select relevant features by Artificial Contrasts with Ensembles (Tuv et al. 2009).
 
@@ -200,6 +208,13 @@ def ace_select(
         procedure repeats on the remainder so features masked by a stronger correlate get another chance.
         1 disables the loop.
     fdr_control : Benjamini-Hochberg FDR correction across the feature battery (recommended).
+    mask_redundant : Tuv 2009 step 2 (masking elimination). The contrast test is a per-feature RELEVANCE test, so
+        every member of a collinear block clears it - an exact identity like ``x3 = 2*x1 - x2`` gets all three
+        accepted and the selected subset has a singular Gram. With this on, accepted features are walked in
+        descending importance and one is dropped when the already-kept features explain it linearly with
+        R^2 >= ``masking_r2`` (VIF >= 1/(1-masking_r2)): it carries no information the kept set lacks.
+    masking_r2 : R^2 above which an accepted feature counts as masked by the more important kept ones
+        (default 0.95, the conventional VIF-20 collinearity line).
 
     Returns
     -------
@@ -257,6 +272,9 @@ def ace_select(
         if newly.size == 0:
             break  # nothing new cleared the bar; masking cannot expose more
         remaining = idx[~acc_round]
+
+    if mask_redundant and accepted.sum() > 1:
+        accepted = drop_linearly_masked(X_arr, accepted, imp_mean, max_r2=masking_r2)
 
     selected = [names[i] for i in range(p) if accepted[i]]
     return ACEResult(
@@ -338,6 +356,8 @@ class ACESelector(TransformerMixin, BaseEstimator):
         n_perm_repeats: int = 5,
         fdr_control: bool = True,
         random_state: int = 0,
+        mask_redundant: bool = True,
+        masking_r2: float = _DEFAULT_MASKING_R2,
     ):
         self.estimator = estimator
         self.n_replicates = n_replicates
@@ -348,6 +368,8 @@ class ACESelector(TransformerMixin, BaseEstimator):
         self.n_perm_repeats = n_perm_repeats
         self.fdr_control = fdr_control
         self.random_state = random_state
+        self.mask_redundant = mask_redundant
+        self.masking_r2 = masking_r2
 
     def fit(self, X, y=None):
         """Run ``ace_select`` once and materialise the sklearn selector attributes (``support_``,
@@ -357,6 +379,7 @@ class ACESelector(TransformerMixin, BaseEstimator):
             n_replicates=self.n_replicates, contrast_percentile=self.contrast_percentile,
             alpha=self.alpha, importance=self.importance, n_masking_rounds=self.n_masking_rounds,
             n_perm_repeats=self.n_perm_repeats, fdr_control=self.fdr_control, random_state=self.random_state,
+            mask_redundant=self.mask_redundant, masking_r2=self.masking_r2,
         )
         self.ace_result_ = result
         self.feature_names_in_ = np.asarray([str(c) for c in result.feature_names], dtype=object)

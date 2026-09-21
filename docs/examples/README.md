@@ -7,6 +7,7 @@ the snippet to put in your script".
 | File | Topic |
 |---|---|
 | [`composite_targets.md`](composite_targets.md) | Auto-discovery composite targets: opt-in tiers, reading metadata, Markdown report, kill-switch env var, decision tree |
+| [`fixed_splits.md`](fixed_splits.md) | Exact, reusable train/val/test splits: record a run's split, retrain with more history on the same test/val, pin holdouts to date windows |
 
 For deeper conceptual material see the docs root:
 

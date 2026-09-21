@@ -40,6 +40,9 @@ from . import (
 
 logger = logging.getLogger("mlframe.training.composite_transforms")
 
+_LOGRATIO_MAD_FLOOR_ABS: float = 1e-3
+"""Absolute floor (log units, i.e. a 0.1% ratio move) on the soft-cap MAD of ``logratio``'s T when T is near-constant on train."""
+
 
 def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     """Fit the log-ratio transform ``T = log(y) - log(base)``: median/MAD of ``T_train`` plus a degeneracy-floored MAD.
@@ -59,8 +62,10 @@ def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     # MAD = 0 collapses every prediction to ``base * exp(median_t)``,
     # which still ranks as "naive baseline" at predict time but at
     # least does not distort in-distribution predictions.
-    std_y = float(np.std(y))
-    mad_floor = _MAD_FLOOR_FRAC * std_y if std_y > 0 else 1e-6
+    # T is unitless (a log ratio), so the floor must be too: a floor of 1e-3 * std(y) in raw y units made the cap ~1e3 log units on money-scale
+    # targets (never binding, exp overflows) and changed the inverse when y was merely rescaled.
+    std_t = float(np.std(t_train))
+    mad_floor = max(_MAD_FLOOR_FRAC * std_t, _LOGRATIO_MAD_FLOOR_ABS) if np.isfinite(std_t) else _LOGRATIO_MAD_FLOOR_ABS
     mad_eff = max(mad_train, mad_floor)
     return {
         "median_t": median_t,
@@ -107,8 +112,13 @@ def _linear_residual_fit(
         return {"alpha": 0.0, "beta": float(np.mean(y)) if n > 0 else 0.0}
     X = np.column_stack([base.astype(np.float64), np.ones(n, dtype=np.float64)])
     y_f = y.astype(np.float64)
+    b_f = X[:, 0]
 
     if sample_weight is None:
+        # A zero-variance base leaves the slope unidentified: lstsq then returns the minimum-norm split of the level between alpha and beta
+        # (alpha = 19.2 on a constant base of 5 with y ~ 100), which extrapolates wildly on any other base value. Pin it to (0, mean(y)).
+        if n > 0 and bool(np.all(b_f == b_f[0])):
+            return {"alpha": 0.0, "beta": float(np.mean(y_f))}
         coef, *_ = np.linalg.lstsq(X, y_f, rcond=None)
     else:
         w = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
@@ -123,6 +133,9 @@ def _linear_residual_fit(
         # rank-deficient cases.
         w_norm = w[finite]
         w_norm = w_norm * (n / w_norm.sum())
+        b_kept = b_f[finite]
+        if bool(np.all(b_kept == b_kept[0])):
+            return {"alpha": 0.0, "beta": float(np.average(y_f[finite], weights=w_norm))}
         sw = np.sqrt(w_norm)
         X_w = X[finite] * sw[:, None]
         y_w = y_f[finite] * sw
@@ -577,7 +590,7 @@ def _linear_residual_grouped_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from . import _canonical_group_key, _james_stein_shrinkage_factor
+    from . import _canonical_group_key, _james_stein_shrinkage_factor, _unique_group_labels
     if groups is None:
         raise ValueError(
             "linear_residual_grouped requires a 1-D ``groups`` array of "
@@ -597,7 +610,7 @@ def _linear_residual_grouped_fit(
     per_group_alphas: dict[str, float] = {}
     per_group_betas: dict[str, float] = {}
     group_sizes: dict[str, int] = {}
-    unique_groups, inverse_idx = np.unique(groups, return_inverse=True)
+    unique_groups, inverse_idx = _unique_group_labels(groups)
     # Sort rows once by group label so each group is a contiguous segment, instead
     # of re-scanning the whole length-n ``inverse_idx`` with a boolean mask per
     # group (the historic ``inverse_idx == i`` pattern is O(K*n) -- 13x slower at
@@ -652,6 +665,16 @@ def _linear_residual_grouped_fit(
         base_g = _base_sorted[_lo:_hi]
         sw_g = _sw_sorted[_lo:_hi] if _sw_sorted is not None else None
         _fit_ok = True
+        base_g64_all = np.asarray(base_g, dtype=np.float64)
+        if base_g64_all.size and bool(np.all(base_g64_all == base_g64_all[0])):
+            # A base that is constant WITHIN the group (a store-level attribute, a group-level lag) identifies the group's level but not its
+            # slope: keep the global slope and re-centre the intercept on the group's mean. The group is left out of the James-Stein statistics,
+            # where Var(base_g) = 0 would blow its noise proxy up.
+            a_g = alpha_global
+            b_g = float(np.mean(np.asarray(y_g, dtype=np.float64))) - alpha_global * float(base_g64_all[0])
+            per_group_alphas[g_key] = a_g
+            per_group_betas[g_key] = b_g
+            continue
         try:
             params_g = _linear_residual_fit(y_g, base_g, sample_weight=sw_g)
             a_g = float(params_g["alpha"])

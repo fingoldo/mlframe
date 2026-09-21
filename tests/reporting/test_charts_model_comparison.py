@@ -306,3 +306,26 @@ def test_cprofile_full_compose_at_1e6_binary():
         pr.disable()
     flat = [p for row in fig.panels for p in row if p is not None]
     assert len(flat) == 3
+
+
+def test_metricless_models_say_so_instead_of_quoting_an_empty_metric():
+    """With no metrics anywhere, _headline_metric picks nothing, so the panel must not quote an empty name.
+
+    The walkthrough found a panel captioned "metric '' missing on all models": the reader is told a metric they
+    never chose is missing, rather than that the models carry no metrics at all.
+    """
+    y, good, bad = _good_bad_binary(200, seed=3)
+    per_model = {"a": _binary_entry(y, good), "b": _binary_entry(y, bad)}
+    fig = mc.compose_model_comparison_figure(per_model, "binary")
+    texts = [p.text for row in fig.panels for p in row if isinstance(p, AnnotationPanelSpec)]
+    assert any("none of the models carry metrics" in t for t in texts), texts
+    assert not any("''" in t for t in texts), texts
+
+
+def test_a_named_metric_missing_everywhere_is_still_named():
+    """The other half of the same branch: an explicitly requested metric is quoted, so the reader can fix the call."""
+    y, good, bad = _good_bad_binary(200, seed=4)
+    per_model = {"a": _binary_entry(y, good, roc_auc=0.9), "b": _binary_entry(y, bad, roc_auc=0.5)}
+    fig = mc.compose_model_comparison_figure(per_model, "binary", metric="brier")
+    texts = [p.text for row in fig.panels for p in row if isinstance(p, AnnotationPanelSpec)]
+    assert any("'brier'" in t for t in texts), texts

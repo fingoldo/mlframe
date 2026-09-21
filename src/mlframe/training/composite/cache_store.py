@@ -276,11 +276,15 @@ class DiscoveryCache:
 
     def __del__(self) -> None:
         # Best-effort flush so a cache GC'd without an explicit close() still persists access order.
+        # At interpreter shutdown module globals (logging internals included) may already be torn down, so even the
+        # debug log inside close()'s handler can raise TypeError; any failure here must stay silent ("Exception ignored in __del__").
         try:
             self.close()
         except Exception as e:
-            logger.debug("swallowed exception in cache_store.py: %s", e)
-            pass
+            try:
+                logger.debug("DiscoveryCache.__del__ flush failed: %s", e)
+            except (TypeError, AttributeError, NameError):  # logging internals already torn down at interpreter shutdown
+                pass
 
     def _touch_lru(self, key: str) -> None:
         """Record ``key`` as accessed now in the in-memory LRU ledger and mark it dirty (disk write deferred to the next flush point)."""
@@ -345,7 +349,10 @@ class DiscoveryCache:
         try:
             _file_size = os.path.getsize(path)
         except OSError:
-            _file_size = -1
+            # No payload on disk: a plain cache miss. safe_load would otherwise report it as a verification
+            # failure (ERROR log from verify_sidecar + PickleVerificationError), turning every first-run miss
+            # into an error-level log line and a "unreadable/unverifiable entry" warning.
+            return default
         if _file_size > _max_bytes:
             logger.warning(
                 "DiscoveryCache: skipping oversized entry at %s (%.2f GiB > %.2f GiB ceiling); "

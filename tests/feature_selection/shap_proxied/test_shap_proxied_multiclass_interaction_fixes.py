@@ -246,6 +246,7 @@ def test_subsetrank_nan_loss_never_selected_as_top():
     finally:
         sr._subset_loss_scan_njit = orig
 
+    assert len(res) > 0
     for loss, _comb in res:
         assert np.isfinite(loss), "a NaN loss must never be selected into the top-N"
 

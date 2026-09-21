@@ -1102,6 +1102,7 @@ class TestHypothesisDataFrameConversion:
 
         # Convert to Python floats for comparison
         pd_values = pd_df["values"].to_list()
+        assert list(zip(values, pd_values))
         for orig, converted in zip(values, pd_values):
             assert abs(orig - converted) < 1e-9
 
@@ -1158,6 +1159,7 @@ class TestHypothesisProcessNans:
         assert not result["col"].isna().any()
 
         # Verify fill value was used
+        assert len(nan_indices) > 0
         for idx in nan_indices:
             assert result["col"].iloc[idx] == fill_value
 
@@ -1255,5 +1257,6 @@ class TestRemoveConstantColumnsHypothesis:
         df = pd.DataFrame(cols)
         result = remove_constant_columns(df, verbose=0)
         # All constant columns should be removed
+        assert len(result.columns) > 0
         for col in result.columns:
             assert result[col].nunique() > 1

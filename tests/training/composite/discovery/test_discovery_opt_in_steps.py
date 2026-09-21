@@ -133,14 +133,39 @@ def test_region_adaptive_on_runs_and_sets_artifact():
         assert t.shape == y.shape and np.isfinite(t).all()
 
 
+def _pure_interaction(n: int = 1200, seed: int = 0) -> pd.DataFrame:
+    """``y = 3*base*x1`` -- a PURE interaction: neither parent carries marginal MI, so the
+    synergy gate in ``discover_interaction_bases`` fires on the ``base OP x1`` synthetics.
+    The AR-style ``_synthetic`` frame is additive, where no pair clears that gate.
+    """
+    rng = np.random.default_rng(seed)
+    base = rng.normal(0.0, 1.0, n)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    x3 = rng.normal(size=n)
+    y = 3.0 * base * x1 + rng.normal(scale=0.2, size=n)
+    return pd.DataFrame({"base": base, "x1": x1, "x2": x2, "x3": x3, "y": y})
+
+
 def test_interaction_base_discovery_on_runs_and_sets_artifact():
     """Interaction base discovery on runs and sets artifact."""
-    disc = _fit(_base_config(interaction_base_discovery_enabled=True))
+    # Two base candidates + a pure-interaction target: the step needs a pool of >= 2 bases
+    # AND a qualifying synergy pair, neither of which the additive default fixture supplies
+    # (it left interaction_bases_ empty, so the per-base checks below never ran).
+    disc = _fit(
+        _base_config(interaction_base_discovery_enabled=True, base_candidates=["base", "x1"]),
+        _pure_interaction(),
+    )
     assert hasattr(disc, "interaction_bases_")
     assert isinstance(disc.interaction_bases_, dict)
     assert isinstance(disc.interaction_base_records_, list)
+    # Floor: the step really surfaced synthetics, one record per surfaced base.
+    surfaced = sorted(disc.interaction_bases_.items())
+    assert surfaced, "pure-interaction frame must surface at least one synthetic interaction base"
+    assert len(disc.interaction_base_records_) == len(surfaced)
+    assert "base__mul__x1" in disc.interaction_bases_, f"the product of the two interacting parents must qualify; got {sorted(disc.interaction_bases_)}"
     # Whatever surfaced must be a screen-row-length ndarray.
-    for name, arr in disc.interaction_bases_.items():
+    for name, arr in surfaced:
         assert isinstance(name, str)
         assert np.asarray(arr).ndim == 1
 
@@ -243,3 +268,37 @@ def test_opt_in_steps_parallel_matches_serial_specs(monkeypatch):
     assert _spec_keys(serial.specs_) == _spec_keys(parallel.specs_)
     ra_keys = lambda specs: [(s.name, s.base_column, s.edges) for s in specs]
     assert ra_keys(serial.region_adaptive_specs_) == ra_keys(parallel.region_adaptive_specs_)
+
+
+def test_auto_chain_uses_the_tiny_model_row_budget(monkeypatch):
+    """Auto-chain is tiny-model CV (12 transforms x folds per base), so it runs on ``tiny_model_sample_n`` rows, not on the
+    larger MI screen sample: one production target spent 55s in this step on a 26k-row screen sample."""
+    import mlframe.training.composite.discovery._opt_in_steps as ois_mod  # codespell:ignore
+
+    seen = []
+    orig = ois_mod.discover_chains
+
+    def _spy(**kw):
+        """Record the row count handed to discover_chains, then delegate."""
+        seen.append(kw["y"].shape[0])
+        return orig(**kw)
+
+    monkeypatch.setattr(ois_mod, "discover_chains", _spy)
+    _fit(_base_config(auto_chain_discovery_enabled=True, tiny_model_sample_n=500))
+    assert seen and max(seen) <= 500
+
+
+def test_lgb_fold_cache_matches_per_fit_lightgbm():
+    """Sharing one binned dataset per fold across candidates must score like a fresh LGBMRegressor per candidate."""
+    from mlframe.training.composite.discovery._auto_chain import _y_scale_cv_rmse, build_chain_transform
+    from mlframe.training.composite.discovery._lgb_fold_cache import LgbFoldCache
+
+    df = _synthetic(n=3000)
+    y, base = df["y"].to_numpy(), df["base"].to_numpy()
+    x = df[["x1", "x2", "x3"]].to_numpy()
+    kw = dict(y=y, base=base, x_matrix=x, cv_folds=3, random_state=0, family="lgb", n_estimators=40, num_leaves=15, learning_rate=0.1)
+    for tf in (None, build_chain_transform("linear_residual", "cbrt")):
+        plain, _ = _y_scale_cv_rmse(tf, **kw)
+        cache = LgbFoldCache(n_estimators=40, num_leaves=15, learning_rate=0.1, random_state=0)
+        cached, _ = _y_scale_cv_rmse(tf, fold_cache=cache, **kw)
+        assert cached == pytest.approx(plain, rel=1e-6)

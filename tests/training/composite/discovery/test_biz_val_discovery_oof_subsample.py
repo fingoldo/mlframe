@@ -71,6 +71,7 @@ def test_biz_val_oof_subsample_keeps_whole_groups():
     assert pos is not None and 0 < pos.size < groups.size
     kept_groups = set(groups[pos].tolist())
     # WHOLE groups: every row of a kept group is present (no partial group).
+    assert len(kept_groups) > 0
     for g in kept_groups:
         assert int(np.count_nonzero(groups[pos] == g)) == int(np.count_nonzero(groups == g)), f"group {g} only partially kept -- group-aware subsample broken"
 

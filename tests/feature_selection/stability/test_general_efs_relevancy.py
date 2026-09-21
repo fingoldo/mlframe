@@ -264,6 +264,7 @@ def test_relevancy_keeps_genuine_signal_under_fdr():
         verbose=0,
     )
     drops = set(cols_to_drop)
+    assert list(range(2))
     for i in range(2):
         assert f"inf_{i}" not in drops, f"inf_{i} is genuinely relevant but was dropped under FDR; got {drops}"
 

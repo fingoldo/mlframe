@@ -29,6 +29,7 @@ def get_dist_percentage_span_for_sd(sd_sigma: float, dist: norm_gen = norm, **di
     >>> float(round(get_dist_percentage_span_for_sd(3), 10))
     0.9973002039
 
+    >>> from scipy.stats import t
     >>> float(round(get_dist_percentage_span_for_sd(3, dist=t, df=1e20), 10))
     0.9973002039
     """

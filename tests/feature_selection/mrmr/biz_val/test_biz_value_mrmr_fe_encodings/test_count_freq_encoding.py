@@ -243,6 +243,7 @@ class TestCatNumInteractionKernel:
         )
         # Each category's stored lookup mean should be close to its construction mean
         # (small smoothing, n_c large -> approx raw mean).
+        assert means_map.items()
         for c, mu in means_map.items():
             assert abs(recipe["lookup"][c] - mu) < 2.0, f"lookup[{c}]={recipe['lookup'][c]:.3f} far from true mu={mu}"
         # Residual sample mean per category should hover near zero.

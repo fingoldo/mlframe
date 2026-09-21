@@ -23,6 +23,7 @@ def test_public_uncertainty_api_importable():
         "predictive_entropy",
         "NoiseAugmentedEnsemble",
     ]
+    assert len(names) > 0
     for n in names:
         assert hasattr(training_mod, n), f"mlframe.training missing public symbol {n}"
         assert n in training_mod.__all__, f"{n} not in mlframe.training.__all__"

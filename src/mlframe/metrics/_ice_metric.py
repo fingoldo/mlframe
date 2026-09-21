@@ -362,6 +362,7 @@ class ICE:
     higher_is_better: bool
     calibration_plot_period: int
     max_arr_size: int
+    skip_largest_set: bool
     plot_file: Optional[str]
 
     def __init__(
@@ -370,6 +371,7 @@ class ICE:
         higher_is_better: bool,
         calibration_plot_period: int = 0,
         max_arr_size: int = 0,
+        skip_largest_set: bool = False,
         plot_file: Optional[str] = None,
     ) -> None:
 
@@ -377,6 +379,11 @@ class ICE:
         store_params_in_object(obj=self, params=get_parent_func_args(), postfix="")
 
         self.nruns = 0
+        # Row counts this instance has been called with. CatBoost evaluates a custom eval_metric on the LEARN set as well
+        # as on the eval set; the learn value is only printed (early stopping and model selection read the eval set), and
+        # on a 498k-row learn set one call cost 107.8 ms. ``skip_largest_set`` skips the largest set seen once more than
+        # one size has appeared, i.e. only when an eval set exists, so a run without one keeps computing its only metric.
+        self._seen_sizes: set = set()
 
     def is_max_optimal(self):
         """CatBoost custom-metric protocol hook: whether a higher value is better."""
@@ -402,9 +409,14 @@ class ICE:
         """CatBoost custom-metric protocol hook: convert raw logits to probabilities, compute the integral calibration error, and periodically log/plot the calibration report."""
         output_weight = 1  # weight is not used
 
+        n_rows = len(approxes[0])
         # to avoid expensive train set metric evaluation, we simply return 0 for any input larger than max_arr_size
-        if self.max_arr_size and len(approxes[0]) > self.max_arr_size:
+        if self.max_arr_size and n_rows > self.max_arr_size:
             return 0, output_weight
+        if getattr(self, "skip_largest_set", False):
+            self._seen_sizes.add(n_rows)
+            if len(self._seen_sizes) > 1 and n_rows == max(self._seen_sizes):
+                return 0, output_weight
 
         # Convert CatBoost logits to probabilities using numba-optimized functions
         from .core import cb_logits_to_probs_binary, cb_logits_to_probs_multiclass  # lazy: import-cycle, see module top

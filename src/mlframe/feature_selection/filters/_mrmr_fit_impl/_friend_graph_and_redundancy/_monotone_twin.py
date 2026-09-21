@@ -1,8 +1,10 @@
 """Survivor choice between two selected raw columns that are monotone twins."""
 from __future__ import annotations
 
+from typing import Optional
 
-def monotone_twin_to_drop(candidate: int, kept: int, cached_mis: dict):
+
+def monotone_twin_to_drop(candidate: int, kept: int, cached_mis: dict[tuple, float]) -> Optional[int]:
     """Index of the twin to drop (the lower screening MI; a tie drops ``candidate``), or ``None`` to keep both.
 
     ``cached_mis`` holds only what the greedy screen scored, so a raw column a rescue pass re-added can be missing. Reading a miss as 0.0

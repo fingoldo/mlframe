@@ -27,6 +27,7 @@ class TestM9Config:
     def test_enabled_appends_all_three(self) -> None:
         """Enabled appends all three."""
         cfg = CompositeTargetDiscoveryConfig(time_series_transforms_enabled=True)
+        assert len(_TS) > 0
         for t in _TS:
             assert t in cfg.transforms
 

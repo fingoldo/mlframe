@@ -89,6 +89,7 @@ def test_validated_recovers_real_breakpoints_on_synthetic_signal():
     inner = edges[1:-1]
     inner = inner[np.isfinite(inner)]
     assert inner.size >= 2, f"expected at least the 2 true breakpoints, got {inner.size} inner edges: {inner}"
+    assert len(true_cuts) > 0
     for cut in true_cuts:
         assert any(abs(e - cut) < 0.3 for e in inner), (cut, inner)
 

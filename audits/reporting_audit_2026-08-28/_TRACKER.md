@@ -10,14 +10,14 @@ A cluster file moves to `implemented/` only once EVERY finding in it carries a f
 
 ## Per-cluster status
 
-| Cluster | Scope | Report | Findings | Status |
-|---|---|---|---|---|
-| reporting_core | `spec.py`, `output.py`, `colors.py`, `catalog.py`, `auto_dispatch.py`, `diagnostics_dispatch.py`, `report_html.py`, `_benchmarks/` | [implemented/reporting_core.md](implemented/reporting_core.md) | 30 (0/0/8/22) | **COMPLETE** (26 RESOLVED, 2 FUTURE, 1 DOC, 1 REJECTED) |
-| reporting_renderers | `renderers/**` (matplotlib, plotly, kaleido, save dispatch, shared helpers) | [implemented/reporting_renderers.md](implemented/reporting_renderers.md) | 29 (0/5/9/15) | **COMPLETE** (28 RESOLVED, 1 FUTURE) |
-| reporting_charts_a | `charts/` shared kernels + binary/calibration family | [implemented/reporting_charts_a.md](implemented/reporting_charts_a.md) | 36 (0/4/15/17) | **COMPLETE** (29 RESOLVED, 4 FUTURE, 3 DOC) |
-| reporting_charts_b | `charts/` class-structure through multilabel (incl. `model_card`, `decision_curve`) | [implemented/reporting_charts_b.md](implemented/reporting_charts_b.md) | 68 (0/11/34/23) | **COMPLETE** (66 RESOLVED, 1 FUTURE, 1 DOC) -> [implemented/](implemented/reporting_charts_b.md) |
-| reporting_charts_c | `charts/` pdp through training_curve (incl. `risk_coverage`, `slice_finder`) | [implemented/reporting_charts_c.md](implemented/reporting_charts_c.md) | 40 (0/2/22/16) | **COMPLETE** (37 RESOLVED, 3 FUTURE) |
-| reporting_ux_crosscutting | repo-wide caption inventory, verdict surfacing, degenerate cases, tooltips, colour accessibility, backend parity | [implemented/reporting_ux_crosscutting.md](implemented/reporting_ux_crosscutting.md) | 74 (0/4/41/29) | **COMPLETE** (69 RESOLVED, 2 FUTURE, 3 REJECTED) |
+| Status | Cluster | Scope | Report | Findings | Note |
+|---|---|---|---|---|---|
+| **COMPLETE** | reporting_core | `spec.py`, `output.py`, `colors.py`, `catalog.py`, `auto_dispatch.py`, `diagnostics_dispatch.py`, `report_html.py`, `_benchmarks/` | [implemented/reporting_core.md](implemented/reporting_core.md) | 30 (0/0/8/22) | (29 RESOLVED, 1 REJECTED; recounted from the Disposition column, was 26 RESOLVED, 2 FUTURE, 1 DOC, 1 REJECTED) |
+| **COMPLETE** | reporting_renderers | `renderers/**` (matplotlib, plotly, kaleido, save dispatch, shared helpers) | [implemented/reporting_renderers.md](implemented/reporting_renderers.md) | 29 (0/5/9/15) | (29 RESOLVED; recounted from the Disposition column, was 28 RESOLVED, 1 FUTURE) |
+| **COMPLETE** | reporting_charts_a | `charts/` shared kernels + binary/calibration family | [implemented/reporting_charts_a.md](implemented/reporting_charts_a.md) | 36 (0/4/14/18) | (34 RESOLVED, 1 FUTURE, 1 DOC; recounted from the Disposition and Severity columns, was 29 RESOLVED, 4 FUTURE, 3 DOC and 0/4/15/17) |
+| **COMPLETE** | reporting_charts_b | `charts/` class-structure through multilabel (incl. `model_card`, `decision_curve`) | [implemented/reporting_charts_b.md](implemented/reporting_charts_b.md) | 68 (0/9/32/27) | (66 RESOLVED, 1 FUTURE, 1 DOC; severities recounted from the Sev column, was 0/11/34/23) -> [implemented/](implemented/reporting_charts_b.md) |
+| **COMPLETE** | reporting_charts_c | `charts/` pdp through training_curve (incl. `risk_coverage`, `slice_finder`) | [implemented/reporting_charts_c.md](implemented/reporting_charts_c.md) | 40 (0/2/22/16) | (39 RESOLVED, 1 FUTURE; recounted from the Disposition column, was 37 RESOLVED, 3 FUTURE) |
+| **COMPLETE** | reporting_ux_crosscutting | repo-wide caption inventory, verdict surfacing, degenerate cases, tooltips, colour accessibility, backend parity | [implemented/reporting_ux_crosscutting.md](implemented/reporting_ux_crosscutting.md) | 74 (0/4/39/31) | (71 RESOLVED, 3 REJECTED; recounted from the Disposition and Severity columns, was 69 RESOLVED, 2 FUTURE, 3 REJECTED and 0/4/41/29) |
 
 **Every finding in the campaign carries a final disposition (277 of 277), and every cluster file has moved to `implemented/`.** Counted from the disposition cells: 268 RESOLVED, 3 FUTURE, 2 DOC, 4 REJECTED.
 
@@ -32,7 +32,7 @@ A correction worth recording, because it is the kind of bookkeeping error an aud
 
 The three surviving FUTUREs are all the same thing: **CHARTS_A-19**, **B-59** and **C-28** are file carves, scheduled as their own commits because carving a file in the same change that alters its behaviour makes both undiffable. The two DOCs (**A-29**, **B-57**) are design decisions that were examined and kept, not work avoided. Two of the four rejections are findings a fix earlier in this same campaign had already closed; the disproof (both call sites read, byte-identical guards) is written next to each.
 
-**Total: 277 findings — 0 P0, 26 P1, 138 P2, 113 P3.** Counts are `(P0/P1/P2/P3)`.
+**Total: 277 findings — 0 P0, 24 P1, 124 P2, 129 P3.** Counts are `(P0/P1/P2/P3)`, recounted from the Severity column of each cluster file (the earlier line read 26 P1, 138 P2, 113 P3).
 
 ## Disposition legend
 

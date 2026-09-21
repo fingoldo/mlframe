@@ -103,6 +103,7 @@ def test_per_group_discovery_finds_different_specs_per_group():
     assert set(disc.specs_by_group_.keys()) == {"A", "B", "C"}, (
         f"expected the 3 large groups (>=500 rows) to get their own spec set, got {sorted(disc.specs_by_group_.keys())}"
     )
+    assert disc.specs_by_group_.items()
     for g, specs in disc.specs_by_group_.items():
         assert specs, f"group {g} discovered zero specs"
 
@@ -171,6 +172,7 @@ def test_per_group_discovery_default_off_is_byte_identical():
 
     assert disc1.specs_by_group_ == {}
     assert [s.name for s in disc1.specs_] == [s.name for s in disc2.specs_]
+    assert list(zip(disc1.specs_, disc2.specs_))
     for s1, s2 in zip(disc1.specs_, disc2.specs_):
         assert s1.fitted_params == s2.fitted_params
         assert s1.mi_gain == s2.mi_gain

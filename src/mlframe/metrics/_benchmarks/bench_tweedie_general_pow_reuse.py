@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 import sys; sys.modules['cupy'] = None
 import numpy as np, time
 from numba import njit
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 NP = dict(cache=True, fastmath=True, nogil=True)
 
@@ -70,7 +71,8 @@ def bench():
             def t(fn):
                 best = 1e9
                 for _ in range(7):
-                    s = time.perf_counter(); fn(yt, yp, power); d = time.perf_counter() - s
+                    synchronize_gpu_if_available()
+                    s = time.perf_counter(); fn(yt, yp, power); synchronize_gpu_if_available(); d = time.perf_counter() - s
                     best = min(best, d)
                 return best
             to = t(old_kernel); tn = t(new_kernel)

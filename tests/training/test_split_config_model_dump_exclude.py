@@ -58,6 +58,7 @@ def test_phase_helpers_fit_split_filter_drops_all_caller_side_fields() -> None:
     splitter_kwargs = set(inspect.signature(make_train_test_split).parameters)
     explicit = {"df", "timestamps", "stratify_y", "groups"}
     filtered = {k: v for k, v in cfg.model_dump().items() if k in splitter_kwargs and k not in explicit}
+    assert len(_CALLER_SIDE_FIELDS) > 0
     for field in _CALLER_SIDE_FIELDS:
         assert field not in filtered, (
             f"Caller-side field {field!r} survived the signature-derived "
@@ -74,6 +75,7 @@ def test_make_train_test_split_signature_does_not_accept_caller_side_fields() ->
     from mlframe.training.splitting import make_train_test_split
 
     params = inspect.signature(make_train_test_split).parameters
+    assert len(_CALLER_SIDE_FIELDS) > 0
     for field in _CALLER_SIDE_FIELDS:
         assert field not in params, (
             f"make_train_test_split signature now accepts {field!r}; "
@@ -91,6 +93,7 @@ def test_training_split_config_has_each_caller_side_field() -> None:
     from mlframe.training._preprocessing_configs import TrainingSplitConfig
 
     fields = getattr(TrainingSplitConfig, "model_fields", {})
+    assert len(_CALLER_SIDE_FIELDS) > 0
     for field in _CALLER_SIDE_FIELDS:
         assert (
             field in fields

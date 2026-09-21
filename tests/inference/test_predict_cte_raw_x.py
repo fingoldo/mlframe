@@ -1,114 +1,112 @@
-"""Regression coverage for the CTE + pre_pipeline base-column scaling bug.
+"""The two pipeline stages a composite wrapper needs, checked against an oracle at every predict entry point.
 
-Discovered by the TVT-2026-05-21 forensic audit. ``CompositeTargetEstimator``
-(linear_residual / linear_residual_robust / etc.) fits ``alpha, beta`` on the
-RAW base column during discovery. At predict time the suite default passes the
-pre-pipeline-scaled X (e.g. ``StandardScaler`` z-scoring every numeric column
-including the base column). The wrapper extracts the SCALED base, computes
-``y = t_hat + alpha * base_scaled + beta`` instead of
-``y = t_hat + alpha * base_raw + beta``; predictions collapse to residual
-scale (mean ~ 0, std ~ residual_std). The fix routes raw X to
-CompositeTargetEstimator-typed wrappers explicitly via ``_primary_for_model``
-in ``predict.py``.
+``CompositeTargetEstimator`` fits ``alpha, beta`` on the RAW base column at discovery time, while the inner model it wraps is
+trained on the entry's ``pre_pipeline`` output (StandardScaler / imputer / encoder). One frame cannot serve both: handing the
+wrapper the pre-pipeline-scaled frame collapses ``y = t_hat + alpha*base + beta`` to residual scale, and handing it the raw frame
+feeds the inner features it was not trained on. The wrapper therefore carries ``inner_pre_pipeline_`` and derives the inner's
+frame itself (or takes it as ``inner_X``), and every entry point must hand it the raw, suite-stage frame.
+
+The oracle each test compares against is "inner on pre_pipeline(X), base read raw" computed directly from the fitted pieces.
 """
 
 from __future__ import annotations
 
 import os
-import pathlib
+from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
+import pytest
+from sklearn.linear_model import Ridge
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
-from mlframe.training.core import predict as predict_mod
-
-
-def test_predict_module_has_cte_raw_x_dispatch():
-    """Sanity: the predict dispatch site mentions the CTE class and the
-    per-model selector. After the 2026-05-22 split the dispatch lives in
-    ``_predict_main_from_models.py``; check the parent + all siblings.
-    """
-    _core = pathlib.Path(predict_mod.__file__).resolve().parent
-    src = ""
-    for _name in ("predict.py", "_predict_main.py", "_predict_main_from_models.py", "_predict_main_suite.py", "_predict_pre_pipeline.py"):
-        _p = _core / _name
-        if _p.exists():
-            src += _p.read_text(encoding="utf-8")
-            src += "\n"
-    assert (
-        "CompositeTargetEstimator" in src
-    ), "CTE-RAW-X dispatch missing from predict module -- the CTE+pre_pipeline base scaling fix would regress on the next prod run."
-    assert (
-        "_primary_for_model" in src
-    ), "_primary_for_model selector missing -- the per-model raw-vs-scaled dispatch branch was removed; reinstate before shipping."
+from mlframe.training.composite.estimator._estimator import CompositeTargetEstimator
+from mlframe.training.composite.post_shim import PrePipelinePredictShim
+from mlframe.training.composite.transforms import _linear_residual_fit, get_transform
 
 
-def test_cte_wrapped_model_receives_raw_base_at_predict():
-    """End-to-end behavioural test: build a synthetic linear-residual scenario,
-    wrap inner in CompositeTargetEstimator, and verify wrapper.predict on RAW
-    input returns y-scale predictions (mean ~ target mean, std ~ target std)
-    while predict on SCALED input degenerates (the prod bug)."""
-    from sklearn.compose import TransformedTargetRegressor  # noqa: F401
-    from sklearn.linear_model import Ridge
-    from sklearn.preprocessing import StandardScaler
-
-    from mlframe.training.composite.estimator._estimator import CompositeTargetEstimator
-    from mlframe.training.composite.transforms import (
-        _linear_residual_fit,
-        get_transform,
-    )
-
-    # Synthetic: y = 0.9 * base + signal + noise.
-    rng = np.random.default_rng(0)
-    n = 5000
-    base = rng.normal(1000.0, 50.0, n).astype(np.float64)
-    signal = rng.normal(0.0, 10.0, n)
-    noise = rng.normal(0.0, 5.0, n)
-    y = 0.9 * base + signal + noise
-
-    # Fit linear_residual transform on RAW base.
-    fitted_params = _linear_residual_fit(y, base)
-    alpha = float(fitted_params["alpha"])
+def _scaled_inner_scenario(n: int = 2000, seed: int = 0):
+    """A composite target whose inner was trained behind a fitted scaler: frame, y, spec params, pipeline, inner and the oracle."""
+    rng = np.random.default_rng(seed)
+    base = rng.normal(1000.0, 50.0, n)
+    feature = rng.normal(0.0, 1.0, n)
+    y = 0.9 * base + 10.0 * feature + rng.normal(0.0, 1.0, n)
+    params = _linear_residual_fit(y, base)
     transform = get_transform("linear_residual")
+    t = transform.forward(y, base, params)
+    X = pd.DataFrame({"base": base, "feature": feature})
+    pre_pipeline = Pipeline([("scaler", StandardScaler())]).fit(X)
+    inner = Ridge().fit(pre_pipeline.transform(X), t)
+    oracle = np.asarray(transform.inverse(np.asarray(inner.predict(pre_pipeline.transform(X))), base, params), dtype=np.float64)
+    return X, y, params, pre_pipeline, inner, oracle
 
-    # Build inner estimator trained on T = forward(y, base, params).
-    t = transform.forward(y, base, fitted_params)
-    X_df = __import__("pandas").DataFrame({"base": base, "noise": rng.normal(0, 1, n)})
-    inner = Ridge().fit(X_df, t)
 
-    # Wrap.
-    wrapper = CompositeTargetEstimator.from_fitted_inner(
+def _wrap(inner, params, pre_pipeline, y, **kwargs):
+    """Wrap ``inner`` as the suite does, optionally without handing the wrapper the inner's pipeline."""
+    return CompositeTargetEstimator.from_fitted_inner(
         fitted_inner=inner,
         transform_name="linear_residual",
         base_column="base",
-        base_columns=None,
-        transform_fitted_params=fitted_params,
+        transform_fitted_params=params,
         y_train=y,
+        inner_pre_pipeline=pre_pipeline,
+        **kwargs,
     )
 
-    # Predict on RAW X.
-    pred_raw = np.asarray(wrapper.predict(X_df))
-    assert (
-        abs(pred_raw.mean() - y.mean()) / max(abs(y.mean()), 1.0) < 0.05
-    ), f"CTE.predict on RAW X: pred mean {pred_raw.mean():.1f} should ~ target mean {y.mean():.1f}"
-    # Predictions should track y to within ~2x residual std.
-    assert (
-        abs(pred_raw.std() - y.std()) / max(abs(y.std()), 1.0) < 0.5
-    ), f"CTE.predict on RAW X: pred std {pred_raw.std():.1f} should ~ target std {y.std():.1f}"
 
-    # Now demonstrate the bug: predict on z-scored X.
-    scaler = StandardScaler().fit(X_df)
-    X_scaled = __import__("pandas").DataFrame(
-        scaler.transform(X_df),
-        columns=X_df.columns,
-    )
-    pred_scaled = np.asarray(wrapper.predict(X_scaled))
-    # Bug signature: pred mean is way off from y mean (the additive alpha*base term collapsed).
-    assert abs(pred_scaled.mean() - y.mean()) > 100.0 * abs(alpha), (
-        "Expected the CTE+scaled-X bug to be visible: pred mean should DIVERGE from "
-        f"y mean when base is z-scored. Got pred_mean={pred_scaled.mean():.1f}, "
-        f"y_mean={y.mean():.1f}, alpha={alpha:.3f}. If this assertion fails the "
-        "regression test premise is invalidated -- re-check the bug repro."
-    )
+def _rmse(pred, y) -> float:
+    """Root mean squared error of ``pred`` against ``y``."""
+    return float(np.sqrt(np.mean((np.asarray(pred, dtype=np.float64) - np.asarray(y, dtype=np.float64)) ** 2)))
+
+
+def test_oracle_beats_both_single_stage_frames():
+    """The oracle (inner on scaled X, base raw) must be far better than either single-frame choice, else the test is toothless."""
+    X, y, params, pre_pipeline, inner, oracle = _scaled_inner_scenario()
+    wrapper_no_pp = _wrap(inner, params, None, y)
+    raw_x_everywhere = np.asarray(wrapper_no_pp.predict(X))
+    X_scaled = pd.DataFrame(pre_pipeline.transform(X), columns=X.columns)
+    scaled_x_everywhere = np.asarray(wrapper_no_pp.predict(X_scaled))
+    assert _rmse(oracle, y) < 0.05 * float(np.std(y))
+    assert _rmse(raw_x_everywhere, y) > 10.0 * _rmse(oracle, y)
+    assert _rmse(scaled_x_everywhere, y) > 10.0 * _rmse(oracle, y)
+
+
+def test_wrapper_predict_on_raw_frame_matches_oracle():
+    """A wrapper carrying the inner's pipeline reproduces the oracle exactly from the raw frame alone."""
+    X, y, params, pre_pipeline, inner, oracle = _scaled_inner_scenario()
+    wrapper = _wrap(inner, params, pre_pipeline, y)
+    np.testing.assert_allclose(np.asarray(wrapper.predict(X)), oracle, rtol=1e-9, atol=1e-9)
+
+
+def test_wrapper_predict_with_inner_x_override_matches_oracle():
+    """``inner_X`` lets a caller that already applied the pipeline keep the base on its raw frame."""
+    X, y, params, pre_pipeline, inner, oracle = _scaled_inner_scenario()
+    wrapper = _wrap(inner, params, None, y)
+    got = np.asarray(wrapper.predict(X, inner_X=pre_pipeline.transform(X)))
+    np.testing.assert_allclose(got, oracle, rtol=1e-9, atol=1e-9)
+
+
+def test_pre_pipeline_shim_routes_composite_components_to_the_oracle():
+    """The ensemble's component shim must not scale the frame the wrapper reads its base from, whoever owns the pipeline."""
+    X, y, params, pre_pipeline, inner, oracle = _scaled_inner_scenario()
+    for wrapper in (_wrap(inner, params, pre_pipeline, y), _wrap(inner, params, None, y)):
+        shim = PrePipelinePredictShim(wrapper, pre_pipeline, "composite#0")
+        np.testing.assert_allclose(np.asarray(shim.predict(X)), oracle, rtol=1e-9, atol=1e-9)
+
+
+def test_predict_from_models_matches_oracle():
+    """The in-memory entry point feeds the wrapper the suite-stage frame, not its own per-model pre_pipeline output."""
+    from mlframe.training.core.predict import predict_from_models
+
+    X, y, params, pre_pipeline, inner, oracle = _scaled_inner_scenario()
+    wrapper = _wrap(inner, params, pre_pipeline, y)
+    entry = SimpleNamespace(model=wrapper, model_name="cte", columns=list(X.columns), pre_pipeline=pre_pipeline, metrics={})
+    models = {"regression": {"y-linres-base": [entry]}}
+    metadata = {"columns": list(X.columns), "pipeline": None, "extensions_pipeline": None, "schema_version": 2}
+    result = predict_from_models(X, models, metadata, return_probabilities=False, verbose=0)
+    assert len(result["predictions"]) == 1
+    np.testing.assert_allclose(np.asarray(next(iter(result["predictions"].values()))), oracle, rtol=1e-9, atol=1e-9)
 
 
 def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, durable=False):
@@ -126,56 +124,22 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
         return False
 
 
-def test_predict_mlframe_models_suite_applies_cte_raw_x_routing(tmp_path):
-    """End-to-end: predict_mlframe_models_suite (the DISK-loading entry point) must route the RAW
-    pre-pipeline frame to a CompositeTargetEstimator, not the per-model pre_pipeline-scaled frame.
-
-    Pre-fix, predict_mlframe_models_suite had its own inline pre_pipeline.transform block with no
-    CTE-RAW-X routing at all (unlike its in-memory sibling predict_from_models); every disk-loaded
-    composite-target model would have its base column z-scored by the per-model StandardScaler
-    pre_pipeline before predict(), silently collapsing predictions to residual/T scale.
-    """
+@pytest.mark.parametrize("wrapper_owns_pipeline", [True, False])
+def test_predict_mlframe_models_suite_matches_oracle(tmp_path, wrapper_owns_pipeline):
+    """The disk entry point must reach the same oracle for a dumped wrapper, whether or not it carries the pipeline itself."""
     import pickle
-    from types import SimpleNamespace
     from unittest.mock import patch
 
-    import pandas as pd
     import zstandard
-    from sklearn.linear_model import Ridge
-    from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import StandardScaler
 
-    from mlframe.training.composite.estimator._estimator import CompositeTargetEstimator
-    from mlframe.training.composite.transforms import _linear_residual_fit, get_transform
     from mlframe.training.core._predict_main_suite import predict_mlframe_models_suite
 
-    rng = np.random.default_rng(1)
-    n = 2000
-    base = rng.normal(1000.0, 50.0, n).astype(np.float64)
-    noise_col = rng.normal(0.0, 1.0, n)
-    signal = rng.normal(0.0, 10.0, n)
-    noise = rng.normal(0.0, 5.0, n)
-    y = 0.9 * base + signal + noise
-
-    fitted_params = _linear_residual_fit(y, base)
-    transform = get_transform("linear_residual")
-    t = transform.forward(y, base, fitted_params)
-    X_df = pd.DataFrame({"base": base, "noise": noise_col})
-    inner = Ridge().fit(X_df, t)
-    wrapper = CompositeTargetEstimator.from_fitted_inner(
-        fitted_inner=inner,
-        transform_name="linear_residual",
-        base_column="base",
-        base_columns=None,
-        transform_fitted_params=fitted_params,
-        y_train=y,
-    )
-
-    # The per-model pre_pipeline: a fitted StandardScaler, exactly the object that (pre-fix) would
-    # silently corrupt the CTE's base-column inverse if applied before predict().
-    pre_pipeline = Pipeline([("scaler", StandardScaler())]).fit(X_df)
-
-    model_obj = SimpleNamespace(model=wrapper, model_name="cte_model", columns=list(X_df.columns), pre_pipeline=pre_pipeline, metrics={})
+    X, y, params, pre_pipeline, inner, oracle = _scaled_inner_scenario(n=1500, seed=1)
+    wrapper = _wrap(inner, params, pre_pipeline if wrapper_owns_pipeline else None, y)
+    if not wrapper_owns_pipeline:
+        # A legacy dump whose inner pipeline lives on the entry only: the entry point must still keep the base unscaled.
+        inner.feature_names_in_ = np.asarray(list(X.columns), dtype=object)
+    entry = SimpleNamespace(model=wrapper, model_name="cte_model", columns=list(X.columns), pre_pipeline=pre_pipeline, metrics={})
 
     models_path = str(tmp_path)
     model_dir = os.path.join(models_path, "regression", "y")
@@ -183,23 +147,22 @@ def test_predict_mlframe_models_suite_applies_cte_raw_x_routing(tmp_path):
     with patch("mlframe.training.io.save_mlframe_model", side_effect=_save_threads_zero):
         from mlframe.training.io import save_mlframe_model
 
-        save_mlframe_model(model_obj, os.path.join(model_dir, "cte_model.dump"))
+        save_mlframe_model(entry, os.path.join(model_dir, "cte_model.dump"))
 
     meta_payload = {
         "pipeline": None,
         "extensions_pipeline": None,
         "slug_to_original_target_type": {"regression": "regression"},
         "slug_to_original_target_name": {"y": "y"},
-        "columns": list(X_df.columns),
+        "columns": list(X.columns),
+        "schema_version": 2,
     }
     with open(os.path.join(models_path, "metadata.pkl.zst"), "wb") as f:
         f.write(zstandard.ZstdCompressor(level=3, threads=0).compress(pickle.dumps(meta_payload, protocol=5)))
 
-    result = predict_mlframe_models_suite(X_df, models_path, return_probabilities=False, verbose=0)
+    result = predict_mlframe_models_suite(X, models_path, return_probabilities=False, verbose=0)
     preds = np.asarray(result["predictions"]["cte_model"])
-
-    assert abs(preds.mean() - y.mean()) / max(abs(y.mean()), 1.0) < 0.05, (
-        f"predict_mlframe_models_suite on a disk-loaded CompositeTargetEstimator should predict in "
-        f"Y-SCALE (mean ~ {y.mean():.1f}); got pred mean {preds.mean():.1f} -- looks like the "
-        "pre_pipeline-scaled frame reached the CTE instead of the raw one (CTE-RAW-X routing regression)."
-    )
+    if wrapper_owns_pipeline:
+        np.testing.assert_allclose(preds, oracle, rtol=1e-9, atol=1e-9)
+    else:
+        assert _rmse(preds, y) <= 1.5 * _rmse(oracle, y)

@@ -144,7 +144,7 @@ def compute_shap_on_cv(
             if max_test_ind < L:
                 pred_ind = np.arange(max_test_ind, L)
 
-                if oos_ts_max_size:
+                if oos_ts_max_size is not None and oos_ts_max_size != 0:
                     pred_ind = pred_ind[: oos_ts_max_size + 1]
 
                 probs = model_instance.predict_proba(X.iloc[pred_ind])

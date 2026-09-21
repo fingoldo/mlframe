@@ -291,7 +291,7 @@ def main():
     all_rows = phase1_rows + phase2_rows
     out_dir = _HERE / "_results"
     out_dir.mkdir(exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     out_path = out_dir / f"bench_mlp_robustness_sweep_{stamp}.csv"
     with open(out_path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=sorted(all_rows[0].keys()))

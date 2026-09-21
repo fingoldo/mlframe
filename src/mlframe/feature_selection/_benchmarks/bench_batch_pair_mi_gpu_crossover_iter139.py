@@ -34,6 +34,7 @@ import os
 import time
 
 import numpy as np
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 os.environ.setdefault("MLFRAME_SKIP_NUMBA_PREWARM", "1")
 
@@ -42,8 +43,10 @@ def _timeit(fn, args, reps: int = 7) -> float:
     fn(*args)  # warm (numba JIT + cupy NVRTC + first H2D)
     best = 1e9
     for _ in range(reps):
+        synchronize_gpu_if_available()
         t = time.perf_counter()
         fn(*args)
+        synchronize_gpu_if_available()
         best = min(best, time.perf_counter() - t)
     return best * 1000.0
 

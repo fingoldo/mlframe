@@ -41,7 +41,7 @@ width:
 | `mb_spouse_collider` | 33 | 3 | no (0/3) | same |
 | `mediator_chain_with_proxy` | 33 | 1 | no (0/3) | same |
 | `redundant_exact_k5` | 35 | 1 | no (0/3) | a tree pays nothing for keeping four redundant copies |
-| `xor3`, `xor3_plus_decoy` | 33-34 | 3-4 | no (0-1/3) | nothing hands it the operands: see the next section |
+| `xor3`, `xor3_plus_marginal_decoy` | 33-34 | 3-4 | no (0-1/3) | nothing hands it the operands: see the next section |
 
 The rule these beds support: **a tree gains when noise columns outnumber signal ones by two orders of
 magnitude, or when the signal is hard to see one column at a time. It does not gain by having clean probes

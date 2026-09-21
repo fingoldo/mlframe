@@ -194,30 +194,27 @@ def test_pl_enum_different_vocab_orderings_produce_different_codes():
 
 
 def test_predict_native_probe_loads_each_model_once(monkeypatch, tmp_path):
-    """The ``_all_polars_native`` probe at predict.py:357 must call ``load_mlframe_model`` AT MOST
-    once per .dump file (and cache the result in ``_loaded_models_cache``). We monkeypatch
-    ``load_mlframe_model`` to count invocations and run a probe-only scenario."""
+    """The cross-target ensemble scanner must call ``load_mlframe_model`` exactly once per .dump file.
+    ``load_mlframe_model`` is monkeypatched to count invocations over two real dump paths."""
     from mlframe.training.core import predict as predict_mod
 
     call_counts = {}
 
-    real_loader = predict_mod.load_mlframe_model
-
     def _counting_loader(path, *args, **kwargs):
-        """Counting loader."""
+        """Counting loader; returns a sentinel so the dump files need no real payload."""
         call_counts[path] = call_counts.get(path, 0) + 1
-        return real_loader(path, *args, **kwargs)
+        return {"path": path}
 
     monkeypatch.setattr(predict_mod, "load_mlframe_model", _counting_loader)
-    # Direct unit on the probe step: we don't need a full predict run -- only verify the
-    # call-site at predict.py:357 doesn't re-load. The probe iterates a list of paths once;
-    # construct an empty path list so the probe is a no-op and asserting counts==0 captures
-    # that no spurious loader call slips in.
-    paths = []
-    _loaded = {}
-    for _f in paths:
-        _mo = predict_mod.load_mlframe_model(_f)
-        _loaded[_f] = _mo
-    # Single canonical pass: each fictional path would appear exactly once.
-    for path, count in call_counts.items():
-        assert count == 1, f"load_mlframe_model invoked {count}x on {path}"
+    # Two cross-target ensemble dumps under the layout the scanner expects: each must be loaded exactly once.
+    for tname in ("_CT_ENSEMBLE__a", "_CT_ENSEMBLE__b"):
+        d = tmp_path / "regression" / tname
+        d.mkdir(parents=True)
+        (d / "CT_ENSEMBLE.dump").write_bytes(b"x")
+    out = predict_mod._load_ct_ensemble_entries(str(tmp_path), {}, {})
+    loaded_paths = sorted(call_counts)
+    # Exactly the two dump files written above, each loaded exactly once.
+    assert len(loaded_paths) == 2, call_counts
+    for path in loaded_paths:
+        assert call_counts[path] == 1, f"load_mlframe_model invoked {call_counts[path]}x on {path}"
+    assert sorted(out["regression"]) == ["_CT_ENSEMBLE__a", "_CT_ENSEMBLE__b"]

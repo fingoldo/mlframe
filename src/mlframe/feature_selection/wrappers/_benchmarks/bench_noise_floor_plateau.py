@@ -26,6 +26,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 
 def _old_plateau(n_grid, real_curve, perm_curves, pct=95.0):
@@ -56,9 +57,11 @@ def _old_plateau(n_grid, real_curve, perm_curves, pct=95.0):
 def _bench(fn, args, reps=300):
     best = float("inf")
     for _ in range(3):
+        synchronize_gpu_if_available()
         t0 = time.perf_counter()
         for _ in range(reps):
             fn(*args)
+        synchronize_gpu_if_available()
         best = min(best, time.perf_counter() - t0)
     return best / reps * 1e6  # us per call
 

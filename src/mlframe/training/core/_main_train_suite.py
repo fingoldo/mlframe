@@ -434,12 +434,13 @@ def train_mlframe_models_suite(
             model_name=model_name,
             df_size_mb=df_size_mb,
             verbose=bool(verbose),
+            row_ids=ctx.split_row_ids,
         )
         # ``del df`` drops the local rebound name so the only remaining strong reference
         # is ``ctx.df``; nulling that lets the GC reclaim the now-unreferenced source frame.
         # Without both, the post-split full dataframe lingers in memory until the suite ends.
         del df
-        ctx.df = None
+        ctx.df = ctx.split_row_ids = None  # the split keys are consumed too
         # Mirror locals into ctx in a single bulk loop. This is the in-progress migration from
         # the legacy "phase returns big tuple, caller fans out into locals" form to a pure
         # ctx-form where phases write straight to ctx. Until every phase is converted the
@@ -536,6 +537,7 @@ def train_mlframe_models_suite(
                 train_df_polars_pre=train_df_polars_pre,
                 val_df_polars_pre=val_df_polars_pre,
                 test_df_polars_pre=test_df_polars_pre,
+                align_categorical_dicts=bool(getattr(behavior_config, "align_polars_categorical_dicts", True)),
             )
 
         metadata["text_features"] = text_features
@@ -781,3 +783,9 @@ def train_mlframe_models_suite(
         # boundary snapshot, which survives a phase replacing that dict.
         restore_process_flags(getattr(ctx, "artifacts", None))
         restore_process_flags(_flag_snapshot)
+        # The heartbeat watches a RUNNING suite. In a notebook the process outlives the suite, and a production log kept
+        # printing "[heartbeat] phase=(no active phase)" every 5 min for 3.5 h after the run finished. The next suite
+        # call starts it again.
+        from mlframe.training.crash_diagnostics import stop_heartbeat
+
+        stop_heartbeat()

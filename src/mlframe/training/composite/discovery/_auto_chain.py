@@ -68,6 +68,7 @@ from ..transforms.unary import (
     signed_power_y_forward as _sp_fwd,
     signed_power_y_inverse as _sp_inv,
 )
+from ._lgb_fold_cache import LgbFoldCache
 from ._screening_tiny import _build_tiny_model
 from .screening import _mi_to_target
 
@@ -218,6 +219,8 @@ def _y_scale_cv_rmse(
     n_estimators: int,
     num_leaves: int,
     learning_rate: float,
+    fold_cache: Optional[LgbFoldCache] = None,
+    inner_n_jobs: int = 1,
 ) -> Tuple[float, float]:
     """Tiny-CV RMSE on the ORIGINAL y-scale for one transform (``None`` = raw y).
 
@@ -247,8 +250,12 @@ def _y_scale_cv_rmse(
     kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
     sse = 0.0
     cnt = 0
-    for tr_idx, va_idx in kf.split(x_matrix):
-        x_tr, x_va = x_matrix[tr_idx], x_matrix[va_idx]
+    for fold_id, (tr_idx, va_idx) in enumerate(kf.split(x_matrix)):
+        if fold_cache is not None and fold_cache.has_fold(fold_id):
+            # The fold's binned dataset holds its train rows and the cache kept its holdout slice: no per-candidate copies.
+            x_tr, x_va = None, fold_cache.holdout(fold_id)
+        else:
+            x_tr, x_va = x_matrix[tr_idx], x_matrix[va_idx]
         y_tr, y_va = y[tr_idx], y[va_idx]
         b_tr, b_va = base[tr_idx], base[va_idx]
         try:
@@ -265,13 +272,16 @@ def _y_scale_cv_rmse(
                 fit_mask = dom_tr & np.isfinite(t_tr)
             if fit_mask.sum() < cv_folds * 5:
                 return float("inf"), valid_frac
-            model = _build_tiny_model(
-                family, n_estimators=n_estimators, num_leaves=num_leaves,
-                learning_rate=learning_rate, random_state=random_state,
-                inner_n_jobs=1,
-            )
-            model.fit(x_tr[fit_mask], target_tr[fit_mask])
-            pred = np.asarray(model.predict(x_va), dtype=np.float64)
+            if fold_cache is not None:
+                pred = fold_cache.fit_predict(fold_id, x_tr, target_tr, fit_mask, x_va)
+            else:
+                model = _build_tiny_model(
+                    family, n_estimators=n_estimators, num_leaves=num_leaves,
+                    learning_rate=learning_rate, random_state=random_state,
+                    inner_n_jobs=inner_n_jobs,
+                )
+                model.fit(x_tr[fit_mask], target_tr[fit_mask])
+                pred = np.asarray(model.predict(x_va), dtype=np.float64)
             if transform is None:
                 y_hat = pred
             else:
@@ -315,10 +325,42 @@ def _mi_gain_of(
     if finite.sum() < 8:
         return float("nan")
     mi_t = _mi_to_target(
-        x_matrix[finite], t[finite], n_neighbors=mi_n_neighbors,
+        np.asarray(x_matrix[finite], dtype=np.float64), t[finite], n_neighbors=mi_n_neighbors,
         random_state=random_state, estimator=mi_estimator, nbins=mi_nbins,
     )
     return float(mi_t - mi_y)
+
+
+def _single_stage_rmses(res_names: Sequence[str], un_names: Sequence[str], cv_kw: Dict[str, Any]) -> tuple:
+    """Y-scale CV RMSE of each single residual and each single unary, scored ONCE and reused by every chain.
+
+    The "beats both singles" gate needs both numbers for every chain; a name missing from the registry is left out.
+    """
+    residual_rmse: Dict[str, float] = {}
+    for res in res_names:
+        rtf = TRANSFORMS_REGISTRY.get(res)
+        if rtf is not None:
+            residual_rmse[res], _ = _y_scale_cv_rmse(rtf, **cv_kw)
+    unary_rmse: Dict[str, float] = {}
+    for un in un_names:
+        utf = TRANSFORMS_REGISTRY.get(_UNARY_REGISTRY_NAME.get(un, un))
+        if utf is not None:
+            unary_rmse[un], _ = _y_scale_cv_rmse(utf, **cv_kw)
+    return residual_rmse, unary_rmse
+
+
+def _fitted_chain_candidate(chain_tf: Transform, res: str, un: str, *, y: np.ndarray, base: np.ndarray, **scores: float) -> ChainCandidate:
+    """A winning chain fitted once on all in-domain rows, so the candidate carries usable params."""
+    dom = np.asarray(chain_tf.domain_check(y, base), dtype=bool)
+    try:
+        params = chain_tf.fit(y[dom], base[dom])
+    except Exception as e:
+        logger.debug("chain transform fit failed: %s", e)
+        params = {}
+    return ChainCandidate(
+        chain_name=chain_tf.name, short_name=_short(res, un), residual_name=res, unary_name=un,
+        transform=chain_tf, fitted_params=params, **scores,
+    )
 
 
 def discover_chains(
@@ -341,72 +383,96 @@ def discover_chains(
     mi_nbins: int = 16,
     mi_n_neighbors: int = 3,
     top_k: int = 3,
+    inner_n_jobs: int = 1,
 ) -> List[ChainCandidate]:
     """Search ``residual x unary`` chains; return those that beat BOTH single stages.
 
-    Scoring is tiny-CV RMSE on the ORIGINAL y-scale (see module docstring for why
-    MI-gain cannot rank tail-compression chains). A chain surfaces only when its
-    y-scale RMSE beats ``min(residual_rmse, unary_rmse)`` by at least
-    ``min_rmse_margin``.
+    Scoring is tiny-CV RMSE on the ORIGINAL y-scale (see module docstring for why MI-gain cannot rank tail-compression
+    chains). A chain surfaces only when its y-scale RMSE beats ``min(residual_rmse, unary_rmse)`` by at least
+    ``min_rmse_margin``. NEVER removes single-stage candidates; it only proposes.
 
     Parameters
     ----------
-    y, base : 1-D arrays, same length. ``base`` is the single base column the
-        residual stage regresses ``y`` on (the kept single-stage spec's base).
-    x_matrix : (n, F) feature matrix the tiny model + MI use. The SAME matrix +
-        CV folds score every candidate, so the RMSEs are directly comparable.
-    residual_names : restrict the first-stage menu (default: ``linear_residual`` +
-        ``monotonic_residual``). Pass the kept single-stage residual specs' names
-        to search only what survived screening.
-    unary_names : restrict the second-stage menu (default: cbrt / yj / sp).
-    min_rmse_margin : a chain must beat the better single's RMSE by at least this
-        absolute amount. ``0.0`` = strictly better.
-    min_valid_domain_frac : chains whose residual stage is valid on fewer than
-        this fraction of rows are dropped (mirrors discovery's domain gate).
-    family : tiny-model family for the CV scorer (``"lgb"`` / ``"cb"`` /
-        ``"ridge"``), passed to :func:`_build_tiny_model`.
+    y
+        Target, 1-D.
+    base
+        The single base column the residual stage regresses ``y`` on, same length as ``y``.
+    x_matrix
+        (n, F) feature matrix for the tiny model and MI. The same matrix and CV folds score every candidate.
+    residual_names
+        First-stage menu (default: ``linear_residual`` + ``monotonic_residual``).
+    unary_names
+        Second-stage menu (default: cbrt / yj / sp).
+    min_rmse_margin
+        A chain must beat the better single's RMSE by at least this absolute amount; ``0.0`` = strictly better.
+    min_valid_domain_frac
+        Chains valid on fewer than this fraction of rows are dropped.
+    cv_folds
+        Folds of the tiny-model CV.
+    random_state
+        Seed for the folds and the tiny models.
+    family
+        Tiny-model family (``"lgb"`` / ``"cb"`` / ``"ridge"``). For ``"lgb"`` every candidate shares one binned
+        dataset per fold (:class:`LgbFoldCache`).
+    n_estimators
+        Tiny-model boosting rounds.
+    num_leaves
+        Tiny-model leaves per tree.
+    learning_rate
+        Tiny-model learning rate.
+    compute_mi_gain
+        Also compute the informational MI gain of each winner.
+    mi_estimator
+        MI estimator name.
+    mi_nbins
+        Bins for the binned MI estimator.
+    mi_n_neighbors
+        Neighbours for the kNN MI estimator.
+    top_k
+        Maximum number of winners returned.
+    inner_n_jobs
+        Threads per tiny-model fit; the caller runs bases in parallel and hands each base its share of the cores.
 
-    Returns the ``top_k`` winning ``ChainCandidate`` objects sorted by ASCENDING
-    ``rmse`` (best first). Empty list = no chain beat its singles -> caller keeps
-    the best single. NEVER removes single-stage candidates; it only proposes.
+    Returns
+    -------
+    List[ChainCandidate]
+        Up to ``top_k`` winning chains sorted by ascending ``rmse``; empty when no chain beat its singles.
     """
+
     y = np.asarray(y, dtype=np.float64)
     base = np.asarray(base, dtype=np.float64)
-    x_matrix = np.asarray(x_matrix, dtype=np.float64)
+    # LightGBM bins its input, and float32 -> float64 is exact, so a float32 block gives it the same values at half the
+    # memory; every base upcast its own copy in parallel threads. Other families keep the float64 upcast they fit on.
+    _keep_float = family.lower() in ("lgb", "lightgbm") and np.asarray(x_matrix).dtype in (np.float32, np.float64)
+    x_matrix = np.asarray(x_matrix) if _keep_float else np.asarray(x_matrix, dtype=np.float64)
     if x_matrix.ndim == 1:
         x_matrix = x_matrix.reshape(-1, 1)
     res_names = tuple(residual_names) if residual_names else _RESIDUAL_STAGE_NAMES
     un_names = tuple(unary_names) if unary_names else tuple(_TAIL_UNARIES)
 
+    fold_cache = None
+    if family.lower() in ("lgb", "lightgbm"):
+        fold_cache = LgbFoldCache(
+            n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate,
+            random_state=random_state, n_jobs=inner_n_jobs,
+        )
     cv_kw: Dict[str, Any] = dict(
         y=y, base=base, x_matrix=x_matrix, cv_folds=cv_folds,
         random_state=random_state, family=family, n_estimators=n_estimators,
         num_leaves=num_leaves, learning_rate=learning_rate,
+        fold_cache=fold_cache, inner_n_jobs=inner_n_jobs,
     )
 
     raw_rmse, _ = _y_scale_cv_rmse(None, **cv_kw)
 
-    # Score each single residual + single unary ONCE; reuse for every chain that
-    # contains them (the "beats both singles" gate needs both numbers).
-    residual_rmse: Dict[str, float] = {}
-    for res in res_names:
-        rtf = TRANSFORMS_REGISTRY.get(res)
-        if rtf is None:
-            continue
-        residual_rmse[res], _ = _y_scale_cv_rmse(rtf, **cv_kw)
-
-    unary_rmse: Dict[str, float] = {}
-    for un in un_names:
-        utf = TRANSFORMS_REGISTRY.get(_UNARY_REGISTRY_NAME.get(un, un))
-        if utf is not None:
-            unary_rmse[un], _ = _y_scale_cv_rmse(utf, **cv_kw)
+    residual_rmse, unary_rmse = _single_stage_rmses(res_names, un_names, cv_kw)
 
     mi_y = float("nan")
     if compute_mi_gain:
         fy = np.isfinite(y)
         if fy.sum() >= 8:
             mi_y = _mi_to_target(
-                x_matrix[fy], y[fy], n_neighbors=mi_n_neighbors,
+                np.asarray(x_matrix[fy], dtype=np.float64), y[fy], n_neighbors=mi_n_neighbors,
                 random_state=random_state, estimator=mi_estimator, nbins=mi_nbins,
             )
 
@@ -431,29 +497,9 @@ def discover_chains(
                     mi_estimator=mi_estimator, mi_nbins=mi_nbins,
                     mi_n_neighbors=mi_n_neighbors, random_state=random_state,
                 )
-            # Fit once on all in-domain rows so the candidate carries usable params.
-            dom = np.asarray(chain_tf.domain_check(y, base), dtype=bool)
-            try:
-                params = chain_tf.fit(y[dom], base[dom])
-            except Exception as e:
-                logger.debug("chain transform fit failed: %s", e)
-                params = {}
-            candidates.append(
-                ChainCandidate(
-                    chain_name=chain_tf.name,
-                    short_name=_short(res, un),
-                    residual_name=res,
-                    unary_name=un,
-                    transform=chain_tf,
-                    fitted_params=params,
-                    rmse=cr,
-                    residual_rmse=rr,
-                    unary_rmse=ur,
-                    raw_rmse=raw_rmse,
-                    margin=margin,
-                    mi_gain=mg,
-                    valid_domain_frac=vf,
-                )
-            )
+            candidates.append(_fitted_chain_candidate(
+                chain_tf, res, un, y=y, base=base, rmse=cr, residual_rmse=rr, unary_rmse=ur,
+                raw_rmse=raw_rmse, margin=margin, mi_gain=mg, valid_domain_frac=vf,
+            ))
     candidates.sort(key=lambda c: c.rmse)
     return candidates[:top_k]

@@ -191,8 +191,8 @@ def recommend_boosting_regression_loss(
         _extreme = excess_kurt > _EXCESS_KURT_EXTREME
         # MAD-calibrated Huber slope. The canon 1.345 is robust-stats
         # tuned to MAD UNITS (~0.67*sigma for a Normal sample). LGB
-        # ``huber`` and CB ``Huber:delta=1.345`` are documented to
-        # operate in MAD units. XGB ``reg:pseudohubererror`` takes
+        # ``huber`` (``alpha``) is a RAW-unit threshold as well, so it
+        # gets the same scaled value below. XGB ``reg:pseudohubererror`` takes
         # ``huber_slope`` in RAW residual units; defaulting to 1.0 on a
         # T-scale residual with std~13 (observed in a heavy-residual composite)
         # means slope < 10% of std -> pseudo-Huber is quadratic over
@@ -223,9 +223,15 @@ def recommend_boosting_regression_loss(
             "od_pval": 1e-5,
             "early_stopping_rounds": 100,
         }
+        # LightGBM's huber ``alpha`` (default 0.9) is the transition point in RAW residual units, not MAD units: on a
+        # target with std ~40 the default 0.9 made the loss L1-like with a tiny constant gradient, so a 100-round LGB
+        # fit barely moved off the median (pred_std 0.6 vs true signal std ~4, held-out RMSE ~4x the RMSE-objective
+        # fit). Use the same MAD-calibrated threshold as XGB's huber_slope.
+        _huber_delta = float(f"{xgb_huber_slope:.6g}")
         return {
             "cb": "Huber:delta=1.345",
             "lgb": "huber",
+            "lgb_extra_params": {"alpha": _huber_delta},
             "xgb": "reg:pseudohubererror",
             "xgb_extra_params": {"huber_slope": xgb_huber_slope},
             "cb_extra_params": cb_extra,
@@ -235,7 +241,7 @@ def recommend_boosting_regression_loss(
                 + " -- Huber bounded-influence loss keeps the "
                 f"gradient informative on small residuals while "
                 f"attenuating outlier influence. XGB huber_slope="
-                f"{xgb_huber_slope:.4g} (MAD-calibrated). CB od_pval=1e-5 "
+                f"{xgb_huber_slope:.4g}, LGB alpha={_huber_delta:.4g} (MAD-calibrated). CB od_pval=1e-5 "
                 f"+ early_stopping_rounds=100 (prevent ES at iter=1)."
             ),
             "excess_kurt": excess_kurt,

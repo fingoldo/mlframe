@@ -175,6 +175,7 @@ def test_biz_val_multioutput_conformal_per_column_coverage():
     lower, upper = est.predict_interval(X_test, alpha=alpha)
     covered = (y_test >= lower) & (y_test <= upper)
     per_col = covered.mean(axis=0)
+    assert list(enumerate(per_col))
     for k, cov in enumerate(per_col):
         assert cov >= 0.85, f"column {k} coverage {cov:.3f} below floor 0.85 (nominal {1 - alpha})"
     # And each column's band width tracks its own noise scale (the per-column

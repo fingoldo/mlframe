@@ -40,11 +40,15 @@ from mlframe.utils.log_throttle import log_throttle
 def _unwrap_shim(model: Any) -> tuple[Any, Any]:
     """Return ``(inner, pre_pipeline)`` for a possibly shim-wrapped component.
 
-    For ``PrePipelinePredictShim`` returns its fitted ``pre_pipeline`` and the inner model (which may itself be a ``CompositeTargetEstimator``); for any other estimator pre_pipeline is ``None`` and the model is returned unchanged. The OOF refit path uses this to detect shim wrappers and apply ``pre_pipeline.transform`` to stack/holdout slices before refitting -- without it the OOF path would call ``sklearn.clone(shim)``, which raises ``Cannot clone object ... not a scikit-learn estimator`` for every shim-wrapped component.
+    For ``PrePipelinePredictShim`` returns its fitted ``pre_pipeline`` and the inner model (which may itself be a ``CompositeTargetEstimator``); for any other estimator pre_pipeline is ``None`` and the model is returned unchanged, except that a ``CompositeTargetEstimator`` owning its inner's pipeline (``inner_pre_pipeline_``) reports that pipeline. The OOF refit path uses this to detect shim wrappers and apply ``pre_pipeline.transform`` to stack/holdout slices before refitting -- without it the OOF path would call ``sklearn.clone(shim)``, which raises ``Cannot clone object ... not a scikit-learn estimator`` for every shim-wrapped component.
     """
     if isinstance(model, PrePipelinePredictShim):
-        return model.model, model.pre_pipeline
-    return model, None
+        inner, pp = model.model, model.pre_pipeline
+    else:
+        inner, pp = model, None
+    if pp is None and isinstance(inner, CompositeTargetEstimator):
+        pp = getattr(inner, "inner_pre_pipeline_", None)
+    return inner, pp
 
 
 logger = logging.getLogger(__name__)
@@ -93,6 +97,24 @@ def _transform_pair_via(
         # Some unsupervised pipelines expose fit(X) only.
         pp_fit.fit(X_train)
     return pp_fit.transform(X_train), pp_fit.transform(X_holdout)
+
+
+def _transform_pair_cached(memo: dict | None, pp: Any, X_train: Any, X_holdout: Any, *, y_train: Any = None) -> tuple[Any, Any]:
+    """:func:`_transform_pair_via`, reusing the result for other components that hold the same fitted pipeline.
+
+    Components built from one strategy share a single fitted ``pre_pipeline`` object, and every one of them re-ran the
+    same transform over the same fold slices: on the composite integration suite half of all transform calls repeated
+    an earlier one. Within one fold (``memo`` is per fold) a fitted pipeline gives the same output for the same slices, so
+    the pair is computed once. An unfitted pipeline is fit as a fold clone per component and is never shared.
+    """
+    if memo is None or pp is None or not _pp_is_fitted(pp):
+        return _transform_pair_via(pp, X_train, X_holdout, y_train=y_train)
+    key = (id(pp), id(X_train), id(X_holdout))
+    hit = memo.get(key)
+    if hit is None or hit[0] is not pp:
+        hit = (pp, _transform_pair_via(pp, X_train, X_holdout, y_train=y_train))
+        memo[key] = hit
+    return hit[1]
 
 
 def _transform_via(pp: Any, X: Any) -> Any:
@@ -298,13 +320,14 @@ def _compute_oof_with_external_holdout(
     y_train_full = y_train_full.astype(np.float64)
     holdout_cols: list[np.ndarray] = []
     surviving_names: list[str] = []
+    _pair_memo: dict = {}
     for model, name, spec in zip(
         component_models, component_names, component_specs,
     ):
         try:
             inner, pp = _unwrap_shim(model)
-            X_stack_t, X_holdout_t = _transform_pair_via(
-                pp, train_X, external_holdout_X, y_train=y_train_full,
+            X_stack_t, X_holdout_t = _transform_pair_cached(
+                _pair_memo, pp, train_X, external_holdout_X, y_train=y_train_full,
             )
             if isinstance(inner, CompositeTargetEstimator):
                 if spec is None:
@@ -362,7 +385,7 @@ def _compute_oof_with_external_holdout(
                     transform_fitted_params=spec["fitted_params"],
                     y_train=y_train_full[valid],
                 )
-                preds = wrapped.predict(X_holdout_t)
+                preds = wrapped.predict(external_holdout_X, inner_X=X_holdout_t)
             else:
                 inner_clone = clone(inner)
                 _X_fit_r, _y_fit_r, _X_ev_r, _y_ev_r, _fm_r = (
@@ -552,11 +575,12 @@ def compute_oof_holdout_predictions(
             # Per-fold OOF scoring happens once at the end against the assembled oof_preds_by_name
             # vs y_train_full as a whole, not per-fold slices, so a per-fold holdout-y copy here is unneeded.
             fold_cols: dict[str, np.ndarray] = {}
+            _pair_memo: dict = {}  # per fold: this fold's slices are the keys
             for model, name, spec in zip(component_models, component_names, component_specs):
                 try:
                     inner, pp = _unwrap_shim(model)
-                    X_stack_t, X_holdout_t = _transform_pair_via(
-                        pp, X_stack, X_holdout, y_train=y_stack,
+                    X_stack_t, X_holdout_t = _transform_pair_cached(
+                        _pair_memo, pp, X_stack, X_holdout, y_train=y_stack,
                     )
                     if isinstance(inner, CompositeTargetEstimator):
                         if spec is None:
@@ -629,7 +653,7 @@ def compute_oof_holdout_predictions(
                             transform_fitted_params=_fold_params,
                             y_train=y_stack[valid],
                         )
-                        preds = wrapped.predict(X_holdout_t)
+                        preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
                     else:
                         inner_clone = clone(inner)
                         _sw_stack = None if sample_weight is None else sample_weight[fold_train_idx]
@@ -812,11 +836,12 @@ def compute_oof_holdout_predictions(
 
     holdout_cols: list[np.ndarray] = []
     surviving_names = []
+    _pair_memo: dict = {}
     for model, name, spec in zip(component_models, component_names, component_specs):
         try:
             inner, pp = _unwrap_shim(model)
-            X_stack_t, X_holdout_t = _transform_pair_via(
-                pp, X_stack, X_holdout, y_train=y_stack,
+            X_stack_t, X_holdout_t = _transform_pair_cached(
+                _pair_memo, pp, X_stack, X_holdout, y_train=y_stack,
             )
             if isinstance(inner, CompositeTargetEstimator):
                 # Composite-target wrapper. Re-fit the inner on stack_train T values, then re-wrap and predict.
@@ -872,7 +897,7 @@ def compute_oof_holdout_predictions(
                     transform_fitted_params=_fold_params,
                     y_train=y_stack[valid],
                 )
-                preds = wrapped.predict(X_holdout_t)
+                preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
             else:
                 # Raw-target component. Re-fit the inner on (X_stack, y_stack) and predict on X_holdout.
                 inner_clone = clone(inner)

@@ -11,7 +11,7 @@ name: numba-coverage-nightly
 # failure. Now runs on the actual nightly cron; workflow_dispatch's `run` input still lets a
 # manual invocation opt OUT (set to false) if the Actions-minutes budget needs relief again.
 #
-# Sharded 8 ways (2026-08-18): this job ran as a SINGLE unsharded job with only intra-job xdist
+# Sharded 8 ways (2026-08-18; 16 since 2026-09-18, see the matrix comment): this job ran as a SINGLE unsharded job with only intra-job xdist
 # parallelism (`-n 4`, capped below `auto` -- see the "Run kernel-heavy test suites" step comment)
 # on one 2-vCPU runner. Under NUMBA_DISABLE_JIT=1 kernel-heavy tests run 10-1000x slower than
 # under normal JIT (see the job's own timeout-minutes comment below), so this suite needed
@@ -58,7 +58,7 @@ on:
         default: true
 
 concurrency:
-  # Keyed on the EVENT as well as the ref. The scheduled run's 8 kernel-coverage shards take up to 340 minutes,
+  # Keyed on the EVENT as well as the ref. The scheduled run's kernel-coverage shards take up to 340 minutes,
   # while a workflow_run-triggered run fires after EVERY CI completion on master (several a day). Under one shared
   # group those short runs cancelled the long scheduled one mid-flight -- and the scheduled run is the one that
   # actually reaches the codecov upload, so the numba-disabled flag stayed empty and its badge grey. Observed on
@@ -86,7 +86,7 @@ jobs:
     if: |
       (github.event_name != 'workflow_dispatch' || inputs.run) &&
       (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
-    name: pytest with NUMBA_DISABLE_JIT=1 (kernel-body coverage) (shard ${{ matrix.group }}/8)
+    name: pytest with NUMBA_DISABLE_JIT=1 (kernel-body coverage) (shard ${{ matrix.group }}/16)
     runs-on: ubuntu-latest
     # 340 (near the 360min hosted-runner hard ceiling): under NUMBA_DISABLE_JIT=1, kernel-heavy
     # fixtures (permutation-null loops, discretization, orthogonal-basis FE) run 10-1000x slower
@@ -100,7 +100,11 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11"]
-        group: ["1", "2", "3", "4", "5", "6", "7", "8"]
+        # 16 (was 8, 2026-09-18): six of eight shards hit the 340m cap on 2026-09-17 while two finished in 1.5-2.5h.
+        # The durations file is only committed when every shard succeeds, so it never got real NUMBA_DISABLE_JIT
+        # timings and the split stayed balanced on normal-JIT seeds - which is what kept the shards lopsided. Half the
+        # work per shard gets every shard under the cap, the first green run commits real timings, and those rebalance.
+        group: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"]
     env:
       NUMBA_DISABLE_JIT: "1"
       PYTHONUNBUFFERED: "1"
@@ -171,7 +175,7 @@ jobs:
           # worker's own memory stacks against the pinned group's on the same 7GB host. Run
           # separately by test-heavy-serial-numba-disabled below.
           pytest -m "not slow and not gpu and not multigpu" \
-            --splits 8 --group ${{ matrix.group }} \
+            --splits 16 --group ${{ matrix.group }} \
             -n 4 \
             --dist=loadgroup \
             --cov=src/mlframe \
@@ -210,7 +214,7 @@ jobs:
 
       - name: Upload coverage to Codecov (numba-disabled flag)
         uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@f50288e5a6f5b7f972efb60f948ce6184c8e9e70  # v1.3.4
-        # (success() || failure()): a failure in one shard must not hide the other 7 shards'
+        # (success() || failure()): a failure in one shard must not hide the other shards'
         # coverage from Codecov -- mirrors ci.yml's identical fix for the same reason.
         if: success() || failure()
         with:

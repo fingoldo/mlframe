@@ -246,10 +246,13 @@ class FeatureHandlingConfig(BaseConfig):
     >>> from mlframe.training.feature_handling.presets import tfidf_only
     >>> fhc2 = tfidf_only(max_features=10000)
     >>> # power-user fine tuning
+    >>> from mlframe.training.feature_handling.handlers import TextHandlerSpec, TfidfParams
     >>> fhc3 = FeatureHandlingConfig(
-    ...     per_model={"mlp": ModelHandlingOverride(text=[...])},
+    ...     per_model={"mlp": ModelHandlingOverride(text=[TextHandlerSpec(method="tfidf", params=TfidfParams())])},
     ...     cache=CacheConfig(persistence="auto"),
     ... )
+    >>> fhc3.per_model["mlp"].text[0].method
+    'tfidf'
     """
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 

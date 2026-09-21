@@ -41,6 +41,7 @@ class TestMapping:
     def test_the_null_hypothesis_stays_visible(self) -> None:
         """Every contrast is stated against it and it is nobody's method, so hiding it only hurts reading."""
         mapping = blind_labels(ARMS)
+        assert len(NEVER_BLINDED) > 0
         for name in NEVER_BLINDED:
             assert mapping[name] == name
 
@@ -107,6 +108,7 @@ class TestRoundTrip:
         mapping = blind_labels(ARMS, salt="x")
         report = " ".join(f"| {mapping[name]} | 0.5 |" for name in ARMS)
         revealed = unblind_text(report, mapping)
+        assert len(ARMS) > 0
         for name in ARMS:
             assert name in revealed
 

@@ -58,6 +58,7 @@ class TestPinballLoss:
 
         y, preds, alphas = std_normal_data
         per_a = pinball_loss_per_alpha(y, preds, alphas)
+        assert list(enumerate(alphas))
         for j, a in enumerate(alphas):
             assert abs(per_a[a] - mean_pinball_loss(y, preds[:, j], alpha=a)) < 1e-12
 
@@ -71,6 +72,7 @@ class TestPinballLoss:
             preds = np.ascontiguousarray(rng.standard_normal((n, k)))
             alphas = list(np.linspace(0.05, 0.95, k))
             per_a = pinball_loss_per_alpha(y, preds, alphas)
+            assert list(enumerate(alphas))
             for j, a in enumerate(alphas):
                 assert per_a[float(a)] == pinball_loss(y, preds[:, j], a)
 

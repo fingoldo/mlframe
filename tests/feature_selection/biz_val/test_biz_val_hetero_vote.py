@@ -141,6 +141,7 @@ def test_hetero_vote_regression_keeps_signal_drops_noise():
     X, y, signal, noise = _reg_data(seed=0)
     accepted, info = heterogeneous_relevance_vote(X, y, classification=False, n_shadow_trials=3, vote_threshold=0.5, random_state=0)
     acc = set(accepted)
+    assert len(signal) > 0
     for s in signal:
         assert s in acc, f"regression panel dropped signal {s} (vote_fraction={info['vote_fraction'][s]})"
     n_noise = len(acc & set(noise))
@@ -166,10 +167,12 @@ def test_hetero_vote_regression_skill_weights_are_r2_derived():
         cv_skill_floor=0.05,
         random_state=0,
     )
+    assert len(signal) > 0
     for s in signal:
         assert s in set(accepted), f"R2-skill-weighted regression vote dropped signal {s}"
     w = info["model_weights"]
     assert set(w) == {"tree", "linear", "distance"}
+    assert w.items()
     for name, v in w.items():
         assert 0.05 <= v <= 1.0, f"R2-derived weight for {name} out of [0.05, 1.0]: {v}"
 
@@ -188,6 +191,7 @@ def test_hetero_vote_ndarray_input_uses_xN_names():
     assert set(info["vote_fraction"]) == expected_names
     assert set(accepted) <= expected_names
     # The 4 signal columns x0..x3 must survive.
+    assert len(sig_idx) > 0
     for i in sig_idx:
         assert f"x{i}" in set(accepted), f"ndarray-named signal x{i} dropped"
 
@@ -208,6 +212,7 @@ def test_hetero_vote_custom_two_model_panel():
     assert info["n_models"] == 2
     assert set(info["model_weights"]) == {"rf", "lr"}
     # The 2-member panel still recovers the strong marginal signals.
+    assert len(signal) > 0
     for s in signal:
         assert s in set(accepted), f"2-model panel dropped signal {s}"
 

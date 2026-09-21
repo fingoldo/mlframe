@@ -158,6 +158,7 @@ def test_gpu_probe_fit_data_has_no_constant_feature_column(monkeypatch) -> None:
     assert X.shape[0] >= 2, "at least 2 rows are needed for any column to have variance at all"
     import numpy as np
 
+    assert list(range(X.shape[1]))
     for col in range(X.shape[1]):
         assert np.ptp(X[:, col]) > 0, f"probe feature column {col} is constant -- CatBoost quantization would reject it as 'constant or ignored'"
 

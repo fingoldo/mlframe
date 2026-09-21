@@ -3,6 +3,7 @@ import time, numpy as np
 from typing import Callable
 
 from mlframe.calibration.quality import _anderson_darling_kernel as ad_serial, _anderson_darling_kernel_parallel as ad_par
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 n = 10_000_000
 if __name__ == "__main__":
@@ -12,7 +13,8 @@ if __name__ == "__main__":
     def best(f: "Callable[[np.ndarray, int], float]", r: int = 7) -> "tuple[float, float]":
         ts = []
         for _ in range(r):
-            t=time.perf_counter(); v=f(pit,n); ts.append(time.perf_counter()-t)
+            synchronize_gpu_if_available()
+            t=time.perf_counter(); v=f(pit,n); synchronize_gpu_if_available(); ts.append(time.perf_counter()-t)
         return min(ts), v
     ms,vs=best(ad_serial); mp,vp=best(ad_par)
     # sort cost

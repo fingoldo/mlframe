@@ -15,6 +15,10 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
+from .._quantile_edges import quantile_bin_edges
+
 logger = logging.getLogger("mlframe.training.composite_transforms")
 
 
@@ -180,16 +184,15 @@ def _median_residual_fit(
     y_f = y[finite].astype(np.float64)
     b_f = base[finite].astype(np.float64)
     n_bins = int(_MEDIAN_RESIDUAL_N_BINS)
-    quantiles = np.linspace(0.0, 1.0, n_bins + 1)
-    bin_edges = np.quantile(b_f, quantiles)
-    bin_edges = np.unique(bin_edges)
-    # Heavily-discretised base (e.g. integer counts with <20 distinct values) causes ``np.unique`` to collapse the n_bins+1 quantile edges to fewer slots. ``np.digitize`` then routes most rows to bin 0 and the per-bin median lookup defeats the residual residual modelling. Warn so downstream callers know the granularity collapsed before treating the residual as a useful signal.
-    if bin_edges.size - 1 < n_bins:
-        import warnings as _w
-        _w.warn(
-            f"_median_residual_fit: base has only {bin_edges.size - 1} distinct quantile edges (requested n_bins={n_bins}); residual granularity collapsed. Transform falls back to a coarse per-bin median - consider a different base or transform when this fires.",
-            RuntimeWarning,
-            stacklevel=2,
+    # A discrete base with <= n_bins values gets one bin per value (a binary base used to collapse to ONE bin, i.e. the
+    # global median). Only a base whose ties merge MORE distinct values than bins formed loses granularity; that is
+    # logged (not ``warnings.warn``, which bypassed the run log and printed a source line to stderr).
+    bin_edges = quantile_bin_edges(b_f, n_bins)
+    if bin_edges.size - 1 < n_bins and np.unique(b_f).size > bin_edges.size - 1:
+        log_throttle(
+            logger, "median_residual_edges_collapsed", logging.INFO,
+            "_median_residual_fit: tied base values merge into %d quantile bin(s) (requested n_bins=%d); the residual is a coarse per-bin median.",
+            bin_edges.size - 1, n_bins,
         )
     if bin_edges.size < 2:
         bin_edges = np.array([bin_edges[0], bin_edges[0] + 1e-9])
@@ -409,7 +412,9 @@ def _rolling_quantile_ratio_fit(
         finite = np.isfinite(base_f) & (base_f != 0)
     scale = float(np.median(np.abs(base_f[finite]))) if finite.any() else 1.0
     eps = max(scale * 1e-6, 1e-12)
-    return {"k": k, "eps": eps, "mode": mode}
+    # Last k-1 train base values: the window history a continuation batch (recurrence_continuation) starts from, instead of a truncated window.
+    tail_base = base_f[np.isfinite(base_f)][-(k - 1):] if k > 1 else base_f[:0]
+    return {"k": k, "eps": eps, "mode": mode, "tail_base": [float(v) for v in tail_base]}
 
 
 def _rolling_quantile_ratio_centered_fit(
@@ -420,31 +425,48 @@ def _rolling_quantile_ratio_centered_fit(
     return _rolling_quantile_ratio_fit(y, base, k=k, mode="centered", _finite_mask=_finite_mask)
 
 
-def _rolling_quantile_ratio_forward(
-    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
-) -> np.ndarray:
-    """Apply ``T = y / max(RollingQ50_k(base), eps)`` with the rolling median of ``base`` over window ``k`` in the fitted mode (params without a ``mode`` key predate the field and keep the historical centred window)."""
+def _rqr_prefixed_median(base: np.ndarray, params: dict[str, Any], history_base: np.ndarray | None, continuation: bool) -> np.ndarray:
+    """Rolling median of ``base`` whose window may reach back into the rows preceding the batch: ``history_base`` when supplied, preceded by the
+    stored train tail under recurrence continuation (inverse only). Without either, the window truncates at the batch start (a state reset)."""
     k = int(params["k"])
-    eps = float(params["eps"])
     mode = str(params.get("mode", "centered"))
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
-    roll_med = _rqr_rolling_median(base_f, k, mode)
+    parts = []
+    if continuation and params.get("recurrence_continuation") and params.get("tail_base"):
+        parts.append(np.asarray(params["tail_base"], dtype=np.float64))
+    if history_base is not None:
+        parts.append(np.asarray(history_base, dtype=np.float64).reshape(-1))
+    if not parts:
+        return _rqr_rolling_median(base_f, k, mode)
+    prefix = np.concatenate(parts)
+    return _rqr_rolling_median(np.concatenate([prefix, base_f]), k, mode)[prefix.size :]
+
+
+def _rolling_quantile_ratio_forward(
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    history_base: np.ndarray | None = None,
+) -> np.ndarray:
+    """Apply ``T = y / max(RollingQ50_k(base), eps)`` with the rolling median of ``base`` over window ``k`` in the fitted mode (params without a ``mode`` key predate the field and keep the historical centred window). ``history_base``: base rows immediately preceding the batch, read by the window."""
+    eps = float(params["eps"])
+    roll_med = _rqr_prefixed_median(base, params, history_base, continuation=False)
     safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
-    return np.asarray(np.asarray(y, dtype=np.float64) / safe)
+    return np.asarray(np.asarray(y, dtype=np.float64).reshape(-1) / safe)
 
 
 def _rolling_quantile_ratio_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    history_base: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Undo the transform: ``y = T_hat * max(RollingQ50_k(base), eps)`` with the same fitted window mode as the forward."""
-    k = int(params["k"])
-    mode = str(params.get("mode", "centered"))
-    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
-    roll_med = _rqr_rolling_median(base_f, k, mode)
+    """Undo the transform: ``y = T_hat * max(RollingQ50_k(base), eps)`` with the same fitted window mode as the forward; the window also reads
+    ``history_base`` and, under recurrence continuation, the stored train tail."""
+    from ._nonlinear_ewma_fracdiff import _warn_cold_recurrence
+    t_f = np.asarray(t_hat, dtype=np.float64).reshape(-1)
+    _warn_cold_recurrence("rolling_quantile_ratio", t_f.size, int(params["k"]), params, history_base)
+    roll_med = _rqr_prefixed_median(base, params, history_base, continuation=True)
     # Mirror the forward eps-floor so the round-trip is exact on near-zero rolling medians.
     eps = float(params["eps"])
     safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
-    return np.asarray(np.asarray(t_hat, dtype=np.float64) * safe)
+    return np.asarray(t_f * safe)
 
 
 _rolling_quantile_ratio_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped

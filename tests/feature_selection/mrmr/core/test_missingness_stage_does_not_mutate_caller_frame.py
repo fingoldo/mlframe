@@ -77,7 +77,7 @@ def test_restore_branch_does_not_write_into_caller(monkeypatch):
     import mlframe.feature_selection.filters._missingness_fe as mfe
 
     monkeypatch.setattr(mfe, "missing_indicator_with_recipes", _spy_indicator)
-    est = MRMR(fe_max_steps=0, fe_missingness_indicator_enable=True)
+    est = MRMR(fe_max_steps=1, fe_missingness_indicator_enable=True)
     est.hybrid_orth_features_ = []
     est.mi_greedy_features_ = []
     recipe_dicts = {

@@ -482,6 +482,7 @@ class TestTrainAndEvaluateModelBasic:
 
         assert isinstance(result, SimpleNamespace)
         expected_attrs = ["model", "test_preds", "test_probs", "val_preds", "val_probs", "train_preds", "train_probs", "metrics", "columns", "pre_pipeline"]
+        assert len(expected_attrs) > 0
         for attr in expected_attrs:
             assert hasattr(result, attr), f"Missing attribute: {attr}"
 

@@ -317,6 +317,22 @@ def _call_train_evaluate_with_configs(
     return cast(Tuple[Any, Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]], _result)
 
 
+def _composite_cache_mismatch(loaded_model: Any, want_digest: Optional[str]) -> Optional[str]:
+    """Why a cached dump cannot serve a composite target whose spec digest is ``want_digest`` (``None`` when it can).
+
+    The inner of a composite target learned ``T = forward(y, base, fitted_params)``; a rerun whose spec has different params
+    defines a different T, so an inner cached under another spec (or a bare inner with no recorded spec) is stale.
+    """
+    if want_digest is None:
+        return None
+    have = getattr(getattr(loaded_model, "model", None), "spec_digest_", None)
+    if have is None:
+        return "composite target dump records no spec digest, so the target definition it was trained on is unknown"
+    if have != want_digest:
+        return f"composite target spec changed (cached digest {have}, current {want_digest})"
+    return None
+
+
 def process_model(
     model_file: str,
     model_name: str,
@@ -414,7 +430,7 @@ def process_model(
         effective_common_params["test_df"] = cached_test_df
 
     # Remove parameters not accepted by train_and_evaluate_model
-    for key in ["scaler", "imputer", "category_encoder", "rfecv_params", "model_path", "artifact_dir"]:
+    for key in ["scaler", "imputer", "category_encoder", "rfecv_params", "model_path", "artifact_dir", "composite_spec_digest"]:
         effective_common_params.pop(key, None)
 
     # Check if model exists in cache.
@@ -457,11 +473,16 @@ def process_model(
             if verbose:
                 logger.info("Loaded.")
             mismatch = _validate_cached_model_schema(loaded_model, common_params.get("train_df"))
+            if not mismatch:
+                mismatch = _composite_cache_mismatch(loaded_model, common_params.get("composite_spec_digest"))
             if mismatch:
                 logger.warning("Invalidating stale cached model at %s: %s. Retraining.", fpath, mismatch)
                 use_cached_model = False
             else:
                 model_obj = loaded_model.model
+                # A dump re-saved after composite wrapping holds the y-scale wrapper; evaluation here runs on T.
+                if getattr(model_obj, "_routes_inner_input", False):
+                    model_obj = model_obj.estimator_
                 pre_pipeline = loaded_model.pre_pipeline
                 # Restore the Polars-fastpath sticky flag.
                 # CB's pickle/joblib serialization writes through CatBoost's
@@ -540,10 +561,25 @@ def process_model(
             # carries every train/val/test scalar score).
             save_mlframe_model(model, fpath, lean=True)
 
+    # Where this entry's dump lives, so composite post-processing can re-save it once it wraps the model.
+    if fpath:
+        try:
+            model.model_file_path = fpath
+        except AttributeError:
+            logger.debug("could not stamp model_file_path on %s", type(model).__name__)
+
     # Optimize model for in-memory storage (after saving to disk to preserve full data in files)
     if optimize_storage:
         optimize_model_for_storage(model, target_type, metadata_columns)
 
+    # A unique, stable identity for this entry among its target's models: feature pre-pipeline + model + weight schema
+    # (``model_file_name`` already carries the weight, e.g. "cb_recency"). Metadata blocks key results by
+    # ``entry.model_name``; without it they fell back to the class name / list index, so different weight schemas,
+    # pre-pipelines and wrapped composite-target models overwrote each other's bootstrap CI, calibration, fairness...
+    try:
+        model.model_name = f"{(pre_pipeline_name or '').strip()} {model_file_name}".strip()
+    except AttributeError:
+        logger.debug("could not stamp model_name on %s", type(model).__name__)
     models.setdefault(target_type, {}).setdefault(cur_target_name, []).append(model)
 
     # ens_models can be None when not building ensembles

@@ -101,6 +101,7 @@ def test_candidates_are_all_registered():
     """Candidates are all registered."""
     from mlframe.training.composite.transforms.registry import _TRANSFORMS_REGISTRY
 
+    assert len(DEFAULT_REGION_CANDIDATES) > 0
     for name in DEFAULT_REGION_CANDIDATES:
         assert name in _TRANSFORMS_REGISTRY
 
