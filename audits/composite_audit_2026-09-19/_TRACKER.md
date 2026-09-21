@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 5 | 0 | 25 | 0 | 0 |
+| `discovery.md` | 30 | 6 | 0 | 24 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 5 | 0 | 17 | 0 | 0 |
 | `suite_integration.md` | 19 | 7 | 0 | 12 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 4 | 1 | 12 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 1 | 0 | 40 | 0 | 0 |
-| **Total** | **179** | **61** | **11** | **106** | **1** | **0** |
+| **Total** | **179** | **62** | **11** | **105** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -67,7 +67,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `DSC-06` | The bin-MI `mi_gain` compares a de-duplicated `MI(T,X)` with a non-de-duplicated `MI(y,X)` | |
 | **TODO** | P2 | `DSC-07` | The tiny rerank ranks and gates on a mix of honest-holdout RMSE and optimistic in-group CV RMSE | |
 | **TODO** | P2 | `DSC-08` | The y-scale gates score a spec on its finite rows only, while raw-y is scored on every row | |
-| **TODO** | P2 | `DSC-09` | Gate exceptions keep the spec (fail-open), and an all-NaN tiny-CV score passes the raw-baseline gate | |
+| **RESOLVED** | P2 | `DSC-09` | Gate exceptions keep the spec (fail-open), and an all-NaN tiny-CV score passes the raw-baseline gate | gate evaluation errors / unregistered transforms reject with WARNING + ledger; non-finite tiny-CV scores rejected before the threshold |
 | **TODO** | P2 | `DSC-10` | The WAIC tie-break compares log predictive densities of different target scales | |
 | **TODO** | P2 | `DSC-11` | WAIC and auto-chain CVs use shuffled KFold, ignoring groups and time | |
 | **TODO** | P2 | `DSC-12` | The discovery disk-cache key leaves out inputs that change the result | |
@@ -109,7 +109,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `EST-13` | The CT_ENSEMBLE val/test metrics and charts describe the pre-MoE predictor, not the model that ships | |
 | **TODO** | P2 | `EST-14` | A streaming `update()` refit leaves the soft-shrink base range at the dead regime, and its T-clip refresh leaves out the widening to the observed range that `fit()` applies | |
 | **TODO** | P3 | `EST-15` | In the default shuffled K-fold OOF, recurrent composite components run their EWMA/rolling state over gapped (train) and scattered (holdout) row sequences | |
-| **TODO** | P3 | `EST-16` | The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level | |
+| **RESOLVED** | P3 | `EST-16` | The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level | fold groups/weights via call_transform, forward with groups, WARNING fallback; grouped components no longer drop out of OOF |
 | **TODO** | P3 | `EST-17` | OOF refits reuse the entry's pre_pipeline, fitted on the full train (including supervised MRMR/RFECV selection that saw each fold's holdout y) | |
 | **TODO** | P3 | `EST-18` | The five `moe_*` constructor parameters of `CompositeTargetEstimator` are never read | |
 | **TODO** | P3 | `EST-19` | The `lag_predict` component that ships in CT_ENSEMBLE is never fit, so NaN lag rows at predict time are imputed with the median of the predict batch itself | |

@@ -51,6 +51,7 @@ from ..estimator._smearing import N_SMEAR_QUANTILES, SMEARED_TRANSFORMS, smeared
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array
 from ._rejection_ledger import RejectStage, ledger_append
+from ._rejection_ledger import gate_error_reject as _gate_error_reject
 from ._screening_tiny import _build_tiny_model
 
 logger = logging.getLogger(__name__)
@@ -191,8 +192,8 @@ def apply_honest_rmse_gate(
     for spec in kept_specs:
         try:
             transform = get_transform(spec.transform_name)
-        except UnknownTransformError:
-            survivors.append(spec)  # cannot evaluate -> never penalise
+        except UnknownTransformError:  # not in the registry, so no predict can invert it either
+            _gate_error_reject(self, spec, rejected, RejectStage.HONEST_RMSE, "transform is not registered", with_score=False)
             continue
         params = dict(spec.fitted_params)
         base_cols = spec_base_columns(spec)
@@ -211,10 +212,10 @@ def apply_honest_rmse_gate(
                 # Score the spec the way the trained composite will predict: with smearing for the curved unary inverses,
                 # so a log/cbrt target is judged on the conditional mean of y, not on the (lower) geometric mean.
                 _q = _last_residual_q["q"] if spec.transform_name in SMEARED_TRANSFORMS else None
-                y_hat = smeared_inverse(lambda t: transform.inverse(t, base_eval, params), t_hat, _q)
-        except Exception as exc:  # -- a spec the tiny pipeline cannot evaluate keeps its MI verdict
-            logger.debug("honest_rmse_gate fit/inverse failed for %s: %s", spec.name, exc)
-            survivors.append(spec)
+                y_hat = smeared_inverse(lambda t, _tr=transform, _b=base_eval, _p=params: _tr.inverse(t, _b, _p), t_hat, _q)
+        except Exception as exc:
+            # The same forward/inverse raises at predict time on rows like these; keeping the spec disabled the gate for it.
+            _gate_error_reject(self, spec, rejected, RejectStage.HONEST_RMSE, f"fit/inverse raised {type(exc).__name__}: {exc}", with_score=False)
             continue
 
         finite = np.isfinite(y_hat)

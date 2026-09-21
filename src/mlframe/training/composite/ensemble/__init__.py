@@ -29,6 +29,7 @@ from .._composite_utils import is_polars_df as _is_polars_df
 from ..estimator import CompositeTargetEstimator
 from ..post_shim import PrePipelinePredictShim, subset_to_fit_columns
 from ..transforms import get_transform
+from ..transforms._call_gateway import call_transform
 from ._oof_split import (
     _align_fit_sw,
     _carve_inner_eval_split,
@@ -302,7 +303,33 @@ def _oof_cache_put(key: tuple, value: tuple) -> None:
 
 
 
-def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_train: np.ndarray, base_train: np.ndarray) -> CompositeTargetEstimator:
+
+def _rows_of(arr: Any, rows: np.ndarray, valid: np.ndarray) -> np.ndarray | None:
+    """``arr[rows][valid]`` for a train-row-aligned array (groups, weights), or ``None`` when there is none."""
+    if arr is None:
+        return None
+    a = np.asarray(arr)
+    return a[rows][valid] if a.shape[0] > int(np.max(rows, initial=-1)) else None
+
+
+def _refit_fold_params(transform: Any, spec: dict, y: np.ndarray, base: np.ndarray, groups: np.ndarray | None, sample_weight: np.ndarray | None) -> dict:
+    """The transform's params refit on one fold's train rows, with the fold's groups and weights where the fit takes them.
+
+    Refit without them, a grouped transform raised and the fold reused the full-train params (fit on rows that include
+    this fold's holdout, the optimism the refit exists to remove), and a weighted fit ran unweighted. A refit that still
+    fails falls back to the full-train params at WARNING, naming the transform.
+    """
+    try:
+        return call_transform(transform, "fit", y, base, groups=groups, sample_weight=sample_weight)
+    except Exception as e:
+        log_throttle(
+            logger, f"oof_fold_refit_failed_{spec.get('transform_name')}", logging.WARNING,
+            "[ensemble] per-fold refit of %s failed (%s: %s); this fold reuses the full-train params, so its OOF score is optimistic.",
+            spec.get("transform_name"), type(e).__name__, e,
+        )
+        return spec["fitted_params"]
+
+def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_train: np.ndarray, base_train: np.ndarray, group_column: Any = None) -> CompositeTargetEstimator:
     """Wrap an OOF-refit inner as the deployed wrapper would be: the full ``base_columns`` tuple for a multi-base spec (predict rebuilds
     the K-column base matrix the K alphas expect), and the train base so the stand-in captures its range and shrinks deep-OOD rows too."""
     extra = tuple(spec.get("extra_base_columns") or ())
@@ -314,6 +341,7 @@ def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_trai
         transform_fitted_params=fitted_params,
         y_train=y_train,
         base_train=base_train,
+        group_column=group_column,
     )
 
 def _compute_oof_with_external_holdout(
@@ -396,7 +424,7 @@ def _compute_oof_with_external_holdout(
                     inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
                     eval_set=_eval_set_c, fitted_source=inner.estimator_,
                 )
-                wrapped = _wrap_fitted_inner(spec, inner_clone, spec["fitted_params"], y_train_full[valid], base_full[valid])
+                wrapped = _wrap_fitted_inner(spec, inner_clone, spec["fitted_params"], y_train_full[valid], base_full[valid], getattr(inner, "group_column", None))
                 preds = wrapped.predict(external_holdout_X, inner_X=X_holdout_t)
             else:
                 inner_clone = clone(inner)
@@ -611,14 +639,9 @@ def compute_oof_holdout_predictions(
                         # this fold's holdout -> mild OOF optimism). Fall back to
                         # the global params when the transform cannot 1-D-refit
                         # (e.g. multi-base needs the K-column matrix).
-                        try:
-                            _fold_params = transform.fit(y_stack[valid], base_stack[valid])
-                        except Exception as e:
-                            logger.debug("per-fold transform refit failed, reusing the previously fitted params: %s", e)
-                            _fold_params = spec["fitted_params"]
-                        t_stack = transform.forward(
-                            y_stack[valid], base_stack[valid], _fold_params,
-                        )
+                        _g_fold = _rows_of(group_ids, fold_train_idx, valid)
+                        _fold_params = _refit_fold_params(transform, spec, y_stack[valid], base_stack[valid], _g_fold, _rows_of(sample_weight, fold_train_idx, valid))
+                        t_stack = call_transform(transform, "forward", y_stack[valid], base_stack[valid], _fold_params, groups=_g_fold)
                         inner_clone = clone(inner.estimator_)
                         if isinstance(X_stack_t, pd.DataFrame):
                             X_stack_valid = X_stack_t.iloc[valid].reset_index(drop=True)
@@ -655,7 +678,7 @@ def compute_oof_holdout_predictions(
                             eval_set=_eval_set_kc, fitted_source=inner.estimator_,
                         )
                         # Multi-base parity with _phase_composite_post: pass the full base_columns tuple so predict reconstructs the K-column base matrix matching the K alphas.
-                        wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid])
+                        wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid], getattr(inner, "group_column", None))
                         preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
                     else:
                         inner_clone = clone(inner)
@@ -860,14 +883,9 @@ def compute_oof_holdout_predictions(
                 if valid.sum() < 10:
                     raise ValueError("too few valid rows after domain filter")
                 # Per-fold transform refit (see the kfold branch).
-                try:
-                    _fold_params = transform.fit(y_stack[valid], base_stack[valid])
-                except Exception as e:
-                    logger.debug("per-fold transform refit failed, reusing the previously fitted params: %s", e)
-                    _fold_params = spec["fitted_params"]
-                t_stack = transform.forward(
-                    y_stack[valid], base_stack[valid], _fold_params,
-                )
+                _g_fold = _rows_of(group_ids, train_idx, valid)
+                _fold_params = _refit_fold_params(transform, spec, y_stack[valid], base_stack[valid], _g_fold, _rows_of(sample_weight, train_idx, valid))
+                t_stack = call_transform(transform, "forward", y_stack[valid], base_stack[valid], _fold_params, groups=_g_fold)
                 inner_clone = clone(inner.estimator_)
                 if isinstance(X_stack_t, pd.DataFrame):
                     X_stack_valid = X_stack_t.iloc[valid].reset_index(drop=True)
@@ -890,7 +908,7 @@ def compute_oof_holdout_predictions(
                     eval_set=_eval_set_c, fitted_source=inner.estimator_,
                 )
                 # Multi-base parity: same fix as the kfold OOF branch above. Without base_columns, predict reconstructs only the primary base column and trips the K-alphas shape check.
-                wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid])
+                wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid], getattr(inner, "group_column", None))
                 preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
             else:
                 # Raw-target component. Re-fit the inner on (X_stack, y_stack) and predict on X_holdout.
