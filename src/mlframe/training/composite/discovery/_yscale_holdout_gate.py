@@ -175,9 +175,9 @@ def apply_structural_fragility_gate(
             continue
         try:
             base = _extract_column_array(df, base_col, rows=rows).astype(np.float64)
-        except Exception as e:
-            logger.debug("base column extraction failed for %s, keeping spec as survivor: %s", base_col, e)
-            survivors.append(spec)
+        except Exception as e:  # the same base is read at predict: a base the gate cannot read cannot be served
+            # Logged and ledgered by the helper; kept out of ``rejected``, whose summary line formats fragility numbers.
+            _gate_error_reject(self, spec, [], RejectStage.STRUCTURAL_FRAGILITY, f"base column {base_col!r} could not be read ({type(e).__name__}: {e})")
             continue
         s = _inverse_base_sensitivity(spec, base)
         if s is None or s < s_min:
@@ -374,7 +374,7 @@ def apply_yscale_holdout_gate(
             if valid.shape != y_fit.shape:
                 valid = np.ones(y_fit.shape, dtype=bool)
         except Exception as e:
-            logger.debug("domain_check failed, treating all rows as valid: %s", e)
+            logger.warning("domain_check failed, treating all rows as valid: %s", e)
             valid = np.ones(y_fit.shape, dtype=bool)
         if int(valid.sum()) < 50:
             survivors.append(spec)

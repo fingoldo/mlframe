@@ -68,7 +68,7 @@ def apply_multi_base_forward_stepwise(
                             "amplification.", float(_off.mean()), _pool_corr_thresh,
                         )
             except Exception as e:  # -- the corr guard is a heuristic; never abort discovery on it
-                logger.debug("multibase pool-corr heuristic guard failed: %s", e)
+                logger.warning("multibase pool-corr heuristic guard failed: %s", e)
                 _multibase_pool_corr_skip = False
     if not (kept_specs and getattr(self.config, "multi_base_enabled", False) and getattr(self, "_auto_base_pool", None) and not _multibase_pool_corr_skip):
         return kept_specs

@@ -349,14 +349,17 @@ def _single_stage_rmses(res_names: Sequence[str], un_names: Sequence[str], cv_kw
     return residual_rmse, unary_rmse
 
 
-def _fitted_chain_candidate(chain_tf: Transform, res: str, un: str, *, y: np.ndarray, base: np.ndarray, **scores: float) -> ChainCandidate:
-    """A winning chain fitted once on all in-domain rows, so the candidate carries usable params."""
+def _fitted_chain_candidate(chain_tf: Transform, res: str, un: str, *, y: np.ndarray, base: np.ndarray, **scores: float) -> Optional[ChainCandidate]:
+    """A winning chain fitted once on all in-domain rows, so the candidate carries usable params; ``None`` when that fit fails.
+
+    A failed fit used to leave the candidate with empty params, a spec whose inverse raises on the first predict.
+    """
     dom = np.asarray(chain_tf.domain_check(y, base), dtype=bool)
     try:
         params = chain_tf.fit(y[dom], base[dom])
     except Exception as e:
-        logger.debug("chain transform fit failed: %s", e)
-        params = {}
+        logger.warning("[auto_chain] dropping chain %s: its fit on the in-domain rows failed (%s: %s).", chain_tf.name, type(e).__name__, e)
+        return None
     return ChainCandidate(
         chain_name=chain_tf.name, short_name=_short(res, un), residual_name=res, unary_name=un,
         transform=chain_tf, fitted_params=params, **scores,
@@ -497,9 +500,11 @@ def discover_chains(
                     mi_estimator=mi_estimator, mi_nbins=mi_nbins,
                     mi_n_neighbors=mi_n_neighbors, random_state=random_state,
                 )
-            candidates.append(_fitted_chain_candidate(
+            cand = _fitted_chain_candidate(
                 chain_tf, res, un, y=y, base=base, rmse=cr, residual_rmse=rr, unary_rmse=ur,
                 raw_rmse=raw_rmse, margin=margin, mi_gain=mg, valid_domain_frac=vf,
-            ))
+            )
+            if cand is not None:
+                candidates.append(cand)
     candidates.sort(key=lambda c: c.rmse)
     return candidates[:top_k]

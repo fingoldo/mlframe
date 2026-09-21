@@ -82,7 +82,7 @@ def _build_repr_html(self: Any) -> str:
     # path and the single-column legacy alias both render correctly.
     try:
         base_cols = self._resolve_base_columns()
-    except Exception as e:
+    except Exception as e:  # best-effort: the HTML repr falls back to plain text; no fitted state changes
         logger.debug("_resolve_base_columns() failed in repr: %s", e)
         base_cols = ()
     if base_cols:

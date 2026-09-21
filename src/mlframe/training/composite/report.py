@@ -72,7 +72,7 @@ def _resolve_base_str(estimator: Any) -> str:
     """Resolved base column(s) as a display string (never raises)."""
     try:
         cols = estimator._resolve_base_columns()
-    except Exception as e:
+    except Exception as e:  # best-effort: a report field falls back to a placeholder; no fitted state changes
         logger.debug("_resolve_base_columns() failed: %s", e)
         cols = ()
     return ", ".join(map(str, cols)) if cols else "(none -- unary y-transform)"
@@ -99,7 +99,7 @@ def _gather(estimator: Any, X: Any, y: Any) -> dict[str, Any]:
     try:
         base_cols = estimator._resolve_base_columns()
         primary_base = base_cols[0] if base_cols else "base"
-    except Exception as e:
+    except Exception as e:  # best-effort: a report field falls back to a placeholder; no fitted state changes
         logger.debug("_resolve_base_columns() failed, using 'base' as the primary column label: %s", e)
         primary_base = "base"
 
@@ -137,7 +137,7 @@ def _gather(estimator: Any, X: Any, y: Any) -> dict[str, Any]:
     rs_before = dict(getattr(estimator, "runtime_stats_", None) or {})
     try:
         y_hat = np.asarray(estimator.predict(X), dtype=np.float64).reshape(-1)
-    except Exception as e:
+    except Exception as e:  # best-effort: a report field falls back to a placeholder; no fitted state changes
         logger.debug("estimator.predict(X) failed, skipping the range/coverage diagnostics: %s", e)
         y_hat = None
 
@@ -167,7 +167,7 @@ def _gather(estimator: Any, X: Any, y: Any) -> dict[str, Any]:
     try:
         from .attribution import attribution_summary
         facts["attribution"] = attribution_summary(estimator, X)
-    except Exception as exc:
+    except Exception as exc:  # best-effort: a report field falls back to a placeholder; no fitted state changes
         logger.debug("attribution_summary() failed: %s", exc)
         facts["attribution_error"] = str(exc)
 

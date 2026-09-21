@@ -51,4 +51,6 @@
 # Bumped 2026-09-19 from b6622b1 to 36ace7a: repo_hygiene reads git's view of text files once (test_repo_hygiene 15 min -> seconds).
 # Bumped 2026-09-20 from 36ace7a to 861b595: unresolved_imports detects import guards once per file instead of once per import,
 # and inert_patch_targets builds each module's facts in one walk.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@861b595342f1a9c72bf113407372277ae3f39975
+# Bumped 2026-09-21 from 861b595 to fdbed25: test_shared_checks_wired wires fail_open_handlers (absent before fdbed25);
+# _fail_open_handlers_baseline.json is added in the same commit.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@fdbed254c49b060b1f62449eef64b70ef0a8d3a1

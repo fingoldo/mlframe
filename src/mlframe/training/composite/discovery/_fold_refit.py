@@ -124,7 +124,7 @@ def refit_transform_on_fold(
                 _dcf(y_fold, base_fold, fold_params), dtype=bool,
             )
         except Exception as e:  # -- treat as no refinement
-            logger.debug("domain_check for fold refinement failed: %s", e)
+            logger.warning("domain_check for fold refinement failed: %s", e)
             valid_fitted = None
         if valid_fitted is not None and valid_fitted.shape == valid.shape:
             refined = valid & valid_fitted

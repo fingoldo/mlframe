@@ -60,7 +60,7 @@ def _resolve_base_columns(estimator: Any) -> tuple[str, ...]:
     """Resolve the base column tuple (multi-base first, then single, else ())."""
     try:
         return tuple(estimator._resolve_base_columns())
-    except Exception as e:  # pragma: no cover - defensive; estimator may be a bare mock
+    except Exception as e:  # best-effort: a model-card field falls back to a placeholder; no fitted state changes; pragma: no cover - defensive; estimator may be a bare mock
         logger.debug("_resolve_base_columns() failed: %s", e)
         cols = getattr(estimator, "base_columns", None)
         if cols:

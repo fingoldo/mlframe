@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 6 | 0 | 24 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 5 | 0 | 17 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 7 | 0 | 15 | 0 | 0 |
 | `suite_integration.md` | 19 | 7 | 0 | 12 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 4 | 1 | 12 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 1 | 0 | 40 | 0 | 0 |
-| **Total** | **179** | **62** | **11** | **105** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 2 | 0 | 39 | 0 | 0 |
+| **Total** | **179** | **65** | **11** | **102** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -198,7 +198,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|
 | **RESOLVED** | P1 | `PMT-01` | Registry-driven transform property matrix: max-error round trip across regimes, degenerate legs, and registry metadata completeness | legs (b)-(e) in test_transform_registry_properties.py; fixed constant-base vol floor, O(n) ECDF/spline params; additive_in_t/linear_in_base/n_bases fields drive soft-shrink + watchdog (quantile_residual false alarm); leg (f) scanner |
 | **TODO** | P2 | `PMT-02` | Call-budget harness: expensive primitives are invoked at most their ideal count per discovery fit and per post-phase | |
-| **TODO** | P1 | `PMT-03` | Fail-open and below-WARNING substitution handlers in gates (shared AST scanner) | |
+| **RESOLVED** | P1 | `PMT-03` | Fail-open and below-WARNING substitution handlers in gates (shared AST scanner) | py_ci_shared.fail_open_handlers wired; 3 more fail-open sites fixed, 11 fallbacks to WARNING; FS backlog baselined untriaged |
 | **TODO** | P1 | `PMT-04` | Non-discriminating test-assertion shapes: literal wide ranges, median-of-error, isinstance-only biz tests, data-dependent skips | |
 | **TODO** | P1 | `PMT-05` | Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe | |
 | **TODO** | P1 | `PMT-06` | Splitter and sampler consistency: one splitter factory, time order and groups honoured everywhere, sampler returns usable rows | |
