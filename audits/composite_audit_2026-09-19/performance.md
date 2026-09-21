@@ -355,7 +355,7 @@ Default counts used in the estimates:
 - **Expected win** (estimate): about 2x on bootstrap cost when `mi_gain_bootstrap_n > 0`; off by default.
 - **Suggested fix**: memoise the `mi_y_b` replicate vector in the base context keyed by `hash(valid_screen.tobytes())`, as `_mi_y_compare_memo` already does. Skip the copy when the mask is all-true.
 - **Test/benchmark to add**: a bit-identity test of `mi_gain_lcb` and `bootstrap_p_value` with and without the memo.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - the `MI(y, X)` replicates and the row-major prebinned copy are now built once per (base, valid mask, seed) and shared through the base context (`_shared_bootstrap_inputs`). A first attempt memoised inside the per-candidate loop and never hit, because the candidates run concurrently and all started before any stored; the replicates are therefore computed in their own pass (`_bootstrap_mi_y_replicates`, same seed so the same draws) under a per-key lock that the first candidate takes and the others wait on. `MI(y, X)` is computed before `MI(T, X)` inside each replicate, and a replicate whose `MI(y, X)` failed replays the identical failure message for every later candidate. On a four-transform base the replicate pass runs once instead of four times, and every candidate's `mi_gain_lcb` and `bootstrap_p_value` equal those of an unshared run. test_bootstrap_mi_y_replicates_shared.py, 3 tests: LCB and p-values identical to an unshared run, one replicate pass for concurrent candidates, a replayed failure is recorded like the original
 
 ### PRF-22 [P3] The prebin content cache hashes the screen matrix on every fit but misses across targets
 
