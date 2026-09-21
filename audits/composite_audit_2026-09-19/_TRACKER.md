@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 8 | 0 | 11 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 5 | 1 | 35 | 0 | 0 |
-| **Total** | **179** | **86** | **12** | **80** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 6 | 1 | 34 | 0 | 0 |
+| **Total** | **179** | **87** | **12** | **79** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -203,7 +203,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `PMT-05` | Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe | test_cte_row_purity: chunk invariance to 1e-14, threads, lag_predict fill; found EST-19/EST-20 |
 | **RESOLVED** | P1 | `PMT-06` | Splitter and sampler consistency: one splitter factory, time order and groups honoured everywhere, sampler returns usable rows | no ad-hoc shuffled KFold scan + splitter contract tests; fixed 6 findings |
 | **PARTIAL** | P1 | `PMT-07` | Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform | 7 findings fixed + invariance tests; typed Score/rank_specs + sort scan not built |
-| **TODO** | P1 | `PMT-08` | Scale and shift metamorphic property over every registered transform | |
+| **RESOLVED** | P1 | `PMT-08` | Scale and shift metamorphic property over every registered transform | scale/shift property tests; fixed log_y +1.0 offset and raw-unit arcsinh |
 | **TODO** | P2 | `PMT-09` | Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery | |
 | **TODO** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | |
 | **TODO** | P1 | `PMT-11` | Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test | |

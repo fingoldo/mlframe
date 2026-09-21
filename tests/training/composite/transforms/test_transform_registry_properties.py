@@ -208,3 +208,52 @@ def test_the_soft_base_shrink_covers_every_linear_in_base_transform():
 
     assert "causal_anchor_residual" in _soft_shrink.ADDITIVE_BASE_TRANSFORMS
     assert _soft_shrink.ADDITIVE_BASE_TRANSFORMS == {n for n, t in TRANSFORMS_REGISTRY.items() if t.linear_in_base}
+
+
+def _scaled_fit(name: str, s: float = 1.0, shift: float = 0.0):
+    """Fit on ``(s*y, s*base + shift)``; returns the transform, params, T on the domain rows, the base, groups and mask."""
+    t = TRANSFORMS_REGISTRY[name]
+    n = 500
+    rng = np.random.default_rng(0)
+    base = np.linspace(1.0, 10.0, n) + rng.normal(0.0, 0.05, n)
+    base2 = rng.uniform(1.0, 5.0, n)
+    y = 0.5 * base + 1.0 + 0.3 * rng.standard_normal(n)
+    g = _groups(n)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        params, domain, b = _fit_on_domain(t, name, s * y, s * base + shift, s * base2 + shift, g)
+        b_fit = b[domain] if t.requires_base else b
+        return t, params, _call_forward(t, s * y[domain], b_fit, params, g[domain]), b_fit, g[domain], domain
+
+
+@pytest.mark.parametrize("name", [n for n in _NAMES if TRANSFORMS_REGISTRY[n].scale_equivariant])
+def test_a_scale_equivariant_transform_has_one_shape_at_every_scale(name: str):
+    """Fit on (s*y, s*base): T_s is an affine map of T_1, and the inverse commutes with the scale.
+
+    A raw-unit constant breaks this: log_y added 1.0 to a positive target (nearly the identity on a target of order 1e-3,
+    a log on 1e6) and asinh_residual took arcsinh in raw units; both were found by this test and now carry a fitted scale.
+    """
+    t, p1, t1, b1, g1, d1 = _scaled_fit(name)
+    for s in (1e-3, 1e3, 1e6):
+        _t, ps, ts, bs, gs, ds = _scaled_fit(name, s)
+        assert np.array_equal(ds, d1), f"{name}: the domain changes with the scale {s}"
+        ok = np.isfinite(t1) & np.isfinite(ts)
+        a, b0 = np.linalg.lstsq(np.column_stack([t1[ok], np.ones(int(ok.sum()))]), ts[ok], rcond=None)[0]
+        resid = float(np.max(np.abs(ts[ok] - (a * t1[ok] + b0))))
+        assert resid <= 1e-6 * float(np.std(ts[ok])) + 1e-12, f"{name}: T at scale {s} is not an affine map of T at scale 1 (residual {resid:.3e})"
+        t_hat = t1 + 0.1 * float(np.std(t1[ok]))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            y1 = _call_inverse(t, t_hat, b1, p1, g1)
+            ys = _call_inverse(t, a * t_hat + b0, bs, ps, gs)
+        np.testing.assert_allclose(ys, s * y1, rtol=1e-6, atol=1e-9 * s, err_msg=f"{name}: the inverse does not commute with scale {s}")
+
+
+@pytest.mark.parametrize("name", [n for n in _NAMES if TRANSFORMS_REGISTRY[n].base_translation_invariant])
+def test_a_base_translation_invariant_transform_ignores_a_base_offset(name: str):
+    """Shifting every base column by 1e4 or 1e6 leaves T unchanged (an uncentred normal-equations solve fails this)."""
+    _t, _p, t1, _b, _g, d1 = _scaled_fit(name)
+    for shift in (1e4, 1e6):
+        _t2, _p2, tc, _b2, _g2, dc = _scaled_fit(name, 1.0, shift)
+        assert np.array_equal(dc, d1)
+        np.testing.assert_allclose(tc, t1, rtol=0, atol=1e-6 * max(1.0, float(np.std(t1))), err_msg=f"{name}: a base offset of {shift} changed T")

@@ -190,6 +190,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "polynomial_residual_deg2": Transform(
         name="polynomial_residual_deg2",
+        base_translation_invariant=True,
         additive_in_t=True,
         forward=_polynomial_residual_deg2_forward,
         inverse=_polynomial_residual_deg2_inverse,
@@ -205,6 +206,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "rank_residual": Transform(
         name="rank_residual",
+        base_translation_invariant=True,
         forward=_rank_residual_forward,
         inverse=_rank_residual_inverse,
         fit=_rank_residual_fit,
@@ -220,6 +222,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "smoothing_spline_residual": Transform(
         name="smoothing_spline_residual",
+        base_translation_invariant=True,
         additive_in_t=True,
         forward=_smoothing_spline_residual_forward,
         inverse=_smoothing_spline_residual_inverse,
@@ -332,6 +335,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "rank_ecdf_residual": Transform(
         name="rank_ecdf_residual",
+        base_translation_invariant=True,
         forward=_rank_ecdf_residual_forward,
         inverse=_rank_ecdf_residual_inverse,
         fit=_rank_ecdf_residual_fit,
@@ -421,6 +425,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "quantile_residual_grouped": Transform(
         name="quantile_residual_grouped",
+        base_translation_invariant=True,
         forward=_quantile_residual_grouped_forward,
         inverse=_quantile_residual_grouped_inverse,
         fit=_quantile_residual_grouped_fit,
@@ -433,6 +438,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "monotonic_residual_grouped": Transform(
         name="monotonic_residual_grouped",
+        base_translation_invariant=True,
         additive_in_t=True,
         forward=_monotonic_residual_grouped_forward,
         inverse=_monotonic_residual_grouped_inverse,
@@ -500,6 +506,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "linear_residual_multi_robust": Transform(
         name="linear_residual_multi_robust",
+        base_translation_invariant=True,
         n_bases=2,
         additive_in_t=True,
         linear_in_base=True,
@@ -514,6 +521,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "nadaraya_watson_residual": Transform(
         name="nadaraya_watson_residual",
+        base_translation_invariant=True,
         additive_in_t=True,
         forward=_nadaraya_watson_residual_forward,
         inverse=_nadaraya_watson_residual_inverse,
@@ -526,6 +534,7 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     ),
     "gaussian_copula_residual": Transform(
         name="gaussian_copula_residual",
+        base_translation_invariant=True,
         forward=_gaussian_copula_residual_forward,
         inverse=_gaussian_copula_residual_inverse,
         fit=_gaussian_copula_residual_fit,

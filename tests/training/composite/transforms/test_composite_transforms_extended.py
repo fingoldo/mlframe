@@ -67,13 +67,21 @@ class TestAsinhResidual:
         assert domain.all(), "asinh_residual must accept signed (and zero) bases"
 
     def test_recovers_alpha_on_linear_arcsinh_relation(self):
-        """Recovers alpha on linear arcsinh relation."""
-        base = _RNG.uniform(-5.0, 5.0, size=2000)
-        # T = arcsinh(y) - alpha * arcsinh(base) - beta. Forcing alpha=1.5, beta=0.3.
-        alpha_true, beta_true = 1.5, 0.3
-        arc_y = alpha_true * np.arcsinh(base) + beta_true + 0.01 * _RNG.standard_normal(2000)
-        y = np.sinh(arc_y)
+        """Recovers alpha and beta of a relation that is linear in the transform's own (scale-free) arcsinh units.
+
+        The transform takes arcsinh of y / median|y| and base / median|base|, so the fixture is built with both medians at 1:
+        base is rescaled to median |base| = 1 and beta is solved so that median |y| = 1. The relation is then exactly the one
+        the fit models, and alpha / beta come back as written.
+        """
+        from scipy.optimize import brentq
+
+        u = _RNG.uniform(-5.0, 5.0, size=2000)
+        base = u / np.median(np.abs(u))
+        alpha_true = 0.8
+        beta_true = brentq(lambda b0: np.median(np.abs(np.sinh(alpha_true * np.arcsinh(base) + b0))) - 1.0, 0.0, 20.0)
+        y = np.sinh(alpha_true * np.arcsinh(base) + beta_true + 0.01 * _RNG.standard_normal(2000))
         params = _asinh_residual_fit(y, base)
+        assert params["base_scale"] == pytest.approx(1.0, abs=1e-9) and params["y_scale"] == pytest.approx(1.0, abs=0.02)
         assert params["alpha"] == pytest.approx(alpha_true, abs=0.05)
         assert params["beta"] == pytest.approx(beta_true, abs=0.05)
 
@@ -89,7 +97,7 @@ class TestAsinhResidual:
     def test_degenerate_too_few_finite(self):
         """Degenerate too few finite."""
         params = _asinh_residual_fit(np.array([1.0, np.nan, np.inf]), np.array([1.0, 2.0, 3.0]))
-        assert params == {"alpha": 1.0, "beta": 0.0}
+        assert (params["alpha"], params["beta"]) == (1.0, 0.0)  # pass-through; the fitted scales ride along
 
 
 # ---------------------------------------------------------------------------

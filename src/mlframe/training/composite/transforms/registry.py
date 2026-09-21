@@ -158,6 +158,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "additive_residual": Transform(
         name="additive_residual",
+        base_translation_invariant=True,
         additive_in_t=True,
         linear_in_base=True,
         forward=_additive_residual_forward,
@@ -174,6 +175,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "median_residual": Transform(
         name="median_residual",
+        base_translation_invariant=True,
         additive_in_t=True,
         forward=_median_residual_forward,
         inverse=_median_residual_inverse,
@@ -229,6 +231,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "linear_residual": Transform(
         name="linear_residual",
+        base_translation_invariant=True,
         additive_in_t=True,
         linear_in_base=True,
         forward=_linear_residual_forward,
@@ -240,6 +243,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "linear_residual_robust": Transform(
         name="linear_residual_robust",
+        base_translation_invariant=True,
         additive_in_t=True,
         linear_in_base=True,
         forward=_linear_residual_forward,
@@ -258,6 +262,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "theilsen_residual": Transform(
         name="theilsen_residual",
+        base_translation_invariant=True,
         additive_in_t=True,
         linear_in_base=True,
         forward=_linear_residual_forward,
@@ -280,6 +285,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "linear_residual_multi": Transform(
         name="linear_residual_multi",
+        base_translation_invariant=True,
         n_bases=2,
         additive_in_t=True,
         linear_in_base=True,
@@ -297,6 +303,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "linear_residual_grouped": Transform(
         name="linear_residual_grouped",
+        base_translation_invariant=True,
         additive_in_t=True,
         linear_in_base=True,
         forward=_linear_residual_grouped_forward,
@@ -315,6 +322,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "quantile_residual": Transform(
         name="quantile_residual",
+        base_translation_invariant=True,
         forward=_quantile_residual_forward,
         inverse=_quantile_residual_inverse,
         fit=_quantile_residual_fit,
@@ -326,6 +334,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "monotonic_residual": Transform(
         name="monotonic_residual",
+        base_translation_invariant=True,
         additive_in_t=True,
         forward=_monotonic_residual_forward,
         inverse=_monotonic_residual_inverse,
@@ -452,6 +461,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "yeo_johnson_y": Transform(
         name="yeo_johnson_y",
+        scale_equivariant=False,
         forward=_yj_forward_a,
         inverse=_yj_inverse_a,
         fit=_yj_fit_a,
@@ -499,6 +509,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "chain_linres_yj": _make_chain_transform(
         name="chain_linres_yj", short_name="linres+yj",
+        scale_equivariant=False,
         bivariate_fit=_linear_residual_fit,
         bivariate_forward=_linear_residual_forward,
         bivariate_inverse=_linear_residual_inverse,
@@ -526,6 +537,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     "chain_monres_yj": _make_chain_transform(
         name="chain_monres_yj", short_name="monres+yj",
+        scale_equivariant=False,
         bivariate_fit=_monotonic_residual_fit,
         bivariate_forward=_monotonic_residual_forward,
         bivariate_inverse=_monotonic_residual_inverse,

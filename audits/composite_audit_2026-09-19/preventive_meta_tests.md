@@ -205,7 +205,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low for the property, since non-equivariant transforms declare the exemption with a reason. Medium for the static companion (the "hinge-gate normal equations" perf win in CLAUDE.md is a legitimate allowlist entry).
 - **Runtime**: about 3-5 s (51 transforms x 4 scales x n=500).
 - **Repo**: mlframe. The normal-equations rule could later join py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Added `Transform.scale_equivariant` (default True) and `base_translation_invariant`, with tests in test_transform_registry_properties.py. Fitting on (s*y, s*base) for s in {1e-3, 1e3, 1e6} must give T_s as an affine map of T_1 (residual <= 1e-6 std). The inverse must commute with the scale (1e-6 relative). A base shifted by 1e4 or 1e6 must leave T unchanged for the 18 translation-invariant transforms. The test found two more raw-unit constants, both fixed. `log_y` added 1.0 to a strictly positive target: nearly the identity on a target of order 1e-3, a log at 1e6. It now takes a plain log for positive y and a spread-relative margin otherwise. `asinh_residual` / `asinh_residual_multi` took arcsinh in raw units; they now fit scales (median |x|) for y and each base. The two tests that pinned the old raw-unit asinh were reframed to fixtures in the transform's own units. The exempt transforms are yeo_johnson_y and the two chains built on it, whose (y + 1) ** lam form is unit-dependent by definition. The optional AST companion was not built: the property test catches the same defects on every registered transform.
 
 ### PMT-09 [P2] Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery
 - **Asserts**:

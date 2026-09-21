@@ -26,9 +26,12 @@ def _asinh_residual_multi_fit(
     base_arr = np.asarray(base, dtype=np.float64)
     if base_arr.ndim == 1:
         base_arr = base_arr.reshape(-1, 1)
-    yz = np.arcsinh(np.asarray(y, dtype=np.float64))
-    bz = np.arcsinh(base_arr)
-    return _linear_residual_multi_fit(yz, bz, sample_weight=sample_weight)
+    from .extended import asinh_scale
+
+    s_y, s_b = asinh_scale(y), asinh_scale(base_arr)  # one arcsinh shape at every scale (see asinh_scale)
+    yz = np.arcsinh(np.asarray(y, dtype=np.float64) / s_y)
+    bz = np.arcsinh(base_arr / np.asarray(s_b))
+    return {**_linear_residual_multi_fit(yz, bz, sample_weight=sample_weight), "y_scale": s_y, "base_scale": list(s_b)}
 
 
 def _asinh_residual_multi_forward(
@@ -39,9 +42,15 @@ def _asinh_residual_multi_forward(
     base_arr = np.asarray(base, dtype=np.float64)
     if base_arr.ndim == 1:
         base_arr = base_arr.reshape(-1, 1)
-    yz = np.arcsinh(np.asarray(y, dtype=np.float64))
-    out: np.ndarray = np.asarray(_linear_residual_multi_forward(yz, np.arcsinh(base_arr), params), dtype=np.float64)
+    s_y, s_b = _asinh_multi_scales(params, base_arr.shape[1])
+    yz = np.arcsinh(np.asarray(y, dtype=np.float64) / s_y)
+    out: np.ndarray = np.asarray(_linear_residual_multi_forward(yz, np.arcsinh(base_arr / s_b), params), dtype=np.float64)
     return out
+
+
+def _asinh_multi_scales(params: dict[str, Any], k: int) -> tuple:
+    """``(y_scale, base_scale row)`` from params; params fitted before the scales existed use 1.0."""
+    return float(params.get("y_scale", 1.0)), np.asarray(params.get("base_scale", [1.0] * k), dtype=np.float64)
 
 
 def _asinh_residual_multi_inverse(
@@ -52,8 +61,9 @@ def _asinh_residual_multi_inverse(
     base_arr = np.asarray(base, dtype=np.float64)
     if base_arr.ndim == 1:
         base_arr = base_arr.reshape(-1, 1)
-    z = np.asarray(_linear_residual_multi_inverse(np.asarray(t_hat, dtype=np.float64), np.arcsinh(base_arr), params), dtype=np.float64)
-    return np.asarray(np.sinh(z))
+    s_y, s_b = _asinh_multi_scales(params, base_arr.shape[1])
+    z = np.asarray(_linear_residual_multi_inverse(np.asarray(t_hat, dtype=np.float64), np.arcsinh(base_arr / s_b), params), dtype=np.float64)
+    return np.asarray(s_y * np.sinh(z))
 
 
 def _asinh_residual_multi_domain(
