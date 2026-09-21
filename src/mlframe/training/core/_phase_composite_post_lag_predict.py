@@ -78,15 +78,19 @@ class _LagPredictDeployableModel:
         raise KeyError(f"_LagPredictDeployableModel: column {self.lag_column!r} not found on X (type={type(X).__name__})")
 
     def predict(self, X: Any) -> np.ndarray:
-        """Returns the lag column verbatim, filling non-finite entries with the fitted train-median (or a fresh median/0.0 if unfitted)."""
+        """Returns the lag column verbatim, filling non-finite entries with the fitted train-median.
+
+        An unfitted model has no fill: it used to take the median of the batch it was predicting, so a row's prediction
+        depended on the other rows in its batch (and a one-row batch with a NaN lag got 0.0). It raises instead.
+        """
         col = self._extract_lag_array(X)
         nonfinite = ~np.isfinite(col)
         if nonfinite.any():
             fill = self._impute_value
             if fill is None:
-                fill = float(np.nanmedian(col)) if col.size else 0.0
-                if not np.isfinite(fill):
-                    fill = 0.0
+                from sklearn.exceptions import NotFittedError
+
+                raise NotFittedError(f"_LagPredictDeployableModel({self.lag_column!r}) must be fitted before it can fill {int(nonfinite.sum())} missing lag(s).")
             col = col.copy()
             col[nonfinite] = fill
         return col

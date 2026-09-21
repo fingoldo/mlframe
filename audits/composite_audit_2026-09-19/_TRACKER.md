@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 6 | 0 | 24 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 7 | 0 | 15 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 9 | 0 | 13 | 0 | 0 |
 | `suite_integration.md` | 19 | 7 | 0 | 12 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 3 | 0 | 38 | 0 | 0 |
-| **Total** | **179** | **69** | **11** | **98** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 4 | 0 | 37 | 0 | 0 |
+| **Total** | **179** | **72** | **11** | **95** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -112,8 +112,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `EST-16` | The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level | fold groups/weights via call_transform, forward with groups, WARNING fallback; grouped components no longer drop out of OOF |
 | **TODO** | P3 | `EST-17` | OOF refits reuse the entry's pre_pipeline, fitted on the full train (including supervised MRMR/RFECV selection that saw each fold's holdout y) | |
 | **TODO** | P3 | `EST-18` | The five `moe_*` constructor parameters of `CompositeTargetEstimator` are never read | |
-| **TODO** | P3 | `EST-19` | The `lag_predict` component that ships in CT_ENSEMBLE is never fit, so NaN lag rows at predict time are imputed with the median of the predict batch itself | |
-| **TODO** | P3 | `EST-20` | `predict` / `predict_quantile` change shared state without synchronisation | |
+| **RESOLVED** | P3 | `EST-19` | The `lag_predict` component that ships in CT_ENSEMBLE is never fit, so NaN lag rows at predict time are imputed with the median of the predict batch itself | fitted on train at injection; unfitted predict with a missing lag raises instead of using the batch median |
+| **RESOLVED** | P3 | `EST-20` | `predict` / `predict_quantile` change shared state without synchronisation | stats under a lock; soft_shrink_info_ per thread; 8x150 threaded test |
 | **TODO** | P3 | `EST-21` | `from_fitted_inner` cannot express grouped transforms or recurrence continuation | |
 | **TODO** | P3 | `EST-22` | Routers and vetoes chosen on the val split are then reported with val-split metrics as if those were held-out | |
 
@@ -200,7 +200,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `PMT-02` | Call-budget harness: expensive primitives are invoked at most their ideal count per discovery fit and per post-phase | |
 | **RESOLVED** | P1 | `PMT-03` | Fail-open and below-WARNING substitution handlers in gates (shared AST scanner) | py_ci_shared.fail_open_handlers wired; 3 more fail-open sites fixed, 11 fallbacks to WARNING; FS backlog baselined untriaged |
 | **RESOLVED** | P1 | `PMT-04` | Non-discriminating test-assertion shapes: literal wide ranges, median-of-error, isinstance-only biz tests, data-dependent skips | py_ci_shared.nondiscriminating_shapes + local biz-val rule wired; suite violators baselined, composite ones fixed under TST-10/11/13 |
-| **TODO** | P1 | `PMT-05` | Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe | |
+| **RESOLVED** | P1 | `PMT-05` | Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe | test_cte_row_purity: chunk invariance to 1e-14, threads, lag_predict fill; found EST-19/EST-20 |
 | **TODO** | P1 | `PMT-06` | Splitter and sampler consistency: one splitter factory, time order and groups honoured everywhere, sampler returns usable rows | |
 | **TODO** | P1 | `PMT-07` | Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform | |
 | **TODO** | P1 | `PMT-08` | Scale and shift metamorphic property over every registered transform | |

@@ -222,7 +222,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Non-reproducible predictions, and the fill value uses information from the test batch.
 - **Suggested fix**: Call `_lag_model.fit(filtered_train_df)` when injecting it (as the MoE path does), and make `predict` raise, or use a stored constant, when unfitted.
 - **Test to add**: Predict the deployed lag component on two batches that differ only in their other rows, and assert that the fill for a shared NaN row is identical.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The injected `lag_predict` is fitted on the train frame when it is added to the cross-target ensemble; if its lag column cannot be read there it is not injected, with a WARNING. An unfitted model no longer takes the median of the batch it is predicting to fill a missing lag: it raises `NotFittedError`. The MoE path already fitted its copy. Tests: tests/training/composite/estimator/test_cte_row_purity.py (a shared NaN row gets the train median in any batch; unfitted raises).
 
 ### EST-20 [P3] `predict` / `predict_quantile` change shared state without synchronisation
 
@@ -231,7 +231,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: The monitoring counters and per-row OOD flags are not reliable under concurrency.
 - **Suggested fix**: Guard the counter update with a lock that is excluded from `__getstate__`, and return the shrink info from an explicit `predict(..., return_info=True)` instead of storing it on the instance, or store it in thread-local storage.
 - **Test to add**: 8 threads x 100 predicts; assert `runtime_stats_["predict_calls"] == 800`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The `runtime_stats_` read-modify-writes run under a module-level lock (nothing lock-shaped on the picklable estimator), and the callback reports a snapshot taken inside it. `soft_shrink_info_` is now a property backed by a per-thread `WeakKeyDictionary`, so each caller reads the flags of its own batch. Test: 8 threads x 150 predicts with the switch interval cut to 1 us. Before the fix, threads read other threads' shrink flags on every run; after it, all 1200 calls are counted and every thread sees its own batch.
 
 ### EST-21 [P3] `from_fitted_inner` cannot express grouped transforms or recurrence continuation
 

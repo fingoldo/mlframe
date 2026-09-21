@@ -7,6 +7,7 @@ The base-side domain mask, the T-scale clip, the domain-aware inverse-with-fallb
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Optional, Sequence
 
 import numpy as np
@@ -169,6 +170,11 @@ _RUNTIME_STAT_KEYS = (
 )
 
 
+_RUNTIME_STATS_LOCK = threading.Lock()
+"""Serialises the counter read-modify-writes: concurrent predicts on one wrapper lost increments without it. Module-level, so
+nothing lock-shaped lives on the (picklable) estimator; the critical section is a handful of integer adds."""
+
+
 def _record_runtime_stats(
     self, n: int, n_violation: int, low_hits: int, high_hits: int,
     t_low_hits: int, t_high_hits: int,
@@ -183,15 +189,17 @@ def _record_runtime_stats(
     and swallowed -- monitoring must never break inference.
     """
     rs = self.runtime_stats_
-    for _k in _RUNTIME_STAT_KEYS:
-        rs.setdefault(_k, 0)
-    rs["predict_calls"] += 1
-    rs["predict_rows_total"] += n
-    rs["domain_violation_rows"] += n_violation
-    rs["y_clip_low_hits"] += low_hits
-    rs["y_clip_high_hits"] += high_hits
-    rs["t_clip_low_hits"] += t_low_hits
-    rs["t_clip_high_hits"] += t_high_hits
+    with _RUNTIME_STATS_LOCK:
+        for _k in _RUNTIME_STAT_KEYS:
+            rs.setdefault(_k, 0)
+        rs["predict_calls"] += 1
+        rs["predict_rows_total"] += n
+        rs["domain_violation_rows"] += n_violation
+        rs["y_clip_low_hits"] += low_hits
+        rs["y_clip_high_hits"] += high_hits
+        rs["t_clip_low_hits"] += t_low_hits
+        rs["t_clip_high_hits"] += t_high_hits
+        snapshot = dict(rs)  # the callback reports this batch's cumulative totals, not a later thread's
 
     cb = getattr(self, "runtime_stats_callback", None)
     if cb is not None:
@@ -205,13 +213,13 @@ def _record_runtime_stats(
                 "batch_y_clip_high_hits": high_hits,
                 "batch_t_clip_low_hits": t_low_hits,
                 "batch_t_clip_high_hits": t_high_hits,
-                "cumulative_predict_calls": rs["predict_calls"],
-                "cumulative_predict_rows_total": rs["predict_rows_total"],
-                "cumulative_domain_violation_rows": rs["domain_violation_rows"],
-                "cumulative_y_clip_low_hits": rs["y_clip_low_hits"],
-                "cumulative_y_clip_high_hits": rs["y_clip_high_hits"],
-                "cumulative_t_clip_low_hits": rs["t_clip_low_hits"],
-                "cumulative_t_clip_high_hits": rs["t_clip_high_hits"],
+                "cumulative_predict_calls": snapshot["predict_calls"],
+                "cumulative_predict_rows_total": snapshot["predict_rows_total"],
+                "cumulative_domain_violation_rows": snapshot["domain_violation_rows"],
+                "cumulative_y_clip_low_hits": snapshot["y_clip_low_hits"],
+                "cumulative_y_clip_high_hits": snapshot["y_clip_high_hits"],
+                "cumulative_t_clip_low_hits": snapshot["t_clip_low_hits"],
+                "cumulative_t_clip_high_hits": snapshot["t_clip_high_hits"],
             })
         except Exception as cb_err:
             logger.debug(

@@ -216,6 +216,14 @@ def _build_cross_target_ensemble_for_target(
             _lag_col = _lag_meta.get("feature_used")
             if _lag_col:
                 _lag_model = _LagPredictDeployableModel(_lag_col)
+                try:
+                    # Fitted on the train rows so a missing lag at predict gets the train median, not the median of its own batch.
+                    _lag_model.fit(filtered_train_df)
+                except (KeyError, TypeError, ValueError) as _lag_fit_err:
+                    logger.warning("[CompositeCrossTargetEnsemble] target='%s': lag_predict not injected, its lag column %r cannot be read from the train frame (%s).",
+                                   _orig_tname, _lag_col, _lag_fit_err)
+                    _lag_model = None
+            if _lag_col and _lag_model is not None:
                 _components.append(PrePipelinePredictShim(_lag_model, None, "lag_predict"))
                 _component_names.append("lag_predict")
                 logger.info(

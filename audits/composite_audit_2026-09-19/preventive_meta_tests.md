@@ -159,7 +159,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. Recurrent transforms are judged only under the warm-up contract they are supposed to honour.
 - **Runtime**: about 5-8 s (51 CTE fits with an oracle inner on n=400; no model training).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New tests/training/composite/estimator/test_cte_row_purity.py. (a) Every pointwise transform, with an elementwise inner, predicts 1-, 7- and 50-row chunks equal to the whole batch to 1e-14 relative (the only residue is 1-2 ulp from a transform's own BLAS dot). The recurrent warm-up contract and (b) NaN-base locality were already pinned by TST-05's test_predict_batching_invariance.py. (c) Concurrency: counters and shrink flags under 8 threads; it found and fixed EST-20. (d) The `lag_predict` component: it found and fixed EST-19. The DEPLOYABLE_COMPONENTS registry was not built: the stackers are linear combinations of the components checked here, and `lag_predict` was the one component with its own batch-state.
 
 ### PMT-06 [P1] Splitter and sampler consistency: one splitter factory, time order and groups honoured everywhere, sampler returns usable rows
 - **Asserts**:
