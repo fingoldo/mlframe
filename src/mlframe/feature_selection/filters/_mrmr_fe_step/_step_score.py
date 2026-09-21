@@ -21,6 +21,8 @@ import os
 
 import numpy as np
 
+from mlframe.feature_selection.filters._mrmr_fe_step._step_name_tokens import bare_tokens, gate_cols_in
+
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -310,17 +312,6 @@ def materialise_and_finalise_fe_candidates(
     # pruned here. Byte-identical when no gate fired (empty ``_gate_col_src_vars_``).
     _gate_src_vars_map = dict(getattr(self, "_gate_col_src_vars_", None) or {})
     if _gate_src_vars_map and prospective_additions:
-        import re as _re_gate
-
-        def _bare_tokens(_nm: str) -> set:
-            """Extract bare single-token raw-variable references (``a`` / ``x12`` style) from an engineered feature name, excluding substrings inside function names."""
-            # Single-token raw variable references (a-z / x_NN style), NOT substrings of function names.
-            return set(_re_gate.findall(r"(?<![A-Za-z0-9_])([a-z](?:[a-z]?\d+)?)(?![A-Za-z0-9_])", _nm))
-
-        def _gate_cols_in(_nm: str) -> list:
-            """List the gate-composite source columns (from ``_gate_src_vars_map``) whose name appears as a substring of ``_nm``."""
-            return [_gc for _gc in _gate_src_vars_map if _gc in _nm]
-
         _all_names = []
         for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
             if _ncols:
@@ -328,8 +319,8 @@ def materialise_and_finalise_fe_candidates(
         # Clean coverage = bare-token vars of the SURVIVING non-gate engineered features only.
         _clean_cov: set = set()
         for _nm in _all_names:
-            if not _gate_cols_in(_nm):
-                _clean_cov |= _bare_tokens(_nm)
+            if not gate_cols_in(_nm, _gate_src_vars_map):
+                _clean_cov |= bare_tokens(_nm)
 
         # Per clean (non-gate) survivor: (bare-var coverage, marginal MI). The marginals reuse the values
         # the CMI gate already binned for this exact pool, so no extra MI kernel is run.
@@ -348,7 +339,7 @@ def materialise_and_finalise_fe_candidates(
                         logger, "fe_step_marginal_mi_unreadable", logging.WARNING,
                         "fe step: marginal MI unreadable for candidate %r (%s: %s); it counts as 0.0 in gate-composite pruning", _nm0, type(e).__name__, e,
                     )
-        _clean_forms = [(_bare_tokens(_nm), _name_marg.get(_nm, 0.0)) for _nm in _all_names if not _gate_cols_in(_nm)]
+        _clean_forms = [(bare_tokens(_nm), _name_marg.get(_nm, 0.0)) for _nm in _all_names if not gate_cols_in(_nm, _gate_src_vars_map)]
 
         # A gate-operand COMPOSITE is over-materialization (DROP) when its whole raw coverage is already
         # provided by the clean survivors AND it is NOT the genuine carrier of an otherwise-uncaptured
@@ -364,7 +355,7 @@ def materialise_and_finalise_fe_candidates(
         #       final support), the gate composite is the genuine (c,d) carrier and is KEPT.
         _gate_composite_drop: set = set()
         for _nm in _all_names:
-            _gcs = _gate_cols_in(_nm)
+            _gcs = gate_cols_in(_nm, _gate_src_vars_map)
             if not _gcs:
                 continue
             if _nm in _gate_src_vars_map:
@@ -372,7 +363,7 @@ def materialise_and_finalise_fe_candidates(
             _gate_src = set()
             for _gc in _gcs:
                 _gate_src |= set(_gate_src_vars_map.get(_gc, ()))
-            _cov = _bare_tokens(_nm) | _gate_src
+            _cov = bare_tokens(_nm) | _gate_src
             _cov -= set(_gate_src_vars_map)  # drop any gate-col token mistakenly captured
             if not (_cov and _cov <= _clean_cov and _gate_src and _gate_src <= _clean_cov):
                 continue
@@ -386,7 +377,7 @@ def materialise_and_finalise_fe_candidates(
             #     re-mix, never a clean carrier of any single pair (the clean ``mul(log(c),sin(d))`` carries
             #     (c,d) and ``div(sqr(a),neg(b))`` carries a). Only fires under the outer ``_cov <= _clean_cov``
             #     guard, so a genuine carrier of an otherwise-uncaptured group (CASE2) is never reached here.
-            _extra_raw = _bare_tokens(_nm) - _gate_src
+            _extra_raw = bare_tokens(_nm) - _gate_src
             _entangled_extra = bool(_extra_raw) and _within_one
             if _multi_gate or (not _within_one) or _stronger_clean_same_pair or _entangled_extra:
                 _gate_composite_drop.add(_nm)
@@ -463,29 +454,19 @@ def materialise_and_finalise_fe_candidates(
     # above; only fires when that gate-composite block ran (a gate fired) for (A), and unconditionally for
     # (B). No-op (byte-identical) when no cross-group over-materialisation is present.
     if prospective_additions:
-        import re as _re_fsc
-
-        def _bare_tokens_fsc(_nm: str) -> set:
-            """Cross-group variant of ``_bare_tokens``: extract bare single-token raw-variable references from an engineered feature name."""
-            return set(_re_fsc.findall(r"(?<![A-Za-z0-9_])([a-z](?:[a-z]?\d+)?)(?![A-Za-z0-9_])", _nm))
-
         _gmap_fsc = dict(getattr(self, "_gate_col_src_vars_", None) or {})
         _all_names_fsc = []
         for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
             if _ncols:
                 _all_names_fsc.extend(_ncols)
 
-        def _gate_cols_in_fsc(_nm: str) -> list:
-            """Cross-group variant of ``_gate_cols_in``: list gate-composite source columns whose name appears as a substring of ``_nm``."""
-            return [_gc for _gc in _gmap_fsc if _gc in _nm]
-
         # Clean (non-gate) survivor coverage as a per-survivor list of bare-token sets, so "within one
         # survivor" can be tested for a candidate operand pair (mirrors the composite block's _clean_forms).
-        _clean_token_sets_fsc = [_bare_tokens_fsc(_nm) for _nm in _all_names_fsc if not _gate_cols_in_fsc(_nm)]
+        _clean_token_sets_fsc = [bare_tokens(_nm) for _nm in _all_names_fsc if not gate_cols_in(_nm, _gmap_fsc)]
 
         _fsc_drop: set = set()
         for _nm in _all_names_fsc:
-            _gcs = _gate_cols_in_fsc(_nm)
+            _gcs = gate_cols_in(_nm, _gmap_fsc)
             if _nm in _gmap_fsc:
                 # (A) STANDALONE bare gate column. Drop iff cross-group AND fully covered by clean survivors.
                 _gate_src = set(_gmap_fsc.get(_nm, ()))
@@ -500,7 +481,7 @@ def materialise_and_finalise_fe_candidates(
             if _gcs:
                 continue  # gate COMPOSITES already handled by the block above
             # (B) non-gate engineered binary node: cross-group cross-signal artefact.
-            _toks = _bare_tokens_fsc(_nm)
+            _toks = bare_tokens(_nm)
             if len(_toks) < 2:
                 continue
             _others = [_ts for _ts in _clean_token_sets_fsc if _ts != _toks]
