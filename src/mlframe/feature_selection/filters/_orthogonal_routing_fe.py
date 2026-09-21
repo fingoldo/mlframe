@@ -324,7 +324,9 @@ def generate_conditional_basis_routing_features(
         _yf = y_arr.astype(np.float64)
         _ystd = float(_yf.std())
         if _ystd > 1e-12:
-            _Mz = (cand_mat - cand_mat.mean(axis=0)) / (cand_mat.std(axis=0) + 1e-12)
+            from ._safe_scale import standardise
+
+            _Mz = standardise(cand_mat)
             route_score = np.abs(_Mz.T @ ((_yf - _yf.mean()) / _ystd) / _yf.size)
         else:
             route_score = eng_mi
