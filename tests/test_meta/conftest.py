@@ -25,6 +25,7 @@ _REFRESH_FLAGS = [
     "--refresh-console-unicode-baseline",
     "--refresh-debt-baseline",
     "--refresh-docstring-baseline",
+    "--refresh-fitted-attr-setstate-baseline",
     "--refresh-fe-budget-conflict-baseline",
     "--refresh-fe-noop-copy-baseline",
     "--refresh-logger-baseline",

@@ -30,6 +30,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.feature_selection.filters._safe_scale import standardise
+
 logger = logging.getLogger(__name__)
 
 # Splits an engineered-feature name into raw-operand tokens (any run of non-word chars).
@@ -393,8 +395,6 @@ def retain_usable_pure_forms(
             # any SEPARABLE function f(a)+g(b) lives in the span of [basis(a)] + [basis(b)], so a cross-pair form that merely sums two single-operand
             # nonlinearities (a**3 + sqrt(d)) is reconstructed here with ~0 residual, while a genuine
             # NON-separable joint form (a**2/b is a ratio, log(c)*sin(d) a product) is not.
-            from ._safe_scale import standardise
-
             xs = standardise(x)
             cols = [xs, xs * xs, xs * xs * xs, np.sign(xs) * np.sqrt(np.abs(xs)), np.sign(xs) * np.log1p(np.abs(xs)), 1.0 / (np.abs(xs) + 1.0)]
             return cols

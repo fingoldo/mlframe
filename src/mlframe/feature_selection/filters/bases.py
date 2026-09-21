@@ -15,6 +15,8 @@ import math
 
 import numpy as np
 
+from mlframe.feature_selection.filters._safe_scale import silverman_bandwidth
+
 try:
     from numba import njit
     _NUMBA_AVAILABLE = True
@@ -119,7 +121,6 @@ def _rbf_fit(x: np.ndarray):
     x = np.where(np.isfinite(x), x, 0.0)
     quantiles = np.linspace(0.1, 0.9, 9)
     centres = np.quantile(x, quantiles).astype(np.float64)
-    from ._safe_scale import silverman_bandwidth
 
     # A column with no usable spread has no density to estimate; fall back to its own magnitude rather than an absolute 1e-12, which
     # would make every RBF response a delta at the centres.

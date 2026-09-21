@@ -41,6 +41,8 @@ import os
 
 import numpy as np
 
+from mlframe.feature_selection.filters._safe_scale import standardise
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -141,8 +143,6 @@ def gpu_additive_basis_residual(fv: np.ndarray, xa: np.ndarray, xb: np.ndarray) 
 
     def _basis(x):
         """Standardize ``x`` and expand it into the 6-function additive single-operand basis (linear, square, cube, signed-sqrt, signed-log1p, reciprocal), matching the CPU-side basis exactly."""
-        from ._safe_scale import standardise
-
         xs = standardise(x, xp=cp)
         return [xs, xs * xs, xs * xs * xs, cp.sign(xs) * cp.sqrt(cp.abs(xs)), cp.sign(xs) * cp.log1p(cp.abs(xs)), 1.0 / (cp.abs(xs) + 1.0)]
 

@@ -59,6 +59,8 @@ from typing import Optional
 
 import numpy as np
 
+from mlframe.feature_selection.filters._safe_scale import standardise
+
 logger = logging.getLogger(__name__)
 
 
@@ -168,8 +170,6 @@ def adds_nonlinear_value_batch_gpu_resident(
         # so a candidate's design is two index lookups - not a re-derivation/re-upload per candidate.
         def _basis(xcol):
             """Standardize ``xcol`` and expand it into the 6-function additive basis (linear, square, cube, signed-sqrt, signed-log1p, reciprocal-magnitude) used to test whether a candidate adds nonlinear value over its raw operand."""
-            from ._safe_scale import standardise
-
             xs = standardise(xcol, xp=cp)
             return cp.stack([
                 xs, xs * xs, xs * xs * xs,

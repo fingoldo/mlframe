@@ -68,6 +68,8 @@ from typing import Optional, Sequence
 
 import numpy as np
 
+from mlframe.feature_selection.filters._safe_scale import standardise
+
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
@@ -326,8 +328,6 @@ def generate_conditional_basis_routing_features(
         _yf = y_arr.astype(np.float64)
         _ystd = float(_yf.std())
         if _ystd > 1e-12:
-            from ._safe_scale import standardise
-
             _Mz = standardise(cand_mat)
             route_score = np.abs(_Mz.T @ ((_yf - _yf.mean()) / _ystd) / _yf.size)
         else:

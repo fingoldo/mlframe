@@ -33,6 +33,7 @@ _BASELINES: dict[str, tuple[str, str]] = {
     "_docstring_baseline.json": ("test_public_docstrings", "regenerate_baseline"),
     "_logger_lazy_baseline.json": ("test_logger_lazy_formatting", "regenerate_baseline"),
     "_value_bearing_asserts_baseline.json": ("test_no_value_bearing_asserts", "regenerate_baseline"),
+    "_fitted_attr_setstate_baseline.json": ("test_every_fitted_attr_is_setstate_safe", "regenerate_baseline"),
 }
 
 
