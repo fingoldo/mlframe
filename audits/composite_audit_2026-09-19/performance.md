@@ -303,7 +303,7 @@ Default counts used in the estimates:
 - **Expected win** (estimate): per fold, `(components sharing a pp - 1) x 2` pipeline transforms. Zero when pipelines are not shared.
 - **Suggested fix**: memoise `_transform_pair_via` results per fold in a dict keyed by `id(pp)`, only for fitted pipelines; unfitted pipelines are fold-fit clones and stay per component. Release the memo at the end of each fold.
 - **Test/benchmark to add**: a test with two components sharing one fitted pipeline that asserts `transform` is called 2 times per fold instead of 4, and that OOF matrices are unchanged.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - premise measured first: on the composite integration suite half of all `_transform_pair_via` calls repeated an earlier one on the same fitted pipeline object and the same fold slices (5 of 10 with `linear`, 10 of 20 with `linear,lgb`). All three OOF loops now go through `_transform_pair_cached` with a memo per fold keyed on (pipeline, stack slice, holdout slice), for fitted pipelines only; an unfitted pipeline is fit as a fold clone per component and never enters the cache. On the `linear,lgb` suite transform calls went 20 -> 15 (the other five are pipeline-less components, a pass-through) and the OOF prediction matrices are bit-identical. test_oof_shared_pipeline_transformed_once.py, 4 tests: shared fitted pipeline transforms once per slice, a new fold transforms again, an unfitted pipeline is never cached, cached values equal a direct transform
 
 ### PRF-17 [P3] Every `fit` computes a full `data_signature` that only `discover_incremental` reads
 

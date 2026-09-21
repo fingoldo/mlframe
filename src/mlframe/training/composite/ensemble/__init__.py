@@ -99,6 +99,24 @@ def _transform_pair_via(
     return pp_fit.transform(X_train), pp_fit.transform(X_holdout)
 
 
+def _transform_pair_cached(memo: dict | None, pp: Any, X_train: Any, X_holdout: Any, *, y_train: Any = None) -> tuple[Any, Any]:
+    """:func:`_transform_pair_via`, reusing the result for other components that hold the same fitted pipeline.
+
+    Components built from one strategy share a single fitted ``pre_pipeline`` object, and every one of them re-ran the
+    same transform over the same fold slices: on the composite integration suite half of all transform calls repeated
+    an earlier one. Within one fold (``memo`` is per fold) a fitted pipeline gives the same output for the same slices, so
+    the pair is computed once. An unfitted pipeline is fit as a fold clone per component and is never shared.
+    """
+    if memo is None or pp is None or not _pp_is_fitted(pp):
+        return _transform_pair_via(pp, X_train, X_holdout, y_train=y_train)
+    key = (id(pp), id(X_train), id(X_holdout))
+    hit = memo.get(key)
+    if hit is None or hit[0] is not pp:
+        hit = (pp, _transform_pair_via(pp, X_train, X_holdout, y_train=y_train))
+        memo[key] = hit
+    return hit[1]
+
+
 def _transform_via(pp: Any, X: Any) -> Any:
     """Apply a fitted pre_pipeline to ``X`` or return ``X`` unchanged when ``pp is None``.
 
@@ -302,13 +320,14 @@ def _compute_oof_with_external_holdout(
     y_train_full = y_train_full.astype(np.float64)
     holdout_cols: list[np.ndarray] = []
     surviving_names: list[str] = []
+    _pair_memo: dict = {}
     for model, name, spec in zip(
         component_models, component_names, component_specs,
     ):
         try:
             inner, pp = _unwrap_shim(model)
-            X_stack_t, X_holdout_t = _transform_pair_via(
-                pp, train_X, external_holdout_X, y_train=y_train_full,
+            X_stack_t, X_holdout_t = _transform_pair_cached(
+                _pair_memo, pp, train_X, external_holdout_X, y_train=y_train_full,
             )
             if isinstance(inner, CompositeTargetEstimator):
                 if spec is None:
@@ -556,11 +575,12 @@ def compute_oof_holdout_predictions(
             # Per-fold OOF scoring happens once at the end against the assembled oof_preds_by_name
             # vs y_train_full as a whole, not per-fold slices, so a per-fold holdout-y copy here is unneeded.
             fold_cols: dict[str, np.ndarray] = {}
+            _pair_memo: dict = {}  # per fold: this fold's slices are the keys
             for model, name, spec in zip(component_models, component_names, component_specs):
                 try:
                     inner, pp = _unwrap_shim(model)
-                    X_stack_t, X_holdout_t = _transform_pair_via(
-                        pp, X_stack, X_holdout, y_train=y_stack,
+                    X_stack_t, X_holdout_t = _transform_pair_cached(
+                        _pair_memo, pp, X_stack, X_holdout, y_train=y_stack,
                     )
                     if isinstance(inner, CompositeTargetEstimator):
                         if spec is None:
@@ -816,11 +836,12 @@ def compute_oof_holdout_predictions(
 
     holdout_cols: list[np.ndarray] = []
     surviving_names = []
+    _pair_memo: dict = {}
     for model, name, spec in zip(component_models, component_names, component_specs):
         try:
             inner, pp = _unwrap_shim(model)
-            X_stack_t, X_holdout_t = _transform_pair_via(
-                pp, X_stack, X_holdout, y_train=y_stack,
+            X_stack_t, X_holdout_t = _transform_pair_cached(
+                _pair_memo, pp, X_stack, X_holdout, y_train=y_stack,
             )
             if isinstance(inner, CompositeTargetEstimator):
                 # Composite-target wrapper. Re-fit the inner on stack_train T values, then re-wrap and predict.
