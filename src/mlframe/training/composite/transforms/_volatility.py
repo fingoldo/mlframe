@@ -33,6 +33,17 @@ def _vol_traces(base_f: np.ndarray, k: int, anchor: float, vol_anchor: float) ->
     return level, vol
 
 
+_DEGENERATE_VOL_REL: float = 1e-9
+"""Train volatility at or below this fraction of the base level counts as a constant base."""
+
+
+def _residual_scale(y: np.ndarray, level: np.ndarray, finite: np.ndarray) -> float:
+    """Median ``|y - level|`` over finite rows: the residual's own scale, used as the floor when the base carries no volatility."""
+    r = np.abs(np.asarray(y, dtype=np.float64).reshape(-1) - level)
+    r = r[finite & np.isfinite(r)]
+    return float(np.median(r)) if r.size else 0.0
+
+
 def _volatility_normalized_residual_fit(
     y: np.ndarray, base: np.ndarray, k: int = _VNR_DEFAULT_K,
     _finite_mask: np.ndarray | None = None,
@@ -53,12 +64,18 @@ def _volatility_normalized_residual_fit(
         level_f = level[np.isfinite(level)]
         tail_anchor = float(level_f[-1]) if level_f.size else anchor
         vol_tail_anchor = float(vol_finite[-1]) if vol_finite.size else vol_anchor
+        resid_scale = _residual_scale(y, level, finite)
     else:
+        resid_scale = 0.0
         vol_anchor = 0.0
         scale = 0.0
         tail_anchor = anchor
         vol_tail_anchor = vol_anchor
     floor = max(scale * _VOL_FLOOR_FRAC, 1e-12)
+    if scale <= _DEGENERATE_VOL_REL * max(1.0, abs(anchor)) and resid_scale > 0.0:
+        # A constant base has zero volatility, so the absolute 1e-12 floor turned T into (y - base) * 1e12 and any predict-time base with
+        # nonzero volatility multiplied it back up (y_hat ~ 1e12). Normalise by the residual's own scale instead: T stays O(1), in y units.
+        floor = resid_scale
     return {
         "k": k, "anchor": anchor, "vol_anchor": vol_anchor, "floor": floor,
         "tail_anchor": tail_anchor, "vol_tail_anchor": vol_tail_anchor,

@@ -104,7 +104,7 @@ class TestSmoothingSplineNoiseUnits:
         signal = 5.0 * np.sin(3.0 * base)
         y = signal + rng.normal(0.0, 0.1, size=n)
         params = _smoothing_spline_residual_fit(y, base)
-        m = int(params["knots_b"].size)
+        m = int(np.unique(base).size)
         # var(noise)=0.01 -> s ~= m*0.01; allow generous headroom but well
         # below the m*std(signal) ~= m*3.5 the bug produced.
         assert params["s"] < 0.2 * m, f"smoothing factor s={params['s']:.1f} is in signal-std units (m={m}); expected ~m*var(noise) << {0.2 * m:.0f}"

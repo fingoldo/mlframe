@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 7 | 0 | 12 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 4 | 1 | 12 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **60** | **11** | **107** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 0 | 1 | 40 | 0 | 0 |
+| **Total** | **179** | **60** | **12** | **106** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -196,7 +196,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 
 | Status | Sev | ID | Finding | Evidence / what remains |
 |---|---|---|---|---|
-| **TODO** | P1 | `PMT-01` | Registry-driven transform property matrix: max-error round trip across regimes, degenerate legs, and registry metadata completeness | |
+| **PARTIAL** | P1 | `PMT-01` | Registry-driven transform property matrix: max-error round trip across regimes, degenerate legs, and registry metadata completeness | legs (b)-(e) in test_transform_registry_properties.py; fixed constant-base vol floor, O(n) ECDF/spline params; fields + leg (f) open |
 | **TODO** | P2 | `PMT-02` | Call-budget harness: expensive primitives are invoked at most their ideal count per discovery fit and per post-phase | |
 | **TODO** | P1 | `PMT-03` | Fail-open and below-WARNING substitution handlers in gates (shared AST scanner) | |
 | **TODO** | P1 | `PMT-04` | Non-discriminating test-assertion shapes: literal wide ranges, median-of-error, isinstance-only biz tests, data-dependent skips | |

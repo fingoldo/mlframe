@@ -43,6 +43,10 @@ from typing import Any, Callable, Optional
 import numpy as np
 
 
+_ECDF_MAX_KNOTS: int = 2048
+"""Upper bound on stored ECDF knots per axis."""
+
+
 def _ecdf_knots(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Sorted-unique knots + strictly-increasing plotting-position CDF ``u``.
 
@@ -65,6 +69,11 @@ def _ecdf_knots(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     keep[:-1] = xs[1:] != xs[:-1]
     knots = xs[keep]
     u = u_full[keep]
+    if knots.size > _ECDF_MAX_KNOTS:
+        # Thin to a bounded table (both extremes kept): forward and inverse are the same piecewise-linear map, so the round trip stays exact,
+        # while the params no longer grow O(n) with the training rows.
+        sel = np.unique(np.linspace(0, knots.size - 1, _ECDF_MAX_KNOTS).round().astype(np.int64))
+        knots, u = knots[sel], u[sel]
     if knots.size == 1:
         # Constant column: a degenerate 2-knot ramp keeps ``interp`` invertible without dividing by a zero span. The span is scale-relative: an
         # absolute ``+1.0`` knot made any recovered u above 0.5 + 1e-9 invert to ``v + 1``, a value never seen in train (a 1e6x error for y ~ 1e-6).

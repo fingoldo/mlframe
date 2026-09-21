@@ -407,13 +407,33 @@ def _smoothing_spline_residual_fit(
     }
     # Build the spline once at fit: a construction failure would otherwise turn the transform into ``T = y - mean(y)`` at every forward/inverse
     # call with nothing but a log line. Flag it so discovery rejects the spec instead of training on a silently degraded target.
-    params["is_degenerate"] = _build_smoothing_spline(params) is None
+    spl = _build_smoothing_spline(params)
+    params["is_degenerate"] = spl is None
+    if spl is not None:
+        # Keep the fitted B-spline (a handful of knots) instead of every unique train base: the raw tables grew O(n) in the pickled params
+        # (3.2 MB at 1e5 rows) and the spline was refitted on every forward/inverse call.
+        t, c, k = spl._eval_args
+        params.update(knots_b=np.zeros(0, dtype=np.float64), knots_y=np.zeros(0, dtype=np.float64),
+                      tck_t=np.asarray(t, dtype=np.float64), tck_c=np.asarray(c, dtype=np.float64), tck_k=int(k))
     return params
+
+
+class _TckSpline:
+    """A fitted B-spline evaluated with constant extrapolation, as ``UnivariateSpline(ext="const")`` does."""
+
+    def __init__(self, t: np.ndarray, c: np.ndarray, k: int):
+        self.tck = (t, c, k)
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        from scipy.interpolate import splev
+        return splev(x, self.tck, ext=3)
 
 
 def _build_smoothing_spline(params: dict[str, Any]) -> Any:
     """Rebuild the ``UnivariateSpline`` from the stored knots, or ``None`` (logged at WARNING, throttled) when scipy cannot build it."""
     from mlframe.utils.log_throttle import log_throttle
+    if "tck_t" in params:
+        return _TckSpline(np.asarray(params["tck_t"], dtype=np.float64), np.asarray(params["tck_c"], dtype=np.float64), int(params["tck_k"]))
     knots_b = np.asarray(params.get("knots_b", []), dtype=np.float64)
     knots_y = np.asarray(params.get("knots_y", []), dtype=np.float64)
     if knots_b.size < 4:
