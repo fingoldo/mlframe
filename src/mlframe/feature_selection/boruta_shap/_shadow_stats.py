@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 
 import numpy as np
+
+from mlframe.feature_selection.filters._safe_scale import guarded_scale
 import pandas as pd
 from numpy.random import choice
 from scipy.stats import ks_2samp
@@ -205,10 +207,10 @@ def calculate_Zscore(array):
     Returns:
         normalised array
     """
-    mean_value = np.mean(array)
-    std_value = np.std(array)
     array = np.asarray(array, dtype=np.float64)
-    return (array - mean_value) / (std_value + 1e-12)
+    mean_value = np.mean(array)
+    std_value = float(guarded_scale(np.std(array), np.abs(array).max()))
+    return (array - mean_value) / std_value
 
 def feature_importance(self, normalize):
     """
