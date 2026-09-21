@@ -369,8 +369,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         Previously only the hybrid-orth / univariate-basis pair honoured this; every other family fired at
         ``fe_max_steps=0``, which made "no FE" mean "no FE except the ~30 default-ON families" and silently
         engineered columns into fits that had explicitly asked for none.
+
+        The wall-clock budget is part of the same question. ``_fe_budget_ok`` used to be consulted at four of the ~35 cascade stages, so a
+        spent ``max_runtime_mins`` still let the other ~31 families start; asking here covers every family that routes through this helper.
         """
-        return bool(getattr(self, flag, default)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0
+        return bool(getattr(self, flag, default)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0 and _fe_budget_ok()
 
     dtype = self.dtype
 
