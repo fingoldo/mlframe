@@ -263,7 +263,7 @@
   "src/mlframe/training/composite/discovery/_yscale_holdout_gate.py::apply_yscale_holdout_gate": 207,
   "src/mlframe/training/composite/discovery/bayesian.py::bayesian_alpha_fit": 177,
   "src/mlframe/training/composite/discovery/forward_stepwise.py::forward_stepwise_multi_base": 264,
-  "src/mlframe/training/composite/ensemble/__init__.py::compute_oof_holdout_predictions": 488,
+  "src/mlframe/training/composite/ensemble/__init__.py::compute_oof_holdout_predictions": 478,
   "src/mlframe/training/composite/ensemble/_cross_target.py::CompositeCrossTargetEnsemble.from_train_metrics": 185,
   "src/mlframe/training/composite/estimator/_estimator.py::CompositeTargetEstimator.fit": 363,
   "src/mlframe/training/composite/estimator/_from_fitted.py::from_fitted_inner": 168,

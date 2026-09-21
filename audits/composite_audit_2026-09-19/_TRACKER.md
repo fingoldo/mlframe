@@ -109,7 +109,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `EST-13` | The CT_ENSEMBLE val/test metrics and charts describe the pre-MoE predictor, not the model that ships | |
 | **TODO** | P2 | `EST-14` | A streaming `update()` refit leaves the soft-shrink base range at the dead regime, and its T-clip refresh leaves out the widening to the observed range that `fit()` applies | |
 | **TODO** | P3 | `EST-15` | In the default shuffled K-fold OOF, recurrent composite components run their EWMA/rolling state over gapped (train) and scattered (holdout) row sequences | |
-| **TODO** | P3 | `EST-16` | The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level | |
+| **RESOLVED** | P3 | `EST-16` | The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level | fold groups/weights via call_transform, forward with groups, WARNING fallback; grouped components no longer drop out of OOF |
 | **TODO** | P3 | `EST-17` | OOF refits reuse the entry's pre_pipeline, fitted on the full train (including supervised MRMR/RFECV selection that saw each fold's holdout y) | |
 | **TODO** | P3 | `EST-18` | The five `moe_*` constructor parameters of `CompositeTargetEstimator` are never read | |
 | **TODO** | P3 | `EST-19` | The `lag_predict` component that ships in CT_ENSEMBLE is never fit, so NaN lag rows at predict time are imputed with the median of the predict batch itself | |

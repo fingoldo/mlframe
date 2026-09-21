@@ -195,7 +195,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: The OOF surface is slightly optimistic for grouped transforms and uses a different estimator for weighted suites.
 - **Suggested fix**: Use the estimator's signature-gated kwargs (`_callable_accepts_param`) to pass `groups` and `sample_weight` fold slices, and log the fallback at WARNING with the transform name.
 - **Test to add**: Spy on `linear_residual_grouped.fit` in a K-fold OOF call and assert that it receives `groups` of fold length.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Both refit sites now go through `_refit_fold_params`, which calls `call_transform` with the fold's `groups` (the suite's row-aligned `group_ids`, sliced to the fold's train rows) and `sample_weight`; the gateway passes each one only where the fit declares it. The forward gets the fold's groups the same way. A refit that still fails logs at WARNING, naming the transform. The OOF wrapper takes the deployed component's `group_column`, so a grouped component predicts its holdout. Before this, a grouped component raised in the forward on every fold and dropped out of the ensemble entirely. The external-holdout path fits on the full train and predicts a separate frame, so the full-train params are the correct ones there: no refit is needed. Tests: tests/training/composite/ensemble/test_oof_fold_refit_groups_and_weights.py (both fail pre-fix).
 
 ### EST-17 [P3] OOF refits reuse the entry's pre_pipeline, fitted on the full train (including supervised MRMR/RFECV selection that saw each fold's holdout y)
 
