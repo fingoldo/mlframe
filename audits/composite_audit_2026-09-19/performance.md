@@ -242,7 +242,7 @@ Default counts used in the estimates:
   - Store codes as int16.
   - Keep the per-pair NaN fallback path as is.
 - **Test/benchmark to add**: extend `bench_unary_mi_memo.py` or add `bench_auto_base_null_njit.py` for F in {50, 500}, with a bit-identity test of `null_means`/`null_stds` against the loop.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - each column's permutations are now drawn up front in the exact order the loop consumed `rng_perm` (`draw_null_permutations`), and one `@njit(parallel=True)` kernel scores all of a column's permutations, calling the same gather and MI kernels the loop called (`_null_mi_numba.py`). Every null MI is bit-identical to the loop for element shuffles and block shuffles, the generator ends in the same state so the next column's draws are unchanged, and the value-based fallback paths get the identical shuffled arrays from the same pre-drawn permutations. Measured at F=50, n=100k, 20 permutations: 0.40 s -> 0.24 s at 2 threads, 0.42 s -> 0.18 s at 8 (a shared host, so the core scaling is muted). Codes stay int64: the MI kernel takes any integer dtype, and narrowing them would only save the copy. test_auto_base_null_parallel.py, 6 tests: bit-identical null MIs for block_len 1/7/50, generator state preserved, value fallback identical
 
 ### PRF-13 [P2] The composite post-phases re-predict the same models on the same val and test frames several times
 

@@ -30,11 +30,10 @@ except ImportError:
     rankdata = None
 
 from ._causal_lag import is_causal_base_name
-from ._collinear_numba import block_shuffle_gather
 from ._coord_names import is_coordinate_like_name
 from ._structural_hints import boost_for_features
+from ._null_mi_numba import draw_null_permutations, null_mis_binned, shuffle_by
 from .screening import (
-    _mi_from_binned_pair,
     _mi_pair_bin,
     _mi_per_feature_y_fixed,
     _mi_per_feature_y_fixed_per_col,
@@ -454,24 +453,6 @@ def _auto_base(
             except (TypeError, ValueError):
                 block_len = max(1, int(np.sqrt(n_screen)))
 
-        def _block_shuffle(arr: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-            """Permute arr in contiguous blocks of block_len (not element-wise) so the null draw preserves
-            short-range autocorrelation; falls back to a plain element shuffle when block_len<=1."""
-            if block_len <= 1:
-                out = arr.copy()
-                rng.shuffle(out)
-                return np.asarray(out)
-            m = arr.size
-            n_blocks = (m + block_len - 1) // block_len
-            # Permute whole blocks, then gather each permuted block's real (in-bounds) elements in
-            # one fused njit pass (``block_shuffle_gather``): same ``rng.permutation`` draw, same
-            # element order as the prior numpy broadcast+mask+fancy-index path (bit-identical), but
-            # it skips the O(n_blocks*block_len) int64 index template + boolean ``idx < m`` mask.
-            # ~2.6-3.0x per call at the 20k-100k null-screen sizes; the short trailing block's
-            # padding is dropped, so that block contributes just its real elements wherever placed.
-            perm = rng.permutation(n_blocks)
-            return block_shuffle_gather(arr, perm, block_len)
-
         rng_perm = np.random.default_rng(int(self.config.random_state) + 7919)
         y_finite = y_screen[finite]
         # Under per-pair masking the null distribution must be estimated
@@ -521,7 +502,6 @@ def _auto_base(
             else:
                 col = x_matrix[finite, j]
                 y_col = y_finite
-            null_mis = np.empty(n_perms)
             # Prebin clean columns once, then shuffle codes instead of values (see note above).
             col_codes = None
             # Reuse the hoisted y-codes only when this column's per-pair rows
@@ -542,25 +522,24 @@ def _auto_base(
                     _x_edges_null, col, side="right",
                 ).astype(np.int64)
                 np.clip(col_codes, 0, _nbins - 1, out=col_codes)
-            for p in range(n_perms):
-                if col_codes is not None and _y_codes_for_col is not None:
-                    shuffled_codes = _block_shuffle(col_codes, rng_perm)
-                    null_mis[p] = _mi_from_binned_pair(
-                        shuffled_codes, _y_codes_for_col, nbins=_nbins,
-                    )
-                elif _bin_estimator:
-                    shuffled = _block_shuffle(col, rng_perm)
-                    null_mis[p] = _mi_pair_bin(
-                        shuffled, y_col, nbins=_nbins,
-                    )
-                else:
-                    shuffled = _block_shuffle(col, rng_perm)
-                    from sklearn.feature_selection import mutual_info_regression
-                    null_mis[p] = float(mutual_info_regression(
-                        shuffled.reshape(-1, 1), y_col,
-                        n_neighbors=self.config.mi_n_neighbors,
-                        random_state=self.config.random_state,
-                    )[0])
+            # This column's permutations, drawn up front in the order the per-permutation loop consumed ``rng_perm``, so the
+            # null is unchanged while the binned path scores all of them in one parallel kernel call.
+            _perms_j = draw_null_permutations(rng_perm, col.shape[0], n_perms, block_len)
+            if col_codes is not None and _y_codes_for_col is not None:
+                null_mis = null_mis_binned(col_codes, _y_codes_for_col, _perms_j, block_len, _nbins)
+            else:
+                null_mis = np.empty(n_perms)
+                for p in range(n_perms):
+                    shuffled = shuffle_by(col, _perms_j[p], block_len)
+                    if _bin_estimator:
+                        null_mis[p] = _mi_pair_bin(shuffled, y_col, nbins=_nbins)
+                    else:
+                        from sklearn.feature_selection import mutual_info_regression
+                        null_mis[p] = float(mutual_info_regression(
+                            shuffled.reshape(-1, 1), y_col,
+                            n_neighbors=self.config.mi_n_neighbors,
+                            random_state=self.config.random_state,
+                        )[0])
             null_means[j] = float(null_mis.mean())
             null_stds[j] = float(null_mis.std())
         null_threshold = null_means + n_sigma * np.maximum(
