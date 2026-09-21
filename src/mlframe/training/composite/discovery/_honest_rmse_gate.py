@@ -40,6 +40,7 @@ _DUPLICATE_OF_RAW_MIN_CORR = 0.9999
 """And how strongly its reconstruction must track the raw model's prediction for it to be one."""
 
 from ._spec_shared import spec_base_columns, rmse
+from ._honest_oof_select import cached_honest_prediction
 
 import logging
 from typing import Any, Sequence
@@ -136,7 +137,9 @@ def apply_honest_rmse_gate(
         return np.asarray(model.predict(x_eval), dtype=np.float64)
 
     try:
-        _raw_pred = _fit_predict(y_fit)
+        _raw_pred = cached_honest_prediction(self, fit_idx, eval_idx)
+        if _raw_pred is None:
+            _raw_pred = _fit_predict(y_fit)
         raw_rmse = rmse(y_eval, _raw_pred)
     except Exception as exc:  # -- no baseline, no sound gate
         logger.warning("[CompositeTargetDiscovery.honest_rmse_gate] raw-y baseline fit failed (%s); gate skipped.", exc)
@@ -180,12 +183,14 @@ def apply_honest_rmse_gate(
             continue
         base_fit_v = base_fit[valid] if base_fit.ndim == 1 else base_fit[valid, :]
         try:
-            t_fit = np.asarray(transform.forward(y_fit[valid], base_fit_v, params), dtype=np.float64)
-            t_hat = _fit_predict_masked(_fit_predict, t_fit, valid)
-            # Score the spec the way the trained composite will predict: with smearing for the curved unary inverses,
-            # so a log/cbrt target is judged on the conditional mean of y, not on the (lower) geometric mean.
-            _q = _last_residual_q["q"] if spec.transform_name in SMEARED_TRANSFORMS else None
-            y_hat = smeared_inverse(lambda t: transform.inverse(t, base_eval, params), t_hat, _q)
+            y_hat = cached_honest_prediction(self, fit_idx, eval_idx, spec.name, valid)
+            if y_hat is None:
+                t_fit = np.asarray(transform.forward(y_fit[valid], base_fit_v, params), dtype=np.float64)
+                t_hat = _fit_predict_masked(_fit_predict, t_fit, valid)
+                # Score the spec the way the trained composite will predict: with smearing for the curved unary inverses,
+                # so a log/cbrt target is judged on the conditional mean of y, not on the (lower) geometric mean.
+                _q = _last_residual_q["q"] if spec.transform_name in SMEARED_TRANSFORMS else None
+                y_hat = smeared_inverse(lambda t: transform.inverse(t, base_eval, params), t_hat, _q)
         except Exception as exc:  # -- a spec the tiny pipeline cannot evaluate keeps its MI verdict
             logger.debug("honest_rmse_gate fit/inverse failed for %s: %s", spec.name, exc)
             survivors.append(spec)

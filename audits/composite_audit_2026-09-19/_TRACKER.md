@@ -19,10 +19,10 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `discovery.md` | 30 | 5 | 0 | 25 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
 | `suite_integration.md` | 19 | 6 | 0 | 13 | 0 | 0 |
-| `performance.md` | 24 | 5 | 3 | 15 | 1 | 0 |
+| `performance.md` | 24 | 5 | 4 | 14 | 1 | 0 |
 | `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **46** | **3** | **129** | **1** | **0** |
+| **Total** | **179** | **46** | **4** | **128** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -154,7 +154,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P2 | `PRF-07` | Tiny-model LightGBM fits re-bin the same feature matrix for every spec, seed and fold; `LgbFoldCache` exists but only auto-chain uses it | y-scale tiny CV shares one binned fold dataset per thread (bit-identical, 1.32x on the fits, 177/281 fits); raw-y CV, holdout gates and WAIC still per-fit. Found and fixed the LgbFoldCache zero-label bug (4a240d450) |
 | **RESOLVED** | P2 | `PRF-08` | The `"linear"` screening family refits `SimpleImputer + Ridge` for every spec on the same X; one multi-output solve is 9.4x faster | per-thread cached fold factorisation, one solve per spec (22x isolated; float64, specs unchanged, scores within 1.9e-7) |
 | **PARTIAL** | P2 | `PRF-09` | Per-base float and prebinned matrix copies stay alive through the rerank and all later gates, although the default bin path never reads the float values; the lazy prebin path is dead under defaults | matrices released after the candidate loop (RSS at rerank start 1080 -> 725 MB at 100k x 300); peak inside the candidate loop unchanged |
-| **TODO** | P2 | `PRF-10` | The honest-OOF selector, the honest RMSE gate and the y-scale gate each rebuild feature matrices from the frame and refit a raw baseline and each spec on nearly the same screen-to-holdout design | |
+| **PARTIAL** | P2 | `PRF-10` | The honest-OOF selector, the honest RMSE gate and the y-scale gate each rebuild feature matrices from the frame and refit a raw baseline and each spec on nearly the same screen-to-holdout design | gate reuses honest-OOF predictions when rows and mask match (93 -> 84 fits, identical verdicts); caps still differ above 20k rows, y-scale gate untouched |
 | **TODO** | P2 | `PRF-11` | The WAIC tie-break scores every kept spec, although the score is used only inside multi-member RMSE bands | |
 | **TODO** | P2 | `PRF-12` | The auto-base permutation null is a serial Python loop over features x 20 permutations | |
 | **TODO** | P2 | `PRF-13` | The composite post-phases re-predict the same models on the same val and test frames several times | |
