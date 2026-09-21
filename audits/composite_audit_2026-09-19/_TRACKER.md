@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 16 | 0 | 14 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 11 | 0 | 11 | 0 | 0 |
+| `discovery.md` | 30 | 19 | 0 | 11 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 14 | 0 | 8 | 0 | 0 |
 | `suite_integration.md` | 19 | 8 | 0 | 11 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 5 | 1 | 35 | 0 | 0 |
-| **Total** | **179** | **86** | **12** | **80** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 7 | 5 | 29 | 0 | 0 |
+| **Total** | **179** | **94** | **16** | **68** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -74,7 +74,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `DSC-13` | The yscale gate's fallback path evaluates on rows the transform params were fit on | |
 | **TODO** | P2 | `DSC-14` | Stacked and stability-check fits drop `time_ordering`, `val_df` and `val_y` | |
 | **TODO** | P2 | `DSC-15` | The stability-check majority threshold is truncated, so n=3 keeps specs found once | |
-| **TODO** | P2 | `DSC-16` | Incremental drift detection cannot fire under default config | |
+| **RESOLVED** | P2 | `DSC-16` | Incremental drift detection cannot fire under default config | same-rows reference gain; appended rows only; default config now detects a destroyed base |
 | **RESOLVED** | P2 | `DSC-17` | The cross-target composite budget sorts three incompatible gain units together | budget ranks RMSE-gain tier before MI tier |
 | **TODO** | P2 | `DSC-18` | The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection | |
 | **RESOLVED** | P2 | `DSC-19` | The group-disjoint honest-holdout carve can hold out most of the training rows | holdout within +/-25% or iid fallback |
@@ -82,12 +82,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `DSC-21` | The raw-y baseline and the per-spec CV can use different splitters | one fold scheme per rerank |
 | **RESOLVED** | P3 | `DSC-22` | `_group_ids_for_rerank` is read under two alignment conventions | frame-aligned contract; short array raises |
 | **TODO** | P3 | `DSC-23` | Report reasons misattribute specs dropped by the late gates | |
-| **TODO** | P3 | `DSC-24` | FDR control is "on by default" but inert by default | |
+| **RESOLVED** | P3 | `DSC-24` | FDR control is "on by default" but inert by default | inactive FDR control logged at INFO; default bootstrap measured +70% wall, kept opt-in |
 | **TODO** | P3 | `DSC-25` | Alpha-drift flags leak between fits of one instance; the reject flag's code fallback contradicts the config default | |
 | **TODO** | P3 | `DSC-26` | The corr-filter log recommends an escape hatch that does not work | |
 | **TODO** | P3 | `DSC-27` | Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids | |
 | **RESOLVED** | P3 | `DSC-28` | Multi-base upgraded specs inherit unmeasured statistics from their seed | upgrade MI stats NaN + stats_measured_for |
-| **TODO** | P3 | `DSC-29` | The knn cost guard runs after the most expensive knn work | |
+| **RESOLVED** | P3 | `DSC-29` | The knn cost guard runs after the most expensive knn work | guard moved before base resolution; estimate includes auto-base + null-perm sweeps |
 | **RESOLVED** | P3 | `DSC-30` | The stratified MI sampler gives non-finite-y rows a full stratum share | NaN-y rows not sampled |
 
 ### `estimator_ensemble.md`
@@ -98,12 +98,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `EST-02` | The default-ON MoE gate routes every row of a group it did not see at fit time to `lag_predict`, so on group-disjoint val/test splits it replaces the deployed ensemble with lag everywhere | the unseen/low-data fallback is the pooled-best expert over the matched selection rows with lag among the candidates, since such a group contributes no rows to the pooled sums the vs-lag guarantee is proved on (test_biz_val_moe_gate.py::test_global_fallback_for_unseen_group_is_the_pooled_best_expert, which fails at origin/master with 'lag' == 'composite'; the companion test keeps lag when lag is pooled-best) |
 | **RESOLVED** | P1 | `EST-03` | When a component fails at predict time, `CompositeCrossTargetEnsemble.predict` drops it but keeps the other components' raw weights, which biases predictions toward 0 by the dropped weight mass | a dropped component's column is rebuilt from its own OOF mean so every surviving weight stays the one it was solved with (no refit, still deterministic); models pickled before the means were stored derive them from the stashed OOF design, and the component-failure log no longer claims to re-normalise (test_composite_ensemble_linear_stack_dropout.py: at origin/master all 3 rows are off by up to 25.5, 26%) |
 | **RESOLVED** | P1 | `EST-04` | At predict time the recurrent inverses get `1.0` in place of an out-of-domain (NaN/inf) base, which corrupts the EWMA/rolling state of every later row in the batch | a recurrent inverse carry-forward-fills an out-of-domain base instead of substituting 1.0, matching what fit does for its own dropped rows (test_recurrent_predict_out_of_domain_base.py: at origin/master one blanked row moved 73 of 239 other rows by up to 75.9) |
-| **TODO** | P2 | `EST-05` | The CT-ensemble "honest OOF gate" can never fire for the default `nnls_stack` (and in practice for `linear_stack`), because the stack weights are fit on the same OOF matrix the gate scores | |
-| **TODO** | P2 | `EST-06` | `cap_inference_components` trims non-convex stacks without refitting or renormalising, after the gate has already accepted the full stack | |
+| **RESOLVED** | P2 | `EST-05` | The CT-ensemble "honest OOF gate" can never fire for the default `nnls_stack` (and in practice for `linear_stack`), because the stack weights are fit on the same OOF matrix the gate scores | gate compares a cross-fitted stack RMSE |
+| **RESOLVED** | P2 | `EST-06` | `cap_inference_components` trims non-convex stacks without refitting or renormalising, after the gate has already accepted the full stack | capped non-convex stack refit on kept columns |
 | **TODO** | P2 | `EST-07` | On the time-sorted OOF holdout path, the polars branch misaligns X and y rows, in both the refit-train slice and the holdout slice | |
 | **RESOLVED** | P2 | `EST-08` | The wrap-pass watchdog is off by default, cannot detect the failures it names, raises a false alarm on every `quantile_residual` run, and swallows its own errors at DEBUG | runs on a val sample by default; base-read oracle + raw-frame additive check; groups; WARNING on failures |
 | **RESOLVED** | P2 | `EST-09` | The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit | OOF refit wrappers now get their training base (5 of 6 lacked it); pinned no-op test split into no-base no-op + with-base shrink |
-| **TODO** | P2 | `EST-10` | `predict_quantile` returns zero-width intervals on fallback rows and crossed quantiles for sign-flipping multiplicative inverses | |
+| **RESOLVED** | P2 | `EST-10` | `predict_quantile` returns zero-width intervals on fallback rows and crossed quantiles for sign-flipping multiplicative inverses | per-alpha train-y quantile fallback; monotone rearrangement |
 | **RESOLVED** | P2 | `EST-11` | The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE | dummy floor/baseline on the same OOF rows |
 | **TODO** | P2 | `EST-12` | `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path | |
 | **TODO** | P2 | `EST-13` | The CT_ENSEMBLE val/test metrics and charts describe the pre-MoE predictor, not the model that ships | |
@@ -203,17 +203,17 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `PMT-05` | Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe | test_cte_row_purity: chunk invariance to 1e-14, threads, lag_predict fill; found EST-19/EST-20 |
 | **RESOLVED** | P1 | `PMT-06` | Splitter and sampler consistency: one splitter factory, time order and groups honoured everywhere, sampler returns usable rows | no ad-hoc shuffled KFold scan + splitter contract tests; fixed 6 findings |
 | **PARTIAL** | P1 | `PMT-07` | Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform | 7 findings fixed + invariance tests; typed Score/rank_specs + sort scan not built |
-| **TODO** | P1 | `PMT-08` | Scale and shift metamorphic property over every registered transform | |
+| **RESOLVED** | P1 | `PMT-08` | Scale and shift metamorphic property over every registered transform | scale/shift property tests; fixed log_y +1.0 offset and raw-unit arcsinh |
 | **TODO** | P2 | `PMT-09` | Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery | |
 | **TODO** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | |
-| **TODO** | P1 | `PMT-11` | Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test | |
-| **TODO** | P1 | `PMT-12` | Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered | |
-| **TODO** | P1 | `PMT-13` | Ensemble combiner invariants for every stacking strategy, including "the gate can fire" | |
+| **PARTIAL** | P1 | `PMT-11` | Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test | ratchet on tested-but-uncalled (68 recorded) + gate modules imported by tests; triage of the 68 open |
+| **RESOLVED** | P1 | `PMT-12` | Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered | OOD-edge + one-row Lipschitz legs; quantile contract (fixed EST-10) |
+| **PARTIAL** | P1 | `PMT-13` | Ensemble combiner invariants for every stacking strategy, including "the gate can fire" | gate-can-fire + cap tests (fixed EST-05/06); registry parametrisation + (d) open |
 | **TODO** | P2 | `PMT-14` | Transform-call gateway: every registry-transform fit/forward/inverse call goes through one signature-gated helper, and weights are honoured | |
 | **TODO** | P2 | `PMT-15` | Cache-key completeness by input perturbation, plus a code-version gate on discovery sources | |
 | **TODO** | P2 | `PMT-16` | polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared) | |
-| **TODO** | P1 | `PMT-17` | Absorption and consistency on each transform's canonical DGP | |
-| **TODO** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | |
+| **PARTIAL** | P1 | `PMT-17` | Absorption and consistency on each transform's canonical DGP | canonical-DGP absorption for all 40 base transforms; fixed quantile_residual small-n; smoother/grouped legs open |
+| **PARTIAL** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | self-influence canaries (causal bases, OOF encoding, all transforms <0.1); leg c spy pending DSC-13/EST-17 |
 | **TODO** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | |
 | **TODO** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | |
 | **TODO** | P1 | `PMT-21` | Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST) | |

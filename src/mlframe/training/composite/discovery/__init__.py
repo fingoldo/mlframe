@@ -151,6 +151,8 @@ class CompositeTargetDiscovery:
     _time_ordering_: Any
     _fit_data_signature: str | None
     _fit_data_signature_inputs: tuple | None
+    # Row count at fit time, so an incremental re-score can tell appended rows from the original ones.
+    _fit_n_rows: int
     # Sweep-shared honest holdout set by ``fit_with_stability_check`` (consumed by
     # ``carve_screening_holdout``); ``None`` outside a stability sweep.
     _stability_shared_holdout_idx: np.ndarray | None
@@ -651,6 +653,7 @@ def discover_incremental(
     prior_sig = (_sig_of() if callable(_sig_of) else getattr(prior_result, "_fit_data_signature", "")) or ""
     if config is None:
         config = getattr(prior_result, "config", None)
+    kwargs.setdefault("prior_n_rows", getattr(prior_result, "_fit_n_rows", None))
     return incremental_discovery_check(
         prior_specs, prior_sig, new_df, target_col, feature_cols, config, **kwargs,
     )

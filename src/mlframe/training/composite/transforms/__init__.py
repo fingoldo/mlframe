@@ -152,6 +152,13 @@ class Transform:
     # Number of base columns the transform is built for: 2 marks the multi-base family, which takes an ``(n, K)`` base matrix with
     # K >= 2 and degrades to a single-column fallback when handed fewer columns (``second_diff`` becomes ``diff``).
     n_bases: int = 1
+    # Scale equivariant: fitting on (s*y, s*base) gives T_s = a*T_1 + b and inverse_s(a*T_hat + b) = s * inverse_1(T_hat), so the
+    # transform has one shape whatever the target's units. False only where the family is unit-dependent by definition (the
+    # Yeo-Johnson (y + 1) ** lam form); a raw-unit constant elsewhere (a log offset of 1.0, arcsinh in raw units) is a defect.
+    scale_equivariant: bool = True
+    # Base-translation invariant: T is unchanged when every base column is shifted by a constant (the linear / polynomial
+    # residual family absorbs it into the intercept). A normal-equations solve on an uncentred design breaks this.
+    base_translation_invariant: bool = False
 
 
 # ----------------------------------------------------------------------

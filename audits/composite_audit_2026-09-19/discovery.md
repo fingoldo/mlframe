@@ -134,7 +134,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: `discover_incremental` promises "no silent reuse of stale specs", but under shipped defaults the drift gate never triggers.
 - **Suggested fix**: Test for drift against the prior gains rather than the admission threshold. For example, reuse only when the new gain is at least the prior `mi_gain` minus k times the bootstrap SE, or when `honest_holdout_gain` is not significantly worse. Draw the sample from the appended rows (or weight toward them).
 - **Test to add**: Append rows from a DGP where the base relation is destroyed (base permuted). With the default config the decision must be `reuse=False`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. A spec now survives the incremental check only if its re-scored gain clears `eps_mi_gain` and also keeps at least half of its reference gain (`_required_gain`: min(ref - 0.02, 0.5 ref), with 0.02 nats of slack for sampling noise). Discovery records `_fit_n_rows`, and `discover_incremental` forwards it as `prior_n_rows`. When the new frame extends the prior one, the re-score samples only the appended rows, and the reference is the same re-score on the prior rows (compared like with like). Otherwise the spec's recorded `mi_gain` is the reference. Measured with 3000 prior rows and 1000 appended: the same DGP keeps 0.173-0.183 of a 0.180 gain, and a permuted base leaves 0.001. `IncrementalDecision.per_spec_reference_gain` exposes the reference. Regression test `test_default_config_detects_a_destroyed_base_relation` (default config) fails before the fix.
 
 ### DSC-17 [P2] The cross-target composite budget sorts three incompatible gain units together
 - **Where**: `core/_phase_composite_discovery.py:866-878` and `:913`.
@@ -198,7 +198,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: A documented safeguard does nothing under shipped defaults, and nothing reports that.
 - **Suggested fix**: Enable a cheap bootstrap by default (for example `mi_gain_bootstrap_n=50` on the bin path, which reuses prebinned codes), or log once at INFO that FDR control is inactive because the bootstrap is disabled.
 - **Test to add**: With default config, assert that either the p-values are finite or the "FDR inactive" log is emitted.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `apply_fdr_control_to_candidates` logs at INFO, once per fit, that FDR control is inactive when no candidate has a bootstrap p-value (the default `mi_gain_bootstrap_n=0`) and names the knob that enables it. The docstring now states the inert default and its measured reason. A 50-replicate default bootstrap was measured instead: a default fit at n=5000 goes from 4.2 s to 7.1 s, and the eps gate moves to the LCB, so the kept set changes (cbrt_y out, asinh_residual in) with no shown accuracy gain. It stays opt-in. Regression test `test_inactive_fdr_control_says_so` in tests/training/composite/eval/test_eval_stats_by_fdr.py fails before the fix.
 
 ### DSC-25 [P3] Alpha-drift flags leak between fits of one instance; the reject flag's code fallback contradicts the config default
 - **Where**: `_eval_stats.py:279-282` resets `self._alpha_drift_flags` only when a `linear_residual` survived, and `_fit.py:750-779` reads it for survivors. `_eval_stats.py:283` uses `getattr(self.config, "reject_on_alpha_drift", False)`, while the config default is `True` (`_composite_target_discovery_config_base.py:718`).
@@ -238,7 +238,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The cost guard does not cover the dominant knn cost.
 - **Suggested fix**: Run the knn probe and downgrade before `_resolve_base_candidates`, and include the auto-base plus null-permutation work in the extrapolated cost.
 - **Test to add**: With `mi_estimator="knn"` and a tiny `knn_mi_budget_seconds`, assert that `_auto_base` uses the bin estimator (spy on `mutual_info_regression` call count).
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The knn budget guard now runs before `_resolve_base_candidates`. It probes the Kraskov cost on a random `mi_sample_n`-sized sample of train rows (the size every later knn call sees). The estimate adds the auto-base sweeps (`1 + auto_base_null_perms` per column when `base_candidates='auto'`, via `_planned_bases_and_auto_sweeps`) to the per-work-item sweeps, and the planned base count comes from `auto_base_top_k` capped by `max_base_candidates`. Regression test `test_the_guard_covers_auto_base_ranking` spies `mutual_info_regression`: before the fix, auto-base ran 65 Kraskov estimates under a 1e-9 s budget; now it runs none. `test_the_estimate_counts_the_auto_base_sweeps` pins the formula.
 
 ### DSC-30 [P3] The stratified MI sampler gives non-finite-y rows a full stratum share
 - **Where**: `screening.py:925-948`.

@@ -560,7 +560,7 @@ def predict_quantile(
     n_violation = int((~domain_ok).sum())
 
     if alpha_is_scalar:
-        y_q = _invert_one(t_raw)
+        y_q = _quantile_fallback(self, params, _invert_one(t_raw), alpha, domain_ok, deep_ood)
         _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
         _record_runtime_stats(
             self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
@@ -584,4 +584,36 @@ def predict_quantile(
     _record_runtime_stats(
         self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
     )
-    return np.column_stack(cols)
+    return _finish_quantiles(self, params, np.column_stack(cols), np.asarray(alpha, dtype=np.float64).reshape(-1), domain_ok, deep_ood)
+
+
+def _quantile_fallback(self, params: dict, y_col: np.ndarray, a: Any, domain_ok: np.ndarray, deep_ood: Any) -> np.ndarray:
+    """Rows the model cannot serve (base out of domain, deep OOD) take the train-y quantile at level ``a``.
+
+    They used to take one median in every column: a zero-width interval exactly where the uncertainty is highest.
+    """
+    grid = np.asarray(params.get("y_train_quantile_grid", []) or [], dtype=np.float64)
+    if a is None or grid.size != 101 or getattr(self, "fallback_predict", "y_train_median") != "y_train_median":
+        return y_col
+    rows = ~domain_ok if deep_ood is None else (~domain_ok | np.asarray(deep_ood, dtype=bool))
+    return np.where(rows, float(np.interp(float(a), np.linspace(0.0, 1.0, 101), grid)), y_col) if rows.any() else y_col
+
+
+def _finish_quantiles(self, params: dict, out: np.ndarray, alphas: np.ndarray, domain_ok: np.ndarray, deep_ood: Any) -> np.ndarray:
+    """Per-alpha fallback on the rows the model cannot serve, then the monotone rearrangement of every row."""
+    if alphas.size == out.shape[1]:
+        for k, a in enumerate(alphas):
+            out[:, k] = _quantile_fallback(self, params, out[:, k], a, domain_ok, deep_ood)
+    return _rearranged(out, alphas)
+
+
+def _rearranged(out: np.ndarray, alphas: np.ndarray) -> np.ndarray:
+    """Quantile columns sorted per row in alpha order (Chernozhukov et al.'s monotone rearrangement).
+
+    An inverse that multiplies T by a base factor that goes negative reverses the column order; sorting restores valid
+    quantiles and never moves an already-ordered row.
+    """
+    if alphas.size == out.shape[1]:
+        order = np.argsort(alphas, kind="stable")
+        out[:, order] = np.sort(out[:, order], axis=1)
+    return out

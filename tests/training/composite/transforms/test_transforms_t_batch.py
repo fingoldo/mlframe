@@ -386,17 +386,25 @@ class TestMultiBaseExtras:
     """T6/T8: multi-base arcsinh and trimmed-LS joint OLS transforms."""
 
     def test_asinh_multi_recovers_arcsinh_plane(self) -> None:
-        """asinh_residual_multi recovers the true per-base alphas and intercept when y is an arcsinh-plane of two bases."""
+        """asinh_residual_multi recovers the per-base alphas and intercept of an arcsinh-plane in its own scale-free units.
+
+        The transform takes arcsinh of each column over its median |.|, so the fixture has every median at 1 (bases rescaled,
+        the intercept solved so that median |y| = 1): the plane is then exactly the relation the fit models.
+        """
+        from scipy.optimize import brentq
+
         rng = np.random.default_rng(0)
         n = 3000
         b = rng.normal(size=(n, 2)) * 3.0
-        z = 0.7 * np.arcsinh(b[:, 0]) - 0.4 * np.arcsinh(b[:, 1]) + 0.3 + rng.normal(scale=0.01, size=n)
-        y = np.sinh(z)
+        b = b / np.median(np.abs(b), axis=0)
+        plane = 0.7 * np.arcsinh(b[:, 0]) - 0.4 * np.arcsinh(b[:, 1])
+        beta = brentq(lambda b0: np.median(np.abs(np.sinh(plane + b0))) - 1.0, 0.0, 20.0)
+        y = np.sinh(plane + beta + rng.normal(scale=0.01, size=n))
         t = get_transform("asinh_residual_multi")
         p = t.fit(y, b)
         assert not p["collinear_fallback"]
         np.testing.assert_allclose(p["alphas"], [0.7, -0.4], atol=0.02)
-        assert abs(p["beta"] - 0.3) < 0.02
+        assert abs(p["beta"] - beta) < 0.02
 
     def test_asinh_multi_collinear_guard(self) -> None:
         """When the two bases are near-collinear, asinh_residual_multi flags collinear_fallback and zeroes the alphas."""

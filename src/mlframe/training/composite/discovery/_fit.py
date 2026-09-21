@@ -364,6 +364,14 @@ def fit(
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "filter_features_done")
 
+    # knn-MI cost guard, BEFORE base resolution (auto-base ranking + its permutation null is ~21 knn sweeps per column):
+    # probe the Kraskov cost on a screen-sized sample and downgrade knn -> bin (warning) when the extrapolated sweep exceeds
+    # ``knn_mi_budget_seconds``. Swaps only a per-fit config copy; see ``_knn_budget`` for why T-side caching is not an option.
+    if self.config.mi_estimator == "knn" and getattr(self.config, "knn_mi_auto_downgrade", True):
+        from ._knn_budget import maybe_downgrade_knn_estimator
+
+        maybe_downgrade_knn_estimator(self, df, usable_features, train_idx, y_train)
+
     # Resolve base candidates.
     base_candidates = self._resolve_base_candidates(
         df,
@@ -427,15 +435,6 @@ def fit(
     # must re-apply the order, otherwise they run a "forward walk" over whatever order their rows happen to be in.
     self._time_ordering_ = time_ordering
     y_screen = y_full[train_idx_screen]
-
-    # knn-MI cost guard: probe one column's Kraskov cost on the real screen sample and downgrade
-    # knn -> bin (warning) when the extrapolated sweep exceeds ``knn_mi_budget_seconds`` -- a knn
-    # config on a large screen can otherwise take hours where bin takes seconds. Swaps only a
-    # per-fit config copy; see ``_knn_budget`` for why T-side neighbor caching is not an option.
-    if self.config.mi_estimator == "knn" and getattr(self.config, "knn_mi_auto_downgrade", True):
-        from ._knn_budget import maybe_downgrade_knn_estimator
-
-        maybe_downgrade_knn_estimator(self, df, usable_features, base_candidates, train_idx_screen, y_screen)
 
     # Bin-MI floors every value to 0.0 when the screening sample has fewer than
     # 5*nbins finite rows (joint-histogram cells too sparse), so top-K ranking
@@ -870,9 +869,9 @@ def fit(
 
     # The data signature the specs were fit on is read only by ``discover_incremental``, but it cost 84-308 ms at 200k x 50
     # (seconds on wide polars frames) on every fit, stability replicate and per-group fit. Record what it needs and let
-    # ``fit_data_signature()`` compute it on first use; pickling computes it before the frame reference is dropped.
+    # ``fit_data_signature()`` compute it on first use; pickling computes it before the frame reference is dropped. The row count lets it re-score only appended rows.
     self._fit_data_signature = None
-    self._fit_data_signature_inputs = (target_col, list(feature_cols))
+    self._fit_data_signature_inputs, self._fit_n_rows = (target_col, list(feature_cols)), len(df)
 
     # Bookkeeping. (target_col + df_ref + train_idx already stashed.)
     self.specs_ = kept_specs

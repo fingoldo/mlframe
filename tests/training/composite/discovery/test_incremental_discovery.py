@@ -247,3 +247,23 @@ class TestIncrementalBizValue:
         assert dec.specs is None
         # The re-scored gains decayed: fewer than half the specs survive.
         assert dec.n_surviving < dec.n_specs
+
+
+def test_default_config_detects_a_destroyed_base_relation():
+    """Under the default config (eps_mi_gain=-10, below every finite mean-aggregated gain) drift is judged against the prior
+    rows' gain: appending rows whose base is permuted forces re-discovery, appending the same DGP keeps the specs."""
+    from mlframe.training.composite.discovery import discover_incremental
+
+    prior = _same_dgp(3000, 0)
+    cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, base_candidates=["TVT_prev"])
+    disc = CompositeTargetDiscovery(cfg).fit(prior, target_col="TVT", feature_cols=_FEATURES, train_idx=np.arange(3000))
+    assert disc.specs_, "the fixture must keep specs"
+    same = pd.concat([prior, _same_dgp(1000, 1)], ignore_index=True)
+    broken_rows = _same_dgp(1000, 2)
+    broken_rows["TVT_prev"] = np.random.default_rng(3).permutation(broken_rows["TVT_prev"].to_numpy())
+    broken = pd.concat([prior, broken_rows], ignore_index=True)
+    assert discover_incremental(disc, same, "TVT", _FEATURES).reuse
+    dec = discover_incremental(disc, broken, "TVT", _FEATURES)
+    assert not dec.reuse, dec.reason
+    base_specs = [s.name for s in disc.specs_ if s.base_column == "TVT_prev"]
+    assert all(dec.per_spec_gain[n] < 0.5 * dec.per_spec_reference_gain[n] for n in base_specs)

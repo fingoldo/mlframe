@@ -205,7 +205,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low for the property, since non-equivariant transforms declare the exemption with a reason. Medium for the static companion (the "hinge-gate normal equations" perf win in CLAUDE.md is a legitimate allowlist entry).
 - **Runtime**: about 3-5 s (51 transforms x 4 scales x n=500).
 - **Repo**: mlframe. The normal-equations rule could later join py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Added `Transform.scale_equivariant` (default True) and `base_translation_invariant`, with tests in test_transform_registry_properties.py. Fitting on (s*y, s*base) for s in {1e-3, 1e3, 1e6} must give T_s as an affine map of T_1 (residual <= 1e-6 std). The inverse must commute with the scale (1e-6 relative). A base shifted by 1e4 or 1e6 must leave T unchanged for the 18 translation-invariant transforms. The test found two more raw-unit constants, both fixed. `log_y` added 1.0 to a strictly positive target: nearly the identity on a target of order 1e-3, a log at 1e6. It now takes a plain log for positive y and a spread-relative margin otherwise. `asinh_residual` / `asinh_residual_multi` took arcsinh in raw units; they now fit scales (median |x|) for y and each base. The two tests that pinned the old raw-unit asinh were reframed to fixtures in the transform's own units. The exempt transforms are yeo_johnson_y and the two chains built on it, whose (y + 1) ** lam form is unit-dependent by definition. The optional AST companion was not built: the property test catches the same defects on every registered transform.
 
 ### PMT-09 [P2] Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery
 - **Asserts**:
@@ -249,7 +249,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. A utility kept for external API users is allowlisted with a reason.
 - **Runtime**: under 5 s (both scans already run in the meta suite; this cross-joins their results).
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. tests/test_meta/test_tested_but_uncalled.py covers two rules. (a) It joins the uncalled-functions baseline with the names tests reference: 68 composite functions are tested yet uncalled today, and they are recorded in `_tested_but_uncalled_baseline.json`. A new entry fails, and so does a stale one once a function is wired in. (b) Every discovery gate / rerank / filter / per-group module must have an importing test; all do today, so TST-14's gap is closed. The motivating `refit_transform_on_fold` is called by production since 870694a39. Remaining: triage of the recorded 68 entries into wire-in or justified. Most are public diagnostics (plot_*, winkler, bayesian fits); the gate-like ones were checked. `stability_select_specs`, `screen_base_pool`, `make_purged_cv` and `purged_oof_holdout` are exported public API; production's stability path reuses the first one's helpers. `calibration_adjusted_score` is a research ranking utility that no config enables. None is a fix that production silently skips. Rule (c) is not built.
 
 ### PMT-12 [P1] Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered
 - **Asserts**: for every registry transform:
@@ -262,7 +262,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. The Lipschitz leg uses the transform's own pointwise derivative, so steep transforms are not penalised.
 - **Runtime**: about 3-5 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. (a) and (b) are in test_transform_registry_properties.py. (a): a base 5% beyond either train edge inverts the median T to the edge value's sign, within [0.5, 2]x of it, for every non-recurrent base transform. The sign is compared with the in-range edge: for `reciprocal_residual` the median T at an extreme in-range base is already negative. (b): nudging one row's T moves that row's y by at most 1.1x the pointwise derivative, for every transform. (c) is test_predict_quantile_contract.py (ordered quantiles on every row, a real interval on fallback rows), which found and fixed EST-10.
 
 ### PMT-13 [P1] Ensemble combiner invariants for every stacking strategy, including "the gate can fire"
 - **Asserts**: for every strategy in the cross-target strategy registry (`nnls_stack`, `linear_stack`, `oof_weighted`, `mean`, meta-stacker), with stub components returning fixed OOF/test columns:
@@ -276,7 +276,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low.
 - **Runtime**: about 2 s (numpy stubs, no model fits).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. (c) "the gate can fire" and (b) the cap keeping the blend's level are pinned in tests/training/composite/ensemble/test_combiner_invariants.py; they fixed EST-05 and EST-06. (a) the failing-component mean is already covered by EST-03's resolved tests. Not built: the strategy-registry parametrisation over every constructor, the meta-guard, and the (d) row-disjointness spy.
 
 ### PMT-14 [P2] Transform-call gateway: every registry-transform fit/forward/inverse call goes through one signature-gated helper, and weights are honoured
 - **Asserts**:
@@ -327,7 +327,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low, since thresholds are set on the DGP each transform is designed for. The cost is writing 51 small DGP factories once.
 - **Runtime**: fast subset about 5 s; the NW n=20k cell about 3 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New tests/training/composite/transforms/test_transform_canonical_dgp.py. Every base transform declares a canonical DGP family in `_CANONICAL_DGP` (additive, linear, second difference, product, multiplicative, geometric or saturating), and a meta-guard keeps the keys equal to the base transforms in the registry. Absorption is measured scale-free, at n in {300, 2000} and, for the additive-type families, with the base offset by 1e4: inverting the constant median T at each row's base must explain at least 90% of y's variance (80% for the product family). The test found a TRF-03-class defect in `quantile_residual`, now fixed. At n=300 its ten bins of 30 rows sat under the 50-row minimum, so every bin fell back to the global median and T ignored the base (R2 0.00). The bin count is now `min(n_bins, n // min_bin_n)`, which gives R2 0.96. Not built: the smoother-improves-with-n leg and the grouped-level leg.
 
 ### PMT-18 [P1] Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows
 - **Asserts**:
@@ -340,7 +340,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. The 5/n bound separates the O(1/n) influence of a global fit from the O(1) influence of a leak by orders of magnitude at n=2000.
 - **Runtime**: about 10-20 s (tiny fits with spies; one discovery fit at n=600).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL (leg a). New tests/training/composite/test_leakage_canaries.py with the `Y_DERIVED_PRODUCERS` registry (kept in the test; a meta-guard requires every public function of `_grouped_causal_bases.py` / `_base_engineering.py` to be registered). (1) Every grouped and temporal causal base (lag, trailing/rolling mean and median, expanding mean, diff) is exactly unchanged at row i when `y_i` moves; canary: the legacy `first_fill='group_first'` scores 1.0 on the group heads (DSC-01). (2) The train target encoding over size-5 categories moves by at most 5/n with the row's own y; canary: `oof_folds=None` scores 1/(5+20) (TRF-26). (3) For every registry transform, refitting with `y_i` moved shifts row i's reconstruction `inverse(T_i, base_i)` by under 0.1 of the move. The spec's 5/n bound does not hold for legitimate local fits. Measured at n=1000/4000, the rank, ECDF, copula, quantile_normal, quantile/median-residual and smoothing-spline fits sit at 0.02-0.07, flat in n, while global fits shrink as 1/n. The spline's flat 0.04 comes from its knot count growing with n; the smoother `s = (m + sqrt(2m)) var` fixes that but fits the true curve worse in every case measured, so it is recorded as rejected in extended.py. Not built: legs (b) (TRF-24's mask checks have their own tests) and (c) the fit/score-disjointness spy, which targets the open DSC-13 and EST-17 and will be built with those fixes.
 
 ### PMT-19 [P2] Null-DGP selection canaries: every selection routine picks the null on pure noise
 - **Asserts**: for every routine in `NULL_CANARIES`, run across 10 seeds on data with no signal, the null is chosen in at least 9 of 10:

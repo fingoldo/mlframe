@@ -215,18 +215,29 @@ def signed_power_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -
 # ----------------------------------------------------------------------
 
 _LOG_OFFSET_SAFETY: float = 1.0
-"""Additional positive margin above |min(y_train)| so log doesn't see exactly zero (eps-floor for floating-point safety)."""
+"""Margin above |min(y_train)| for a constant non-positive target, whose spread cannot set the scale."""
+
+_LOG_OFFSET_REL: float = 0.1
+"""Margin above |min(y_train)| for a non-positive target, as a fraction of its standard deviation."""
 
 
 def log_y_fit(y: np.ndarray) -> Dict[str, Any]:
-    """Fit the shifted-log offset so ``min(y_train) + offset > 0`` (plus a safety margin)."""
+    """Fit the shifted-log offset so ``min(y_train) + offset > 0``.
+
+    A strictly positive target takes the plain log (offset 0). The offset used to add 1.0 in raw y units even then, so on
+    a target of order 1e-3 ``log(y + 1)`` was nearly the identity (no compression at all) while on 1e6 it was a log: the
+    transform's shape depended on the target's units. A non-positive target is lifted by a margin relative to its own
+    spread, so the shape is the same at every scale.
+    """
     arr = np.asarray(y, dtype=np.float64)
     finite = arr[np.isfinite(arr)]
     if finite.size == 0:
         return {"offset": _LOG_OFFSET_SAFETY}
     y_min = float(finite.min())
-    offset = -y_min + _LOG_OFFSET_SAFETY if y_min <= 0.0 else _LOG_OFFSET_SAFETY
-    return {"offset": offset}
+    if y_min > 0.0:
+        return {"offset": 0.0}
+    spread = float(np.std(finite))
+    return {"offset": -y_min + (_LOG_OFFSET_REL * spread if spread > 0.0 else _LOG_OFFSET_SAFETY)}
 
 
 def log_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:

@@ -21,6 +21,7 @@ def _spy_splits(monkeypatch, module):
     real = _splitter.discovery_splits
 
     def _spy(n_rows, n_splits, **kw):
+        """Record every split request with its grouping and time-awareness, then pass it through."""
         folds = real(n_rows, n_splits, **kw)
         calls.append({"groups": kw.get("groups"), "time_aware": kw.get("time_aware"), "folds": folds})
         return folds
@@ -41,6 +42,7 @@ def _grouped_frame(n: int = 600, n_groups: int = 12, seed: int = 0):
 
 def _assert_group_disjoint(folds, groups):
     """No group has rows on both sides of any fold."""
+    assert folds, "no folds were produced"
     for tr, va in folds:
         assert not (set(groups[tr]) & set(groups[va])), "a group straddles a train/validation fold"
 
@@ -92,6 +94,7 @@ def test_one_rerank_scores_raw_and_every_spec_under_one_fold_scheme(monkeypatch)
         real = getattr(_tiny_rerank, name)
 
         def _spy(*a, _real=real, **kw):
+            """Record whether each rerank call asked for time-aware folds, then pass it through."""
             seen.append(bool(kw.get("time_aware", False)))
             return _real(*a, **kw)
 
@@ -168,6 +171,7 @@ def test_a_recurrent_component_gets_contiguous_oof_folds(monkeypatch):
     real = _splitter.make_discovery_splitter
 
     def _spy(*a, **kw):
+        """Record whether each splitter request asked for contiguous folds, then pass it through."""
         requested.append(kw.get("contiguous"))
         return real(*a, **kw)
 
