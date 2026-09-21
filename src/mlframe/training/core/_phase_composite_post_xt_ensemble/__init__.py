@@ -18,6 +18,7 @@ from ..utils import _build_full_column_from_splits
 from .._phase_composite_post_lag_predict import _LagPredictDeployableModel
 from ._post_xt_ensemble_mtr import _build_mtr_per_column_ensemble
 from ._prescreen import PRESCREEN_SAFETY, dummy_floor_from_metadata, leaky_rmse_keep_mask, prescreen_frame
+from .._prediction_memo import memo_predict
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")
@@ -1088,10 +1089,7 @@ def _build_cross_target_ensemble_for_target(
                     continue
                 try:
                     _y_split = _ens_y_arr[_split_idx]
-                    _ens_preds = np.asarray(
-                        _ensemble.predict(_split_df),
-                        dtype=np.float64,
-                    ).reshape(-1)
+                    _ens_preds = memo_predict(_ensemble, _split_df)
                     # Stamp val/test scalar metrics for this ensemble into metadata so the
                     # suite-end verdict block can compare CT_ENSEMBLE against the dummy floor.
                     # Without this the verdict only sees the SINGLE best model and falsely

@@ -12,6 +12,7 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple  # noqa: F401
 
 import numpy as np
+from ._prediction_memo import memo_predict
 
 # dependencies needed by the moved _run_composite_target_wrapping.
 # _ADDITIVE_TRANSFORMS is defined inside the function body itself, not at
@@ -588,10 +589,7 @@ def _run_composite_target_wrapping(
                         # the clip is [y_train_min, y_train_max], train rows are in-envelope, clip is a no-op. Val / test rows
                         # may drift outside; the clip then narrows the headline RMSE. To make that contribution explicit we ALSO
                         # capture the raw (pre-clip) prediction via ``predict_pre_clip`` and emit a parallel metric block.
-                        _y_pred_wrapped = np.asarray(
-                            _wrapper_for_score.predict(_split_df),
-                            dtype=np.float64,
-                        ).reshape(-1)
+                        _y_pred_wrapped = memo_predict(_wrapper_for_score, _split_df)
                         if hasattr(_wrapper_for_score, "predict_pre_clip"):
                             _y_pred_raw = np.asarray(
                                 _wrapper_for_score.predict_pre_clip(_split_df),

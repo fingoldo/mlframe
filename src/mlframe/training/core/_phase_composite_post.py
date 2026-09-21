@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from ..composite.transforms import is_composite_target_name
+from ._prediction_memo import with_prediction_memo
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +145,7 @@ def _with_raw_only_ensemble_entries(composite_specs_by_target_type, models, comp
     return composite_specs_by_target_type
 
 
+@with_prediction_memo
 def run_composite_post_processing(
     *,
     models: dict,

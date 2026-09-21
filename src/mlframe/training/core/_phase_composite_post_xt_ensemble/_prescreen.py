@@ -14,6 +14,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from .._prediction_memo import memo_predict
+
 logger = logging.getLogger(__name__)
 
 PRESCREEN_SAFETY = 1.5
@@ -54,7 +56,7 @@ def leaky_rmse_keep_mask(components: Sequence[Any], component_names: Sequence[st
     dropped: list[str] = []
     for comp, name in zip(components, component_names):
         try:
-            preds = np.asarray(comp.predict(X), dtype=np.float64).reshape(-1)
+            preds = memo_predict(comp, X)
             finite = np.isfinite(preds) & np.isfinite(y_arr)
             if finite.sum() < _MIN_FINITE_ROWS:
                 keep_mask.append(True)

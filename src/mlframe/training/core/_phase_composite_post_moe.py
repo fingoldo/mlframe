@@ -22,6 +22,7 @@ from ..composite import (
 )
 from ..composite.post_shim import PrePipelinePredictShim
 from ._phase_composite_post_lag_predict import _LagPredictDeployableModel
+from ._prediction_memo import memo_predict
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")
@@ -180,8 +181,8 @@ def run_composite_moe_and_value_report(
             # Predict the experts on the selection (val) split. A single failing expert aborts this target's
             # gate/report (no fabricated numbers) but leaves every other target untouched.
             try:
-                _composite_sel = np.asarray(_ens_model.predict(filtered_val_df), dtype=np.float64).reshape(-1)
-                _raw_sel = np.asarray(_raw_shim.predict(filtered_val_df), dtype=np.float64).reshape(-1)
+                _composite_sel = memo_predict(_ens_model, filtered_val_df)
+                _raw_sel = memo_predict(_raw_shim, filtered_val_df)
                 _lag_sel = None
                 if _lag_model is not None:
                     if filtered_train_df is not None:
