@@ -19,10 +19,10 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `discovery.md` | 30 | 5 | 0 | 25 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
 | `suite_integration.md` | 19 | 6 | 0 | 13 | 0 | 0 |
-| `performance.md` | 24 | 6 | 6 | 11 | 1 | 0 |
+| `performance.md` | 24 | 6 | 7 | 10 | 1 | 0 |
 | `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **47** | **6** | **125** | **1** | **0** |
+| **Total** | **179** | **47** | **7** | **124** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -158,7 +158,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P2 | `PRF-11` | The WAIC tie-break scores every kept spec, although the score is used only inside multi-member RMSE bands | WAIC scored only for tied specs reaching top-m (18 -> 6 computations, identical specs); float64 copy and fold reuse not done |
 | **RESOLVED** | P2 | `PRF-12` | The auto-base permutation null is a serial Python loop over features x 20 permutations | permutations pre-drawn in loop order, one parallel njit kernel per column; bit-identical, 1.7-2.3x |
 | **PARTIAL** | P2 | `PRF-13` | The composite post-phases re-predict the same models on the same val and test frames several times | phase-scoped (model, frame) prediction memo; MoE reuses the report's ensemble val predict (3 -> 2 val predicts); component-level combine path not done |
-| **TODO** | P2 | `PRF-14` | The wrap-pass metric block runs four full inner predicts per (entry, split) where one would do | |
+| **PARTIAL** | P2 | `PRF-14` | The wrap-pass metric block runs four full inner predicts per (entry, split) where one would do | watchdogs share one memoised inner predict (4 -> 3 per entry/split); predict + predict_pre_clip kept separate because runtime_stats_ feeds the model card |
 | **TODO** | P2 | `PRF-15` | Under the supported pandas range, the per-target discovery frame is a full copy of the train frame | |
 | **TODO** | P2 | `PRF-16` | K-fold OOF re-runs a shared `pre_pipeline.transform` for every component on every fold | |
 | **TODO** | P3 | `PRF-17` | Every `fit` computes a full `data_signature` that only `discover_incremental` reads | |

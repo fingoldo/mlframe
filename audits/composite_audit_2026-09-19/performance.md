@@ -278,7 +278,7 @@ Default counts used in the estimates:
   - Feed that `t_hat` to both watchdog checks.
   - Keep the watchdog semantics by comparing `inverse(t_hat)` to the wrapper output computed from the same `t_hat`. Alternatively, keep one independent inner predict for the universal check only, if its purpose is to catch wrapper state loss (EST-08 discusses what the watchdog can detect).
 - **Test/benchmark to add**: a mock-counted inner-predict test for `_run_composite_target_wrapping(skip_predict=False)` expecting 1 or 2 predicts per (entry, split) instead of 4.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL - the universal and additive watchdogs now take the inner prediction through the phase's prediction memo (PRF-13), so their two identical `estimator_.predict` calls on a split cost one. Measured on the integration fixture with `skip_wrap_pass_predict=False`: inner predicts per additive composite went train 4 -> 3, val 10 -> 9, test 9 -> 8 (43 -> 40 over the run). The wrapper's own `predict` and `predict_pre_clip` are left as two calls on purpose: `predict` records the clip-violation counters in `runtime_stats_`, which the report and the model card surface, so deriving the clipped value from the unclipped one would change those numbers; and the universal watchdog keeps an inner predict independent of the wrapper's, since catching wrapper state loss is its job (EST-08). The block is off by default (`skip_wrap_pass_predict=True`), so this only matters when it is enabled. test_wrap_pass_watchdog_single_inner_predict.py: fewer inner predicts than a run whose watchdogs predict independently, never more
 
 ### PRF-15 [P2] Under the supported pandas range, the per-target discovery frame is a full copy of the train frame
 

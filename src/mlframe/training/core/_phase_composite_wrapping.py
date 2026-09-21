@@ -724,9 +724,8 @@ def _run_composite_target_wrapping(
                                 if _wi_uni is not None and _spec_t_name and _bcs_uni and all(_c in _split_df for _c in _bcs_uni):
                                     _bivar_uni = get_transform(_spec_t_name)
                                     _base_uni = _watchdog_extract_base(_split_df, _bcs_uni)
-                                    _t_pred_uni = np.asarray(
-                                        _wi_uni.predict(_split_df), dtype=np.float64,
-                                    ).reshape(-1)
+                                    # Memoised: the additive check below predicts the same inner on the same frame.
+                                    _t_pred_uni = memo_predict(_wi_uni, _split_df)
                                     _y_reconstructed = _bivar_uni.inverse(
                                         _t_pred_uni, _base_uni,
                                         _spec.get("fitted_params", {}),
@@ -771,9 +770,7 @@ def _run_composite_target_wrapping(
                                         _base_arr,
                                         _spec.get("fitted_params", {}),
                                     )
-                                    _t_pred = np.asarray(
-                                        _wi.predict(_split_df), dtype=np.float64,
-                                    ).reshape(-1)
+                                    _t_pred = memo_predict(_wi, _split_df)
                                     _dt = _t_pred - _t_true
                                     _ft = np.isfinite(_dt)
                                     if int(_ft.sum()) > 0:
