@@ -38,6 +38,29 @@ from ._tiny_rerank_honest import (
 )
 
 
+def _reject_unscored_specs(self, kept_specs: list, agg_scores: list) -> tuple[list, list]:
+    """Drop, with a ledger entry, every spec whose aggregated tiny-CV score is not finite.
+
+    A non-finite score means the tiny CV failed in every family (non-finite T on domain-valid rows makes each family's
+    RMSE NaN) or the honest reconstruction collapsed. The raw-baseline gate compared only finite scores, and with a
+    non-finite raw baseline no gate ran at all, so such a spec sorted last and still shipped when fewer than top_m
+    candidates survived: a failure inside the gate disabled the gate for the spec that failed.
+    """
+    kept, scores = [], []
+    for spec, score in zip(kept_specs, agg_scores):
+        if math.isfinite(score):
+            kept.append(spec)
+            scores.append(score)
+            continue
+        logger.warning("[CompositeTargetDiscovery] rejecting %s: its tiny-CV score is %s (the CV failed in every family).", spec.name, score)
+        ledger_append(
+            self, spec_name=spec.name, stage=RejectStage.TINY_RERANK_THRESHOLD,
+            reason=f"tiny-rerank CV-RMSE is {score} (failed in every family or collapsed)",
+            base_column=getattr(spec, "base_column", ""), transform_name=getattr(spec, "transform_name", ""),
+        )
+    return kept, scores
+
+
 def _tiny_model_rerank(
     self,
     kept_specs: list[CompositeSpec],
@@ -558,6 +581,7 @@ def _tiny_model_rerank(
     kept_specs, agg_scores, _honest_oof_baseline = _apply_honest_oof_ordering(
         self, df, target_col, kept_specs, agg_scores, usable_features, train_idx, y_full, _honest_oof_pre,
     )
+    kept_specs, agg_scores = _reject_unscored_specs(self, kept_specs, agg_scores)
 
     # Regime-aware gate. In addition to the
     # global mean RMSE, compute per-quintile-of-base RMSE for each
@@ -715,13 +739,11 @@ def _tiny_model_rerank(
         self._raw_y_baseline_rmse = float(raw_baseline) if math.isfinite(raw_baseline) else float("nan")
         if math.isfinite(raw_baseline):
             survivors = []
-            gate_alpha = float(getattr(
-                self.config, "gate_alpha", 0.05,
-            ))
+            gate_alpha = float(getattr(self.config, "gate_alpha", 0.05))
             wilcoxon_rejected: list[tuple[str, float]] = []
             for i, spec in enumerate(kept_specs):
                 score = agg_scores[i]
-                if math.isfinite(score) and score >= threshold:
+                if score >= threshold:  # every score is finite here: _reject_unscored_specs ran first
                     gate_rejected_names.append((spec.name, score, threshold))
                     ledger_append(
                         self, spec_name=spec.name, stage=RejectStage.TINY_RERANK_THRESHOLD,
