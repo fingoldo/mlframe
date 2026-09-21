@@ -1,5 +1,18 @@
 {
   "scenarios": {
+    "count_poisson": {
+      "expected_to_break": [
+        "skb-f",
+        "skb-mi",
+        "select-fdr",
+        "lars-order",
+        "rank-vote"
+      ],
+      "family": "targets",
+      "primary_target_set": "markov_blanket",
+      "purpose": "a Poisson target whose variance is its mean, so a constant-variance scorer is mis-weighted where it matters",
+      "spec_hash": "74942163f7f97c7e8d4abeafee363528"
+    },
     "friedman1": {
       "expected_to_break": [
         "skb-f",
@@ -159,6 +172,18 @@
       "purpose": "three missingness mechanisms on sibling columns, so one run separates recoverable bias from unrecoverable",
       "spec_hash": "c848f58560b319de6aa1e81fe8135354"
     },
+    "multiclass_k3": {
+      "expected_to_break": [
+        "skb-f",
+        "select-fdr",
+        "lars-order",
+        "knockoffs"
+      ],
+      "family": "targets",
+      "primary_target_set": "markov_blanket",
+      "purpose": "each class depends on a different rotation of the weights, so the answer key is the union over classes",
+      "spec_hash": "b31bac255400b7cc3d7690525d5d711b"
+    },
     "null_p100": {
       "expected_to_break": [
         "select-fdr",
@@ -184,6 +209,17 @@
       "primary_target_set": "markov_blanket",
       "purpose": "the same discipline where the best-looking noise column is genuinely convincing",
       "spec_hash": "b95ffcc42961864650e8d2805b373921"
+    },
+    "ordinal_k4": {
+      "expected_to_break": [
+        "skb-mi",
+        "univariate-mi",
+        "variance-sort"
+      ],
+      "family": "targets",
+      "primary_target_set": "markov_blanket",
+      "purpose": "ordered classes on one latent axis, paired with the multiclass bed to separate class structure from class count",
+      "spec_hash": "f20802a6bceddf306435f87dbb40c5b5"
     },
     "outliers_020permille": {
       "expected_to_break": [

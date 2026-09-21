@@ -3,7 +3,7 @@
 Every chart / diagnostic in the mlframe reporting subsystem, rendered to PNG on synthetic
 data chosen to make each chart meaningful. Regenerate with `python scripts/render_gallery.py`.
 
-Total images: 45 across 26 categories.
+Total images: 48 across 27 categories.
 
 ## Contents
 
@@ -30,6 +30,7 @@ Total images: 45 across 26 categories.
 - [training_curve](#training-curve)
 - [learning_curve](#learning-curve)
 - [temporal](#temporal)
+- [fs_benchmark](#fs-benchmark)
 - [shap_panels](#shap-panels)
 - [shap_interactions](#shap-interactions)
 - [shap_per_instance](#shap-per-instance)
@@ -319,6 +320,26 @@ Target ACF + PACF by lag with Bartlett white-noise bounds (autocorrelated synthe
 Target-rate-over-time audit: kept bins, sparse bins, segment means, change-points.
 
 ![target_temporal_audit](temporal/target_temporal_audit.png)
+
+## fs_benchmark
+
+### paired_contrast
+
+Each arm's paired advantage over the `all-features` null on one bed, with confidence intervals. Signed bars, because the sign is the finding.
+
+![paired_contrast](fs_benchmark/paired_contrast.png)
+
+### cost_vs_advantage_pareto
+
+Model fits spent by the arm itself against its paired advantage, frontier arms labelled. Two axes rather than two y-scales, because cost and quality are different measures.
+
+![cost_vs_advantage_pareto](fs_benchmark/cost_vs_advantage_pareto.png)
+
+### rope_curve
+
+Posterior CDF of the absolute pooled effect, one line per arm: every reader applies their own threshold for practical equivalence instead of arguing about one number.
+
+![rope_curve](fs_benchmark/rope_curve.png)
 
 ## shap_panels
 

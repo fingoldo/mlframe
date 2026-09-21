@@ -950,6 +950,68 @@ def _b():
 
 
 # ---------------------------------------------------------------------------
+# Feature-selection benchmark figures
+#
+# These come from a different subsystem than everything above: they draw the OUTPUT of the FS benchmark
+# rather than a model's diagnostics. They are in the gallery for the same reason the rest are -- a figure
+# nobody has looked at rendered is a figure whose legend is wrong -- and two of the defects these three
+# carried were found exactly that way, by rendering them and looking: a Pareto chart borrowing a scatter
+# channel whose legend said "worst-K", and a ROPE curve defaulting to alphabetical arms.
+# ---------------------------------------------------------------------------
+
+
+def _benchmark_records(n_seeds: int = 12):
+    """Synthetic benchmark cells: three beds, a null hypothesis and four arms of decreasing merit.
+
+    Three beds rather than one because the ROPE curve POOLS across beds -- its whole subject is whether an
+    arm's advantage is consistent between them -- and a single-bed input makes it return nothing.
+    """
+    arms = {"all-features": (0.0, 0.0, 0), "ace": (0.012, 0.004, 9), "mrmr": (0.006, 0.006, 0), "rfecv": (-0.020, 0.010, 38), "variance-sort": (-0.060, 0.012, 0)}
+    beds = {"linear_k5_p50": 0.0, "redundant_exact_k5": -0.004, "mb_spouse_collider": 0.006}
+    records = []
+    for scenario, bed_shift in beds.items():
+        for seed in range(n_seeds):
+            for arm, (shift, spread, fits) in arms.items():
+                effect = shift + (bed_shift if arm != "all-features" else 0.0)
+                auc = 0.780 + effect + float(RNG.normal(0.0, spread))
+                brier = 0.150 - effect * 0.5
+                records.append(
+                    {
+                        "scenario": scenario,
+                        "arm": arm,
+                        "dataset_seed": seed,
+                        "cv_seed": 0,
+                        "status": "ok",
+                        "n_model_fits_arm": fits,
+                        "base_rate": {"brier": 0.220},
+                        "scores": {"1k": {"models": {"lightgbm": {"roc_auc": auc, "brier": brier}}, "skill": {"lightgbm": (0.220 - brier) / 0.220}}},
+                    }
+                )
+    return records
+
+
+@entry("fs_benchmark", "paired_contrast", "Each arm's paired advantage over the `all-features` null on one bed, with confidence intervals. Signed bars, because the sign is the finding.")
+def _b():
+    from mlframe.feature_selection._benchmarks.fs_hybrid._figures import contrast_figure
+
+    return contrast_figure(_benchmark_records(), scenario="linear_k5_p50")
+
+
+@entry("fs_benchmark", "cost_vs_advantage_pareto", "Model fits spent by the arm itself against its paired advantage, frontier arms labelled. Two axes rather than two y-scales, because cost and quality are different measures.")
+def _b():
+    from mlframe.feature_selection._benchmarks.fs_hybrid._figures import pareto_figure
+
+    return pareto_figure(_benchmark_records(), scenario="linear_k5_p50")
+
+
+@entry("fs_benchmark", "rope_curve", "Posterior CDF of the absolute pooled effect, one line per arm: every reader applies their own threshold for practical equivalence instead of arguing about one number.")
+def _b():
+    from mlframe.feature_selection._benchmarks.fs_hybrid._figures import rope_curve_figure
+
+    return rope_curve_figure(_benchmark_records(), arms=("ace", "mrmr", "rfecv", "variance-sort"))
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 

@@ -34,12 +34,17 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Literal, Optio
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["WORKERS", "THREADS_PER_WORKER", "DEFAULT_CELL_TIMEOUT_S", "worker_initializer", "CellPool", "PoolOutcome"]
+__all__ = ["WORKERS", "WORKERS_ENV_VAR", "THREADS_PER_WORKER", "DEFAULT_CELL_TIMEOUT_S", "resolve_workers", "worker_initializer", "CellPool", "PoolOutcome"]
 
 #: Four of this machine's sixteen physical cores. Half of them was measured to exhaust the Windows paging
 #: file under joblib fan-out, which is a failure mode that looks like a flaky benchmark rather than like
 #: over-subscription.
 WORKERS = 4
+
+#: Overrides :data:`WORKERS`. Needed because the default is calibrated for THIS machine's sixteen cores,
+#: and a two-core CI runner running four workers of four threads each measures its own queue rather than
+#: the arms.
+WORKERS_ENV_VAR = "MLFRAME_BENCH_WORKERS"
 
 #: Threads inside each worker. Four workers times four threads saturates the machine without letting any
 #: single arm's inner parallelism fight another's.
@@ -52,6 +57,27 @@ DEFAULT_CELL_TIMEOUT_S = 1800.0
 #: Set in the worker before numpy is imported. Every one of these is read once at library import time, so
 #: setting them afterwards is silently ineffective -- which is the failure this list exists to prevent.
 _THREAD_VARS: Tuple[str, ...] = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMBA_NUM_THREADS")
+
+
+def resolve_workers(default: int = WORKERS) -> int:
+    """Return the worker count, honouring the environment override.
+
+    A value that is not a positive integer is ignored WITH a warning rather than silently accepted: a
+    typo'd override that fell through to one worker would make a nightly run take four times as long and
+    nothing would say why.
+    """
+    raw = os.environ.get(WORKERS_ENV_VAR)
+    if raw is None:
+        return int(default)
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("%s=%r is not an integer; using the default of %d workers", WORKERS_ENV_VAR, raw, default)
+        return int(default)
+    if value < 1:
+        logger.warning("%s=%d is not a usable worker count; using the default of %d", WORKERS_ENV_VAR, value, default)
+        return int(default)
+    return value
 
 
 def worker_initializer(threads: int = THREADS_PER_WORKER, cpu_only: bool = True, prewarm: bool = True) -> None:
@@ -189,15 +215,32 @@ class _Slot:
 
 
 class CellPool:
-    """A small fixed pool that runs independent cells and enforces a per-cell wall-clock budget."""
+    """A small fixed pool that runs independent cells and enforces a per-cell wall-clock budget.
 
-    def __init__(self, workers: int = WORKERS, threads: int = THREADS_PER_WORKER, timeout_s: float = DEFAULT_CELL_TIMEOUT_S, cpu_only: bool = True, heartbeat_s: float = 60.0) -> None:
+    Two queues, not one. The CPU slots run in parallel with the GPU hidden from them; the GPU slots are a
+    SERIAL queue of one, because several processes contending for a single device is measurably slower
+    than any one of them alone -- and worse, it makes each one's timing a function of what the others
+    happened to be doing, which is the one thing a cost axis cannot survive.
+    """
+
+    def __init__(
+        self,
+        workers: Optional[int] = None,
+        threads: int = THREADS_PER_WORKER,
+        timeout_s: float = DEFAULT_CELL_TIMEOUT_S,
+        cpu_only: bool = True,
+        heartbeat_s: float = 60.0,
+        gpu_workers: int = 0,
+    ) -> None:
         self.timeout_s = float(timeout_s)
         self.heartbeat_s = float(heartbeat_s)
         # Compiled here, once, before any worker exists. The workers then hit a warm cache instead of
         # racing each other to write it.
         self.prewarmed = prewarm_kernels()
-        self.slots: List[_Slot] = [_Slot(threads, cpu_only) for _ in range(max(1, int(workers)))]
+        self.slots: List[_Slot] = [_Slot(threads, cpu_only) for _ in range(max(1, resolve_workers() if workers is None else int(workers)))]
+        # One at most, and only when asked for. A second GPU slot would not be a second queue; it would be
+        # the same device, contended.
+        self.gpu_slots: List[_Slot] = [_Slot(threads, cpu_only=False) for _ in range(min(1, max(0, int(gpu_workers))))]
 
     def _harvest(self, slot: _Slot, block: bool) -> Optional[PoolOutcome]:
         """Collect a finished or timed-out cell from one slot, or ``None`` when it is still running."""
@@ -225,33 +268,52 @@ class CellPool:
         slot.key = None
         return PoolOutcome(key=key, record=record, status=str(record.get("status", "ok")), elapsed_s=elapsed)
 
-    def map(self, jobs: Iterable[Tuple[Any, Callable[..., Dict[str, Any]], Sequence[Any]]]) -> Iterator[PoolOutcome]:
+    def map(self, jobs: Iterable[Any]) -> Iterator[PoolOutcome]:
         """Run every job, yielding outcomes as they complete.
 
         Args:
-            jobs: ``(key, function, args)`` triples. The function must be importable in a fresh process and
-                its arguments picklable, which is why the runner passes a scenario NAME and a seed rather
-                than a built frame: shipping a wide frame to every worker costs more than regenerating it,
-                and the generator is a pure function of the two.
+            jobs: ``(key, function, args)`` triples, optionally with a fourth element -- a bool saying the
+                cell needs the GPU. The function must be importable in a fresh process and its arguments
+                picklable, which is why the runner passes a scenario NAME and a seed rather than a built
+                frame: shipping a wide frame to every worker costs more than regenerating it, and the
+                generator is a pure function of the two.
 
         Yields:
             One :class:`PoolOutcome` per job, in completion order rather than submission order.
+
+        Raises:
+            ValueError: When a job asks for the GPU and the pool was built without a GPU slot. Running it
+                on a CPU worker would silently produce a timing for a different piece of work.
         """
-        pending = list(jobs)
-        index = 0
+        pending: List[Tuple[Any, Callable[..., Dict[str, Any]], Sequence[Any], bool]] = []
+        for job in jobs:
+            pending.append((job[0], job[1], job[2], bool(job[3]) if len(job) > 3 else False))
+        if any(entry[3] for entry in pending) and not self.gpu_slots:
+            raise ValueError("a job asks for the GPU but this pool has no GPU slot; running it on a CPU worker would time a different piece of work")
+
+        cpu_queue = [entry for entry in pending if not entry[3]]
+        gpu_queue = [entry for entry in pending if entry[3]]
+        cpu_index = gpu_index = 0
         last_heartbeat = time.perf_counter()
         total = len(pending)
         done = 0
 
-        while index < total or any(slot.busy() for slot in self.slots):
-            for slot in self.slots:
-                if not slot.busy() and index < total:
-                    key, function, args = pending[index]
-                    index += 1
+        def _dispatch(slots: List[_Slot], queue: List[Any], cursor: int) -> int:
+            """Fill every free slot from its own queue, returning the new cursor."""
+            for slot in slots:
+                if not slot.busy() and cursor < len(queue):
+                    key, function, args, _gpu = queue[cursor]
+                    cursor += 1
                     slot.submit(key, function, *args)
+            return cursor
+
+        all_slots = self.slots + self.gpu_slots
+        while cpu_index < len(cpu_queue) or gpu_index < len(gpu_queue) or any(slot.busy() for slot in all_slots):
+            cpu_index = _dispatch(self.slots, cpu_queue, cpu_index)
+            gpu_index = _dispatch(self.gpu_slots, gpu_queue, gpu_index)
 
             progressed = False
-            for slot in self.slots:
+            for slot in all_slots:
                 outcome = self._harvest(slot, block=False)
                 if outcome is not None:
                     done += 1
@@ -261,7 +323,7 @@ class CellPool:
             now = time.perf_counter()
             if now - last_heartbeat >= self.heartbeat_s:
                 last_heartbeat = now
-                running = [(slot.key, round(now - slot.started_at, 1)) for slot in self.slots if slot.busy()]
+                running = [(slot.key, round(now - slot.started_at, 1)) for slot in all_slots if slot.busy()]
                 logger.info("HEARTBEAT %d/%d cells done, %d in flight: %s", done, total, len(running), running)
 
             if not progressed:
@@ -270,8 +332,8 @@ class CellPool:
                 time.sleep(0.2)
 
     def close(self) -> None:
-        """Shut every slot down."""
-        for slot in self.slots:
+        """Shut every slot down, GPU queue included."""
+        for slot in self.slots + self.gpu_slots:
             slot.close()
 
     def __enter__(self) -> "CellPool":

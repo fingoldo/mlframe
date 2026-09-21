@@ -35,6 +35,7 @@ from ._null import null_spec
 from ._redundant import exact_redundancy_spec, private_delta_spec
 from ._reference import friedman1_spec, friedman2_spec, friedman3_spec, weston_guyon_spec
 from ._tails import gaussian_tail_control_spec, tail_dependence_spec, tail_isolation_spec
+from ._targets import count_spec, multiclass_spec, ordinal_spec
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +291,27 @@ SCENARIOS: Tuple[Scenario, ...] = (
         builder=concept_shift_spec,
         expected_to_break=("skb-f", "select-fdr", "univariate-mi", "lars-order"),
         purpose="P(y|x) rotates while P(x) stays put: the half of drift that reweighting cannot fix",
+    ),
+    Scenario(
+        name="multiclass_k3",
+        family="targets",
+        builder=multiclass_spec,
+        expected_to_break=("skb-f", "select-fdr", "lars-order", "knockoffs"),
+        purpose="each class depends on a different rotation of the weights, so the answer key is the union over classes",
+    ),
+    Scenario(
+        name="ordinal_k4",
+        family="targets",
+        builder=ordinal_spec,
+        expected_to_break=("skb-mi", "univariate-mi", "variance-sort"),
+        purpose="ordered classes on one latent axis, paired with the multiclass bed to separate class structure from class count",
+    ),
+    Scenario(
+        name="count_poisson",
+        family="targets",
+        builder=count_spec,
+        expected_to_break=("skb-f", "skb-mi", "select-fdr", "lars-order", "rank-vote"),
+        purpose="a Poisson target whose variance is its mean, so a constant-variance scorer is mis-weighted where it matters",
     ),
     Scenario(
         name="mb_spouse_collider",

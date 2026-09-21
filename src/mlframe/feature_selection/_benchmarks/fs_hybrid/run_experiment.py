@@ -38,7 +38,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from ._anchor import measure_anchor
-from ._runner_pool import WORKERS
+from ._runner_pool import resolve_workers
 from ._tiers import TIERS, estimate, format_estimate, get_tier, scenarios_for
 from ._cell_store import JsonlCellStore
 from ._memo import drain_memo_caches
@@ -280,6 +280,9 @@ def run_cell(
         # The bed's pre-run prediction about which arms it defeats, carried into the results so the
         # report can score the forecast without a second source that could disagree with the run.
         record["expected_to_break"] = sorted(str(arm) for arm in (truth.get("expected_to_break") or ()))
+        # The bed's structural hash, so a result can be replayed against the library months later and the
+        # replay can say whether the bed was edited in between rather than silently rebuilding a different one.
+        record["spec_hash"] = truth.get("spec_hash")
         record["n_model_fits"] = total_fits if arm_fits_known else None
         record["n_model_fits_panel_only"] = not arm_fits_known
         # Split, because the total is the same for every arm up to its own contribution: the downstream
@@ -449,7 +452,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     if args.dry_run:
         history = store.load()
         roster_names = sorted(build_arm_roster(50)) if tier.arms is None else list(tier.arms)
-        for line in format_estimate(estimate(tier, [name for name, _ in scenarios], roster_names, history, workers=WORKERS)):
+        for line in format_estimate(estimate(tier, [name for name, _ in scenarios], roster_names, history, workers=resolve_workers())):
             print(line)
         return
 

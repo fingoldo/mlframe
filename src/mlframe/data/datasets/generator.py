@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -212,6 +212,13 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
         corrupted, caveat_seen = apply_corruption(shifted, target.noise, columns, corruption_rng, knob_rng=knob_rng)
         return corrupted
 
+    if target.kind != "binary":
+        # A non-binary target has no AUC to bisect on and no prevalence to shift, so it takes its own
+        # path: the declared link scale, the kind's own law, and the kind's own exact ceiling. The binary
+        # machinery above is not "skipped" here -- it is meaningless for these kinds, and forcing them
+        # through it would report a ceiling in a metric the target does not have.
+        return _generate_non_binary(spec, target, columns, scales, unit_score, knob_rng, graph, after_target, redundancy_groups)
+
     if target.calibrate_to is not None and target.calibrate_to.metric == "auc":
         scale, achieved = calibrate_scale(probability_at, float(target.calibrate_to.value))
         calibration: Dict[str, Any] = {"requested": float(target.calibrate_to.value), "achieved_auc": achieved, "scale": scale}
@@ -271,3 +278,102 @@ def _probability_only(spec: DatasetSpec, target: TargetSpec, columns: Dict[str, 
     knob_rng = stream_for(spec.root_seed, spec.name, "knobs", target.name)
     score = scale * link_score(target.link, columns, int(spec.n_samples), knob_rng=knob_rng, scale_override=1.0)
     return probability_from_score(score, target.link.kind)
+
+
+def _generate_non_binary(
+    spec: DatasetSpec,
+    target: TargetSpec,
+    columns: Dict[str, np.ndarray],
+    scales: Dict[str, float],
+    unit_score: np.ndarray,
+    knob_rng: np.random.Generator,
+    graph: Any,
+    after_target: Any,
+    redundancy_groups: Any,
+) -> GeneratedDataset:
+    """Realise a multiclass, ordinal or count target, with the exact ceiling its own law supplies.
+
+    Kept apart from the binary path rather than folded into it. The binary path bisects a link scale
+    against an AUC and shifts an intercept to a prevalence; neither quantity exists for these kinds, and
+    routing them through that machinery would produce a ceiling in a metric the target does not have.
+
+    Args:
+        spec: The dataset specification.
+        target: The target being realised.
+        columns: Realised columns, with the derived ancestors already built.
+        scales: Pre-standardisation scales, for the truth record.
+        unit_score: The link score at unit scale.
+        knob_rng: Stream for resolving prior-valued knobs.
+        graph: The SCM graph, for realising descendants of the label.
+        after_target: Nodes to realise once the label exists.
+        redundancy_groups: Redundancy groups from the latent layer.
+
+    Returns:
+        A :class:`GeneratedDataset` whose ``truth.true_mean`` carries the full per-row law -- the ``(n, K)``
+        class probabilities, or the Poisson mean -- and whose calibration record carries the exact ceiling.
+
+    Raises:
+        ValueError: On a target kind this function does not implement, rather than silently drawing a
+            binary label under another kind's name.
+    """
+    from mlframe.data.datasets._targets_nonbinary import (
+        categorical_ceiling,
+        count_ceiling,
+        count_mean,
+        multiclass_probabilities,
+        ordinal_probabilities,
+        rotate_weights,
+        sample_categorical,
+        sample_count,
+    )
+
+    scale = float(resolve_knob(target.link.scale, knob_rng))
+    n = int(spec.n_samples)
+    labels_stream = stream_for(spec.root_seed, spec.name, "labels", target.name)
+    calibration: Dict[str, Any] = {"requested": None, "achieved_auc": None, "scale": scale, "target_kind": target.kind}
+    caveats: List[str] = []
+
+    if target.kind == "multiclass":
+        from mlframe.data.datasets._links import additive_score
+
+        per_class = rotate_weights(target.link.coefficients, int(target.n_classes))
+        class_scores = np.column_stack([scale * additive_score(weights, columns, n) if weights else np.zeros(n) for weights in per_class])
+        law = multiclass_probabilities(class_scores)
+        labels = sample_categorical(law, labels_stream)
+        calibration.update(categorical_ceiling(law))
+        caveats.append(f"multiclass target with {law.shape[1]} classes: the answer key is the UNION of what each class depends on, since every class uses a different rotation of the declared weights")
+    elif target.kind == "ordinal":
+        score = scale * unit_score
+        # Cut points at equally spaced quantiles of the realised score, so the classes carry comparable
+        # mass. Fixed cut points would make the class balance a property of the link scale rather than a
+        # declaration, and a bed's difficulty would then move with its class balance for no stated reason.
+        quantiles = np.linspace(0.0, 1.0, int(target.n_classes) + 1)[1:-1]
+        cut_points = np.quantile(score, quantiles)
+        law = ordinal_probabilities(score, cut_points)
+        labels = sample_categorical(law, labels_stream)
+        calibration.update(categorical_ceiling(law))
+        calibration["cut_points"] = [float(value) for value in cut_points]
+        caveats.append(f"ordinal target with {law.shape[1]} ordered classes on one latent axis: a method treating them as unordered discards most of the signal")
+    elif target.kind == "count":
+        law = count_mean(scale * unit_score + float(target.link.intercept))
+        labels = sample_count(law, labels_stream)
+        calibration.update(count_ceiling(law))
+        caveats.append("count target: the variance of a Poisson is its mean, so this bed is heteroscedastic by construction and a constant-variance scorer is mis-weighted on the largest rows")
+    else:
+        raise ValueError(f"target kind {target.kind!r} has no non-binary implementation; a binary label under its name would be worse than this error")
+
+    if after_target:
+        realize_derived(after_target, graph, columns, scales, target.name, {target.name: labels}, spec.root_seed, spec.name)
+    columns, missing_caveats = apply_missingness(spec.missingness, columns, spec.root_seed, spec.name, knob_rng)
+
+    structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups)
+    truth = replace(
+        structural,
+        features={name: replace(entry, pre_standardization_scale=scales.get(name)) for name, entry in structural.features.items()},
+        # `true_prob` stays None on purpose: it is documented as the BINARY law, and the full law for these
+        # kinds is a matrix or a rate rather than one probability per row. It lives in `true_mean`.
+        true_prob=None,
+        true_mean=law,
+        caveats=tuple(list(structural.caveats) + missing_caveats + caveats),
+    )
+    return GeneratedDataset(frame=_assemble_frame(spec, columns), target=pd.Series(labels, name=target.name), truth=truth, calibration=calibration)
