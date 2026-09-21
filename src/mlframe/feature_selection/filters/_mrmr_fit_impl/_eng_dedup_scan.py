@@ -58,6 +58,10 @@ def scan_engineered_duplicates(
     # fit under the budget just gets no buffer row, and the per-pair path below already compares every kept column
     # without one -- so keep/drop is unchanged, only the batching coverage shrinks.
     _eng_rank_buf: np.ndarray | None = None
+    # Each row's mean and centred sum-of-squares, cached when the row is appended: the buffer is append-only, so these are constants of the
+    # row, and recomputing them per candidate cost two extra passes over every row of every comparison.
+    _eng_row_mean: list[float] = []
+    _eng_row_ss: list[float] = []
     _eng_rank_cap = 0
     _eng_row_of: dict[str, int] = {}
     _eng_next_free_row = 0
@@ -79,6 +83,11 @@ def scan_engineered_duplicates(
             _eng_rank_buf, _eng_rank_cap = _grown, _new_cap
         _row = _eng_next_free_row
         _buf[_row] = ranks
+        from ._eng_dedup_batch_corr import row_mean_and_centred_ss
+
+        _m, _ss = row_mean_and_centred_ss(_buf[_row])
+        _eng_row_mean.append(float(_m))
+        _eng_row_ss.append(float(_ss))
         _eng_next_free_row += 1
         return _row
 
@@ -140,7 +149,13 @@ def scan_engineered_duplicates(
                     _active_mask[_r] = True
                     _row_to_kc[_r] = _kc
             if _active_mask.any():
-                _fast_corrs = one_vs_many_abs_corr_masked(_ranks_c, _eng_rank_buf[:_eng_next_free_row], _active_mask)
+                _fast_corrs = one_vs_many_abs_corr_masked(
+                    _ranks_c,
+                    _eng_rank_buf[:_eng_next_free_row],
+                    _active_mask,
+                    np.asarray(_eng_row_mean[:_eng_next_free_row], dtype=np.float64),
+                    np.asarray(_eng_row_ss[:_eng_next_free_row], dtype=np.float64),
+                )
                 for _r, _kc in _row_to_kc.items():
                     _fast_kept_set.add(_kc)
                     if _fast_corrs[_r] >= 0.99:
