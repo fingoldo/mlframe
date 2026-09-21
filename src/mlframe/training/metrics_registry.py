@@ -435,15 +435,20 @@ def _register_builtin_classification():
         y_bin = (yt == pos_label).astype(_np.int64)
         return _exploss_fn(y_bin, pos)
 
-    for _tt in (TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION):
-        register_metric(
-            _tt, "quadratic_weighted_kappa", _qwk, higher_is_better=True,
-            description="Quadratic-weighted Cohen kappa on ordinal integer labels (hard preds); higher is better.",
-        )
-        register_metric(
-            _tt, "weighted_kappa", _wk, higher_is_better=True,
-            description="Linear-weighted Cohen kappa on ordinal integer labels (hard preds); higher is better.",
-        )
+    # Weighted kappa is an ORDINAL-agreement metric and needs at least three classes for the weighting to mean
+    # anything: with two classes the only off-diagonal distance is 1, so quadratic and linear weighting collapse
+    # onto each other and onto plain Cohen's kappa. A production run duly printed
+    # ``quadratic_weighted_kappa=0.37`` and ``weighted_kappa=0.37`` for a binary target -- the same number twice,
+    # under two names implying an ordinal reading the target does not have. Neither is registered for binary: the
+    # unweighted statistic they both collapse to is already reported as ``Cohen_kappa`` in the per-class block.
+    register_metric(
+        TargetTypes.MULTICLASS_CLASSIFICATION, "quadratic_weighted_kappa", _qwk, higher_is_better=True,
+        description="Quadratic-weighted Cohen kappa on ordinal integer labels (hard preds); higher is better.",
+    )
+    register_metric(
+        TargetTypes.MULTICLASS_CLASSIFICATION, "weighted_kappa", _wk, higher_is_better=True,
+        description="Linear-weighted Cohen kappa on ordinal integer labels (hard preds); higher is better.",
+    )
     register_metric(
         TargetTypes.BINARY_CLASSIFICATION, "exploss", _exp, higher_is_better=False,
         description="Exponential proper scoring loss on the positive-class probability; lower is better.",

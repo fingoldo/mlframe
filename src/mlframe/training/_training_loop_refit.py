@@ -167,6 +167,168 @@ def _maybe_refit_on_degenerate_best_iter(
     return _new_best_iter
 
 
+_SATURATED_BEST_ITER_MARGIN: int = 1
+"""How close ``best_iter`` must sit to the iteration budget to count as "early stopping never fired". CatBoost
+reports the last completed iteration, so the cap shows up as ``max_iter - 1``."""
+
+_SATURATED_MIN_MAX_ITER: int = 50
+"""Below this budget, hitting the cap is ordinary under-training rather than a failed ES surface, and refitting
+would just re-run a deliberately tiny fit on a different loss."""
+
+
+def _eval_set_xy(fit_params: dict[str, Any]) -> tuple[Any, Any] | None:
+    """``(X_val, y_val)`` from whichever early-stopping convention ``fit_params`` carries, or None.
+
+    ``eval_set`` is ``(X, y)`` (LGB / MLP) or ``[(X, y), ...]`` (XGB / CB); separate ``X_val`` / ``y_val`` keys are
+    the sklearn-HGB convention. A CatBoost ``Pool`` exposes neither, so it answers None and the caller skips --
+    better than guessing at Pool internals.
+    """
+    x_val, y_val = fit_params.get("X_val"), fit_params.get("y_val")
+    if x_val is not None and y_val is not None:
+        return x_val, y_val
+    es = fit_params.get("eval_set")
+    if es is None:
+        return None
+    if isinstance(es, list) and es:
+        es = es[0]
+    if isinstance(es, tuple) and len(es) == 2:
+        return es[0], es[1]
+    return None
+
+
+def _r2_on(model_obj: Any, x_val: Any, y_val: Any) -> float:
+    """R^2 of ``model_obj`` on the early-stopping rows; NaN when it cannot be computed.
+
+    Deliberately the REPORTED metric rather than the training loss: the whole point is to ask whether the surface
+    early stopping descended protected the number the run will publish.
+    """
+    try:
+        y = np.asarray(y_val, dtype=np.float64).reshape(-1)
+        pred = np.asarray(model_obj.predict(x_val), dtype=np.float64).reshape(-1)
+    except Exception as exc:
+        logger.debug("saturated-ES check: predict on the eval_set failed (%s); skipping", exc)
+        return float("nan")
+    if y.size != pred.size or y.size < 10:
+        return float("nan")
+    ok = np.isfinite(y) & np.isfinite(pred)
+    if int(ok.sum()) < 10:
+        return float("nan")
+    y, pred = y[ok], pred[ok]
+    ss_tot = float(np.sum((y - y.mean()) ** 2))
+    if ss_tot <= 0:
+        return float("nan")
+    return float(1.0 - np.sum((y - pred) ** 2) / ss_tot)
+
+
+def _maybe_refit_on_saturated_best_iter(
+    *,
+    model_obj: Any,
+    model_type_name: str,
+    best_iter: int,
+    train_df: Any,
+    train_target: Any,
+    fit_params: dict[str, Any],
+    logger_: logging.Logger,
+) -> int | None:
+    """Refit on the RMSE family when a ROBUST loss ran to the iteration cap and lost to a constant predictor.
+
+    The mirror image of :func:`_maybe_refit_on_degenerate_best_iter`. That one catches a robust loss whose gradient
+    collapses, stopping early. This one catches the opposite: a robust loss whose eval surface keeps improving
+    while the reported metric diverges, so early stopping never fires and provides no protection at all.
+
+    The mechanism is not a bug in Huber -- it is what bounded influence means. Huber stops caring about large
+    residuals, which is exactly the population RMSE and R^2 are made of, so a model can buy bulk accuracy by paying
+    in the tail for every one of its iterations. A production fit did that for 1000 of 1000 iterations and reached
+    val R^2 = -4.61 against a per-group-mean baseline's +0.029, with predictions 26.7 target-sigma from y.
+
+    Fires only when all three hold, so a legitimately budget-capped fit is never silently re-run on another loss:
+    early stopping saturated the budget, the loss is a robust / non-default one, and R^2 on the early-stopping rows
+    is at or below zero (the model lost to predicting the mean on the very rows that were supposed to stop it).
+
+    Returns the post-refit ``best_iteration`` when a refit happened, else ``None``.
+    """
+    _backend_prefix = next((p for p in _BOOSTING_FAMILIES if model_type_name.startswith(p)), None)
+    if _backend_prefix is None:
+        return None
+    _fallback = _RMSE_FALLBACK.get(_backend_prefix)
+    if _fallback is None:
+        return None
+    _loss_key, _loss_val, _metric_key, _metric_val = _fallback
+    try:
+        _cur_params = model_obj.get_params() if hasattr(model_obj, "get_params") else {}
+    except Exception as e:
+        logger.debug("get_params() failed during saturated-ES resolution: %s", e)
+        return None
+
+    _max_iter = None
+    for _max_key in _MAX_ITER_PARAM.get(_backend_prefix, ()):
+        _v = _cur_params.get(_max_key)
+        if _v is not None:
+            try:
+                _max_iter = int(_v)
+                break
+            except (TypeError, ValueError):
+                continue
+    if _max_iter is None or _max_iter < _SATURATED_MIN_MAX_ITER:
+        return None
+    if best_iter < _max_iter - _SATURATED_BEST_ITER_MARGIN:
+        return None
+    _cur_loss = str(_cur_params.get(_loss_key, "")).lower()
+    if not any(tok in _cur_loss for tok in _NON_DEFAULT_LOSS_TOKENS):
+        return None
+    _xy = _eval_set_xy(fit_params)
+    if _xy is None:
+        logger_.warning(
+            "[saturated-ES] %s ran to the iteration cap (best_iter=%d of %d) under loss=%r, so early stopping never "
+            "fired. The eval_set is not in a form this check can score, so the fit is kept as-is -- verify the "
+            "reported R^2 before trusting it.",
+            model_type_name, int(best_iter), _max_iter, _cur_loss,
+        )
+        return None
+    _r2 = _r2_on(model_obj, _xy[0], _xy[1])
+    if not np.isfinite(_r2) or _r2 > 0.0:
+        return None
+
+    logger_.warning(
+        "[saturated-ES] %s ran to the iteration cap (best_iter=%d of %d) under the robust loss %r AND scores "
+        "R^2=%.3f on the early-stopping rows -- worse than predicting their mean. A bounded-influence eval metric "
+        "can keep improving while the reported error diverges, so early stopping protected nothing here. Refitting "
+        "with %s=%r + %s=%r.",
+        model_type_name, int(best_iter), _max_iter, _cur_loss, _r2,
+        _loss_key, _loss_val, _metric_key, _metric_val,
+    )
+    _new_loss_params = {_loss_key: _loss_val, _metric_key: _metric_val}
+    try:
+        model_obj.set_params(**_new_loss_params)
+        model_obj.fit(train_df, train_target, **fit_params)
+    except Exception as _refit_err:
+        try:
+            _merged_params = dict(_cur_params)
+            _merged_params.update(_new_loss_params)
+            _new_model = type(model_obj)(**_merged_params)
+            _new_model.fit(train_df, train_target, **fit_params)
+            model_obj.__dict__.clear()
+            model_obj.__dict__.update(_new_model.__dict__)
+        except Exception as _rebuild_err:
+            logger_.warning(
+                "[saturated-ES] %s refit rejected on both set_params (%s) and fresh-instance (%s) paths. Keeping "
+                "the saturated fit; the reported R^2 will show the truth.",
+                model_type_name, _refit_err, _rebuild_err,
+            )
+            return None
+    try:
+        _new_best_iter = get_model_best_iter(model_obj)
+    except (AttributeError, TypeError, ValueError):
+        _new_best_iter = None
+    _new_r2 = _r2_on(model_obj, _xy[0], _xy[1])
+    logger_.warning(
+        "[saturated-ES] %s refit complete: best_iter %d -> %s, eval-row R^2 %.3f -> %.3f.",
+        model_type_name, int(best_iter),
+        str(_new_best_iter) if _new_best_iter is not None else "?", _r2, _new_r2,
+    )
+    return _new_best_iter
+
+
 _COLLAPSED_PRED_STD_FRACTION: float = 0.1
 """Threshold on ``predict(X_train).std() / y_train.std()``. Below this the model is essentially a constant predictor (no signal learned). Architecture-agnostic -- catches MLP / recurrent / boost collapse modes that don't surface as ``best_iter < 3``."""
 
@@ -364,3 +526,17 @@ def _maybe_refit_on_collapsed_predictions(
         model_type_name,
     )
     return False
+
+
+def _maybe_refit_on_best_iter_pathology(**kwargs: Any) -> "int | None":
+    """Both sides of the early-stopping failure class on one call; the new best_iter, or None when neither refit ran.
+
+    ``_maybe_refit_on_degenerate_best_iter`` covers ES firing far too early (a collapsed robust-loss gradient).
+    ``_maybe_refit_on_saturated_best_iter`` covers the other half: a robust loss whose eval surface keeps improving
+    while the reported metric diverges, so ES never fires and the fit runs to the cap unprotected. They are exclusive
+    by construction, so the saturated check runs only when the degenerate one did not refit.
+    """
+    new_best_iter = _maybe_refit_on_degenerate_best_iter(**kwargs)
+    if new_best_iter is not None:
+        return new_best_iter
+    return _maybe_refit_on_saturated_best_iter(**kwargs)

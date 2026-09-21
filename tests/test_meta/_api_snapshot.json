@@ -446,7 +446,7 @@
   "compute_label_distribution_drift": {
     "kind": "callable",
     "module": "mlframe.training.drift_report",
-    "signature": "(train_target:any:0:, val_target:any:0:, test_target:any:0:, target_type:any:0:, warn_threshold_pp:kw:1:5.0, regression_mean_z_threshold:kw:1:0.5, multi_warn_threshold_pp:kw:1:5.0)"
+    "signature": "(train_target:any:0:, val_target:any:0:, test_target:any:0:, target_type:any:0:, warn_threshold_pp:kw:1:5.0, regression_mean_z_threshold:kw:1:0.5, regression_rel_shift_threshold:kw:1:0.2, multi_warn_threshold_pp:kw:1:5.0)"
   },
   "config_from_dict": {
     "kind": "callable",
@@ -697,6 +697,10 @@
     "module": "mlframe.training._ram_helpers",
     "signature": "()"
   },
+  "loss_recommendation": {
+    "kind": "value",
+    "type": "module"
+  },
   "make_train_test_split": {
     "kind": "callable",
     "module": "mlframe.training.splitting",
@@ -863,6 +867,16 @@
   "strategies": {
     "kind": "value",
     "type": "module"
+  },
+  "stratified_split": {
+    "kind": "callable",
+    "module": "mlframe.training._split_helpers",
+    "signature": "(indices:any:0:, test_size:any:0:, stratify_y:any:0:, random_state:any:1:None)"
+  },
+  "stratified_split_3way": {
+    "kind": "callable",
+    "module": "mlframe.training._split_helpers",
+    "signature": "(indices:any:0:, test_size:any:0:, val_size:any:0:, stratify_y:any:0:, random_state:any:1:None)"
   },
   "strip_shim_suffix": {
     "kind": "callable",

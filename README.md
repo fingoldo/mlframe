@@ -621,6 +621,22 @@ quantitative business-value test under `tests/`:
   Huber / Tukey-biweight weighting) and the geometric median (Weiszfeld
   iteration) for outlier-robust aggregation where the plain mean is too
   sensitive and the coordinate-wise median is ill-defined in >1D.
+- **`mlframe.training.composite.HurdleRegressor`** — a zero-inflated target as
+  `P(event) x E[size | event]`: a classifier on every row, a regressor on the
+  event rows only, where a log target is well-posed because the point mass at
+  zero is gone. Removes the collapse a log / cbrt target shows on a target that
+  is mostly exact zeros, and exposes both halves (`predict_event_proba`,
+  `predict_magnitude`) -- often the two business questions anyway ("will it
+  happen?" and "how big if it does?").
+- **`mlframe.training.targets.target_maturity_audit`** — tells a still-accruing
+  (right-censored) target apart from a genuine regime change. Both make the
+  marginal decline toward the present, and the time axis cannot separate them
+  (calendar time and remaining-observation-window are collinear), so the audit
+  uses the one constraint only censoring imposes: a quantity that accrues from
+  nothing must extrapolate to ~0 at a zero observation window. Runs inside the
+  temporal audit on bins it already computed, and when censoring is indicated it
+  withdraws the "train on the most-recent segment" advice — under censoring that
+  segment is the least mature one.
 - **`mlframe.testing.parametric`** — a thin, mlframe-tuned wrapper around
   `polars.testing.parametric` that generates test frames hitting the dtype /
   nullability shapes that actually crash CatBoost/XGBoost/LightGBM in

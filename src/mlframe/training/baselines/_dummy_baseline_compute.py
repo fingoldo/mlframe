@@ -181,6 +181,59 @@ def _is_polars_frame(X: Any) -> bool:
     return isinstance(X, pl.DataFrame)
 
 
+PER_GROUP_SMOOTHING_MIN_PSEUDOCOUNTS: float = 0.5
+"""Floor on the shrinkage strength. Keeps a one-row group off the exact 0.0 / 1.0 endpoints even when the data says
+group separation is near-perfect -- a single observation cannot justify certainty, and any unbounded proper scoring
+rule is decided by exactly those rows."""
+
+PER_GROUP_SMOOTHING_MAX_PSEUDOCOUNTS: float = 1000.0
+"""Ceiling, reached when groups carry no signal at all (between-group variance estimated at or below zero). Past
+this the baseline is the global mean for every realistic group size anyway."""
+
+
+def _empirical_bayes_pseudocounts(
+    y: np.ndarray, group_sizes: np.ndarray, group_means: np.ndarray, global_mean: float
+) -> float:
+    """Shrinkage strength ``m`` for ``(n*mean + m*global) / (n + m)``, estimated from the data.
+
+    ``m = sigma_within^2 / sigma_between^2`` is the hierarchical-model (James-Stein) weight: it is how many
+    observations a group needs before its own mean beats the global one in expected squared error. Estimating it
+    beats any fixed constant in both directions -- a constant large enough to tame singleton groups on a
+    weak-signal target (the production ``per_group_prior``, ``lift_vs_prior=+2.2%``) destroys a strong-signal one,
+    and a constant small enough for the strong case leaves the singleton endpoints in place.
+
+    The variance components come from the standard unbalanced one-way ANOVA decomposition, with the effective group
+    size ``n_bar = (N - sum(n_g^2)/N) / (G - 1)``.
+    """
+    n_total = int(y.size)
+    n_groups = int(group_sizes.size)
+    if n_groups < 2 or n_total <= n_groups:
+        # No within-group replication (every group a singleton): nothing supports trusting a group over the global
+        # mean, so shrink as hard as the ceiling allows.
+        return PER_GROUP_SMOOTHING_MAX_PSEUDOCOUNTS
+    ss_total = float(np.sum((y - global_mean) ** 2))
+    ss_between = float(np.sum(group_sizes * (group_means - global_mean) ** 2))
+    ms_within = max(ss_total - ss_between, 0.0) / (n_total - n_groups)
+    ms_between = ss_between / (n_groups - 1)
+    n_bar = (n_total - float(np.sum(group_sizes**2)) / n_total) / (n_groups - 1)
+    if n_bar <= 0 or ms_within <= 0:
+        return PER_GROUP_SMOOTHING_MIN_PSEUDOCOUNTS
+    sigma_between_sq = (ms_between - ms_within) / n_bar
+    if sigma_between_sq <= 0:
+        return PER_GROUP_SMOOTHING_MAX_PSEUDOCOUNTS
+    m = ms_within / sigma_between_sq
+    return float(np.clip(m, PER_GROUP_SMOOTHING_MIN_PSEUDOCOUNTS, PER_GROUP_SMOOTHING_MAX_PSEUDOCOUNTS))
+
+
+def _shrink_group_means(means: Any, sizes: Any, global_mean: float, m: float) -> Any:
+    """Shrink per-group means toward ``global_mean`` by group size: ``(n*mean + m*global) / (n + m)``.
+
+    Works on any array-like supporting elementwise arithmetic, and is the identity as ``n`` grows, so a
+    well-populated group keeps its own estimate.
+    """
+    return (means * sizes + global_mean * m) / (sizes + m)
+
+
 def _per_group_predict_polars(
     train_X: Any,
     val_X: Any,
@@ -202,7 +255,21 @@ def _per_group_predict_polars(
     # column so the aggregation runs in a single eager pipeline; intermediate frames here are 2-column views, never the caller's full 100+ GB frame.
     train_pair = pl.DataFrame({cat_col: train_X.get_column(cat_col), "__y__": pl.Series("__y__", y_arr)})
     # Single group_by pass yields both per-group mean AND per-group size; coverage / entity-overlap diagnostics reuse the size column without a second sweep.
-    stats_df = train_pair.group_by(cat_col).agg(pl.col("__y__").mean().alias("__mean__"), pl.len().alias("__size__"))
+    stats_df = train_pair.group_by(cat_col).agg(pl.col("__y__").mean().alias("__raw_mean__"), pl.len().alias("__size__"))
+    # Size-weighted shrinkage toward the global mean, so a one-row group cannot emit an extreme (0/1 for binary)
+    # prediction that any unbounded proper scoring rule then blows up on. Strength is estimated from the data --
+    # see _empirical_bayes_pseudocounts.
+    _m = _empirical_bayes_pseudocounts(
+        y_arr,
+        stats_df.get_column("__size__").to_numpy().astype(np.float64),
+        stats_df.get_column("__raw_mean__").to_numpy(),
+        global_mean,
+    )
+    stats_df = stats_df.with_columns(
+        (
+            (pl.col("__raw_mean__") * pl.col("__size__") + global_mean * _m) / (pl.col("__size__") + _m)
+        ).alias("__mean__")
+    ).drop("__raw_mean__")
     n_groups = stats_df.height
 
     # iter386: do ONE left-join per side and reuse its (mean, size, seen)
@@ -318,8 +385,14 @@ def _per_group_predict(
         y_series = pd.Series(train_y).astype(float)
     else:
         y_series = pd.Series(train_y).astype(float)
-    group_means = y_series.groupby(cat_train, dropna=False).mean()
+    grouped = y_series.groupby(cat_train, dropna=False)
     global_mean = float(y_series.mean())
+    group_sizes = grouped.size()
+    _raw_means = grouped.mean()
+    _m = _empirical_bayes_pseudocounts(
+        y_series.to_numpy(), group_sizes.to_numpy(), _raw_means.to_numpy(), global_mean
+    )
+    group_means = _shrink_group_means(_raw_means, group_sizes, global_mean, _m)
 
     train_pred = cat_train.map(group_means).fillna(global_mean).to_numpy()
     val_pred = cat_val.map(group_means).fillna(global_mean).to_numpy()
@@ -331,7 +404,6 @@ def _per_group_predict(
     test_coverage = (cat_test.isin(train_groups)).mean() * 100.0
 
     # Entity-overlap rate: fraction of val rows whose group has >=5 train labels
-    group_sizes = cat_train.value_counts()
     val_high_overlap = cat_val.map(group_sizes).fillna(0).ge(5).mean()
 
     return train_pred, val_pred, test_pred, {

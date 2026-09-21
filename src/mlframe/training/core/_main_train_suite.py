@@ -35,6 +35,7 @@ from pyutilz.system import tqdmu_lazy_start
 from ._process_flag_scope import capture_process_flag_snapshot, restore_process_flags
 from ..extractors import FeaturesAndTargetsExtractor
 from ..feature_handling.fingerprint import reset_session as reset_fh_session
+from ..reporting._reporting_regression._sensor_ledger import clear_sensor_trips
 from ..helpers import TrainMlframeSuitePrecomputed
 from ..phases import phase, reset_phase_registry
 from ..utils import log_phase
@@ -279,12 +280,11 @@ def train_mlframe_models_suite(
 
     # Module-global registry; not safe to invoke concurrent training suites from the same process.
     reset_phase_registry()
-    # Rotate the FH InMemoryKey session token alongside the phase registry. Without this, two
-    # consecutive suite calls within the same process keep the prior SessionToken and any
-    # ``id(train_df)`` reuse (Python may recycle ids after the first frame is GC'd) collides on a
-    # cached entry whose underlying state belongs to the prior suite. The session reset guarantees
-    # each suite starts from a fresh FH cache namespace.
+    # Rotate the FH InMemoryKey session token alongside the phase registry. Without this, two consecutive suite calls within the
+    # same process keep the prior SessionToken and any ``id(train_df)`` reuse (Python may recycle ids after the first frame is GC'd)
+    # collides on a cached entry whose underlying state belongs to the prior suite. The reset gives each suite a fresh FH namespace.
     reset_fh_session()
+    clear_sensor_trips()  # sensor trips are process-level, keyed by model name: else one suite's flags attach to the next's same-named models
 
     # Ergonomic happy path: when no extractor is supplied, build a
     # SimpleFeaturesAndTargetsExtractor from ``target_name`` alone, inferring the

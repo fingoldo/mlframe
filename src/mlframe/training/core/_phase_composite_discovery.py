@@ -45,8 +45,12 @@ from ._phase_composite_discovery_helpers import (
 
 from ._phase_composite_discovery_gates import (  # noqa: F401  (re-exported)
     _AUTO_ENABLE_DISCOVERY_PATHOLOGY_PREFIXES,
+    _DEFAULT_MIN_HONEST_GAIN_Z,
+    _drop_below_honest_gain_floor,
+    _relative_gain_se,
     _target_pathologies_for_auto_enable,
     _maybe_auto_enable_discovery,
+    _maybe_narrow_to_unary_transforms,
     _drop_specs_whose_bases_the_suite_cannot_materialise,
     _discovery_cache_lookup,
     rank_pending_composites,
@@ -423,6 +427,7 @@ def run_composite_target_discovery(
 
             # If hint enabled and BD ran, derive per-target config with dominant_features_hint from ablation top-K.
             _disc_cfg = _disc_cfg_base
+            _disc_cfg = _maybe_narrow_to_unary_transforms(_disc_cfg, _diag, _tname_disc)
             if _use_hint and _diag is not None:
                 _hint_top_k = max(1, int(getattr(
                     composite_target_discovery_config,
@@ -812,7 +817,8 @@ def run_composite_target_discovery(
                     _honest_mi = getattr(_spec, "honest_holdout_gain", None)
                     _rel_gain = float(_honest_mi) if _honest_mi is not None else float(_spec.mi_gain)
                 _pending_composite.append({
-                    "tt": _tt_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain, "rmse_gain": _gain_is_rmse,
+                    "tt": _tt_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain,
+                    "rmse_gain": _gain_is_rmse, "gain_se": _relative_gain_se(_spec, _raw_rmse) if _gain_is_rmse else None,
                 })
             # Each shipped spec costs a full model-zoo fit: drop ones whose T is equivalent to raw y or to a better spec's T.
             from ._phase_composite_discovery_dedup import prune_equivalent_composite_specs
@@ -847,16 +853,7 @@ def run_composite_target_discovery(
     # quality score is comparable at once. Keep the best-scoring specs across the WHOLE run (not an equal
     # share per target) up to max_total_composite_targets; None keeps every discovered spec (old behaviour).
     _max_total = getattr(composite_target_discovery_config, "max_total_composite_targets", None)
-    _min_gain = getattr(composite_target_discovery_config, "min_honest_gain_to_train", None)
-    if _min_gain is not None:
-        _below = [p for p in _pending_composite if p.get("rmse_gain") and p["gain"] <= float(_min_gain)]
-        if _below:
-            _pending_composite = [p for p in _pending_composite if p not in _below]
-            logger.info(
-                "[CompositeTargetDiscovery] not training %d composite target(s) whose honest-holdout RMSE gain is <= %.3f "
-                "(min_honest_gain_to_train): %s",
-                len(_below), float(_min_gain), ", ".join(f"{d['name']}({d['gain']:+.3f})" for d in _below),
-            )
+    _pending_composite = _drop_below_honest_gain_floor(_pending_composite, composite_target_discovery_config)
     _pending_composite = rank_pending_composites(_pending_composite)
     if _max_total is not None and len(_pending_composite) > int(_max_total):
         _kept_composite = _pending_composite[: int(_max_total)]

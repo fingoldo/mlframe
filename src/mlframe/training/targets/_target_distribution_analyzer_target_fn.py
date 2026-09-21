@@ -31,6 +31,9 @@ from ._target_distribution_analyzer import (
     _SKEW_ABS_THRESHOLD,
     _STRONG_AR_PEARSON_LAG1,
 )
+# One kurtosis ladder across the suite: this analyzer, ``loss_recommendation`` (which sets the objective) and
+# ``regression_residual_audit`` (which advises one in the report) all read the same ceiling.
+from ..loss_recommendation import _EXCESS_KURT_HUBER_FAILS
 from ._target_distribution_analyzer_modes import (
     _classify_target_type,
     _detect_multi_modal,
@@ -44,6 +47,31 @@ from ._target_distribution_analyzer_stats import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_heavy_tail_huber_overrides(kurt: float, knob_overrides: dict, stamp_prov) -> None:
+    """Robust (Huber-family) loss overrides for a heavy-tailed regression target, skipped above the Huber ceiling.
+
+    Above the ceiling a bounded-influence loss stops carrying gradient (``delta*sign(r)`` vanishes when most rows sit
+    near zero), which is why ``loss_recommendation`` reverts to RMSE there. Recommending Huber past it put this
+    analyzer in direct contradiction with the component that sets the objective.
+
+    CatBoost is included: leaving it out meant a CatBoost-only run received no target-side loss recommendation at all
+    while the three overrides that WERE emitted went to backends the run did not contain.
+    """
+    if kurt > _EXCESS_KURT_HUBER_FAILS:
+        return
+    knob_overrides.setdefault("mlp_kwargs", {})
+    mlp_mp = knob_overrides["mlp_kwargs"].setdefault("model_params", {})
+    mlp_mp["loss_fn"] = "huber"  # MLP family knob; consumed at MLPTorchModel
+    knob_overrides.setdefault("lgb_kwargs", {})["objective"] = "huber"
+    knob_overrides.setdefault("xgb_kwargs", {})["objective"] = "reg:pseudohubererror"
+    knob_overrides.setdefault("cb_kwargs", {})["loss_function"] = "Huber:delta=1.345"
+    knob_overrides["cb_kwargs"]["eval_metric"] = "Huber:delta=1.345"
+    stamp_prov("mlp_kwargs", "model_params.loss_fn", "huber", "heavy_tail")
+    stamp_prov("lgb_kwargs", "objective", "huber", "heavy_tail")
+    stamp_prov("xgb_kwargs", "objective", "reg:pseudohubererror", "heavy_tail")
+    stamp_prov("cb_kwargs", "loss_function", "Huber:delta=1.345", "heavy_tail")
 
 
 def analyze_target_distribution(
@@ -176,15 +204,7 @@ def analyze_target_distribution(
         diagnostics["excess_kurtosis"] = kurt
         if kurt > _HEAVY_TAIL_EXCESS_KURT:
             pathologies.append(f"heavy_tail(excess_kurt={kurt:.1f})")
-            # Robust regressor preferences across families:
-            knob_overrides.setdefault("mlp_kwargs", {})
-            mlp_mp = knob_overrides["mlp_kwargs"].setdefault("model_params", {})
-            mlp_mp["loss_fn"] = "huber"  # MLP family knob; consumed at MLPTorchModel
-            knob_overrides.setdefault("lgb_kwargs", {})["objective"] = "huber"
-            knob_overrides.setdefault("xgb_kwargs", {})["objective"] = "reg:pseudohubererror"
-            _stamp_prov("mlp_kwargs", "model_params.loss_fn", "huber", "heavy_tail")
-            _stamp_prov("lgb_kwargs", "objective", "huber", "heavy_tail")
-            _stamp_prov("xgb_kwargs", "objective", "reg:pseudohubererror", "heavy_tail")
+            _apply_heavy_tail_huber_overrides(kurt, knob_overrides, _stamp_prov)
 
         # Skewness (from the same standardised z as the kurtosis above; z*z*z == z2*z elementwise).
         skew = float(np.mean(_z2 * _z))

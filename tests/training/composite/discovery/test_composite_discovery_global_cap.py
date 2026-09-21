@@ -105,13 +105,18 @@ class TestGlobalCompositeCap:
         """A cap smaller than the total discovered across BOTH targets must still leave target_by_type
         with exactly the capped count -- not the capped count PER target (which would be 2x too many)."""
         feats_df, targets = _synthetic_two_targets()
-        cfg_uncapped = CompositeTargetDiscoveryConfig(enabled=True, max_total_composite_targets=None)
+        # This test isolates the global CAP. The fixture's discovered gains are noise-level (relative honest gains
+        # of +0.6%..+1.4%, each about a quarter of its own paired standard error on this small synthetic), so the
+        # noise-aware ship floor -- tested in test_discovery_gates_audit_2026_09_20.py -- would drop every one of them
+        # before the cap could act. min_honest_gain_z=0 keeps that orthogonal gate out of the way; the constant
+        # min_honest_gain_to_train floor still applies, and the production default stays 2.
+        cfg_uncapped = CompositeTargetDiscoveryConfig(enabled=True, max_total_composite_targets=None, min_honest_gain_z=0.0)
         _, metadata_uncapped = _run(cfg_uncapped, targets, feats_df)
         n_discovered = sum(len(v) for tt_specs in metadata_uncapped["composite_target_specs"].values() for v in tt_specs.values())
         assert n_discovered >= 2, "need at least 2 discovered specs across both targets to prove the cap bites"
 
         cap = 1
-        cfg_capped = CompositeTargetDiscoveryConfig(enabled=True, max_total_composite_targets=cap)
+        cfg_capped = CompositeTargetDiscoveryConfig(enabled=True, max_total_composite_targets=cap, min_honest_gain_z=0.0)
         with caplog.at_level(logging.INFO, logger="mlframe.training.core._phase_composite_discovery"):
             target_by_type, _ = _run(cfg_capped, targets, feats_df)
         n_in_target_by_type = len(target_by_type[TargetTypes.REGRESSION]) - len(targets)

@@ -198,6 +198,30 @@ def record_composite_y_scale_metrics(*, metadata: dict, target_type: Any, compos
     _rows.append(_row)
 
 
+def _composite_predict(wrapper: Any, df: Any) -> Any:
+    """``wrapper.predict(df)``, recovering from CatBoost's polars dispatch miss the way the predict path already does.
+
+    ``CompositeTargetEstimator.predict`` reaches the inner model directly, so it bypasses
+    ``_predict_with_fallback``'s recovery. Without this, CatBoost's ``TypeError: No matching signature found`` on a
+    nullable-Categorical / Enum polars frame ends the emit: a production run lost the y-scale metrics for six
+    composites that way, which are exactly the numbers needed to judge whether a composite beat raw y.
+    """
+    try:
+        return wrapper.predict(df)
+    except TypeError as exc:
+        if "No matching signature found" not in str(exc):
+            raise
+        inner = getattr(wrapper, "estimator_", wrapper)
+        logger.warning(
+            "[CompositeTargetEstimator] CatBoost rejected the polars frame on the y-scale predict (%s); "
+            "converting to pandas and retrying.",
+            str(exc).splitlines()[-1][:200],
+        )
+        from mlframe.training._predict_guards import _cb_polars_to_pandas
+
+        return wrapper.predict(_cb_polars_to_pandas(inner, df, "predict"))
+
+
 def emit_per_model_composite_y_scale_test(
     *,
     entry: Any,
@@ -283,7 +307,7 @@ def emit_per_model_composite_y_scale_test(
             if _split_idx is None or _split_df is None:
                 continue
             _y_split = _y_arr[_split_idx]
-            _y_pred = np.asarray(_wrapper.predict(_split_df), dtype=np.float64).reshape(-1)
+            _y_pred = np.asarray(_composite_predict(_wrapper, _split_df), dtype=np.float64).reshape(-1)
             _finite = np.isfinite(_y_pred) & np.isfinite(_y_split)
             if int(_finite.sum()) == 0:
                 continue

@@ -60,13 +60,14 @@ def _auto_calibrate_on_calib_slice(ctx: "TrainingContext") -> None:
 
 
 def _isotonic_overfit_risk_check(ctx: "TrainingContext") -> None:
-    """Opt-in: flag binary isotonic post-hoc calibrators (fit by ``_auto_calibrate_on_calib_slice``) that are
+    """Flag binary isotonic post-hoc calibrators (fit by ``_auto_calibrate_on_calib_slice``) that are
     tracking per-point noise rather than a genuine monotone relationship.
 
     Reuses the SAME ``(calib_p, calib_y)`` pair ``calibrate_namespace_model`` fit isotonic on (positive-class
     column of ``entry.calib_probs`` vs ``entry.calib_target``), so the risk report describes the calibrator
-    actually shipped. Gated by ``TrainingBehaviorConfig.check_isotonic_overfit_risk``; default OFF (no extra
-    fit work, no metadata key). Best-effort: a per-model failure is logged and skipped, never aborts finalize.
+    actually shipped. Gated by ``TrainingBehaviorConfig.check_isotonic_overfit_risk``, which is ON by default -- this
+    docstring used to say OFF. It still does no work without a calib slice, because there is then no calibrator to
+    check. Best-effort: a per-model failure is logged and skipped, never aborts finalize.
     """
     import numpy as _np
 
@@ -110,12 +111,18 @@ def _isotonic_overfit_risk_check(ctx: "TrainingContext") -> None:
 
 
 def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
-    """Opt-in: fit an optimized binary decision threshold (+ optional per-cohort thresholds / cv stability
+    """Fit an optimized binary decision threshold (+ optional per-cohort thresholds / cv stability
     report) on the disjoint calib slice via ``mlframe.calibration.threshold_optimizer.optimize_decision_threshold``.
 
     Fit on ``entry.calib_probs``/``entry.calib_target`` (leakage-free, disjoint from test by construction),
     never on test. Stores the result into ``metadata["decision_threshold"]``. Gated by
-    ``TrainingBehaviorConfig.auto_optimize_threshold``; default OFF (bit-identical no-op).
+    ``TrainingBehaviorConfig.auto_optimize_threshold``, which is ON by default -- this docstring used to say the
+    opposite, the same way the confidence-shrinkage one below did before it was corrected.
+
+    Being on by default is not the same as running: the step needs a disjoint calib slice, and without one
+    (``TrainingSplitConfig.calib_size`` unset) no entry carries ``calib_probs`` and the loop below finds nothing.
+    That used to be completely silent. ``_phase_finalize_calib_skipped.report_calib_dependent_steps_skipped`` now
+    names this step, and every other calib-slice step that the missing slice cost, in one line.
     """
     import numpy as _np
     from sklearn.metrics import balanced_accuracy_score
@@ -161,12 +168,20 @@ def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
 
 
 def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
-    """Opt-in final prediction-shrinkage step for regression targets: pull weakly-discriminative targets'
-    test/val predictions toward a neutral value, per ``mlframe.calibration.confidence_shrinkage``.
+    """Final prediction-shrinkage step for regression targets: pull weakly-discriminative targets' test/val
+    predictions toward a neutral value, per ``mlframe.calibration.confidence_shrinkage``.
 
     Confidence is computed from each model's OOF preds/target (``compute_oof_confidence``); the shrinkage is
     then applied to that same model's test/val predictions in place (``apply_confidence_shrinkage``). Gated by
-    ``RegressionCalibrationConfig.apply_confidence_shrinkage``; default OFF (bit-identical no-op).
+    ``RegressionCalibrationConfig.apply_confidence_shrinkage``, which is ON by default - and the config is
+    constructed for every run, so this applies even when the caller passes no ``regression_calibration_config``
+    at all. Set it to False for the bit-identical no-op. The step only ever moves a LOW-confidence target's
+    predictions toward neutral, which is why it is on; this docstring and the suite kwarg used to describe it as
+    disabled unless requested, which was the opposite of what every run actually did.
+
+    ON is not the same as able to run: it needs each regression model's OOF predictions, and those exist only
+    when ``TrainingBehaviorConfig.oof_n_splits >= 2`` (default 0). At defaults this step therefore never applies;
+    ``_phase_finalize_calib_skipped.report_oof_dependent_steps_inert`` says so once at INFO.
     """
     from ...calibration.confidence_shrinkage import apply_confidence_shrinkage, compute_oof_confidence
 

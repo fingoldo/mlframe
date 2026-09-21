@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -183,3 +184,96 @@ def rank_pending_composites(pending: list) -> list:
     i.e. arbitrarily across targets. A non-finite gain sorts last in its tier.
     """
     return sorted(pending, key=lambda item: (bool(item.get("rmse_gain")), item["gain"] if np.isfinite(item["gain"]) else -np.inf), reverse=True)
+
+
+def _maybe_narrow_to_unary_transforms(disc_cfg: Any, diag: Any, target_name: str) -> Any:
+    """Drop base-dependent transforms when BaselineDiagnostics found no dominant feature to residualise against.
+
+    BaselineDiagnostics computes a ``composite_recommendation`` whose whole purpose is to say whether composite
+    discovery is worth running, and the suite already has it at the per-target decision point (the same precompute the
+    dominant-features hint comes from) -- it was simply never read, so the verdict only reached the log AFTER discovery
+    had finished and committed its specs.
+
+    ``unlikely_to_help`` means "no dominant features", which is a statement about BASE-DEPENDENT families: a residual
+    transform has nothing to residualise against. The base-free unary y-transforms are untouched by that finding, and
+    in the production run the one composite that beat raw y was exactly one of those. So the verdict narrows discovery
+    to the unary family rather than cancelling it.
+
+    Returns ``disc_cfg`` unchanged when the diagnostic is absent, says something else, or the narrowing would leave
+    nothing to search.
+    """
+    if not isinstance(diag, dict) or diag.get("composite_recommendation") != "unlikely_to_help":
+        return disc_cfg
+    try:
+        from ..composite.transforms import UnknownTransformError, get_transform
+
+        unary: list[str] = []
+        for name in list(getattr(disc_cfg, "transforms", ()) or ()):
+            try:
+                if not get_transform(name).requires_base:
+                    unary.append(name)
+            except UnknownTransformError:  # noqa: PERF203 -- per-transform fault isolation is intentional; an unknown name skips, never aborts the narrowing
+                continue
+        if not unary or len(unary) == len(list(disc_cfg.transforms)):
+            return disc_cfg
+        logger.info(
+            "[CompositeTargetDiscovery] target=%r: BaselineDiagnostics reports composite_recommendation="
+            "'unlikely_to_help' (%s). That verdict is about BASE-DEPENDENT families -- with no dominant feature "
+            "there is nothing to residualise against -- so discovery is narrowed from %d transform(s) to the %d "
+            "base-free unary one(s), which the finding does not bear on.",
+            target_name, diag.get("composite_recommendation_reason", "no reason recorded"),
+            len(list(disc_cfg.transforms)), len(unary),
+        )
+        return disc_cfg.model_copy(update={"transforms": unary})
+    except Exception as exc:
+        logger.debug("narrowing discovery to unary transforms failed for %r (%s); full search proceeds", target_name, exc)
+        return disc_cfg
+
+
+_DEFAULT_MIN_HONEST_GAIN_Z: float = 2.0
+"""Standard errors a spec's honest-holdout RMSE gain must clear before the spec is worth a full model fit, on top of
+the constant ``min_honest_gain_to_train`` floor. 0 disables the noise-aware half and restores the constant-only bar."""
+
+
+def _relative_gain_se(spec: Any, raw_rmse: float) -> float | None:
+    """The spec's paired standard error of its honest RMSE gain, on the same relative-to-raw scale as the gain itself."""
+    _gain_se = getattr(spec, "honest_holdout_rmse_gain_se", None)
+    return float(_gain_se) / float(raw_rmse) if (_gain_se is not None and raw_rmse) else None
+
+
+def _drop_below_honest_gain_floor(pending: list[dict], composite_target_discovery_config: Any) -> list[dict]:
+    """``pending`` minus the RMSE-gain specs at or below their ship floor, logging the dropped ones.
+
+    A constant floor cannot tell a real 0.4% gain from a 0.4% measurement error. Each spec carries the paired standard
+    error of its own gain, so the bar is "beats the constant ``min_honest_gain_to_train`` AND is larger than
+    ``min_honest_gain_z`` of its own noise" -- a production run shipped 9 specs at gains of +0.002..+0.011 and warned
+    about GPU non-determinism of the same order in the very next log line. No-op when the constant floor is unset.
+    """
+    _min_gain = getattr(composite_target_discovery_config, "min_honest_gain_to_train", None)
+    if _min_gain is None:
+        return pending
+    _min_gain_z = float(getattr(composite_target_discovery_config, "min_honest_gain_z", _DEFAULT_MIN_HONEST_GAIN_Z))
+
+    def _floor_for(p: dict) -> float:
+        """Ship/no-ship floor for one pending spec: the configured constant, raised to its measurement noise when known."""
+        _se = p.get("gain_se")
+        if _min_gain_z <= 0 or _se is None or not np.isfinite(_se) or _se <= 0:
+            return float(_min_gain)
+        return max(float(_min_gain), _min_gain_z * float(_se))
+
+    _below = [p for p in pending if p.get("rmse_gain") and p["gain"] <= _floor_for(p)]
+    if not _below:
+        return pending
+    logger.info(
+        "[CompositeTargetDiscovery] not training %d composite target(s) whose honest-holdout RMSE gain is at or "
+        "below its floor (min_honest_gain_to_train=%.3f, raised to %.1f x the gain's own paired standard error "
+        "where measurable): %s",
+        len(_below), float(_min_gain), _min_gain_z,
+        ", ".join(
+            f"{d['name']}({d['gain']:+.4f} vs floor {_floor_for(d):.4f}"
+            + (f", se={d['gain_se']:.4f}" if d.get("gain_se") else "")
+            + ")"
+            for d in _below
+        ),
+    )
+    return [p for p in pending if p not in _below]
