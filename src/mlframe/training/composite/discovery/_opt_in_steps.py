@@ -188,6 +188,16 @@ def _run_auto_chain(
     if 0 < tiny_n < screen_idx.size:
         keep = np.sort(np.random.default_rng(int(self.config.random_state)).choice(screen_idx.size, size=tiny_n, replace=False))
         screen_idx, y_screen = screen_idx[keep], y_screen[keep]
+    # The chain CV splits like the tiny rerank: in time order under the caller's time key, and by group when groups exist.
+    # Shuffled folds here admitted chains on exactly the per-group memorisation and look-ahead the rerank was fixed to reject.
+    from ._fit_temporal import order_rows_by_time
+
+    _t_order = order_rows_by_time(screen_idx, getattr(self, "_time_ordering_", None))
+    if _t_order is not None:
+        screen_idx, y_screen = screen_idx[_t_order], y_screen[_t_order]
+    _chain_time_aware = _t_order is not None
+    _g_full = getattr(self, "_group_ids_for_rerank", None)
+    _chain_groups = np.asarray(_g_full)[screen_idx] if _g_full is not None and np.asarray(_g_full).shape[0] > int(np.max(screen_idx, initial=-1)) else None
     # Build the screen-sample feature matrix ONCE (per-column pull from the Polars/pandas frame),
     # then derive each base's "all features except this base" matrix via np.delete on the in-RAM
     # matrix -- bit-identical to a per-base ``column_stack`` of ``feat_cols`` minus the base (the
@@ -214,6 +224,8 @@ def _run_auto_chain(
                 mi_nbins=int(self.config.mi_nbins),
                 top_k=int(getattr(self.config, "auto_chain_top_k", 2)),
                 inner_n_jobs=inner_n_jobs,
+                groups=_chain_groups,
+                time_aware=_chain_time_aware,
             )
             return base_col, chains
         except Exception as exc:  # -- a degenerate base must not abort fit

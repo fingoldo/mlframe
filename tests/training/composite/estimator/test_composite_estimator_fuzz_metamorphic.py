@@ -29,10 +29,14 @@ Metamorphic (``TestMetamorphicInvariants``)
           invariant is exercised with an order-agnostic inner so a column-order-
           sensitive inner like sklearn ``LinearRegression`` does not mask it).
 
+Accuracy oracle (``test_a_perfect_inner_reproduces_the_training_y``)
+    The envelope assertion holds by construction (predict clips to the train envelope), so on its own it only catches a
+    crash or a NaN. The oracle fits the wrapper with an inner that returns the exact T per training row, so the wrapper
+    must give each training row back its own y, over bases scaled log-uniformly across nine decades with an offset. It
+    found box_cox_y collapsing T to a constant on a target far from 1.
+
 Runtime is bounded: n capped at 2000, iteration counts kept small, inners are
-cheap (``max_iter=15`` HGBR / closed-form linear / constant). The suite found
-NO production bug -- the wrapper's domain-fallback + T-clip + y-envelope-clip
-machinery already absorbs every adversarial config exercised here.
+cheap (``max_iter=15`` HGBR / closed-form linear / constant).
 """
 
 from __future__ import annotations
@@ -121,8 +125,13 @@ def _make_config_frame(
     inject_outliers: bool,
     n_feat: int,
     dtype: str,
+    scale: float = 1.0,
+    offset: float = 0.0,
 ):
     """Build (X, y, wrapper_kwargs) for a random fuzz config.
+
+    ``scale`` multiplies the bases and the y noise and ``offset`` shifts the bases: the fuzz draws the scale log-uniformly
+    over nine decades, because at unit scale the unit-dependent floors (an absolute eps, a raw-unit margin) are silent.
 
     Bases are drawn strictly-positive for ``_POSITIVE`` transforms (else most
     rows would be domain-dropped and the fit would be trivial / empty). y is a
@@ -139,7 +148,7 @@ def _make_config_frame(
     cols: dict[str, np.ndarray] = {}
     bases = []
     for j in range(n_base):
-        b = rng.uniform(0.5, 5.0, n) if positive else rng.normal(2.0, 1.5, n)
+        b = offset + scale * (rng.uniform(0.5, 5.0, n) if positive else rng.normal(2.0, 1.5, n))
         cols[f"b{j}"] = b
         bases.append(b)
     for j in range(n_feat):
@@ -147,9 +156,9 @@ def _make_config_frame(
     if transform in _GROUPED:
         cols["grp"] = rng.integers(0, 5, n).astype(str)
 
-    y = 1.3 * bases[0] + 0.5 * sum(cols[f"f{j}"] for j in range(n_feat)) + rng.normal(0.0, 0.3, n)
+    y = 1.3 * bases[0] + scale * (0.5 * sum(cols[f"f{j}"] for j in range(n_feat)) + rng.normal(0.0, 0.3, n))
     if positive:
-        y = np.abs(y) + 0.5
+        y = np.abs(y) + 0.5 * scale
     if inject_outliers:
         idx = rng.choice(n, max(1, n // 50), replace=False)
         y[idx] = y[idx] * 50.0
@@ -174,16 +183,39 @@ def _make_config_frame(
     return X, y, kwargs
 
 
+def _draw_scale(rng: np.random.Generator) -> tuple[float, float]:
+    """A base scale drawn log-uniformly from [1e-3, 1e6], and a base offset of 0 or 1000 scales."""
+    scale = float(10.0 ** rng.uniform(-3.0, 6.0))
+    return scale, float(rng.choice([0.0, 1e3])) * scale
+
+
+class _RowOracleInner(BaseEstimator, RegressorMixin):
+    """Returns, for every row it was fitted on, the exact T it was given (looked up by the ``rid`` feature).
+
+    With a perfect inner the wrapper's only job is ``inverse(forward(y)) == y``: any error it shows on its own training
+    rows is the transform's or the wrapper's, not the model's.
+    """
+
+    def fit(self, X, y):
+        """Remember T per row id."""
+        self.t_by_row_ = dict(zip(np.asarray(X["rid"]).tolist(), np.asarray(y, dtype=np.float64).tolist()))
+        return self
+
+    def predict(self, X):
+        """The remembered T per row id, NaN for a row it never saw."""
+        return np.array([self.t_by_row_.get(r, np.nan) for r in np.asarray(X["rid"]).tolist()], dtype=np.float64)
+
+
 # ----------------------------------------------------------------------
 # Fuzz
 # ----------------------------------------------------------------------
 class TestFuzzFitPredictNeverCrashes:
     """fit -> predict over random configs never raises and yields finite y in envelope."""
 
-    @pytest.mark.parametrize("batch", range(6))
+    @pytest.mark.parametrize("batch", range(3))
     def test_fuzz_batch(self, batch: int) -> None:
         # Each batch is an independent RNG stream so a flake is reproducible
-        # from (batch, iteration). 50 iters/batch * 6 batches = 300 configs.
+        # from (batch, iteration). 50 iters/batch * 3 batches = 150 configs; the accuracy signal is the oracle test below.
         """Fuzz batch."""
         rng = np.random.default_rng(10_000 + batch)
         names = list_transforms()
@@ -196,6 +228,7 @@ class TestFuzzFitPredictNeverCrashes:
             nan_frac = float(rng.choice([0.0, 0.0, 0.05, 0.2]))
             inject_outliers = bool(rng.integers(0, 2))
             dtype = str(rng.choice(["float64", "float32"]))
+            scale, offset = _draw_scale(rng)
 
             X, y, kwargs = _make_config_frame(
                 n,
@@ -205,6 +238,8 @@ class TestFuzzFitPredictNeverCrashes:
                 inject_outliers,
                 n_feat,
                 dtype,
+                scale=scale,
+                offset=offset,
             )
             est = CompositeTargetEstimator(
                 base_estimator=HistGradientBoostingRegressor(
@@ -214,7 +249,7 @@ class TestFuzzFitPredictNeverCrashes:
                 transform_name=transform,
                 **kwargs,
             )
-            ctx = f"batch={batch} it={it} transform={transform} n={n} n_feat={n_feat} nan_frac={nan_frac} outliers={inject_outliers} dtype={dtype} seed={seed}"
+            ctx = f"batch={batch} it={it} transform={transform} n={n} n_feat={n_feat} nan_frac={nan_frac} outliers={inject_outliers} dtype={dtype} seed={seed} scale={scale:.3g} offset={offset:.3g}"
             try:
                 est.fit(X, y)
             except Exception as exc:
@@ -240,6 +275,32 @@ class TestFuzzFitPredictNeverCrashes:
                 ), f"prediction escaped train envelope [{ctx}] lo={lo} hi={hi} pmin={y_hat.min()} pmax={y_hat.max()}"
             n_checked += 1
         assert n_checked == 50
+
+    @pytest.mark.parametrize("batch", range(3))
+    def test_a_perfect_inner_reproduces_the_training_y(self, batch: int) -> None:
+        """With an oracle inner, every training row the inner saw comes back as its own y, at every scale and offset.
+
+        The envelope assertion above holds by construction (predict clips to the train envelope), so it cannot see a
+        constant collapse, a sign flip or a poor fit; this oracle can. Lossy (``y_quantile_clip``) and out-of-fold-forward
+        (target encoding) transforms are excluded: neither promises the identity on its own fit rows.
+        """
+        rng = np.random.default_rng(20_000 + batch)
+        names = [n for n in list_transforms() if n != "y_quantile_clip" and not get_transform(n).oof_train_forward]
+        for it in range(40):
+            seed = int(rng.integers(0, 1_000_000))
+            transform = names[int(rng.integers(0, len(names)))]
+            n = int(rng.integers(60, 801))
+            scale, offset = _draw_scale(rng)
+            X, y, kwargs = _make_config_frame(n, seed, transform, 0.0, False, 2, "float64", scale=scale, offset=offset)
+            X["rid"] = np.arange(n)
+            ctx = f"batch={batch} it={it} transform={transform} n={n} seed={seed} scale={scale:.3g} offset={offset:.3g}"
+            est = CompositeTargetEstimator(base_estimator=_RowOracleInner(), transform_name=transform, **kwargs).fit(X, y)
+            seen = np.isin(np.arange(n), list(est.estimator_.t_by_row_))
+            assert seen.sum() >= 0.5 * n, f"the wrapper fitted on only {int(seen.sum())}/{n} rows [{ctx}]"
+            y_hat = np.asarray(est.predict(X), dtype=np.float64)
+            err = np.abs(y_hat[seen] - y[seen])
+            tol = 1e-6 * max(1.0, float(np.max(np.abs(y[seen]))))
+            assert float(np.max(err)) <= tol, f"max train-row error {float(np.max(err)):.3e} > {tol:.3e} [{ctx}]"
 
     def test_fuzz_out_of_train_base_stays_in_envelope(self) -> None:
         """A grossly out-of-train base shift must still produce finite,

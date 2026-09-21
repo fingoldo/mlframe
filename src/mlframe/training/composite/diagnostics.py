@@ -216,7 +216,7 @@ def _explain_y_and_t(y_name: str | None, transform_name: str | None, base_column
 
             desc = str(getattr(get_transform(transform_name), "description", "") or "").strip()
             how = f" Here T = {transform_name}(y{', ' + base_column if base_column else ''}): {desc.split('. ')[0].rstrip('.')}."
-        except Exception as e:  # nosec B110 - an unknown name just drops the formula line
+        except Exception as e:  # best-effort: a diagnostic falls back to a placeholder; no fitted state changes; nosec B110 - an unknown name just drops the formula line
             logger.debug("transform description lookup failed for %r: %s", transform_name, e)
             how = f" Here T = {transform_name}(y{', ' + base_column if base_column else ''})."
     return (

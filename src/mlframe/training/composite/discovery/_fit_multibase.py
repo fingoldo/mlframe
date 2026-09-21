@@ -68,7 +68,7 @@ def apply_multi_base_forward_stepwise(
                             "amplification.", float(_off.mean()), _pool_corr_thresh,
                         )
             except Exception as e:  # -- the corr guard is a heuristic; never abort discovery on it
-                logger.debug("multibase pool-corr heuristic guard failed: %s", e)
+                logger.warning("multibase pool-corr heuristic guard failed: %s", e)
                 _multibase_pool_corr_skip = False
     if not (kept_specs and getattr(self.config, "multi_base_enabled", False) and getattr(self, "_auto_base_pool", None) and not _multibase_pool_corr_skip):
         return kept_specs
@@ -163,12 +163,12 @@ def apply_multi_base_forward_stepwise(
             transform_name="linear_residual_multi",
             base_column=_kept_bases[0],
             fitted_params=_multi_params,
-            mi_gain=_spec.mi_gain,
-            mi_y=_spec.mi_y,
-            mi_t=_spec.mi_t,
-            valid_domain_frac=_spec.valid_domain_frac,
-            n_train_rows=_spec.n_train_rows,
+            mi_gain=float("nan"),  # the screen measured the seed, not this transform (see CompositeSpec.stats_measured_for)
+            mi_y=float("nan"), mi_t=float("nan"),
+            valid_domain_frac=float(np.mean(np.all(np.isfinite(_base_matrix), axis=1) & np.isfinite(_y_train_local))),
+            n_train_rows=int(np.asarray(_y_train_local).size),
             extra_base_columns=tuple(_kept_bases[1:]),
+            stats_measured_for=_spec.name,
         )
         _upgraded_specs.append(_upgraded_spec)
         # The upgraded spec carries a NEW name (``...-linear_residual_multi-<bases>``); carry the

@@ -27,7 +27,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.composite.spec import CompositeSpec
 
@@ -316,8 +315,7 @@ class TestA7ResidualSpecWarning:
                 n_oof_folds=3,
             )
         residual_specs = [s for s in disc.specs_ if getattr(s, "discovered_on_residual", False)]
-        if residual_specs:
-            # When pass-2 produced residual specs, the A7 hazard warning fired.
-            assert any("residual-aware training path" in r.message for r in caplog.records), "A7 warning must fire when residual specs are merged into specs_"
-        else:
-            pytest.skip("pass-2 found no new residual specs on this seed; A7 warning path not exercised (covered by unit-level merge logic).")
+        # Seeded fixture: pass-2 finds residual specs on it today. A skip would silently stop exercising the warning the day
+        # pass-2 stopped finding them, which is itself the regression worth failing on.
+        assert residual_specs, "pass-2 found no residual specs on this seeded fixture; the A7 warning path is no longer exercised"
+        assert any("residual-aware training path" in r.message for r in caplog.records), "A7 warning must fire when residual specs are merged into specs_"

@@ -38,6 +38,29 @@ from ._tiny_rerank_honest import (
 )
 
 
+def _reject_unscored_specs(self, kept_specs: list, agg_scores: list) -> tuple[list, list]:
+    """Drop, with a ledger entry, every spec whose aggregated tiny-CV score is not finite.
+
+    A non-finite score means the tiny CV failed in every family (non-finite T on domain-valid rows makes each family's
+    RMSE NaN) or the honest reconstruction collapsed. The raw-baseline gate compared only finite scores, and with a
+    non-finite raw baseline no gate ran at all, so such a spec sorted last and still shipped when fewer than top_m
+    candidates survived: a failure inside the gate disabled the gate for the spec that failed.
+    """
+    kept, scores = [], []
+    for spec, score in zip(kept_specs, agg_scores):
+        if math.isfinite(score):
+            kept.append(spec)
+            scores.append(score)
+            continue
+        logger.warning("[CompositeTargetDiscovery] rejecting %s: its tiny-CV score is %s (the CV failed in every family).", spec.name, score)
+        ledger_append(
+            self, spec_name=spec.name, stage=RejectStage.TINY_RERANK_THRESHOLD,
+            reason=f"tiny-rerank CV-RMSE is {score} (failed in every family or collapsed)",
+            base_column=getattr(spec, "base_column", ""), transform_name=getattr(spec, "transform_name", ""),
+        )
+    return kept, scores
+
+
 def _tiny_model_rerank(
     self,
     kept_specs: list[CompositeSpec],
@@ -224,20 +247,18 @@ def _tiny_model_rerank(
     raw_per_bin_per_base: dict[str, np.ndarray] = {}
     raw_baseline: float = float("nan")
     raw_per_seed_per_family: dict[str, np.ndarray] = {}
-    _early_any_base_monotone = False
+    # One fold scheme for raw-y and every spec (per-spec schemes made the threshold and Wilcoxon compare different fold RMSEs).
+    _early_any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or (
+        _groups_screen is None
+        and any(
+            _is_monotone_nondecreasing(_base_arr) for spec in kept_specs if (_base_arr := _per_base_cache.get(spec.base_column, (None, None))[0]) is not None
+        )
+    )
     if _require_raw_baseline:
         x_full = _x_full
         n_seed_repeats_raw = max(1, int(getattr(
             self.config, "tiny_model_n_seed_repeats", 1,
         )))
-        _early_any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or (
-            _groups_screen is None
-            and any(
-                _is_monotone_nondecreasing(_base_arr)
-                for spec in kept_specs
-                if (_base_arr := _per_base_cache.get(spec.base_column, (None, None))[0]) is not None
-            )
-        )
         for family in families:
             if use_wilcoxon:
                 res = _tiny_cv_rmse_raw_y_multiseed(
@@ -382,7 +403,7 @@ def _tiny_model_rerank(
         # The base-monotonicity heuristic is a NO-TIMESTAMP fallback only: with groups present the CV is GroupKFold
         # regardless (no global temporal axis exists), so a merely depth/level-monotone base must NOT read as temporal
         # -- otherwise it raises a spurious "temporal order not preserved" warning while the split is unchanged.
-        base_t_aware = bool(getattr(self, "_screen_time_ordered_", False) or (_groups_screen is None and _is_monotone_nondecreasing(base_screen_local)))
+        base_t_aware = _early_any_base_monotone  # the rerank-wide fold scheme (see above)
         fam_rmses: dict[str, float] = {}
         per_seed_by_family: dict[str, np.ndarray] = {}
         per_bin_first_local: Optional[np.ndarray] = None
@@ -556,8 +577,9 @@ def _tiny_model_rerank(
     self._tiny_rerank_scores = {kept_specs[i].name: float(agg_scores[i]) for i in range(len(kept_specs))}
 
     kept_specs, agg_scores, _honest_oof_baseline = _apply_honest_oof_ordering(
-        self, df, target_col, kept_specs, agg_scores, usable_features, train_idx, y_full, _honest_oof_pre,
+        self, df, target_col, kept_specs, agg_scores, usable_features, train_idx, y_full, _honest_oof_pre, raw_cv_baseline=raw_baseline,
     )
+    kept_specs, agg_scores = _reject_unscored_specs(self, kept_specs, agg_scores)
 
     # Regime-aware gate. In addition to the
     # global mean RMSE, compute per-quintile-of-base RMSE for each
@@ -610,7 +632,7 @@ def _tiny_model_rerank(
                 ),
                 return_per_bin=True,
                 n_bins=per_bin_n_bins,
-                time_aware=bool(getattr(self, "_screen_time_ordered_", False) or (_groups_screen is None and _is_monotone_nondecreasing(base_screen))),
+                time_aware=_early_any_base_monotone,
                 groups=_groups_screen,
             )
             if isinstance(result, tuple):
@@ -715,13 +737,11 @@ def _tiny_model_rerank(
         self._raw_y_baseline_rmse = float(raw_baseline) if math.isfinite(raw_baseline) else float("nan")
         if math.isfinite(raw_baseline):
             survivors = []
-            gate_alpha = float(getattr(
-                self.config, "gate_alpha", 0.05,
-            ))
+            gate_alpha = float(getattr(self.config, "gate_alpha", 0.05))
             wilcoxon_rejected: list[tuple[str, float]] = []
             for i, spec in enumerate(kept_specs):
                 score = agg_scores[i]
-                if math.isfinite(score) and score >= threshold:
+                if score >= threshold:  # every score is finite here: _reject_unscored_specs ran first
                     gate_rejected_names.append((spec.name, score, threshold))
                     ledger_append(
                         self, spec_name=spec.name, stage=RejectStage.TINY_RERANK_THRESHOLD,
@@ -886,7 +906,7 @@ def _tiny_model_rerank(
     if bool(getattr(self.config, "transform_waic_validation_enabled", False)) and len(order) > 1:
         order = _apply_waic_tiebreak(
             self, order, kept_specs, agg_scores, _names,
-            y_screen=y_screen, per_base_cache=_per_base_cache,
+            y_screen=y_screen, per_base_cache=_per_base_cache, groups=_groups_screen, time_aware=_early_any_base_monotone,
         )
 
     reranked = [kept_specs[i] for i in order]

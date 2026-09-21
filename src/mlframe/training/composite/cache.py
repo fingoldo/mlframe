@@ -305,7 +305,7 @@ def compute_config_signature_v1(
     try:
         from mlframe import __version__ as _mlframe_version
     except ImportError as e:
-        logger.debug("mlframe.__version__ import failed: %s", e)
+        logger.warning("mlframe.__version__ import failed: %s", e)
         _mlframe_version = "?"
     payload["_schema"] = {
         "discovery_cache_schema_version": _DISCOVERY_CACHE_SCHEMA_VERSION,
@@ -319,7 +319,7 @@ def compute_config_signature_v1(
         else:
             payload["config"] = {str(k): str(v) for k, v in sorted(getattr(config, "__dict__", {}).items())} or repr(config)
     except Exception as _e:
-        logger.debug("config serialization failed, falling back to repr(): %s", _e)
+        logger.warning("config serialization failed, falling back to repr(): %s", _e)
         payload["config_repr"] = repr(config)
         payload["config_dump_error"] = str(_e)
     if library_versions is not None:

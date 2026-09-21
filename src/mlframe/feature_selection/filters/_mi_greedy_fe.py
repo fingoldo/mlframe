@@ -32,6 +32,8 @@ import logging
 from typing import Callable, Iterable, Iterator, Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
@@ -464,7 +466,7 @@ def _greedy_score_and_select(
         baselines = [float(raw_mi_map.get(c, 0.0)) for c in src_cols]
         baseline = max(baselines) if baselines else 0.0
         emi = float(eng_mi[j])
-        uplift = emi / (baseline + 1e-12)
+        uplift = relative_uplift(emi, baseline)
         rows.append({
             "engineered_col": eng_name,
             "transform": tname,

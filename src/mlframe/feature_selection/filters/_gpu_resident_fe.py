@@ -64,6 +64,14 @@ from collections import OrderedDict
 
 import numpy as np
 
+from mlframe.feature_selection.filters._safe_scale import guarded_scale
+
+
+def _guarded_span(pp) -> float:
+    """The stored min-max span, guarded against the bounds' own magnitude so a tiny-but-real range is not swamped by an absolute pad."""
+    lo, hi = float(pp["lo"]), float(pp["hi"])
+    return float(guarded_scale(hi - lo, max(abs(lo), abs(hi))))
+
 logger = logging.getLogger(__name__)
 
 # REVIEW ROADMAP (2026-06-19 multi-agent critique; items dispositioned FUTURE - captured so they are
@@ -552,11 +560,11 @@ def _gpu_apply_prewarp(cp, x, spec):
     if basis == "fourier_adaptive":
         pp = dict(spec["preprocess"])
         if str(pp.get("arg", "linear")) == "quadratic":
-            z = (xf - float(pp["mean"])) / max(float(pp["std"]), 1e-12)
+            z = (xf - float(pp["mean"])) / float(pp["std"])
             u = cp.sign(z) * (z * z)
-            axis = (u - float(pp["lo"])) / max(float(pp["span"]), 1e-12)
+            axis = (u - float(pp["lo"])) / float(pp["span"])
         else:
-            axis = (xf - float(pp["lo"])) / max(float(pp["span"]), 1e-12)
+            axis = (xf - float(pp["lo"])) / float(pp["span"])
         coef = np.asarray(spec["coef"], dtype=np.float64).reshape(-1)
         out = cp.zeros_like(axis)
         for i, f in enumerate(pp["freqs"]):
@@ -575,10 +583,10 @@ def _gpu_apply_prewarp(cp, x, spec):
     clip = pp.get("clip")
     has_clip = clip is not None
     if basis in ("legendre", "chebyshev"):      # _apply_minmax
-        lo = float(pp["lo"]); span = float(pp["hi"]) - float(pp["lo"]) + 1e-12; mean = 0.0; std_safe = 1.0
+        lo = float(pp["lo"]); span = _guarded_span(pp); mean = 0.0; std_safe = 1.0
         clip_lo = -float(clip) if clip is not None else 0.0; clip_hi = float(clip) if clip is not None else 0.0
     elif basis == "hermite":                    # _apply_zscore
-        lo = 0.0; span = 1.0; mean = float(pp["mean"]); std_safe = max(float(pp["std"]), 1e-12)
+        lo = 0.0; span = 1.0; mean = float(pp["mean"]); std_safe = float(pp["std"])
         clip_lo = -float(clip) if clip is not None else 0.0; clip_hi = float(clip) if clip is not None else 0.0
     else:                                        # laguerre: _apply_shift
         lo = float(pp["lo"]); span = 1.0; mean = 0.0; std_safe = 1.0
@@ -594,11 +602,11 @@ def _gpu_apply_prewarp(cp, x, spec):
     except Exception as e:
         logger.debug("fused prewarp-transform kernel failed, falling back to the exact cupy chain: %s", e)
         if basis in ("legendre", "chebyshev"):
-            z = 2 * (xf - pp["lo"]) / (pp["hi"] - pp["lo"] + 1e-12) - 1
+            z = 2 * (xf - pp["lo"]) / _guarded_span(pp) - 1
             if clip is not None:
                 z = cp.clip(z, -float(clip), float(clip))
         elif basis == "hermite":
-            z = (xf - pp["mean"]) / max(pp["std"], 1e-12)
+            z = (xf - pp["mean"]) / pp["std"]
             if clip is not None:
                 z = cp.clip(z, -float(clip), float(clip))
         else:

@@ -274,7 +274,7 @@ class TestBoxCoxY:
         assert mask.tolist() == [True, False, False, False, True]
 
     def test_round_trip_and_inverse_matches_scipy(self) -> None:
-        """box_cox_y round-trips exactly and its inverse matches scipy's inv_boxcox for the fitted lambda."""
+        """box_cox_y round-trips exactly and its inverse is scipy's inv_boxcox in the normalised form (y = y_scale * inv_boxcox(T, lambda))."""
         from scipy.special import inv_boxcox
 
         rng = np.random.default_rng(1)
@@ -284,7 +284,7 @@ class TestBoxCoxY:
         T = t.forward(y, None, p)
         y_back = t.inverse(T, None, p)
         np.testing.assert_allclose(y_back, y, rtol=1e-8)
-        np.testing.assert_allclose(y_back, inv_boxcox(T, p["lambda"]), rtol=1e-10)
+        np.testing.assert_allclose(y_back, p["y_scale"] * inv_boxcox(T, p["lambda"]), rtol=1e-10)
 
     def test_degenerate_constant_y_identity_lambda(self) -> None:
         """Fitting on a constant y (zero variance) falls back to the identity lambda=1.0 instead of an undefined MLE."""

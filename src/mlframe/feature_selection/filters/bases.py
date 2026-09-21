@@ -119,10 +119,14 @@ def _rbf_fit(x: np.ndarray):
     x = np.where(np.isfinite(x), x, 0.0)
     quantiles = np.linspace(0.1, 0.9, 9)
     centres = np.quantile(x, quantiles).astype(np.float64)
-    std = float(np.std(x) + 1e-12)
-    n = len(x)
-    bandwidth = float(1.06 * std * (n ** (-1.0 / 5.0))) + 1e-12
-    return x.astype(np.float64), dict(centres=centres, bandwidth=bandwidth)
+    from ._safe_scale import silverman_bandwidth
+
+    # A column with no usable spread has no density to estimate; fall back to its own magnitude rather than an absolute 1e-12, which
+    # would make every RBF response a delta at the centres.
+    bandwidth = silverman_bandwidth(x)
+    if bandwidth is None:
+        bandwidth = max(float(np.abs(x).max()), 1.0)
+    return x.astype(np.float64), dict(centres=centres, bandwidth=float(bandwidth))
 
 
 def _rbf_apply(x: np.ndarray, params: dict) -> np.ndarray:

@@ -91,7 +91,7 @@ def composite_predictions_as_feature(
         # warn so the caller can switch to the polars zero-copy path.
         try:
             _sz = int(df.memory_usage(index=False, deep=False).sum())
-        except Exception as e:
+        except Exception as e:  # best-effort: only a size warning is skipped
             logger.debug("memory_usage() failed, skipping large-frame warning: %s", e)
             _sz = 0
         if _sz > _FEATURE_STACK_LARGE_FRAME_BYTES:
@@ -152,7 +152,7 @@ def composite_oof_predictions(
     -------
     ``(n,)`` ndarray of OOF predictions on the y-scale. NaN entries indicate a fold that failed to train (caller decides whether to drop / impute).
     """
-    from sklearn.model_selection import GroupKFold, KFold, TimeSeriesSplit  # lazy
+    from sklearn.model_selection import GroupKFold, TimeSeriesSplit  # lazy
     fit_kwargs = fit_kwargs or {}
     y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
     n = y_arr.size
@@ -174,7 +174,9 @@ def composite_oof_predictions(
     elif time_aware:
         kf = TimeSeriesSplit(n_splits=int(n_splits))
     else:
-        kf = KFold(n_splits=int(n_splits), shuffle=True, random_state=int(random_state))
+        from ..discovery._splitter import make_discovery_splitter  # the one place a shuffled discovery KFold is built
+
+        kf = make_discovery_splitter(int(n_splits), random_state=int(random_state))[0]
     indices = np.arange(n)
     try:
         import polars as pl

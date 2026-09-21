@@ -90,6 +90,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ._jmim_scorer import _joint_mi_3d_njit, jmim_score
@@ -306,7 +308,7 @@ def score_features_by_jmim(
                     best = 0.0
                     break
             score = float(best) if best != np.inf else 0.0
-        uplift = score / (baseline + 1e-12)
+        uplift = relative_uplift(score, baseline)
         rows.append({
             "engineered_col": eng_name,
             "source_col": source,

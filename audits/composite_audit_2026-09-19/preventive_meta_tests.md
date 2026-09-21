@@ -126,7 +126,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium for (c), because some best-effort diagnostics legitimately log at debug. The scope is gate/transform packages only, and a `# best-effort:` marker is honoured (the convention the `test_log_only_except_*` files already use). (a) and (d) are low: two further `kept.append` sites (`_eval_stats.py:328`, `_fit_temporal.py:67`) need triage.
 - **Runtime**: under 2 s (cached AST).
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The scanner is `py_ci_shared.fail_open_handlers` (py-ci-shared fdbed25, 13 unit tests), which covers rules (a)-(d). A `# best-effort: <reason>` marker exempts a fallback that cannot change a result, and appends into a list named for failures (`failed.append(k)`) are exempt from (a). It is wired as `test_no_new_fail_open_handlers` in tests/test_meta/test_shared_checks_wired.py over the composite and feature-selection packages, with the pin bumped in requirements-dev.txt. Composite backlog: the six gate sites were fixed with DSC-09. The scan also found three fail-open sites, now fixed: the base-leakage guard kept a base whose check raised; the fragility gate kept a spec whose base column it could not read; auto-chain kept a winning chain whose final fit failed, with empty params. Eleven fallbacks that can change a result now log at WARNING (the cache-key version and config fallbacks, the auto-base corr gate, the multi-base pool-corr guard, fold-refit and gate domain checks, the monotonic orientation, the Box-Cox lambda, the unary T envelope, the quantile alpha probe). Nine reporting/repr/perf fallbacks carry a best-effort reason. Two composite entries remain in `_fail_open_handlers_baseline.json`, each with its reason. The 331 feature-selection entries are recorded untriaged: that package is being changed by another session. Tests: tests/training/composite/discovery/test_guard_failures_fail_closed.py (fails pre-fix).
 
 ### PMT-04 [P1] Non-discriminating test-assertion shapes: literal wide ranges, median-of-error, isinstance-only biz tests, data-dependent skips
 - **Asserts**: in test functions, flag:
@@ -143,7 +143,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium for (a): some metrics really do have wide legitimate ranges (probabilities in (0,1)), so the rule exempts `0 <= p <= 1`. Low for (c)-(e).
 - **Runtime**: about 3 s over about 3600 test files (cached AST).
 - **Repo**: py-ci-shared for (a), (b), (c), (e); mlframe for (d).
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Rules (a), (b), (c) and (e) are `py_ci_shared.nondiscriminating_shapes.shape_reasons` (py-ci-shared d619ced, 17 unit tests; `0 <= p <= 1` exempt, and environment-probe and missing-dependency skips exempt from (e)). Rule (d) is local: `biz-val-no-numeric` flags a `test_biz_val_*` whose every assertion is a type, None, non-empty or truthiness check and that calls no checking helper. Both are wired into tests/test_meta/test_no_nondiscriminating_assert.py, one baseline key per new reason so earlier entries keep their keys. Suite-wide at wiring: 111 late-skip, 45 biz-val-no-numeric, 25 wide-literal-range, 3 envelope-assert, 2 median-roundtrip, all recorded in the baseline. The composite-test hits (TST-10, TST-11, TST-13 among them) are fixed under those findings. The refresh paths of this and three sibling baselines wrote through `write_text`, which turns every newline into CRLF on Windows; they now write bytes.
 
 ### PMT-05 [P1] Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe
 - **Asserts**: fit a `CompositeTargetEstimator` per registry transform with an oracle inner (the inner returns the exact `forward(y)` for the rows it is given), then predict a 200-row continuation.
@@ -159,7 +159,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. Recurrent transforms are judged only under the warm-up contract they are supposed to honour.
 - **Runtime**: about 5-8 s (51 CTE fits with an oracle inner on n=400; no model training).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New tests/training/composite/estimator/test_cte_row_purity.py. (a) Every pointwise transform, with an elementwise inner, predicts 1-, 7- and 50-row chunks equal to the whole batch to 1e-14 relative (the only residue is 1-2 ulp from a transform's own BLAS dot). The recurrent warm-up contract and (b) NaN-base locality were already pinned by TST-05's test_predict_batching_invariance.py. (c) Concurrency: counters and shrink flags under 8 threads; it found and fixed EST-20. (d) The `lag_predict` component: it found and fixed EST-19. The DEPLOYABLE_COMPONENTS registry was not built: the stackers are linear combinations of the components checked here, and `lag_predict` was the one component with its own batch-state.
 
 ### PMT-06 [P1] Splitter and sampler consistency: one splitter factory, time order and groups honoured everywhere, sampler returns usable rows
 - **Asserts**:
@@ -174,7 +174,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low for (b). (a) is scoped to discovery/ensemble; generic composite estimators (`dual_direction.py`, `pseudo_labeling.py`, etc.) are out of scope.
 - **Runtime**: (a) under 1 s; (b) about 8-15 s (one discovery fit at n=600 with `tiny_model_cv_folds=2`).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. (a) is tests/test_meta/test_no_ad_hoc_shuffled_kfold.py. No module in discovery, ensemble or the cross-target builder may build a shuffled KFold / StratifiedKFold / ShuffleSplit outside `discovery/_splitter.py` (canary included). The remaining hand-built sites (forward_stepwise, feature_stacking, the MTR OOF, the tiny-CV split cache and fallback) now route through the factory, with identical behaviour. (b) and (c) are tests/training/composite/discovery/test_splitter_contract.py: group-disjoint folds in the chain and WAIC CVs, forward folds under time order, one fold scheme per rerank, the holdout size bound, frame-aligned holdout groups, no NaN-target rows in the sampler, and contiguous OOF folds for a recurrent component. Together they caught and fixed DSC-11, DSC-19, DSC-21, DSC-22, DSC-30 and EST-15.
 
 ### PMT-07 [P1] Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform
 - **Asserts**:
@@ -191,7 +191,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low once the helper exists. The work is the migration of the existing sort sites.
 - **Runtime**: (b) under 1 s; (c) about 5 s (tiny data, 5 scorers x 3 transforms).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. The seven findings it names are fixed at source: DSC-06, DSC-07, DSC-10, DSC-17, DSC-28, EST-11 and INT-10. tests/training/composite/discovery/test_scorer_invariance.py pins each one, including the WAIC scale invariance (c) and the y-scale table (d), and every case fails pre-fix. The cross-target budget sort, the one sort that mixed units, is now the named `rank_pending_composites`. Not built: the typed `Score` / `rank_specs` wrapper and the (b) scan over every spec sort. The remaining sorts each order a single unit (auto-chain candidates by y-RMSE, the screen by `mi_gain`, stability by frequency).
 
 ### PMT-08 [P1] Scale and shift metamorphic property over every registered transform
 - **Asserts**:

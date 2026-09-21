@@ -83,7 +83,7 @@ def test_biz_val_safe_corr_constant_input():
 # ---------------------------------------------------------------------------
 
 
-def test_biz_val_diff_transform_roundtrip_identity():
+def test_diff_transform_roundtrip_identity():
     """``_diff_forward`` then ``_diff_inverse`` must recover the
     original y exactly (diff is just y - base, so inversion is
     t_hat + base = y)."""
@@ -104,7 +104,7 @@ def test_biz_val_diff_transform_roundtrip_identity():
     assert max_err < 1e-12, f"diff roundtrip must be exact; got max|error|={max_err:.2e}"
 
 
-def test_biz_val_linear_residual_transform_roundtrip():
+def test_linear_residual_transform_roundtrip():
     """``_linear_residual_forward`` then ``_linear_residual_inverse``
     must recover the original y within numerical precision."""
     from mlframe.training.composite import (
@@ -141,7 +141,7 @@ def test_biz_val_linear_residual_fit_recovers_true_coefficients():
     assert abs(intercept - 1.0) < 0.1, f"intercept must be ~1.0; got {intercept:.4f}"
 
 
-def test_biz_val_ratio_transform_finite_roundtrip():
+def test_ratio_transform_finite_roundtrip():
     """``_ratio_forward`` / ``_ratio_inverse`` roundtrip on
     positive inputs is algebraically exact."""
     from mlframe.training.composite import (

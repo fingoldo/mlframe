@@ -297,7 +297,7 @@ def regenerate_baseline() -> None:
     import orjson
 
     payload = orjson.dumps(dict(sorted(_stale_comment_keys().items())), option=orjson.OPT_INDENT_2).decode("utf-8")
-    _STALE_COMMENT_BASELINE.write_text(payload + chr(10), encoding="utf-8")
+    _STALE_COMMENT_BASELINE.write_bytes((payload + chr(10)).encode("utf-8"))  # bytes: text mode on Windows writes CRLF
 
 
 def test_no_inert_patch_targets():
@@ -429,7 +429,48 @@ def regenerate_vacuous_loop_baseline() -> None:
 
     found = {loop.key: "pre-existing, recorded when the check was wired; not yet individually triaged" for loop in find_floorless_loops(_test_files(), REPO_ROOT)}
     payload = orjson.dumps(dict(sorted(found.items())), option=orjson.OPT_INDENT_2).decode("utf-8")
-    _VACUOUS_LOOP_BASELINE.write_text(payload + chr(10), encoding="utf-8")
+    _VACUOUS_LOOP_BASELINE.write_bytes((payload + chr(10)).encode("utf-8"))  # bytes: text mode on Windows writes CRLF
+
+
+_FAIL_OPEN_BASELINE = Path(__file__).resolve().parent / "_fail_open_handlers_baseline.json"
+# Gate and transform packages: where a handler that keeps a candidate on error ships the candidate the gate existed to stop.
+_FAIL_OPEN_SCOPE = ("src/mlframe/training/composite", "src/mlframe/feature_selection")
+
+
+def _fail_open_files() -> list[Path]:
+    """Every module under the gate/transform packages, benchmark folders excluded."""
+    return sorted(p for d in _FAIL_OPEN_SCOPE for p in (REPO_ROOT / d).rglob("*.py") if "_benchmarks" not in p.parts)
+
+
+def test_no_new_fail_open_handlers():
+    """A failure inside a gate must not disable the gate: no new admit-on-error, error-returns-True, quiet fallback or NaN-skipped reject.
+
+    The composite gates kept a spec whenever evaluating it raised, and the tiny rerank's threshold skipped a NaN score, so the
+    specs that failed were the ones that shipped. The composite backlog is fixed or carries a reason in the baseline; the
+    feature-selection entries were recorded when the check was wired and are not yet triaged.
+    """
+    from py_ci_shared.fail_open_handlers import assert_no_new_fail_open_handlers
+
+    files = _fail_open_files()
+    assert len(files) > 300, f"scanned only {len(files)} modules; the scope paths no longer match the tree"
+    assert_no_new_fail_open_handlers(files=files, repo_root=REPO_ROOT, baseline_path=_FAIL_OPEN_BASELINE)
+
+
+def regenerate_fail_open_baseline() -> None:
+    """Rewrite the fail-open baseline from the current tree, keeping every existing note. Called by `regen_baselines.py`."""
+    import orjson
+
+    from py_ci_shared.fail_open_handlers import find_fail_open_handlers
+
+    old: dict = orjson.loads(_FAIL_OPEN_BASELINE.read_bytes()) if _FAIL_OPEN_BASELINE.exists() else {}
+    counts: dict[str, int] = {}
+    found: dict[str, str] = {}
+    for h in find_fail_open_handlers(_fail_open_files(), REPO_ROOT):
+        counts[h.scope] = counts.get(h.scope, 0) + 1
+        key = h.scope if counts[h.scope] == 1 else f"{h.scope}#{counts[h.scope]}"
+        found[key] = old.get(key, "pre-existing, recorded when the check was wired; not yet triaged")
+    payload = orjson.dumps(dict(sorted(found.items())), option=orjson.OPT_INDENT_2).decode("utf-8")
+    _FAIL_OPEN_BASELINE.write_bytes((payload + chr(10)).encode("utf-8"))  # bytes: text mode on Windows writes CRLF
 
 
 # Synthetic timestamps for generated benchmark data: naive on purpose, like the user frames they stand in for.

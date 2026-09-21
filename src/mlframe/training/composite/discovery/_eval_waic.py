@@ -192,6 +192,8 @@ def _oof_residuals_kfold(
     n_folds: int,
     random_state: int,
     model_factory: Optional[Callable[[], object]],
+    groups: Any = None,
+    time_aware: bool = False,
 ) -> tuple[list[np.ndarray], list[np.ndarray]]:
     """Collect per-fold out-of-fold AND train-fold residuals from a cheap K-fold pass.
 
@@ -201,9 +203,9 @@ def _oof_residuals_kfold(
     train_residuals)`` aligned per fold. The train-fold residuals supply the
     Gaussian scale for the held-out density so it is not self-normalised (see
     :func:`waic_from_oof_residuals`). No global state, no rerank machinery -- the
-    only dependency is sklearn's ``KFold``.
+    only dependency is the shared splitter factory, which honours ``groups`` and time order like the rerank does.
     """
-    from sklearn.model_selection import KFold
+    from ._splitter import discovery_splits
 
     y = np.asarray(y_target, dtype=np.float64).ravel()
     x = np.asarray(x_matrix, dtype=np.float64)
@@ -211,15 +213,15 @@ def _oof_residuals_kfold(
         x = x.reshape(-1, 1)
     finite = np.isfinite(y) & np.all(np.isfinite(x), axis=1)
     y, x = y[finite], x[finite]
+    g = None if groups is None or np.asarray(groups).shape[0] != finite.shape[0] else np.asarray(groups)[finite]
     n = y.size
     if n < n_folds * 4:  # too small for an honest K-fold split.
         return [], []
 
     factory = model_factory if model_factory is not None else _default_tiny_model
-    kf = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
     residuals: list[np.ndarray] = []
     train_residuals: list[np.ndarray] = []
-    for tr, va in kf.split(x):
+    for tr, va in discovery_splits(n, n_folds, groups=g, time_aware=time_aware, random_state=random_state):
         try:
             model = cast(Any, factory())
             model.fit(x[tr], y[tr])
@@ -267,6 +269,8 @@ def compute_transform_waic(
     n_folds: int = 4,
     random_state: int = 0,
     model_factory: Optional[Callable[[], object]] = None,
+    groups: Any = None,
+    time_aware: bool = False,
 ) -> WaicScore:
     """WAIC-style validation score for ONE candidate target on the screen sample.
 
@@ -282,7 +286,7 @@ def compute_transform_waic(
     """
     fold_residuals, train_fold_residuals = _oof_residuals_kfold(
         y_target, x_matrix,
-        n_folds=n_folds, random_state=random_state, model_factory=model_factory,
+        n_folds=n_folds, random_state=random_state, model_factory=model_factory, groups=groups, time_aware=time_aware,
     )
     if len(fold_residuals) < 2:
         return _INVALID

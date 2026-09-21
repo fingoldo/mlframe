@@ -10,6 +10,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from ._splitter import make_discovery_splitter
+
 logger = logging.getLogger(__name__)
 
 
@@ -97,7 +99,7 @@ def forward_stepwise_multi_base(
     - ``kept_bases``: ordered list of base column names (seeds first, then greedily-added).
     - ``diagnostics``: list of per-step dicts ``{step, candidate_added, rmse_before, rmse_after, marginal_gain, accepted}`` for caller-facing audit.
     """
-    from sklearn.model_selection import KFold, TimeSeriesSplit  # lazy
+    from sklearn.model_selection import TimeSeriesSplit  # lazy
     # Lazy-import composite-internal transforms to break the import cycle (composite.py re-exports this module at the bottom; importing at module top would deadlock).
     from .. import _linear_residual_multi_fit
     y = np.asarray(y_train, dtype=np.float64).reshape(-1)
@@ -155,7 +157,7 @@ def forward_stepwise_multi_base(
             kf = GroupKFold(n_splits=max(2, min(int(cv_folds), int(np.unique(_groups_eff).size))))
             _use_groups = True
         else:
-            kf = KFold(n_splits=int(cv_folds), shuffle=True, random_state=int(random_state))
+            kf = make_discovery_splitter(int(cv_folds), random_state=int(random_state))[0]  # the one place a shuffled discovery KFold is built
 
         def _iter_splits():
             """Dispatch to the group-aware or plain split call depending on whether GroupKFold was selected above, so callers don't need to branch on `_use_groups` themselves."""

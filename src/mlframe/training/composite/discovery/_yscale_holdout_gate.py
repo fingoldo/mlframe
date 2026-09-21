@@ -42,6 +42,7 @@ from .screening import _extract_column_array, base_arg as _base_arg
 from ._causal_lag import is_causal_base_name
 from ._screening_tiny import _build_tiny_model
 from ._rejection_ledger import RejectStage, ledger_append
+from ._rejection_ledger import gate_error_reject as _gate_error_reject
 
 logger = logging.getLogger(__name__)
 
@@ -174,9 +175,9 @@ def apply_structural_fragility_gate(
             continue
         try:
             base = _extract_column_array(df, base_col, rows=rows).astype(np.float64)
-        except Exception as e:
-            logger.debug("base column extraction failed for %s, keeping spec as survivor: %s", base_col, e)
-            survivors.append(spec)
+        except Exception as e:  # the same base is read at predict: a base the gate cannot read cannot be served
+            # Logged and ledgered by the helper; kept out of ``rejected``, whose summary line formats fragility numbers.
+            _gate_error_reject(self, spec, [], RejectStage.STRUCTURAL_FRAGILITY, f"base column {base_col!r} could not be read ({type(e).__name__}: {e})")
             continue
         s = _inverse_base_sensitivity(spec, base)
         if s is None or s < s_min:
@@ -361,7 +362,8 @@ def apply_yscale_holdout_gate(
         try:
             transform = get_transform(spec.transform_name)
         except UnknownTransformError:
-            survivors.append(spec)  # cannot evaluate -> do not penalise
+            # Not in the registry, so it cannot be served either: keeping it would ship a spec no predict can invert.
+            _gate_error_reject(self, spec, rejected, RejectStage.YSCALE_HOLDOUT, "transform is not registered")
             continue
         params = dict(spec.fitted_params)
         base_cols = spec_base_columns(spec)
@@ -372,7 +374,7 @@ def apply_yscale_holdout_gate(
             if valid.shape != y_fit.shape:
                 valid = np.ones(y_fit.shape, dtype=bool)
         except Exception as e:
-            logger.debug("domain_check failed, treating all rows as valid: %s", e)
+            logger.warning("domain_check failed, treating all rows as valid: %s", e)
             valid = np.ones(y_fit.shape, dtype=bool)
         if int(valid.sum()) < 50:
             survivors.append(spec)
@@ -381,8 +383,7 @@ def apply_yscale_holdout_gate(
         try:
             t_fit = np.asarray(transform.forward(y_fit[valid], base_fit_v, params), dtype=np.float64)
         except Exception as exc:
-            logger.debug("[yscale_gate] forward failed for %s: %s", spec.name, exc)
-            survivors.append(spec)
+            _gate_error_reject(self, spec, rejected, RejectStage.YSCALE_HOLDOUT, f"forward raised {type(exc).__name__}: {exc}")
             continue
         # Fit the tiny model on the transformed target over the valid fit rows, predict on eval rows.
         try:
@@ -393,10 +394,13 @@ def apply_yscale_holdout_gate(
             model.fit(x_fit[valid], t_fit)
             t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
             # Smearing for curved unary inverses (see ``estimator._smearing``): judge the conditional mean of y.
-            y_hat = smeared_prediction(spec.transform_name, model, x_fit[valid], t_fit, t_hat, lambda t: transform.inverse(t, base_eval, params))
+            def _inverse(t: np.ndarray, _tr: Any = transform, _b: Any = base_eval, _p: Any = params) -> np.ndarray:
+                """Invert one transformed prediction with this spec's own transform, base and fitted params."""
+                return np.asarray(_tr.inverse(t, _b, _p), dtype=np.float64)
+
+            y_hat = smeared_prediction(spec.transform_name, model, x_fit[valid], t_fit, t_hat, _inverse)
         except Exception as exc:
-            logger.debug("[yscale_gate] fit/inverse failed for %s: %s", spec.name, exc)
-            survivors.append(spec)
+            _gate_error_reject(self, spec, rejected, RejectStage.YSCALE_HOLDOUT, f"fit/inverse raised {type(exc).__name__}: {exc}")
             continue
 
         finite = np.isfinite(y_hat)

@@ -63,8 +63,9 @@ def apply_base_leakage_guard(
             _barr = _extract_column_array(df, _bcand)[train_idx]
             _leak = detect_base_target_leakage(y_train, _barr, time_ordering=_to_train)
         except Exception as e:
-            logger.debug("base-target leakage check failed for %s, keeping candidate: %s", _bcand, e)
-            kept.append(_bcand)
+            # A leakage guard that keeps whatever it cannot check is off for exactly the bases it fails on; a base that cannot
+            # be read as a numeric column cannot serve as a composite base either.
+            dropped.append((_bcand, f"leakage check failed ({type(e).__name__}: {e})"))
             continue
         if _leak.get("is_leaky"):
             dropped.append((_bcand, _leak.get("reason", "")))
@@ -98,8 +99,7 @@ def order_rows_by_time(row_idx: np.ndarray, time_ordering: Any) -> np.ndarray | 
         return np.argsort(_time_all[_rows], kind="stable")
     except (TypeError, ValueError, IndexError) as _to_err:
         logger.warning(
-            "[CompositeTargetDiscovery] time_ordering supplied but could not order a consumer's sample (%s); "
-            "its split runs in row order.",
+            "[CompositeTargetDiscovery] time_ordering supplied but could not order a consumer's sample (%s); " "its split runs in row order.",
             _to_err,
         )
         return None

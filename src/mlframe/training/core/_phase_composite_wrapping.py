@@ -15,62 +15,21 @@ import numpy as np
 from ._prediction_memo import memo_predict
 
 # dependencies needed by the moved _run_composite_target_wrapping.
-# _ADDITIVE_TRANSFORMS is defined inside the function body itself, not at
-# module scope of any sibling -- the static analyzer flagged it as a missing
-# reference but Python resolves it from function-local scope.
-from ..composite import CompositeTargetEstimator, get_transform, _extract_base_matrix
+from ..composite import CompositeTargetEstimator
 from .._format import format_metric as _fmt, strip_shim_suffix as _strip
 from ._composite_wrap_helpers import build_composite_wrapper
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
-# Mirror parent's watchdog threshold so the moved function sees the same
-# value it did pre-split. Kept in sync with _phase_composite_post.py:48.
-_WATCHDOG_RELATIVE_THRESHOLD = 0.01
-
-
-def _watchdog_y_scale(y_split: Any) -> float:
-    """Robust y-scale (std of finite values) for the OOD watchdog, never raising.
-
-    A non-float (object / string) target slice makes ``np.std`` / ``np.isfinite`` raise, which the
-    watchdog's broad except swallows at DEBUG -- silently disabling the OOD check. Cast to float64 once
-    (numeric-as-object coerces cleanly); on any failure fall back to 1.0 so the watchdog stays armed.
-    """
-    try:
-        y = np.asarray(y_split, dtype=np.float64)
-        finite = y[np.isfinite(y)]
-        return float(np.std(finite)) or 1.0
-    except (TypeError, ValueError):
-        return 1.0
-
-
-def _watchdog_base_columns(spec: dict) -> tuple[str, ...]:
-    """Full ordered base-column tuple for a spec, mirroring the wrapper's ``_resolve_base_columns``.
-
-    Multi-base specs (``linear_residual_multi`` and any future multi-base transform) carry the secondary bases in ``extra_base_columns``; the
-    watchdog must feed the transform's ``forward``/``inverse`` the same ``(n, K)`` base matrix the wrapper uses, otherwise those calls raise
-    "base has 1 columns but fitted alphas has K entries" and the watchdog silently swallows the error -- leaving the multi-base family (exactly
-    the one most prone to wrapper-math bugs) with zero coverage. Single-base specs return a 1-tuple, so the 1-D fast path below is unchanged.
-    """
-    _bc = spec.get("base_column") if isinstance(spec, dict) else None
-    if not _bc:
-        return ()
-    _extra = tuple(spec.get("extra_base_columns") or ()) if isinstance(spec, dict) else ()
-    return (_bc, *_extra)
-
-
-def _watchdog_extract_base(split_df: Any, base_columns: tuple[str, ...]) -> np.ndarray:
-    """Extract the watchdog base array for ``base_columns`` from ``split_df``.
-
-    For a single base column returns a 1-D float64 array (bit-identical to the prior ``np.asarray(split_df[col]).astype(np.float64)`` pull);
-    for K>=2 columns returns the canonical ``(n, K)`` matrix via the same ``_extract_base_matrix`` helper the wrapper uses, so the transform's
-    ``forward``/``inverse`` see all K bases. Format-native (no whole-frame copy): single-col path stays a narrow column pull, multi-col path
-    routes through the polars ``.select`` / pandas ``.loc`` single-buffer extractor.
-    """
-    if len(base_columns) == 1:
-        return np.asarray(split_df[base_columns[0]]).astype(np.float64)
-    return _extract_base_matrix(split_df, base_columns)
+from ._composite_wrap_watchdog import (  # noqa: F401  (re-exported: tests and _phase_composite_post read them from here)
+    _WATCHDOG_RELATIVE_THRESHOLD,
+    _watchdog_base_columns,
+    _watchdog_extract_base,
+    _is_additive_in_t,
+    run_wrap_watchdog,
+    watchdog_sample,
+)
 
 
 def _emit_yscale_composite_chart(
@@ -501,9 +460,16 @@ def _run_composite_target_wrapping(
                     "[CompositeTargetEstimator] composite='%s': wrap done, "
                     "y-scale metric block SKIPPED (skip_wrap_pass_predict=True). "
                     "T-scale metrics already in the per-target training log; "
-                    "Pack G watchdog covers correctness for additive transforms.",
+                    "the watchdog checks a val sample.",
                     _composite_name,
                 )
+                _y_full_wd = target_by_type.get(_tt_w, {}).get(_orig_tname)
+                if enable_watchdog and _y_full_wd is not None and filtered_val_idx is not None and filtered_val_df is not None:
+                    _wd_df, _wd_y = watchdog_sample(filtered_val_df, np.asarray(_y_full_wd)[filtered_val_idx])
+                    for _entry in _entries:
+                        _wd_model = getattr(_entry, "model", None) or _entry
+                        if callable(getattr(_wd_model, "predict", None)):
+                            run_wrap_watchdog(_wd_model, _spec, _wd_df, _wd_y, composite_name=_composite_name, split_name="val")
                 # Even when the heavy multi-split metric block is skipped,
                 # emit a SINGLE test-split y-scale chart per composite entry
                 # so the operator gets the chart the user asked for.
@@ -562,10 +528,7 @@ def _run_composite_target_wrapping(
                 "composite_target_y_scale_metrics", {},
             ).setdefault(str(_tt_w), {}).setdefault(_composite_name, [])
             # Re-scored below per real model; ensemble rows (no model, scored by _record_ensemble_y_scale_metrics) stay.
-            _ens_names = {
-                getattr(e, "model_name", None) for e in _entries
-                if not callable(getattr(getattr(e, "model", None), "predict", None))
-            }
+            _ens_names = {getattr(e, "model_name", None) for e in _entries if not callable(getattr(getattr(e, "model", None), "predict", None))}
             _metrics_dict[:] = [row for row in _metrics_dict if row.get("model_name") in _ens_names]
             _y_full_metric = target_by_type.get(_tt_w, {}).get(_orig_tname)
             if _y_full_metric is None:
@@ -684,154 +647,16 @@ def _run_composite_target_wrapping(
                                     _composite_name,
                                     _chart_err,
                                 )
-                        # Watchdog short-circuit when caller disabled it.
-                        # The check below does an extra wrapper.predict + inner.predict
-                        # per (entry, split) so a wide model zoo can pay 10s+ on 4M-row
-                        # frames. Caller passes ``enable_watchdog=False`` to skip.
-                        if not enable_watchdog:
-                            continue
-                        # Pack G runtime watchdog: detects when wrapper math
-                        # silently breaks. Pre-fix this covered only additive
-                        # transforms via the ``error_T == error_y`` invariant.
-                        # The extended check below works for ALL transforms
-                        # via the fundamental contract: ``wrapper.predict(X)``
-                        # must equal ``transform.inverse(inner.predict(X),
-                        # base, params)`` modulo y-clip. If they diverge, the
-                        # wrapper's predict path is corrupted (entry-mutation
-                        # cache stale, inner double-scaled via TTR state loss,
-                        # base column mismatch).
-                        #
-                        # Additive transforms ALSO get the original
-                        # ``error_T == error_y`` check (legacy) since that's
-                        # a stricter assertion (the MAE numbers must agree,
-                        # not just per-row predictions).
-                        try:
-                            _spec_t_name = _spec.get("transform_name") if isinstance(_spec, dict) else None
-                            # Universal predict-vs-inverse-of-inner check (works for ALL transforms including multiplicative).
-                            # If wrapper.predict diverges from manually-reconstructed inverse(inner.predict, base, params), the wrapper math is broken.
-                            try:
-                                _wi_uni = getattr(_wrapper_for_score, "estimator_", None)
-                                # Resolve the FULL base set (primary + extra_base_columns) so multi-base specs feed the transform's
-                                # inverse the same (n, K) matrix the wrapper uses; a 1-D pull would raise the alphas-width mismatch and
-                                # the watchdog would swallow it at DEBUG, leaving linear_residual_multi entirely uncovered.
-                                _bcs_uni = _watchdog_base_columns(_spec)
-                                if _wi_uni is not None and _spec_t_name and _bcs_uni and all(_c in _split_df for _c in _bcs_uni):
-                                    _bivar_uni = get_transform(_spec_t_name)
-                                    _base_uni = _watchdog_extract_base(_split_df, _bcs_uni)
-                                    # Memoised: the additive check below predicts the same inner on the same frame.
-                                    _t_pred_uni = memo_predict(_wi_uni, _split_df)
-                                    _y_reconstructed = _bivar_uni.inverse(
-                                        _t_pred_uni, _base_uni,
-                                        _spec.get("fitted_params", {}),
-                                    )
-                                    _ru = _y_pred - _y_reconstructed
-                                    _fu = np.isfinite(_ru)
-                                    if int(_fu.sum()) > 0:
-                                        _max_dev = float(np.max(np.abs(_ru[_fu])))
-                                        _y_scale = _watchdog_y_scale(_y_split)
-                                        _rel = _max_dev / _y_scale
-                                        # ``_WATCHDOG_RELATIVE_THRESHOLD`` (module-level) carries the rationale; tune there.
-                                        if _rel > _WATCHDOG_RELATIVE_THRESHOLD:
-                                            log_throttle(
-                                                logger, "composite_wrap_watchdog_universal_divergence", logging.WARNING,
-                                                "[CompositeTargetEstimator.watchdog.universal] "
-                                                "composite='%s' split='%s' transform=%s inner=%s: "
-                                                "wrapper.predict diverges from "
-                                                "transform.inverse(inner.predict, base, params) "
-                                                "by max abs=%.4f (%.2f%% of y_std). Wrapper "
-                                                "math broken. (additive-error invariant check "
-                                                "may also fire below for additive transforms.)",
-                                                _composite_name, _split_name, _spec_t_name,
-                                                type(_wi_uni).__name__, _max_dev, _rel * 100.0,
-                                            )
-                            except Exception as _uni_err:
-                                logger.debug(
-                                    "[CompositeTargetEstimator.watchdog.universal] check "
-                                    "failed for composite='%s' split='%s': %s",
-                                    _composite_name, _split_name, _uni_err,
-                                )
-                            if _spec_t_name and _is_additive_in_t(_spec_t_name):
-                                _wi = getattr(_wrapper_for_score, "estimator_", None)
-                                # Full base set including extra_base_columns: linear_residual_multi is additive but its forward needs the
-                                # (n, K) matrix. Building a 1-D base here is what previously raised the alphas-width ValueError and was
-                                # swallowed at DEBUG below, leaving this family with no T-MAE invariant coverage.
-                                _bcs_add = _watchdog_base_columns(_spec)
-                                if _wi is not None and _bcs_add and all(_c in _split_df for _c in _bcs_add):
-                                    _bivar = get_transform(_spec_t_name)
-                                    _base_arr = _watchdog_extract_base(_split_df, _bcs_add)
-                                    _t_true = _bivar.forward(
-                                        _y_split.astype(np.float64),
-                                        _base_arr,
-                                        _spec.get("fitted_params", {}),
-                                    )
-                                    _t_pred = memo_predict(_wi, _split_df)
-                                    _dt = _t_pred - _t_true
-                                    _ft = np.isfinite(_dt)
-                                    if int(_ft.sum()) > 0:
-                                        _mae_t = float(np.mean(np.abs(_dt[_ft])))
-                                        _drel = abs(_mae_t - _mae_wrapped) / max(_mae_t, 1e-9)
-                                        if _drel > 0.01:
-                                            # Pack #9 diagnostic dump: when the watchdog fires we want enough info in the log to ROOT-CAUSE the divergence on the next production run without re-running. Surface first 5 (y_true, y_pred, T_true, T_pred) tuples + per-inner statistics so the operator can see WHERE the divergence enters: the wrapper math (T_pred vs T_true), the inverse path (T_pred -> y_pred), or the post-clip step.
-                                            _n_dbg = min(5, int(_ft.sum()))
-                                            _dbg_rows = []
-                                            _ft_idx = np.flatnonzero(_ft)[:_n_dbg]
-                                            _base_is_multi = _base_arr.ndim > 1
-                                            for _i in _ft_idx:
-                                                # Multi-base specs carry a (n, K) base matrix; render the row as a bracketed K-vector,
-                                                # so the dump stays readable instead of crashing on ``%.4f`` of an array.
-                                                _base_repr = (
-                                                    "[" + ", ".join(f"{_v:.4f}" for _v in _base_arr[_i]) + "]" if _base_is_multi else f"{_base_arr[_i]:.4f}"
-                                                )
-                                                _dbg_rows.append(
-                                                    f"y={_y_split[_i]:.4f}, "
-                                                    f"y_hat={_y_pred[_i]:.4f}, "
-                                                    f"T={_t_true[_i]:.4f}, "
-                                                    f"T_hat={_t_pred[_i]:.4f}, "
-                                                    f"base={_base_repr}"
-                                                )
-                                            _y_resid_sample = _y_pred[_ft_idx] - _y_split[_ft_idx]
-                                            _t_resid_sample = _dt[_ft_idx]
-                                            log_throttle(
-                                                logger, "composite_wrap_watchdog_additive_divergence", logging.WARNING,
-                                                "[CompositeTargetEstimator.watchdog] "
-                                                "composite='%s' split='%s' inner=%s: "
-                                                "y-MAE=%.4f diverges from T-MAE=%.4f "
-                                                "by %.1f%% (>1%%). Additive-invertible "
-                                                "transform should give identical errors. "
-                                                "Probable causes: (1) inner.predict NOT "
-                                                "returning T-scale (TTR transformer_ "
-                                                "state lost via clone/pickle), (2) "
-                                                "wrapper.predict double-applies inverse, "
-                                                "(3) base column at predict differs from "
-                                                "fit. Diagnostic sample of first %d rows: "
-                                                "%s. y-residuals first %d: %s; T-residuals "
-                                                "first %d: %s.",
-                                                _composite_name, _split_name,
-                                                type(_wi).__name__,
-                                                _mae_wrapped, _mae_t, _drel * 100.0,
-                                                _n_dbg, " | ".join(_dbg_rows),
-                                                _n_dbg,
-                                                ", ".join(f"{v:.4f}" for v in _y_resid_sample.tolist()),
-                                                _n_dbg,
-                                                ", ".join(f"{v:.4f}" for v in _t_resid_sample.tolist()),
-                                            )
-                        except Exception as _watchdog_err:
-                            logger.debug(
-                                "[CompositeTargetEstimator.watchdog] check failed for "
-                                "composite='%s' split='%s': %s",
-                                _composite_name, _split_name, _watchdog_err,
-                            )
+                        # Independent-oracle watchdog (see ``_composite_wrap_watchdog``); ``enable_watchdog=False`` skips its extra predicts.
+                        if enable_watchdog:
+                            run_wrap_watchdog(_wrapper_for_score, _spec, _split_df, _y_split, composite_name=_composite_name, split_name=_split_name)
                     except Exception as _split_err:
-                        # Per-split metric block can fail on shape / predict
-                        # mismatch (especially during composite-target rerank
-                        # where wrapper.predict may raise on edge geometries).
-                        # Log at DEBUG so per-target failures are visible in
-                        # verbose logs without spamming WARN -- caller still
-                        # gets the model in metadata; just missing this entry's
-                        # split metrics.
-                        logger.debug(
-                            "[composite y-scale metrics] split='%s' composite='%s' skipped: %s",
-                            _split_name, _composite_name, _split_err,
+                        # A composite whose predict raises would otherwise vanish from the y-scale verdict with only a DEBUG line;
+                        # the model stays in metadata, but its missing split metrics must be visible.
+                        log_throttle(
+                            logger, "composite_yscale_split_metrics_failed", logging.WARNING,
+                            "[composite y-scale metrics] split='%s' composite='%s' skipped: %s: %s",
+                            _split_name, _composite_name, type(_split_err).__name__, _split_err,
                         )
                         continue
                 _metrics_dict.append({
@@ -864,18 +689,3 @@ def _run_composite_target_wrapping(
                             " | ".join(_y_summary_parts),
                         )
     return _train_pred_cache
-
-
-def _is_additive_in_t(transform_name: str) -> bool:
-    """True when the ``MAE_T == MAE_y`` watchdog invariant holds for this transform.
-
-    Read off ``Transform.additive_in_t``: the hand-kept list included ``quantile_residual`` (``y = T * IQR + median``, so the
-    invariant never holds and the watchdog false-fired) and missed most additive transforms. An out-of-fold train forward
-    (target encoding) answers the fit rows differently from the inverse, so it is left out too.
-    """
-    try:
-        t = get_transform(transform_name)
-    except (KeyError, ValueError):
-        return False
-    return bool(getattr(t, "additive_in_t", False)) and not getattr(t, "oof_train_forward", False)
-

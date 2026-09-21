@@ -69,6 +69,7 @@ from ..transforms.unary import (
     signed_power_y_inverse as _sp_inv,
 )
 from ._lgb_fold_cache import LgbFoldCache
+from ._splitter import discovery_splits
 from ._screening_tiny import _build_tiny_model
 from .screening import _mi_to_target
 
@@ -221,8 +222,13 @@ def _y_scale_cv_rmse(
     learning_rate: float,
     fold_cache: Optional[LgbFoldCache] = None,
     inner_n_jobs: int = 1,
+    groups: Any = None,
+    time_aware: bool = False,
 ) -> Tuple[float, float]:
     """Tiny-CV RMSE on the ORIGINAL y-scale for one transform (``None`` = raw y).
+
+    Folds come from ``make_discovery_splitter`` with the rerank's groups and time order, so a chain admitted here is judged
+    on the same kind of folds as every other spec (shuffled folds reward per-group memorisation and look-ahead).
 
     Per fold: fit ``transform`` on the train rows, forward to ``T``, fit a tiny
     GBM ``T ~ X`` on train, predict ``T_hat`` on val, invert ``T_hat -> y_hat``
@@ -237,8 +243,6 @@ def _y_scale_cv_rmse(
     would flatter the chain. Identical handling for every candidate keeps the
     comparison apples-to-apples.
     """
-    from sklearn.model_selection import KFold
-
     y = np.asarray(y, dtype=np.float64)
     n = y.size
     if n < cv_folds * 10:
@@ -247,10 +251,9 @@ def _y_scale_cv_rmse(
     if transform is not None:
         dom = np.asarray(transform.domain_check(y, base), dtype=bool)
         valid_frac = float(dom.mean()) if dom.size else 0.0
-    kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
     sse = 0.0
     cnt = 0
-    for fold_id, (tr_idx, va_idx) in enumerate(kf.split(x_matrix)):
+    for fold_id, (tr_idx, va_idx) in enumerate(discovery_splits(n, cv_folds, groups=groups, time_aware=time_aware, random_state=random_state)):
         if fold_cache is not None and fold_cache.has_fold(fold_id):
             # The fold's binned dataset holds its train rows and the cache kept its holdout slice: no per-candidate copies.
             x_tr, x_va = None, fold_cache.holdout(fold_id)
@@ -351,14 +354,17 @@ def _single_stage_rmses(res_names: Sequence[str], un_names: Sequence[str], cv_kw
     return residual_rmse, unary_rmse
 
 
-def _fitted_chain_candidate(chain_tf: Transform, res: str, un: str, *, y: np.ndarray, base: np.ndarray, **scores: float) -> ChainCandidate:
-    """A winning chain fitted once on all in-domain rows, so the candidate carries usable params."""
+def _fitted_chain_candidate(chain_tf: Transform, res: str, un: str, *, y: np.ndarray, base: np.ndarray, **scores: float) -> Optional[ChainCandidate]:
+    """A winning chain fitted once on all in-domain rows, so the candidate carries usable params; ``None`` when that fit fails.
+
+    A failed fit used to leave the candidate with empty params, a spec whose inverse raises on the first predict.
+    """
     dom = np.asarray(chain_tf.domain_check(y, base), dtype=bool)
     try:
         params = chain_tf.fit(y[dom], base[dom])
     except Exception as e:
-        logger.debug("chain transform fit failed: %s", e)
-        params = {}
+        logger.warning("[auto_chain] dropping chain %s: its fit on the in-domain rows failed (%s: %s).", chain_tf.name, type(e).__name__, e)
+        return None
     return ChainCandidate(
         chain_name=chain_tf.name, short_name=_short(res, un), residual_name=res, unary_name=un,
         transform=chain_tf, fitted_params=params, **scores,
@@ -386,6 +392,8 @@ def discover_chains(
     mi_n_neighbors: int = 3,
     top_k: int = 3,
     inner_n_jobs: int = 1,
+    groups: Any = None,
+    time_aware: bool = False,
 ) -> List[ChainCandidate]:
     """Search ``residual x unary`` chains; return those that beat BOTH single stages.
 
@@ -462,7 +470,7 @@ def discover_chains(
         y=y, base=base, x_matrix=x_matrix, cv_folds=cv_folds,
         random_state=random_state, family=family, n_estimators=n_estimators,
         num_leaves=num_leaves, learning_rate=learning_rate,
-        fold_cache=fold_cache, inner_n_jobs=inner_n_jobs,
+        fold_cache=fold_cache, inner_n_jobs=inner_n_jobs, groups=groups, time_aware=time_aware,
     )
 
     raw_rmse, _ = _y_scale_cv_rmse(None, **cv_kw)
@@ -499,9 +507,11 @@ def discover_chains(
                     mi_estimator=mi_estimator, mi_nbins=mi_nbins,
                     mi_n_neighbors=mi_n_neighbors, random_state=random_state,
                 )
-            candidates.append(_fitted_chain_candidate(
+            cand = _fitted_chain_candidate(
                 chain_tf, res, un, y=y, base=base, rmse=cr, residual_rmse=rr, unary_rmse=ur,
                 raw_rmse=raw_rmse, margin=margin, mi_gain=mg, valid_domain_frac=vf,
-            ))
+            )
+            if cand is not None:
+                candidates.append(cand)
     candidates.sort(key=lambda c: c.rmse)
     return candidates[:top_k]

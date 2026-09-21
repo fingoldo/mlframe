@@ -631,13 +631,14 @@ def _select_diverse_topm(history: list, top_m: int, min_l2_distance: float = 0.3
         return v
 
     kept = [sorted_h[0]]
-    kept_dirs = [_padded_vec(sorted_h[0][3], sorted_h[0][4]) / (np.linalg.norm(_padded_vec(sorted_h[0][3], sorted_h[0][4])) + 1e-12)]
+    from ._safe_scale import unit_vector
+
+    kept_dirs = [unit_vector(_padded_vec(sorted_h[0][3], sorted_h[0][4]))]
     for entry in sorted_h[1:]:
         if len(kept) >= top_m:
             break
         cand_vec = _padded_vec(entry[3], entry[4])
-        cn = np.linalg.norm(cand_vec) + 1e-12
-        cand_dir = cand_vec / cn
+        cand_dir = unit_vector(cand_vec)
         is_diverse = True
         for k_dir in kept_dirs:
             cos_sim = float(abs(np.dot(cand_dir, k_dir)))

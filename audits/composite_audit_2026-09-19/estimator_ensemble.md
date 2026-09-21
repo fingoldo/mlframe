@@ -119,7 +119,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Test to add**:
   - A default-config suite run with a corrupted base column at predict time, asserting a WARNING.
   - A `quantile_residual` run with a correct wrapper, asserting no watchdog WARNING.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The watchdog moved to `core/_composite_wrap_watchdog.py`; each part is handled as follows. (a) With the default skip of the metric block it checks a 2,000-row val sample per composite. (b) The self-comparing universal check is gone. In its place, an independent base-read check compares the base the wrapper reads at predict with the spec's base columns read from the split frame. The additive check takes its true T from the split's real y and base, reads T-hat through the wrapper's own inner input (its pre-pipeline applied, the group column dropped), and skips rows the y-clip pinned or that lie outside the fitted base range, so the clip and the soft shrink cannot trip it. (c)/(e) The additive set is read off `Transform.additive_in_t` (00ce5dbc6). (d) Grouped transforms get the wrapper's `group_column` groups. (f) A check that cannot run, and a split whose predict raises, log at WARNING. Tests: tests/training/composite/estimator/test_wrap_watchdog_oracle.py (the skip-path and split-failure cases fail on the pre-fix wrapping module) and the reframed tests/training/test_regression_watchdog_yscale_object_target.py.
 
 ### EST-09 [P2] The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit
 
@@ -150,7 +150,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Component selection and weighting depend on split drift rather than skill.
 - **Suggested fix**: Evaluate the strongest dummy on the same OOF rows (dummies are cheap: fit per fold, or reuse the in-pool `lag_predict` OOF column, which is already there when injected). Use that as both the floor and the baseline. Keep the val-split dummy only for reporting.
 - **Test to add**: Build a val period with twice the train noise and assert that a component beating the dummy on OOF is not dropped by the floor.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `same_split_dummy_rmse` measures the dummy floor, and the `oof_weighted` baseline, on the same OOF rows as the components: the in-pool `lag_predict` OOF column, else the strongest constant strategy on the OOF targets. The val-split value is used only when neither applies, with a WARNING. Tests: tests/training/composite/discovery/test_scorer_invariance.py (fails pre-fix).
 
 ### EST-12 [P2] `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path
 
@@ -186,7 +186,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Recurrent composites are mis-weighted or dropped by the dummy floor for reasons unrelated to their skill.
 - **Suggested fix**: For components whose transform is `recurrent`, use contiguous-block K-fold (`KFold(shuffle=False)` or `TimeSeriesSplit` on the time order), or exclude them from shuffled OOF and fall back to the train-RMSE proxy with a WARNING.
 - **Test to add**: Create an AR(1) target where `ewma_residual` is the true DGP. Assert that its OOF RMSE under the chosen splitter is within 20% of its contiguous-holdout RMSE.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. With no time or group signal, the ensemble's outer K-fold OOF split comes from `_plain_oof_splitter`. It gives contiguous blocks (unshuffled KFold via the factory) whenever any component's transform is `recurrent`, so the EWMA / rolling / frac-diff state runs over adjacent rows. On unordered rows contiguous blocks are an ordinary partition. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).
 
 ### EST-16 [P3] The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level
 
@@ -195,7 +195,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: The OOF surface is slightly optimistic for grouped transforms and uses a different estimator for weighted suites.
 - **Suggested fix**: Use the estimator's signature-gated kwargs (`_callable_accepts_param`) to pass `groups` and `sample_weight` fold slices, and log the fallback at WARNING with the transform name.
 - **Test to add**: Spy on `linear_residual_grouped.fit` in a K-fold OOF call and assert that it receives `groups` of fold length.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Both refit sites now go through `_refit_fold_params`, which calls `call_transform` with the fold's `groups` (the suite's row-aligned `group_ids`, sliced to the fold's train rows) and `sample_weight`; the gateway passes each one only where the fit declares it. The forward gets the fold's groups the same way. A refit that still fails logs at WARNING, naming the transform. The OOF wrapper takes the deployed component's `group_column`, so a grouped component predicts its holdout. Before this, a grouped component raised in the forward on every fold and dropped out of the ensemble entirely. The external-holdout path fits on the full train and predicts a separate frame, so the full-train params are the correct ones there: no refit is needed. Tests: tests/training/composite/ensemble/test_oof_fold_refit_groups_and_weights.py (both fail pre-fix).
 
 ### EST-17 [P3] OOF refits reuse the entry's pre_pipeline, fitted on the full train (including supervised MRMR/RFECV selection that saw each fold's holdout y)
 
@@ -222,7 +222,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Non-reproducible predictions, and the fill value uses information from the test batch.
 - **Suggested fix**: Call `_lag_model.fit(filtered_train_df)` when injecting it (as the MoE path does), and make `predict` raise, or use a stored constant, when unfitted.
 - **Test to add**: Predict the deployed lag component on two batches that differ only in their other rows, and assert that the fill for a shared NaN row is identical.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The injected `lag_predict` is fitted on the train frame when it is added to the cross-target ensemble; if its lag column cannot be read there it is not injected, with a WARNING. An unfitted model no longer takes the median of the batch it is predicting to fill a missing lag: it raises `NotFittedError`. The MoE path already fitted its copy. Tests: tests/training/composite/estimator/test_cte_row_purity.py (a shared NaN row gets the train median in any batch; unfitted raises).
 
 ### EST-20 [P3] `predict` / `predict_quantile` change shared state without synchronisation
 
@@ -231,7 +231,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: The monitoring counters and per-row OOD flags are not reliable under concurrency.
 - **Suggested fix**: Guard the counter update with a lock that is excluded from `__getstate__`, and return the shrink info from an explicit `predict(..., return_info=True)` instead of storing it on the instance, or store it in thread-local storage.
 - **Test to add**: 8 threads x 100 predicts; assert `runtime_stats_["predict_calls"] == 800`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The `runtime_stats_` read-modify-writes run under a module-level lock (nothing lock-shaped on the picklable estimator), and the callback reports a snapshot taken inside it. `soft_shrink_info_` is now a property backed by a per-thread `WeakKeyDictionary`, so each caller reads the flags of its own batch. Test: 8 threads x 150 predicts with the switch interval cut to 1 us. Before the fix, threads read other threads' shrink flags on every run; after it, all 1200 calls are counted and every thread sees its own batch.
 
 ### EST-21 [P3] `from_fitted_inner` cannot express grouped transforms or recurrence continuation
 

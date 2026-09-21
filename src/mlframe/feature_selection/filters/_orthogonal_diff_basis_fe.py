@@ -48,6 +48,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from .hermite_fe import _POLY_BASES
@@ -411,7 +413,7 @@ def generate_diff_basis_features(
         baseline_a = float(raw_mi_map.get(col_a, 0.0))
         baseline_b = float(raw_mi_map.get(col_b, 0.0))
         baseline = max(baseline_a, baseline_b)
-        uplift = emi / (baseline + 1e-12)
+        uplift = relative_uplift(emi, baseline)
         if uplift < float(min_uplift):
             continue
         if emi < abs_floor:

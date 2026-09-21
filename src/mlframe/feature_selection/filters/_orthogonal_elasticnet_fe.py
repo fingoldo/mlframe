@@ -51,6 +51,8 @@ import warnings
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
@@ -207,7 +209,7 @@ def score_features_by_elasticnet_coef(
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         baseline = float(raw_coef_map.get(source, 0.0))
         emi = float(eng_coefs[j])
-        uplift = emi / (baseline + 1e-12)
+        uplift = relative_uplift(emi, baseline)
         rows.append({
             "engineered_col": eng_name,
             "source_col": source,

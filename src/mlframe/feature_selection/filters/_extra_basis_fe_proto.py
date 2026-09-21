@@ -30,7 +30,9 @@ __all__ = [
 def _to_unit(x: np.ndarray) -> np.ndarray:
     """Affinely map ``x`` to [0, 1] using its own min/range; +1e-12 guards against a zero-range (constant) column."""
     c = np.asarray(x, dtype=np.float64)
-    return np.asarray((c - c.min()) / (np.ptp(c) + 1e-12))
+    from ._safe_scale import unit_interval
+
+    return np.asarray(unit_interval(c))
 
 
 def _to_pm1(x: np.ndarray) -> np.ndarray:

@@ -71,3 +71,19 @@ def ledger_append(
         })
     except Exception as e:  # -- ledger is observability-only; never let it break a fit  # nosec B110
         logger.debug("rejection-ledger append failed: %s", e)
+
+
+def gate_error_reject(self, spec: Any, rejected: list, stage: str, reason: str, *, with_score: bool = True) -> None:
+    """Reject ``spec`` because the gate could not evaluate it, logging at WARNING and recording the stage.
+
+    A gate that keeps a spec whenever evaluating it raises is disabled for exactly the specs that fail, and the forward or
+    inverse that raised on the gate's rows raises again at predict time. ``rejected`` takes ``(name, reason, inf)`` or,
+    with ``with_score=False``, ``(name, reason)``, matching the gate's own rejection list.
+    """
+    name = getattr(spec, "name", str(spec))
+    logger.warning("[CompositeTargetDiscovery.%s] rejecting %s: %s", stage, name, reason)
+    rejected.append((name, reason, float("inf")) if with_score else (name, reason))
+    ledger_append(
+        self, spec_name=name, stage=stage, reason=reason,
+        base_column=getattr(spec, "base_column", ""), transform_name=getattr(spec, "transform_name", ""),
+    )

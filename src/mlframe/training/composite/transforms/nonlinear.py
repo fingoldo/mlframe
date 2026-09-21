@@ -486,7 +486,7 @@ def _monotonic_residual_fit(
         try:
             direction = _spearman_sign(base_clean, y_clean)
         except Exception as e:
-            logger.debug("_spearman_sign failed, defaulting to positive orientation: %s", e)
+            logger.warning("_spearman_sign failed, defaulting to positive orientation: %s", e)
             direction = 1
     else:
         direction = 1

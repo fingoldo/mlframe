@@ -14,6 +14,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ..hermite_fe import _POLY_BASES, basis_route_by_moments
@@ -328,7 +330,7 @@ def score_pair_cross_basis_by_mi_uplift(
         baseline_j = float(raw_mi_map.get(col_j, 0.0))
         baseline = max(baseline_i, baseline_j)
         emi = float(eng_mi[j])
-        uplift = emi / (baseline + 1e-12)
+        uplift = relative_uplift(emi, baseline)
         rows.append({
             "engineered_col": eng_name,
             "source_col_i": col_i,

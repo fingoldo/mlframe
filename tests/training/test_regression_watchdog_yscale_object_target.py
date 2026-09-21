@@ -1,41 +1,41 @@
-"""Regression: the composite OOD watchdog must compute y-scale on an object/string target slice.
+"""Regression: the composite wrap-pass watchdog must still check a model whose target slice is an object array.
 
-Pre-fix ``np.std(_y_split[np.isfinite(_y_split)])`` ran on the raw (possibly object-dtype) target
-slice; a non-float slice raised, the watchdog swallowed it at DEBUG, and the OOD check was silently
-disabled. ``_watchdog_y_scale`` casts to float64 once and never raises.
+``np.isfinite`` raises on an object-dtype slice, and the old watchdog swallowed that at DEBUG, so a schema-drifted target
+(numbers stored as objects) silently switched the check off. The watchdog now casts the target to float64 once; a target
+that cannot be cast reports that the check could not run, at WARNING.
 """
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
-from mlframe.training.core._phase_composite_wrapping import _watchdog_y_scale
+from mlframe.training.core._composite_wrap_watchdog import run_wrap_watchdog
+
+from tests.training.composite.estimator.test_wrap_watchdog_oracle import _grouped_wrapper, _watchdog_warnings
 
 
-def test_object_dtype_numeric_target_yields_finite_scale():
-    # numeric values stored in an object array (the schema-drift case that broke np.std/np.isfinite).
-    """Object dtype numeric target yields finite scale."""
-    y = np.array([1.0, 2.0, 3.0, 4.0, np.nan], dtype=object)
-    # Pre-fix shape raised on the object array:
+def test_object_dtype_numeric_target_is_still_checked(caplog, monkeypatch):
+    """Numbers stored as objects: a drifted prediction is still caught, so the check ran."""
+    wrapper, spec, df, y = _grouped_wrapper()
+    y_obj = y.astype(object)
     try:
-        np.isfinite(y)
+        np.isfinite(y_obj)
         raised = False
     except TypeError:
         raised = True
-    assert raised, "object-dtype target must trip the pre-fix np.isfinite path"
-
-    scale = _watchdog_y_scale(y)
-    assert np.isfinite(scale) and scale > 0
-
-
-def test_float_target_matches_plain_std():
-    """Float target matches plain std."""
-    y = np.array([1.0, 5.0, 9.0, np.inf])
-    expected = float(np.std(y[np.isfinite(y)])) or 1.0
-    assert _watchdog_y_scale(y) == expected
+    assert raised, "an object-dtype target must trip a bare np.isfinite"
+    orig = wrapper.predict
+    monkeypatch.setattr(wrapper, "predict", lambda X, inner_X=None: np.asarray(orig(X)) + 0.5)
+    with caplog.at_level(logging.WARNING):
+        run_wrap_watchdog(wrapper, spec, df, y_obj, composite_name="c", split_name="val")
+    assert any("y-MAE" in m for m in _watchdog_warnings(caplog))
 
 
-def test_genuinely_nonnumeric_target_falls_back_to_one():
-    """Genuinely nonnumeric target falls back to one."""
-    y = np.array(["a", "b", "c"], dtype=object)
-    assert _watchdog_y_scale(y) == 1.0
+def test_genuinely_nonnumeric_target_is_reported_not_swallowed(caplog):
+    """A target that cannot be cast to float reports that the check could not run."""
+    wrapper, spec, df, y = _grouped_wrapper()
+    with caplog.at_level(logging.WARNING):
+        run_wrap_watchdog(wrapper, spec, df, np.array(["a"] * len(y), dtype=object), composite_name="c", split_name="val")
+    assert any("could not run" in m for m in _watchdog_warnings(caplog))

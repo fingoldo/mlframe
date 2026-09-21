@@ -65,6 +65,8 @@ import os
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ._orthogonal_shared import coerce_y_classif
@@ -435,7 +437,7 @@ def score_features_by_kfold_oof_mi(
     for j, eng_name in enumerate(eng_cols):
         baseline = float(raw_mi_map.get(src_map[eng_name], 0.0))
         emi = float(eng_mi[j])
-        uplift = emi / (baseline + 1e-12)
+        uplift = relative_uplift(emi, baseline)
         rows.append({
             "engineered_col": eng_name,
             "source_col": src_map[eng_name],

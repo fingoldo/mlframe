@@ -51,6 +51,7 @@ from ..estimator._smearing import N_SMEAR_QUANTILES, SMEARED_TRANSFORMS, smeared
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array
 from ._rejection_ledger import RejectStage, ledger_append
+from ._rejection_ledger import gate_error_reject as _gate_error_reject
 from ._screening_tiny import _build_tiny_model
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ def _spec_fit_mask(transform, y_fit, base_fit, params, spec_name: str) -> np.nda
         if valid.shape != y_fit.shape:
             valid = np.ones(y_fit.shape, dtype=bool)
     except Exception as e:
-        logger.debug("domain_check failed, treating all rows as valid: %s", e)
+        logger.warning("domain_check failed, treating all rows as valid: %s", e)
         valid = np.ones(y_fit.shape, dtype=bool)
     _dcf = getattr(transform, "domain_check_fitted", None)
     if _dcf is not None:
@@ -191,8 +192,8 @@ def apply_honest_rmse_gate(
     for spec in kept_specs:
         try:
             transform = get_transform(spec.transform_name)
-        except UnknownTransformError:
-            survivors.append(spec)  # cannot evaluate -> never penalise
+        except UnknownTransformError:  # not in the registry, so no predict can invert it either
+            _gate_error_reject(self, spec, rejected, RejectStage.HONEST_RMSE, "transform is not registered", with_score=False)
             continue
         params = dict(spec.fitted_params)
         base_cols = spec_base_columns(spec)
@@ -211,10 +212,14 @@ def apply_honest_rmse_gate(
                 # Score the spec the way the trained composite will predict: with smearing for the curved unary inverses,
                 # so a log/cbrt target is judged on the conditional mean of y, not on the (lower) geometric mean.
                 _q = _last_residual_q["q"] if spec.transform_name in SMEARED_TRANSFORMS else None
-                y_hat = smeared_inverse(lambda t: transform.inverse(t, base_eval, params), t_hat, _q)
-        except Exception as exc:  # -- a spec the tiny pipeline cannot evaluate keeps its MI verdict
-            logger.debug("honest_rmse_gate fit/inverse failed for %s: %s", spec.name, exc)
-            survivors.append(spec)
+                def _inverse(t: np.ndarray, _tr: Any = transform, _b: Any = base_eval, _p: Any = params) -> np.ndarray:
+                    """Invert one transformed prediction with this spec's own transform, base and fitted params."""
+                    return np.asarray(_tr.inverse(t, _b, _p), dtype=np.float64)
+
+                y_hat = smeared_inverse(_inverse, t_hat, _q)
+        except Exception as exc:
+            # The same forward/inverse raises at predict time on rows like these; keeping the spec disabled the gate for it.
+            _gate_error_reject(self, spec, rejected, RejectStage.HONEST_RMSE, f"fit/inverse raised {type(exc).__name__}: {exc}", with_score=False)
             continue
 
         finite = np.isfinite(y_hat)

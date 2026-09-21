@@ -37,6 +37,8 @@ from typing import Any, Callable, cast
 
 import numpy as np
 
+from mlframe.feature_selection.filters._safe_scale import _REL_TOL, guarded_scale
+
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 from numpy.polynomial.hermite_e import hermeval  # probabilist's Hermite
 from numpy.polynomial.legendre import legval
@@ -490,12 +492,12 @@ def _preprocess_zscore(x):
         center = float(np.median(xf))
         lo, hi = _robust_lo_hi(x)
         std = float((hi - lo) / 6.0)  # inner-quantile range ~ 6 sigma for a Gaussian core; matches z-score scale.
-        std = std if std > 1e-12 else (float(np.std(xf)) + 1e-12)
+        std = std if std > 1e-12 else float(guarded_scale(np.std(xf), np.abs(xf).max()))
         clip = 6.0  # +/-6 robust sigma covers the trimmed core; clipped extremes pin to the working-domain edge.
         z = np.clip((x - center) / std, -clip, clip)
         return z, dict(mean=center, std=std, clip=clip)
     mean = float(np.mean(x))
-    std = float(np.std(x) + 1e-12)
+    std = float(guarded_scale(np.std(x), np.abs(x).max()))
     return (x - mean) / std, dict(mean=mean, std=std)
 
 
@@ -522,7 +524,10 @@ def _minmax_neg1_1_njit(x: np.ndarray):
     if nan_seen:
         lo = np.nan
         hi = np.nan
-    span = hi - lo + 1e-12
+    span = hi - lo
+    mag = abs(lo) if abs(lo) > abs(hi) else abs(hi)
+    if not (span > _REL_TOL * mag):  # a NaN span falls here too and still propagates through lo below
+        span = 1.0
     out = np.empty(n, dtype=np.float64)
     for i in range(n):
         out[i] = 2.0 * (x[i] - lo) / span - 1.0
@@ -535,7 +540,7 @@ def _preprocess_minmax_neg1_1(x):
         # Min-max onto [-1, 1] from the inner-quantile bounds; clamp so clipped outliers pin to +/-1 (the basis domain edge)
         # instead of compressing the core toward 0. clip is implied (the [-1, 1] clamp), recorded so replay matches.
         lo, hi = _robust_lo_hi(x)
-        span = hi - lo + 1e-12
+        span = float(guarded_scale(hi - lo, max(abs(lo), abs(hi))))
         z = np.clip(2 * (x - lo) / span - 1, -1.0, 1.0)
         return z, dict(lo=lo, hi=hi, clip=1.0)
     z, lo, hi = _minmax_neg1_1_njit(np.ascontiguousarray(x, dtype=np.float64))
@@ -557,7 +562,7 @@ def _preprocess_shift_nonneg(x):
 
 def _apply_zscore(x, params):
     """Replay a fitted ``_preprocess_zscore`` transform onto new data from its stored ``mean``/``std``/(optional)``clip`` params."""
-    z = (x - params["mean"]) / max(params["std"], 1e-12)
+    z = (x - params["mean"]) / params["std"]
     clip = params.get("clip")
     if clip is not None:
         z = np.clip(z, -float(clip), float(clip))
@@ -662,7 +667,7 @@ _MINMAX_PARALLELISM_SPEC = kernel_tuner(
 
 def _apply_minmax(x, params):
     """Replay a fitted ``_preprocess_minmax_neg1_1`` transform onto new data from its stored ``lo``/``hi``/(optional)``clip`` params."""
-    span = params["hi"] - params["lo"] + 1e-12
+    span = float(guarded_scale(params["hi"] - params["lo"], max(abs(params["lo"]), abs(params["hi"]))))
     clip = params.get("clip")
     if _NUMBA_AVAILABLE:
         xf = np.ascontiguousarray(x, dtype=np.float64)

@@ -28,6 +28,23 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
 
+def _fe_tail_budget_spent(stage: str, verbose: int = 0) -> bool:
+    """True when the FE wall-clock deadline has already passed, so this optional tail stage is skipped whole.
+
+    The escalation / fusion / stability-vote tails are per-candidate enrichments that run after the pair search, and a fit handed a small
+    ``max_runtime_mins`` used to run every one of them to completion past the budget. They are skipped in one piece rather than broken
+    mid-loop: the escalation and fusion blocks pre-size their code arrays and then append ``nbins`` entries by length, so an early break
+    inside those fills would leave ``data``/``cols``/``nbins`` desynchronised.
+    """
+    from .._fe_deadline import fe_deadline_passed
+
+    if not fe_deadline_passed():
+        return False
+    if verbose:
+        logger.info("MRMR FE: wall-clock budget spent; skipping the %s stage (the selection so far is kept).", stage)
+    return True
+
+
 def materialise_and_finalise_fe_candidates(
     self,
     *,
@@ -804,7 +821,7 @@ def materialise_and_finalise_fe_candidates(
     # floor + the S5 conditional-MI redundancy gate vs the admitted engineered
     # support). Structurally a no-op (one set-difference) when every surviving pair
     # produced an admitted column - the common case. See ``_fe_auto_escalation``.
-    if bool(getattr(self, "fe_auto_escalation_enable", True)) and (prospective_pairs or _prevalence_failed_synergy):
+    if bool(getattr(self, "fe_auto_escalation_enable", True)) and (prospective_pairs or _prevalence_failed_synergy) and not _fe_tail_budget_spent("auto-escalation", verbose):
         try:
             # Per-fit escalation ledger: a pair escalated once is never re-escalated
             # in a later FE step of the SAME fit (a step-2 retry would re-propose the
@@ -1007,6 +1024,7 @@ def materialise_and_finalise_fe_candidates(
         and bool(getattr(self, "fe_additive_fusion_enable", True))
         and int(getattr(self, "fe_max_engineered_operands", 8)) != 0
         and _newly_engineered_indices
+        and not _fe_tail_budget_spent("additive fusion", verbose)
     ):
         try:
             from .._fe_additive_fusion import propose_additive_fusions
@@ -1144,7 +1162,7 @@ def materialise_and_finalise_fe_candidates(
     # ``selected_vars`` (so they never reach ``support_``). Default-ON; self-gates
     # to a no-op below 2 unary_binary survivors / k<2 / tiny n. ``fe_stability_vote_enable=False``
     # byte-reproduces the pre-vote support.
-    if engineered_recipes and bool(getattr(self, "fe_stability_vote_enable", True)) and _newly_engineered_indices:
+    if engineered_recipes and bool(getattr(self, "fe_stability_vote_enable", True)) and _newly_engineered_indices and not _fe_tail_budget_spent("stability vote", verbose):
         try:
             from .._fe_stability_vote import confirm_recipes_cross_fold, resolve_adaptive_vote_k
 

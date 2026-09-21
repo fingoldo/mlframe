@@ -241,6 +241,27 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
 
         return _pred.predict_from_t(self, X, t_hat)
 
+    @property
+    def soft_shrink_info_(self) -> dict:
+        """Per-row shrink / fallback flags of the calling thread's last predict batch.
+
+        Stored per thread: a single instance attribute could describe another thread's batch under concurrent predicts,
+        so a caller reading the flags after its own predict got the wrong rows.
+        """
+        from . import _soft_shrink as _ss
+
+        info = _ss.thread_info(self)
+        if info is None:
+            raise AttributeError("soft_shrink_info_ is set by predict; this thread has not predicted with this estimator yet")
+        return dict(info)
+
+    @soft_shrink_info_.setter
+    def soft_shrink_info_(self, value: dict) -> None:
+        """Record this thread's soft-shrink diagnostics; the state is per thread, not per estimator."""
+        from . import _soft_shrink as _ss
+
+        _ss.set_thread_info(self, value)
+
     def predict_pre_clip(self, X: Any, inner_X: Any = None) -> "np.ndarray":
         """Inverse-of-transform y-prediction WITHOUT the train-envelope clip. See ``_predict.predict_pre_clip``.
 

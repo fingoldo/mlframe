@@ -186,8 +186,8 @@ def test_failed_component_gets_zero_weight_in_nnls_stack():
     # nnls_stack may collapse to the single best component; either way the
     # exploding component must never be a member.
     _names = getattr(ens, "component_names", None)
-    if _names is not None:
-        assert "raw#2" not in list(_names)
+    assert _names is not None, "the stacked ensemble must expose its members; without them the exclusion cannot be checked"
+    assert "raw#2" not in list(_names)
 
 
 # ---------------------------------------------------------------------------

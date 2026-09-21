@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from mlframe.feature_selection.filters._safe_scale import guarded_scale
+
 # --- GPU port of the per-operand PRE-WARP apply (phase R1) ----------------------------------------------
 # Mirrors hermite_fe.apply_operand_prewarp so the operand-table mirror can BUILD a prewarp operand column on
 # the device (from the resident raw input + the tiny stored spec) instead of COPYING the host-computed column
@@ -271,17 +273,17 @@ def _gpu_basis_preprocess(cp, x, basis, *, robust: bool):
             center = float(cp.median(xf))
             lo, hi = _gpu_robust_lo_hi(cp, x, xf, center)
             std = (hi - lo) / 6.0
-            std = std if std > 1e-12 else (float(cp.std(xf)) + 1e-12)
+            std = std if std > 1e-12 else float(guarded_scale(cp.std(xf), cp.abs(xf).max(), xp=cp))
             return cp.clip((x - center) / std, -6.0, 6.0)
-        mean = float(cp.mean(x)); std = float(cp.std(x)) + 1e-12
+        mean = float(cp.mean(x)); std = float(guarded_scale(cp.std(x), cp.abs(x).max(), xp=cp))
         return (x - mean) / std
     if basis in ("legendre", "chebyshev"):  # min-max -> [-1, 1]
         if robust:
             med = float(cp.median(xf))
             lo, hi = _gpu_robust_lo_hi(cp, x, xf, med)
-            span = hi - lo + 1e-12
+            span = float(guarded_scale(hi - lo, max(abs(lo), abs(hi))))
             return cp.clip(2.0 * (x - lo) / span - 1.0, -1.0, 1.0)
-        lo = float(cp.min(x)); hi = float(cp.max(x)); span = hi - lo + 1e-12
+        lo = float(cp.min(x)); hi = float(cp.max(x)); span = float(guarded_scale(hi - lo, max(abs(lo), abs(hi))))
         return 2.0 * (x - lo) / span - 1.0
     if basis == "laguerre":  # shift to >= 0
         if robust:
@@ -465,6 +467,7 @@ def _gpu_detect_heavy_tail_batched(cp, M):
 
 
 _BASIS_PREPROCESS_SRC = r"""
+#define REL_TOL 7.105427357601002e-15   // 32 * DBL_EPSILON, the host _safe_scale._REL_TOL
 extern "C" __global__
 void basis_preprocess(const double* __restrict__ M, const double* __restrict__ med,
                       const double* __restrict__ scale, const double* __restrict__ mn,
@@ -484,11 +487,14 @@ void basis_preprocess(const double* __restrict__ M, const double* __restrict__ m
     double z;
     if (basis_code == 0) {                                   // hermite robust z-score
         double std = (hi - lo) / 6.0;
-        if (!(std > 1e-12)) std = stdcol[col] + 1e-12;       // cp.where(std>1e-12, std, M.std+1e-12)
+        if (!(std > 1e-12)) std = stdcol[col];               // cp.where(std>1e-12, std, guarded M.std)
+        if (!(std > REL_TOL * fabs(mc))) std = 1.0;
         z = (x - mc) / std;
         z = z < -6.0 ? -6.0 : (z > 6.0 ? 6.0 : z);
     } else if (basis_code == 1) {                            // legendre/chebyshev min-max -> [-1,1]
-        double span = hi - lo + 1e-12;
+        double mag = fabs(lo) > fabs(hi) ? fabs(lo) : fabs(hi);
+        double span = hi - lo;
+        if (!(span > REL_TOL * mag)) span = 1.0;
         z = 2.0 * (x - lo) / span - 1.0;
         z = z < -1.0 ? -1.0 : (z > 1.0 ? 1.0 : z);
     } else {                                                 // laguerre shift -> >= 0
@@ -589,10 +595,10 @@ def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
     Mc = cp.ascontiguousarray(M.astype(cp.float64, copy=False))
     if code == 0:                                  # hermite: (M-mean)/std
         _mean, _std = _col_meanstd(cp, Mc)         # mean + std in ONE launch
-        p0 = _mean; p1 = _std + 1e-12
+        p0 = _mean; p1 = guarded_scale(_std, cp.abs(Mc).max(axis=0), xp=cp)
     elif code == 1:                                # legendre/cheb: 2(M-lo)/span - 1
         lo, hi = _col_minmax(cp, Mc)               # min + max in ONE launch (bit-identical)
-        p0 = lo; p1 = (hi - lo) + 1e-12
+        p0 = lo; p1 = guarded_scale(hi - lo, cp.maximum(cp.abs(lo), cp.abs(hi)), xp=cp)
     else:                                          # laguerre: M-lo+1e-9 (p1 unused)
         p0 = Mc.min(axis=0); p1 = p0
     out = cp.empty((n, g), dtype=cp.float64)
@@ -680,18 +686,19 @@ def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
             scale = _gpu_robust_scale_batched(cp, M, center)
             lo, hi = _gpu_robust_lo_hi_batched(cp, M, center, scale)
             std = (hi - lo) / 6.0
-            std = cp.where(std > 1e-12, std, M.std(axis=0) + 1e-12)
+            std = cp.where(std > 1e-12, std, guarded_scale(M.std(axis=0), cp.abs(M).max(axis=0), xp=cp))
             return cp.clip((M - center) / std, -6.0, 6.0)
-        mean = M.mean(axis=0); std = M.std(axis=0) + 1e-12
+        mean = M.mean(axis=0); std = guarded_scale(M.std(axis=0), cp.abs(M).max(axis=0), xp=cp)
         return (M - mean) / std
     if basis in ("legendre", "chebyshev"):  # min-max -> [-1, 1]
         if robust:
             med = _batched_quantiles(cp, M, [0.5])[0]
             scale = _gpu_robust_scale_batched(cp, M, med)
             lo, hi = _gpu_robust_lo_hi_batched(cp, M, med, scale)
-            span = hi - lo + 1e-12
+            span = guarded_scale(hi - lo, cp.maximum(cp.abs(lo), cp.abs(hi)), xp=cp)
             return cp.clip(2.0 * (M - lo) / span - 1.0, -1.0, 1.0)
-        lo = M.min(axis=0); hi = M.max(axis=0); span = hi - lo + 1e-12
+        lo = M.min(axis=0); hi = M.max(axis=0)
+        span = guarded_scale(hi - lo, cp.maximum(cp.abs(lo), cp.abs(hi)), xp=cp)
         return 2.0 * (M - lo) / span - 1.0
     if basis == "laguerre":  # shift -> >= 0
         if robust:

@@ -94,7 +94,7 @@ def _set_inner_quantile_alpha(estimator: Any, q: float) -> Any:
     try:
         valid_keys = set(inner.get_params(deep=False).keys())
     except Exception as e:  # pragma: no cover - non-sklearn estimator
-        logger.debug("get_params(deep=False) failed on non-sklearn estimator: %s", e)
+        logger.warning("get_params(deep=False) failed on non-sklearn estimator: %s", e)
         valid_keys = set()
 
     type_name = type(inner).__name__

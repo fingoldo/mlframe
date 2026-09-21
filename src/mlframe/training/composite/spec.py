@@ -77,3 +77,7 @@ class CompositeSpec:
     honest_holdout_rmse: float | None = None
     honest_holdout_raw_rmse: float | None = None
     honest_holdout_rmse_gain: float | None = None
+    # The spec whose MI statistics a derived spec would otherwise have inherited. A multi-base upgrade is built after the
+    # screen from a single-base seed, so its own MI was never measured: its ``mi_gain`` / ``mi_y`` / ``mi_t`` are NaN and
+    # this names the seed. ``None`` for a spec whose statistics are its own.
+    stats_measured_for: str | None = None

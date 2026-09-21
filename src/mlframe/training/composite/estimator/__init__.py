@@ -264,7 +264,7 @@ def predict_quantile_ensemble(
             batched_arr = np.asarray(batched, dtype=np.float64)
             if batched_arr.ndim == 2 and batched_arr.shape[1] == len(quantiles_list):
                 member_mat = batched_arr
-        except Exception as _probe_err:
+        except Exception as _probe_err:  # best-effort: the per-alpha path computes the same quantiles
             logger.debug(
                 "predict_quantile_ensemble: batched probe for member %d (%s) failed (%r); falling back to per-alpha calls.",
                 idx, type(m).__name__, _probe_err,

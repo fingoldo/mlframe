@@ -61,6 +61,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
@@ -484,7 +486,7 @@ def score_features_by_ensemble_uplift(
             per_rank_dict[s] = int(rank_per_scorer[s].get(eng_name, -1))
         eng_mi = float(np.mean(norm_eng)) if norm_eng else 0.0
         base_mi = float(np.mean(norm_base)) if norm_base else 0.0
-        uplift = eng_mi / (base_mi + 1e-12)
+        uplift = relative_uplift(eng_mi, base_mi)
         rows.append({
             "engineered_col": eng_name,
             "source_col": src,

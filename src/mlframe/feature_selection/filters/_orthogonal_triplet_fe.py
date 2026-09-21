@@ -45,6 +45,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
@@ -309,7 +311,7 @@ def score_triplet_cross_basis_by_mi_uplift(
         baseline_k = float(raw_mi_map.get(col_k, 0.0))
         baseline = max(baseline_i, baseline_j, baseline_k)
         emi = float(eng_mi[j])
-        uplift = emi / (baseline + 1e-12)
+        uplift = relative_uplift(emi, baseline)
         rows.append({
             "engineered_col": eng_name,
             "source_col_i": col_i,

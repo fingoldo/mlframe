@@ -240,8 +240,17 @@ def fast_n_estimators(full: int, *, fast: int = 40, floor: int = 1) -> int:
 
 
 def running_under_xdist() -> bool:
-    """True when executing inside a pytest-xdist worker (i.e. the full ``-n`` parallel run)."""
-    return bool(os.environ.get("PYTEST_XDIST_WORKER"))
+    """True when executing inside a pytest-xdist worker that runs alongside others (a ``-n`` run with more than one worker).
+
+    A single worker (``-n 1``, the macOS CI shards) has no parallel load, which is what the ``no_xdist`` tests cannot take;
+    treating it as parallel skipped those tests on every CI leg, so they never ran in CI at all.
+    """
+    if not os.environ.get("PYTEST_XDIST_WORKER"):
+        return False
+    try:
+        return int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "2")) > 1
+    except ValueError:
+        return True
 
 
 def _need_cuda() -> bool:
@@ -642,7 +651,9 @@ def pytest_collection_modifyitems(config, items):
     # value), so check the per-worker PYTEST_XDIST_WORKER env too -- otherwise no_xdist items
     # silently run (and native-crash) on workers.
     _dist_opt = getattr(config.option, "dist", "no")
-    if _dist_opt != "no" or running_under_xdist():
+    _n_workers = getattr(config.option, "numprocesses", None)
+    _controller_parallel = _dist_opt != "no" and _n_workers not in (None, 0, 1)
+    if _controller_parallel or running_under_xdist():
         skip_xdist = pytest.mark.skip(reason="requires sequential execution; xdist parallelism active")
         for item in items:
             if "no_xdist" in item.keywords:

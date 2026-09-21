@@ -93,7 +93,7 @@ def from_fitted_inner(
                     dtype=np.float64,
                 ).reshape(-1)
             except Exception as _recon_err:  # pragma: no cover - defensive
-                logger.debug(
+                logger.warning(
                     "[CompositeTargetEstimator.from_fitted_inner] unary T "
                     "reconstruction failed for transform '%s' (%r); falling "
                     "back to the y_std envelope proxy.",

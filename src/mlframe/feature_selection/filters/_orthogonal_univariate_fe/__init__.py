@@ -50,6 +50,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ..hermite_fe import (
@@ -538,7 +540,7 @@ def score_features_by_mi_uplift(
         source = _source_from_engineered_name(eng_name, _raw_cols_set)
         baseline = float(raw_mi_map.get(source, 0.0))
         emi = float(eng_mi[j])
-        uplift = emi / (baseline + 1e-12)
+        uplift = relative_uplift(emi, baseline)
         rows.append({
             "engineered_col": eng_name,
             "source_col": source,

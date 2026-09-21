@@ -91,3 +91,42 @@ def dummy_floor_from_metadata(metadata: dict, target_type: Any, target_name: Any
     if value is None or not np.isfinite(float(value)):
         return None
     return float(value)
+
+
+def same_split_dummy_rmse(metadata: dict, target_type: Any, target_name: Any, oof_names: Sequence[str], oof_rmses: Any, oof_y: Any) -> float | None:
+    """The strongest dummy's RMSE on the same OOF rows the components are scored on, or ``None`` when it cannot be had.
+
+    The dummy baseline in metadata is a VAL-split number, and comparing it with the components' train K-fold OOF RMSEs let
+    weak components through on a hard val period and dropped good ones on an easy one. On the OOF rows: the in-pool
+    ``lag_predict`` column when present, else the strongest constant strategy (mean / median / quantile) evaluated on the
+    OOF targets. Only when neither applies is the val-split value used, with a WARNING naming the mismatch.
+    """
+    names = list(oof_names)
+    if "lag_predict" in names:
+        v = float(np.asarray(oof_rmses, dtype=np.float64)[names.index("lag_predict")])
+        if np.isfinite(v):
+            return v
+    raw = (metadata.get("dummy_baselines", {}) or {}).get(str(target_type), {}).get(str(target_name), {})
+    strongest = raw.get("strongest") if isinstance(raw, dict) else None
+    y = np.asarray(oof_y, dtype=np.float64).reshape(-1) if oof_y is not None else np.empty(0)
+    y = y[np.isfinite(y)]
+    if strongest and y.size:
+        const = None
+        if strongest == "mean":
+            const = float(np.mean(y))
+        elif strongest == "median":
+            const = float(np.median(y))
+        elif str(strongest).startswith("quantile_p"):
+            try:
+                const = float(np.quantile(y, float(str(strongest)[len("quantile_p") :]) / 100.0))
+            except ValueError:
+                const = None
+        if const is not None:
+            return float(np.sqrt(np.mean((y - const) ** 2)))
+    val_value = dummy_floor_from_metadata(metadata, target_type, target_name)
+    if val_value is not None:
+        logger.warning(
+            "[CompositeCrossTargetEnsemble] target=%r: the strongest dummy (%s) has no same-split OOF estimate; the dummy floor "
+            "falls back to its val-split RMSE, which is not measured on the rows the components are scored on.", target_name, strongest,
+        )
+    return val_value

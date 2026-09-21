@@ -294,6 +294,7 @@ class CompositeTargetDiscovery:
                 # and any post-train wrapping path that re-applies the
                 # transform.
                 "extra_base_columns": tuple(getattr(s, "extra_base_columns", ()) or ()),
+                "stats_measured_for": getattr(s, "stats_measured_for", None),
                 # Post-selection-inference honest gain (SA27). ``mi_gain`` above is the
                 # in-screen SELECTION score (optimistically biased by the winner's curse);
                 # ``honest_holdout_gain`` is the SAME gain re-scored on a holdout the discovery

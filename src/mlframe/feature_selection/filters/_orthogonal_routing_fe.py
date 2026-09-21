@@ -67,6 +67,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from .hermite_fe import _POLY_BASES
@@ -324,7 +326,9 @@ def generate_conditional_basis_routing_features(
         _yf = y_arr.astype(np.float64)
         _ystd = float(_yf.std())
         if _ystd > 1e-12:
-            _Mz = (cand_mat - cand_mat.mean(axis=0)) / (cand_mat.std(axis=0) + 1e-12)
+            from ._safe_scale import standardise
+
+            _Mz = standardise(cand_mat)
             route_score = np.abs(_Mz.T @ ((_yf - _yf.mean()) / _ystd) / _yf.size)
         else:
             route_score = eng_mi
@@ -410,7 +414,7 @@ def generate_conditional_basis_routing_features(
     for src, info in best_per_source.items():
         baseline = float(raw_mi_map.get(src, 0.0))
         emi = float(info["engineered_mi"])
-        uplift = emi / (baseline + 1e-12)
+        uplift = relative_uplift(emi, baseline)
         if uplift < min_uplift_f:
             continue
         if emi < abs_floor:
