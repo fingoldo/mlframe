@@ -79,7 +79,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: The gate looks like a leakage-free check in logs and docs, but it cannot reject an over-fit stack, for example many correlated components with noise-fitted weights.
 - **Suggested fix**: Score the stack with a nested split: within the OOF rows, fit the weights on K-1 folds and evaluate on the held-out fold (cross-fitted stacking), then compare with the best single component's OOF RMSE on the same rows. Evaluate the calibrator with the same nesting, or fit it inside the cross-fit.
 - **Test to add**: Build a pool of one good component plus 20 pure-noise components with a small OOF n. Assert that the gate falls back to the best single component (currently it keeps the stack).
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. For `nnls_stack` / `linear_stack` the fallback gate now compares a cross-fitted stack RMSE (`gate_stack_rmse` / `cross_fitted_stack_rmse`: 5 folds over the OOF rows, the same stack constructor fitted on four and scored on the fifth) with the best single component. On a pool of 1 good + 20 noise components at n=60 the in-sample stack beats its best single on every seed (the old blind spot). The cross-fitted stack loses on seeds 1 and 2, so the gate can now fire. The output calibrator is not cross-fitted yet. Tests: tests/training/composite/ensemble/test_combiner_invariants.py.
 
 ### EST-06 [P2] `cap_inference_components` trims non-convex stacks without refitting or renormalising, after the gate has already accepted the full stack
 
@@ -88,7 +88,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Enabling `max_inference_components` for latency silently biases every prediction.
 - **Suggested fix**: Refit NNLS/Ridge on the OOF matrix restricted to the kept columns (the xt builder has it in scope), or renormalise NNLS weights to the original sum. Then re-run the gate on the capped predictor.
 - **Test to add**: For an NNLS ensemble with weights [0.5, 0.3, 0.2] capped to 2, assert that the capped prediction mean is within 2% of the uncapped mean on the OOF surface.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. After `cap_inference_components`, a non-convex stack is refitted by `refit_capped_stack` with the same solver on the OOF columns it kept, so its weights describe the predictor that ships. Convex strategies renormalise at predict and are left as they are. On the test fixture, the raw-weight cap put the blend more than 2% off the target mean; the refit puts it within 2%. The capped predictor is not re-gated separately. Tests: tests/training/composite/ensemble/test_combiner_invariants.py.
 
 ### EST-07 [P2] On the time-sorted OOF holdout path, the polars branch misaligns X and y rows, in both the refit-train slice and the holdout slice
 

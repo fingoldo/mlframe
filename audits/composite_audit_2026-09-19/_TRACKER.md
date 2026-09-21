@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 16 | 0 | 14 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 12 | 0 | 10 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 14 | 0 | 8 | 0 | 0 |
 | `suite_integration.md` | 19 | 8 | 0 | 11 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 7 | 2 | 32 | 0 | 0 |
-| **Total** | **179** | **89** | **13** | **76** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 7 | 3 | 31 | 0 | 0 |
+| **Total** | **179** | **91** | **14** | **73** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -98,8 +98,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `EST-02` | The default-ON MoE gate routes every row of a group it did not see at fit time to `lag_predict`, so on group-disjoint val/test splits it replaces the deployed ensemble with lag everywhere | the unseen/low-data fallback is the pooled-best expert over the matched selection rows with lag among the candidates, since such a group contributes no rows to the pooled sums the vs-lag guarantee is proved on (test_biz_val_moe_gate.py::test_global_fallback_for_unseen_group_is_the_pooled_best_expert, which fails at origin/master with 'lag' == 'composite'; the companion test keeps lag when lag is pooled-best) |
 | **RESOLVED** | P1 | `EST-03` | When a component fails at predict time, `CompositeCrossTargetEnsemble.predict` drops it but keeps the other components' raw weights, which biases predictions toward 0 by the dropped weight mass | a dropped component's column is rebuilt from its own OOF mean so every surviving weight stays the one it was solved with (no refit, still deterministic); models pickled before the means were stored derive them from the stashed OOF design, and the component-failure log no longer claims to re-normalise (test_composite_ensemble_linear_stack_dropout.py: at origin/master all 3 rows are off by up to 25.5, 26%) |
 | **RESOLVED** | P1 | `EST-04` | At predict time the recurrent inverses get `1.0` in place of an out-of-domain (NaN/inf) base, which corrupts the EWMA/rolling state of every later row in the batch | a recurrent inverse carry-forward-fills an out-of-domain base instead of substituting 1.0, matching what fit does for its own dropped rows (test_recurrent_predict_out_of_domain_base.py: at origin/master one blanked row moved 73 of 239 other rows by up to 75.9) |
-| **TODO** | P2 | `EST-05` | The CT-ensemble "honest OOF gate" can never fire for the default `nnls_stack` (and in practice for `linear_stack`), because the stack weights are fit on the same OOF matrix the gate scores | |
-| **TODO** | P2 | `EST-06` | `cap_inference_components` trims non-convex stacks without refitting or renormalising, after the gate has already accepted the full stack | |
+| **RESOLVED** | P2 | `EST-05` | The CT-ensemble "honest OOF gate" can never fire for the default `nnls_stack` (and in practice for `linear_stack`), because the stack weights are fit on the same OOF matrix the gate scores | gate compares a cross-fitted stack RMSE |
+| **RESOLVED** | P2 | `EST-06` | `cap_inference_components` trims non-convex stacks without refitting or renormalising, after the gate has already accepted the full stack | capped non-convex stack refit on kept columns |
 | **TODO** | P2 | `EST-07` | On the time-sorted OOF holdout path, the polars branch misaligns X and y rows, in both the refit-train slice and the holdout slice | |
 | **RESOLVED** | P2 | `EST-08` | The wrap-pass watchdog is off by default, cannot detect the failures it names, raises a false alarm on every `quantile_residual` run, and swallows its own errors at DEBUG | runs on a val sample by default; base-read oracle + raw-frame additive check; groups; WARNING on failures |
 | **RESOLVED** | P2 | `EST-09` | The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit | OOF refit wrappers now get their training base (5 of 6 lacked it); pinned no-op test split into no-base no-op + with-base shrink |
@@ -208,7 +208,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | |
 | **PARTIAL** | P1 | `PMT-11` | Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test | ratchet on tested-but-uncalled (68 recorded) + gate modules imported by tests; triage of the 68 open |
 | **RESOLVED** | P1 | `PMT-12` | Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered | OOD-edge + one-row Lipschitz legs; quantile contract (fixed EST-10) |
-| **TODO** | P1 | `PMT-13` | Ensemble combiner invariants for every stacking strategy, including "the gate can fire" | |
+| **PARTIAL** | P1 | `PMT-13` | Ensemble combiner invariants for every stacking strategy, including "the gate can fire" | gate-can-fire + cap tests (fixed EST-05/06); registry parametrisation + (d) open |
 | **TODO** | P2 | `PMT-14` | Transform-call gateway: every registry-transform fit/forward/inverse call goes through one signature-gated helper, and weights are honoured | |
 | **TODO** | P2 | `PMT-15` | Cache-key completeness by input perturbation, plus a code-version gate on discovery sources | |
 | **TODO** | P2 | `PMT-16` | polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared) | |

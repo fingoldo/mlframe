@@ -276,7 +276,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low.
 - **Runtime**: about 2 s (numpy stubs, no model fits).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. (c) "the gate can fire" and (b) the cap keeping the blend's level are pinned in tests/training/composite/ensemble/test_combiner_invariants.py; they fixed EST-05 and EST-06. (a) the failing-component mean is already covered by EST-03's resolved tests. Not built: the strategy-registry parametrisation over every constructor, the meta-guard, and the (d) row-disjointness spy.
 
 ### PMT-14 [P2] Transform-call gateway: every registry-transform fit/forward/inverse call goes through one signature-gated helper, and weights are honoured
 - **Asserts**:

@@ -17,6 +17,7 @@ from ...composite.post_shim import PrePipelinePredictShim
 from ..utils import _build_full_column_from_splits
 from .._phase_composite_post_lag_predict import _LagPredictDeployableModel
 from ._post_xt_ensemble_mtr import _build_mtr_per_column_ensemble
+from ._crossfit import gate_stack_rmse, refit_capped_stack
 from ._prescreen import PRESCREEN_SAFETY, dummy_floor_from_metadata, leaky_rmse_keep_mask, prescreen_frame, same_split_dummy_rmse
 from .._prediction_memo import memo_predict
 from mlframe.utils.log_throttle import log_throttle
@@ -871,8 +872,7 @@ def _build_cross_target_ensemble_for_target(
                     _w_sum = float(_w_full.sum())
                     _w_norm = _w_full / _w_sum if _w_sum > 0 else np.full_like(_w_full, 1.0 / len(_w_full))
                     _ens_holdout = (_oof_pred_matrix * _w_norm[None, :]).sum(axis=1)
-                _ens_diff = _ens_holdout - _oof_y_holdout
-                _ens_rmse = float(np.sqrt(np.mean(_ens_diff**2)))
+                _ens_rmse = gate_stack_rmse(_CrossEns, _ce_strategy, _oof_components, _oof_names, _oof_pred_matrix, _oof_y_holdout, _ens_holdout)
                 _best_single_rmse = float(np.nanmin(_oof_rmses))
                 # AR(1) failsafe: when lag_predict's OOF RMSE ties the best trained component, prefer zero-param lag. But
                 # the OOF RMSE is a group-K-fold estimate that UNDERESTIMATES the full-data model (each fold trains on
@@ -1014,7 +1014,7 @@ def _build_cross_target_ensemble_for_target(
         "max_inference_components", None,
     )
     if _max_components is not None and _max_components > 0 and isinstance(_ensemble, _CrossEns):
-        _ensemble = _ensemble.cap_inference_components(int(_max_components))
+        _ensemble = refit_capped_stack(_CrossEns, _ce_strategy, _ensemble.cap_inference_components(int(_max_components)), _oof_names, _oof_pred_matrix, _oof_y_holdout)
     # SimpleNamespace shim for downstream iterators expecting .model/.columns; columns=None since each component knows its own.
     _ens_entry = SimpleNamespace(
         model=_ensemble,
