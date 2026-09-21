@@ -30,7 +30,7 @@ import os
 import time
 from concurrent.futures import Future, ProcessPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Literal, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +104,17 @@ def prewarm_kernels() -> bool:
         return False
 
 
+#: How long a fresh worker gets to come up. Its cold start imports numpy, sklearn and the numba subgraph,
+#: which is tens of seconds on this machine -- far longer than a cheap cell's own budget, which is exactly
+#: why the warm-up is separated from the first cell rather than charged to it.
+WORKER_STARTUP_TIMEOUT_S = 600.0
+
+
+def _ready() -> bool:
+    """Trivial job whose only purpose is to prove a worker has finished starting."""
+    return True
+
+
 @dataclass(frozen=True)
 class PoolOutcome:
     """What came back from one dispatched cell."""
@@ -127,8 +138,25 @@ class _Slot:
         self.started_at: float = 0.0
 
     def _spawn(self) -> ProcessPoolExecutor:
-        """Start a fresh single-worker executor with the thread and GPU settings this slot was given."""
-        return ProcessPoolExecutor(max_workers=1, initializer=worker_initializer, initargs=(self.threads, self.cpu_only, True))
+        """Start a fresh single-worker executor and WAIT for it to finish coming up.
+
+        Waiting here is the whole point. A worker's cold start imports numpy, sklearn and the numba
+        subgraph, which takes tens of seconds; without this, that time lands inside the first cell the slot
+        runs and the per-cell budget is spent before the cell begins. Measured: with a five-second budget,
+        every cell in a freshly spawned pool was killed as a timeout, including ones that return instantly.
+
+        The warm-up also makes the initializer's numba prewarm happen off the clock, which is what it was
+        for: the parent compiles first, the worker hits the cache, and neither cost lands in a timing.
+        """
+        executor = ProcessPoolExecutor(max_workers=1, initializer=worker_initializer, initargs=(self.threads, self.cpu_only, True))
+        try:
+            executor.submit(_ready).result(timeout=WORKER_STARTUP_TIMEOUT_S)
+        except Exception as exc:
+            # A worker that cannot start is fatal for this slot; the pool would otherwise dispatch into it
+            # forever and charge each cell a timeout for a process that was never alive.
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise RuntimeError(f"a benchmark worker did not finish starting within {WORKER_STARTUP_TIMEOUT_S:.0f}s: {type(exc).__name__}: {exc}") from exc
+        return executor
 
     def busy(self) -> bool:
         """True while this slot is holding an unfinished cell."""
@@ -250,7 +278,7 @@ class CellPool:
         """Return the pool, so it can be used as a context manager."""
         return self
 
-    def __exit__(self, *exc: Any) -> bool:
+    def __exit__(self, *exc: Any) -> "Literal[False]":
         """Always shut the workers down, so a failed run does not leave processes behind."""
         self.close()
         return False

@@ -38,6 +38,8 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from ._anchor import measure_anchor
+from ._runner_pool import WORKERS
+from ._tiers import TIERS, estimate, format_estimate, get_tier, scenarios_for
 from ._cell_store import JsonlCellStore
 from ._memo import drain_memo_caches
 from ._manifest import build_manifest, load_manifest, write_manifest
@@ -332,8 +334,14 @@ def run_grid(
     results_path: str = RESULTS_PATH,
     resume: bool = True,
     retry_failed: bool = False,
+    arms: Optional[Sequence[str]] = None,
 ) -> int:
-    """Run the whole grid, appending one JSONL record per cell. Returns the number of cells executed."""
+    """Run the whole grid, appending one JSONL record per cell. Returns the number of cells executed.
+
+    `arms` narrows the roster by name, for a tier that runs a subset. The null hypothesis is kept whatever
+    the filter says: every other arm is scored as a paired difference against it, so a grid without it has
+    no comparator at all and its cells cannot be analysed.
+    """
     scenarios = list(scenarios if scenarios is not None else _default_scenarios())
     if roster is not None and NULL_ARM not in roster:
         raise ValueError(f"the roster must contain the null hypothesis {NULL_ARM!r} on every cell")
@@ -354,6 +362,12 @@ def run_grid(
             # need this bed's feature count, and a roster carried over from a wider bed would ask them for
             # more columns than exist here.
             cell_roster = dict(roster) if roster is not None else build_arm_roster(int(x_all.shape[1]), random_state=int(dataset_seed))
+            if arms is not None:
+                wanted = set(arms) | {NULL_ARM}
+                missing = wanted - set(cell_roster)
+                if missing:
+                    raise ValueError(f"these arms were requested but the roster has no such name: {sorted(missing)}")
+                cell_roster = {name: factory for name, factory in cell_roster.items() if name in wanted}
             if NULL_ARM not in cell_roster:
                 raise ValueError(f"the roster must contain the null hypothesis {NULL_ARM!r} on every cell")
             if not manifest_written:
@@ -400,12 +414,58 @@ def run_grid(
     return executed
 
 
-def main() -> None:
-    """Run the grid with the default scenarios, roster and dev seeds, resuming from any existing file."""
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    """Run one tier of the grid, or price it without running anything.
+
+    `--dry-run` exists because the difference between the tiers is the difference between a coffee break
+    and two days, and that is not a thing to discover forty hours in. It prices the chosen tier from the
+    per-arm medians of whatever run is already on disk and prints the prediction, naming the arms it could
+    not price so the figure reads as the floor it is.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the pre-registered feature-selection benchmark")
+    parser.add_argument("--tier", default="nightly", choices=sorted(TIERS), help="run size; see `_tiers` for what each is for")
+    parser.add_argument("--dry-run", action="store_true", help="price the tier from an earlier run's medians and exit without running a cell")
+    parser.add_argument("--results", default=RESULTS_PATH)
+    parser.add_argument("--no-resume", action="store_true", help="re-run cells already present in the results file")
+    parser.add_argument("--retry-failed", action="store_true", help="re-run cells recorded with a non-ok status")
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     os.makedirs(OUT_DIR, exist_ok=True)
-    executed = run_grid()
-    logger.info("DONE executed=%d results=%s", executed, RESULTS_PATH)
+    tier = get_tier(str(args.tier))
+
+    scenarios = scenarios_for(tier.source)
+    if tier.scenarios is not None:
+        wanted = set(tier.scenarios)
+        # A tier naming a bed its own source does not have is a stale tier, not a smaller run.
+        missing = wanted - {name for name, _ in scenarios}
+        if missing:
+            raise SystemExit(f"tier {tier.name!r} names beds the {tier.source!r} source does not provide: {sorted(missing)}")
+        scenarios = [pair for pair in scenarios if pair[0] in wanted]
+
+    store = JsonlCellStore(args.results)
+    if args.dry_run:
+        history = store.load()
+        roster_names = sorted(build_arm_roster(50)) if tier.arms is None else list(tier.arms)
+        for line in format_estimate(estimate(tier, [name for name, _ in scenarios], roster_names, history, workers=WORKERS)):
+            print(line)
+        return
+
+    # Refuses rather than warns: the two halves of a mixed-schema file disagree about what a field means,
+    # and resume is exactly where nobody is watching the output.
+    store.assert_single_schema_version()
+    executed = run_grid(
+        scenarios=scenarios,
+        dataset_seeds=tier.dataset_seeds,
+        cv_seeds=tier.cv_seeds,
+        results_path=str(args.results),
+        resume=not args.no_resume,
+        retry_failed=bool(args.retry_failed),
+        arms=tier.arms,
+    )
+    logger.info("DONE tier=%s executed=%d results=%s", tier.name, executed, args.results)
 
 
 if __name__ == "__main__":
