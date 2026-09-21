@@ -262,7 +262,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. The Lipschitz leg uses the transform's own pointwise derivative, so steep transforms are not penalised.
 - **Runtime**: about 3-5 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. (a) and (b) are in test_transform_registry_properties.py. (a): a base 5% beyond either train edge inverts the median T to the edge value's sign, within [0.5, 2]x of it, for every non-recurrent base transform. The sign is compared with the in-range edge: for `reciprocal_residual` the median T at an extreme in-range base is already negative. (b): nudging one row's T moves that row's y by at most 1.1x the pointwise derivative, for every transform. (c) is test_predict_quantile_contract.py (ordered quantiles on every row, a real interval on fallback rows), which found and fixed EST-10.
 
 ### PMT-13 [P1] Ensemble combiner invariants for every stacking strategy, including "the gate can fire"
 - **Asserts**: for every strategy in the cross-target strategy registry (`nnls_stack`, `linear_stack`, `oof_weighted`, `mean`, meta-stacker), with stub components returning fixed OOF/test columns:

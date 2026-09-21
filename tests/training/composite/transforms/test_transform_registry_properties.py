@@ -257,3 +257,53 @@ def test_a_base_translation_invariant_transform_ignores_a_base_offset(name: str)
         _t2, _p2, tc, _b2, _g2, dc = _scaled_fit(name, 1.0, shift)
         assert np.array_equal(dc, d1)
         np.testing.assert_allclose(tc, t1, rtol=0, atol=1e-6 * max(1.0, float(np.std(t1))), err_msg=f"{name}: a base offset of {shift} changed T")
+
+
+def _positive_fit(name: str):
+    """Fit on a strictly positive, base-proportional target; returns the transform, params, T, base, groups, and the base."""
+    t = TRANSFORMS_REGISTRY[name]
+    n = 500
+    rng = np.random.default_rng(0)
+    base = np.linspace(10.0, 100.0, n) + rng.normal(0.0, 0.5, n)
+    base2 = rng.uniform(10.0, 50.0, n)
+    y = 3.0 * base + 20.0 + 5.0 * rng.standard_normal(n)
+    g = _groups(n)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        params, domain, b = _fit_on_domain(t, name, y, base, base2, g)
+        b_fit = b[domain] if t.requires_base else b
+        return t, params, _call_forward(t, y[domain], b_fit, params, g[domain]), b_fit, g[domain], base, base2
+
+
+@pytest.mark.parametrize("name", [n for n in _NAMES if TRANSFORMS_REGISTRY[n].requires_base and not TRANSFORMS_REGISTRY[n].recurrent])
+def test_a_base_just_outside_the_train_range_keeps_the_inverse_near_the_edge(name: str):
+    """A base 5% beyond either train edge inverts the median T to the edge value's sign, within [0.5, 2]x of it."""
+    t, params, t_fit, _b, g, base, base2 = _positive_fit(name)
+    tm = np.full(5, float(np.nanmedian(t_fit)))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for edge, f in ((float(base.min()), 0.95), (float(base.max()), 1.05)):
+            y_edge = _call_inverse(t, tm, _base_for(name, np.full(5, edge), np.full(5, base2.mean())), params, g[:5])
+            y_out = _call_inverse(t, tm, _base_for(name, np.full(5, edge * f), np.full(5, base2.mean())), params, g[:5])
+            assert np.all(np.isfinite(y_out)), f"{name}: non-finite inverse just outside the base range"
+            assert np.all(np.sign(y_out) == np.sign(y_edge)), f"{name}: the sign flips just outside the base range"
+            ratio = y_out / y_edge
+            assert np.all((ratio > 0.5) & (ratio < 2.0)), f"{name}: base {edge * f:.4g} moves the inverse {ratio[0]:.3g}x from the edge"
+
+
+@pytest.mark.parametrize("name", _NAMES)
+def test_perturbing_one_row_moves_that_row_by_its_pointwise_derivative(name: str):
+    """Nudging one row's T moves that row's y by at most 1.1x the transform's own pointwise |dy/dT| (no in-batch amplification)."""
+    t, params, t_fit, b, g, _base, _base2 = _positive_fit(name)
+    d = 1e-3 * float(np.nanstd(t_fit))
+    if not d > 0:
+        return
+    i = len(t_fit) // 2
+    bi = b[i : i + 1] if t.requires_base else b
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pointwise = abs(float(_call_inverse(t, t_fit[i : i + 1] + d, bi, params, g[i : i + 1])[0] - _call_inverse(t, t_fit[i : i + 1], bi, params, g[i : i + 1])[0])) / d
+        bumped = t_fit.copy()
+        bumped[i] += d
+        in_batch = abs(float(_call_inverse(t, bumped, b, params, g)[i] - _call_inverse(t, t_fit, b, params, g)[i])) / d
+    assert in_batch <= 1.1 * pointwise + 1e-9, f"{name}: a one-row nudge moves y by {in_batch:.4g}/unit in a batch vs {pointwise:.4g} pointwise"

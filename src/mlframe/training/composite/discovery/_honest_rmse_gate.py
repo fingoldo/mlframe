@@ -52,6 +52,7 @@ from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array
 from ._rejection_ledger import RejectStage, ledger_append
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
+from ._rejection_ledger import spec_inverse
 from ._screening_tiny import _build_tiny_model
 
 logger = logging.getLogger(__name__)
@@ -212,11 +213,7 @@ def apply_honest_rmse_gate(
                 # Score the spec the way the trained composite will predict: with smearing for the curved unary inverses,
                 # so a log/cbrt target is judged on the conditional mean of y, not on the (lower) geometric mean.
                 _q = _last_residual_q["q"] if spec.transform_name in SMEARED_TRANSFORMS else None
-                def _inverse(t: np.ndarray, _tr: Any = transform, _b: Any = base_eval, _p: Any = params) -> np.ndarray:
-                    """Invert one transformed prediction with this spec's own transform, base and fitted params."""
-                    return np.asarray(_tr.inverse(t, _b, _p), dtype=np.float64)
-
-                y_hat = smeared_inverse(_inverse, t_hat, _q)
+                y_hat = smeared_inverse(spec_inverse(transform, base_eval, params), t_hat, _q)
         except Exception as exc:
             # The same forward/inverse raises at predict time on rows like these; keeping the spec disabled the gate for it.
             _gate_error_reject(self, spec, rejected, RejectStage.HONEST_RMSE, f"fit/inverse raised {type(exc).__name__}: {exc}", with_score=False)

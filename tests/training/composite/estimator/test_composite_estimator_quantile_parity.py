@@ -102,8 +102,15 @@ class TestE14QuantileDomainFallback:
         out = est.predict_quantile(X_pred, alpha)
         # Pre-fix: the NaN base flows through ``T + base`` -> NaN quantiles.
         assert np.all(np.isfinite(out)), "domain-violating rows must not be NaN"
-        col0 = out if np.isscalar(alpha) else out[:, 0]
-        np.testing.assert_allclose(col0[:7], med, rtol=0, atol=1e-9)
+        # Each column falls back to the train-y quantile at its own alpha (the median at alpha=0.5), so a fallback row keeps
+        # an interval instead of collapsing to the median in every column.
+        alphas = np.atleast_1d(alpha)
+        cols = np.asarray(out).reshape(len(X_pred), -1)
+        grid = np.asarray(est.fitted_params_["y_train_quantile_grid"])
+        for k, a in enumerate(alphas):
+            np.testing.assert_allclose(cols[:7, k], np.interp(a, np.linspace(0.0, 1.0, 101), grid), rtol=0, atol=1e-9)
+        if np.isscalar(alpha):
+            np.testing.assert_allclose(cols[:7, 0], med, rtol=0, atol=1e-6 * max(1.0, abs(med)))
 
     def test_nan_fallback_mode_keeps_nan(self) -> None:
         """fallback_predict='nan' is honoured: violating rows stay NaN, the

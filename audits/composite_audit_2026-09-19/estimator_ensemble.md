@@ -141,7 +141,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
   - For fallback rows, return NaN, or the train-y empirical quantiles at each alpha (`np.quantile(y_train, alpha)` stored at fit).
   - Replace the per-transform guard list with a generic check: after inverting, detect rows where the column order is not monotone in alpha and either sort them (a valid rearrangement, per Chernozhukov et al.) or raise for transforms not declared monotone-increasing.
 - **Test to add**: `centered_ratio` with a predict base below `-c`: assert that the quantile columns are non-decreasing. Domain-violating rows: assert that the q10 and q90 values differ, or are NaN.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. (a) Fit stores `y_train_quantile_grid` (train-y quantiles at alpha = 0..1 in 101 steps). In `predict_quantile`, rows that fail the base domain or are deep OOD take the train-y quantile at each alpha, so they keep a real interval instead of the median in every column (`fallback_predict='nan'` keeps NaN). (b) Every multi-alpha prediction is monotone-rearranged per row in alpha order (Chernozhukov et al.), which covers any inverse whose base factor turns negative. Tests: tests/training/composite/estimator/test_predict_quantile_contract.py (the fallback case fails pre-fix). Ordering is checked for every transform; on this fixture a base below -c routes to the fallback rather than inverting crossed, so the rearrangement is a guard. The quantile-parity test now expects the per-alpha fallback.
 
 ### EST-11 [P2] The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE
 

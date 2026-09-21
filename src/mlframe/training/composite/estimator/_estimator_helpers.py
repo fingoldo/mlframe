@@ -78,3 +78,11 @@ def _carry_forward_fill(arr: "np.ndarray", keep: "np.ndarray") -> "np.ndarray":
     first_kept = int(np.argmax(keep)) if bool(keep.any()) else 0
     idx[idx < 0] = first_kept
     return np.asarray(a[idx])
+
+
+def _y_quantile_grid(y_train) -> list:
+    """The train-y quantiles at alpha = 0, 0.01, ..., 1: a quantile prediction's fallback on rows the model cannot serve."""
+    y = np.asarray(y_train, dtype=np.float64).reshape(-1)
+    y = y[np.isfinite(y)]
+    return np.quantile(y, np.linspace(0.0, 1.0, 101)).tolist() if y.size else []
+

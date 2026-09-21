@@ -87,3 +87,18 @@ def gate_error_reject(self, spec: Any, rejected: list, stage: str, reason: str, 
         self, spec_name=name, stage=stage, reason=reason,
         base_column=getattr(spec, "base_column", ""), transform_name=getattr(spec, "transform_name", ""),
     )
+
+
+def spec_inverse(transform: Any, base: Any, params: Any):
+    """``t -> transform.inverse(t, base, params)`` as float64, bound now (not late-bound to a loop's current spec)."""
+    import functools
+
+    return functools.partial(_apply_inverse, transform, base, params)
+
+
+def _apply_inverse(transform: Any, base: Any, params: Any, t: Any):
+    """Invert one transformed prediction with a spec's own transform, base and fitted params."""
+    import numpy as np
+
+    return np.asarray(transform.inverse(t, base, params), dtype=np.float64)
+

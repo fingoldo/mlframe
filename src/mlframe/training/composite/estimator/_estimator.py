@@ -16,6 +16,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 # Module-level helpers carved to _estimator_helpers.py (1k-LOC house limit); re-exported so call sites + tests that
 # import them from this module keep working.
+from ._estimator_helpers import _y_quantile_grid
 from ._estimator_helpers import (  # noqa: F401
     _callable_accepts_param,
     _carry_forward_fill,
@@ -777,6 +778,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             "y_clip_low": y_clip_low,
             "y_clip_high": y_clip_high,
             "y_train_median": y_train_median,
+            "y_train_quantile_grid": _y_quantile_grid(y_train),
             "t_clip_low": t_clip_low,
             "t_clip_high": t_clip_high,
             "n_train_valid": int(y_train.size),

@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 16 | 0 | 14 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 11 | 0 | 11 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 12 | 0 | 10 | 0 | 0 |
 | `suite_integration.md` | 19 | 8 | 0 | 11 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 6 | 2 | 33 | 0 | 0 |
-| **Total** | **179** | **87** | **13** | **78** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 7 | 2 | 32 | 0 | 0 |
+| **Total** | **179** | **89** | **13** | **76** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -103,7 +103,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `EST-07` | On the time-sorted OOF holdout path, the polars branch misaligns X and y rows, in both the refit-train slice and the holdout slice | |
 | **RESOLVED** | P2 | `EST-08` | The wrap-pass watchdog is off by default, cannot detect the failures it names, raises a false alarm on every `quantile_residual` run, and swallows its own errors at DEBUG | runs on a val sample by default; base-read oracle + raw-frame additive check; groups; WARNING on failures |
 | **RESOLVED** | P2 | `EST-09` | The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit | OOF refit wrappers now get their training base (5 of 6 lacked it); pinned no-op test split into no-base no-op + with-base shrink |
-| **TODO** | P2 | `EST-10` | `predict_quantile` returns zero-width intervals on fallback rows and crossed quantiles for sign-flipping multiplicative inverses | |
+| **RESOLVED** | P2 | `EST-10` | `predict_quantile` returns zero-width intervals on fallback rows and crossed quantiles for sign-flipping multiplicative inverses | per-alpha train-y quantile fallback; monotone rearrangement |
 | **RESOLVED** | P2 | `EST-11` | The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE | dummy floor/baseline on the same OOF rows |
 | **TODO** | P2 | `EST-12` | `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path | |
 | **TODO** | P2 | `EST-13` | The CT_ENSEMBLE val/test metrics and charts describe the pre-MoE predictor, not the model that ships | |
@@ -207,7 +207,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `PMT-09` | Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery | |
 | **TODO** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | |
 | **PARTIAL** | P1 | `PMT-11` | Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test | ratchet on tested-but-uncalled (68 recorded) + gate modules imported by tests; triage of the 68 open |
-| **TODO** | P1 | `PMT-12` | Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered | |
+| **RESOLVED** | P1 | `PMT-12` | Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered | OOD-edge + one-row Lipschitz legs; quantile contract (fixed EST-10) |
 | **TODO** | P1 | `PMT-13` | Ensemble combiner invariants for every stacking strategy, including "the gate can fire" | |
 | **TODO** | P2 | `PMT-14` | Transform-call gateway: every registry-transform fit/forward/inverse call goes through one signature-gated helper, and weights are honoured | |
 | **TODO** | P2 | `PMT-15` | Cache-key completeness by input perturbation, plus a code-version gate on discovery sources | |
