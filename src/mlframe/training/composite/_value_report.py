@@ -155,7 +155,8 @@ def build_composite_value_report(
     y_true, y_pred_raw, y_pred_composite
         True target, the raw-y model prediction, and the composite ``y_hat`` prediction (aligned 1-D).
     group_ids
-        Group label per row (e.g. well id). Any dtype; null labels are dropped.
+        Group label per row (e.g. well id). Any dtype; null labels are dropped. ``None`` treats every row as one group
+        labelled ``"all"``, so a suite without a group key still gets the aggregate report.
     y_pred_lag
         Optional AR-failsafe / lag baseline prediction. Enables the vs-lag columns and the
         worse-than-lag signal.
@@ -189,6 +190,10 @@ def build_composite_value_report(
     if has_lag and lag is not None and lag.shape[0] != n:
         raise ValueError(f"build_composite_value_report: y_pred_lag length {lag.shape[0]} != y_true length {n}")
 
+    if group_ids is None:
+        # No group key (the default, non-grouped suite): every row is one group. ``np.asarray(None)`` is a 0-d array, so
+        # factorising it raised "len() of unsized object" and the whole value report was dropped on every such run.
+        group_ids = np.full(n, "all", dtype=object)
     codes, uniq = _factorize(group_ids)
     if codes.shape[0] != n:
         raise ValueError(f"build_composite_value_report: group_ids length {codes.shape[0]} != y_true length {n}")
