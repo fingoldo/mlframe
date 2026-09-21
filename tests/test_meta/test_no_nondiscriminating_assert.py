@@ -26,7 +26,11 @@ Detector, per test function, flagging when ANY holds:
   2. an `except` handler that catches `AssertionError` (or bare/`Exception`) with a body that does not re-raise;
   3. at least one assertion and EVERY assertion nested inside an `if`;
   4. an `if` statement whose body is exactly `pass`;
-  5. an imperative `pytest.xfail(...)` call.
+  5. an imperative `pytest.xfail(...)` call;
+  6. a `test_biz_val_*` function whose asserts are all isinstance / None / non-empty checks, with no numeric comparison
+     (a business-value test that cannot tell a better model from a worse one);
+  7. the shared assertion shapes of `py_ci_shared.nondiscriminating_shapes`: literal ranges spanning 20x or more, min/max
+     envelopes, a median error in a round-trip test, and a `pytest.skip` the data decides.
 
 Fixture-only helpers, `conftest.py` and parametrised-skip scaffolding are excluded by the `test_*` name gate.
 
@@ -54,6 +58,7 @@ from pathlib import Path
 
 import orjson
 import pytest
+from py_ci_shared.nondiscriminating_shapes import SHAPE_HELP, shape_reasons
 
 _TESTS_DIR = Path(__file__).resolve().parent.parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_nondiscriminating_assert_baseline.json"
@@ -142,6 +147,44 @@ def _has_imperative_xfail(func: ast.AST) -> bool:
     return False
 
 
+def _is_emptiness_check(node: ast.Compare) -> bool:
+    """``len(x) > 0`` / ``len(x) >= 1``: an ordering comparison that says nothing about a value."""
+    left, right = node.left, node.comparators[0]
+    is_len = isinstance(left, ast.Call) and getattr(left.func, "id", None) == "len"
+    return is_len and len(node.ops) == 1 and isinstance(right, ast.Constant) and right.value in (0, 1)
+
+
+def _is_trivial_assertion(test: ast.AST) -> bool:
+    """An assertion that holds for a worse model as well as a better one: type, None, non-empty or bare truthiness checks."""
+    if isinstance(test, ast.BoolOp):
+        return all(_is_trivial_assertion(v) for v in test.values)
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        return _is_trivial_assertion(test.operand)
+    if isinstance(test, ast.Call):
+        return getattr(test.func, "id", None) in {"isinstance", "hasattr", "callable"}
+    if isinstance(test, ast.Compare):
+        return all(isinstance(op, (ast.Is, ast.IsNot)) for op in test.ops) or _is_emptiness_check(test)
+    return isinstance(test, (ast.Name, ast.Attribute))
+
+
+def _biz_val_without_numeric_check(func: ast.AST) -> bool:
+    """A ``test_biz_val_*`` function whose every assertion is trivial and that calls no checking helper."""
+    if not func.name.startswith("test_biz_val_"):
+        return False
+    asserts = [n for n in _own_nodes(func) if isinstance(n, ast.Assert)]
+    helpers = any(
+        isinstance(n, ast.Call) and (getattr(n.func, "attr", getattr(n.func, "id", "")) or "").lstrip("_").startswith(("assert", "raises", "warns", "approx"))
+        for n in _own_nodes(func)
+    )
+    return bool(asserts) and not helpers and all(_is_trivial_assertion(a.test) for a in asserts)
+
+
+_LATER_SHAPE_HELP = {
+    **SHAPE_HELP,
+    "biz-val-no-numeric": "a business-value test must compare a number: isinstance / None / non-empty checks pass for a worse model too",
+}
+
+
 def _reasons(func: ast.AST) -> list:
     """Every nondiscriminating shape this function exhibits, as short slugs."""
     out: list = []
@@ -175,6 +218,9 @@ def _build_offending_set() -> set:
             reasons = _reasons(func)
             if reasons:
                 out.add(f"{rel}:{func.name}:{','.join(reasons)}")
+            # The later shapes get one key each, so adding a shape never re-keys the entries recorded before it.
+            extra = shape_reasons(func) + (["biz-val-no-numeric"] if _biz_val_without_numeric_check(func) else [])
+            out.update(f"{rel}:{func.name}:{r}" for r in extra)
     return out
 
 
@@ -183,7 +229,7 @@ def test_no_new_nondiscriminating_assert():
     current = _build_offending_set()
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        _BASELINE_PATH.write_bytes(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2))  # bytes: text mode on Windows writes CRLF
         pytest.skip(f"nondiscriminating-assert baseline written with {len(current)} entry/entries")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
@@ -204,5 +250,6 @@ def test_no_new_nondiscriminating_assert():
         "  imperative-xfail          `pytest.xfail(...)` discards the measurement just taken. Measure first and\n"
         "                            xfail only when the gap is confirmed still open, so a gap that CLOSES is\n"
         "                            reported rather than concealed.\n\n"
-        "If a flag is a genuine false positive, refresh with --refresh-nondiscriminating-assert-baseline."
+        + "".join(f"  {slug:<25} {why}\n" for slug, why in _LATER_SHAPE_HELP.items())
+        + "\nIf a flag is a genuine false positive, refresh with --refresh-nondiscriminating-assert-baseline."
     )

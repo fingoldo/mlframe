@@ -73,7 +73,7 @@ def _spec_fit_mask(transform, y_fit, base_fit, params, spec_name: str) -> np.nda
         if valid.shape != y_fit.shape:
             valid = np.ones(y_fit.shape, dtype=bool)
     except Exception as e:
-        logger.debug("domain_check failed, treating all rows as valid: %s", e)
+        logger.warning("domain_check failed, treating all rows as valid: %s", e)
         valid = np.ones(y_fit.shape, dtype=bool)
     _dcf = getattr(transform, "domain_check_fitted", None)
     if _dcf is not None:

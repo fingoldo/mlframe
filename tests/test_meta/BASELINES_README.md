@@ -52,5 +52,6 @@ Run from the repository root. The script re-runs each meta-test in
 - `_unlocked_module_cache_baseline.json` - module-level caches mutated without a lock
 - `_unprotected_treeexplainer_baseline.json` - `shap.TreeExplainer` calls with no guard
 - `_vacuous_loop_baseline.json` - test loops whose only asserts are inside the loop, so zero iterations pass (py_ci_shared.vacuous_loop_assertions, `regen_baselines.py`)
+- `_fail_open_handlers_baseline.json` - exception handlers in the composite and feature-selection packages that keep a candidate on error, fall back quietly, or skip a reject on NaN (py_ci_shared.fail_open_handlers, `regen_baselines.py`)
 - `_function_length_baseline.json` - per-function line ceilings for functions over 150 lines (py_ci_shared.function_length, `regen_baselines.py`)
 - `_value_bearing_asserts_baseline.json` - production asserts that check a value, which `python -O` deletes (`regen_baselines.py`)

@@ -164,5 +164,6 @@ def test_predict_mlframe_models_suite_matches_oracle(tmp_path, wrapper_owns_pipe
     preds = np.asarray(result["predictions"]["cte_model"])
     if wrapper_owns_pipeline:
         np.testing.assert_allclose(preds, oracle, rtol=1e-9, atol=1e-9)
-    else:
-        assert _rmse(preds, y) <= 1.5 * _rmse(oracle, y)
+        return
+    # A legacy dump reaches the oracle only approximately (its inner pipeline is reapplied from the entry).
+    assert _rmse(preds, y) <= 1.5 * _rmse(oracle, y)

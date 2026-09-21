@@ -445,7 +445,7 @@ def box_cox_y_fit(y: np.ndarray) -> Dict[str, Any]:
         if not np.isfinite(lam):
             lam = 1.0
     except Exception as e:
-        logger.debug("Box-Cox lambda computation failed, defaulting to 1.0: %s", e)
+        logger.warning("Box-Cox lambda computation failed, defaulting to 1.0: %s", e)
         lam = 1.0
     lam = float(np.clip(lam, *_BOX_COX_LAMBDA_RANGE))
     return {"lambda": lam, **_fitted_t_range(box_cox_y_forward(pos, {"lambda": lam}))}

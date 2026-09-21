@@ -119,7 +119,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Test to add**:
   - A default-config suite run with a corrupted base column at predict time, asserting a WARNING.
   - A `quantile_residual` run with a correct wrapper, asserting no watchdog WARNING.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The watchdog moved to `core/_composite_wrap_watchdog.py`; each part is handled as follows. (a) With the default skip of the metric block it checks a 2,000-row val sample per composite. (b) The self-comparing universal check is gone. In its place, an independent base-read check compares the base the wrapper reads at predict with the spec's base columns read from the split frame. The additive check takes its true T from the split's real y and base, reads T-hat through the wrapper's own inner input (its pre-pipeline applied, the group column dropped), and skips rows the y-clip pinned or that lie outside the fitted base range, so the clip and the soft shrink cannot trip it. (c)/(e) The additive set is read off `Transform.additive_in_t` (00ce5dbc6). (d) Grouped transforms get the wrapper's `group_column` groups. (f) A check that cannot run, and a split whose predict raises, log at WARNING. Tests: tests/training/composite/estimator/test_wrap_watchdog_oracle.py (the skip-path and split-failure cases fail on the pre-fix wrapping module) and the reframed tests/training/test_regression_watchdog_yscale_object_target.py.
 
 ### EST-09 [P2] The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit
 

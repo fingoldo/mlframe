@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 6 | 0 | 24 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 5 | 0 | 17 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 7 | 0 | 15 | 0 | 0 |
 | `suite_integration.md` | 19 | 7 | 0 | 12 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 4 | 1 | 12 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 1 | 0 | 40 | 0 | 0 |
-| **Total** | **179** | **62** | **11** | **105** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 3 | 0 | 38 | 0 | 0 |
+| **Total** | **179** | **66** | **11** | **101** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -101,7 +101,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `EST-05` | The CT-ensemble "honest OOF gate" can never fire for the default `nnls_stack` (and in practice for `linear_stack`), because the stack weights are fit on the same OOF matrix the gate scores | |
 | **TODO** | P2 | `EST-06` | `cap_inference_components` trims non-convex stacks without refitting or renormalising, after the gate has already accepted the full stack | |
 | **TODO** | P2 | `EST-07` | On the time-sorted OOF holdout path, the polars branch misaligns X and y rows, in both the refit-train slice and the holdout slice | |
-| **TODO** | P2 | `EST-08` | The wrap-pass watchdog is off by default, cannot detect the failures it names, raises a false alarm on every `quantile_residual` run, and swallows its own errors at DEBUG | |
+| **RESOLVED** | P2 | `EST-08` | The wrap-pass watchdog is off by default, cannot detect the failures it names, raises a false alarm on every `quantile_residual` run, and swallows its own errors at DEBUG | runs on a val sample by default; base-read oracle + raw-frame additive check; groups; WARNING on failures |
 | **RESOLVED** | P2 | `EST-09` | The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit | OOF refit wrappers now get their training base (5 of 6 lacked it); pinned no-op test split into no-base no-op + with-base shrink |
 | **TODO** | P2 | `EST-10` | `predict_quantile` returns zero-width intervals on fallback rows and crossed quantiles for sign-flipping multiplicative inverses | |
 | **TODO** | P2 | `EST-11` | The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE | |
@@ -198,8 +198,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|
 | **RESOLVED** | P1 | `PMT-01` | Registry-driven transform property matrix: max-error round trip across regimes, degenerate legs, and registry metadata completeness | legs (b)-(e) in test_transform_registry_properties.py; fixed constant-base vol floor, O(n) ECDF/spline params; additive_in_t/linear_in_base/n_bases fields drive soft-shrink + watchdog (quantile_residual false alarm); leg (f) scanner |
 | **TODO** | P2 | `PMT-02` | Call-budget harness: expensive primitives are invoked at most their ideal count per discovery fit and per post-phase | |
-| **TODO** | P1 | `PMT-03` | Fail-open and below-WARNING substitution handlers in gates (shared AST scanner) | |
-| **TODO** | P1 | `PMT-04` | Non-discriminating test-assertion shapes: literal wide ranges, median-of-error, isinstance-only biz tests, data-dependent skips | |
+| **RESOLVED** | P1 | `PMT-03` | Fail-open and below-WARNING substitution handlers in gates (shared AST scanner) | py_ci_shared.fail_open_handlers wired; 3 more fail-open sites fixed, 11 fallbacks to WARNING; FS backlog baselined untriaged |
+| **RESOLVED** | P1 | `PMT-04` | Non-discriminating test-assertion shapes: literal wide ranges, median-of-error, isinstance-only biz tests, data-dependent skips | py_ci_shared.nondiscriminating_shapes + local biz-val rule wired; suite violators baselined, composite ones fixed under TST-10/11/13 |
 | **TODO** | P1 | `PMT-05` | Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe | |
 | **TODO** | P1 | `PMT-06` | Splitter and sampler consistency: one splitter factory, time order and groups honoured everywhere, sampler returns usable rows | |
 | **TODO** | P1 | `PMT-07` | Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform | |
