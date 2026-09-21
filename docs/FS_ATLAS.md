@@ -173,6 +173,37 @@ The four arms with a real pooled advantage span the whole cost range: `lars-orde
 `ace` costs nine, while `rfecv` at thirty-eight fits and fifty seconds is the worst arm in the pooled table.
 On these beds, cost buys nothing.
 
+## Two sweeps, and what each measured
+
+**Recovery against sample size.** The atlas has carried one claim about sample size: on
+`linear_gaussian_lowdim_n200` a t-statistic beats a binned mutual-information estimate because binning
+throws away most of what little data there is. Measured over eight seeds at seven sizes, the claim is true
+and its stated reason is not:
+
+| n | binned | parametric | gap |
+|---|---|---|---|
+| 150 | 0.375 | 0.615 | -0.240 |
+| 300 | 0.469 | 0.771 | -0.302 |
+| 600 | 0.500 | 0.896 | -0.396 |
+| 1 200 | 0.667 | 1.000 | -0.333 |
+| 2 500 | 0.781 | 1.000 | -0.219 |
+| 5 000 | 0.865 | 1.000 | -0.135 |
+| 10 000 | 0.927 | 1.000 | -0.073 |
+
+The parametric family leads at EVERY size measured and the two never cross; the gap widens to n = 600 and
+then narrows as the binned family catches up. So this is not a small-sample effect. On a linear-Gaussian
+bed the parametric statistic is correctly specified and binning discards information at every size -- the
+binned family converges to it rather than overtaking it. "Prefer a t-statistic below n = 200" was the
+wrong shape of advice; "prefer it on a bed a linear model fits" is the shape the data supports.
+
+**RFECV's aggregation grid.** Twenty-four configurations, four beds, three seeds. Three of the beds
+answer nothing -- two put RFECV at its ceiling, and on `xor3` it kept all thirty-three columns, so its
+recall of 1.000 is the absence of selection rather than success at it. On the one bed where it genuinely
+chooses (`joint_tail_t4`: 2.7 columns kept, precision 0.800, recall 0.833) **all twenty-four
+configurations give the identical result, against a seed-to-seed spread of 0.289**. The knob is forty
+times smaller than the data draw, so `rfecv` names a method here rather than a family and its rows above
+stand as written ([`BENCHMARK_PREREGISTRATION.md`](BENCHMARK_PREREGISTRATION.md) section 7a).
+
 ## Reading a null: what this suite could have seen
 
 Every contrast now carries the smallest paired difference its own seed count could have resolved, and a

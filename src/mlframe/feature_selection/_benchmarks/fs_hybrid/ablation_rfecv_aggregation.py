@@ -101,7 +101,9 @@ def run_one(bed: str, seed: int, rule: str, policy: str, rows: int) -> Dict[str,
         "n_selected": len(selected),
         "recall": len(selected & answer) / len(answer) if answer else float("nan"),
         "precision": len(selected & answer) / len(selected) if selected else 0.0,
+        "n_features": len(names),
         "selected": sorted(selected),
+        "answer": sorted(answer),
     }
 
 
@@ -112,6 +114,13 @@ def summarize(rows: Sequence[Dict[str, Any]]) -> List[str]:
     differs -- but whether they differ by MORE than the same bed differs from itself across data draws. A
     configuration grid whose spread sits inside the seed-to-seed spread is a detail; one that exceeds it is
     a hidden degree of freedom in every result the method appears in.
+
+    Two ways a bed can answer nothing, and both are named rather than reported as a null:
+
+    * **at ceiling** -- every configuration recovers the whole answer key, so no knob has room to act.
+    * **selecting everything** -- recall is 1.000 because the selection IS the column set. That is not
+      recovery, it is the absence of selection, and reading it as a result is the artefact this suite has
+      already had to withdraw a headline over: a wrapper that ties every column recovers any answer key.
     """
     lines = ["", "=" * 100, "RFECV AGGREGATION GRID: 8 voting rules x 3 missing-value policies", "=" * 100]
     beds = sorted({str(row["bed"]) for row in rows})
@@ -125,6 +134,15 @@ def summarize(rows: Sequence[Dict[str, Any]]) -> List[str]:
         means = {config: float(np.mean(values)) for config, values in per_config.items() if values}
         if not means:
             continue
+
+        # A record written before the width was stored cannot support the select-everything check, and
+        # saying "of 0 columns" would read as a bed with no features rather than as a missing field.
+        widths = [float(row["n_features"]) for row in here if row.get("n_features")]
+        sizes = [float(row["n_selected"]) for row in here]
+        precisions = [float(row["precision"]) for row in here if np.isfinite(float(row["precision"]))]
+        mean_width = float(np.mean(widths)) if widths else float("nan")
+        kept_share = float(np.mean(sizes)) / mean_width if np.isfinite(mean_width) and mean_width else float("nan")
+
         # The within-configuration seed spread, pooled: what a difference between configurations must beat
         # before it is worth calling a difference at all.
         within = [float(np.std(values, ddof=1)) for values in per_config.values() if len(values) > 1]
@@ -132,9 +150,19 @@ def summarize(rows: Sequence[Dict[str, Any]]) -> List[str]:
         best = max(means.items(), key=lambda item: item[1])
         worst = min(means.items(), key=lambda item: item[1])
         spread = best[1] - worst[1]
-        verdict = "INSIDE the seed-to-seed noise: the default is representative" if np.isfinite(noise) and spread <= noise else "EXCEEDS the seed-to-seed noise: RFECV is a FAMILY here, not a method"
+
         lines.append("")
         lines.append(f"{bed}: recall spans {worst[1]:.3f} ({worst[0][0]}/{worst[0][1]}) to {best[1]:.3f} ({best[0][0]}/{best[0][1]})")
+        width_text = f"of {mean_width:.0f}" if np.isfinite(mean_width) else "of an unrecorded number of"
+        lines.append(f"  kept {np.mean(sizes):.1f} {width_text} columns on average, mean precision {np.mean(precisions) if precisions else float('nan'):.3f}")
+        if np.isfinite(kept_share) and kept_share > 0.9:
+            lines.append("  UNINFORMATIVE: the selection is essentially the whole column set, so recall is 1.000 by not selecting.")
+            lines.append("  A knob cannot be shown to matter on a cell where the arm is not choosing; this bed says nothing about aggregation.")
+            continue
+        if min(means.values()) >= 1.0:
+            lines.append("  UNINFORMATIVE: every configuration is at the ceiling, so no knob has room to act here.")
+            continue
+        verdict = "INSIDE the seed-to-seed noise: the default is representative" if np.isfinite(noise) and spread <= noise else "EXCEEDS the seed-to-seed noise: RFECV is a FAMILY here, not a method"
         lines.append(f"  spread {spread:.3f} vs per-seed noise {noise:.3f} -- {verdict}")
         default = means.get(("Borda", "worst"))
         if default is not None:
