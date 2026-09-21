@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 5 | 0 | 25 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
-| `suite_integration.md` | 19 | 6 | 0 | 13 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 5 | 0 | 17 | 0 | 0 |
+| `suite_integration.md` | 19 | 7 | 0 | 12 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 2 | 1 | 14 | 0 | 0 |
+| `tests.md` | 17 | 3 | 1 | 13 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **56** | **11** | **111** | **1** | **0** |
+| **Total** | **179** | **59** | **11** | **108** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -102,7 +102,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `EST-06` | `cap_inference_components` trims non-convex stacks without refitting or renormalising, after the gate has already accepted the full stack | |
 | **TODO** | P2 | `EST-07` | On the time-sorted OOF holdout path, the polars branch misaligns X and y rows, in both the refit-train slice and the holdout slice | |
 | **TODO** | P2 | `EST-08` | The wrap-pass watchdog is off by default, cannot detect the failures it names, raises a false alarm on every `quantile_residual` run, and swallows its own errors at DEBUG | |
-| **TODO** | P2 | `EST-09` | The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit | |
+| **RESOLVED** | P2 | `EST-09` | The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit | OOF refit wrappers now get their training base (5 of 6 lacked it); pinned no-op test split into no-base no-op + with-base shrink |
 | **TODO** | P2 | `EST-10` | `predict_quantile` returns zero-width intervals on fallback rows and crossed quantiles for sign-flipping multiplicative inverses | |
 | **TODO** | P2 | `EST-11` | The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE | |
 | **TODO** | P2 | `EST-12` | `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path | |
@@ -135,7 +135,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `INT-12` | On the supported pandas range, discovery materialises a full copy of the train frame for every regression target | |
 | **TODO** | P3 | `INT-13` | The default model cache reuses a composite inner model whose target definition has changed | |
 | **TODO** | P3 | `INT-14` | The discovery "winning-spec" charts plot y and T over all rows, including test rows and median-imputed T values | |
-| **TODO** | P3 | `INT-15` | Two config fields are accepted and documented as effective but do nothing, with no warning | |
+| **RESOLVED** | P3 | `INT-15` | Two config fields are accepted and documented as effective but do nothing, with no warning | non-default values warn; misleading config comment fixed; allowlist entries removed |
 | **TODO** | P3 | `INT-16` | Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on | |
 | **TODO** | P3 | `INT-17` | The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target | |
 | **TODO** | P3 | `INT-18` | A composite spec name that equals an existing target name silently overwrites that target's values | |
@@ -177,7 +177,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `TST-01` | The suite-level composite tests pass with a composite model that is almost 2x worse than raw y, because every assertion is a range check that the y-clip guarantees | discriminating suite contracts (linear + lgb); exposed and fixed 3 prod bugs: value report crash without groups, LGB dropped from ensemble OOF (early stopping, no eval slice), cached test frame double-scaled on later targets |
 | **RESOLVED** | P1 | `TST-02` | No test round-trips a real composite suite or ensemble through disk or a fresh process; the persistence tests use surrogates | disk round trip covered by the persistence suite; all 51 transforms pickle bit-identically via fit and from_fitted_inner; auto-chain wrapper loads in a fresh process |
 | **PARTIAL** | P1 | `TST-03` | The per-transform registry contract test cannot detect the transform defects: one benign fixture, median error, exact-T round trip on train bases only, and a tolerance table up to 1e9x looser than the measured error | max-error round trip at one tolerance over a scale/offset/size grid, 2-D base for multi-base, out-of-range and disjoint-batch legs; Lipschitz leg and discrete/null-group fixtures not done |
-| **TODO** | P1 | `TST-04` | Seven tests pin behaviour that the sibling reports show is wrong, so fixing those defects turns the suite red | |
+| **RESOLVED** | P1 | `TST-04` | Seven tests pin behaviour that the sibling reports show is wrong, so fixing those defects turns the suite red | all 7 pinned tests now assert the corrected behaviour (4 with earlier fixes, 3 in this change) |
 | **TODO** | P1 | `TST-05` | No test checks that predict is independent of how rows are batched, and the recurrent-transform tests invert over the full series, which hides every batch-state defect | |
 | **TODO** | P2 | `TST-06` | The discovery time-awareness tests shuffle rows correctly but assert only the `_screen_time_ordered_` flag, which is the one thing the sort changes | |
 | **TODO** | P2 | `TST-07` | The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04 | |

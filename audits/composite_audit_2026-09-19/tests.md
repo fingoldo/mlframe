@@ -97,7 +97,7 @@ Findings are ordered by severity. A cross-reference like "(EST-01)" means the de
   - TRF-13: 1-D base raises or equals `y - b1`.
   - TRF-06: exact recovery of every level.
   - INT-15: remove the allowlist entries and assert a warning on a non-default value.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - all seven pinned tests now assert the corrected behaviour: DSC-01, EST-02 and TRF-13 were rewritten together with their fixes earlier in this audit (a one-row group's engineered base is NaN, an unseen group gets the pooled-best expert, a 1-D `second_diff` base degrades to `y - b1`); TRF-06's lossy tolerance went with the per-name table in TST-03; the EST-03 medium-findings test now expects the OOF-mean fill (2.5) with the no-statistics fallback pinned separately as the fallback; EST-09's no-op test was split into the no-base no-op and a with-base shrink; INT-15's allowlist entries were removed and replaced by warnings
 
 ### TST-05 [P1] No test checks that predict is independent of how rows are batched, and the recurrent-transform tests invert over the full series, which hides every batch-state defect
 - **Where**:

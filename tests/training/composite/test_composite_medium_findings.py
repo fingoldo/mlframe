@@ -88,7 +88,8 @@ def test_m2_dropout_predict_is_deterministic_no_refit():
 
     The non-convex stacks (linear_stack / nnls_stack) previously refit a solver on a stashed train matrix
     when a component failed at predict; that made predict batch-order-dependent and forced a multi-GB stash to
-    survive pickle. The deployed policy drops the failed column's weight and recombines deterministically.
+    survive pickle. The deployed policy fills the failed column with that component's stored OOF mean and recombines
+    with the solved weights, deterministically.
     """
     import numpy as np
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
@@ -116,11 +117,17 @@ def test_m2_dropout_predict_is_deterministic_no_refit():
         is_convex=False,
     )
     X = np.zeros((7, 2))
+    # A built stack stores each component's OOF mean, and a dropped component's column is filled with it: the surviving
+    # weights keep the values they were solved with and the dropped one still contributes its expected share.
+    ens._component_col_means = [1.0, 2.0, 3.0]
     p1 = ens.predict(X)
     p2 = ens.predict(X)
     np.testing.assert_array_equal(p1, p2)
-    # Surviving columns a (w=0.5) and c (w=0.5) -> 0.5*1 + 0.5*3 = 2.0, no refit.
-    np.testing.assert_allclose(p1, np.full(7, 2.0))
+    np.testing.assert_allclose(p1, np.full(7, 0.5 * 1.0 + 0.25 * 2.0 + 0.5 * 3.0))
+    # Without stored means (a hand-built or very old stack) there is nothing to stand in with, and the documented fallback
+    # combines the surviving columns with their original weights - still deterministic, but short by the dropped share.
+    ens._component_col_means = None
+    np.testing.assert_allclose(ens.predict(X), np.full(7, 0.5 * 1.0 + 0.5 * 3.0))
 
 
 # ---------------------------------------------------------------------------

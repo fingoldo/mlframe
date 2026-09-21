@@ -644,9 +644,8 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # ``additive_residual`` transform already produce the AR-diff spec
     # organically on AR-style data; this flag is an explicit insurance
     # for paranoid configurations where a user re-enables the gates.
-    # Enable by setting > 0.0 (typical threshold 50.0 to match
-    # ``hint_strength_threshold_pct``). Full implementation pending
-    # plumbing of per-feature ablation pct into discovery internals.
+    # NOT IMPLEMENTED YET: nothing reads this field, and a non-default value only logs a warning (see the config's
+    # ``_warn_on_inert_fields``). It awaits the plumbing of per-feature ablation pct into discovery internals.
     force_inject_diff_on_top_ablation_pct: float = 0.0
 
     # Median-of-seeds gate. Tiny CV-RMSE with
@@ -762,7 +761,7 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     structural_fragility_between_group_var_frac: float = 0.6
     structural_fragility_min_base_sensitivity: float = 0.5
     # Deprecated/unused: the gate is now the scale-invariant between/total ratio above, not an absolute
-    # amplitude vs std(y). Kept for back-compat with configs that set it; has no effect.
+    # amplitude vs std(y). Kept for back-compat with configs that set it; has no effect, and a non-default value warns.
     structural_fragility_max_amplification_ratio: float = 0.5
 
     # Cross-target ensemble honest-OOF stacking: cap the number of TRAIN rows the K-fold OOF refit

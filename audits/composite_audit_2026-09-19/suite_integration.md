@@ -135,7 +135,7 @@ Overlap notes: DSC-12 (cache key contents), DSC-18 (verdict split), DSC-20 (auto
 - **Why it matters**: A user who enables the "insurance" injection gets nothing and is not told.
 - **Suggested fix**: Add a model validator that warns (or raises) when either field is set to a non-default value, and change the field comments to say it has no effect. Alternatively, remove the fields behind a deprecation shim.
 - **Test to add**: Setting either field to a non-default value emits a `DeprecationWarning` / `UserWarning`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - a config validator now warns when `force_inject_diff_on_top_ablation_pct` or `structural_fragility_max_amplification_ratio` is set away from its default, the misleading "Enable by setting > 0.0" comment says the field is not implemented, and both allowlist entries are gone from test_config_field_consumption.py. test_inert_config_fields_warn.py: defaults are silent, each non-default value warns naming its field
 
 ### INT-16 [P3] Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on
 - **Where**: `training/reporting/_reporting_regression/__init__.py:467` (`not os.environ.get(...)`, so any non-empty value, including "0" or "false", counts as set). `core/_phase_config_setup.py:343` (`MLFRAME_DISABLE_COMPOSITE` accepts only `1/true/yes`, not `on`, unlike `MLFRAME_DISCOVERY_SKIP_TINY_RERANK` / `MLFRAME_DISCOVERY_CACHE_STRICT`), and `:344` (the env var replaces the whole config with defaults, discarding every other caller-set composite field, not just `enabled`).

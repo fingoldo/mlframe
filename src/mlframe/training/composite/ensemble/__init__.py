@@ -390,6 +390,8 @@ def _compute_oof_with_external_holdout(
                     base_columns=_base_columns,
                     transform_fitted_params=spec["fitted_params"],
                     y_train=y_train_full[valid],
+                    # The deployed wrapper captures its train base range and shrinks deep-OOD rows; the OOF stand-in must too.
+                    base_train=base_full[valid],
                 )
                 preds = wrapped.predict(external_holdout_X, inner_X=X_holdout_t)
             else:
@@ -658,6 +660,7 @@ def compute_oof_holdout_predictions(
                             base_columns=_base_columns,
                             transform_fitted_params=_fold_params,
                             y_train=y_stack[valid],
+                            base_train=base_stack[valid],
                         )
                         preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
                     else:
@@ -902,6 +905,7 @@ def compute_oof_holdout_predictions(
                     base_columns=_base_columns,
                     transform_fitted_params=_fold_params,
                     y_train=y_stack[valid],
+                    base_train=base_stack[valid],
                 )
                 preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
             else:

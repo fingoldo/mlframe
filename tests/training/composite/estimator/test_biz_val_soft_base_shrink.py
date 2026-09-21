@@ -352,8 +352,8 @@ def test_non_additive_transform_captures_no_range():
     assert ss.BASE_FIT_RANGE_KEY not in est.fitted_params_, "non-additive transforms stay byte-identical"
 
 
-def test_from_fitted_inner_has_no_range_and_is_noop():
-    """From fitted inner has no range and is noop."""
+def test_from_fitted_inner_without_a_base_range_is_a_documented_noop():
+    """With no train base supplied there is no range to guard, so the raw inverse stands (the only no-op case)."""
     est, _X, y = _fit_linear_residual()
     wrapped = CompositeTargetEstimator.from_fitted_inner(
         est.estimator_,
@@ -371,6 +371,25 @@ def test_from_fitted_inner_has_no_range_and_is_noop():
     raw = np.clip(t_hat + a * Xo["base"].to_numpy() + b, wrapped.fitted_params_["y_clip_low"], wrapped.fitted_params_["y_clip_high"])
     assert np.allclose(p, raw), "no captured range -> raw inverse preserved"
     assert wrapped.soft_shrink_info_["n_shrunk"] == 0
+
+
+def test_from_fitted_inner_with_a_base_range_shrinks_deep_ood_rows():
+    """Every suite wrapper and every OOF refit is built this way with its train base, so the default-ON guard must act.
+
+    Before the base was passed, the shrink was inert on every production wrapper: only users calling ``fit`` got it.
+    """
+    est, X, y = _fit_linear_residual()
+    wrapped = CompositeTargetEstimator.from_fitted_inner(
+        est.estimator_,
+        transform_name="linear_residual",
+        base_column="base",
+        transform_fitted_params={"alpha": est.fitted_params_["alpha"], "beta": est.fitted_params_["beta"]},
+        y_train=y,
+        base_train=X["base"].to_numpy(),
+    )
+    assert ss.BASE_FIT_RANGE_KEY in wrapped.fitted_params_
+    wrapped.predict(pd.DataFrame({"base": [80.0], "f": [0.0]}))  # 70 above a [0, 10] train range
+    assert wrapped.soft_shrink_info_["n_shrunk"] > 0
 
 
 # --------------------------------------------------------------------------------------------------

@@ -659,6 +659,28 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
         return self
 
     @model_validator(mode="after")
+    def _warn_on_inert_fields(self) -> "CompositeTargetDiscoveryConfig":
+        """Warn when a field that currently has no effect is set away from its default.
+
+        Both fields are accepted for back-compat, but nothing reads them: ``force_inject_diff_on_top_ablation_pct`` awaits
+        the per-feature ablation plumbing, and ``structural_fragility_max_amplification_ratio`` belonged to the absolute
+        amplitude test the scale-invariant between/total ratio replaced. Setting either used to change nothing silently.
+        """
+        if float(getattr(self, "force_inject_diff_on_top_ablation_pct", 0.0) or 0.0) != 0.0:
+            warnings.warn(
+                f"CompositeTargetDiscoveryConfig.force_inject_diff_on_top_ablation_pct={self.force_inject_diff_on_top_ablation_pct} "
+                "has no effect: the diff injection it would trigger is not implemented yet.",
+                stacklevel=2,
+            )
+        if float(getattr(self, "structural_fragility_max_amplification_ratio", 0.5)) != 0.5:
+            warnings.warn(
+                f"CompositeTargetDiscoveryConfig.structural_fragility_max_amplification_ratio={self.structural_fragility_max_amplification_ratio} "
+                "has no effect: the structural fragility gate now uses structural_fragility_between_group_var_frac.",
+                stacklevel=2,
+            )
+        return self
+
+    @model_validator(mode="after")
     def _warn_on_no_win_stacked_discovery(self) -> "CompositeTargetDiscoveryConfig":
         """Warn when a stacked-discovery flag is enabled: the committed bench
         ``profiling/bench_stacked_discovery_default_flip.py`` measured NO holdout
