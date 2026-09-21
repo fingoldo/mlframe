@@ -19,10 +19,10 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `discovery.md` | 30 | 5 | 0 | 25 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
 | `suite_integration.md` | 19 | 6 | 0 | 13 | 0 | 0 |
-| `performance.md` | 24 | 4 | 1 | 18 | 1 | 0 |
+| `performance.md` | 24 | 4 | 2 | 17 | 1 | 0 |
 | `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **45** | **1** | **132** | **1** | **0** |
+| **Total** | **179** | **45** | **2** | **131** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -151,7 +151,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `PRF-04` | The OOF pre-screen that skips refitting hopeless components never runs under the default `oof_holdout_source="kfold"` | pre-screen decoupled from the OOF source (falls back to the val split), carved into `_prescreen.py` with 8 tests |
 | **RESOLVED** | P1 | `PRF-05` | The honest-holdout re-score gathers the full, uncapped holdout feature matrix once per spec, in parallel threads, and re-bins every column twice per spec | matrix built once per base set, rows capped by mi_sample_n, bin codes shared: 10.77 s -> 0.75 s on 200k x 60 x 10 specs, gains unchanged |
 | **PARTIAL** | P1 | `PRF-06` | `_filter_features` holds every numeric feature over all train rows, then stacks a second full copy for a leak-corr test that a sample would decide | leak-corr rows chosen before the columns are gathered (peak now one column + sample matrix); per-column stats still gathered individually, no RSS bench |
-| **TODO** | P2 | `PRF-07` | Tiny-model LightGBM fits re-bin the same feature matrix for every spec, seed and fold; `LgbFoldCache` exists but only auto-chain uses it | |
+| **PARTIAL** | P2 | `PRF-07` | Tiny-model LightGBM fits re-bin the same feature matrix for every spec, seed and fold; `LgbFoldCache` exists but only auto-chain uses it | y-scale tiny CV shares one binned fold dataset per thread (bit-identical, 1.32x on the fits, 177/281 fits); raw-y CV, holdout gates and WAIC still per-fit. Found and fixed the LgbFoldCache zero-label bug (4a240d450) |
 | **TODO** | P2 | `PRF-08` | The `"linear"` screening family refits `SimpleImputer + Ridge` for every spec on the same X; one multi-output solve is 9.4x faster | |
 | **TODO** | P2 | `PRF-09` | Per-base float and prebinned matrix copies stay alive through the rerank and all later gates, although the default bin path never reads the float values; the lazy prebin path is dead under defaults | |
 | **TODO** | P2 | `PRF-10` | The honest-OOF selector, the honest RMSE gate and the y-scale gate each rebuild feature matrices from the frame and refit a raw baseline and each spec on nearly the same screen-to-holdout design | |

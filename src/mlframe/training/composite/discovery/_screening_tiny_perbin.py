@@ -42,6 +42,7 @@ from ._screening_tiny import (
     _silence_tiny_model_output,
 )
 from ._eval import refit_transform_on_fold
+from ._lgb_shared_fold import fit_on_shared_fold, lgb_params
 
 
 def _per_bin_rmse(
@@ -164,6 +165,27 @@ def _tiny_fold_model(family, *, n_estimators, num_leaves, learning_rate, random_
                 "inner %s under outer n_jobs=%d (oversubscription risk): %s: %s",
                 type(model).__name__, n_jobs, type(_njobs_err).__name__, _njobs_err,
             )
+    return model
+
+
+def _fit_fold_model(x_clean, train_fold, fit_rows, t_fit, *, family, n_estimators, num_leaves, learning_rate, random_state, deterministic, inner_n_jobs, n_jobs):
+    """Fit one fold's tiny model, reusing the fold's binned dataset when every row of the fold trains.
+
+    A LightGBM fold that trains on all its rows shares its binned dataset with the other specs on this matrix:
+    predictions are bit-identical and one construction is saved per spec. A masked fold, or another family, keeps the
+    fresh fit, since a row subset would keep bin boundaries that a fit on fewer rows places differently.
+    """
+    if family.lower() in ("lgb", "lightgbm") and isinstance(x_clean, np.ndarray) and fit_rows.shape[0] == train_fold.shape[0]:
+        params = lgb_params(
+            num_leaves=num_leaves, learning_rate=learning_rate, random_state=random_state,
+            deterministic=deterministic, num_threads=1 if n_jobs > 1 else inner_n_jobs,
+        )
+        return fit_on_shared_fold(x_clean, train_fold, t_fit, params=params, n_estimators=n_estimators)
+    model = _tiny_fold_model(
+        family, n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate,
+        random_state=random_state, deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs,
+    )
+    model.fit(x_clean[fit_rows], t_fit)
     return model
 
 
@@ -333,15 +355,12 @@ def _tiny_cv_rmse_y_scale(
         # Hoisted split cache: identical (n,cv_folds,seed) across N_SPECS -> identical splits.
         splits = _cached_kfold_splits(x_clean.shape[0], cv_folds, random_state)
 
+
     def _one_fold(
         train_fold: np.ndarray, val_fold: np.ndarray,
     ) -> tuple[float, np.ndarray | None]:
         """Return (fold_rmse, per_bin_rmse_or_None)."""
         try:
-            model = _tiny_fold_model(
-                family, n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate,
-                random_state=random_state, deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs,
-            )
             # Under fallback emulation the train fold may contain off-domain rows (NaN T); fit ONLY on the domain-valid train rows (forward is undefined off-domain) -- production fits the inner the same way. ``_fit_rows`` == the full train fold on the legacy / all-valid path.
             if _split_valid_mask is not None:
                 _tr_valid = train_fold[_split_valid_mask[train_fold]]
@@ -354,7 +373,10 @@ def _tiny_cv_rmse_y_scale(
                 transform, fitted_params, y_clean, base_clean, t_clean, groups_clean, _fit_rows,
             )
             with _silence_tiny_model_output(family):
-                model.fit(x_clean[_fit_rows], _t_fit)
+                model = _fit_fold_model(
+                    x_clean, train_fold, _fit_rows, _t_fit, family=family, n_estimators=n_estimators, num_leaves=num_leaves,
+                    learning_rate=learning_rate, random_state=random_state, deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs,
+                )
                 t_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
             # Domain-invalid val rows have a meaningless base for the inverse; supply a safe placeholder and overwrite with the median fallback below (mirrors estimator/_predict.py base_safe + y_train_median).
             if _split_valid_mask is not None:
