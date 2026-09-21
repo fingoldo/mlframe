@@ -84,25 +84,24 @@ class TestEWMA:
         np.testing.assert_array_equal(mask, [True, False, True])
 
     def test_biz_value_smooth_drift(self) -> None:
-        """Slow-drift DGP: ``y_i = trend(i) + eps``. EWMA captures the trend so the residual has SMALLER variance than ``diff(y, base)`` when base = y_prev (a single lag).
+        """Slow drift observed with noise, base = y_prev: the EWMA residual beats a model of y on the lag, on held-out rows.
 
-        Here we set base = y_prev to mimic a 1-lag autoregressive setup. EWMA over base smooths the lag noise; the residual T = y - EWMA(y_prev) is closer to the noise floor than T_diff = y - y_prev.
+        The lag carries the full observation noise into the prediction (error variance ~ 2 sigma^2); the EWMA of the lag
+        averages it out. Fit on the first 70%, a constant inner (mean train T) and the inverse give the held-out y; the
+        honest baseline is a linear model of y on the same lag. Measured (seeds 2/3/4): 0.557/0.544/0.546 vs 0.788/0.771/0.780.
         """
         rng = np.random.default_rng(2)
-        n = 1000
-        trend = np.linspace(0.0, 10.0, n)
-        y = trend + rng.normal(scale=0.5, size=n)
-        # base = y shifted by 1: y_{i-1}.
+        n, ntr = 1000, 700
+        y = np.linspace(0.0, 10.0, n) + rng.normal(scale=0.5, size=n)
         base = np.concatenate([[y[0]], y[:-1]])
-        # EWMA residual.
-        params = _ewma_residual_fit(y, base, k=10)
-        T_ewma = _ewma_residual_forward(y, base, params)
-        # Diff residual: y - y_prev.
-        T_diff = y - base
-        # On smooth drift, EWMA smooths through lag noise; diff doubles the noise (Var(y - y_prev) ~= 2 * sigma^2).
-        assert np.var(T_ewma) < np.var(
-            T_diff
-        ), f"EWMA residual variance should be < diff residual on smooth drift; got ewma={np.var(T_ewma):.4f}, diff={np.var(T_diff):.4f}"
+        params = _ewma_residual_fit(y[:ntr], base[:ntr], k=10)
+        t_train = _ewma_residual_forward(y[:ntr], base[:ntr], params)
+        # The EWMA reads only the base (the lag), so inverting over the whole series leaks no held-out y.
+        y_hat = _ewma_residual_inverse(np.full(n, float(np.mean(t_train))), base, params)[ntr:]
+        coef = np.polyfit(base[:ntr], y[:ntr], 1)
+        rmse_ewma = float(np.sqrt(np.mean((y_hat - y[ntr:]) ** 2)))
+        rmse_lag = float(np.sqrt(np.mean((np.polyval(coef, base[ntr:]) - y[ntr:]) ** 2)))
+        assert rmse_ewma < 0.85 * rmse_lag, f"EWMA held-out RMSE {rmse_ewma:.4f} should be < 0.85x the lag model's {rmse_lag:.4f}"
 
 
 # ===========================================================================
