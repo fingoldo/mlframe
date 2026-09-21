@@ -25,7 +25,7 @@ entirely -- imputation, resampling, reweighting rather than a different scorer.
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 from mlframe.data.datasets.scenarios._common import probes
 from mlframe.data.datasets.spec import CeilingTarget, DatasetSpec, EdgeSpec, FeatureSpec, GateSpec, LinkSpec, MissingnessSpec, TargetSpec
@@ -107,13 +107,18 @@ def covariate_shift_spec(n_noise: int = 25, n_samples: int = 6000, ceiling: floa
     target is untouched. A model fitted here is still correct about the relationship; it has simply seen a
     different part of the input space, and the right response is reweighting rather than refitting.
     """
-    informative = tuple(FeatureSpec(name=f"s{i}", family="normal", params={"loc": 0.8, "scale": 1.6}, standardize=False) for i in range(5))
+    shifted: Dict[str, Any] = {"family": "normal", "params": {"loc": 0.8, "scale": 1.6}, "standardize": False}
+    informative = tuple(FeatureSpec(name=f"s{i}", **shifted) for i in range(5))
+    # The probes are drawn from the SHIFTED law too. With standard-normal probes beside unstandardised
+    # informative columns the bed hands its answer key to anything that sorts by variance -- caught by the
+    # varsortability tripwire, which is what that check exists for.
+    shifted_probes = tuple(FeatureSpec(name=f"n{i:03d}", **shifted) for i in range(n_noise))
     weights = {f"s{i}": float(1.2 * (0.72**i)) for i in range(5)}
     return DatasetSpec(
         name="shift_covariate",
         n_samples=n_samples,
         root_seed=seed,
-        features=informative + probes(n_noise),
+        features=informative + shifted_probes,
         targets=(TargetSpec(name="y", prevalence=0.4, link=LinkSpec(kind="logistic", coefficients=weights), calibrate_to=CeilingTarget(metric="auc", value=ceiling)),),
         edges=tuple(EdgeSpec(source=column, target="y") for column in weights),
         provenance={"family": "observation", "purpose": "P(x) moves and P(y|x) does not: the half of drift that reweighting fixes"},

@@ -288,7 +288,7 @@
       "family": "observation",
       "primary_target_set": "markov_blanket",
       "purpose": "P(x) moves and P(y|x) does not: paired with the concept-shift bed, which differs in exactly one declaration",
-      "spec_hash": "e4bafc2354b8d47028d8101ed3038aff"
+      "spec_hash": "e317ce043bc2302415b8ba668b1a83c1"
     },
     "tail_isolation_clayton_vs_gaussian": {
       "expected_to_break": [
@@ -369,7 +369,7 @@
       "family": "mixed_types",
       "primary_target_set": "markov_blanket",
       "purpose": "power-law level frequencies: a long tail with almost no rows per level",
-      "spec_hash": "21b5f2fe2b5b31f782b83962f2b1250c"
+      "spec_hash": "51c4837a4da96623889b987b5917ddca"
     }
   },
   "schema_version": 1,
