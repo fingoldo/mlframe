@@ -65,6 +65,42 @@ def _base_arg(df: Any, base_columns: Sequence[str], rows: np.ndarray) -> np.ndar
     return np.column_stack([_extract_column_array(df, c, rows=rows).astype(np.float64) for c in base_columns])
 
 
+def _spec_fit_mask(transform, y_fit, base_fit, params, spec_name: str) -> np.ndarray:
+    """The rows a spec's T is fit on: the transform's domain, refined by its fitted-domain check (the screen's two stages)."""
+    try:
+        valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
+        if valid.shape != y_fit.shape:
+            valid = np.ones(y_fit.shape, dtype=bool)
+    except Exception as e:
+        logger.debug("domain_check failed, treating all rows as valid: %s", e)
+        valid = np.ones(y_fit.shape, dtype=bool)
+    _dcf = getattr(transform, "domain_check_fitted", None)
+    if _dcf is not None:
+        try:
+            vf = np.asarray(_dcf(y_fit, base_fit, params), dtype=bool)
+            if vf.shape == valid.shape:
+                valid = valid & vf
+        except Exception as e:  # -- treat as no refinement
+            logger.debug("honest_rmse_gate domain_check_fitted failed for %s: %s", spec_name, e)
+    return valid
+
+
+def _correlation_if_duplicate_of_raw(y_hat: np.ndarray, raw_pred: np.ndarray, rmse_y: float, raw_rmse: float) -> float | None:
+    """The spec-vs-raw prediction correlation when the reconstruction duplicates the raw model, else ``None``.
+
+    A spec whose reconstruction IS the raw model's prediction ships a second trained model for nothing: no lift and no
+    ensemble diversity, since the two prediction vectors are the same. The 5% tolerance keeps specs that trade a little
+    accuracy for a different view of the data, not copies of raw. The canonical case is a unary transform whose T is y
+    shifted by a constant on data with none of the structure it models.
+    """
+    if raw_pred.size <= 2 or abs(rmse_y - raw_rmse) > _DUPLICATE_OF_RAW_RMSE_FRAC * raw_rmse:
+        return None
+    if float(np.std(y_hat)) <= 0 or float(np.std(raw_pred)) <= 0:
+        return None
+    corr = float(np.corrcoef(y_hat, raw_pred)[0, 1])
+    return corr if corr >= _DUPLICATE_OF_RAW_MIN_CORR else None
+
+
 def apply_honest_rmse_gate(
     self: Any,
     df: Any,
@@ -162,22 +198,7 @@ def apply_honest_rmse_gate(
         base_cols = spec_base_columns(spec)
         base_fit = _base_arg(df, base_cols, fit_idx)
         base_eval = _base_arg(df, base_cols, eval_idx)
-        # Same two-stage domain gate the screen applies, so T is fit on the spec's real domain.
-        try:
-            valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
-            if valid.shape != y_fit.shape:
-                valid = np.ones(y_fit.shape, dtype=bool)
-        except Exception as e:
-            logger.debug("domain_check failed, treating all rows as valid: %s", e)
-            valid = np.ones(y_fit.shape, dtype=bool)
-        _dcf = getattr(transform, "domain_check_fitted", None)
-        if _dcf is not None:
-            try:
-                vf = np.asarray(_dcf(y_fit, base_fit, params), dtype=bool)
-                if vf.shape == valid.shape:
-                    valid = valid & vf
-            except Exception as e:  # -- treat as no refinement
-                logger.debug("honest_rmse_gate domain_check_fitted failed for %s: %s", spec.name, e)
+        valid = _spec_fit_mask(transform, y_fit, base_fit, params, spec.name)
         if int(valid.sum()) < 50:
             survivors.append(spec)
             continue
@@ -219,22 +240,14 @@ def apply_honest_rmse_gate(
             ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
                           numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "tol": float(tol)}, **_led_kw)
             continue
-        # A spec whose reconstruction IS the raw model's prediction ships a second trained model for nothing: it adds
-        # no lift and no ensemble diversity either, since the two prediction vectors are the same. The 5% tolerance is
-        # there to keep specs that trade a little accuracy for a different view of the data, not copies of raw. The
-        # canonical case is a unary transform whose T is y shifted by a constant on data with none of the structure it
-        # models -- the tiny model then learns the same function and the inverse puts the shift back.
-        _raw_eval = np.asarray(_raw_pred, dtype=np.float64)[finite]
-        if _raw_eval.size > 2 and abs(rmse_y - raw_rmse) <= _DUPLICATE_OF_RAW_RMSE_FRAC * raw_rmse:
-            _sd_spec = float(np.std(y_hat[finite]))
-            _sd_raw = float(np.std(_raw_eval))
-            _corr = float(np.corrcoef(y_hat[finite], _raw_eval)[0, 1]) if _sd_spec > 0 and _sd_raw > 0 else 0.0
-            if _corr >= _DUPLICATE_OF_RAW_MIN_CORR:
-                _r = f"reconstruction duplicates the raw model (corr={_corr:.6f}, y-RMSE={rmse_y:.6g} vs raw {raw_rmse:.6g})"
-                rejected.append((spec.name, _r))
-                ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
-                              numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "corr_with_raw": _corr}, **_led_kw)
-                continue
+        # A reconstruction that duplicates the raw model ships a second model for nothing (see the helper).
+        _corr = _correlation_if_duplicate_of_raw(y_hat[finite], np.asarray(_raw_pred, dtype=np.float64)[finite], rmse_y, raw_rmse)
+        if _corr is not None:
+            _r = f"reconstruction duplicates the raw model (corr={_corr:.6f}, y-RMSE={rmse_y:.6g} vs raw {raw_rmse:.6g})"
+            rejected.append((spec.name, _r))
+            ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
+                          numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "corr_with_raw": _corr}, **_led_kw)
+            continue
         object.__setattr__(spec, "honest_holdout_rmse", float(rmse_y))
         object.__setattr__(spec, "honest_holdout_raw_rmse", float(raw_rmse))
         object.__setattr__(spec, "honest_holdout_rmse_gain", float(raw_rmse - rmse_y))

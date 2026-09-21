@@ -63,6 +63,30 @@ def cached_honest_prediction(self, fit_idx: np.ndarray, eval_idx: np.ndarray, sp
     return hit[1]
 
 
+def _raw_baseline_prediction(new_model, x_fit, y_fit, x_eval):
+    """The raw-y tiny model's holdout prediction, or ``None`` (logged) when it cannot be fit, which disables the selector."""
+    try:
+        raw_model = new_model()
+        raw_model.fit(x_fit, y_fit)
+        return np.asarray(raw_model.predict(x_eval), dtype=np.float64)
+    except Exception as exc:  # -- baseline failure -> no ranking key produced
+        logger.warning("[CompositeTargetDiscovery.honest_oof_select] raw-y baseline fit failed (%s); selector skipped.", exc)
+        return None
+
+
+def _honest_lag_floor(df, target_col, eval_idx, y_eval) -> float:
+    """The AR failsafe (``y_hat = y_prev``) RMSE on the honest holdout rows, or ``nan`` when there is no usable lag column."""
+    lag_col = detect_causal_lag_column(df, target_col)
+    if lag_col is None:
+        return float("nan")
+    try:
+        lag_eval = _extract_column_array(df, lag_col, rows=eval_idx).astype(np.float64)
+        return float(causal_lag_predict_rmse(lag_eval, y_eval))
+    except Exception as exc:  # -- lag probe failure -> no lag floor (raw floor still applies)
+        logger.debug("[honest_oof_select] lag floor probe failed for %s: %s", lag_col, exc)
+        return float("nan")
+
+
 def honest_oof_reconstruction_rmse(
     self,
     df: Any,
@@ -132,28 +156,17 @@ def honest_oof_reconstruction_rmse(
             learning_rate=learning_rate, random_state=rs, inner_n_jobs=inner_n_jobs,
         )
 
-    try:
-        raw_model = _new_model()
-        raw_model.fit(x_fit, y_fit)
-        raw_pred = np.asarray(raw_model.predict(x_eval), dtype=np.float64)
-        raw_rmse = rmse(y_eval, raw_pred)
-        self._honest_oof_raw_rmse = float(raw_rmse) if np.isfinite(raw_rmse) else float("nan")
-    except Exception as exc:  # -- baseline failure -> no ranking key produced
-        logger.warning("[CompositeTargetDiscovery.honest_oof_select] raw-y baseline fit failed (%s); selector skipped.", exc)
+    raw_pred = _raw_baseline_prediction(_new_model, x_fit, y_fit, x_eval)
+    if raw_pred is None:
         return out
+    raw_rmse = rmse(y_eval, raw_pred)
+    self._honest_oof_raw_rmse = float(raw_rmse) if np.isfinite(raw_rmse) else float("nan")
 
     # AR failsafe (lag_predict) floor on the SAME group-disjoint holdout rows. On a strong-AR sequential target the
     # deployed model is often just ``y_hat = y_prev``; a composite spec whose honest reconstruction cannot beat that
     # failsafe is worthless even if it beats the raw-y model. Measure the lag baseline here so the gate can floor every
     # spec against ``min(raw, lag)`` rather than raw alone (prod incident: 13.30 ensemble vs 11.58 lag floor).
-    lag_col = detect_causal_lag_column(df, target_col)
-    if lag_col is not None:
-        try:
-            lag_eval = _extract_column_array(df, lag_col, rows=eval_idx).astype(np.float64)
-            lag_rmse = causal_lag_predict_rmse(lag_eval, y_eval)
-            self._honest_oof_lag_rmse = float(lag_rmse)
-        except Exception as exc:  # -- lag probe failure -> no lag floor (raw floor still applies)
-            logger.debug("[honest_oof_select] lag floor probe failed for %s: %s", lag_col, exc)
+    self._honest_oof_lag_rmse = _honest_lag_floor(df, target_col, eval_idx, y_eval)
 
     # Keep what was measured so the honest RMSE gate, which fits the same models on the same rows when both samples are
     # under their caps, can reuse a prediction instead of refitting it (see ``cached_honest_prediction``).
