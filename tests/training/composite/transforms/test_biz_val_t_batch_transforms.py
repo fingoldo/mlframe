@@ -89,16 +89,25 @@ def test_biz_val_volatility_normalized_beats_plain_ewma_on_regime_switch() -> No
     tr_mask[:ntr_lo] = True
     tr_mask[n // 2 : ntr_hi] = True
     te_mask = ~tr_mask
-    # Recurrent transforms consume contiguous sequences; keep the full series for forward/inverse and mask afterwards.
+    # Score the way the wrapper serves: fit and forward on the training rows only, then invert each contiguous test
+    # segment as its own batch. A recurrence needs history, so each segment gets the rows just before it as a warm-up
+    # prefix - the context a caller supplies at predict time - and only the segment's own rows are scored. Inverting the
+    # whole train+test series in one call used to hand the recurrence warm-up history the wrapper never has.
+    warm = 300
+    segments = [(ntr_lo, n // 2), (ntr_hi, n)]
 
     def _pipeline(name: str) -> float:
-        """Pipeline."""
+        """Fit on train, invert each test segment with its warm-up prefix, and return the test-row RMSE."""
         t = get_transform(name)
         p = t.fit(y[tr_mask], base[tr_mask], k=10)
-        T_full = t.forward(y, base, p)
-        T_hat_te = _ridge_1d(f[tr_mask], T_full[tr_mask], f)
-        y_hat_full = t.inverse(T_hat_te, base, p)
-        return _rmse(y_hat_full[te_mask], y[te_mask])
+        T_train = t.forward(y[tr_mask], base[tr_mask], p)
+        T_hat = _ridge_1d(f[tr_mask], T_train, f)
+        errs = []
+        for lo, hi in segments:
+            idx = np.arange(lo - warm, hi)
+            y_hat = t.inverse(T_hat[idx], base[idx], p)[warm:]
+            errs.append(y_hat - y[lo:hi])
+        return float(np.sqrt(np.mean(np.concatenate(errs) ** 2)))
 
     rmse_vnr = _pipeline("volatility_normalized_residual")
     rmse_ewma = _pipeline("ewma_residual")

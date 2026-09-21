@@ -20,9 +20,9 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `estimator_ensemble.md` | 22 | 5 | 0 | 17 | 0 | 0 |
 | `suite_integration.md` | 19 | 7 | 0 | 12 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 3 | 1 | 13 | 0 | 0 |
+| `tests.md` | 17 | 4 | 1 | 12 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **59** | **11** | **108** | **1** | **0** |
+| **Total** | **179** | **60** | **11** | **107** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -178,7 +178,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `TST-02` | No test round-trips a real composite suite or ensemble through disk or a fresh process; the persistence tests use surrogates | disk round trip covered by the persistence suite; all 51 transforms pickle bit-identically via fit and from_fitted_inner; auto-chain wrapper loads in a fresh process |
 | **PARTIAL** | P1 | `TST-03` | The per-transform registry contract test cannot detect the transform defects: one benign fixture, median error, exact-T round trip on train bases only, and a tolerance table up to 1e9x looser than the measured error | max-error round trip at one tolerance over a scale/offset/size grid, 2-D base for multi-base, out-of-range and disjoint-batch legs; Lipschitz leg and discrete/null-group fixtures not done |
 | **RESOLVED** | P1 | `TST-04` | Seven tests pin behaviour that the sibling reports show is wrong, so fixing those defects turns the suite red | all 7 pinned tests now assert the corrected behaviour (4 with earlier fixes, 3 in this change) |
-| **TODO** | P1 | `TST-05` | No test checks that predict is independent of how rows are batched, and the recurrent-transform tests invert over the full series, which hides every batch-state defect | |
+| **RESOLVED** | P1 | `TST-05` | No test checks that predict is independent of how rows are batched, and the recurrent-transform tests invert over the full series, which hides every batch-state defect | batching-invariance property tests over all transforms: pointwise chunk equality, recurrent exact with warm-up prefix, known limits pinned (frac_diff memory, centred window), NaN base contained; recurrent biz test scores per test segment |
 | **TODO** | P2 | `TST-06` | The discovery time-awareness tests shuffle rows correctly but assert only the `_screen_time_ordered_` flag, which is the one thing the sort changes | |
 | **TODO** | P2 | `TST-07` | The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04 | |
 | **TODO** | P2 | `TST-08` | Group handling is tested only with clean string/int labels on row-random splits, and the unseen-group tests assert only finiteness | |
