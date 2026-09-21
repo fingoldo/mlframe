@@ -247,10 +247,10 @@
   "src/mlframe/training/baselines/dummy.py::compute_dummy_baselines": 282,
   "src/mlframe/training/cb/_cb_pool.py::_maybe_rewrite_eval_set_as_cb_pool": 159,
   "src/mlframe/training/cb/_cb_pool_build.py::_maybe_get_or_build_cb_pool": 313,
-  "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base": 832,
+  "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base": 815,
   "src/mlframe/training/composite/discovery/_eval.py::_eval_one_transform_impl": 366,
   "src/mlframe/training/composite/discovery/_eval_stats.py::apply_alpha_drift_gate": 113,
-  "src/mlframe/training/composite/discovery/_fit.py::fit": 711,
+  "src/mlframe/training/composite/discovery/_fit.py::fit": 708,
   "src/mlframe/training/composite/discovery/_fit_multibase.py::apply_multi_base_forward_stepwise": 173,
   "src/mlframe/training/composite/discovery/_honest_rmse_gate.py::apply_honest_rmse_gate": 167,
   "src/mlframe/training/composite/discovery/_screening_tiny.py::_tiny_cv_rmse_raw_y": 241,
@@ -346,4 +346,4 @@
   "src/mlframe/training/trainer.py::_configure_mlp_params": 211,
   "src/mlframe/training/utils.py::get_pandas_view_of_polars_df": 437,
   "src/mlframe/training/xgb_shim.py::_DMatrixReuseMixin.fit": 251
-}
+}

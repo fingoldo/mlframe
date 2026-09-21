@@ -164,6 +164,9 @@ def _auto_base(
     y_screen = y_train[sample_idx]
 
     x_matrix = self._build_feature_matrix(df, usable_features, train_idx_screen)
+    # ``fit`` draws the same screening sample and gathers the same columns again; hand it this (never mutated: the steps
+    # below reassign) matrix so the second full-frame gather is skipped when frame, columns and rows all match.
+    self._screen_matrix_stash = (df, tuple(usable_features), np.asarray(train_idx_screen).copy(), x_matrix)
     # Drop columns with ZERO observed values in the screening sample
     # BEFORE the all-row finite-mask. A single fully-NaN column made
     # the AND-mask return zero rows (observed in prod: 'auto-base:

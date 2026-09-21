@@ -57,3 +57,26 @@ def maybe_boost_mi_strata_for_heavy_tail(self, y_train: np.ndarray) -> None:
         )
     except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
         logger.debug("heavy-tail y skew/kurt boost computation failed, leaving mi_n_strata at user-configured value: %s", e)
+
+
+def take_screen_matrix(self, df, columns, rows) -> np.ndarray:
+    """The screening feature matrix for ``rows``, reusing the one auto-base already gathered when it covers them.
+
+    Auto-base draws the same screening sample and gathers the same columns before ``fit`` does; ``fit`` only reorders the
+    rows when a time key is given. The stashed matrix is reused when the frame object and the column list are the same
+    and its rows are the same set, permuted into ``fit``'s order; anything else gathers from the frame as before. The
+    stash is released either way, since it can be a few hundred MB on a wide screen.
+    """
+    stash = getattr(self, "_screen_matrix_stash", None)
+    self._screen_matrix_stash = None
+    rows = np.asarray(rows)
+    if stash is not None:
+        s_df, s_cols, s_rows, s_matrix = stash
+        if s_df is df and s_cols == tuple(columns) and s_rows.shape == rows.shape:
+            if np.array_equal(s_rows, rows):
+                return s_matrix
+            order = np.argsort(s_rows, kind="stable")
+            pos = order[np.clip(np.searchsorted(s_rows[order], rows), 0, s_rows.size - 1)]
+            if np.array_equal(s_rows[pos], rows):
+                return s_matrix[pos]
+    return self._build_feature_matrix(df, columns, rows)

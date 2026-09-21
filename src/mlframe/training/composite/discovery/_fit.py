@@ -36,7 +36,7 @@ from ..transforms import UnknownTransformError, get_transform
 from ._skew_gate import left_skewed_right_tail_skips
 from ._fit_ram import _phase_ram_report, _process_mem_mb  # noqa: F401 -- _process_mem_mb re-exported for back-compat
 from ._eval import build_unary_base_context, eval_one_transform
-from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidates_report_entry
+from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidates_report_entry, take_screen_matrix
 from ._fit_multibase import apply_multi_base_forward_stepwise
 from ._eval_stats import near_collinear_keep_mask
 from mlframe.utils.log_throttle import log_throttle
@@ -473,8 +473,8 @@ def fit(
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "lazy_prebin_features_done")
     else:
-        _full_x_matrix = self._build_feature_matrix(
-            df,
+        _full_x_matrix = take_screen_matrix(
+            self, df,
             _usable_features_list,
             train_idx_screen,
         )
@@ -690,7 +690,7 @@ def fit(
     ))
     # The per-base float and prebinned copies and the full matrices are read by nothing past this point; holding them
     # kept (bases + 1) x rows x features x 6 bytes resident through the rerank, the holdout gates and the re-score.
-    _base_contexts = _full_x_matrix = _full_x_prebinned = _unary_full_x = _unary_ctx = x_remaining_matrix = _x_prebinned = None
+    _base_contexts = _full_x_matrix = _full_x_prebinned = _unary_full_x = _unary_ctx = x_remaining_matrix = _x_prebinned = self._screen_matrix_stash = None
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "transforms_evaluated")
 

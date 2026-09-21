@@ -324,7 +324,7 @@ Default counts used in the estimates:
 - **Expected win** (estimate): one `n_screen x F` gather per target, roughly 1-2 s at 100k x 500 on a large polars frame.
 - **Suggested fix**: have `_auto_base` stash `(train_idx_screen, x_matrix)` on the instance. In `fit`, reuse it by permuting rows with the time order. Mind that `_auto_base` imputes a copy, so stash the pristine matrix.
 - **Test/benchmark to add**: count `_build_feature_matrix` calls per fit.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - auto-base now stashes the screening matrix it gathered (never mutated: its later steps reassign) with the frame, the column list and the rows; `fit` takes it over through `take_screen_matrix` when the frame object and the columns match and the rows are the same set, permuting into `fit`'s time order when a key is given, and gathers from the frame otherwise. The stash is released on use and again after the candidate loop, and `__getstate__` drops it. On the auto-base fixture a fit makes one screening gather instead of two (the holdout gates' own gathers are untouched) and the specs and their MI gains are identical. test_screen_matrix_gathered_once.py, 4 tests: one gather saved against a re-gathering fit, specs unchanged, time-ordered rows permuted correctly and the stash released, a different frame or column list gathers afresh
 
 ### PRF-19 [P3] Auto-chain upcasts each base's matrix to float64 and copies `x_tr` for every candidate on every fold, even when the fold Dataset is already cached
 
