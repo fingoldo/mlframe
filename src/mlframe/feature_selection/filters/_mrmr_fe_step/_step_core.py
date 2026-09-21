@@ -459,7 +459,10 @@ def _run_fe_step_impl(
 
     # Now need to sort prospective_pairs by the uplift, to check most promising pairs within the time budget.
     # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
-    prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
+    # Ties on the reuse counter break by pair MI, so the strongest pair of a tie group is searched first.
+    from ._step_pair_order import order_prospective_pairs
+
+    prospective_pairs = order_prospective_pairs(prospective_pairs)
 
     # SUCCESSIVE-HALVING / RUNG-SCHEDULE FE-search budget.
     # ON by default. Before the EXPENSIVE per-pair operator search below
