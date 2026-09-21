@@ -651,6 +651,7 @@ def discover_incremental(
     prior_sig = (_sig_of() if callable(_sig_of) else getattr(prior_result, "_fit_data_signature", "")) or ""
     if config is None:
         config = getattr(prior_result, "config", None)
+    kwargs.setdefault("prior_n_rows", getattr(prior_result, "_fit_n_rows", None))
     return incremental_discovery_check(
         prior_specs, prior_sig, new_df, target_col, feature_cols, config, **kwargs,
     )

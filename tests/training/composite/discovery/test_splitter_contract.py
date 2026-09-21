@@ -41,6 +41,7 @@ def _grouped_frame(n: int = 600, n_groups: int = 12, seed: int = 0):
 
 def _assert_group_disjoint(folds, groups):
     """No group has rows on both sides of any fold."""
+    assert folds, "no folds were produced"
     for tr, va in folds:
         assert not (set(groups[tr]) & set(groups[va])), "a group straddles a train/validation fold"
 

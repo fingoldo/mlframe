@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 17 | 0 | 13 | 0 | 0 |
+| `discovery.md` | 30 | 18 | 0 | 12 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 14 | 0 | 8 | 0 | 0 |
 | `suite_integration.md` | 19 | 8 | 0 | 11 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 7 | 5 | 29 | 0 | 0 |
-| **Total** | **179** | **92** | **16** | **70** | **1** | **0** |
+| **Total** | **179** | **93** | **16** | **69** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -74,7 +74,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `DSC-13` | The yscale gate's fallback path evaluates on rows the transform params were fit on | |
 | **TODO** | P2 | `DSC-14` | Stacked and stability-check fits drop `time_ordering`, `val_df` and `val_y` | |
 | **TODO** | P2 | `DSC-15` | The stability-check majority threshold is truncated, so n=3 keeps specs found once | |
-| **TODO** | P2 | `DSC-16` | Incremental drift detection cannot fire under default config | |
+| **RESOLVED** | P2 | `DSC-16` | Incremental drift detection cannot fire under default config | same-rows reference gain; appended rows only; default config now detects a destroyed base |
 | **RESOLVED** | P2 | `DSC-17` | The cross-target composite budget sorts three incompatible gain units together | budget ranks RMSE-gain tier before MI tier |
 | **TODO** | P2 | `DSC-18` | The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection | |
 | **RESOLVED** | P2 | `DSC-19` | The group-disjoint honest-holdout carve can hold out most of the training rows | holdout within +/-25% or iid fallback |
