@@ -87,6 +87,7 @@ def _old_cusum(values, threshold=None, *, group_ids=None, drift=0.0):
 
 def _assert_identical(new, old):
     """Helper: Assert identical."""
+    assert len(KEYS) > 0, "the loop below must iterate at least once"
     for k in KEYS:
         assert np.array_equal(new[k], old[k], equal_nan=True), k
 

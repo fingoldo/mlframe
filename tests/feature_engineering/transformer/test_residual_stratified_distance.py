@@ -90,6 +90,7 @@ def test_mode_b_splitter_covers_every_train_row():
 
     out = compute_residual_stratified_distance_features(X_train, y_train, X_query=None, splitter=splitter, seed=7, task="regression")
     assert out.height == X_train.shape[0]
+    assert len(_EXPECTED_COLS) > 0, "the loop below must iterate at least once"
     for col in _EXPECTED_COLS:
         assert np.all(np.isfinite(out[col].to_numpy()))
 

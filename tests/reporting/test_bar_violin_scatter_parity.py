@@ -54,6 +54,7 @@ def test_the_violin_box_whiskers_at_the_5th_and_95th_percentiles():
     fig = PlotlyRenderer().render(FigureSpec(panels=((panel,),), figsize=(8.0, 4.0)))
     boxes = [t for t in fig.data if t.type == "box"]
     assert len(boxes) == len(groups), f"expected one box per group, got {len(boxes)}"
+    assert list(zip(boxes, groups)), "the loop below must iterate at least once"
     for box, g in zip(boxes, groups):
         assert float(box.lowerfence[0]) == pytest.approx(float(np.percentile(g, 5)))
         assert float(box.upperfence[0]) == pytest.approx(float(np.percentile(g, 95)))

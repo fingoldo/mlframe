@@ -54,6 +54,7 @@ def test_prepare_df_for_catboost_nan_handling(n_rows, n_cat, null_frac, seed):
         had_nan[col] = bool(mask.any())
     df = pd.DataFrame(data)
     prepare_df_for_catboost(df, cat_cols)
+    assert len(cat_cols) > 0, "the loop below must iterate at least once"
     for col in cat_cols:
         assert df[col].dtype.name == "category", f"col {col} not category dtype after prepare; got {df[col].dtype}"
         assert not df[col].isna().any(), f"col {col} still has NaN after prepare (null_frac={null_frac})"

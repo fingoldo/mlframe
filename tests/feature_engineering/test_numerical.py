@@ -285,6 +285,7 @@ class TestQuantilesAndTrendRegression:
         # Use same method in numpy
         expected = np.quantile(arr, q, method="median_unbiased")
 
+        assert list(enumerate(zip(quantiles, expected))), "the loop below must iterate at least once"
         for i, (comp, exp) in enumerate(zip(quantiles, expected)):
             assert np.isclose(comp, exp, rtol=1e-6), f"Quantile {q[i]}: {comp} vs {exp}"
 
@@ -709,6 +710,7 @@ class TestHypothesisProperties:
         arr = np.array(values, dtype=np.float64)
         result = compute_nunique_modes_quantiles_numpy(arr)
         quantiles = result[5:10]  # Default 5 quantiles
+        assert len(range(len(quantiles) - 1)) > 0, "the loop below must iterate at least once"
         for i in range(len(quantiles) - 1):
             assert quantiles[i] <= quantiles[i + 1]
 

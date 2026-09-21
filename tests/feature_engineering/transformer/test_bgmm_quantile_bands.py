@@ -64,6 +64,7 @@ def test_distances_are_non_negative():
     X_query, _ = _make_regression_data(n=15, seed=2)
 
     out = compute_bgmm_quantile_bands_features(X_train, y_train, X_query, seed=3, task="regression", n_bands=3)
+    assert len(out.columns) > 0, "the loop below must iterate at least once"
     for col in out.columns:
         assert np.all(out[col].to_numpy() >= 0.0)
 
@@ -87,6 +88,7 @@ def test_mode_a_oof_covers_every_train_row():
 
     out = compute_bgmm_quantile_bands_features(X_train, y_train, None, splitter=splitter, seed=7, task="regression", n_bands=3)
     assert out.height == X_train.shape[0]
+    assert len(out.columns) > 0, "the loop below must iterate at least once"
     for col in out.columns:
         assert np.all(np.isfinite(out[col].to_numpy()))
 

@@ -33,6 +33,7 @@ def test_every_token_has_a_caption_fragment(module_name):
 def test_fragments_are_sentences_not_labels(module_name):
     """A fragment is prose a reader can use, not a restatement of the token name."""
     mod = importlib.import_module(f"mlframe.reporting.charts.{module_name}")
+    assert len(mod._TOKEN_CAPTIONS.items()) > 0, "the loop below must iterate at least once"
     for token, fragment in mod._TOKEN_CAPTIONS.items():
         assert len(fragment) >= 60, f"{module_name}.{token}: fragment too short to explain anything"
         assert fragment.rstrip().endswith("."), f"{module_name}.{token}: fragment is not a sentence"

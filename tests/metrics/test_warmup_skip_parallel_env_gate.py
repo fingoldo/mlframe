@@ -120,6 +120,7 @@ def _warm_in_subprocess(skip: str) -> dict:
 def test_skip_flag_off_by_default_warms_both_seq_and_par():
     """Every `_par` kernel must carry a compiled signature after a default warmup. Measured: all six do."""
     counts = _warm_in_subprocess("0")
+    assert len(_PAR_KERNELS) > 0, "the loop below must iterate at least once"
     for name in _PAR_KERNELS:
         assert counts[name] >= 1, f"{name} was not warmed with the flag off: {counts}"
     assert counts["_fast_mae_seq"] >= 1, counts

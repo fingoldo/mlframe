@@ -33,6 +33,7 @@ def test_small_n_produces_finite_report_no_nan_pockets():
     pockets_pred, pockets_true, _data, metrics = estimate_calibration_quality_binned(y_true, y_pred, nbins=20)
     assert np.all(np.isfinite(pockets_pred)), "predicted pockets must be finite"
     assert np.all(np.isfinite(pockets_true)), "true pockets must be finite"
+    assert len(metrics.items()) > 0, "the loop below must iterate at least once"
     for name, val in metrics.items():
         assert np.isfinite(val), f"metric {name} is not finite: {val}"
 

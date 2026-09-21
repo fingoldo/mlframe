@@ -106,6 +106,7 @@ def test_panel_shape_orientation_and_signed_colors():
     assert panel.hline is not None and panel.hline[0] == 0.0
     # One color per bar, and the sign of each WoE maps to the pos/neg color.
     assert panel.colors is not None and len(panel.colors) == len(panel.categories)
+    assert list(zip(panel.values, panel.colors)), "the loop below must iterate at least once"
     for v, c in zip(panel.values, panel.colors):
         assert (v >= 0.0) == (c == "#2ca02c")
 

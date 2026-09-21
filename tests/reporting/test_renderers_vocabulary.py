@@ -59,11 +59,13 @@ class TestScatterErrorBars:
 
     def test_symmetric_renders_both(self, panel_symmetric):
         """Symmetric renders both."""
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel_symmetric, b) is not None
 
     def test_asymmetric_renders_both(self, panel_asymmetric):
         """Asymmetric renders both."""
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel_asymmetric, b) is not None
 
@@ -104,6 +106,7 @@ class TestScatterHighlight:
 
     def test_renders_both(self, panel):
         """Renders both."""
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -123,6 +126,7 @@ class TestScatterHighlight:
         """Out of range indices ignored."""
         x = np.linspace(0, 1, 5)
         panel = ScatterPanelSpec(x=x, y=x, highlight_indices=np.array([-1, 99, 2]))
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None  # only index 2 is valid; no crash
 
@@ -140,6 +144,7 @@ class TestTrendLine:
         x = np.linspace(0, 10, 60)
         y = 2.0 * x + np.random.default_rng(0).standard_normal(60)
         panel = ScatterPanelSpec(x=x, y=y, trend_line=method, perfect_fit_line=True)
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -164,6 +169,7 @@ class TestTrendLine:
         x = np.linspace(0, 1, 40)
         y = x + np.random.default_rng(2).standard_normal(40) * 0.1
         panel = HeatmapPanelSpec(matrix=m, row_labels=tuple("abcdef"), col_labels=tuple("123456"), trend_line="theil-sen", trend_xy=(x, y))
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -217,6 +223,7 @@ class TestBarOrientation:
 
     def test_renders_both(self, panel):
         """Renders both."""
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -247,6 +254,7 @@ class TestBarOrientation:
         panel = BarPanelSpec(
             categories=("a", "b"), values=(np.array([1.0, 2.0]), np.array([0.5, 1.5])), series_labels=("seg", "global"), orientation="horizontal"
         )
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -261,12 +269,14 @@ class TestBarHline:
     def test_vertical_hline_renders_both(self):
         """Vertical hline renders both."""
         panel = BarPanelSpec(categories=("a", "b", "c"), values=np.array([1.0, 2.0, 3.0]), hline=(2.0, "black", "global"))
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
     def test_horizontal_hline_renders_both(self):
         """Horizontal hline renders both."""
         panel = BarPanelSpec(categories=("a", "b"), values=np.array([1.0, 2.0]), orientation="horizontal", hline=(1.5, "red", "ref"))
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -304,6 +314,7 @@ class TestSecondaryY:
 
     def test_renders_both(self, panel):
         """Renders both."""
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -324,6 +335,7 @@ class TestSecondaryY:
     def test_single_bool_secondary_y(self):
         """Single bool secondary y."""
         panel = LinePanelSpec(x=np.arange(10), y=np.arange(10.0), secondary_y=True)
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -344,12 +356,14 @@ class TestFillToBaseline:
     def test_linear_fill_renders_both(self):
         """Linear fill renders both."""
         panel = LinePanelSpec(x=np.arange(10), y=np.arange(10.0), fill_to_baseline=True)
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
     def test_step_fill_renders_both(self):
         """Step fill renders both."""
         panel = LinePanelSpec(x=np.arange(10), y=np.arange(10.0), fill_to_baseline=True, step_fill=True)
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -368,6 +382,7 @@ class TestFillToBaseline:
     def test_per_series_fill(self):
         """Per series fill."""
         panel = LinePanelSpec(x=np.arange(10), y=(np.arange(10.0), np.arange(10.0)), fill_to_baseline=(True, False))
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -387,6 +402,7 @@ class TestThresholdContours:
 
     def test_renders_both(self, panel):
         """Renders both."""
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -419,12 +435,14 @@ class TestVspanLabels:
     def test_labeled_vspan_renders_both(self):
         """Labeled vspan renders both."""
         panel = LinePanelSpec(x=np.arange(20), y=np.arange(20.0), vspans=((2, 6, "green", 0.2, "train"), (10, 15, "orange", 0.2, "test")))
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
     def test_backcompat_unlabeled_4tuple(self):
         """Backcompat unlabeled 4tuple."""
         panel = LinePanelSpec(x=np.arange(20), y=np.arange(20.0), vspans=((2, 6, "green", 0.2),))
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -509,6 +527,7 @@ class TestPerSeriesX:
 
     def test_renders_both(self, panel):
         """Renders both."""
+        assert len(BACKENDS) > 0, "the loop below must iterate at least once"
         for b in BACKENDS:
             assert _render(panel, b) is not None
 

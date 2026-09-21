@@ -10,6 +10,7 @@ from mlframe.training.reporting._reporting import display_estimator_name, _SHIM_
 
 def test_strips_each_shim_suffix():
     """Strips each shim suffix."""
+    assert len(_SHIM_CLASS_SUFFIXES) > 0, "the loop below must iterate at least once"
     for suffix in _SHIM_CLASS_SUFFIXES:
         assert display_estimator_name(f"LGBMRegressor{suffix}") == "LGBMRegressor", suffix
 

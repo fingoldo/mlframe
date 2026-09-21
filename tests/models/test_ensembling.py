@@ -276,6 +276,7 @@ def test_enrich_ensemble_custom_model_names():
     preds = np.random.rand(10, 3).astype(np.float32)
     names = ["model_a", "model_b", "model_c"]
     result = enrich_ensemble_preds_with_numaggs(preds, models_names=names, means_only=True, keep_probs=True, n_jobs=1)
+    assert len(names) > 0, "the loop below must iterate at least once"
     for name in names:
         assert name in result.columns
 
@@ -285,6 +286,7 @@ def test_enrich_ensemble_means_only_columns():
     preds = np.random.rand(10, 5).astype(np.float32)
     result = enrich_ensemble_preds_with_numaggs(preds, means_only=True, keep_probs=False, n_jobs=1)
     expected_cols = ["arimean", "quadmean", "qubmean", "geomean", "harmmean"]
+    assert len(expected_cols) > 0, "the loop below must iterate at least once"
     for col in expected_cols:
         assert col in result.columns
 

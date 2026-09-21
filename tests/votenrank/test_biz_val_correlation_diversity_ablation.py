@@ -119,6 +119,7 @@ def test_biz_val_diversity_ablation_greedy_search_avoids_redundant_trio():
     )
     # The non-greedy fields must be untouched by opting in.
     for plain_entry, greedy_entry in zip(plain_report, greedy_report):
+        assert len(plain_entry) > 0, "the loop below must iterate at least once"
         for key in plain_entry:
             assert greedy_entry[key] == plain_entry[key]
 

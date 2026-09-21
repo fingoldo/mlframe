@@ -146,6 +146,7 @@ def test_fs_p2_3_mrmr_fit_emits_no_print_chatter(capsys):
     captured = capsys.readouterr()
     combined = captured.out + captured.err
     forbidden = ("nunary_transformations:", "nbinary_transformations:", "time spent by binary func:")
+    assert len(forbidden) > 0, "the loop below must iterate at least once"
     for tok in forbidden:
         assert tok not in combined, f"MRMR.fit emitted bare print() chatter token {tok!r} on stdout/stderr; FS-P2-3 fix regressed."
 

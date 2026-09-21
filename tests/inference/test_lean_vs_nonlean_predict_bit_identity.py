@@ -133,6 +133,7 @@ def test_lean_save_does_not_change_lgb_predictions(_lgb_entry):
     assert loaded_lean.pre_pipeline is not None, "lean dropped the fitted pre_pipeline"
     # The fat bundle still carries a stripped field; the lean one must not.
     assert getattr(loaded_fat, "train_preds", None) is not None
+    assert len(_LEAN_STRIP_FIELDS) > 0, "the loop below must iterate at least once"
     for field in _LEAN_STRIP_FIELDS:
         assert not hasattr(loaded_lean, field) or getattr(loaded_lean, field) is None, f"lean save leaked stripped field {field!r}"
 

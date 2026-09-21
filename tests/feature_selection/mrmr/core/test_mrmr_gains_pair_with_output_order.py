@@ -99,6 +99,7 @@ def test_p_ge_n_fit_gains_follow_names_and_provenance_matches_the_log():
         assert gains[i] == expected, f"mrmr_gains_[{i}] for {name!r} is {gains[i]}, its logged gain is {expected}"
     prov = m.fe_provenance_
     by_name = {str(e["name"]): float(e["gain"]) for e in log}
+    assert list(prov.iterrows()), "the loop below must iterate at least once"
     for _, row in prov.iterrows():
         if int(row["support_rank"]) >= 0 and str(row["feature_name"]) in by_name:
             assert float(row["mrmr_gain"]) == by_name[str(row["feature_name"])], f"provenance gain for {row['feature_name']!r} differs from the log"

@@ -115,6 +115,7 @@ def test_biz_val_threshold_range_rescaler_noop_when_no_genuine_subgroup_miscalib
 
     # either no correction was accepted, or every accepted multiplier is close to a no-op
     if rescaler.corrections_:
+        assert len(rescaler.corrections_) > 0, "the loop below must iterate at least once"
         for correction in rescaler.corrections_:
             assert abs(correction.multiplier - 1.0) < 0.15, f"expected near-no-op multiplier on well-calibrated data, got {correction.multiplier}"
 

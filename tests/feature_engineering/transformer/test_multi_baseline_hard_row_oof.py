@@ -41,6 +41,7 @@ def test_multi_baseline_hard_row_oof_differs_from_in_sample():
     preds_in_sample = _fit_3baselines_in_sample_reference(X, y, task="regression", seed=0)
 
     assert len(preds_oof) == 3
+    assert len(range(3)) > 0, "the loop below must iterate at least once"
     for b in range(3):
         assert not np.allclose(
             preds_oof[b], preds_in_sample[b]

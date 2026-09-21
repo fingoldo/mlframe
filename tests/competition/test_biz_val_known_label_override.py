@@ -122,6 +122,7 @@ def test_biz_val_known_label_override_safe_direction_improves_without_ever_hurti
     assert auc_gain > 0.02, f"expected a real AUC gain from recovering missed positives, got {auc_gain:.4f}"
 
     # every recovered-positive row must now read as positive_value
+    assert len(known_label_map_safe_only) > 0, "the loop below must iterate at least once"
     for idx in known_label_map_safe_only:
         assert overridden[idx] == 1.0
 
@@ -169,6 +170,7 @@ def test_biz_val_known_label_override_negative_direction_and_bounds_check():
     overridden_auc = roc_auc_score(y_true, overridden)
 
     assert overridden_auc >= baseline_auc
+    assert len(known_map) > 0, "the loop below must iterate at least once"
     for idx in known_map:
         assert overridden[idx] == 0.0
 

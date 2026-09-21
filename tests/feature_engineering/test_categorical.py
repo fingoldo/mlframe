@@ -437,6 +437,7 @@ class TestFeatureNameConsistency:
             "btm_1_vval",
         ]
 
+        assert len(expected_patterns) > 0, "the loop below must iterate at least once"
         for pattern in expected_patterns:
             assert pattern in names, f"Missing expected name: {pattern}"
 
@@ -528,6 +529,7 @@ class TestFunctionalCorrectness:
         # Expected normalized counts: [0.5, 0.3, 0.2]
         expected_top = [0.5, 0.3, 0.2]
 
+        assert list(enumerate(expected_top)), "the loop below must iterate at least once"
         for i, expected in enumerate(expected_top):
             assert np.isclose(result[i], expected, rtol=1e-6), f"Position {i}: {result[i]} vs {expected}"
 
@@ -549,6 +551,7 @@ class TestFunctionalCorrectness:
         result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
 
         # All counts should be 0.2
+        assert len(range(3)) > 0, "the loop below must iterate at least once"
         for i in range(3):
             assert np.isclose(result[i], 0.2, rtol=1e-6)
 

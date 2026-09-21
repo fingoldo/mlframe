@@ -29,6 +29,7 @@ def test_inv57_public_kaleido_surface_reexported_from_plotly():
         "_record_kaleido_persistent_failure",
         "_mark_kaleido_persistent_burned",
     ]
+    assert len(public) > 0, "the loop below must iterate at least once"
     for name in public:
         assert hasattr(_kaleido, name), f"{name} missing from _kaleido sibling"
         assert hasattr(plotly, name), f"{name} not re-exported from plotly after the carve"

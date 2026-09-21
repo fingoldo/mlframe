@@ -464,6 +464,7 @@ class TestQuantileReliabilityPerf:
         assert panel.x.shape == (_RELIABILITY_GRID,)
         # Calibrated even after subsampling: observed curve stays near nominal.
         len(alphas)
+        assert list(enumerate(alphas)), "the loop below must iterate at least once"
         for k, a in enumerate(alphas):
             assert float(np.mean(np.abs(panel.y[k] - a))) < 0.05
 

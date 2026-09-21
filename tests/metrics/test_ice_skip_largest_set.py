@@ -26,6 +26,7 @@ def test_largest_set_is_skipped_only_after_a_second_size_appears():
 
 def test_single_set_run_keeps_its_metric():
     m = ICE(metric=_metric, higher_is_better=False, skip_largest_set=True)
+    assert len(range(5)) > 0, "the loop below must iterate at least once"
     for _ in range(5):
         assert _call(m, 5000) == 0.25
 

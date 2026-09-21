@@ -88,5 +88,6 @@ def test_a_real_chart_keeps_the_value_on_the_value_axis(builder):
 
     fig = PlotlyRenderer().render(spec)
     x_titles = [fig.layout[a].title.text for a in fig.layout if a.startswith("xaxis")]
+    assert len(bars) > 0, "the loop below must iterate at least once"
     for panel in bars:
         assert panel.xlabel in x_titles, f"{builder}: value label {panel.xlabel!r} is not on any x axis; got {x_titles}"

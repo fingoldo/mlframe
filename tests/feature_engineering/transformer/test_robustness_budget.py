@@ -124,6 +124,7 @@ def test_standardize_false_skips_scaler_but_still_finite():
     X_query, _ = _make_regression_data(n=10, seed=3)
 
     out = compute_robustness_budget_features(X_train, y_train, X_query, seed=5, task="regression", n_perturbations=4, standardize=False)
+    assert len(_EXPECTED_COLS) > 0, "the loop below must iterate at least once"
     for col in _EXPECTED_COLS:
         assert np.all(np.isfinite(out[col].to_numpy()))
 

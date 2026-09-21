@@ -92,6 +92,7 @@ def test_predict_from_models_survives_default_row_wise_extensions():
         verbose=0,
     )
     assert results["models_used"], "no models predicted"
+    assert len(results['predictions'].values()) > 0, "the loop below must iterate at least once"
     for _preds in results["predictions"].values():
         assert np.all(np.isfinite(np.asarray(_preds))), "predictions must be finite"
 

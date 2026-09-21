@@ -38,6 +38,7 @@ class TestRegistryDiscipline:
 
     def test_every_scenario_declares_a_purpose_and_a_key(self) -> None:
         """A bed with no stated purpose cannot be argued with, and one with no key scores against nothing."""
+        assert len(scenarios.SCENARIOS) > 0, "the loop below must iterate at least once"
         for scenario in scenarios.SCENARIOS:
             assert scenario.purpose.strip(), scenario.name
             assert scenario.primary_target_set == PRIMARY_TARGET_SET, scenario.name

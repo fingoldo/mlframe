@@ -80,6 +80,7 @@ def test_full_report_byte_identical_with_and_without_par_bucket():
     finally:
         cab._PAR_BUCKET_ARGSORT_MIN_N = saved
 
+    assert list(zip(new, old)), "the loop below must iterate at least once"
     for a, b in zip(new, old):
         if a is None or b is None:
             assert a is b

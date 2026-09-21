@@ -86,6 +86,7 @@ def _scenario(kind, seed):
 
 def _assert_identical(a, b):
     """Helper: Assert identical."""
+    assert list(zip(a, b)), "the loop below must iterate at least once"
     for x, y in zip(a, b):
         if isinstance(x, np.ndarray):
             assert np.array_equal(x, y), (x, y)

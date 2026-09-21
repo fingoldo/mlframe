@@ -98,6 +98,7 @@ def test_multiclass_largeK_selects_genuinely_worst_classes():
     fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC", overlay_max_classes=12, overlay_top_n=8)
     roc = _find_line_panel(fig, "Per-class ROC")
     drawn = {int(s.split(" ")[0]) for s in roc.series_labels if s and s[0].isdigit()}
+    assert len(hard) > 0, "the loop below must iterate at least once"
     for h in hard:
         assert h in drawn, f"hard class {h} (low AUC) must be among the worst-N drawn classes; got {sorted(drawn)}"
 
@@ -144,6 +145,7 @@ def test_multilabel_largeK_switches_to_topN_plus_macro_and_picks_worst():
     assert "8 of 40" in roc.title
     assert sum("macro" in s for s in roc.series_labels) == 1
     drawn = {s.split(" ")[0] for s in roc.series_labels if s.startswith("lbl")}
+    assert len(hard) > 0, "the loop below must iterate at least once"
     for h in hard:
         assert f"lbl{h}" in drawn, f"hard label lbl{h} must be drawn; got {sorted(drawn)}"
     calib = _find_line_panel(fig, "Per-label reliability")

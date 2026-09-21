@@ -86,6 +86,7 @@ class TestVarsortability:
     def test_every_numeric_column_has_unit_variance(self) -> None:
         """Sorting by variance must carry no information about the causal order."""
         dataset = generate(_linear_spec())
+        assert len(dataset.frame.columns) > 0, "the loop below must iterate at least once"
         for column in dataset.frame.columns:
             assert dataset.frame[column].std(ddof=0) == pytest.approx(1.0, abs=0.05), column
 

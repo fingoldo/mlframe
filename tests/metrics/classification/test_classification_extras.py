@@ -667,6 +667,7 @@ def test_top_k_accuracy_monotone():
     p = rng.uniform(size=(N, K))
     p /= p.sum(axis=1, keepdims=True)
     accs = [top_k_accuracy(y, p, k=k) for k in (1, 2, 3, 4, 5)]
+    assert list(zip(accs, accs[1:])), "the loop below must iterate at least once"
     for a, b in zip(accs, accs[1:]):
         assert a <= b + 1e-12
 

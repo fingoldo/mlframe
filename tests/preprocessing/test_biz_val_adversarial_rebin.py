@@ -65,6 +65,7 @@ def test_adversarial_rebin_leaves_balanced_categories_untouched():
     """Adversarial rebin leaves balanced categories untouched."""
     train_series, test_series = _make_skewed_column(seed=1)
     result = adversarial_rebin_categorical(train_series, test_series, skew_log_ratio_threshold=1.5)
+    assert len([f'cat_{i}' for i in range(20)]) > 0, "the loop below must iterate at least once"
     for cat in [f"cat_{i}" for i in range(20)]:
         assert cat not in result["merged_categories"]
 

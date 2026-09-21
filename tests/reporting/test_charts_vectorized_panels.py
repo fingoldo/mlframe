@@ -114,6 +114,7 @@ def test_calib_matches_reference(mc_data):
     series = spec.y[1:]
     ref = _calib_ref(y_true, proba, K)
     assert len(series) == K
+    assert list(zip(series, ref)), "the loop below must iterate at least once"
     for got, exp in zip(series, ref):
         assert np.allclose(np.asarray(got), exp, equal_nan=True)
 

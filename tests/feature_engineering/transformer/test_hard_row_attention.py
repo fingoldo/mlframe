@@ -132,5 +132,6 @@ def test_binary_task_runs_and_produces_finite_output():
     X_query = rng.standard_normal((10, 5)).astype(np.float32)
 
     out = compute_hard_row_attention_features(X_train, y_train, X_query, seed=9, task="binary", n_hard=6)
+    assert len(out.columns) > 0, "the loop below must iterate at least once"
     for col in out.columns:
         assert np.all(np.isfinite(out[col].to_numpy()))

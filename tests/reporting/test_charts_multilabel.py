@@ -144,6 +144,7 @@ class TestPanelTypes:
         # K x K matrix
         assert panel.matrix.shape == (3, 3)
         # Diagonal cells are P(predicted=k | true=k), should be in [0, 1].
+        assert len(range(3)) > 0, "the loop below must iterate at least once"
         for k in range(3):
             assert 0.0 <= panel.matrix[k, k] <= 1.0
 
@@ -373,6 +374,7 @@ class TestThresholdSweep:
         thresholds = np.linspace(0.0, 1.0, _SWEEP_N_THRESHOLDS)
         f1 = _per_label_f1_sweep(y, proba, thresholds)
         recovered = thresholds[np.argmax(f1, axis=1)]
+        assert list(enumerate(true_opt)), "the loop below must iterate at least once"
         for k, t_opt in enumerate(true_opt):
             assert abs(recovered[k] - t_opt) <= 0.10, f"label{k}: recovered t*={recovered[k]:.3f} not within 0.10 of planted {t_opt}"
         # The recovered optima must genuinely differ -> a single global cutoff would be wrong.

@@ -80,6 +80,7 @@ class TestHeatmapTrendLandsOnTheCategoryAxis:
         named = [t for t in fig.data if t.name in {"y=x", "robust fit (theil-sen)"}]
         assert len(named) == 2
         for trace in named:
+            assert len(list(trace.x) + list(trace.y)) > 0, "the loop below must iterate at least once"
             for value in list(trace.x) + list(trace.y):
                 if isinstance(value, str):
                     assert value in labels

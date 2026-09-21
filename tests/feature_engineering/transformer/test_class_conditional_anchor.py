@@ -75,6 +75,7 @@ def test_mode_a_oof_covers_every_train_row():
 
     out = compute_class_conditional_anchor_attention(X_train, y_train, None, splitter=splitter, seed=7, n_anchors_per_class=4)
     assert out.height == X_train.shape[0]
+    assert len(out.columns) > 0, "the loop below must iterate at least once"
     for col in out.columns:
         assert np.all(np.isfinite(out[col].to_numpy()))
 

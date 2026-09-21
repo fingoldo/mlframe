@@ -33,6 +33,7 @@ def test_biz_val_shapley_blend_noise_models_pruned():
     preds, y, names = _make_pool()
     result = shapley_blend(preds, y, prune_below=0.02, n_permutations=150, rng=np.random.default_rng(1))
     noise_idx = [names.index("noise1"), names.index("noise2")]
+    assert len(noise_idx) > 0, "the loop below must iterate at least once"
     for i in noise_idx:
         assert result["weights"][i] < 0.05, f"{names[i]} weight {result['weights'][i]:.4f} not pruned"
         assert i not in result["selected"], f"{names[i]} unexpectedly survived pruning"

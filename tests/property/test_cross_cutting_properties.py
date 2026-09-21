@@ -160,6 +160,7 @@ def test_pinball_nonneg_and_per_alpha_matches_scalar(data, alpha):
     y, preds, alphas = data
     assert pinball_loss(y, preds[:, 0], alpha) >= -1e-12
     per = pinball_loss_per_alpha(y, preds, alphas)
+    assert list(enumerate(alphas)), "the loop below must iterate at least once"
     for j, a in enumerate(alphas):
         assert per[float(a)] == pytest.approx(pinball_loss(y, preds[:, j], a), abs=1e-9)
 

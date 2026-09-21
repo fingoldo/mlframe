@@ -87,6 +87,7 @@ def test_log_classification_report_to_mlflow_logs_expected_metrics():
     calls = {c.args[0]: c.args[1] for c in mock_mlflow.log_metric.call_args_list}
     assert calls["test_accuracy"] == 0.9
     assert calls["test_macro avg_f1-score"] == 0.855
+    assert len(mock_mlflow.log_metric.call_args_list) > 0, "the loop below must iterate at least once"
     for c in mock_mlflow.log_metric.call_args_list:
         assert c.kwargs.get("step") == 3
 

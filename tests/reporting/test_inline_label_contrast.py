@@ -37,6 +37,7 @@ def _annotations(colors=("white", "black", "white")):
 
 def test_every_inline_label_gets_a_backing():
     """Without one, a white label on the white panel is invisible."""
+    assert list(_annotations()), "the loop below must iterate at least once"
     for ann in _annotations():
         assert ann.bgcolor, f"{ann.text} has no backing colour"
 
@@ -68,5 +69,6 @@ def test_uniform_label_colours_still_get_matching_backings(colours):
     """The backing is chosen per label, not once for the panel."""
     anns = _annotations(colours)
     expected_dark = colours[0] == "white"
+    assert len(anns) > 0, "the loop below must iterate at least once"
     for ann in anns:
         assert ann.bgcolor.startswith("rgba(0,0,0") == expected_dark, f"{ann.text}: {ann.font.color} on {ann.bgcolor}"

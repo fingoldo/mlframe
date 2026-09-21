@@ -194,6 +194,7 @@ def test_pr_curve_decimates_but_metrics_on_full_n():
         fig = plot_pr_curve(y, p)
     ax = fig.axes[0]
     # all plotted line/step artists are capped at the decimation budget
+    assert len(ax.lines) > 0, "the loop below must iterate at least once"
     for ln in ax.lines:
         assert ln.get_xdata().size <= 2000
     # the legend reports AP / AUC computed on the full data, not the decimated curve

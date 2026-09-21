@@ -45,6 +45,7 @@ class TestTiedTimestampsAreNotInEachOthersPast:
     def test_every_edge_points_strictly_backwards_in_time(self):
         """The documented contract, stated directly, over a mix of ties and gaps."""
         t = np.array([1.0, 2.0, 3.0, 3.0, 3.0, 7.0])
+        assert list(self._edges(t)), "the loop below must iterate at least once"
         for src, dst in self._edges(t):
             assert t[dst] < t[src], (src, dst, t[src], t[dst])
 

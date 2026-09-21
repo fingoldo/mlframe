@@ -320,6 +320,7 @@ def test_cat_nan_fill_preserves_existing_categories():
     prepare_df_for_catboost(df, cat_features=["x"], text_features=[])
     # Original categories still present, in original order, plus na_filler.
     cats_after = list(df["x"].cat.categories)
+    assert len(cats) > 0, "the loop below must iterate at least once"
     for c in cats:
         assert c in cats_after
     # The relative order of original cats is preserved.

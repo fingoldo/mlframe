@@ -44,6 +44,7 @@ def test_ewma_multi_half_life_bit_identical():
     x = rng.standard_normal(2000).cumsum()
     hl = [5.0, 20.0, 60.0, 240.0]
     new = ewma_residual(x, half_life=hl)
+    assert list(enumerate(hl)), "the loop below must iterate at least once"
     for j, h in enumerate(hl):
         assert np.array_equal(new[:, j], _old_ewma_single(x, h), equal_nan=True)
 

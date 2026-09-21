@@ -201,6 +201,7 @@ class TestTab10ResolvesToADiscreteColorscale:
         colors_in_order = [stop[1] for stop in scale[::2]]
         assert tuple(colors_in_order) == LINE_PALETTE
         # Each band is genuinely flat: the stop closing band i has the SAME color as the stop opening it.
+        assert len(range(0, len(scale), 2)) > 0, "the loop below must iterate at least once"
         for i in range(0, len(scale), 2):
             assert scale[i][1] == scale[i + 1][1]
         assert scale[0][0] == 0.0

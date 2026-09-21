@@ -81,6 +81,7 @@ def test_the_stamped_gains_are_unchanged_by_the_cache(monkeypatch):
     per_spec = [_spec("y-diff-a"), _spec("y-diff-b", "linear_residual")]
     for one in per_spec:  # one spec at a time: the cache can hold nothing across calls
         rescore_specs_on_holdout(_Disc(), df, "y", [one], _FEATS, holdout, y)
+    assert list(zip(shared, per_spec)), "the loop below must iterate at least once"
     for a, b in zip(shared, per_spec):
         assert a.honest_holdout_gain == pytest.approx(b.honest_holdout_gain)
         assert a.honest_holdout_n_rows == b.honest_holdout_n_rows

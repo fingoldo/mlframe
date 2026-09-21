@@ -123,6 +123,7 @@ def test_cyclical_features_pairs_sin_cos_normalised():
 def test_cyclical_features_dtype_float32():
     """Cyclical features dtype float32."""
     out = add_cyclical_date_features(_make_year_pd(12), cols=["d"])
+    assert len(out.columns) > 0, "the loop below must iterate at least once"
     for c in out.columns:
         if c.endswith("_sin") or c.endswith("_cos"):
             assert out[c].dtype == np.float32, f"{c} dtype is {out[c].dtype}, expected float32"

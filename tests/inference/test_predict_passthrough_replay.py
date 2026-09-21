@@ -188,6 +188,7 @@ def test_predict_replays_passthrough_cols_when_pre_pipeline_drops_them() -> None
     assert isinstance(result, dict)
     assert len(result["predictions"]) >= 1
     # The shape must match the input row count.
+    assert len(result['predictions'].values()) > 0, "the loop below must iterate at least once"
     for arr in result["predictions"].values():
         if hasattr(arr, "shape"):
             assert arr.shape[0] == len(df)

@@ -58,6 +58,7 @@ def test_pos_distance_columns_are_non_negative():
     X_query, _ = _make_binary_data(n=15, seed=2)
 
     out = compute_bgmm_multiscale_features(X_train, y_train, X_query, seed=3, task="binary", component_counts=(4,))
+    assert len(_K_SCALES) > 0, "the loop below must iterate at least once"
     for k in _K_SCALES:
         assert np.all(out[f"bgmms_K4_pos_k{k}"].to_numpy() >= 0.0)
 
@@ -82,6 +83,7 @@ def test_regression_task_runs_via_quantile_slice():
 
     out = compute_bgmm_multiscale_features(X_train, y_train, X_query, seed=5, task="regression", component_counts=(4,), q_high=0.8)
     assert out.height == X_query.shape[0]
+    assert len(out.columns) > 0, "the loop below must iterate at least once"
     for col in out.columns:
         assert np.all(np.isfinite(out[col].to_numpy()))
 
@@ -102,6 +104,7 @@ def test_mode_a_oof_covers_every_train_row():
 
     out = compute_bgmm_multiscale_features(X_train, y_train, None, splitter=splitter, seed=7, task="binary", component_counts=(3,))
     assert out.height == X_train.shape[0]
+    assert len(out.columns) > 0, "the loop below must iterate at least once"
     for col in out.columns:
         assert np.all(np.isfinite(out[col].to_numpy()))
 

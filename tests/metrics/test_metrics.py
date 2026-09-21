@@ -755,6 +755,7 @@ class TestCalibration:
             (out.metrics_string, metrics_string, out[15]),
             (out.fig, fig, out[16]),
         ]
+        assert len(expected) > 0, "the loop below must iterate at least once"
         for named, unpacked, indexed in expected:
             assert named is unpacked or named == unpacked
             assert named is indexed or named == indexed

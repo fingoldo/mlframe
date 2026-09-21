@@ -105,6 +105,7 @@ def test_select_column_transforms_scaler_scores_are_not_leaked():
     result = select_column_transforms(df, y, task="classification", n_splits=4, random_state=0)
     ceiling = _pure_noise_score_ceiling(with_gaps=False)
     assert ceiling < 0.7, f"the empirical null already reaches {ceiling:.3f}; a noise column is scoring high on its own and this test cannot separate that from a leak"
+    assert len(result['noise']['all_scores'].items()) > 0, "the loop below must iterate at least once"
     for name, score in result["noise"]["all_scores"].items():
         assert score <= ceiling, f"a pure-noise column scored {score:.4f} under {name}, above the {ceiling:.4f} ceiling of {8} independent noise draws -- a CV leak inflated it"
 
@@ -139,5 +140,6 @@ def test_the_missing_value_fill_is_also_fold_local():
     result = select_column_transforms(df, y, task="classification", n_splits=4, random_state=0)
     assert result["noise_with_gaps"]["all_scores"], "the non-finite branch must still produce scores"
     ceiling = _pure_noise_score_ceiling(with_gaps=True)
+    assert len(result['noise_with_gaps']['all_scores'].items()) > 0, "the loop below must iterate at least once"
     for name, score in result["noise_with_gaps"]["all_scores"].items():
         assert score <= ceiling, f"pure-noise column with gaps scored {score:.4f} under {name}, above the {ceiling:.4f} ceiling of 8 independent gapped noise draws -- the imputation is leaking"

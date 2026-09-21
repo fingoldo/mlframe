@@ -163,6 +163,7 @@ def test_curves_decimated_under_vertex_cap_at_large_n():
     """Curves decimated under vertex cap at large n."""
     y, s = _separable(n=200_000)
     fig = compose_binary_figure(y, s, panels_template="ROC PR KS GAIN")
+    assert list(_flat(fig)), "the loop below must iterate at least once"
     for panel in _flat(fig):
         if isinstance(panel, LinePanelSpec):
             assert len(panel.x) <= 2000

@@ -64,6 +64,7 @@ def test_result_cached_after_hang_so_later_calls_are_instant(monkeypatch):
     """After one bounded timeout, the cached False must make every subsequent call a no-op (no re-probe, no re-wait)."""
     monkeypatch.setattr(_gpu_metrics, "_GPU_AVAILABLE", False)
     t0 = time.perf_counter()
+    assert len(range(1000)) > 0, "the loop below must iterate at least once"
     for _ in range(1000):
         assert _gpu_metrics.is_gpu_metrics_available() is False
     assert time.perf_counter() - t0 < 0.1, "cached-False calls must be effectively instant"

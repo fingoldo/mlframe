@@ -19,6 +19,7 @@ def test_bin_matrix_codes_are_fortran_order_with_contiguous_columns():
     codes, _edges, _has_missing = _bin_matrix(mat, 4)
     assert codes.dtype == np.int64
     assert codes.flags["F_CONTIGUOUS"], "codes must be Fortran-order so column gathers are zero-copy (iter71 win)"
+    assert len(range(codes.shape[1])) > 0, "the loop below must iterate at least once"
     for j in range(codes.shape[1]):
         assert codes[:, j].flags["C_CONTIGUOUS"], f"column {j} slice must be contiguous (no per-gather copy)"
 

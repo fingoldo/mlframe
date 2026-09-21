@@ -40,6 +40,7 @@ def test_neither_chart_keeps_a_private_palette_copy():
 def test_the_colours_come_from_the_shared_palette():
     """Whatever the palette says today is what the chart draws."""
     panel = _fairness(5)
+    assert len(panel.colors or ()) > 0, "the loop below must iterate at least once"
     for colour in panel.colors or ():
         assert colour in LINE_PALETTE or colour == "#888888", f"{colour!r} is not from the shared palette"
 

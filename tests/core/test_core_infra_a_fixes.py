@@ -107,9 +107,11 @@ def test_f2_topk_by_partition_axis_0_and_1_still_correct():
     rng = np.random.default_rng(0)
     arr = rng.normal(size=(6, 5))
     _ind0, val0 = topk_by_partition(arr, 3, axis=0, ascending=False)
+    assert len(range(5)) > 0, "the loop below must iterate at least once"
     for col in range(5):
         assert np.allclose(val0[:, col], np.sort(arr[:, col])[::-1][:3])
     _ind1, val1 = topk_by_partition(arr, 2, axis=1, ascending=False)
+    assert len(range(6)) > 0, "the loop below must iterate at least once"
     for row in range(6):
         assert np.allclose(val1[row], np.sort(arr[row])[::-1][:2])
 

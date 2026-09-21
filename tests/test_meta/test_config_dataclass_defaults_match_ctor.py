@@ -111,6 +111,7 @@ def test_all_defaults_config_does_not_change_any_flat_attr(config_attr):
     baseline = MRMR()
     with_cfg = MRMR(**{config_attr: _CONFIG_CLASSES[config_attr]()})
     field_map = dict(_CONFIG_ATTR_FIELD_MAPS)[config_attr]
+    assert len(field_map.items()) > 0, "the loop below must iterate at least once"
     for field_name, flat_attr in field_map.items():
         assert getattr(with_cfg, flat_attr) == getattr(baseline, flat_attr), (
             f"MRMR({config_attr}=<all defaults>) changed {flat_attr}: "

@@ -149,5 +149,6 @@ def test_xticks_rotation_applied(rotation, expected_degrees):
     yt = np.array([0, 0, 1, 1])
     yp = np.array([0, 1, 1, 1])
     _fig, ax = plot_confusion_matrix(yt, yp, xticks_rotation=rotation)
+    assert list(ax.get_xticklabels()), "the loop below must iterate at least once"
     for label in ax.get_xticklabels():
         assert label.get_rotation() == expected_degrees

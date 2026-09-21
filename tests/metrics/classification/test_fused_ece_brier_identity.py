@@ -40,6 +40,7 @@ def test_fused_matches_separate_kernels_bit_identical(n, nbins, seed):
     sep = _separate(y, p, nbins)
     fused = compute_ece_brier_full_and_debiased(y, p, nbins)
     # fused order: ece_pl, rel_pl, res_pl, unc, br_pl, ece_db, rel_db, res_db, br_db
+    assert list(zip(sep, fused)), "the loop below must iterate at least once"
     for a, b in zip(sep, fused):
         assert a == b, f"divergence n={n} nbins={nbins} seed={seed}: {a} != {b}"
 
@@ -49,6 +50,7 @@ def test_fused_empty_input_sentinels():
     e = np.empty(0, dtype=np.float64)
     sep = _separate(e, e, 10)
     fused = compute_ece_brier_full_and_debiased(e, e, 10)
+    assert list(zip(sep, fused)), "the loop below must iterate at least once"
     for a, b in zip(sep, fused):
         assert a == b
 
@@ -61,6 +63,7 @@ def test_fused_extremes_and_boundary_probs():
     for nbins in (1, 4, 10, 50):
         sep = _separate(y, p, nbins)
         fused = compute_ece_brier_full_and_debiased(y, p, nbins)
+        assert list(zip(sep, fused)), "the loop below must iterate at least once"
         for a, b in zip(sep, fused):
             assert a == b
 
@@ -72,5 +75,6 @@ def test_fused_bool_y_true_matches():
     yb = rng.uniform(0, 1, 500) < p
     sep = _separate(yb.astype(np.float64), p, 15)
     fused = compute_ece_brier_full_and_debiased(yb.astype(np.float64), p, 15)
+    assert list(zip(sep, fused)), "the loop below must iterate at least once"
     for a, b in zip(sep, fused):
         assert a == b

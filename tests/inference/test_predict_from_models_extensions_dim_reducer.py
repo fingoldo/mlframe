@@ -111,6 +111,7 @@ def test_predict_from_models_with_dim_reducer_extension_does_not_drop_raw_input_
 
     # Every trained model should have produced predictions on the input frame.
     assert results["predictions"], "predict_from_models returned empty predictions dict"
+    assert len(results['predictions'].items()) > 0, "the loop below must iterate at least once"
     for model_name, preds in results["predictions"].items():
         assert preds is not None, f"model {model_name} returned None predictions"
         assert len(preds) == len(df), f"model {model_name} returned {len(preds)} predictions for {len(df)} input rows"

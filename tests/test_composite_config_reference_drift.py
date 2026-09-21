@@ -44,6 +44,7 @@ def test_render_covers_every_config_field():
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     content = module.render_markdown()
+    assert len(CompositeTargetDiscoveryConfig.model_fields) > 0, "the loop below must iterate at least once"
     for name in CompositeTargetDiscoveryConfig.model_fields:
         assert f"| `{name}` |" in content, f"field {name!r} missing from generated doc"
 

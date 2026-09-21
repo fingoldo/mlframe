@@ -144,6 +144,7 @@ def test_f5_f6_f7_init_all_matches_public_symbols():
         "stack_relational_chain", "RelationalHop",
         "discover_categorical_groups", "auto_concat_categorical_groups",
     ]
+    assert len(previously_orphaned) > 0, "the loop below must iterate at least once"
     for name in previously_orphaned:
         assert hasattr(fe, name), f"{name} not importable from mlframe.feature_engineering"
         assert name in fe.__all__, f"{name} importable but missing from __all__"

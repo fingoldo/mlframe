@@ -55,6 +55,7 @@ def test_mode_a_oof_covers_every_train_row():
         projection="random", aggregate=("y_mean",),
     )
     assert out.height == X_train.shape[0]
+    assert len(out.columns) > 0, "the loop below must iterate at least once"
     for col in out.columns:
         assert np.all(np.isfinite(out[col].to_numpy()))
 

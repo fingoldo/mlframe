@@ -142,6 +142,7 @@ def test_generate_probs_deterministic_under_threads():
         futs = [ex.submit(_same if i % 2 == 0 else _other) for i in range(32)]
         results = [(i, f.result()) for i, f in enumerate(futs)]
 
+    assert len(results) > 0, "the loop below must iterate at least once"
     for i, r in results:
         if i % 2 == 0:
             assert np.array_equal(r, ref), "seed=7 output changed under concurrency"

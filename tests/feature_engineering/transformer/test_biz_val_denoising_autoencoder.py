@@ -64,6 +64,7 @@ def test_swap_noise_augment_preserves_column_marginals():
 
     # Every corrupted value came from the SAME column of X, so the corrupted column's sorted unique values
     # must be a subset of the original column's values (no synthesized out-of-distribution values).
+    assert len(range(X.shape[1])) > 0, "the loop below must iterate at least once"
     for j in range(X.shape[1]):
         assert np.isin(X_corrupted[:, j], X[:, j]).all()
         # Marginal mean/std of the corrupted column should stay close to the original (resampling from the

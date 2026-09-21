@@ -43,6 +43,7 @@ def test_there_is_no_shared_reference_line(task):
 def test_every_bar_names_its_raw_value(task):
     """Length is a rescaled quality; without the raw number the reader cannot recover the measurement."""
     panel = _headline(task)
+    assert len(panel.categories) > 0, "the loop below must iterate at least once"
     for label in panel.categories:
         assert any(ch.isdigit() for ch in label), f"{task}: bar label carries no value: {label!r}"
 

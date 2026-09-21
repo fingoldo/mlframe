@@ -65,6 +65,7 @@ def test_preset_unary_operators_are_strings(preset):
     # for custom operators. Both must be `str`.
     """Preset unary operators are strings."""
     out = get_preset_kwargs(preset)
+    assert len(out['unary_operators']) > 0, "the loop below must iterate at least once"
     for op in out["unary_operators"]:
         assert isinstance(op, str), f"unary op {op!r} not a string in preset {preset!r}"
 
@@ -73,6 +74,7 @@ def test_preset_unary_operators_are_strings(preset):
 def test_preset_binary_operators_are_strings(preset):
     """Preset binary operators are strings."""
     out = get_preset_kwargs(preset)
+    assert len(out['binary_operators']) > 0, "the loop below must iterate at least once"
     for op in out["binary_operators"]:
         assert isinstance(op, str), f"binary op {op!r} not a string in preset {preset!r}"
 
@@ -84,6 +86,7 @@ def test_preset_complexity_dict_has_positive_int_weights(preset):
     weights = out["complexity_of_operators"]
     assert isinstance(weights, dict)
     assert len(weights) >= 1
+    assert len(weights.items()) > 0, "the loop below must iterate at least once"
     for k, v in weights.items():
         assert isinstance(k, str)
         assert isinstance(v, int)
@@ -100,6 +103,7 @@ def test_preset_nested_constraints_is_nested_dict(preset):
     for parent, children in nc.items():
         assert isinstance(parent, str)
         assert isinstance(children, dict)
+        assert len(children.items()) > 0, "the loop below must iterate at least once"
         for child, depth in children.items():
             assert isinstance(child, str)
             assert isinstance(depth, int)
@@ -114,6 +118,7 @@ def test_preset_extra_sympy_mappings_callables(preset):
     assert isinstance(mappings, dict)
     # All seven custom operator names must be mapped (predict-time symbolic
     # eval needs them all regardless of preset).
+    assert len(OPERATOR_JULIA_SIGNATURES) > 0, "the loop below must iterate at least once"
     for name in OPERATOR_JULIA_SIGNATURES:
         assert name in mappings, f"sympy mapping missing for {name!r}"
         assert callable(mappings[name])

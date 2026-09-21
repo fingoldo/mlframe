@@ -43,6 +43,7 @@ def test_adjacent_regime_labels_do_not_share_one_height():
     spans = tuple((i * 0.3, i * 0.3 + 0.25, c, 0.15, f"regime_{i}") for i, c in enumerate(COLORS))
     shifts = _label_shifts(PlotlyRenderer().render(_panel(vspans=spans)), "regime_")
     assert len(shifts) == 4, f"expected four band labels, got {shifts}"
+    assert list(zip(shifts, shifts[1:])), "the loop below must iterate at least once"
     for (name_a, ya), (name_b, yb) in zip(shifts, shifts[1:]):
         assert ya != yb, f"{name_a} and {name_b} are both at yshift={ya}, so they overprint"
 

@@ -75,6 +75,7 @@ def test_permutation_invariance_isospectral():
     edges2 = perm[edges]
     f1 = graph_spectral_features(n, edges, k=4)
     f2 = graph_spectral_features(n, edges2, k=4)
+    assert len(f1) > 0, "the loop below must iterate at least once"
     for key in f1:
         assert abs(f1[key] - f2[key]) < 1e-6, f"{key} not permutation-invariant"
 

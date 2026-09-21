@@ -43,6 +43,7 @@ def test_estimate_calibration_quality_binned_nbins_gt_n_caps_and_stays_finite():
     pockets_pred, pockets_true, _data, metrics = estimate_calibration_quality_binned(y_true, y_pred, nbins=50)
     assert len(pockets_pred) == 5, "nbins must be capped to the sample count"
     assert np.isfinite(pockets_pred).all() and np.isfinite(pockets_true).all()
+    assert len(metrics.items()) > 0, "the loop below must iterate at least once"
     for name, val in metrics.items():
         assert np.isfinite(val), f"metric {name} must be finite, got {val}"
 

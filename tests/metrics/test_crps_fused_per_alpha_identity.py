@@ -59,6 +59,7 @@ def test_fused_per_alpha_matches_pinball_loss_per_column():
     p = np.ascontiguousarray(np.sort(rng.standard_normal((n, k)), axis=1))
     a = np.ascontiguousarray(np.linspace(0.1, 0.9, k))
     fused = _fast_pinball_per_alpha(y, p, a)
+    assert len(range(k)) > 0, "the loop below must iterate at least once"
     for j in range(k):
         assert fused[j] == pinball_loss(y, p[:, j], float(a[j]))
 
