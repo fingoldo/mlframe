@@ -18,8 +18,6 @@ from ..baselines import BaselineDiagnostics
 from ..composite import CompositeTargetDiscovery
 from ..composite.cache import (
     DiscoveryCache,
-    data_signature,
-    make_discovery_cache_key,
 )
 from ..configs import TargetTypes
 from ._achievable_ceiling import run_achievable_ceiling_precheck
@@ -42,163 +40,16 @@ logger = logging.getLogger(__name__)
 from ._phase_composite_discovery_helpers import (
     _render_composite_discovery_diagnostics,
     _build_disc_df_for_target,
-    _discovery_config_signature,
+    _discovery_config_signature,  # noqa: F401  (re-exported; tests import it from here)
 )
 
-# Pathology name PREFIXES (TargetDistributionReport.pathologies entries are formatted strings like
-# "heavy_tail(excess_kurt=312.5)") that justify auto-enabling composite-target discovery: these are
-# exactly the two regression pathologies target_distribution_analyzer's own docstring/comment already
-# says composite discovery is "the" answer for (log/sqrt/cbrt residual targets), yet
-# analyze_target_distribution deliberately issues no knob_override for them because a target transform
-# is composite discovery's job, not a hyperparameter flip -- see
-# ``_target_distribution_analyzer_target_fn.py``'s skewed_target branch comment. Left disconnected, the
-# two diagnostics talked past each other: the target-side analyzer detects the pathology and defers, and
-# composite discovery (default OFF) never actually runs unless a caller manually opts in.
-_AUTO_ENABLE_DISCOVERY_PATHOLOGY_PREFIXES = ("heavy_tail", "skewed_target")
-
-
-def _target_pathologies_for_auto_enable(y_train: np.ndarray, target_name: str, td_report: dict) -> list[str]:
-    """Pathologies relevant to auto-enabling discovery for one regression target.
-
-    Reuses the suite-level ``target_distribution_report`` (already computed once per suite on a picked
-    representative target) when ``target_name`` IS that picked target -- no extra compute. For any other
-    regression target, runs the same cheap O(n) moments-based analyzer fresh (mean/std/skew/kurtosis over
-    the train slice only) since the suite-level report never covers more than one target.
-    """
-    if td_report.get("picked_target_name") == target_name:
-        pathologies = list(td_report.get("pathologies", []))
-    else:
-        try:
-            from ..targets import analyze_target_distribution
-
-            pathologies = list(analyze_target_distribution(y_train, target_type="regression", has_time_axis=False).pathologies)
-        except Exception as e:
-            logger.debug("per-target heavy-tail/skew auto-enable check failed for %r (%s); treating as no pathology", target_name, e)
-            return []
-    return [p for p in pathologies if p.startswith(_AUTO_ENABLE_DISCOVERY_PATHOLOGY_PREFIXES)]
-
-
-def _maybe_auto_enable_discovery(composite_target_discovery_config, *, target_by_type: dict, train_idx, metadata: dict):
-    """Auto-enable composite-target discovery for a suite that left ``enabled`` at its default (never
-    explicitly opted out) when a real regression target shows a heavy-tail/skewed-target pathology.
-
-    Explicit user intent always wins either way: an explicit ``enabled=True`` runs regardless of this
-    check, and an explicit ``enabled=False`` (present in ``model_fields_set``) is respected as a
-    deliberate opt-out and never overridden. Returns the (possibly ``.model_copy``'d) effective config.
-    """
-    if composite_target_discovery_config.enabled or "enabled" in composite_target_discovery_config.model_fields_set:
-        return composite_target_discovery_config
-    _reasons: dict[str, list[str]] = {}
-    for _tname_auto, _tvals_auto in (target_by_type.get(TargetTypes.REGRESSION) or {}).items():
-        try:
-            _y_auto = np.asarray(_tvals_auto)
-            if _y_auto.ndim != 1:
-                continue
-            if train_idx is not None:
-                _idx_auto = np.asarray(train_idx)
-                if _idx_auto.size and _y_auto.size > int(_idx_auto.max()):
-                    _y_auto = _y_auto[_idx_auto]
-        except Exception as e:
-            logger.debug("auto-enable target slice failed for %r (%s)", _tname_auto, e)
-            continue
-        _hits = _target_pathologies_for_auto_enable(_y_auto, _tname_auto, metadata.get("target_distribution_report", {}) or {})
-        if _hits:
-            _reasons[_tname_auto] = _hits
-    if not _reasons:
-        return composite_target_discovery_config
-    logger.info(
-        "[CompositeTargetDiscovery] auto-enabled (composite_target_discovery_config.enabled was left at its "
-        "default): target(s) show a heavy-tail/skewed-target pathology composite discovery's log/cbrt/"
-        "yeo_johnson/quantile_normal transforms directly address -- %s. Pass "
-        "composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False) explicitly to opt out.",
-        _reasons,
-    )
-    return composite_target_discovery_config.model_copy(update={"enabled": True})
-
-
-def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, target_name: str) -> list[dict]:
-    """Drop kept specs whose base columns are absent from every split frame, returning one failure record each.
-
-    Discovery may build extra base columns on its OWN frame -- the engineered per-group causal bases are the default
-    case. Those columns never reach the suite's split frames, and the column builder silently yields all-NaN for a name
-    it cannot find, so such a spec would be trained on a NaN target and every gate verdict recorded for it was measured
-    on a column the trainer does not have. They are screening-only by construction: the bases are functions of past y,
-    which a predict frame does not carry, so there is nothing to rebuild downstream either.
-    """
-    specs = list(getattr(disc, "specs_", ()) or ())
-    if not specs:
-        return []
-    available: set = set()
-    for _frame in split_frames:
-        if _frame is None:
-            continue
-        try:
-            available.update(str(c) for c in _frame.columns)
-        except Exception as e:
-            logger.debug("reading split frame columns failed while checking spec bases: %s", e)
-    if not available:  # nothing to check against: keep the specs rather than drop them on a failed lookup
-        return []
-    kept, dropped = [], []
-    for _spec in specs:
-        _needed = [str(getattr(_spec, "base_column", "") or "")]
-        _needed += [str(_c) for _c in (getattr(_spec, "extra_base_columns", ()) or ())]
-        _missing = [_c for _c in _needed if _c and _c not in available]
-        if _missing:
-            dropped.append({
-                "name": getattr(_spec, "name", None) or getattr(_spec, "transform_name", "?"),
-                "kept": False,
-                "rejected": True,
-                "reason": f"base column(s) {_missing} exist only in discovery's own frame, so the suite cannot build this target",
-            })
-        else:
-            kept.append(_spec)
-    if dropped:
-        disc.specs_ = kept
-        log_throttle(
-            logger, "composite_spec_base_not_materialisable", logging.WARNING,
-            "[CompositeTargetDiscovery] target='%s': dropped %d spec(s) whose base column is not in the training frames "
-            "(%s). Engineered bases are screening-only; pass such a column in your own frame to train on it.",
-            target_name, len(dropped), "; ".join(str(d["reason"]) for d in dropped[:3]),
-        )
-    return dropped
-
-
-def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_dir):
-    """The discovery cache, its key and any cached payload for this target; a failed key build yields no cache.
-
-    The key carries the data fingerprint, the target column and the config signature (which embeds the library
-    versions, so a poisoned entry cannot survive an upgrade). A hit skips the whole MI / rerank path.
-    """
-    cache = None
-    cache_key = None
-    try:
-        cache = DiscoveryCache(cache_dir)
-        # ``random_state=0`` is a legitimate sklearn seed and MUST
-        # reach the row-sampler verbatim. The previous ``or 42`` form
-        # silently rewrote 0->42, collapsing seed=0 and seed=42 to
-        # the same data_signature and breaking reproducibility for
-        # any caller that passed 0. ``None`` (no attribute / unset)
-        # still folds to 42 (the historical default).
-        _rs_raw = getattr(disc_cfg, "random_state", 42)
-        _df_sig = data_signature(
-            disc_df, target_name, feature_cols,
-            random_state=int(42 if _rs_raw is None else _rs_raw),
-        )
-        _cfg_sig = _discovery_config_signature(disc_cfg)
-        # random_state is already folded into _df_sig (seeds the row-sample) and into _cfg_sig (via the dataclass dump). Passing it again to make_discovery_cache_key would be a double-fold (DISC-RANDOM-STATE-DBL): the same data + same config but with random_state mutated would produce three independent hash mixes. We rename the kwarg here to ``_legacy_random_state_sentinel=0`` so a future reader cannot misread "random_state=0" as the actual seed in use.
-        cache_key = make_discovery_cache_key(
-            _df_sig, target_name, _cfg_sig,
-            _legacy_random_state_sentinel=0,
-        )
-        payload = cache.get(cache_key)
-    except Exception as _cache_err:
-        logger.info(
-            "[CompositeTargetDiscovery] cache key build failed for " "target='%s' (%s); proceeding without cache.",
-            target_name,
-            _cache_err,
-        )
-        payload = None
-    return cache, cache_key, payload
+from ._phase_composite_discovery_gates import (  # noqa: F401  (re-exported)
+    _AUTO_ENABLE_DISCOVERY_PATHOLOGY_PREFIXES,
+    _target_pathologies_for_auto_enable,
+    _maybe_auto_enable_discovery,
+    _drop_specs_whose_bases_the_suite_cannot_materialise,
+    _discovery_cache_lookup,
+)
 
 
 def run_composite_target_discovery(

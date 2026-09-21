@@ -301,6 +301,21 @@ def _oof_cache_put(key: tuple, value: tuple) -> None:
         _OOF_HOLDOUT_CACHE[key] = value
 
 
+
+def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_train: np.ndarray, base_train: np.ndarray) -> CompositeTargetEstimator:
+    """Wrap an OOF-refit inner as the deployed wrapper would be: the full ``base_columns`` tuple for a multi-base spec (predict rebuilds
+    the K-column base matrix the K alphas expect), and the train base so the stand-in captures its range and shrinks deep-OOD rows too."""
+    extra = tuple(spec.get("extra_base_columns") or ())
+    return CompositeTargetEstimator.from_fitted_inner(
+        fitted_inner=inner_clone,
+        transform_name=spec["transform_name"],
+        base_column=spec["base_column"],
+        base_columns=(spec["base_column"], *extra) if extra else None,
+        transform_fitted_params=fitted_params,
+        y_train=y_train,
+        base_train=base_train,
+    )
+
 def _compute_oof_with_external_holdout(
     *,
     # Slice-stable ES (mlframe.training.SliceStableESConfig) is NOT propagated into the inner OOF refit loop: this function builds its own per-fold ``eval_set`` via ``_carve_eval_set_from_train_with_groups`` and a single (X_holdout, y_holdout) pair, incompatible with the multi-eval-set / per-shard registration path slice-ES needs. Callers wanting robust ES inside OOF refit should use full-K-fold CV with an outer selector (see ``_cv_aggregation.aggregate_fold_scores``).
@@ -381,18 +396,7 @@ def _compute_oof_with_external_holdout(
                     inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
                     eval_set=_eval_set_c, fitted_source=inner.estimator_,
                 )
-                _extra = tuple(spec.get("extra_base_columns") or ())
-                _base_columns = (spec["base_column"], *_extra) if _extra else None
-                wrapped = CompositeTargetEstimator.from_fitted_inner(
-                    fitted_inner=inner_clone,
-                    transform_name=spec["transform_name"],
-                    base_column=spec["base_column"],
-                    base_columns=_base_columns,
-                    transform_fitted_params=spec["fitted_params"],
-                    y_train=y_train_full[valid],
-                    # The deployed wrapper captures its train base range and shrinks deep-OOD rows; the OOF stand-in must too.
-                    base_train=base_full[valid],
-                )
+                wrapped = _wrap_fitted_inner(spec, inner_clone, spec["fitted_params"], y_train_full[valid], base_full[valid])
                 preds = wrapped.predict(external_holdout_X, inner_X=X_holdout_t)
             else:
                 inner_clone = clone(inner)
@@ -651,17 +655,7 @@ def compute_oof_holdout_predictions(
                             eval_set=_eval_set_kc, fitted_source=inner.estimator_,
                         )
                         # Multi-base parity with _phase_composite_post: pass the full base_columns tuple so predict reconstructs the K-column base matrix matching the K alphas.
-                        _extra = tuple(spec.get("extra_base_columns") or ())
-                        _base_columns = (spec["base_column"], *_extra) if _extra else None
-                        wrapped = CompositeTargetEstimator.from_fitted_inner(
-                            fitted_inner=inner_clone,
-                            transform_name=spec["transform_name"],
-                            base_column=spec["base_column"],
-                            base_columns=_base_columns,
-                            transform_fitted_params=_fold_params,
-                            y_train=y_stack[valid],
-                            base_train=base_stack[valid],
-                        )
+                        wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid])
                         preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
                     else:
                         inner_clone = clone(inner)
@@ -896,17 +890,7 @@ def compute_oof_holdout_predictions(
                     eval_set=_eval_set_c, fitted_source=inner.estimator_,
                 )
                 # Multi-base parity: same fix as the kfold OOF branch above. Without base_columns, predict reconstructs only the primary base column and trips the K-alphas shape check.
-                _extra = tuple(spec.get("extra_base_columns") or ())
-                _base_columns = (spec["base_column"], *_extra) if _extra else None
-                wrapped = CompositeTargetEstimator.from_fitted_inner(
-                    fitted_inner=inner_clone,
-                    transform_name=spec["transform_name"],
-                    base_column=spec["base_column"],
-                    base_columns=_base_columns,
-                    transform_fitted_params=_fold_params,
-                    y_train=y_stack[valid],
-                    base_train=base_stack[valid],
-                )
+                wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid])
                 preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
             else:
                 # Raw-target component. Re-fit the inner on (X_stack, y_stack) and predict on X_holdout.

@@ -772,7 +772,6 @@
   "src/mlframe/training/composite/diagnostics.py::plot_qq",
   "src/mlframe/training/composite/diagnostics.py::plot_reliability_diagram",
   "src/mlframe/training/composite/discovery/_calibration_gate.py::calibration_adjusted_score",
-  "src/mlframe/training/composite/discovery/_eval.py::refit_transform_on_fold",
   "src/mlframe/training/composite/discovery/_eval_stats.py::benjamini_hochberg_reject",
   "src/mlframe/training/composite/discovery/_eval_waic.py::rank_transforms_by_waic",
   "src/mlframe/training/composite/discovery/_grouped_causal_bases.py::attach_grouped_causal_bases",

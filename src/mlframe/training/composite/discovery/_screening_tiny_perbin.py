@@ -41,7 +41,7 @@ from ._screening_tiny import (
     _cached_kfold_splits,
     _silence_tiny_model_output,
 )
-from ._eval import refit_transform_on_fold
+from ._fold_refit import refit_transform_on_fold
 from ._lgb_shared_fold import fit_on_shared_fold, lgb_params
 from ._ridge_shared_fold import fit_ridge_on_shared_fold
 
