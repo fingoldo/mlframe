@@ -109,3 +109,47 @@ def _carve_inner_eval_split(
     if hasattr(X, "select") and hasattr(X, "slice"):
         return _ret(X.slice(0, cut), y[:cut], X.slice(cut, n_eval_target), y[cut:], None)
     return _ret(X[:cut], y[:cut], X[cut:], y[cut:], None)
+
+
+def _best_iteration_of(fitted) -> int | None:
+    """The boosting round an early-stopped model settled on, or ``None`` when it did not early-stop or is not a booster."""
+    for attr in ("best_iteration_", "best_iteration"):
+        try:
+            value = getattr(fitted, attr, None)
+        except Exception:  # nosec B112 - xgboost raises when the model was trained without early stopping
+            value = None
+        if isinstance(value, (int, np.integer)) and int(value) > 0:
+            return int(value)
+    getter = getattr(fitted, "get_best_iteration", None)
+    if callable(getter):
+        try:
+            value = getter()
+        except Exception:  # nosec B112 - catboost without an eval set has no best iteration
+            value = None
+        if isinstance(value, (int, np.integer)) and int(value) > 0:
+            return int(value) + 1  # catboost reports a 0-based index
+    return None
+
+
+def _disable_early_stopping(estimator, fitted_source=None) -> None:
+    """Turn early stopping off on an unfitted clone that will be fit without an eval set.
+
+    The OOF carve skips its eval slice below 1000 rows (and when a group carve is impossible), but the clone keeps its
+    ``early_stopping_rounds``, so LightGBM and XGBoost raised "at least one dataset and eval metric is required" and every
+    early-stopping component was dropped from the ensemble. With no eval data the honest stand-in for early stopping is
+    the round count the deployed model stopped at, so ``n_estimators`` takes the fitted source's best iteration.
+    """
+    get_params = getattr(estimator, "get_params", None)
+    set_params = getattr(estimator, "set_params", None)
+    if not callable(get_params) or not callable(set_params):
+        return
+    params = get_params()
+    updates: dict = {}
+    if params.get("early_stopping_rounds") is not None:
+        updates["early_stopping_rounds"] = None
+    if not updates:
+        return
+    best = _best_iteration_of(fitted_source) if fitted_source is not None else None
+    if best is not None and "n_estimators" in params:
+        updates["n_estimators"] = best
+    set_params(**updates)

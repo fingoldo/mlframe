@@ -87,6 +87,27 @@ def _selector_output_columns(selector):
         return None
 
 
+_TRANSFORMED_BY_ATTR = "_mlframe_pre_pipeline_id"
+"""``DataFrame.attrs`` key naming the fitted pre_pipeline (by ``id``) whose transform produced the frame."""
+
+
+def _mark_transformed_by(frame, pre_pipeline) -> None:
+    """Record on a pandas frame which fitted pipeline transformed it, so a cache hit can tell it is not raw input.
+
+    Polars frames carry no ``attrs`` and are left unmarked (the width discriminator still applies to them). The id is
+    stable for as long as the pipeline lives, and the pipeline cache holds the pipeline for the suite's lifetime.
+    """
+    attrs = getattr(frame, "attrs", None)
+    if isinstance(attrs, dict):
+        attrs[_TRANSFORMED_BY_ATTR] = id(pre_pipeline)
+
+
+def _transformed_by(frame):
+    """The ``id`` of the pipeline that transformed ``frame``, or ``None`` when it carries no mark."""
+    attrs = getattr(frame, "attrs", None)
+    return attrs.get(_TRANSFORMED_BY_ATTR) if isinstance(attrs, dict) else None
+
+
 def _test_df_is_raw_pipeline_input(pre_pipeline, test_df, passthrough_cols, skip_preprocessing) -> bool:
     """True when ``test_df`` still needs the fitted pipeline's transform applied (it carries the RAW input schema, or any schema wider than the
     pipeline's transformed OUTPUT), False only when it is already at the pipeline's transformed OUTPUT width (so re-transforming would double-apply).
@@ -229,6 +250,11 @@ def _prepare_test_split(
                 _fitted = _is_fitted(pre_pipeline)
                 if not skip_pre_pipeline_transform:
                     _do_transform = True
+                elif _transformed_by(test_df) == id(pre_pipeline):
+                    # The cached frame carries the mark of this very pipeline's transform. The width test below cannot
+                    # tell a column-count-preserving pipeline's output from its input (a scaler over 11 columns returns 11
+                    # columns), so a cached, already-scaled test frame was scaled a second time on every later target.
+                    _do_transform = False
                 elif _fitted and _test_df_is_raw_pipeline_input(
                     pre_pipeline, test_df, selector_passthrough_cols, skip_preprocessing,
                 ):
@@ -250,6 +276,7 @@ def _prepare_test_split(
                             test_df,
                             passthrough_cols=selector_passthrough_cols,
                         )
+                    _mark_transformed_by(test_df, pre_pipeline)
         columns = list(test_df.columns) if hasattr(test_df, "columns") else []
     else:
         columns = []

@@ -20,9 +20,9 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `estimator_ensemble.md` | 22 | 4 | 0 | 18 | 0 | 0 |
 | `suite_integration.md` | 19 | 6 | 0 | 13 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 0 | 0 | 17 | 0 | 0 |
+| `tests.md` | 17 | 2 | 1 | 14 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 0 | 0 | 41 | 0 | 0 |
-| **Total** | **179** | **54** | **10** | **114** | **1** | **0** |
+| **Total** | **179** | **56** | **11** | **111** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -174,9 +174,9 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 
 | Status | Sev | ID | Finding | Evidence / what remains |
 |---|---|---|---|---|
-| **TODO** | P1 | `TST-01` | The suite-level composite tests pass with a composite model that is almost 2x worse than raw y, because every assertion is a range check that the y-clip guarantees | |
-| **TODO** | P1 | `TST-02` | No test round-trips a real composite suite or ensemble through disk or a fresh process; the persistence tests use surrogates | |
-| **TODO** | P1 | `TST-03` | The per-transform registry contract test cannot detect the transform defects: one benign fixture, median error, exact-T round trip on train bases only, and a tolerance table up to 1e9x looser than the measured error | |
+| **RESOLVED** | P1 | `TST-01` | The suite-level composite tests pass with a composite model that is almost 2x worse than raw y, because every assertion is a range check that the y-clip guarantees | discriminating suite contracts (linear + lgb); exposed and fixed 3 prod bugs: value report crash without groups, LGB dropped from ensemble OOF (early stopping, no eval slice), cached test frame double-scaled on later targets |
+| **RESOLVED** | P1 | `TST-02` | No test round-trips a real composite suite or ensemble through disk or a fresh process; the persistence tests use surrogates | disk round trip covered by the persistence suite; all 51 transforms pickle bit-identically via fit and from_fitted_inner; auto-chain wrapper loads in a fresh process |
+| **PARTIAL** | P1 | `TST-03` | The per-transform registry contract test cannot detect the transform defects: one benign fixture, median error, exact-T round trip on train bases only, and a tolerance table up to 1e9x looser than the measured error | max-error round trip at one tolerance over a scale/offset/size grid, 2-D base for multi-base, out-of-range and disjoint-batch legs; Lipschitz leg and discrete/null-group fixtures not done |
 | **TODO** | P1 | `TST-04` | Seven tests pin behaviour that the sibling reports show is wrong, so fixing those defects turns the suite red | |
 | **TODO** | P1 | `TST-05` | No test checks that predict is independent of how rows are batched, and the recurrent-transform tests invert over the full series, which hides every batch-state defect | |
 | **TODO** | P2 | `TST-06` | The discovery time-awareness tests shuffle rows correctly but assert only the `_screen_time_ordered_` flag, which is the one thing the sort changes | |

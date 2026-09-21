@@ -128,7 +128,7 @@ def compute_mtr_oof_nnls_weights(
                     continue  # already failed in an earlier fold -> skip the refit
                 try:
                     cl = clone(comp)
-                    _maybe_pass_sample_weight(cl, X_tr, y_tr, sw_tr)
+                    _maybe_pass_sample_weight(cl, X_tr, y_tr, sw_tr, fitted_source=comp)
                     p = np.asarray(cl.predict(X_ho), dtype=np.float64)
                     if p.ndim == 1:
                         p = p.reshape(-1, 1)

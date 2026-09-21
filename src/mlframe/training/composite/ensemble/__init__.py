@@ -32,6 +32,7 @@ from ..transforms import get_transform
 from ._oof_split import (
     _align_fit_sw,
     _carve_inner_eval_split,
+    _disable_early_stopping,
     _slice_rows,
 )
 from mlframe.utils.log_throttle import log_throttle
@@ -222,6 +223,7 @@ def _maybe_pass_sample_weight(
     fit_callable, X, y,
     sw: np.ndarray | None,
     eval_set: tuple | None = None,
+    fitted_source: Any = None,
 ):
     """Call ``fit_callable.fit(X, y[, sample_weight, eval_set])`` honouring whichever kwargs the inner estimator's fit signature exposes.
 
@@ -230,6 +232,10 @@ def _maybe_pass_sample_weight(
     import inspect as _inspect
     if sw is not None and len(sw) != len(y):
         raise ValueError(f"_maybe_pass_sample_weight: sample_weight length {len(sw)} != y length {len(y)}")
+    if eval_set is None:
+        # No eval data (small folds skip the carve): an early-stopping clone would raise, so train the deployed model's
+        # round count instead (``fitted_source`` is the fitted model the clone was taken from).
+        _disable_early_stopping(fit_callable, fitted_source)
     try:
         _sig = _inspect.signature(fit_callable.fit)
         _params = _sig.parameters
@@ -373,7 +379,7 @@ def _compute_oof_with_external_holdout(
                 _sw_fit_c = _align_fit_sw(_sw_train_valid, _fm_c, len(_t_fit_c))
                 _maybe_pass_sample_weight(
                     inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
-                    eval_set=_eval_set_c,
+                    eval_set=_eval_set_c, fitted_source=inner.estimator_,
                 )
                 _extra = tuple(spec.get("extra_base_columns") or ())
                 _base_columns = (spec["base_column"], *_extra) if _extra else None
@@ -398,7 +404,7 @@ def _compute_oof_with_external_holdout(
                 _sw_fit_r = _align_fit_sw(sample_weight, _fm_r, len(_y_fit_r))
                 _maybe_pass_sample_weight(
                     inner_clone, _X_fit_r, _y_fit_r, _sw_fit_r,
-                    eval_set=_eval_set_r,
+                    eval_set=_eval_set_r, fitted_source=inner,
                 )
                 preds = inner_clone.predict(X_holdout_t)
             preds = np.asarray(preds).reshape(-1).astype(np.float64)
@@ -640,7 +646,7 @@ def compute_oof_holdout_predictions(
                         _sw_fit_kc = _align_fit_sw(_sw_stack_valid, _fm_kc, len(_tf_c))
                         _maybe_pass_sample_weight(
                             inner_clone, _Xf_c, _tf_c, _sw_fit_kc,
-                            eval_set=_eval_set_kc,
+                            eval_set=_eval_set_kc, fitted_source=inner.estimator_,
                         )
                         # Multi-base parity with _phase_composite_post: pass the full base_columns tuple so predict reconstructs the K-column base matrix matching the K alphas.
                         _extra = tuple(spec.get("extra_base_columns") or ())
@@ -679,7 +685,7 @@ def compute_oof_holdout_predictions(
                         _sw_fit = _align_fit_sw(_sw_stack, _fm_kr, len(_y_fit))
                         _maybe_pass_sample_weight(
                             inner_clone, _X_fit, _y_fit, _sw_fit,
-                            eval_set=_eval_set,
+                            eval_set=_eval_set, fitted_source=inner,
                         )
                         preds = inner_clone.predict(X_holdout_t)
                     preds = np.asarray(preds).reshape(-1).astype(np.float64)
@@ -884,7 +890,7 @@ def compute_oof_holdout_predictions(
                 _sw_fit_c = _align_fit_sw(_sw_stack_valid, _fm_sc, len(_t_fit_c))
                 _maybe_pass_sample_weight(
                     inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
-                    eval_set=_eval_set_c,
+                    eval_set=_eval_set_c, fitted_source=inner.estimator_,
                 )
                 # Multi-base parity: same fix as the kfold OOF branch above. Without base_columns, predict reconstructs only the primary base column and trips the K-alphas shape check.
                 _extra = tuple(spec.get("extra_base_columns") or ())
@@ -910,7 +916,7 @@ def compute_oof_holdout_predictions(
                 _sw_fit_r = _align_fit_sw(_sw_stack, _fm_sr, len(_y_fit_r))
                 _maybe_pass_sample_weight(
                     inner_clone, _X_fit_r, _y_fit_r, _sw_fit_r,
-                    eval_set=_eval_set_r,
+                    eval_set=_eval_set_r, fitted_source=inner,
                 )
                 preds = inner_clone.predict(X_holdout_t)
             preds = np.asarray(preds).reshape(-1).astype(np.float64)

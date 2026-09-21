@@ -85,11 +85,15 @@ jobs:
           # conclusion "cancelled") and failed with "No raw coverage data downloaded". Walk back
           # through the last 10 completed runs and pick the first that actually has a
           # raw-coverage-numba-* artifact, instead of trusting "latest" blindly.
+          # `.expired == false`: GitHub keeps an expired artifact LISTED in the API long after its
+          # bytes are gone, so a run passes this existence check and then fails the download with
+          # "Artifact has expired" (seen in pyutilz's identical workflow, run 35514581159). Only a
+          # downloadable artifact counts as real data.
           run_id=""
           for candidate in $(gh run list --repo "${{ github.repository }}" --workflow numba-coverage.yml \
               --status completed --limit 10 --json databaseId --jq '.[].databaseId'); do
             count=$(gh api "repos/${{ github.repository }}/actions/runs/$candidate/artifacts" \
-              --jq '[.artifacts[] | select(.name | startswith("raw-coverage-numba-"))] | length') || count=""
+              --jq '[.artifacts[] | select((.name | startswith("raw-coverage-numba-")) and .expired == false)] | length') || count=""
             if [ -z "$count" ]; then
               echo "Could not read artifacts for run $candidate (API query failed) -- not the same as zero artifacts"
               continue
@@ -139,7 +143,7 @@ jobs:
           for candidate in $(gh run list --repo "${{ github.repository }}" --workflow ci.yml --branch master \
               --status completed --limit 10 --json databaseId --jq '.[].databaseId'); do
             count=$(gh api "repos/${{ github.repository }}/actions/runs/$candidate/artifacts" \
-              --jq '[.artifacts[] | select(.name | startswith("raw-coverage-ci-"))] | length') || count=""
+              --jq '[.artifacts[] | select((.name | startswith("raw-coverage-ci-")) and .expired == false)] | length') || count=""
             if [ -z "$count" ]; then
               echo "Could not read artifacts for run $candidate (API query failed) -- not the same as zero artifacts"
               continue
@@ -173,7 +177,7 @@ jobs:
         run: |
           run_id=""
           for candidate in $(gh run list --repo "${{ github.repository }}" --workflow deep-nightly.yml --branch master               --status completed --limit 5 --json databaseId --jq '.[].databaseId'); do
-            count=$(gh api "repos/${{ github.repository }}/actions/runs/$candidate/artifacts"               --jq '[.artifacts[] | select(.name | startswith("raw-coverage-deep-"))] | length') || count=""
+            count=$(gh api "repos/${{ github.repository }}/actions/runs/$candidate/artifacts"               --jq '[.artifacts[] | select((.name | startswith("raw-coverage-deep-")) and .expired == false)] | length') || count=""
             if [ -z "$count" ]; then
               echo "Could not read artifacts for run $candidate (API query failed) -- not the same as zero artifacts"
               continue
