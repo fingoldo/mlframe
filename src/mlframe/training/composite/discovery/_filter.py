@@ -6,7 +6,7 @@ facade under the LOC budget. Bound onto the class at the parent module's bottom.
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, List, Sequence, cast
 
 import numpy as np
 
@@ -295,4 +295,4 @@ def _filter_features(
             preview,
             "" if len(corr_drops) <= 5 else f" (+{len(corr_drops) - 5} more)",
         )
-    return kept
+    return cast(List[str], kept)

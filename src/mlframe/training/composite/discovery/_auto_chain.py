@@ -280,6 +280,8 @@ def _y_scale_cv_rmse(
                     learning_rate=learning_rate, random_state=random_state,
                     inner_n_jobs=inner_n_jobs,
                 )
+                # Reached only on the uncached branch, where `x_tr` was sliced from the matrix above.
+                assert x_tr is not None
                 model.fit(x_tr[fit_mask], target_tr[fit_mask])
                 pred = np.asarray(model.predict(x_va), dtype=np.float64)
             if transform is None:

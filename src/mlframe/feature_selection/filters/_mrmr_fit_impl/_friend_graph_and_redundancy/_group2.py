@@ -456,7 +456,7 @@ def _friend_graph_and_redundancy_passes_group2(
             del _rp_base  # the scorer holds only the train/validation blocks
 
             if int(_rp_tr.sum()) >= 32 and int(_rp_va.sum()) >= 16:
-                _rp_r2_base = _rp_r2()
+                _rp_r2_base = _rp_r2(None)
                 _cols_index_r = {c: i for i, c in enumerate(cols)}
                 _sv_set_r = set(selected_vars)
                 _readd_raw = []

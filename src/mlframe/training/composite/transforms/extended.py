@@ -52,7 +52,7 @@ from __future__ import annotations
 from ._domain_shared import residual_domain_plain
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import numpy as np
 
@@ -426,7 +426,7 @@ class _TckSpline:
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
         from scipy.interpolate import splev
-        return splev(x, self.tck, ext=3)
+        return cast(np.ndarray, splev(x, self.tck, ext=3))
 
 
 def _build_smoothing_spline(params: dict[str, Any]) -> Any:

@@ -91,7 +91,7 @@ def run_ensembling_levels(
             # Sequential processing
             for ensemble_method in ensembling_methods:
                 internal_method, next_ens_results, conf_results = process_fn(
-                    ensemble_method=ensemble_method, **common_params  # type: ignore[arg-type]  # common_params is a heterogeneous dict(...) blob shared with the parallel loky path
+                    ensemble_method=ensemble_method, **common_params  # common_params is a heterogeneous dict(...) blob shared with the parallel loky path
                 )
                 res[internal_method] = next_ens_results
                 next_level_models_and_predictions.append(next_ens_results)

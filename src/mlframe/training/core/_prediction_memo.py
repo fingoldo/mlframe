@@ -15,7 +15,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import threading
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, cast
 
 import numpy as np
 
@@ -63,8 +63,8 @@ def memo_predict(model: Any, frame: Any) -> np.ndarray:
     with _LOCK:
         hit = memo.get(key)
     if hit is not None and hit[0] is model and hit[1] is frame:
-        return hit[2].copy()
+        return cast(np.ndarray, hit[2].copy())
     preds = np.asarray(model.predict(frame), dtype=np.float64).reshape(-1)
     with _LOCK:
         memo[key] = (model, frame, preds)
-    return preds.copy()
+    return cast(np.ndarray, preds.copy())

@@ -538,7 +538,7 @@ def fit(
     # same de-duplicated feature set. Gated + threshold-tunable via config; a
     # strict no-op when no surviving pair exceeds the threshold.
     _dedup_corr_thr = float(getattr(self.config, "dedup_x_remaining_corr_threshold", 0.99))
-    _base_contexts: dict[str, dict[str, Any]] = {}
+    _base_contexts: Any = {}
     for base in base_candidates:
         base_train = _extract_column_array(df, base)[train_idx]
         self._auto_base_pool[base] = base_train
@@ -555,7 +555,7 @@ def fit(
                 # the (n, F-1) plane. dedup is off on this gate, so the float
                 # values are provably unused.
                 _rem_cols = _x_prebinned.shape[1] if _x_prebinned is not None else 0
-                x_remaining_matrix = np.empty((0, _rem_cols), dtype=np.float32)
+                x_remaining_matrix: Any = np.empty((0, _rem_cols), dtype=np.float32)
             else:
                 assert _full_x_matrix is not None  # built above whenever not _use_lazy_prebin
                 x_remaining_matrix = np.delete(_full_x_matrix, _drop_idx, axis=1)

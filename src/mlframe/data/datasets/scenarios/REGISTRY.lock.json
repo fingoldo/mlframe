@@ -1,5 +1,73 @@
 {
   "scenarios": {
+    "friedman1": {
+      "expected_to_break": [
+        "skb-f",
+        "select-fdr",
+        "lars-order",
+        "variance-sort"
+      ],
+      "family": "reference",
+      "primary_target_set": "markov_blanket",
+      "purpose": "published bed: a sine interaction and a centred square that no linear statistic can see",
+      "spec_hash": "c498c806c65491ba7e42266e3b07c26a"
+    },
+    "friedman2": {
+      "expected_to_break": [
+        "skb-mi",
+        "univariate-mi",
+        "variance-sort"
+      ],
+      "family": "reference",
+      "primary_target_set": "markov_blanket",
+      "purpose": "published bed whose column ranges differ by orders of magnitude, by design rather than by accident",
+      "spec_hash": "8dc4ad2985c7e934c07b078daf9109b9"
+    },
+    "friedman3": {
+      "expected_to_break": [
+        "skb-f",
+        "lars-order",
+        "variance-sort"
+      ],
+      "family": "reference",
+      "primary_target_set": "markov_blanket",
+      "purpose": "published bed where a ratio is the entire signal, so neither operand is informative at a fixed marginal",
+      "spec_hash": "98f000f17511ac7f69de24c039e1dbad"
+    },
+    "graded_cardinality": {
+      "expected_to_break": [
+        "sfm-lgbm",
+        "boruta",
+        "boruta-shap"
+      ],
+      "family": "mixed_types",
+      "primary_target_set": "markov_blanket",
+      "purpose": "equal signal at four cardinalities: a method ranking them apart is ranking by split opportunities",
+      "spec_hash": "3cdf54a5d10dc46cc222b45577940736"
+    },
+    "heavy_tail_t4": {
+      "expected_to_break": [
+        "skb-f",
+        "select-fdr",
+        "lars-order"
+      ],
+      "family": "marginals",
+      "primary_target_set": "markov_blanket",
+      "purpose": "infinite kurtosis: a Pearson statistic is decided by a handful of rows and a rank statistic is not",
+      "spec_hash": "4ec4f158e9f11ff37fb9eaf013b9612f"
+    },
+    "id_trap": {
+      "expected_to_break": [
+        "sfm-lgbm",
+        "boruta-shap",
+        "rfecv",
+        "variance-sort"
+      ],
+      "family": "mixed_types",
+      "primary_target_set": "markov_blanket",
+      "purpose": "a unique-per-row column that maximises impurity importance and generalises to nothing",
+      "spec_hash": "04d6fcd08c8e844c7ea98f9c13bc5b5b"
+    },
     "joint_tail_gaussian_control": {
       "expected_to_break": [
         "lars-order",
@@ -9,7 +77,7 @@
       "family": "tails",
       "primary_target_set": "markov_blanket",
       "purpose": "same correlation and gate, no tail dependence: isolates a tail failure from a gate failure",
-      "spec_hash": "6cc4744bbb9653f553a101f2af75d302"
+      "spec_hash": "061894bdc634a5ef6cdebbdee8307e46"
     },
     "joint_tail_t4": {
       "expected_to_break": [
@@ -20,7 +88,7 @@
       "family": "tails",
       "primary_target_set": "markov_blanket",
       "purpose": "the signal fires only where both columns share a tail, so no linear marginal statistic sees it",
-      "spec_hash": "fbb162dba6421f9dfc8969b457a68880"
+      "spec_hash": "7dc1dfe798841fddd25cdadc3e6b774d"
     },
     "latent_replicates_private_delta": {
       "expected_to_break": [
@@ -31,7 +99,7 @@
       "family": "redundant",
       "primary_target_set": "markov_blanket",
       "purpose": "the members are jointly necessary, so collapsing the cluster destroys signal",
-      "spec_hash": "f0d9139450ab6d17a1180b97c3905bde"
+      "spec_hash": "9841f51550ebff27464c94f093946ebd"
     },
     "linear_gaussian_lowdim_n200": {
       "expected_to_break": [
@@ -43,7 +111,7 @@
       "family": "linear",
       "primary_target_set": "markov_blanket",
       "purpose": "small n: a t-statistic uses every row, a binned MI estimate throws most of them away",
-      "spec_hash": "9a249cb04915b0ded15666b5f7904145"
+      "spec_hash": "6616e5466858766da3e4351959a6db2a"
     },
     "linear_k5_p50": {
       "expected_to_break": [
@@ -52,7 +120,7 @@
       "family": "linear",
       "primary_target_set": "markov_blanket",
       "purpose": "control: every method should succeed here, except the one that never looks at the target",
-      "spec_hash": "674c6150c33a5dd7543a5704bd93adfc"
+      "spec_hash": "c0f774e22b84ab81e5c2988dd57c1579"
     },
     "mb_spouse_collider": {
       "expected_to_break": [
@@ -65,7 +133,7 @@
       "family": "causal",
       "primary_target_set": "markov_blanket",
       "purpose": "a blanket member that is invisible until one conditions on the collider",
-      "spec_hash": "e6ca6344f6d2f040e54b544a039a7d6f"
+      "spec_hash": "f7eb5caed75ddbf2dd190675ba6983dc"
     },
     "mediator_chain_with_proxy": {
       "expected_to_break": [
@@ -76,7 +144,19 @@
       "family": "causal",
       "primary_target_set": "markov_blanket",
       "purpose": "the declared answer key, not the method, decides who wins here",
-      "spec_hash": "9e5f221ea75ed93ce22587c0bfc1be84"
+      "spec_hash": "7deb88ecee480c2ab960c623a29f861c"
+    },
+    "missingness_trio_30pct": {
+      "expected_to_break": [
+        "skb-f",
+        "select-fdr",
+        "lars-order",
+        "knockoffs"
+      ],
+      "family": "observation",
+      "primary_target_set": "markov_blanket",
+      "purpose": "three missingness mechanisms on sibling columns, so one run separates recoverable bias from unrecoverable",
+      "spec_hash": "c848f58560b319de6aa1e81fe8135354"
     },
     "null_p100": {
       "expected_to_break": [
@@ -88,7 +168,7 @@
       "family": "null",
       "primary_target_set": "markov_blanket",
       "purpose": "false-discovery discipline: nothing is relevant, so anything selected is a false positive",
-      "spec_hash": "61dcdadad588ed4d7454d82ec8bc0b5f"
+      "spec_hash": "b39c70f5955d6405cb3b286651b4140b"
     },
     "null_p1000": {
       "expected_to_break": [
@@ -102,7 +182,42 @@
       "family": "null",
       "primary_target_set": "markov_blanket",
       "purpose": "the same discipline where the best-looking noise column is genuinely convincing",
-      "spec_hash": "3658113ca646131e21cff7c54ccecfc4"
+      "spec_hash": "b95ffcc42961864650e8d2805b373921"
+    },
+    "outliers_020permille": {
+      "expected_to_break": [
+        "skb-f",
+        "lars-order",
+        "variance-sort"
+      ],
+      "family": "marginals",
+      "primary_target_set": "markov_blanket",
+      "purpose": "fixed-rate contamination rather than a heavy law, which is what a broken sensor actually produces",
+      "spec_hash": "b880ba5cb3e8882a345b770b3e88b43b"
+    },
+    "quantized_6levels": {
+      "expected_to_break": [
+        "skb-mi",
+        "univariate-mi",
+        "mrmr",
+        "knockoffs"
+      ],
+      "family": "marginals",
+      "primary_target_set": "markov_blanket",
+      "purpose": "fewer distinct values than an estimator wants bins, so ties dominate the ranking",
+      "spec_hash": "f8617414ca891eab85113a6c830b698f"
+    },
+    "rare_class_010permille": {
+      "expected_to_break": [
+        "skb-mi",
+        "univariate-mi",
+        "mrmr",
+        "boruta"
+      ],
+      "family": "observation",
+      "primary_target_set": "markov_blanket",
+      "purpose": "a one-per-cent positive rate reached by intercept shift, so imbalance is not confounded with sample size",
+      "spec_hash": "cf01b5f96acea7cc666782bad0d49572"
     },
     "redundant_exact_k5": {
       "expected_to_break": [
@@ -113,7 +228,56 @@
       "family": "redundant",
       "primary_target_set": "markov_blanket",
       "purpose": "importance splits across identical copies, so each looks weaker than the direction is",
-      "spec_hash": "9a7d5dad246d3b00e741a2a409c7fad6"
+      "spec_hash": "09fa15881e16f9ba8cb5bab87f07f723"
+    },
+    "shift_concept": {
+      "expected_to_break": [
+        "skb-f",
+        "select-fdr",
+        "univariate-mi",
+        "lars-order"
+      ],
+      "family": "observation",
+      "primary_target_set": "markov_blanket",
+      "purpose": "P(y|x) rotates while P(x) stays put: the half of drift that reweighting cannot fix",
+      "spec_hash": "62376ea766fde118e6ba66bfe5f11ca7"
+    },
+    "shift_covariate": {
+      "expected_to_break": [
+        "variance-sort",
+        "skb-mi"
+      ],
+      "family": "observation",
+      "primary_target_set": "markov_blanket",
+      "purpose": "P(x) moves and P(y|x) does not: paired with the concept-shift bed, which differs in exactly one declaration",
+      "spec_hash": "e4bafc2354b8d47028d8101ed3038aff"
+    },
+    "tail_isolation_clayton_vs_gaussian": {
+      "expected_to_break": [
+        "skb-f",
+        "skb-mi",
+        "univariate-mi",
+        "select-fdr",
+        "lars-order",
+        "mrmr"
+      ],
+      "family": "tails",
+      "primary_target_set": "markov_blanket",
+      "purpose": "two pairs at matched rank correlation, one tail-dependent: the only bed here where the copula is the whole difference",
+      "spec_hash": "5aefb7b911884c3516d79d866a853ce6"
+    },
+    "weston_guyon_k4_p100": {
+      "expected_to_break": [
+        "select-fdr",
+        "skb-f",
+        "skb-mi",
+        "boruta",
+        "rfecv"
+      ],
+      "family": "reference",
+      "primary_target_set": "markov_blanket",
+      "purpose": "published bed: equal-weight informative columns against same-marginal probes, so partial credit is unavailable",
+      "spec_hash": "cf8b126d1e0c0e2140e99bbc24151ea0"
     },
     "xor3": {
       "expected_to_break": [
@@ -128,7 +292,7 @@
       "family": "interactions",
       "primary_target_set": "markov_blanket",
       "purpose": "operands with zero marginal association: invisible to any one-column-at-a-time ranking",
-      "spec_hash": "d61412f36658ac357e80a7aeb90a8921"
+      "spec_hash": "97902322f17e2d7993d70a542212abae"
     },
     "xor3_plus_marginal_decoy": {
       "expected_to_break": [
@@ -141,7 +305,29 @@
       "family": "interactions",
       "primary_target_set": "markov_blanket",
       "purpose": "separates finding nothing from confidently finding the wrong thing",
-      "spec_hash": "06a114bd85a343c37ebce6181a0cf964"
+      "spec_hash": "3fc3c96fbf613a096bd84e65bf0e75ec"
+    },
+    "zero_inflated_40pct": {
+      "expected_to_break": [
+        "skb-mi",
+        "univariate-mi",
+        "mrmr"
+      ],
+      "family": "marginals",
+      "primary_target_set": "markov_blanket",
+      "purpose": "a point mass equal-mass binning cannot split, so the delivered bin count is silently not the requested one",
+      "spec_hash": "e3356af856de85980d4d5e987b0b9646"
+    },
+    "zipf_levels": {
+      "expected_to_break": [
+        "skb-mi",
+        "univariate-mi",
+        "knockoffs"
+      ],
+      "family": "mixed_types",
+      "primary_target_set": "markov_blanket",
+      "purpose": "power-law level frequencies: a long tail with almost no rows per level",
+      "spec_hash": "21b5f2fe2b5b31f782b83962f2b1250c"
     }
   },
   "schema_version": 1,

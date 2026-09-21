@@ -11,7 +11,7 @@ import os
 import shutil
 import subprocess  # nosec B404 - fixed argv to nvidia-smi, no shell, no user input
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def _resolve_backend() -> str:
         if _BACKEND is not None:
             return _BACKEND
         try:
-            import pynvml  # type: ignore[import-not-found]
+            import pynvml
 
             pynvml.nvmlInit()
             _NVML = pynvml
@@ -65,7 +65,7 @@ def _proc_name(pid: int) -> str:
     try:
         import psutil
 
-        return psutil.Process(pid).name()
+        return cast(str, psutil.Process(pid).name())
     except Exception as e:
         logger.debug("process name lookup failed for pid %s: %s", pid, e)
         return "?"
@@ -102,7 +102,8 @@ def _probe_smi() -> Dict[str, Any]:
         for line in out2.strip().splitlines():
             parts = [p.strip() for p in line.split(",")]
             if len(parts) >= 3 and _num(parts[0]) is not None:
-                procs.append({"gpu": None, "pid": int(_num(parts[0])), "name": os.path.basename(parts[1]), "mem_mb": _num(parts[2])})
+                pid_value = _num(parts[0])
+                procs.append({"gpu": None, "pid": int(pid_value) if pid_value is not None else None, "name": os.path.basename(parts[1]), "mem_mb": _num(parts[2])})
     except Exception as e:
         logger.debug("nvidia-smi compute-apps query failed: %s", e)
     return {"gpus": gpus, "processes": procs}
@@ -132,16 +133,12 @@ def format_gpu_snapshot(snap: Optional[Dict[str, Any]], *, exclude_pid: Optional
         for g in snap.get("gpus", []):
             util = g.get("util_pct")
             used, total = g.get("mem_used_mb"), g.get("mem_total_mb")
-            parts.append(
-                f"gpu{g.get('index')}: util={util:.0f}%" if util is not None else f"gpu{g.get('index')}: util=?"
-            )
+            parts.append(f"gpu{g.get('index')}: util={util:.0f}%" if util is not None else f"gpu{g.get('index')}: util=?")
             if used is not None and total:
                 parts[-1] += f" mem={used:.0f}/{total:.0f}MB"
         others = other_gpu_processes(snap, exclude_pid=exclude_pid)
         if others and max_procs > 0:
-            shown = ", ".join(
-                f"{p.get('name')}[{p.get('pid')}]" + (f"={p['mem_mb']:.0f}MB" if p.get("mem_mb") else "") for p in others[:max_procs]
-            )
+            shown = ", ".join(f"{p.get('name')}[{p.get('pid')}]" + (f"={p['mem_mb']:.0f}MB" if p.get("mem_mb") else "") for p in others[:max_procs])
             more = f" (+{len(others) - max_procs} more)" if len(others) > max_procs else ""
             parts.append(f"other GPU processes: {shown}{more}")
         return "; ".join(parts) if parts else "gpu=n/a"
@@ -166,7 +163,6 @@ def other_gpu_processes(snap: Optional[Dict[str, Any]], exclude_pid: Optional[in
     if not snap:
         return []
     out = [
-        p for p in snap.get("processes", [])
-        if (exclude_pid is None or p.get("pid") != exclude_pid) and str(p.get("name", "")).lower() not in _DESKTOP_NOISE
+        p for p in snap.get("processes", []) if (exclude_pid is None or p.get("pid") != exclude_pid) and str(p.get("name", "")).lower() not in _DESKTOP_NOISE
     ]
     return sorted(out, key=lambda p: -(p.get("mem_mb") or 0.0))

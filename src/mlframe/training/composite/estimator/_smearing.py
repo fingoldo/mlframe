@@ -13,7 +13,7 @@ the correction errs on the side of too little, never too much.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import numpy as np
 
@@ -37,7 +37,7 @@ def residual_quantiles(estimator: Any, X: Any, t_train: np.ndarray, seed: int = 
     r = r[np.isfinite(r)]
     if r.size < N_SMEAR_QUANTILES * 4:
         return None
-    return np.quantile(r, (np.arange(N_SMEAR_QUANTILES) + 0.5) / N_SMEAR_QUANTILES)
+    return cast(Optional[np.ndarray], np.quantile(r, (np.arange(N_SMEAR_QUANTILES) + 0.5) / N_SMEAR_QUANTILES))
 
 
 def smeared_inverse(inverse: Callable[[np.ndarray], np.ndarray], t_hat: np.ndarray, quantiles: Optional[np.ndarray]) -> np.ndarray:

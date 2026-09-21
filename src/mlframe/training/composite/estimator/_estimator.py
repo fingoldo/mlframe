@@ -9,7 +9,7 @@ helpers are defined, so the partial-module lookup succeeds.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Sequence, cast
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
@@ -368,19 +368,21 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         Note: a lambda / closure ``runtime_stats_callback`` makes the fitted wrapper unpicklable; pass a module-level callable when persisting.
         """
         from . import _from_fitted
-        return _from_fitted.from_fitted_inner(
+
+        return cast("CompositeTargetEstimator", _from_fitted.from_fitted_inner(
             cls, fitted_inner, transform_name, base_column, transform_fitted_params, y_train,
             fallback_predict=fallback_predict, base_columns=base_columns, inner_pre_pipeline=inner_pre_pipeline,
             base_train=base_train, group_column=group_column, recurrence_continuation=recurrence_continuation,
             target_name=target_name,
-        )
+        ))
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore pickled state, re-registering an auto-discovered ``chain_*`` transform the loading process has never seen."""
         super().__setstate__(state)
         from ._routing import ensure_transforms_registered
 
-        ensure_transforms_registered([getattr(self, "transform_name", None)])
+        transform_name = getattr(self, "transform_name", None)
+        ensure_transforms_registered([transform_name] if transform_name is not None else [])
 
     def __sklearn_clone__(self) -> "CompositeTargetEstimator":
         """Refuse cloning a wrapper built via :meth:`from_fitted_inner`.
@@ -748,11 +750,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         self.estimator_ = estimator
         from ._smearing import SMEARED_TRANSFORMS, residual_quantiles
 
-        _smear_q = (
-            residual_quantiles(estimator, X_valid, t_train)
-            if self.transform_name in SMEARED_TRANSFORMS and getattr(self, "smearing", True)
-            else None
-        )
+        _smear_q = residual_quantiles(estimator, X_valid, t_train) if self.transform_name in SMEARED_TRANSFORMS and getattr(self, "smearing", True) else None
         self.fitted_params_ = {
             **transform_params,
             "y_clip_low": y_clip_low,

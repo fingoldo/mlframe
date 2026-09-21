@@ -27,11 +27,11 @@ from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from mlframe.data.datasets.spec import GateSpec, LinkSpec, Prior, resolve_knob
+from mlframe.data.datasets.spec import BasisTerm, GateSpec, LinkSpec, Prior, resolve_knob
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["gate_mask", "parity_term", "tail_gate_term", "additive_score", "interaction_score", "link_score", "apply_heteroscedasticity"]
+__all__ = ["gate_mask", "parity_term", "tail_gate_term", "additive_score", "basis_term_value", "basis_score", "interaction_score", "link_score", "apply_heteroscedasticity"]
 
 
 def gate_mask(gate: GateSpec, columns: Mapping[str, np.ndarray]) -> np.ndarray:
@@ -90,8 +90,8 @@ def additive_score(coefficients: Mapping[str, float], columns: Mapping[str, np.n
     return score
 
 
-def tail_gate_term(operands: Sequence[np.ndarray], quantile: float) -> np.ndarray:
-    """Return 1 where every operand sits in the SAME tail -- all upper or all lower -- else 0.
+def tail_gate_term(operands: Sequence[np.ndarray], quantile: float, direction: str = "both") -> np.ndarray:
+    """Return 1 where every operand sits in the SAME tail, else 0; ``direction`` picks which tails count.
 
     Symmetric on purpose, and the first version of this was not. Firing only on the joint UPPER tail makes
     each operand marginally informative: being high is necessary for the gate, so a column's own upper decile
@@ -110,8 +110,69 @@ def tail_gate_term(operands: Sequence[np.ndarray], quantile: float) -> np.ndarra
     for values in operands:
         upper &= values >= float(np.quantile(values, quantile))
         lower &= values <= float(np.quantile(values, 1.0 - quantile))
-    fires: np.ndarray = (upper | lower).astype(np.float64)
+    if direction == "upper":
+        fires: np.ndarray = upper.astype(np.float64)
+    elif direction == "lower":
+        fires = lower.astype(np.float64)
+    elif direction == "both":
+        fires = (upper | lower).astype(np.float64)
+    else:
+        raise ValueError(f"unsupported tail gate direction {direction!r}; expected 'both', 'lower' or 'upper'")
     return fires
+
+
+def basis_term_value(term: "BasisTerm", columns: Mapping[str, np.ndarray]) -> np.ndarray:
+    """Return one named nonlinear term's contribution, already weighted.
+
+    Args:
+        term: The declared term.
+        columns: Realised columns, which must contain every column the term names.
+
+    Returns:
+        The weighted values, one per row.
+
+    Raises:
+        KeyError: If the term names a column the dataset does not have.
+        ValueError: If the kind is not one this function implements, which means a spec was extended and
+            this dispatch was not -- a silent zero term would leave the bed looking like its own control.
+    """
+    operands = []
+    for name in term.columns:
+        if name not in columns:
+            raise KeyError(f"basis term {term.kind!r} references unknown column {name!r}")
+        operands.append(np.asarray(columns[name], dtype=np.float64))
+
+    weight = float(term.weight)
+    if term.kind == "identity":
+        return weight * operands[0]
+    if term.kind == "centered_square":
+        center = float(term.params.get("center", 0.0))
+        return weight * np.square(operands[0] - center)
+    if term.kind == "abs_deviation":
+        center = float(term.params.get("center", 0.0))
+        return weight * np.abs(operands[0] - center)
+    if term.kind == "sin_product":
+        frequency = float(term.params.get("frequency", np.pi))
+        product = operands[0].copy()
+        for values in operands[1:]:
+            product = product * values
+        return np.asarray(weight * np.sin(frequency * product), dtype=np.float64)
+    if term.kind == "ratio":
+        # Floored rather than clipped to a tiny epsilon: a denominator near zero otherwise produces one
+        # enormous row that sets the scale of the whole score, and the bed then measures outlier handling
+        # instead of the ratio structure it claims to test.
+        floor = float(term.params.get("floor", 0.1))
+        denominator = np.where(np.abs(operands[1]) < floor, np.sign(operands[1]) * floor + (operands[1] == 0.0) * floor, operands[1])
+        return np.asarray(weight * (operands[0] / denominator), dtype=np.float64)
+    raise ValueError(f"unsupported basis term kind {term.kind!r}")
+
+
+def basis_score(terms: Sequence["BasisTerm"], columns: Mapping[str, np.ndarray], n: int) -> np.ndarray:
+    """Return the summed contribution of every declared nonlinear term."""
+    score = np.zeros(n, dtype=np.float64)
+    for term in terms:
+        score = score + basis_term_value(term, columns)
+    return score
 
 
 def interaction_score(
@@ -121,6 +182,7 @@ def interaction_score(
     columns: Mapping[str, np.ndarray],
     n: int,
     tail_quantile: float = 0.9,
+    tail_direction: str = "both",
 ) -> np.ndarray:
     """Return the contribution of the interaction terms under one link kind.
 
@@ -140,7 +202,7 @@ def interaction_score(
         if kind == "parity":
             contribution = parity_term(operands)
         elif kind == "tail_gate":
-            contribution = tail_gate_term(operands, tail_quantile)
+            contribution = tail_gate_term(operands, tail_quantile, tail_direction)
         else:
             contribution = np.prod(np.vstack(operands), axis=0)
         score = score + float(weight) * contribution
@@ -171,8 +233,10 @@ def link_score(
         The score array.
     """
     score = additive_score(link.coefficients, columns, n)
+    if link.basis_terms:
+        score = score + basis_score(link.basis_terms, columns, n)
     if link.interactions:
-        score = score + interaction_score(link.kind, link.interactions, link.interaction_weights, columns, n, tail_quantile=link.tail_quantile)
+        score = score + interaction_score(link.kind, link.interactions, link.interaction_weights, columns, n, tail_quantile=link.tail_quantile, tail_direction=link.tail_direction)
     if link.kind == "polynomial":
         score = score + np.square(score) * 0.25
     if link.kind == "threshold":

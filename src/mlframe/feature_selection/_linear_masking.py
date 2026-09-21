@@ -8,6 +8,8 @@ information the kept set lacks.
 """
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 
 # R^2 above which a candidate counts as linearly masked by the kept columns. 0.95 == VIF 20.
@@ -49,7 +51,7 @@ def drop_linearly_masked(X: np.ndarray, accepted: np.ndarray, importance: np.nda
             out[j] = False
         else:
             kept.append(j)
-    return out
+    return cast(np.ndarray, out)
 
 
 __all__ = ["DEFAULT_MASKING_R2", "linear_r2", "drop_linearly_masked"]

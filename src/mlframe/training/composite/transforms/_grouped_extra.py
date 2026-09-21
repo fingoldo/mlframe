@@ -17,7 +17,7 @@ All parent / sibling imports are lazy (function-body) so this leaf module stays 
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Optional, cast
 
 import numpy as np
 
@@ -61,7 +61,7 @@ def _group_history(history: np.ndarray | None, history_groups: np.ndarray | None
         raise ValueError(f"grouped recurrent transform: history has {h.size} rows but history_groups has {hg.size}.")
     for g, idx in _group_segments(hg):
         if _canonical_group_key(g) == key:
-            return h[idx]
+            return cast(Optional[np.ndarray], h[idx])
     return h[:0]
 
 
@@ -193,7 +193,7 @@ def _rolling_quantile_ratio_grouped_fit(
     for g, idx in _group_segments(groups_arr):
         seg = base_f[idx]
         seg = seg[np.isfinite(seg)]
-        per_group_tail_base[_canonical_group_key(g)] = [float(v) for v in (seg[-(kk - 1):] if kk > 1 else seg[:0])]
+        per_group_tail_base[_canonical_group_key(g)] = [float(v) for v in (seg[-(kk - 1) :] if kk > 1 else seg[:0])]
     params["per_group_tail_base"] = per_group_tail_base
     return params
 

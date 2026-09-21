@@ -26,7 +26,7 @@ import logging
 
 from ._domain_shared import y_domain_finite
 
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Dict, Tuple, cast
 
 import numpy as np
 
@@ -465,7 +465,7 @@ def box_cox_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     lam = float(params["lambda"])
     arr = _clamp_to_fitted_t_range(np.asarray(t, dtype=np.float64), params)
     if abs(lam) < 1e-12:
-        return np.exp(arr)
+        return cast(np.ndarray, np.exp(arr))
     base = np.maximum(arr * lam + 1.0, _BC_INV_BASE_FLOOR)
     return np.asarray(np.power(base, 1.0 / lam))
 

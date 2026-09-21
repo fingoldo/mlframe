@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "SUPPORTED_FAMILIES",
+    "quantize",
     "draw_family",
     "inject_outliers",
     "standardize",
@@ -150,6 +151,31 @@ def inject_outliers(values: np.ndarray, fraction: float, rng: np.random.Generato
     return out
 
 
+def quantize(values: np.ndarray, levels: int) -> np.ndarray:
+    """Round values onto ``levels`` equally spaced points spanning the observed range.
+
+    Equal WIDTH rather than equal mass: a sensor's resolution is a property of the instrument, not of the
+    distribution it happens to measure, so the level grid must not move when the data is skewed. That is
+    also what makes the corruption bite -- on a heavy-tailed column an equal-width grid puts nearly every
+    row into a handful of central levels, which is exactly what a real low-resolution instrument does.
+
+    Args:
+        values: The column.
+        levels: How many distinct values to leave. At least two.
+
+    Returns:
+        The quantised column, with the original range preserved at its ends.
+    """
+    finite = values[np.isfinite(values)]
+    if finite.size == 0 or levels < 2:
+        return values
+    low, high = float(np.min(finite)), float(np.max(finite))
+    if high <= low:
+        return values
+    step = (high - low) / float(levels - 1)
+    return np.asarray(low + np.rint((values - low) / step) * step, dtype=np.float64)
+
+
 def standardize(values: np.ndarray) -> Tuple[np.ndarray, float]:
     """Centre and scale a column to unit variance, returning the scaled column and its original scale.
 
@@ -189,6 +215,11 @@ def draw_feature(feature: FeatureSpec, n: int, root_seed: int, spec_name: str, k
 
     values = draw_family(feature.family, dict(feature.params), n, rng)
     values = inject_outliers(values, float(fraction), rng)
+    # After the outliers on purpose: quantising first would place the level grid on the clean range and an
+    # outlier would then land in a level of its own, which is the opposite of what quantisation does to
+    # real data -- there, the extreme value is rounded into the same coarse bucket as its neighbours.
+    if feature.quantize_levels is not None:
+        values = quantize(values, int(feature.quantize_levels))
     if feature.dtype == "category" or not feature.standardize:
         # A categorical column's codes are labels; scaling them would turn a nominal level into a magnitude.
         return values, 1.0

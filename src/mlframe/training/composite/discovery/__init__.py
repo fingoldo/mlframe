@@ -146,6 +146,9 @@ class CompositeTargetDiscovery:
     elapsed_seconds_: float
     _df_ref: Any
     _screen_time_ordered_: bool
+    # Set during a fit and cleared to None at its end; declared here so the two are the same attribute.
+    _screen_matrix_stash: Any
+    _time_ordering_: Any
     _fit_data_signature: str | None
     _fit_data_signature_inputs: tuple | None
     # Sweep-shared honest holdout set by ``fit_with_stability_check`` (consumed by

@@ -804,7 +804,10 @@ def per_feature_edges(
         elif method_resolved in ("fayyad_irani", "fayyad_irani_validated", "optimal_joint", "mah"):
             from ._supervised_collapse_refine import refine_near_collapsed_supervised_edges
 
-            edges = refine_near_collapsed_supervised_edges(edges, _finite, base, int(kwargs.get("collapsed_fallback_nbins", 5)))
+            refined = refine_near_collapsed_supervised_edges(edges, _finite, base, int(kwargs.get("collapsed_fallback_nbins", 5)))
+            # The refiner returns the edges unchanged when nothing collapsed, and `None` only for an input it
+            # was already given as `None`; keeping the previous edges on `None` preserves that.
+            edges = refined if refined is not None else edges
         # SPARSE-AWARE secondary fallback. For TF-IDF /
         # one-hot / bag-of-words style columns (>50% mass at a single
         # value, e.g. zero for sparse tokens) the unsupervised quantile

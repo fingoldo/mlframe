@@ -301,7 +301,6 @@ def _oof_cache_put(key: tuple, value: tuple) -> None:
         _OOF_HOLDOUT_CACHE[key] = value
 
 
-
 def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_train: np.ndarray, base_train: np.ndarray) -> CompositeTargetEstimator:
     """Wrap an OOF-refit inner as the deployed wrapper would be: the full ``base_columns`` tuple for a multi-base spec (predict rebuilds
     the K-column base matrix the K alphas expect), and the train base so the stand-in captures its range and shrinks deep-OOD rows too."""
@@ -839,7 +838,7 @@ def compute_oof_holdout_predictions(
 
     holdout_cols: list[np.ndarray] = []
     surviving_names = []
-    _pair_memo: dict = {}
+    _pair_memo = {}
     for model, name, spec in zip(component_models, component_names, component_specs):
         try:
             inner, pp = _unwrap_shim(model)

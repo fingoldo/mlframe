@@ -37,7 +37,9 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from ._anchor import measure_anchor
 from ._cell_store import JsonlCellStore
+from ._memo import drain_memo_caches
 from ._manifest import build_manifest, load_manifest, write_manifest
 from ._leaderboard import NULL_ARM
 from ._matched_k import SELF_CHOSEN_K, Ranking, cut_at_k, k_grid_for_bed, ranking_from_arm_result
@@ -210,6 +212,14 @@ def run_cell(
         feature_names = [str(c) for c in x_train.columns]
         target_size = _declared_target_size(truth, len(feature_names))
         record["target_size"] = target_size
+
+        # Both of these happen BEFORE the fit and both exist to make its timing quotable. The drain
+        # removes the memoized fit that this benchmark's own design guarantees a hit on; the anchor
+        # records how fast this machine is at this instant, so the wall-clock can be expressed as a ratio
+        # rather than as a second. A cell that cannot verify its drain carries `memo_drained=False`, which
+        # invalidates its timing instead of publishing a dictionary lookup as an arm's cost.
+        record.update(drain_memo_caches().as_dict())
+        record.update(measure_anchor().as_dict())
 
         arm, wall_s, proc_s = _fit_arm(factory, x_train, y_train, spec.cv_seed)
         record["wall_time_s"] = round(wall_s, 3)

@@ -18,6 +18,8 @@ state / RNG are byte-for-byte identical to the pre-carve in-function blocks.
 """
 from __future__ import annotations
 
+from typing import cast
+
 import logging
 
 import numpy as np
@@ -72,7 +74,7 @@ def _prewarp_pair_synergy_gain(vals_a, vals_b, spec_a, spec_b, y, apply_operand_
                 return 0.0
             return abs(float(np.corrcoef(u, yy)[0, 1]))
 
-        return _ac(wa * wb) - max(_ac(wa), _ac(wb))
+        return cast(float, _ac(wa * wb) - max(_ac(wa), _ac(wb)))
     except Exception as e:
         log_throttle(_module_logger, "prewarp_synergy_gain_failed", logging.WARNING, "prewarp pair synergy gain failed (%s: %s); keeping the earlier binding.", type(e).__name__, e)
         return -np.inf

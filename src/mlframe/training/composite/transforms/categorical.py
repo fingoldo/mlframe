@@ -33,7 +33,7 @@ base column.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -196,7 +196,7 @@ def _category_encoding_lookup(
         dtype=np.float64,
         count=len(uniq),
     )
-    return uniq_enc[inverse_idx]
+    return cast(np.ndarray, uniq_enc[inverse_idx])
 
 
 def _target_encoding_residual_forward(
