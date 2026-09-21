@@ -16,7 +16,7 @@ from mlframe.training.composite.discovery._region_adaptive import fit_region_ada
 def test_all_minus_inf_region_keeps_non_none_params_and_predicts(monkeypatch):
     # Force every candidate to score -inf in every region -> the failure condition.
     """All minus inf region keeps non none params and predicts."""
-    monkeypatch.setattr(ra, "_oof_score_transform", lambda *a, **k: (-np.inf, None))
+    monkeypatch.setattr(ra, "_oof_score_transform", lambda *a, **k: -np.inf)
 
     rng = np.random.default_rng(0)
     n = 200

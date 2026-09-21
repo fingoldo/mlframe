@@ -159,7 +159,7 @@ def _quantile_edges(base: np.ndarray, k: int) -> np.ndarray:
 
 def _oof_score_transform(
     tr_name: str, y: np.ndarray, base: np.ndarray, n_folds: int, rng: np.random.Generator,
-) -> tuple[float, dict[str, Any]]:
+) -> float:
     """Score one candidate transform on (y, base) by OOF residual-variance reduction.
 
     A transform is good in a region when, after fitting (alpha/beta/PCHIP) on the
@@ -167,7 +167,8 @@ def _oof_score_transform(
     variance relative to ``y`` (it has absorbed the base relation). Score =
     ``1 - var(T_oof) / var(y_oof)`` (higher better, capped at the fold mean). The
     OOF split prevents a flexible transform (deg2 / PCHIP) from winning purely by
-    over-fitting in-region noise. Returns (score, full-region-fit-params).
+    over-fitting in-region noise. Returns the score only: the caller fits the region's winner once, instead of every
+    candidate fitting the full region and all but one of those fits being discarded.
     """
     n = len(y)
     tr = _TRANSFORMS_REGISTRY[tr_name]
@@ -176,7 +177,7 @@ def _oof_score_transform(
         params = tr.fit(y, base)
         t = tr.forward(y, base, params)
         vy = float(np.var(y)) or 1.0
-        return 1.0 - float(np.var(t)) / vy, params
+        return 1.0 - float(np.var(t)) / vy
     idx = rng.permutation(n)
     folds = np.array_split(idx, n_folds)
     scores = []
@@ -196,10 +197,8 @@ def _oof_score_transform(
         vy = float(np.var(y[te])) or 1.0
         scores.append(1.0 - float(np.var(t_te)) / vy)
     if not scores:
-        params = tr.fit(y, base)
-        return -np.inf, params
-    full_params = tr.fit(y, base)
-    return float(np.mean(scores)), full_params
+        return -np.inf
+    return float(np.mean(scores))
 
 
 def fit_region_adaptive(
@@ -244,14 +243,16 @@ def fit_region_adaptive(
             tr_params.append(best_params)
             tr_scores.append(-np.inf)
             continue
-        # Seed best_params from a guaranteed full-region linear_residual fit so it is NEVER None: when every candidate scores -inf (degenerate region), `score > best_score` is `-inf > -inf == False`, leaving best_params None -> stored -> tr.forward/inverse hits None -> TypeError at predict.
+        # Default to linear_residual so the region always gets real params: when every candidate scores -inf (degenerate
+        # region), `score > best_score` is `-inf > -inf == False` and no candidate is chosen; storing None would make
+        # tr.forward/inverse hit None -> TypeError at predict. Only the winner is fitted on the full region.
         best_name = "linear_residual"
-        best_params = _TRANSFORMS_REGISTRY[best_name].fit(yk, bk)
         best_score = -np.inf
         for cand in candidates:
-            score, params = _oof_score_transform(cand, yk, bk, n_folds, rng)
+            score = _oof_score_transform(cand, yk, bk, n_folds, rng)
             if score > best_score:
-                best_score, best_name, best_params = score, cand, params
+                best_score, best_name = score, cand
+        best_params = _TRANSFORMS_REGISTRY[best_name].fit(yk, bk)
         tr_names.append(best_name)
         tr_params.append(best_params)
         tr_scores.append(best_score)

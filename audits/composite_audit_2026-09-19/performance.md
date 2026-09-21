@@ -375,7 +375,7 @@ Default counts used in the estimates:
 - **Expected win** (estimate): `len(candidates) - 1` full-region fits per region. Small.
 - **Suggested fix**: return only the OOF score, then fit the winner once per region.
 - **Test/benchmark to add**: a test that the fitted `RegionAdaptiveSpec` is unchanged.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED - `_oof_score_transform` now returns only the OOF score and `fit_region_adaptive` fits the region's winner once (defaulting to `linear_residual` when every candidate scores -inf, which keeps the never-None guarantee); the up-front seeding fit is gone. Compared against the previous implementation on three seeds with mixed winners (linear, deg-2 polynomial, monotonic): identical winners, OOF scores and region params. One side effect: a losing candidate whose full-region fit would raise no longer aborts the whole fit, since it is never fitted on the full region. test_region_adaptive_fits_winner_once.py, 2 tests: one full-region fit per region, stored params equal a direct winner fit and the spec round-trips y; the never-None regression test was updated to the score-only helper
 
 ### PRF-24 [P3] The multi-target OOF polars slice converts fold indices to a Python list
 
