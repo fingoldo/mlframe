@@ -875,6 +875,10 @@ DEP001 = [
 # before it was promoted to a hard `dependencies` entry above, 2026-07-17 -- no longer needs an
 # ignore at all, deptry resolves it as a normal direct dependency now.)
 DEP003 = [
+    # pynvml is the optional NVML backend _gpu_state_probe imports inside try/except (already
+    # exempted from DEP001 above). Wherever another package pulls it in, deptry reports the same
+    # guarded import as transitive instead of missing -- still not a reason to harden the dep.
+    "pynvml",
     "filelock", "cpuinfo", "kaleido", "torchvision", "torchmetrics", "lightning_fabric",
     "pytorch_lightning", "triton", "networkx", "llvmlite", "dtaidistance", "mlxtend", "sympy",
     "bottleneck", "ortools", "yaml", "model_diagnostics", "finance", "concepts",
