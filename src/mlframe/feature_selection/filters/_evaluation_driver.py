@@ -380,6 +380,10 @@ def _evaluate_candidates_inner(
                 _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
                 _relax_sel_cols.append(_zc)
                 _relax_sel_nbins.append(_zk)
+            # Range-check the hoisted set once here rather than once per candidate inside the score.
+            from ._relaxmrmr_3d import assert_relax_inputs_in_range
+
+            assert_relax_inputs_in_range(_relax_y_col, _relax_k_y, _relax_sel_cols, _relax_sel_nbins)
         except Exception as e:
             logger.debug("relaxed-selection column materialization failed: %s", e)
             _relax_y_col = _relax_k_y = _relax_sel_cols = _relax_sel_nbins = None

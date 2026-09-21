@@ -59,6 +59,7 @@ def relax_mrmr_score(
     nbins_y: int,
     alpha: float = 1.0,
     min_rows_per_cell: float = 5.0,
+    selected_prechecked: bool = False,
 ) -> float:
     """RelaxMRMR / FJMI 3-D-MI score for one candidate (Vinh 2016).
 
@@ -92,11 +93,16 @@ def relax_mrmr_score(
     from ._fe_batched_mi import _assert_codes_in_range
 
     _assert_codes_in_range(x_cand, int(nbins_x), "relax_mrmr_score x_cand")
-    _assert_codes_in_range(y, int(nbins_y), "relax_mrmr_score y")
-    for _j, _c in enumerate(selected_cols):
-        _assert_codes_in_range(_c, int(nbins_selected[_j]), "relax_mrmr_score selected_col")
-    x_int = x_cand.astype(np.int64)
-    y_int = y.astype(np.int64)
+    if not selected_prechecked:
+        # The target and the selected set are fixed for a whole greedy round, so scanning them per candidate re-reads the same |S|+1 columns
+        # for every candidate. A caller that hoists them (see ``assert_relax_inputs_in_range``) checks once and says so.
+        _assert_codes_in_range(y, int(nbins_y), "relax_mrmr_score y")
+        for _j, _c in enumerate(selected_cols):
+            _assert_codes_in_range(_c, int(nbins_selected[_j]), "relax_mrmr_score selected_col")
+    # asarray, not astype: the caller's hoist already materialises int64 codes, and astype copies unconditionally, so this was |S|+2
+    # full-length copies per candidate for no change of dtype.
+    x_int = np.asarray(x_cand, dtype=np.int64)
+    y_int = np.asarray(y, dtype=np.int64)
     K_x = int(nbins_x)
     K_y = int(nbins_y)
     n_S = len(selected_cols)
@@ -119,7 +125,7 @@ def relax_mrmr_score(
         return float(relevance)
     # Pairwise redundancy (1/|S|) sum_j I(X; X_j): marginal MI between the candidate and each already-selected feature.
     # A candidate that duplicates a selected feature gets a large penalty; an independent one gets ~0.
-    sel_int = [col.astype(np.int64) for col in selected_cols]
+    sel_int = [np.asarray(col, dtype=np.int64) for col in selected_cols]
     pair_red = 0.0
     for j in range(n_S):
         pair_red += _mi_pair_njit(x_int, sel_int[j], K_x, K_sel[j])
@@ -148,4 +154,16 @@ def relax_mrmr_score(
     return float(relevance - pair_red + inter)
 
 
-__all__ = ["relax_mrmr_score"]
+def assert_relax_inputs_in_range(y, nbins_y, selected_cols, nbins_selected) -> None:
+    """Range-check the target and the selected set once, so the per-candidate score can skip re-reading columns that do not change.
+
+    The kernels index their joint tables directly, so a negative sentinel wraps to the last bin and an over-range code writes out of bounds.
+    The check is the same one the score runs; it is only moved to where the columns are materialised.
+    """
+    from ._fe_batched_mi import _assert_codes_in_range
+
+    _assert_codes_in_range(y, int(nbins_y), "relax_mrmr_score y")
+    for idx, col in enumerate(selected_cols):
+        _assert_codes_in_range(col, int(nbins_selected[idx]), "relax_mrmr_score selected_col")
+
+__all__ = ["assert_relax_inputs_in_range", "relax_mrmr_score"]

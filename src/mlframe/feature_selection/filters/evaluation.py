@@ -782,7 +782,9 @@ def evaluate_candidate(
                     _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
                     sel_cols.append(_zc)
                     sel_nbins.append(_zk)
-            current_gain = float(relax_mrmr_score(x_col, sel_cols, y_col, k_x, sel_nbins, k_y, alpha=_relax_alpha))
+            # The hoisted path has already range-checked y and the selected set for this round; the standalone fallback above has not.
+            _prechecked = _relax_sel_cols is not None and _relax_y_col is not None
+            current_gain = float(relax_mrmr_score(x_col, sel_cols, y_col, k_x, sel_nbins, k_y, alpha=_relax_alpha, selected_prechecked=_prechecked))
             if cand_idx in partial_gains:
                 _g, _k = partial_gains[cand_idx]
                 partial_gains[cand_idx] = (current_gain, _k)
