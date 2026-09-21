@@ -315,7 +315,7 @@ Default counts used in the estimates:
 - **Expected win** (estimate): about 1-3 s per target on wide polars frames, plus the duplicate when caching.
 - **Suggested fix**: compute it lazily in `discover_incremental` from the retained `self._df_ref`, or reuse the phase's `_df_sig` when present. Batch the per-column polars sample encodes into one `select`.
 - **Test/benchmark to add**: a test that `discover_incremental` still hits the byte-identical fast path; a bench of `data_signature` at 200k x 500 on polars.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL - `fit` no longer computes the signature; it records the target and feature columns and `fit_data_signature()` computes it from `_df_ref` on first request (once, then cached). `discover_incremental` calls that method, and `__getstate__` materialises the signature before dropping the frame, so a pickled result still reaches the byte-identical warm-start fast path. Every fit, stability replicate and per-group fit that is never warm-started now skips the 84-308 ms (200k x 50) computation. NOT done: reusing the phase's own disk-cache `_df_sig` and batching the per-column polars encodes into one `select`; no 200k x 500 polars bench was run. test_fit_data_signature_lazy.py, 3 tests: fit computes no signature (fails pre-fix), on request it equals the eager value and is computed once, a pickled result keeps it and the warm start reuses
 
 ### PRF-18 [P3] Auto-base and `fit` build the identical 100k-row screen feature matrix twice
 

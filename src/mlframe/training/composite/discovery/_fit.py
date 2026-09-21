@@ -853,14 +853,11 @@ def fit(
                 )
             _entry["kept"] = False
 
-    # Stash the data signature the specs were fit on so a later ``discover_incremental(prior_result, new_df, ...)`` warm-start compares it against the appended frame without recomputing. Failures non-fatal -- the incremental path recomputes new_sig regardless; empty prior_sig just skips the byte-identical fast path.
-    try:
-        from ..cache import data_signature as _data_signature
-
-        self._fit_data_signature = _data_signature(df, target_col, feature_cols)
-    except Exception as e:  # -- signature is an optimisation, never load-bearing
-        logger.debug("data signature computation failed: %s", e)
-        self._fit_data_signature = ""
+    # The data signature the specs were fit on is read only by ``discover_incremental``, but it cost 84-308 ms at 200k x 50
+    # (seconds on wide polars frames) on every fit, stability replicate and per-group fit. Record what it needs and let
+    # ``fit_data_signature()`` compute it on first use; pickling computes it before the frame reference is dropped.
+    self._fit_data_signature = None
+    self._fit_data_signature_inputs = (target_col, list(feature_cols))
 
     # Bookkeeping. (target_col + df_ref + train_idx already stashed.)
     self.specs_ = kept_specs
