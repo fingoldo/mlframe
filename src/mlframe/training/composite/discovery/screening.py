@@ -924,17 +924,17 @@ def _sample_indices(
     # Compute quantile cuts on finite y.
     qs = np.linspace(0, 1, n_strata + 1)[1:-1]
     cuts = np.quantile(y_arr[finite_mask], qs)
-    # Assign each finite row to a stratum [0, n_strata-1]; non-finite
-    # rows get a separate stratum at the end so they aren't dropped
-    # silently.
+    # Assign each finite row to a stratum [0, n_strata-1]. Non-finite-y rows are left out of the sample: every MI and fit
+    # step downstream drops them, so a stratum of their own took a full water-fill share (about 9% of a 100k budget with
+    # 1% NaN targets) for rows nothing could use.
     stratum = np.searchsorted(cuts, y_arr, side="right")
     np.clip(stratum, 0, n_strata - 1, out=stratum)
-    stratum[~finite_mask] = n_strata  # extra "non-finite" bin
+    stratum[~finite_mask] = n_strata  # parked outside the sampled strata below
 
     # Water-fill the budget: an equal share per non-empty stratum, then hand what small strata cannot use to the ones that
     # still have rows. A tie-heavy y (mostly-zero hourly rates) collapses the quantile cuts into a couple of strata; the
     # old fixed ``sample_n // n_strata`` share then screened 6666 rows out of a 100_000 budget on a 498k-row train.
-    bins = [np.where(stratum == s)[0] for s in range(n_strata + 1)]
+    bins = [np.where(stratum == s)[0] for s in range(n_strata)]
     bins = [b for b in bins if b.size]
     sizes = np.array([b.size for b in bins], dtype=np.int64)
     quota = np.zeros_like(sizes)

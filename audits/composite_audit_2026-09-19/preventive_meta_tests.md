@@ -174,7 +174,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low for (b). (a) is scoped to discovery/ensemble; generic composite estimators (`dual_direction.py`, `pseudo_labeling.py`, etc.) are out of scope.
 - **Runtime**: (a) under 1 s; (b) about 8-15 s (one discovery fit at n=600 with `tiny_model_cv_folds=2`).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. (a) is tests/test_meta/test_no_ad_hoc_shuffled_kfold.py. No module in discovery, ensemble or the cross-target builder may build a shuffled KFold / StratifiedKFold / ShuffleSplit outside `discovery/_splitter.py` (canary included). The remaining hand-built sites (forward_stepwise, feature_stacking, the MTR OOF, the tiny-CV split cache and fallback) now route through the factory, with identical behaviour. (b) and (c) are tests/training/composite/discovery/test_splitter_contract.py: group-disjoint folds in the chain and WAIC CVs, forward folds under time order, one fold scheme per rerank, the holdout size bound, frame-aligned holdout groups, no NaN-target rows in the sampler, and contiguous OOF folds for a recurrent component. Together they caught and fixed DSC-11, DSC-19, DSC-21, DSC-22, DSC-30 and EST-15.
 
 ### PMT-07 [P1] Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform
 - **Asserts**:

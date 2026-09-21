@@ -94,7 +94,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The discovery paths are inconsistent, and on grouped or temporal data auto-chain admission is leaky.
 - **Suggested fix**: Pass the rerank's `groups` / time-ordering into `compute_transform_waic` and `discover_chains` and build the same splitter there. `LgbFoldCache` stays valid because it keys on `fold_id`.
 - **Test to add**: On a grouped DGP where a per-group memoriser wins shuffled CV but loses GroupKFold, `discover_chains` given groups must not surface that chain.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New `discovery/_splitter.py` (`make_discovery_splitter` / `discovery_splits`: groups, then time order, then contiguous or shuffled KFold). The WAIC pass (`compute_transform_waic`, with the groups masked by its finite-row filter) and the auto-chain CV (`discover_chains` / `_y_scale_cv_rmse`) now take the rerank's groups and time flag. The auto-chain call site applies the caller's time key to its sample and passes frame-aligned groups. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).
 
 ### DSC-12 [P2] The discovery disk-cache key leaves out inputs that change the result
 - **Where**: `core/_phase_composite_discovery.py:521-541`, where the key is `data_signature(_disc_df, target, feature_cols)` plus the config signature, and `composite/cache.py:158-251`.
@@ -158,7 +158,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: On skewed-group data, screening, rerank, transform fits and the final `fitted_params` silently run on a small fraction of train.
 - **Suggested fix**: Precompute group sizes once (`np.unique(..., return_counts=True)`). Skip any group that would push the holdout above `holdout_frac * (1 + tol)` instead of always taking the first. If no admissible subset exists, fall back to the i.i.d. split with a warning.
 - **Test to add**: Two groups at 90% / 10%. The carved holdout must be the 10% group (or an i.i.d. fallback), never the 90% group.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `_group_disjoint_holdout` computes group sizes once and visits groups in seeded order, skipping any group that would push the holdout above `n_holdout * 1.25`. It accepts a total within +/-25% of the configured size, or falls back to the i.i.d. row holdout with a WARNING. A group holding 90% of the rows no longer becomes the holdout. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).
 
 ### DSC-20 [P3] Auto-chain proposals are not required to beat raw y, and duplicate the hard-coded default chains
 - **Where**: `_auto_chain.py:473-497` (the gate is `margin > min_rmse_margin` against the singles only; `raw_rmse` is computed and stored but never tested), `_opt_in_steps.py:250-274`, and the default `transforms` list (`_composite_target_discovery_config_base.py:216-218`).
@@ -174,7 +174,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The comparison is not apples to apples in exactly the gate that claims to be.
 - **Suggested fix**: Decide `time_aware` once per rerank and use it for raw and every spec, or score raw separately per splitter and compare each spec with the raw measured on its own splitter.
 - **Test to add**: With one monotone and one non-monotone base, assert that raw and each spec's `_tiny_cv_rmse_*` calls receive the same `time_aware`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The fold scheme is decided once per rerank: `_screen_time_ordered_`, or no groups and any kept spec's base monotone. It is used for the raw-y baseline, every spec's CV, the per-bin pass and the WAIC tie-break. On a fixture with one monotone and one non-monotone base, pre-fix time_aware values were [True, False, True, False]; post-fix it is a single value. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).
 
 ### DSC-22 [P3] `_group_ids_for_rerank` is read under two alignment conventions
 - **Where**: `_honest_holdout.py:96` (`g[train_idx] if g.shape[0] != n else g`, so a length-n array is treated as aligned to `train_idx`), compared with `_tiny_rerank.py:140`, `_fit_multibase.py:104` and `_yscale_holdout_gate.py:141/303`, which all index `group_ids[train_idx...]` (frame-aligned).
@@ -182,7 +182,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: Silent misalignment breaks the group-disjoint guarantee.
 - **Suggested fix**: Document and enforce one contract (frame-aligned, as every other reader assumes) and raise on a length mismatch rather than guessing.
 - **Test to add**: With a shuffled `train_idx` over a full frame and frame-aligned groups, the carved holdout must be group-disjoint from the screen pool.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. One contract, frame-aligned, as every other reader assumes: `group_ids[train_idx]`. A group array too short to be indexed by `train_idx` raises `ValueError` instead of being reinterpreted as train-aligned. A permuted `train_idx` now gives a group-disjoint holdout. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).
 
 ### DSC-23 [P3] Report reasons misattribute specs dropped by the late gates
 - **Where**: `_fit.py:804-814`.
@@ -246,4 +246,4 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The screening budget is wasted and the sample is smaller than configured on targets with NaNs.
 - **Suggested fix**: Exclude non-finite `y` from the sampler (or cap that stratum at 0), since no downstream consumer can use those rows.
 - **Test to add**: With 1% NaN `y`, assert the sampled rows contain no non-finite `y`, or at most their natural frequency.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Non-finite-y rows are excluded from the stratified sampler: they no longer form a stratum with a full water-fill share, since every MI and fit step drops them. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).

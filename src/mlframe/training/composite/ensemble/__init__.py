@@ -329,6 +329,28 @@ def _refit_fold_params(transform: Any, spec: dict, y: np.ndarray, base: np.ndarr
         )
         return spec["fitted_params"]
 
+def _plain_oof_splitter(kfold: int, random_state: int, component_specs: Sequence[Any]) -> Any:
+    """The OOF splitter without a time or group signal: contiguous blocks when any component is recurrent, else shuffled.
+
+    A recurrent component (EWMA / rolling / frac-diff state) scored on a shuffled fold runs its recursion over rows
+    scattered across the series, so its OOF error means nothing and its weight is biased. Contiguous blocks keep row
+    adjacency for it; on unordered rows they are as good as any other partition.
+    """
+    from ..discovery._splitter import make_discovery_splitter
+
+    return make_discovery_splitter(kfold, random_state=random_state, contiguous=any(_spec_is_recurrent(sp) for sp in component_specs))[0]
+
+
+def _spec_is_recurrent(spec: Any) -> bool:
+    """True when a component spec's transform carries state along the rows (``Transform.recurrent``)."""
+    if not isinstance(spec, dict) or not spec.get("transform_name"):
+        return False
+    try:
+        return bool(getattr(get_transform(spec["transform_name"]), "recurrent", False))
+    except Exception:  # best-effort: an unresolvable transform is simply not treated as recurrent
+        return False
+
+
 def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_train: np.ndarray, base_train: np.ndarray, group_column: Any = None) -> CompositeTargetEstimator:
     """Wrap an OOF-refit inner as the deployed wrapper would be: the full ``base_columns`` tuple for a multi-base spec (predict rebuilds
     the K-column base matrix the K alphas expect), and the train base so the stand-in captures its range and shrinks deep-OOD rows too."""
@@ -575,7 +597,6 @@ def compute_oof_holdout_predictions(
                 "takes precedence and the external holdout frame is IGNORED. Pass kfold=1 to use the "
                 "external holdout."
             )
-        from sklearn.model_selection import KFold
         # Outer OOF split must be group-aware when group_ids is supplied: plain shuffled K-fold lets same-group rows span refit-train and holdout, inflating the OOF surface the NNLS weights + dummy-floor gate consume (the inner eval-carve is group-aware but the OUTER split was not). GroupKFold keeps whole groups in one fold.
         _kf_groups = None
         if group_ids is not None:
@@ -591,8 +612,7 @@ def compute_oof_holdout_predictions(
             kf = GroupKFold(n_splits=int(kfold))
             _kf_split = kf.split(np.arange(n_train), groups=_kf_groups)
         else:
-            kf = KFold(n_splits=int(kfold), shuffle=True, random_state=int(random_state))
-            _kf_split = kf.split(np.arange(n_train))
+            _kf_split = _plain_oof_splitter(int(kfold), int(random_state), component_specs).split(np.arange(n_train))
         oof_preds_by_name: dict[str, np.ndarray] = {}
         survived_set: set[str] | None = None
         for fold_train_idx, fold_holdout_idx in _kf_split:

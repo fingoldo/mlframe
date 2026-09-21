@@ -54,7 +54,7 @@ def apply_honest_oof_floor(self, kept_specs, agg_scores, honest_oof, honest_oof_
     return kept_specs, agg_scores
 
 
-def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen, per_base_cache, rel_tol: float = 0.02):
+def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen, per_base_cache, rel_tol: float = 0.02, groups=None, time_aware: bool = False):
     """Re-order the RMSE-ascending ``order`` so that, within each relative-RMSE noise band, transforms are ranked by
     WAIC (higher = better out-of-fold generalisation). Only bands where every member has a valid WAIC are re-ordered;
     everything else keeps its RMSE+name position. Stores the WAIC of every scored spec on ``self._tiny_rerank_waic_scores``:
@@ -95,7 +95,8 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
         fin = np.isfinite(target)
         if int(fin.sum()) < 2 * n_folds or xv.shape[0] != target.shape[0]:
             return None
-        score = compute_transform_waic(target[fin], xv[fin], n_folds=n_folds, random_state=rs)
+        g = None if groups is None else np.asarray(groups)[valid][fin]  # WAIC folds follow the rerank's groups and time order
+        score = compute_transform_waic(target[fin], xv[fin], n_folds=n_folds, random_state=rs, groups=g, time_aware=time_aware)
         if getattr(score, "valid", False) and math.isfinite(score.waic):
             return float(score.waic)
         return None

@@ -42,6 +42,35 @@ from .screening import (
 logger = logging.getLogger(__name__)
 
 
+_HOLDOUT_SIZE_TOL = 0.25
+"""A group-disjoint holdout may deviate from the configured size by this fraction either way."""
+
+
+def _group_disjoint_holdout(g_train: np.ndarray, n_holdout: int, rng: np.random.Generator, min_rows: int, max_rows: int) -> np.ndarray | None:
+    """Positions of whole groups totalling ``n_holdout * (1 +/- 0.25)`` rows, or ``None`` when no such set turns up.
+
+    Groups are visited in a seeded random order and one that would overshoot the upper bound is skipped rather than taken:
+    the greedy carve took groups while under 50 rows whatever their size, so one group holding 90% of the rows became a
+    90% holdout while ``honest_holdout_frac=0.2`` was reported.
+    """
+    uniq, inv, counts = np.unique(g_train, return_inverse=True, return_counts=True)
+    lo = max(int(min_rows), int(np.ceil(n_holdout * (1.0 - _HOLDOUT_SIZE_TOL))))
+    hi = min(int(max_rows), int(np.floor(n_holdout * (1.0 + _HOLDOUT_SIZE_TOL))))
+    if lo > hi:
+        return None
+    take = np.zeros(uniq.size, dtype=bool)
+    total = 0
+    for k in rng.permutation(uniq.size):
+        if total + counts[k] <= hi:
+            take[k] = True
+            total += int(counts[k])
+            if total >= n_holdout:
+                break
+    if total < lo:
+        return None
+    return np.nonzero(take[inv])[0]
+
+
 def split_screening_holdout(
     train_idx: np.ndarray,
     holdout_frac: float | None,
@@ -94,25 +123,21 @@ def split_screening_holdout(
     # mis-aligned / too few to hit the holdout fraction.
     if group_ids is not None:
         g = np.asarray(group_ids)
-        try:
-            g_train = g[train_idx] if g.shape[0] != n else g
-        except (IndexError, TypeError):
-            g_train = None
-        if g_train is not None and g_train.shape[0] == n:
-            uniq = rng.permutation(np.unique(g_train))
-            keep, total = [], 0
-            for gid in uniq:
-                sz = int(np.count_nonzero(g_train == gid))
-                if total + sz > n_holdout and total >= min_holdout_rows:
-                    break
-                keep.append(gid)
-                total += sz
-            hmask = np.isin(g_train, keep)
-            n_h = int(hmask.sum())
-            if min_holdout_rows <= n_h <= (n - min_screen_rows):
-                holdout_pos = np.nonzero(hmask)[0]
-                screen_pos = np.nonzero(~hmask)[0]
-                return train_idx[screen_pos], train_idx[holdout_pos]
+        # One contract, the one every other reader of the rerank group ids uses: frame-aligned, indexed by train_idx. The
+        # carve used to treat a length-n array as aligned to train_idx instead, which is only the same thing when
+        # train_idx is arange(n).
+        if n and g.shape[0] <= int(np.max(train_idx)):
+            raise ValueError(f"group_ids has {g.shape[0]} rows but train_idx reaches row {int(np.max(train_idx))}; group ids must be aligned to the frame")
+        g_train = g[train_idx]
+        holdout_pos = _group_disjoint_holdout(g_train, n_holdout, rng, min_holdout_rows, n - min_screen_rows)
+        if holdout_pos is not None:
+            hmask = np.zeros(n, dtype=bool)
+            hmask[holdout_pos] = True
+            return train_idx[np.nonzero(~hmask)[0]], train_idx[holdout_pos]
+        logger.warning(
+            "[CompositeTargetDiscovery] no set of whole groups gives a holdout within 25%% of %d rows; using an i.i.d. row "
+            "holdout, which is not group-disjoint.", n_holdout,
+        )
     perm = rng.permutation(n)
     holdout_pos = np.sort(perm[:n_holdout])
     screen_pos = np.sort(perm[n_holdout:])

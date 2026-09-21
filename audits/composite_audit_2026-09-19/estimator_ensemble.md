@@ -186,7 +186,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Recurrent composites are mis-weighted or dropped by the dummy floor for reasons unrelated to their skill.
 - **Suggested fix**: For components whose transform is `recurrent`, use contiguous-block K-fold (`KFold(shuffle=False)` or `TimeSeriesSplit` on the time order), or exclude them from shuffled OOF and fall back to the train-RMSE proxy with a WARNING.
 - **Test to add**: Create an AR(1) target where `ewma_residual` is the true DGP. Assert that its OOF RMSE under the chosen splitter is within 20% of its contiguous-holdout RMSE.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. With no time or group signal, the ensemble's outer K-fold OOF split comes from `_plain_oof_splitter`. It gives contiguous blocks (unshuffled KFold via the factory) whenever any component's transform is `recurrent`, so the EWMA / rolling / frac-diff state runs over adjacent rows. On unordered rows contiguous blocks are an ordinary partition. Tests: tests/training/composite/discovery/test_splitter_contract.py (fails pre-fix).
 
 ### EST-16 [P3] The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level
 

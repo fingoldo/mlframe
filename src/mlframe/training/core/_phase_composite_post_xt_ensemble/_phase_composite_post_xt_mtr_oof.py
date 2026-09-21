@@ -98,7 +98,6 @@ def compute_mtr_oof_nnls_weights(
     component). It strictly salvages cases the old code dropped to equal-mean.
     """
     from sklearn.base import clone
-    from sklearn.model_selection import KFold
     from scipy.optimize import nnls
 
     from ...composite.ensemble import _maybe_pass_sample_weight
@@ -117,7 +116,9 @@ def compute_mtr_oof_nnls_weights(
         # (recorded in ``excluded``) or it emits a non-finite OOF cell (detected
         # after the stack is built). Excluded components keep a zero weight-row.
         excluded: dict[int, str] = {}
-        kf = KFold(n_splits=int(kfold), shuffle=True, random_state=int(random_state))
+        from ...composite.discovery._splitter import make_discovery_splitter  # the one place a shuffled discovery KFold is built
+
+        kf = make_discovery_splitter(int(kfold), random_state=int(random_state))[0]
         for tr_idx, ho_idx in kf.split(np.arange(n)):
             X_tr = _slice_rows_by_idx(X_train, tr_idx)
             X_ho = _slice_rows_by_idx(X_train, ho_idx)
