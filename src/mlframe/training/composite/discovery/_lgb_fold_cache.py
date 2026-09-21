@@ -46,7 +46,10 @@ class LgbFoldCache:
 
         full = self._fold_dataset(fold_id, x_tr)
         rows = np.flatnonzero(fit_mask)
-        train = full.subset(rows.tolist()) if rows.size < x_tr.shape[0] else full
+        # The subset must be constructed BEFORE its label is set: a lazy subset builds itself from the parent at train
+        # time and takes the parent's label with it -- the all-zeros placeholder -- so every masked candidate trained on
+        # zeros and predicted a constant, while ``get_label()`` still reported the label that was set.
+        train = full.subset(rows.tolist()).construct() if rows.size < x_tr.shape[0] else full
         train.set_label(np.asarray(target, dtype=np.float64)[rows])
         booster = lgb.train(self.params, train, num_boost_round=self.n_estimators)
         return np.asarray(booster.predict(x_va, num_threads=self.params["num_threads"]), dtype=np.float64)
