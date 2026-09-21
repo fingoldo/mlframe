@@ -127,3 +127,29 @@ Three rules the meta-tests enforce, each because it was got wrong at least once:
    what parity is for. A third fired a "joint tail" gate on the upper tail only, leaving a marginal
    correlation of +0.51 that every univariate filter found immediately. All three looked right in
    review; the measurement is what caught them.
+
+## Why the test suite's own generators were not redirected here
+
+`tests/feature_selection/_synth/` holds the generators the biz_value tests share, and forty-nine test
+files import them. The migration plan for this package called for pointing those shims at the promoted
+production scenarios once the library existed, on the assumption that the two would produce equivalent
+data. They do not, and the difference is deliberate on both sides.
+
+Measured on the closest pair, `make_3way_xor` against `parity_spec`:
+
+| | rows | columns | calibrated | column order |
+|---|---|---|---|---|
+| test shim | 2 000 | 10 | no | declaration order |
+| this package | 6 000 | 33 | to an achievable AUC of 0.85 | shuffled per seed |
+
+Every one of those differences is a property this package was built to have. Calibrating to a ceiling is
+what makes difficulty comparable across link types; shuffling the columns is what stops a stable-sort tie
+break from inheriting the answer key. The shims have none of them because they were written for a
+different job: a fast, fixed fixture a biz_value test can pin a numeric threshold against.
+
+Redirecting the shims would therefore change the data under forty-nine test files whose thresholds were
+measured on the old data — silently, since the tests would still run. The two sets of generators answer
+different questions and stay separate. What was worth taking from the migration was done: the generators
+whose NAMES were wrong got fixed in place (two builders named after parity computed a product), and the
+guard that catches that class of error, `test_synth_builder_name_contracts.py`, lives in the test suite
+where those builders do.
