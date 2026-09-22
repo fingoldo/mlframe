@@ -21,7 +21,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
-| `training_core.md` | 13 | 1 | 0 | 11 | 0 | 1 |
+| `training_core.md` | 13 | 5 | 0 | 7 | 0 | 1 |
 | `feature_selection.md` | 21 | 3 | 0 | 18 | 0 | 0 |
 | `feature_engineering.md` | 14 | 2 | 0 | 12 | 0 | 0 |
 | `metrics.md` | 18 | 15 | 1 | 0 | 2 | 0 |
@@ -41,7 +41,7 @@ least one of its findings moves).
 
 | Status | Report | Findings | Area |
 |---|---|---|---|
-| **PARTIAL** | [training_core.md](training_core.md) | 13 | suite orchestration, splits, booster dataset reuse (TRC-02 fixed) |
+| **PARTIAL** | [training_core.md](training_core.md) | 13 | suite orchestration, splits, booster dataset reuse (TRC-02, TRC-04, TRC-07, TRC-08, TRC-13 fixed) |
 | **PARTIAL** | [feature_selection.md](feature_selection.md) | 21 | feature selection (FS-01, FS-02, FS-03 fixed) |
 | **PARTIAL** | [feature_engineering.md](feature_engineering.md) | 14 | feature engineering and preprocessing (FE-01, FE-02 fixed) |
 | **PARTIAL** | [metrics.md](metrics.md) | 18 | metrics and calibration (15 fixed incl. MET-18 found during implementation, MET-04 partial, MET-08 and MET-16 rejected) |

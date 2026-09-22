@@ -217,6 +217,25 @@ def _cb_polars_to_pandas(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _frame_has_non_finite(X) -> bool:
+    """Whether any numeric cell of ``X`` is NaN or +/-inf, over the whole frame. False when it cannot be checked."""
+    try:
+        if hasattr(X, "select_dtypes"):  # pandas
+            num = X.select_dtypes(include="number")
+            return bool(num.shape[1] and not np.isfinite(num.to_numpy(dtype=np.float64, na_value=np.nan)).all())
+        pl_df = _pl_DataFrame()
+        if isinstance(X, pl_df):
+            import polars as pl
+
+            num = X.select(pl.col(pl.NUMERIC_DTYPES)) if hasattr(pl, "NUMERIC_DTYPES") else X
+            return bool(num.width and not np.isfinite(num.to_numpy().astype(np.float64)).all())
+        arr = np.asarray(X)
+        return bool(np.issubdtype(arr.dtype, np.number) and not np.isfinite(arr).all())
+    except Exception as e:  # a probe failure must not turn into "clean": report it and let the real error surface
+        logger.debug("full-frame non-finite probe failed: %s", e)
+        return False
+
+
 def _apply_nan_guard(
     model: Any, X: Any, fn: Callable, n_rows: int | None,
     *, fit_at_predict: bool = False,
@@ -275,6 +294,11 @@ def _apply_nan_guard(
     except Exception as e:
         logger.debug("NaN probe on the first 500 rows failed: %s", e)
         _has_nan = False
+    if not _has_nan:
+        # The guard only runs once a model has already raised on NaN or returned non-finite output, so a clean first
+        # 500 rows is not evidence of a clean frame - NaN or inf can start further down. Look at the whole frame
+        # before giving up; the O(n) pass is paid only on this already-failing path.
+        _has_nan = _frame_has_non_finite(X)
 
     if not _has_nan:
         return np.asarray(fn(X))  # Let the real error surface
@@ -358,6 +382,9 @@ def _transform_with_persisted_stats(
 
     # sklearn transform = subtract mean_ + divide by scale_ (no leakage --
     # mean_/scale_ are TRAIN statistics already fit and stored on the scaler).
+    # +/-inf is missing too: SimpleImputer does not replace it, so an overflowed feature went through imputer and scaler
+    # unchanged and turned the prediction - and every mean-based blend or calibration downstream of it - into inf.
+    _arr = np.where(np.isfinite(_arr), _arr, np.nan)
     _arr = scaler.transform(imputer.transform(_arr))
 
     if hasattr(X, "columns"):
@@ -423,6 +450,8 @@ def _fit_persist_and_transform(
         # survive to the bridged pandas frame and crash the NaN-intolerant
         # model the guard exists to protect. ``drop_nans().mean()`` already
         # ignores both null and NaN, matching sklearn SimpleImputer's nanmean.
+        # +/-inf counts as missing, as on the numpy path; drop_nans() alone would keep it in the mean and the frame.
+        X = X.with_columns([pl.when(pl.col(c).is_infinite()).then(None).otherwise(pl.col(c)).alias(c) for c in cols])
         df_imp = X.with_columns([pl.col(c).fill_nan(pl.col(c).drop_nans().mean()).fill_null(pl.col(c).drop_nans().mean()) for c in cols])
         # All-null / all-NaN column: ``drop_nans().mean()`` is null, so the fill
         # above leaves null/NaN in place. sklearn SimpleImputer(keep_empty_features=
@@ -489,6 +518,7 @@ def _fit_persist_and_transform(
     else:
         _arr = np.asarray(X, dtype=np.float64)
 
+    _arr = np.where(np.isfinite(_arr), _arr, np.nan)  # +/-inf is missing too; SimpleImputer would keep it
     imputer = SimpleImputer(strategy="mean", keep_empty_features=True)
     _arr_imp = imputer.fit_transform(_arr)
     scaler = StandardScaler()
@@ -555,6 +585,7 @@ def prime_nan_guard_stats(
     else:
         _arr = np.asarray(X_train, dtype=np.float64)
 
+    _arr = np.where(np.isfinite(_arr), _arr, np.nan)  # an inf in train would otherwise make the stored mean inf
     imputer = SimpleImputer(strategy="mean", keep_empty_features=True).fit(_arr)
     scaler = StandardScaler().fit(imputer.transform(_arr))
     try:

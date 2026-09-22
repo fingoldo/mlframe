@@ -484,11 +484,12 @@ def _predict_with_fallback(
     try:
         with phase(method, model=_model_type, n_rows=n_rows):
             result = fn(X)
-        # Sample first 500 rows — non-finite values in output signal
-        # NaN input silently propagated by a NaN-tolerant model.
-        if hasattr(result, "dtype"):
-            _r_sample = result[:500] if hasattr(result, "__getitem__") else result
-            if not np.all(np.isfinite(_r_sample)):
+        # Non-finite values in the output signal NaN input silently propagated by a NaN-tolerant model. The WHOLE output
+        # is checked: it is one value (or one row of class scores) per input row, so the pass is cheap, and sampling
+        # the first 500 let a frame whose NaNs start further down (a lagged / rolling feature on a later entity) return
+        # NaN predictions into metrics and ensemble stacks with no warning at all.
+        if hasattr(result, "dtype") and np.issubdtype(np.asarray(result).dtype, np.number):
+            if not np.all(np.isfinite(result)):
                 logger.warning(
                     "[NaN-guard] %s.%s returned non-finite predictions "
                     "(likely NaN input silently propagated).  Applying "
