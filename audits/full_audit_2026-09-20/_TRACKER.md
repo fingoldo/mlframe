@@ -26,12 +26,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `feature_engineering.md` | 14 | 2 | 0 | 12 | 0 | 0 |
 | `metrics.md` | 17 | 3 | 1 | 13 | 0 | 0 |
 | `predict_persistence.md` | 18 | 7 | 0 | 11 | 0 | 0 |
-| `ensembling_models.md` | 14 | 3 | 0 | 11 | 0 | 0 |
+| `ensembling_models.md` | 14 | 4 | 0 | 10 | 0 | 0 |
 | `evaluation_reporting.md` | 16 | 3 | 0 | 13 | 0 | 0 |
 | `performance.md` | 6 | 2 | 0 | 4 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 1 | 0 | 11 | 0 | 0 |
 | `config_contracts.md` | 32 | 1 | 0 | 31 | 0 | 0 |
-| **Total** | **163** | **26** | **1** | **135** | **0** | **1** |
+| **Total** | **163** | **27** | **1** | **134** | **0** | **1** |
 
 ## Per-report status
 
@@ -46,7 +46,7 @@ least one of its findings moves).
 | **PARTIAL** | [feature_engineering.md](feature_engineering.md) | 14 | feature engineering and preprocessing (FE-01, FE-02 fixed) |
 | **PARTIAL** | [metrics.md](metrics.md) | 17 | metrics and calibration (MET-01..MET-03 fixed, MET-04 partial) |
 | **PARTIAL** | [predict_persistence.md](predict_persistence.md) | 18 | serving path and artifact round-trip (PRD-02, PRD-04..PRD-08, PRD-11 fixed) |
-| **PARTIAL** | [ensembling_models.md](ensembling_models.md) | 14 | model zoo, blends, thresholds, votenrank (ENS-01, ENS-02, ENS-04 fixed) |
+| **PARTIAL** | [ensembling_models.md](ensembling_models.md) | 14 | model zoo, blends, thresholds, votenrank (ENS-01..ENS-04 fixed) |
 | **PARTIAL** | [evaluation_reporting.md](evaluation_reporting.md) | 16 | diagnostic verdicts (EVR-01, EVR-02, EVR-03 fixed) |
 | **PARTIAL** | [performance.md](performance.md) | 6 | measured performance (PRF-01, PRF-02 fixed) |
 | **PARTIAL** | [concurrency_resources.md](concurrency_resources.md) | 12 | concurrency and resources (CNC-01 fixed) |

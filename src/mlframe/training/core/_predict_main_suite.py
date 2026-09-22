@@ -90,7 +90,7 @@ def predict_mlframe_models_suite(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
+    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
     from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
     from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
     from ..pipeline._cross_sectional_composite_fe import replay_cross_sectional_composite_fe
@@ -303,6 +303,7 @@ def predict_mlframe_models_suite(
     all_preds = []
     # Per-target accumulator so Fix 3 can replay the chosen flavour separately for each (target_type, target_name).
     per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = {}
+    per_target_member_names: dict[tuple[Any, Any], list[str]] = {}
     per_target_preds: dict[tuple[Any, Any], list[np.ndarray]] = {}
     # One disk-loaded model per target, so the ensemble replay can introspect the inner estimator for
     # quantile alphas (parity with the in-memory predict_from_models path) -- without it, disk-loaded
@@ -470,6 +471,7 @@ def predict_mlframe_models_suite(
                 results["probabilities"][model_name] = probs
                 all_probs.append(probs)
                 per_target_probs.setdefault((_tt, _tn), []).append(probs)
+                per_target_member_names.setdefault((_tt, _tn), []).append(str(getattr(model_obj, "model_name", None) or model_name))
                 per_target_sample_model.setdefault((_tt, _tn), model_obj)
                 _is_cal = _is_post_hoc_calibrated_model(model_obj)
                 all_calib_flags.append(_is_cal)
@@ -547,14 +549,18 @@ def predict_mlframe_models_suite(
             _rrf_k_replay = int(_ens_params.get("rrf_k", 60))
             _key = f"{_tt_k}_{_tn_k}"
             _q_alphas = _resolve_quantile_alphas(metadata, _tt_k, _tn_k, per_target_sample_model.get((_tt_k, _tn_k)))
+            _probs_list, _cal_flags_sel, _weights_sel = _select_trained_members(
+                _probs_list, per_target_member_names.get((_tt_k, _tn_k), []), per_target_calib_flags.get((_tt_k, _tn_k)),
+                _ens_params, target_label=f"{_tt_k}/{_tn_k}",
+            )
             if len(_probs_list) > 1:
                 _combined = _combine_probs(
                     _probs_list, _flavour, quantile_alphas=_q_alphas, rrf_k=_rrf_k_replay,
-                    is_calibrated_per_model=per_target_calib_flags.get((_tt_k, _tn_k)),
+                    is_calibrated_per_model=_cal_flags_sel,
                     metadata=metadata,
                     target_label=f"{_tt_k}/{_tn_k}",
                     target_type=_tt_k,
-                    precomputed_weights=_ens_params.get("blend_weights"),
+                    precomputed_weights=_weights_sel,
                 )
             else:
                 _combined = _probs_list[0]

@@ -405,6 +405,15 @@ def score_ensemble(
         verbose=verbose,
     )
 
+    # The member set that survived the quality / catastrophic / diversity gates, by the model name each member was
+    # saved under (``model.model_name`` is the .dump basename). Predict used to re-blend every model file it found for
+    # the target, i.e. also the member training deliberately dropped - a 4-member mean including an R2=-4.75 MLP whose
+    # metrics were never measured. Recorded only when every survivor has a name, so an unnamed member cannot make a
+    # partial list look complete. Blend weights (``_stacking_gate.aligned_weights``) are aligned with this order.
+    _survivor_names = [getattr(_m, "model_name", None) for _m in level_models_and_predictions]
+    if _survivor_names and all(isinstance(_n, str) and _n for _n in _survivor_names):
+        res["_surviving_members"] = list(_survivor_names)
+
     run_ensembling_levels(
         res=res,
         level_models_and_predictions=level_models_and_predictions,

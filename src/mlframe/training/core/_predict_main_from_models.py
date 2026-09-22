@@ -88,7 +88,7 @@ def predict_from_models(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
+    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _select_trained_members, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
     from .._classif_helpers import _canonical_predict_proba_shape
     from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
     from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
@@ -318,6 +318,7 @@ def predict_from_models(
     # (target_type, target_name) -- the suite-wide np.mean previously blended every model's prediction across
     # targets, which silently ignored the per-target flavour choice.
     per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = {}
+    per_target_member_names: dict[tuple[Any, Any], list[str]] = {}
     per_target_preds: dict[tuple[Any, Any], list[np.ndarray]] = {}
     # Arch-4: per-member calibration flags for mix detection in _combine_probs.
     all_calib_flags: list[bool] = []
@@ -596,6 +597,9 @@ def predict_from_models(
                         results["probabilities"][model_name] = probs
                         all_probs.append(probs)
                         per_target_probs.setdefault((target_type, target_name), []).append(probs)
+                        per_target_member_names.setdefault((target_type, target_name), []).append(
+                            str(getattr(model_obj, "model_name", None) or model_name)
+                        )
                         _is_cal = _is_post_hoc_calibrated_model(model_obj)
                         all_calib_flags.append(_is_cal)
                         per_target_calib_flags.setdefault((target_type, target_name), []).append(_is_cal)
@@ -659,14 +663,18 @@ def predict_from_models(
             except (AttributeError, IndexError, TypeError):
                 _sample_model = None
             _q_alphas = _resolve_quantile_alphas(metadata, _tt, _tname, _sample_model)
+            _probs_list, _cal_flags_sel, _weights_sel = _select_trained_members(
+                _probs_list, per_target_member_names.get((_tt, _tname), []), per_target_calib_flags.get((_tt, _tname)),
+                _ens_params, target_label=f"{_tt}/{_tname}",
+            )
             if len(_probs_list) > 1:
                 _combined = _combine_probs(
                     _probs_list, _flavour, quantile_alphas=_q_alphas, rrf_k=_rrf_k_replay,
-                    is_calibrated_per_model=per_target_calib_flags.get((_tt, _tname)),
+                    is_calibrated_per_model=_cal_flags_sel,
                     metadata=metadata,
                     target_label=f"{_tt}/{_tname}",
                     target_type=_tt,
-                    precomputed_weights=_ens_params.get("blend_weights"),
+                    precomputed_weights=_weights_sel,
                 )
             else:
                 _combined = _probs_list[0]

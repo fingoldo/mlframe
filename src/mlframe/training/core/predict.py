@@ -454,6 +454,43 @@ def _resolve_quantile_alphas(metadata: dict, target_type: Any, target_name: Any,
     return None
 
 
+def _select_trained_members(
+    probs_list: list,
+    member_names: Sequence[Any],
+    calib_flags: Sequence[bool] | None,
+    params: dict,
+    target_label: str = "",
+) -> tuple[list, list | None, list | None]:
+    """Restrict a target's loaded members to the set training blended, in training's order.
+
+    Training's gates (quality, catastrophic, diversity) drop members, and predict used to re-blend every model it could
+    load for the target - including the one training removed, so the served mean was one whose metrics were never
+    measured. ``params["members"]`` is that surviving set; the persisted blend weights are aligned with it, which is why
+    the result is re-ordered to match. Returns ``(probs, calib_flags, weights)``. Legacy artefacts without the stamp,
+    or a load that is missing some of the members, keep the loaded set (the latter with a WARN) and drop the weights,
+    which cannot be mapped onto a different member set.
+    """
+    members = params.get("members") if isinstance(params, dict) else None
+    weights = params.get("blend_weights") if isinstance(params, dict) else None
+    if not members:
+        return probs_list, (list(calib_flags) if calib_flags is not None else None), weights
+    by_name = {str(n): i for i, n in enumerate(member_names)}
+    missing = [m for m in members if str(m) not in by_name]
+    if missing:
+        logger.warning(
+            "[predict] %s: %d of the %d member(s) training blended did not load (%s); blending the %d loaded model(s) "
+            "unweighted instead, which is not the ensemble whose metrics were reported.",
+            target_label or "target", len(missing), len(members), missing[:5], len(probs_list),
+        )
+        return probs_list, (list(calib_flags) if calib_flags is not None else None), None
+    order = [by_name[str(m)] for m in members]
+    extra = [n for n in member_names if str(n) not in set(map(str, members))]
+    if extra:
+        logger.info("[predict] %s: leaving out %d model(s) training's ensemble gates dropped: %s", target_label or "target", len(extra), extra[:5])
+    flags = [calib_flags[i] for i in order] if calib_flags is not None else None
+    return [probs_list[i] for i in order], flags, weights
+
+
 def _resolve_chosen_ensemble_params(metadata: dict, target_type: Any = None, target_name: Any = None) -> dict:
     """Look up persisted ensemble replay params (rrf_k, etc.) for ``(target_type, target_name)``.
 
