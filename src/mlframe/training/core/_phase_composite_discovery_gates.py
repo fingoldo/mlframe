@@ -141,7 +141,7 @@ def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, tar
 
 
 def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None, disc_df: Any = None, time_column: Any = None,
-                            val_df: Any = None, val_y: Any = None) -> str:
+                            val_df: Any = None, val_y: Any = None, y_full: Any = None, val_idx: Any = None) -> str:
     """A digest of the discovery inputs that change the selected specs but are neither data columns nor config fields.
 
     The group ids drive the group-disjoint holdout, the GroupKFold rerank and the fragility gate; the hint strengths decide
@@ -150,6 +150,10 @@ def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None
     """
     import hashlib
 
+    if val_y is None and y_full is not None and val_idx is not None:
+        val_y = np.asarray(y_full)[val_idx]  # the val targets as the phase hands them to the y-scale gate
+    if val_y is None:
+        val_df = None  # the gate ignores a val frame without targets
     h = hashlib.blake2b(digest_size=16)
 
     def _arr(tag: str, a: Any) -> None:

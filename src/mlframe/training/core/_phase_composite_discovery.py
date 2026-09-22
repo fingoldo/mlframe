@@ -484,14 +484,9 @@ def run_composite_target_discovery(
                     len(_cached_payload["specs_export"]), _tname_disc,
                 )
             elif discovery_cache_dir is not None:
-                _vy_key = np.asarray(_y_arr)[val_idx] if (val_df_pd is not None and val_idx is not None) else None
-                _disc_cache, _disc_cache_key, _cached_payload = _discovery_cache_lookup(
-                    _disc_cfg, _disc_df, _tname_disc, _disc_feature_cols, discovery_cache_dir,
-                    inputs_digest=discovery_inputs_digest(
-                        group_ids=_grp_filtered_slice, hint_strengths=_hint_strengths if _use_hint else None, disc_df=_disc_df,
-                        time_column=getattr(_disc_cfg, "time_column", None), val_df=val_df_pd if _vy_key is not None else None, val_y=_vy_key,
-                    ),
-                )
+                _digest = discovery_inputs_digest(group_ids=_grp_filtered_slice, hint_strengths=_hint_strengths if _use_hint else None, disc_df=_disc_df,
+                                                  time_column=getattr(_disc_cfg, "time_column", None), val_df=val_df_pd, y_full=_y_arr, val_idx=val_idx)
+                _disc_cache, _disc_cache_key, _cached_payload = _discovery_cache_lookup(_disc_cfg, _disc_df, _tname_disc, _disc_feature_cols, discovery_cache_dir, _digest)
             else:
                 _cached_payload = None
 
