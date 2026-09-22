@@ -375,7 +375,13 @@ def fast_calibration_report(
         roc_auc, pr_auc, group_aucs, _auc_desc_order, _ks_fused = fast_aucs_per_group_optimized(
             y_true=y_true, y_score=y_pred, group_ids=group_ids, return_order=True, return_ks=True
         )
-    mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs) if group_aucs else (None, None)
+    # Row-weighted: the bracketed per-group figure in the title sits beside the pooled AUC and must not be inflated by
+    # tiny groups that score 1.0 by luck.
+    _group_sizes = None
+    if group_aucs and group_ids is not None:
+        _gids, _gcounts = np.unique(np.asarray(group_ids), return_counts=True)
+        _group_sizes = {(g.item() if hasattr(g, "item") else g): int(c) for g, c in zip(_gids, _gcounts)}
+    mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs, group_sizes=_group_sizes) if group_aucs else (None, None)
 
     ice = integral_calibration_error_from_metrics(
         calibration_mae=calibration_mae,
