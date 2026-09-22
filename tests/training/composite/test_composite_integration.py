@@ -133,6 +133,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             base_candidates=["TVT_prev"],
             transforms=["diff", "linear_residual"],
@@ -178,6 +182,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             base_candidates=["TVT_prev"],
             transforms=["linear_residual"],
@@ -244,7 +252,11 @@ class TestCompositeIntegration:
                 continue
             _pp = getattr(entry, "pre_pipeline", None)
             X_final = _apply_pre_pipeline_if_fitted(_pp, sample_X_ext)
-            preds = inner_model.predict(X_final)
+            # The wrapper reads the BASE column from ``X`` and feeds ``inner_X`` to the inner model: the base must be
+            # raw, because the inverse adds it back in y units. Passing the pre_pipeline output as ``X`` hands it a
+            # standardised base (mean 0), and the "y-scale" prediction comes back centred on zero - which reads as
+            # T-scale but is only this call site supplying the wrong frame.
+            preds = inner_model.predict(sample_X_ext, inner_X=X_final)
             assert np.all(np.isfinite(preds))
             # y-scale predictions: most values should be within the y envelope.
             # T-scale (residual) predictions would cluster near zero, far below.
@@ -264,6 +276,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=600)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             base_candidates=["TVT_prev"],
             transforms=["diff", "linear_residual"],
@@ -308,6 +324,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             base_candidates=["TVT_prev"],
             transforms=["linear_residual"],
@@ -367,6 +387,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             base_candidates=["TVT_prev"],
             transforms=["diff", "linear_residual"],
@@ -507,6 +531,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             base_candidates=["TVT_prev"],
             transforms=["diff"],
@@ -555,6 +583,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=600)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             base_candidates=["TVT_prev"],
             transforms=["linear_residual"],
@@ -610,6 +642,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             base_candidates=["TVT_prev"],
             transforms=["diff"],

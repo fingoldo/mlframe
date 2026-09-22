@@ -189,6 +189,11 @@ def build_composite_value_report(
     if has_lag and lag is not None and lag.shape[0] != n:
         raise ValueError(f"build_composite_value_report: y_pred_lag length {lag.shape[0]} != y_true length {n}")
 
+    # No group ids is the common case (any run without a group column), and it means ONE group - the whole split -
+    # not an error: ``factorize(None)`` raised "len() of unsized object", the caller logged it as a WARNING and the
+    # report was silently missing from every ungrouped run.
+    if group_ids is None:
+        group_ids = np.zeros(n, dtype=np.int64)
     codes, uniq = _factorize(group_ids)
     if codes.shape[0] != n:
         raise ValueError(f"build_composite_value_report: group_ids length {codes.shape[0]} != y_true length {n}")
