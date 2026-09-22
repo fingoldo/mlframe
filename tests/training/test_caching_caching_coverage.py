@@ -100,6 +100,19 @@ def test_compute_model_input_fingerprint_stable_across_calls():
 # ---------------------------------------------------------------------------
 
 
+def _signature_with_dist_version(monkeypatch, mod, cfg, dist, version):
+    """The discovery signature as it would be with ``dist`` installed at ``version``.
+
+    Versions are read from distribution metadata (so building the key never imports catboost / lightgbm / xgboost),
+    which is therefore what a simulated upgrade has to patch.
+    """
+    import importlib.metadata as md
+
+    real = md.version
+    monkeypatch.setattr(md, "version", lambda name: version if name == dist else real(name))
+    return mod._discovery_config_signature(cfg)
+
+
 def test_discovery_config_signature_changes_when_catboost_minor_bumps(monkeypatch):
     """The version tuple folded into the discovery cache signature MUST include catboost (and
     lightgbm). A bumped catboost minor version must produce a different signature so the cache
@@ -111,30 +124,8 @@ def test_discovery_config_signature_changes_when_catboost_minor_bumps(monkeypatc
         def __init__(self):
             self.x = 1
 
-    _real_imp = __import__
-
-    class _FakeCb1:
-        """Groups tests covering fake cb1."""
-        __version__ = "1.2.5"
-
-    class _FakeCb2:
-        """Groups tests covering fake cb2."""
-        __version__ = "1.3.0"
-
-    def _factory(replacement):
-        """Factory."""
-        def _fake(name, *args, **kwargs):
-            """Fake."""
-            if name == "catboost":
-                return replacement
-            return _real_imp(name, *args, **kwargs)
-
-        return _fake
-
-    monkeypatch.setattr("builtins.__import__", _factory(_FakeCb1))
-    sig_a = mod._discovery_config_signature(_DummyCfg())
-    monkeypatch.setattr("builtins.__import__", _factory(_FakeCb2))
-    sig_b = mod._discovery_config_signature(_DummyCfg())
+    sig_a = _signature_with_dist_version(monkeypatch, mod, _DummyCfg(), "catboost", "1.2.5")
+    sig_b = _signature_with_dist_version(monkeypatch, mod, _DummyCfg(), "catboost", "1.3.0")
     assert sig_a != sig_b, "catboost minor-version bump must invalidate discovery signature"
 
 
@@ -147,30 +138,8 @@ def test_discovery_config_signature_changes_when_lightgbm_minor_bumps(monkeypatc
         def __init__(self):
             self.x = 1
 
-    _real_imp = __import__
-
-    class _FakeLgb1:
-        """Groups tests covering fake lgb1."""
-        __version__ = "4.1.0"
-
-    class _FakeLgb2:
-        """Groups tests covering fake lgb2."""
-        __version__ = "4.5.0"
-
-    def _factory(replacement):
-        """Factory."""
-        def _fake(name, *args, **kwargs):
-            """Fake."""
-            if name == "lightgbm":
-                return replacement
-            return _real_imp(name, *args, **kwargs)
-
-        return _fake
-
-    monkeypatch.setattr("builtins.__import__", _factory(_FakeLgb1))
-    sig_a = mod._discovery_config_signature(_DummyCfg())
-    monkeypatch.setattr("builtins.__import__", _factory(_FakeLgb2))
-    sig_b = mod._discovery_config_signature(_DummyCfg())
+    sig_a = _signature_with_dist_version(monkeypatch, mod, _DummyCfg(), "lightgbm", "4.1.0")
+    sig_b = _signature_with_dist_version(monkeypatch, mod, _DummyCfg(), "lightgbm", "4.5.0")
     assert sig_a != sig_b, "lightgbm minor-version bump must invalidate discovery signature"
 
 
