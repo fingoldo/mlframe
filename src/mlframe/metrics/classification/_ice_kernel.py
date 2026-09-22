@@ -103,12 +103,16 @@ def _batch_per_class_ice_kernel(
         pockets_true = np.zeros(nbins, dtype=np.int64)
         pockets_pred_sum = np.zeros(nbins, dtype=np.float64)
         if span > 0:
-            multiplier = (nbins - 1) / span
+            # ``nbins / span``, not ``(nbins - 1) / span``: the latter made every bin ``span/(nbins-1)`` wide, so the grid covered
+            # ``nbins - 1`` bins of data plus a last bin holding only the exact maximum (one row, freqs_true 0 or 1, a
+            # near-1.0 gap in CMAEW); at nbins=2 every row landed in ONE bin. The ``ind >= nbins`` clamp below puts the
+            # maximum itself in the last bin.
+            multiplier = nbins / span
             for i in range(N):
                 ind = int(np.floor((y_p[i] - min_val) * multiplier))
-                # FP-boundary clamp (same guard as the gold serial kernel): at y_p[i] == max_val this is
-                # exactly nbins-1 in exact arithmetic, but floating-point rounding can push it to nbins,
-                # which would write out of the pockets_pred/pockets_true bounds under @njit (bounds-checking off).
+                # Upper clamp (same guard as the gold serial kernel): at y_p[i] == max_val this is exactly nbins,
+                # which belongs in the last bin and would otherwise write out of the pockets_pred/pockets_true bounds
+                # under @njit (bounds-checking off).
                 if ind < 0:
                     ind = 0
                 elif ind >= nbins:
@@ -311,7 +315,11 @@ def _batch_per_class_ice_kernel_serial(
         pockets_true = np.zeros(nbins, dtype=np.int64)
         pockets_pred_sum = np.zeros(nbins, dtype=np.float64)
         if span > 0:
-            multiplier = (nbins - 1) / span
+            # ``nbins / span``, not ``(nbins - 1) / span``: the latter made every bin ``span/(nbins-1)`` wide, so the grid covered
+            # ``nbins - 1`` bins of data plus a last bin holding only the exact maximum (one row, freqs_true 0 or 1, a
+            # near-1.0 gap in CMAEW); at nbins=2 every row landed in ONE bin. The ``ind >= nbins`` clamp below puts the
+            # maximum itself in the last bin.
+            multiplier = nbins / span
             for i in range(N):
                 ind = int(np.floor((y_p[i] - min_val) * multiplier))
                 if ind < 0:

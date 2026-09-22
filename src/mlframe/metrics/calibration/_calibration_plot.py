@@ -258,7 +258,11 @@ def _fast_calibration_binning_serial(y_true: np.ndarray, y_pred: np.ndarray, nbi
     span = max_val - min_val
 
     if span > 0:
-        multiplier = (nbins - 1) / span
+        # ``nbins / span``, not ``(nbins - 1) / span``: the latter made every bin ``span/(nbins-1)`` wide, so the grid covered
+        # ``nbins - 1`` bins of data plus a last bin holding only the exact maximum (one row, freqs_true 0 or 1, a
+        # near-1.0 gap in CMAEW); at nbins=2 every row landed in ONE bin. The ``ind >= nbins`` clamp below puts the
+        # maximum itself in the last bin.
+        multiplier = nbins / span
         for true_class, predicted_prob in zip(y_true, y_pred):
             ind = floor((predicted_prob - min_val) * multiplier)
             if ind < 0:
@@ -335,7 +339,11 @@ def _fast_calibration_binning_prange(y_true: np.ndarray, y_pred: np.ndarray, nbi
     part_true = np.zeros((nth, nbins), dtype=np.int64)
     part_sum = np.zeros((nth, nbins), dtype=np.float64)
     if span > 0:
-        multiplier = (nbins - 1) / span
+        # ``nbins / span``, not ``(nbins - 1) / span``: the latter made every bin ``span/(nbins-1)`` wide, so the grid covered
+        # ``nbins - 1`` bins of data plus a last bin holding only the exact maximum (one row, freqs_true 0 or 1, a
+        # near-1.0 gap in CMAEW); at nbins=2 every row landed in ONE bin. The ``ind >= nbins`` clamp below puts the
+        # maximum itself in the last bin.
+        multiplier = nbins / span
         for t in numba.prange(nth):
             lo = t * chunk
             hi = min(lo + chunk, n)
