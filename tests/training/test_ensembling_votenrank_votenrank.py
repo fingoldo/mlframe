@@ -128,9 +128,9 @@ def test_dropout_predict_is_deterministic_across_repeated_calls():
 
 
 def test_dropout_combines_surviving_columns_with_original_weights_no_refit():
-    """NNLS-DROPOUT: a dropped-out component is excluded and the survivors keep their ORIGINAL
-    solver weights (no refit). Equivalent to zeroing the dropped column's contribution -- a
-    deterministic linear fallback rather than a per-batch re-solve."""
+    """NNLS-DROPOUT: the survivors keep their ORIGINAL solver weights (no refit) and the dropped column is filled with its
+    OOF mean, a deterministic fallback that keeps the stack on the target's level (zeroing it shifted every prediction by
+    ``w * mean`` of the missing column)."""
     pytest.importorskip("scipy.optimize")
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
@@ -159,7 +159,7 @@ def test_dropout_combines_surviving_columns_with_original_weights_no_refit():
         y_train=y,
     )
     w = np.asarray(ens.weights, dtype=np.float64)
-    expected = p1 * w[0] + p3 * w[2]  # surviving columns combined with original weights
+    expected = p1 * w[0] + float(np.mean(p2)) * w[1] + p3 * w[2]  # original weights; the dropped column at its OOF mean
     np.testing.assert_allclose(ens.predict(np.zeros((n, 1))), expected, rtol=1e-9, atol=1e-9)
 
 

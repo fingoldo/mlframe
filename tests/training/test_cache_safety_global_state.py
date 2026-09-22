@@ -87,25 +87,23 @@ def test_con11_cb_val_pool_stage1_rejects_dtype_mismatch():
 
 
 def test_con11_cb_val_pool_stage1_accepts_matching_dtypes():
-    """Con11 cb val pool stage1 accepts matching dtypes."""
-    from mlframe.training import _predict_guards as pg
+    """A Pool cached under the fit side's content key is found for a fresh frame with the same content and dtypes."""
+    import pandas as pd
 
-    class _FakeFrame:
-        """Groups tests covering fake frame."""
-        columns = ["a", "b"]
-        shape = (3, 2)
-        dtypes = ["float64", "float64"]
+    from mlframe.training import _predict_guards as pg
+    from mlframe.training._dataset_cache_fingerprint import compute_signature
 
     class _Pool:
         """Groups tests covering pool."""
         pass
 
-    X = _FakeFrame()
+    X_fit = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
     pool = _Pool()
     pool._mlframe_dtypes_sig = ("float64", "float64")
     pg._CB_VAL_POOL_CACHE.clear()
-    pg._CB_VAL_POOL_CACHE[(id(X), tuple(X.columns), (3, 2))] = pool
-    assert pg._cb_val_pool_cache_lookup(X, "predict") is pool
+    # The key ``cb._cb_pool`` writes: the content signature plus the (cat, text, embedding) feature lists.
+    pg._CB_VAL_POOL_CACHE[compute_signature(X_fit, extra=((), (), ()))] = pool
+    assert pg._cb_val_pool_cache_lookup(X_fit.copy(), "predict") is pool
     pg._CB_VAL_POOL_CACHE.clear()
 
 

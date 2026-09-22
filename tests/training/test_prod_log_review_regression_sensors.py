@@ -1576,10 +1576,8 @@ class TestCBValPoolCacheContentFallback:
     """
 
     def test_cache_lookup_falls_back_to_content_when_id_misses(self):
-        """End-to-end: store a Pool keyed by id(val_df_a), then look up
-        with a fresh DataFrame val_df_b that has the same cols, shape,
-        and dtypes — must return the cached Pool via content match,
-        not rebuild."""
+        """End-to-end: store a Pool under the fit side's content key for val_df_a, then look up with a fresh DataFrame
+        val_df_b holding the same content -- must return the cached Pool via the content match, not rebuild."""
         from mlframe.training.trainer import (
             _CB_VAL_POOL_CACHE,
             _predict_with_fallback,
@@ -1596,12 +1594,9 @@ class TestCBValPoolCacheContentFallback:
                 "b": pd.Series(["x", "y", "z"], dtype="category"),
             }
         )
-        df_b = pd.DataFrame(
-            {
-                "a": pd.Series([4.0, 5.0, 6.0], dtype="float32"),  # different values, same dtype
-                "b": pd.Series(["x", "y", "z"], dtype="category"),
-            }
-        )
+        # A fresh frame with the SAME content (the pre_pipeline returns new frames between fit and metrics). A frame with
+        # different values must NOT reuse the Pool: its predictions would be the cached data's.
+        df_b = df_a.copy()
         assert id(df_a) != id(df_b)
 
         # Manually populate the cache with a fake Pool keyed by id(df_a)
@@ -1614,15 +1609,11 @@ class TestCBValPoolCacheContentFallback:
         fake_pool._mlframe_dtypes_sig = tuple(str(d) for d in df_a.dtypes)
         cols_a = tuple(df_a.columns)
         shape_a = (df_a.shape[0], df_a.shape[1])
-        key = (
-            id(df_a),
-            cols_a,
-            shape_a,
-            (),
-            (),
-            (),
-        )  # cat/text/embedding empty tuples to match storage shape
-        _CB_VAL_POOL_CACHE[key] = fake_pool
+        from mlframe.training._dataset_cache_fingerprint import compute_signature
+
+        # The key the fit side (``cb._cb_pool``) writes: content signature plus the (cat, text, embedding) lists.
+        assert cols_a and shape_a
+        _CB_VAL_POOL_CACHE[compute_signature(df_a, extra=((), (), ()))] = fake_pool
 
         # Lookup with df_b: id miss, but cols+shape+dtypes match → hit.
         calls = []
