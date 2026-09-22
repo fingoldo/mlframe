@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 20 | 0 | 10 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 15 | 0 | 7 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 16 | 0 | 6 | 0 | 0 |
 | `suite_integration.md` | 19 | 11 | 0 | 8 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 9 | 7 | 25 | 0 | 0 |
-| **Total** | **179** | **101** | **18** | **59** | **1** | **0** |
+| **Total** | **179** | **102** | **18** | **58** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -115,7 +115,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `EST-19` | The `lag_predict` component that ships in CT_ENSEMBLE is never fit, so NaN lag rows at predict time are imputed with the median of the predict batch itself | fitted on train at injection; unfitted predict with a missing lag raises instead of using the batch median |
 | **RESOLVED** | P3 | `EST-20` | `predict` / `predict_quantile` change shared state without synchronisation | stats under a lock; soft_shrink_info_ per thread; 8x150 threaded test |
 | **TODO** | P3 | `EST-21` | `from_fitted_inner` cannot express grouped transforms or recurrence continuation | |
-| **TODO** | P3 | `EST-22` | Routers and vetoes chosen on the val split are then reported with val-split metrics as if those were held-out | |
+| **RESOLVED** | P3 | `EST-22` | Routers and vetoes chosen on the val split are then reported with val-split metrics as if those were held-out | val-selected ensembles flagged in metadata and tagged in the verdict |
 
 ### `suite_integration.md`
 

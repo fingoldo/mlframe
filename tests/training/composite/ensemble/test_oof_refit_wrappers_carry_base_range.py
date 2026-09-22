@@ -35,6 +35,9 @@ def test_every_oof_refit_passes_its_training_base(monkeypatch):
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True, base_candidates=["TVT_prev"], transforms=["diff", "linear_residual"], mi_sample_n=200,
         top_k_after_mi=2, eps_mi_gain=-1.0, cross_target_ensemble_strategy="oof_weighted",
+        # The fixture's gains sit below the default ship floor; only a spec that is actually trained gets OOF refits (an
+        # untrained spec left in the metadata used to be refit too, which is what this test once observed).
+        min_honest_gain_to_train=None,
     )
     tmp = pathlib.Path(tempfile.mkdtemp())
     train_mlframe_models_suite(

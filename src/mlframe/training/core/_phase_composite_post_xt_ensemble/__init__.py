@@ -18,6 +18,7 @@ from ..utils import _build_full_column_from_splits
 from .._phase_composite_post_lag_predict import _LagPredictDeployableModel
 from ._post_xt_ensemble_mtr import _build_mtr_per_column_ensemble
 from ._crossfit import gate_stack_rmse, refit_capped_stack
+from ._lag_routing import attach_val_selected_lag_routers
 from ._prescreen import (
     PRESCREEN_SAFETY, apply_dummy_floor_gate, dummy_floor_from_metadata, leaky_rmse_keep_mask, prescreen_frame, same_split_dummy_rmse,
 )
@@ -855,40 +856,10 @@ def _build_cross_target_ensemble_for_target(
                         _orig_tname, _oof_names[_val_veto_idx], _lag_failsafe_tol * 100.0,
                     )
                     _deployed = _oof_components[_val_veto_idx]
-                    # Per-row OOD-lag routing on top: the trained model wins overall but still extrapolates on unseen
-                    # groups whose target level is out of the train range; route those rows (lag out of range) to lag,
-                    # but only when it improves the honest val RMSE. Transferable (train-range rule, not group-id).
-                    try:
-                        from .._ood_lag_router import build_ood_lag_router
-                        _ytr = (np.asarray(_oof_y_full)[filtered_train_idx].astype(np.float64)
-                                if (_oof_y_full is not None and filtered_train_idx is not None) else None)
-                        _yv = (np.asarray(_oof_y_full)[filtered_val_idx].astype(np.float64)
-                               if (_oof_y_full is not None and filtered_val_idx is not None) else None)
-                        _deployed = build_ood_lag_router(
-                            _deployed, _oof_components[_oof_names.index("lag_predict")],
-                            _ytr, filtered_val_df, _yv, composite_target_discovery_config,
-                        )
-                    except Exception as _rr_err:  # -- routing is advisory; keep the trained model
-                        logger.info("[CompositeCrossTargetEnsemble] target='%s' OOD-lag routing skipped (%s).", _orig_tname, _rr_err)
-                    # Per-row VOLATILITY-lag routing: on a strong-AR target the lag-wins groups are IN-range but locally
-                    # SMOOTH, which the range rule above cannot catch. Route rows whose MD-local target volatility is low
-                    # (lag near-perfect) to lag, only when it improves the honest val RMSE. Needs group_column + a MD
-                    # order column (time_column) on the frame -- ordering is explicit, never a frame-row-order guess.
-                    try:
-                        from .._volatility_lag_router import build_volatility_lag_router
-                        _yv2 = (np.asarray(_oof_y_full)[filtered_val_idx].astype(np.float64)
-                                if (_oof_y_full is not None and filtered_val_idx is not None) else None)
-                        _ctx_g2 = getattr(ctx, "group_ids", None) if ctx is not None else None
-                        _gids_val2 = np.asarray(_ctx_g2)[filtered_val_idx] if (_ctx_g2 is not None and filtered_val_idx is not None) else None
-                        _deployed = build_volatility_lag_router(
-                            _deployed, _oof_components[_oof_names.index("lag_predict")],
-                            _gids_val2, filtered_val_df, _yv2,
-                            getattr(composite_target_discovery_config, "group_column", None),
-                            getattr(composite_target_discovery_config, "time_column", None),
-                            composite_target_discovery_config,
-                        )
-                    except Exception as _vr_err:  # -- advisory; keep whatever we have
-                        logger.info("[CompositeCrossTargetEnsemble] target='%s' volatility-lag routing skipped (%s).", _orig_tname, _vr_err)
+                    _deployed = attach_val_selected_lag_routers(
+                        _deployed, _oof_components[_oof_names.index("lag_predict")], _oof_y_full, filtered_train_idx, filtered_val_idx,
+                        filtered_val_df, ctx, composite_target_discovery_config, metadata, _tt_e, _orig_tname,
+                    )
                     _ensemble = _deployed
                     _lag_failsafe_taken = True
                 elif _lag_failsafe_tol > 0 and "lag_predict" in _oof_names and np.isfinite(_best_single_rmse):
