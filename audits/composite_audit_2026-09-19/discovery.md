@@ -126,7 +126,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The stability filter is weaker than documented, and the shipped params are estimated on half the data.
 - **Suggested fix**: Use `math.ceil(min_keep_fraction * n_bootstrap_runs)`. After selecting stable names, refit those specs once on the full screen pool, or document that params come from a subsample and re-stamp `report_` consistently.
 - **Test to add**: With `n_bootstrap_runs=3` and a spec forced to appear in exactly 1 run, the spec must not be in `specs_`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The stability-check majority threshold rounds up (`ceil(min_keep_fraction * n_bootstrap_runs)`, floored at 1): n=3 at 0.6 now needs 2 runs where `int(1.8) = 1` kept a spec found once, and n=5 is unchanged at 3. Regression test `test_the_stability_check_drops_a_spec_found_in_one_run_of_three` (test_null_canaries.py) scripts three runs and asserts the once-found spec is dropped and the twice-found one kept; it fails before the fix.
 
 ### DSC-16 [P2] Incremental drift detection cannot fire under default config
 - **Where**: `_incremental.py:237` (`eps = config.eps_mi_gain`, default -10.0) and `:276-281`. The sample is drawn over the whole new frame at `:269`.

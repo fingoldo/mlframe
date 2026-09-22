@@ -19,7 +19,9 @@ _REPRESENTATIVES = {
     "linear_residual", "diff", "ratio", "log_y", "quantile_residual", "monotonic_residual", "linear_residual_grouped",
     "target_encoding_residual", "ewma_residual", "chain_linres_cbrt",
 }
-_PARAMS = [n if n in _REPRESENTATIVES else pytest.param(n, marks=pytest.mark.slow) for n in sorted(TRANSFORMS_REGISTRY)]
+# Snapshot at collection: other tests register auto-chain transforms at runtime, so the live registry can grow afterwards.
+_NAMES = sorted(TRANSFORMS_REGISTRY)
+_PARAMS = [n if n in _REPRESENTATIVES else pytest.param(n, marks=pytest.mark.slow) for n in _NAMES]
 
 
 def _frame(n: int = 600, seed: int = 0) -> pd.DataFrame:
@@ -49,8 +51,8 @@ def _run(transform: str):
 
 def test_every_registry_transform_is_covered():
     """The parametrisation spans the whole registry, and every representative is a registered name."""
-    assert len(_PARAMS) == len(TRANSFORMS_REGISTRY)
-    assert _REPRESENTATIVES <= set(TRANSFORMS_REGISTRY)
+    assert len(_PARAMS) == len(_NAMES) and set(_NAMES) <= set(TRANSFORMS_REGISTRY)
+    assert _REPRESENTATIVES <= set(_NAMES)
 
 
 @pytest.mark.parametrize("transform", _PARAMS)

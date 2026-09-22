@@ -239,6 +239,7 @@ def apply_honest_rmse_gate(
 
     tol = float(getattr(cfg, "honest_rmse_gate_tolerance", 1.05))
     threshold = raw_rmse * tol
+    const_rmse = rmse(y_eval, np.full(y_eval.shape, float(np.mean(y_fit))))  # the null (see _no_better_than_constant)
     survivors: list = []
     rejected: list[tuple[str, str]] = []
 
@@ -294,6 +295,8 @@ def apply_honest_rmse_gate(
             ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
                           numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "tol": float(tol)}, **_led_kw)
             continue
+        if _no_better_than_constant(self, spec, rejected, rmse_y, const_rmse, _led_kw):
+            continue
         # A reconstruction that duplicates the raw model ships a second model for nothing (see the helper).
         _corr = _correlation_if_duplicate_of_raw(y_hat[finite], np.asarray(_raw_pred, dtype=np.float64)[finite], rmse_y, raw_rmse)
         if _corr is not None:
@@ -309,14 +312,26 @@ def apply_honest_rmse_gate(
         survivors.append(spec)
 
     if rejected:
-        logger.warning(
-            "[CompositeTargetDiscovery.honest_rmse_gate] dropped %d/%d spec(s) whose y-scale honest-holdout "
-            "RMSE loses to the raw-y tiny baseline (raw RMSE=%.4g, tol=%.2f): %s",
-            len(rejected), len(kept_specs), raw_rmse, tol,
-            ", ".join(f"{n}({why})" for n, why in rejected),
-        )
+        logger.warning("[CompositeTargetDiscovery.honest_rmse_gate] dropped %d/%d spec(s) whose y-scale honest-holdout RMSE loses to the raw-y "
+                       "tiny baseline or the constant (raw RMSE=%.4g, tol=%.2f): %s", len(rejected), len(kept_specs), raw_rmse, tol,
+                       ", ".join(f"{n}({why})" for n, why in rejected))
     _log_gate_summary(survivors, len(kept_specs), raw_rmse, tol)
     return survivors
+
+
+def _no_better_than_constant(self: Any, spec: Any, rejected: list, rmse_y: float, const_rmse: float, led_kw: dict) -> bool:
+    """Reject (and ledger) a spec whose honest y-RMSE does not beat the constant train-mean prediction; True when rejected.
+
+    The null is the constant, not the raw tiny model: on a signal-free target the raw model overfits noise and loses to the
+    constant, so a composite "beat raw" by 2-3 standard errors while predicting nothing (10 noise specs on one seed).
+    """
+    if not (np.isfinite(const_rmse) and rmse_y >= const_rmse):
+        return False
+    reason = f"honest y-RMSE={rmse_y:.4g} is no better than the constant train mean ({const_rmse:.4g})"
+    rejected.append((spec.name, reason))
+    ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=reason,
+                  numbers={"rmse_y": float(rmse_y), "constant_rmse": float(const_rmse)}, **led_kw)
+    return True
 
 
 def _fit_predict_masked(fit_predict: Any, t_fit_valid: np.ndarray, valid: np.ndarray) -> np.ndarray:

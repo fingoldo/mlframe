@@ -170,7 +170,7 @@ def fit_with_stability_check(
         # standalone ``fit`` calls carve normally.
         self.config = _saved_cfg
         self._stability_shared_holdout_idx = None
-    threshold = max(1, int(min_keep_fraction * n_bootstrap_runs))
+    threshold = max(1, int(np.ceil(min_keep_fraction * n_bootstrap_runs - 1e-9)))  # round UP: int(0.6 * 3) kept a spec found once
     stable_names = [n for n, c in keep_counter.items() if c >= threshold]
     self.specs_ = [spec_by_name[n] for n in stable_names if n in spec_by_name]
     self.stability_counts_ = dict(keep_counter)

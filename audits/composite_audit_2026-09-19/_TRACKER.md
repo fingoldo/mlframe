@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 23 | 0 | 7 | 0 | 0 |
+| `discovery.md` | 30 | 24 | 0 | 6 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 18 | 0 | 4 | 0 | 0 |
 | `suite_integration.md` | 19 | 15 | 0 | 4 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 12 | 16 | 13 | 0 | 0 |
-| **Total** | **179** | **114** | **27** | **37** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 12 | 17 | 12 | 0 | 0 |
+| **Total** | **179** | **115** | **28** | **35** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -73,7 +73,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `DSC-12` | The discovery disk-cache key leaves out inputs that change the result | cache key includes group ids, hint strengths, time order and the val frame |
 | **TODO** | P2 | `DSC-13` | The yscale gate's fallback path evaluates on rows the transform params were fit on | |
 | **RESOLVED** | P2 | `DSC-14` | Stacked and stability-check fits drop `time_ordering`, `val_df` and `val_y` | variants forward time_ordering/val_df/val_y; phase passes them to stacked fits |
-| **TODO** | P2 | `DSC-15` | The stability-check majority threshold is truncated, so n=3 keeps specs found once | |
+| **RESOLVED** | P2 | `DSC-15` | The stability-check majority threshold is truncated, so n=3 keeps specs found once | majority threshold rounds up |
 | **RESOLVED** | P2 | `DSC-16` | Incremental drift detection cannot fire under default config | same-rows reference gain; appended rows only; default config now detects a destroyed base |
 | **RESOLVED** | P2 | `DSC-17` | The cross-target composite budget sorts three incompatible gain units together | budget ranks RMSE-gain tier before MI tier |
 | **RESOLVED** | P2 | `DSC-18` | The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection | composite-vs-raw verdict on test; val shown for reference; cross-split refuses a verdict |
@@ -214,7 +214,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P2 | `PMT-16` | polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared) | carrier parity for OOF + row slicers (EST-07 and 4 siblings fixed); shared scanner open |
 | **PARTIAL** | P1 | `PMT-17` | Absorption and consistency on each transform's canonical DGP | canonical-DGP absorption for all 40 base transforms; fixed quantile_residual small-n; smoother/grouped legs open |
 | **PARTIAL** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | self-influence canaries (causal bases, OOF encoding, all transforms <0.1); leg c spy pending DSC-13/EST-17 |
-| **TODO** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | |
+| **PARTIAL** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | null canaries; found + fixed noise specs shipping (constant-mean null in the honest gate); DSC-20 + meta-guard open |
 | **RESOLVED** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | liveness registry: every default-on knob mapped to its effect test; found dead MoE params + 3 inert defaults (fixed) |
 | **RESOLVED** | P1 | `PMT-21` | Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST) | AST persist-after-mutate over training/core; fires on the INT-02 shape |
 | **PARTIAL** | P1 | `PMT-22` | One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts | one-run suite contract fixture, 7 identity legs; d/h/i suite variants + TST-17 rewrite open |

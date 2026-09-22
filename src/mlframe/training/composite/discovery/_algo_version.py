@@ -6,4 +6,4 @@ change which specs are selected; ``tests/test_meta/test_discovery_algo_version_b
 without a bump (a bump re-pins the source hash automatically).
 """
 
-DISCOVERY_ALGO_VERSION: int = 1
+DISCOVERY_ALGO_VERSION: int = 2

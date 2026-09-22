@@ -124,7 +124,9 @@ def test_biz_val_honest_holdout_debiases_pure_noise_winner():
         df = _pure_noise_df(n=12000, seed=s)
         disc = _run(
             df,
-            _make_config(random_state=s, base_candidates=base_cands, mi_sample_n=3000, honest_holdout_frac=0.35),
+            # This measures the MI winner's curse, so the specs must reach the report: the honest RMSE gate rightly drops every
+            # noise spec (none beats the constant train mean), which is covered by test_null_canaries.py.
+            _make_config(random_state=s, base_candidates=base_cands, mi_sample_n=3000, honest_holdout_frac=0.35, honest_rmse_gate_enabled=False),
             feat,
             train_frac=0.9,
         )
