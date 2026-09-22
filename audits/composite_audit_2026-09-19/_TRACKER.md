@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 8 | 0 | 11 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 7 | 5 | 29 | 0 | 0 |
-| **Total** | **179** | **94** | **16** | **68** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 8 | 5 | 28 | 0 | 0 |
+| **Total** | **179** | **95** | **16** | **67** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -215,7 +215,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P1 | `PMT-17` | Absorption and consistency on each transform's canonical DGP | canonical-DGP absorption for all 40 base transforms; fixed quantile_residual small-n; smoother/grouped legs open |
 | **PARTIAL** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | self-influence canaries (causal bases, OOF encoding, all transforms <0.1); leg c spy pending DSC-13/EST-17 |
 | **TODO** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | |
-| **TODO** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | |
+| **RESOLVED** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | liveness registry: every default-on knob mapped to its effect test; found dead MoE params + 3 inert defaults (fixed) |
 | **TODO** | P1 | `PMT-21` | Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST) | |
 | **TODO** | P1 | `PMT-22` | One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts | |
 | **TODO** | P2 | `PMT-23` | State parity across alternate constructors: fit() vs from_fitted_inner() vs update() vs unpickle | |
