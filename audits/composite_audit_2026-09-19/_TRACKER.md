@@ -18,11 +18,11 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 19 | 0 | 11 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 14 | 0 | 8 | 0 | 0 |
-| `suite_integration.md` | 19 | 10 | 0 | 9 | 0 | 0 |
+| `suite_integration.md` | 19 | 11 | 0 | 8 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 9 | 5 | 27 | 0 | 0 |
-| **Total** | **179** | **98** | **16** | **64** | **1** | **0** |
+| **Total** | **179** | **99** | **16** | **63** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -128,7 +128,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `INT-05` | Auto-chain transforms exist only in the training process's registry, so a pickled composite model fails in a fresh process | the wrapper re-registers its own auto-chain transform on unpickle and the loaders re-register every transform named by the saved specs (dbe77db39; test_fresh_process_serves_every_composite_target) |
 | **RESOLVED** | P1 | `INT-06` | The documented precomputed `composite_target_specs` fast path never trains any composite target | caller-supplied specs are now replayed through the discovery phase exactly like a cache hit (same forward-applier, auto-chain re-registration, dedup and global cap) instead of only seeding metadata, and the replay runs even with enabled=False since reuse means skipping the search, not the training (test_precomputed_composite_specs_train.py, 4 tests; they fail at origin/master, where the phase has no such parameter) |
 | **RESOLVED** | P2 | `INT-07` | `transforms=[...]` does not restrict auto-chain: chain specs are added outside the user's whitelist | auto-chain gated on a chain_* entry in the transforms whitelist |
-| **TODO** | P2 | `INT-08` | Suite logic identifies composite targets by a name heuristic that misses auto-chain names and matches dashed raw targets | |
+| **RESOLVED** | P2 | `INT-08` | Suite logic identifies composite targets by a name heuristic that misses auto-chain names and matches dashed raw targets | composite status from the spec-name set at every consumer; heuristic only for legacy pickles |
 | **TODO** | P2 | `INT-09` | Listing any grouped transform in `transforms` makes discovery raise, which removes every composite for that target | |
 | **RESOLVED** | P2 | `INT-10` | The suite-end "TARGETS QUALITY" table reports composite rows on T-scale beside raw rows on y-scale, and is never persisted | scale column; composite rows from y-scale metrics; CSV written under data_dir |
 | **RESOLVED** | P2 | `INT-11` | Specs dropped by the global `max_total_composite_targets` cap stay in `metadata["composite_target_specs"]` with no failure record | cap- and floor-dropped specs leave metadata, recorded as failures |

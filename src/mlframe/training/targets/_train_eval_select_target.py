@@ -71,7 +71,7 @@ def select_target(
     linear_model_config: Optional[LinearModelConfig] = None,
     train_df_size_bytes: Optional[float] = None,
     val_df_size_bytes: Optional[float] = None,
-    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
+    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None, composite_names: Optional[frozenset] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     """Configure model parameters for a specific target variable.
 
@@ -126,8 +126,8 @@ def select_target(
 
     if target_type == TargetTypes.REGRESSION:
         from .._format import format_metric as _fmt
-        from ..composite.transforms import is_composite_target_name
-        _is_composite = is_composite_target_name(cur_target_name or model_name)
+        from ..composite.transforms import is_composite_target
+        _is_composite = is_composite_target(cur_target_name or model_name, composite_names)
         _tag = "MTRESID" if _is_composite else "MTTR"
         if train_t is not None and train_t.size > 0:
             model_name += f" {_tag}={_fmt(train_t.mean())}"

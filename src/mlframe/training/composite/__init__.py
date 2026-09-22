@@ -105,6 +105,8 @@ from .transforms import (
     TRANSFORM_NAME_SHORT,
     compose_target_name,
     get_transform,
+    composite_target_names,
+    is_composite_target,
     is_composite_target_name,
     list_transforms,
     # Shared helpers used by transforms (tests import some directly).
@@ -449,7 +451,7 @@ __all__ = [
     "DiscoveryCache",
     # transforms + registry
     "Transform", "get_transform", "list_transforms", "TRANSFORMS_REGISTRY",
-    "compose_target_name", "is_composite_target_name", "TRANSFORM_NAME_SHORT",
+    "compose_target_name", "composite_target_names", "is_composite_target", "is_composite_target_name", "TRANSFORM_NAME_SHORT",
     "TAG_CORE", "TAG_EXTENDED", "TAG_REGRESSION", "generate_interaction_bases",
     # uncertainty
     "conformal_quantile",

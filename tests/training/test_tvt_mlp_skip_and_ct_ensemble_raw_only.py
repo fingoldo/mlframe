@@ -97,9 +97,16 @@ class TestAlwaysBuildCtEnsembleForRaw:
         src = _module_source(_phase_composite_post)
         assert "always_build_ct_ensemble_for_raw" in src
         assert "synthesised raw-only entries" in src
-        # The synthesis must skip composite-named targets (they would
-        # double-count once their specs land).
-        assert "is_composite_target_name" in src
+        # The synthesis must skip composite targets (they would double-count once their specs land). Checked by behaviour:
+        # composite status now comes from the spec names, not from a name-shape helper this test used to grep for.
+        from mlframe.training.configs import CompositeTargetDiscoveryConfig, TargetTypes
+
+        specs = {TargetTypes.REGRESSION: {"y": [{"name": "y-chain_linear_residual_cbrt-b"}]}}
+        models = {TargetTypes.REGRESSION: {"y": [object()], "y-chain_linear_residual_cbrt-b": [object()]}}
+        merged = _phase_composite_post._with_raw_only_ensemble_entries(
+            specs, models, CompositeTargetDiscoveryConfig(), discovery_enabled=True, ce_strategy="nnls",
+        )
+        assert "y-chain_linear_residual_cbrt-b" not in merged[TargetTypes.REGRESSION]
 
     def test_target_types_import_path_is_correct(self) -> None:
         """Regression guard: the raw-only synthesis block does ``from

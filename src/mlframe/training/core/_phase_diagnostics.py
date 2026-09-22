@@ -53,8 +53,8 @@ def run_per_target_diagnostics(
     # _metrics); baseline diagnostics here would only add a misleading
     # composite-scale figure, and the discovery already evaluated these
     # candidates on the y-scale. So skip BD entirely for composite targets.
-    from ..composite.transforms import is_composite_target_name as _is_composite
-    _target_is_composite = _is_composite(cur_target_name)
+    from ..composite.transforms import composite_target_names, is_composite_target
+    _target_is_composite = is_composite_target(cur_target_name, composite_target_names(metadata))
     try:
         # Reuse cached result if composite-discovery already computed one for this pair (~30-60s saved).
         _existing_bd = metadata.get("baseline_diagnostics", {}).get(str(target_type), {}).get(cur_target_name)

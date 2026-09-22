@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from ..composite.transforms import is_composite_target_name
+from ..composite.transforms import is_composite_target
 from ._prediction_memo import with_prediction_memo
 
 logger = logging.getLogger(__name__)
@@ -121,8 +121,14 @@ def _with_raw_only_ensemble_entries(composite_specs_by_target_type, models, comp
     _reg_specs_bucket = _merged_specs.setdefault(TargetTypes.REGRESSION, {})
     _reg_models = (models or {}).get(TargetTypes.REGRESSION, {}) if models else {}
     _n_synth = 0
+    # Composite names come from the spec record itself: the name heuristic misses chain specs and matches dashed raw names.
+    _composite_names = frozenset(
+        str(s.get("name") if isinstance(s, dict) else getattr(s, "name", ""))
+        for _by_t in (composite_specs_by_target_type or {}).values() if isinstance(_by_t, dict)
+        for _sl in _by_t.values() for s in (_sl or ())
+    )
     for _raw_tname, _entries in _reg_models.items():
-        if _entries and not is_composite_target_name(str(_raw_tname)) and _raw_tname not in _reg_specs_bucket:
+        if _entries and not is_composite_target(str(_raw_tname), _composite_names) and _raw_tname not in _reg_specs_bucket:
             _reg_specs_bucket[_raw_tname] = []
             _n_synth += 1
     # Drop an empty regression bucket we created but never populated so the

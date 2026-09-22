@@ -396,6 +396,8 @@ from .naming import (
     callable_accepts,
     compose_target_name,
     get_transform,
+    composite_target_names,
+    is_composite_target,
     is_composite_target_name,
     list_transforms,
 )
