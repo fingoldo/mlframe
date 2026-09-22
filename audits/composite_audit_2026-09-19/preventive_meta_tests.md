@@ -525,7 +525,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low.
 - **Runtime**: about 5-10 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New tests/training/composite/estimator/test_stage_routing_contract.py. `StageSentinelInner` fingerprints the frame it was fit on (columns, per-column mean/std) and raises on any other stage. The base is checked through the y-scale RMSE against a large-scale raw base: reading it scaled lands 50+ off. Covered entry points: a wrapper carrying `inner_pre_pipeline` (`predict(raw)`); a pipeline-less wrapper through `composite_predict`, the route `predict_from_models` uses; `PrePipelinePredictShim`; and a CT ensemble of shims. Each must reach RMSE < 1 on a y with noise sd 0.5. A canary pins both misroutes. Proof: disabling `composite_predict`'s stage computation (the EST-01 shape) fails with the inner seeing a 152.9-sd mean drift. Not built: the MoE wrapper, the wrap-pass metric block, the per-model hook, `_get_train_pred` and the OOF refits as entry points, and the meta-guard registering every class that holds `estimator_` plus a base read.
 
 ### PMT-32 [P1] Fresh-process persistence round trip for every registry transform and the whole auto-chain name space
 - **Asserts**:
