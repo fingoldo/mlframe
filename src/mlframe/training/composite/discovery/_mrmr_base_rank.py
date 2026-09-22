@@ -43,6 +43,16 @@ def mrmr_rank_bases(
     ``relevance[c] - beta * mean redundancy(c, picked)``. ``beta=0`` reduces to
     pure relevance ordering. Returns at most ``k`` candidates (fewer if the pool
     is smaller); ``k <= 0`` returns ``[]``.
+
+    Both terms are rescaled to the pool's own maximum before they are combined.
+    The two are different mutual-information quantities: relevance is feature-to-target,
+    redundancy is feature-to-feature, and the second is routinely far larger,
+    especially against a low-cardinality target. Subtracting them raw at
+    ``beta=1`` let the redundancy term dominate by its scale alone, so the order
+    was driven almost entirely by diversity and the genuinely most relevant
+    candidates could be pushed down the shortlist - the opposite of trading a
+    little relevance for diversity. Rescaled, ``beta`` means what it reads as:
+    the weight of diversity against relevance, both in [0, 1].
     """
     n = len(candidates)
     if n == 0 or k <= 0:
@@ -74,11 +84,17 @@ def mrmr_rank_bases(
     # Running redundancy sum per remaining candidate vs the picked set, so each
     # step is O(remaining) instead of re-summing over all picked candidates.
     red_sum = {i: _red(i, first) for i in remaining}
+    # Put both terms on one scale. The relevance scale is known up front; the redundancy scale comes from the first pick's row, which the
+    # line above has already evaluated, so this costs nothing extra even when redundancy is a callable.
+    _rel_scale = float(np.max(np.abs(rel))) if rel.size else 0.0
+    _rel_scale = _rel_scale if _rel_scale > 0.0 else 1.0
+    _red_scale = max((abs(v) for v in red_sum.values()), default=0.0)
+    _red_scale = _red_scale if _red_scale > 0.0 else 1.0
     while len(picked) < target_k and remaining:
         n_picked = len(picked)
         nxt = max(
             remaining,
-            key=lambda i: (rel[i] - beta * (red_sum[i] / n_picked), -i),
+            key=lambda i: (rel[i] / _rel_scale - beta * (red_sum[i] / n_picked) / _red_scale, -i),
         )
         picked.append(nxt)
         remaining.remove(nxt)

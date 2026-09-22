@@ -2421,7 +2421,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # scorers operate on the univariate stage only - callers needing
         # both should keep ``"plug_in"`` and toggle the per-stage opt-in
         # flags individually.
-        fe_hybrid_orth_default_scorer: str = "cmim",
+        fe_hybrid_orth_default_scorer: str = "plug_in",
         # extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);

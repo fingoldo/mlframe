@@ -128,7 +128,7 @@ class HybridOrthScorersConfig(_MRMRSubConfig):
     meta_force_scorer: Optional[Literal["plug_in", "ksg", "copula", "dcor", "hsic", "jmim", "cmim", "tc"]] = None
     default_scorer: Literal[
         "plug_in", "cmim", "jmim", "tc", "ksg", "copula", "dcor", "hsic", "auto", "ensemble", "meta", "lasso", "elasticnet", "auto_oracle"
-    ] = "cmim"
+    ] = "plug_in"
 
 
 class HybridOrthConfig(_MRMRSubConfig):

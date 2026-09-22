@@ -256,6 +256,21 @@ class _MRMRConfigMixin:
         last on every redundant fixture. Callers that do not know which
         scorer to pick should default to the return value of this method.
 
+        bench-attempt-rejected (2026-09-22): adopting this recommendation as the SHIPPED
+        ctor default was tried and reverted. Flipping
+        ``fe_hybrid_orth_default_scorer`` and ``HybridOrthScorersConfig.default_scorer``
+        to ``"cmim"`` failed 13 of this repo's own hybrid-orth business-value tests -
+        ``test_fourier_column_in_hybrid_features``, ``test_xor_pair_in_hybrid_features``,
+        ``test_periodic_lifts_fourier_not_polynomial`` and
+        ``test_hybrid_lifts_auc_and_picks_cross`` - which all pass on ``"plug_in"``
+        (14 passed in the control run, same fixtures, same seeds). The L83 AUC
+        leaderboard and those contracts disagree: CMIM routes the univariate
+        basis-selection stage differently and the Fourier / XOR / cross columns those
+        tests require stop being emitted. So this method keeps returning the
+        bake-off winner, for callers who want it, and the shipped default stays
+        ``"plug_in"`` until a benchmark reconciles the two. Set the flag explicitly
+        to opt in.
+
         Layer 86 accelerated JMIM (~2.3x) and TC (~5.0x)
         via batched quantile binning + invariant support-side joint
         precompute; the perf improvement does NOT change the L83 AUC
