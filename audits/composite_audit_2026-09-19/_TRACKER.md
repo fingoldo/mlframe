@@ -18,11 +18,11 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 20 | 0 | 10 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 16 | 0 | 6 | 0 | 0 |
-| `suite_integration.md` | 19 | 11 | 0 | 8 | 0 | 0 |
+| `suite_integration.md` | 19 | 12 | 0 | 7 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 9 | 7 | 25 | 0 | 0 |
-| **Total** | **179** | **102** | **18** | **58** | **1** | **0** |
+| **Total** | **179** | **103** | **18** | **57** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -134,7 +134,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `INT-11` | Specs dropped by the global `max_total_composite_targets` cap stay in `metadata["composite_target_specs"]` with no failure record | cap- and floor-dropped specs leave metadata, recorded as failures |
 | **TODO** | P2 | `INT-12` | On the supported pandas range, discovery materialises a full copy of the train frame for every regression target | |
 | **TODO** | P3 | `INT-13` | The default model cache reuses a composite inner model whose target definition has changed | |
-| **TODO** | P3 | `INT-14` | The discovery "winning-spec" charts plot y and T over all rows, including test rows and median-imputed T values | |
+| **RESOLVED** | P3 | `INT-14` | The discovery "winning-spec" charts plot y and T over all rows, including test rows and median-imputed T values | charts plot train rows with a real T; imputed fill kept out of charts and dedup |
 | **RESOLVED** | P3 | `INT-15` | Two config fields are accepted and documented as effective but do nothing, with no warning | non-default values warn; misleading config comment fixed; allowlist entries removed |
 | **TODO** | P3 | `INT-16` | Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on | |
 | **TODO** | P3 | `INT-17` | The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target | |

@@ -25,8 +25,13 @@ def _render_composite_discovery_diagnostics(
     y_full: np.ndarray,
     t_by_spec: Dict[str, np.ndarray],
     specs_export: List[dict],
+    train_idx: Any = None,
 ) -> List[str]:
     """Render the winning-spec target-distribution + MI-gain diagnostics into the run's chart tree.
+
+    The y-vs-T chart is a train-time selection diagnostic, so it plots the ``train_idx`` rows only, and only those with a
+    finite T: a domain-violating row has no T (drawing it at an imputed constant made a spurious spike), and val / test
+    rows must not shape it. The number of rows left out is in the title.
 
     One ``plot_mi_gain_with_jitter`` per raw target (ranks the accepted specs), plus one
     ``plot_target_distribution`` per accepted spec (y-vs-T shape sanity-check). Both are small
@@ -71,12 +76,16 @@ def _render_composite_discovery_diagnostics(
         except Exception as _mi_err:
             logger.info("[CompositeTargetDiscovery] mi-gain diagnostic render failed for '%s': %s.", raw_target_name, _mi_err)
     _spec_meta = {str(d.get("name")): d for d in (specs_export or []) if isinstance(d, dict)}
+    _rows = np.arange(len(y_full)) if train_idx is None else np.asarray(train_idx)
     for _spec_name, _t_full in t_by_spec.items():
         _safe_spec = "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(_spec_name))
+        _y_tr, _t_tr = np.asarray(y_full, dtype=np.float64)[_rows], np.asarray(_t_full, dtype=np.float64)[_rows]
+        _ok = np.isfinite(_y_tr) & np.isfinite(_t_tr)
+        _left_out = f", {int((~_ok).sum())} train rows without a finite T left out" if not _ok.all() else ""
         try:
             _save(
                 plot_target_distribution(
-                    y_full, _t_full, title=f"Target distribution: y vs T ({_spec_name})",
+                    _y_tr[_ok], _t_tr[_ok], title=f"Target distribution on train: y vs T ({_spec_name}{_left_out})",
                     y_name=str(raw_target_name),
                     transform_name=_spec_meta.get(_spec_name, {}).get("transform_name"),
                     base_column=_spec_meta.get(_spec_name, {}).get("base_column") or None,

@@ -794,12 +794,12 @@ def run_composite_target_discovery(
                     _ct_t_full[_valid] = _transform.forward(
                         _y_arr[_valid], _base_for_forward, _spec.fitted_params,
                     )
+                _t_by_spec_for_charts[_spec.name] = _ct_t_full.copy()  # un-imputed: charts and the dedup must not see the fill value
                 if not np.all(np.isfinite(_ct_t_full)):
                     _t_train_for_median = _ct_t_full[filtered_train_idx]
                     _t_train_for_median = _t_train_for_median[np.isfinite(_t_train_for_median)]
                     if _t_train_for_median.size > 0:
                         _ct_t_full[~np.isfinite(_ct_t_full)] = float(np.median(_t_train_for_median))
-                _t_by_spec_for_charts[_spec.name] = _ct_t_full
                 # Not written to target_by_type yet -- buffered so the max_total_composite_targets budget
                 # (spent across ALL base targets, not per-target) can pick the best-scoring specs seen so
                 # far across the WHOLE run once every target's own discovery has finished. See the
@@ -838,7 +838,7 @@ def run_composite_target_discovery(
                     _saved_charts = _render_composite_discovery_diagnostics(
                         data_dir=data_dir,
                         raw_target_name=_tname_disc,
-                        y_full=_y_arr,
+                        y_full=_y_arr, train_idx=filtered_train_idx,
                         t_by_spec=_t_by_spec_for_charts,
                         specs_export=list(_chart_specs or []),
                     )

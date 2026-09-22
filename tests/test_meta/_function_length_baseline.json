@@ -273,7 +273,7 @@
   "src/mlframe/training/composite/provenance.py::report_to_markdown": 161,
   "src/mlframe/training/composite/streaming.py::streaming_alpha_check_and_refit": 195,
   "src/mlframe/training/composite/transforms/linear.py::_linear_residual_grouped_fit": 197,
-  "src/mlframe/training/core/_main_train_suite.py::train_mlframe_models_suite": 697,
+  "src/mlframe/training/core/_main_train_suite.py::train_mlframe_models_suite": 684,
   "src/mlframe/training/core/_main_train_suite_target_distribution.py::_maybe_auto_drop_after_feature_analyzer": 193,
   "src/mlframe/training/core/_main_train_suite_target_distribution.py::_run_target_distribution_analyzer": 330,
   "src/mlframe/training/core/_misc_helpers.py::_validate_input_columns_against_metadata": 188,

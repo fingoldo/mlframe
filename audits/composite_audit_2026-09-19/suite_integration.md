@@ -127,7 +127,7 @@ Overlap notes: DSC-12 (cache key contents), DSC-18 (verdict split), DSC-20 (auto
 - **Why it matters**: The chart that justifies a spec to the operator is drawn on the wrong split and on fabricated values.
 - **Suggested fix**: Slice both arrays to `filtered_train_idx`, or plot train and val/test as separate series. Exclude imputed rows, or show their count in the title.
 - **Test to add**: The rendered data arrays passed to `plot_target_distribution` have length `len(filtered_train_idx)` and contain no imputed constant.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `_render_composite_discovery_diagnostics` takes `train_idx` and plots y vs T on the train rows only, and only where both are finite; the title counts the train rows left out. The discovery phase now hands the charts (and the equivalence dedup, whose envelope and affinity checks already skip non-finite T) the un-imputed T; the median fill is applied only to the values that go into training. Before, the envelope was computed on T with the fill value mixed in. Regression test tests/training/core/test_discovery_chart_rows.py: only train rows with a finite T reach `plot_target_distribution`. Before the fix the helper had no train restriction.
 
 ### INT-15 [P3] Two config fields are accepted and documented as effective but do nothing, with no warning
 - **Where**: `training/_composite_target_discovery_config_base.py:642` (`force_inject_diff_on_top_ablation_pct`, "Enable by setting > 0.0") and `:758` (`structural_fragility_max_amplification_ratio`). Neither is read anywhere under `src/`. Both are allowlisted in `tests/test_meta/test_config_field_consumption.py:80-81`.
