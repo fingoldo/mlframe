@@ -45,6 +45,9 @@ def _render_composite_discovery_diagnostics(
     Discovery runs before any model exists, hence a ``composite_discovery`` leaf rather than the per-model
     ``<model>/<target_type>/<cur_target>`` tail the trained-model charts use.
     """
+    from ..composite._row_roles import note_rows
+
+    note_rows("train", "plot", "discovery_target_distribution_chart", train_idx)
     import os
 
     import matplotlib.pyplot as plt

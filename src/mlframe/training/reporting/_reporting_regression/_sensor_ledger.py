@@ -17,7 +17,7 @@ from typing import Any
 _TRIPS: dict[str, list[dict[str, Any]]] = {}
 _LOCK = threading.Lock()
 
-__all__ = ["record_sensor_trip", "sensor_trips_for", "clear_sensor_trips", "all_sensor_trips"]
+__all__ = ["record_sensor_trip", "sensor_trips_for", "clear_sensor_trips"]
 
 
 def record_sensor_trip(model_name: Any, sensor: str, branch: str, **details: Any) -> None:
@@ -35,12 +35,6 @@ def sensor_trips_for(model_name: Any) -> list[dict[str, Any]]:
     """Every trip recorded for ``model_name`` so far, oldest first; empty when it has tripped nothing."""
     with _LOCK:
         return list(_TRIPS.get(str(model_name), ()))
-
-
-def all_sensor_trips() -> dict[str, list[dict[str, Any]]]:
-    """Snapshot of the whole ledger, for a suite-end verdict that wants to rank models by how loudly they failed."""
-    with _LOCK:
-        return {k: list(v) for k, v in _TRIPS.items()}
 
 
 def clear_sensor_trips() -> None:

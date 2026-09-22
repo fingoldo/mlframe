@@ -51,6 +51,7 @@ from ..estimator._smearing import N_SMEAR_QUANTILES, SMEARED_TRANSFORMS, smeared
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array
 from ._rejection_ledger import RejectStage, ledger_append
+from .._row_roles import note_rows
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
 from ._rejection_ledger import spec_inverse
 from ._screening_tiny import _build_tiny_model
@@ -171,17 +172,15 @@ def apply_honest_rmse_gate(
     disabled, there are no specs, the honest holdout is absent/too small, or the raw-y
     baseline itself cannot be fit (nothing sound to gate against).
     """
+    note_rows("honest_holdout", "select", "honest_rmse_gate", holdout_idx)
     cfg = self.config
     if not getattr(cfg, "honest_rmse_gate_enabled", True) or not kept_specs:
         return kept_specs
     if holdout_idx is None or np.asarray(holdout_idx).size < 50:
-        logger.info(
-            "[CompositeTargetDiscovery.honest_rmse_gate] no usable honest holdout " "(honest_holdout_frac disabled or too small) -- OOS RMSE gate skipped."
-        )
+        logger.info("[CompositeTargetDiscovery.honest_rmse_gate] no usable honest holdout (honest_holdout_frac disabled or too small) -- OOS RMSE gate skipped.")
         return kept_specs
 
-    screen_idx = np.asarray(screen_idx)
-    holdout_idx = np.asarray(holdout_idx)
+    screen_idx, holdout_idx = np.asarray(screen_idx), np.asarray(holdout_idx)
     cap = int(getattr(cfg, "honest_rmse_gate_sample_n", 20_000))
     rng = np.random.default_rng(int(getattr(cfg, "random_state", 0)))
 

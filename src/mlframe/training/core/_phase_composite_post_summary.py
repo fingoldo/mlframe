@@ -188,6 +188,9 @@ def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics:
     test metric alongside. Composite models with no y-scale metric recorded (typically ensembles, which bypass the per-model
     y-scale hook) are listed explicitly instead of being dropped.
     """
+    from ..composite._row_roles import note_rows
+
+    note_rows("test", "verdict", "composite_vs_raw_verdict")
     from ..metrics_registry import metric_name_higher_is_better as _mhb
 
     _dummies = metadata.get("dummy_baselines", {}) or {}

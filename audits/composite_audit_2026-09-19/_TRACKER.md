@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 12 | 0 | 7 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 9 | 7 | 25 | 0 | 0 |
-| **Total** | **179** | **103** | **18** | **57** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 9 | 8 | 24 | 0 | 0 |
+| **Total** | **179** | **103** | **19** | **56** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -224,7 +224,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `PMT-26` | Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test | |
 | **TODO** | P3 | `PMT-27` | Diagnostics truthfulness: report reasons come from the ledger, printed advice is executed, alert policy matches its docstring | |
 | **TODO** | P3 | `PMT-28` | Test timing and cost hygiene: relative timing races need real slack, and repeated heavy trainings share a fixture | |
-| **TODO** | P1 | `PMT-29` | Split-role ledger: selection rows and report rows never overlap, and verdicts read test | |
+| **PARTIAL** | P1 | `PMT-29` | Split-role ledger: selection rows and report rows never overlap, and verdicts read test | row-role ledger + contract test (holdout select/report disjoint, verdict=test, charts=train); xt fit/report leg open |
 | **TODO** | P1 | `PMT-30` | Config-restriction and per-candidate isolation contract: every registry transform is accepted, isolated and honoured | |
 | **TODO** | P1 | `PMT-31` | Stage-sentinel inner: wrappers and every predict entry point must feed the inner its own pipeline stage and the base its raw stage | |
 | **TODO** | P1 | `PMT-32` | Fresh-process persistence round trip for every registry transform and the whole auto-chain name space | |
