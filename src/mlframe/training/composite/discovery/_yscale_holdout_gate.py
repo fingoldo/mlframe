@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from ..estimator._smearing import smeared_prediction
 from ._spec_shared import spec_base_columns, rmse
+from ._grouped_causal_bases import grouped_causal_bases_for_frame
 
 import logging
 from typing import Any, Sequence
@@ -280,15 +281,15 @@ def apply_yscale_holdout_gate(
             return idx
         return np.sort(rng.choice(idx, size=n_cap, replace=False))
 
-    feats = list(usable_features)
-    val_y = None if val_y is None else np.asarray(val_y)
+    feats, val_y = list(usable_features), (None if val_y is None else np.asarray(val_y))
     _eval_df = df  # frame the eval rows are gathered from; df (train) for the fallback path
     if val_df is not None and val_y is not None and val_y.size >= 50:
         # Preferred path: fit on TRAIN (seen wells), evaluate on the VAL frame (unseen wells);
         # group-disjoint by construction under the group-aware split.
         fit_idx = _subsample(screen_idx, cap)
         eval_idx = _subsample(np.arange(val_y.size), cap)
-        _eval_df = val_df
+        # Engineered grouped causal features / bases exist only on the discovery frame; build them on val from val_y.
+        _eval_df = grouped_causal_bases_for_frame(self, val_df, val_y, target_col, [*feats, *(c for s in kept_specs for c in spec_base_columns(s))])
         y_fit = y_full[fit_idx].astype(np.float64)
         y_eval = val_y[eval_idx].astype(np.float64)
         _gate_mode = "val-split"

@@ -511,7 +511,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low.
 - **Runtime**: fast subset about 15-25 s (about 10 fits at n=300); the full set about 90 s under `slow`.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New tests/training/composite/discovery/test_config_restriction_contract.py runs `run_composite_target_discovery` with `transforms=[name]` and a group column for every registry transform: 10 family representatives always, the other 42 under `slow` (all 52 pass in 64 s). Each run must (a) record no target-level failure (discovery did not abort), (b) export only specs of the listed family, and (c) name only base columns present in the frame. Found and fixed while building it: with a group column set, discovery aborted for 8 of the 10 representatives with `KeyError: 'y__gcausal_lag1'`. The y-scale gate evaluates on the val frame, which lacked the engineered grouped causal bases. New `grouped_causal_bases_for_frame` builds them on val from `val_y`; they are strictly causal within each group. INT-07 and INT-09 are fixed too.
 
 ### PMT-31 [P1] Stage-sentinel inner: wrappers and every predict entry point must feed the inner its own pipeline stage and the base its raw stage
 - **Asserts**:

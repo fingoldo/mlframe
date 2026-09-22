@@ -27,6 +27,7 @@ Y_DERIVED_PRODUCERS = {
     "engineer_grouped_causal_bases": "engineer_grouped_causal_bases",
     "attach_grouped_causal_bases": "engineer_grouped_causal_bases",
     "maybe_add_grouped_causal_bases": "engineer_grouped_causal_bases",
+    "grouped_causal_bases_for_frame": "engineer_grouped_causal_bases",
     "engineer_temporal_bases": "engineer_temporal_bases",
     "add_engineered_bases_to_pool": "engineer_temporal_bases",
 }
