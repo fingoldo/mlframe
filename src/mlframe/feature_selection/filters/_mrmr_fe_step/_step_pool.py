@@ -35,7 +35,7 @@ def build_fe_operand_pool(
 ):
     """Construct the FE operand pool ``numeric_vars_to_consider`` and the synergy-added index set."""
 
-    # bench-attempt-rejected (2026-06-11, FS surrogate-GBM split-co-occurrence 3-way seeder + #7 order-3 maxT floor):
+    # bench-attempt-rejected (FS surrogate-GBM split-co-occurrence 3-way seeder + #7 order-3 maxT floor):
     # Hypothesis was that a shallow GBM's gain-weighted root->leaf path co-occurrence could propose pure zero-marginal
     # 3-way synergy triples directly into this FE pool, bypassing the blind univariate top-N seed below. Decisive Stage-1
     # measurement (n=4000, p=200 iid, y=sign(x7*x42*x113)+0.3*noise; ALL univariate |corr| <= 0.026 and all
@@ -166,7 +166,7 @@ def build_fe_operand_pool(
         verbose=verbose,
     )
 
-    # bench-rejected (2026-06-09) - "RFF / random-projection interaction pre-screen
+    # bench-rejected - "RFF / random-projection interaction pre-screen
     # (detect-without-enumerate)": a sibling proposer to the GBM seeder above that would draw R
     # random SPARSE (support 2-4 cols) hyperplane projections phi_r(x)=cos(w_r^T x_std + b_r), score
     # each phi_r's MI vs y, and promote supports whose best-of-trials MI uplift over the additive
@@ -192,7 +192,7 @@ def build_fe_operand_pool(
     #      zero-marginal product x3*x400 (rank #0/2000, jMI 1.51). The "smooth/rotated interactions trees
     #      miss" argument applies to the GBM seeder's AXIS-ALIGNED trees (#6/#21), NOT to the joint-MI sweep
     #      that #9 was meant to replace.
-    # RE-CONFIRMED (2026-06-11, cycle-10) on the 3-WAY trees-miss case. Cycle-5 proved the #6 GBM
+    # RE-CONFIRMED (cycle-10) on the 3-WAY trees-miss case. Cycle-5 proved the #6 GBM
     # seeder is GREEDY-BLIND to pure 3-way synergy (sign(x7*x42*x113)+0.3noise, n=4000/p=200, needle
     # rank 0/3), so RFF was re-attempted as the last open NON-GREEDY path. Decisive A/B/C
     # (D:/Temp/cycle10_rff_results.md): (A) 2-way x3*x400 p=500 R=4000 -> support recall 0->0 (needle
@@ -211,7 +211,7 @@ def build_fe_operand_pool(
     # never recovers a SPECIFIC needle, so it is not implemented. Do NOT re-attempt as a default or opt-in
     # proposer without a fundamentally different (non-random-support) coverage scheme.
 
-    # bench-rejected (2026-06-09) - "Conditional-MI complementarity growth (Apriori lattice)":
+    # bench-rejected - "Conditional-MI complementarity growth (Apriori lattice)":
     # grow triples from the order-2 SURVIVOR frontier (the prospective pairs below) by testing only third
     # columns c maximising the conditional-MI uplift I((a,b,c);y) - I((a,b);y) (reusing batch_triple_mi_prange
     # for scale-consistency with the #7 order-3 maxT floor), keeping triples above that floor; meant to catch a

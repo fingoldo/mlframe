@@ -14,9 +14,10 @@ moment to check that every read of it carries a default.
 from __future__ import annotations
 
 import ast
-import json
 import pathlib
 import sys
+
+import orjson
 
 _TESTS_META = pathlib.Path(__file__).resolve().parent
 _SRC = _TESTS_META.parents[1] / "src"
@@ -74,7 +75,7 @@ def test_no_new_fitted_attribute_escapes_the_setstate_backfill():
     if _REFRESH_FLAG in sys.argv:
         regenerate_baseline(_BASELINE)
         return
-    baseline = set(json.loads(_BASELINE.read_text(encoding="utf-8")))
+    baseline = set(orjson.loads(_BASELINE.read_bytes()))
     new = sorted(_uncovered() - baseline)
     assert not new, (
         "fitted attribute(s) assigned by a fit but not backfilled by __setstate__, so they are absent from an estimator unpickled from an "
@@ -85,7 +86,7 @@ def test_no_new_fitted_attribute_escapes_the_setstate_backfill():
 
 def test_the_baseline_does_not_list_attributes_that_are_now_covered():
     """A baselined attribute that has since been given a roster entry must be removed, so the list stays a real inventory."""
-    stale = sorted(set(json.loads(_BASELINE.read_text(encoding="utf-8"))) & _roster_keys())
+    stale = sorted(set(orjson.loads(_BASELINE.read_bytes())) & _roster_keys())
     assert not stale, f"baselined attributes that are now in the roster and should be dropped from {_BASELINE.name}: {stale}"
 
 
@@ -98,4 +99,4 @@ def test_the_detector_sees_a_fitted_attribute_assignment():
 
 def regenerate_baseline(path: pathlib.Path) -> None:
     """Rewrite the baseline with the currently-uncovered fitted attributes (invoked by ``regen_baselines.py``)."""
-    path.write_text(json.dumps(sorted(_uncovered()), indent=2) + "\n", encoding="utf-8")
+    path.write_bytes(orjson.dumps(sorted(_uncovered()), option=orjson.OPT_INDENT_2) + b"\n")

@@ -108,7 +108,7 @@ def materialise_and_finalise_fe_candidates(
             logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
             _gate_resident = False
 
-    # CONDITIONAL-MI REDUNDANCY GATE (strategy S5, 2026-06-08). The PRINCIPLED,
+    # CONDITIONAL-MI REDUNDANCY GATE (strategy S5). The PRINCIPLED,
     # constant-free replacement for the hardcoded ``fe_min_engineered_mi_prevalence``
     # joint-prevalence ratio. After the per-pair acceptance machinery has selected one
     # best engineered column per pair, run a greedy CMI-MRMR over the SURVIVING pool:
@@ -432,7 +432,7 @@ def materialise_and_finalise_fe_candidates(
                     len(_gate_composite_drop), sorted(_gate_composite_drop),
                 )
 
-    # CROSS-GROUP CLEANLINESS PRUNE (2026-06-15; un-gated to BOTH paths 2026-06-22). Removes two junk
+    # CROSS-GROUP CLEANLINESS PRUNE (un-gated to BOTH paths). Removes two junk
     # classes the per-pair / CMI gates leave behind. Originally scoped to fe_fast_search ONLY, on the
     # assumption that the exhaustive path's extra passes (the step>=1 CMI re-screen at the raised relative
     # bar + the cross-fold stability vote + the fused-composite raw-redundancy cascade) would already
@@ -545,7 +545,7 @@ def materialise_and_finalise_fe_candidates(
                     len(_fsc_drop), sorted(_fsc_drop),
                 )
 
-    # ROOT CAUSE 5 fix: collect the cols-space indices of the
+    # Collect the cols-space indices of the
     # engineered columns appended below so they can be added DIRECTLY to
     # ``selected_vars`` for the default single-step (``fe_max_steps==1``)
     # path. The screening re-run that would normally promote appended cols
@@ -557,7 +557,7 @@ def materialise_and_finalise_fe_candidates(
     # screening pass re-evaluates them as usual and may drop weak ones.
     # Seed with the polynom-pair engineered indices captured above so they
     # are promoted into ``selected_vars`` together with the unary/binary
-    # ones below (ROOT CAUSE 5). They already cleared every polynom-FE gate.
+    # ones below. They already cleared every polynom-FE gate.
     _newly_engineered_indices: list[int] = list(_polynom_engineered_indices)
     # a fit() MUST NOT mutate the caller's input. The pandas
     # branch below appends engineered columns via ``X[col] = ...`` IN PLACE;
@@ -740,7 +740,7 @@ def materialise_and_finalise_fe_candidates(
                         # closed-form ``(x > median)`` gate.
                         _gm_a = _gate_med_specs.get(var_a_idx) if unary_a_name == "gate_med" else None
                         _gm_b = _gate_med_specs.get(var_b_idx) if unary_b_name == "gate_med" else None
-                        # BUG2 FIX: freeze the fit-time ``smart_log`` shift
+                        # Freeze the fit-time ``smart_log`` shift
                         # anchor per ``log`` side. ``smart_log`` shifts non-positive
                         # inputs by ``(1e-5 - nanmin(operand))``; that anchor is
                         # data-dependent, so a transform row-slice recomputes a
@@ -760,7 +760,7 @@ def materialise_and_finalise_fe_candidates(
                             unary_a_name=unary_a_name,
                             unary_b_name=unary_b_name,
                             binary_name=bin_func_name,
-                            # ND-1: persist the hermite coef of a poly_<coef> unary so recipe replay can hermval it.
+                            # Persist the hermite coef of a poly_<coef> unary so recipe replay can hermval it.
                             poly_a_coef=(_poly_coefs.get(unary_a_name) if _poly_coefs is not None and unary_a_name.startswith("poly_") else None),
                             poly_b_coef=(_poly_coefs.get(unary_b_name) if _poly_coefs is not None and unary_b_name.startswith("poly_") else None),
                             unary_preset=fe_unary_preset,
@@ -797,7 +797,7 @@ def materialise_and_finalise_fe_candidates(
     if _data_chunks:
         data = np.concatenate([data, *_data_chunks], axis=1)
 
-    # AUTO-ESCALATION to the richer SHIPPED bases (2026-06-10, backlog idea B,
+    # AUTO-ESCALATION to the richer SHIPPED bases (backlog idea B,
     # default-ON). A pair that PASSED the pair-MI prescreen (ratio gate + order-2
     # maxT floor) but for which the unary/binary search above admitted NOTHING used
     # to end in the log_fe_summary WARNING below - detected signal, silently
@@ -821,7 +821,7 @@ def materialise_and_finalise_fe_candidates(
             _esc_done = self._fe_escalation_done_pairs_
             _esc_pairs_with_additions = {_rp for _rp, _v in prospective_additions.items() if _v[0]}
             _esc_failed = [(_k[0], float(_k[1])) for _k in prospective_pairs if _k[0] not in _esc_pairs_with_additions and _k[0] not in _esc_done]
-            # PREVALENCE-FAILED SYNERGY RESCUE (2026-06-12, F2 a**2/b miss): synergy
+            # PREVALENCE-FAILED SYNERGY RESCUE (F2 a**2/b miss): synergy
             # pairs that cleared the order-2 maxT floor but missed the stricter raw-MI
             # synergy prevalence ratio (the raw-MI ratio under-estimates a smooth ratio
             # interaction - the genuine a**2/b scores ~1.11 < 1.5). Feed them to the
@@ -974,7 +974,7 @@ def materialise_and_finalise_fe_candidates(
                 exc_info=True,
             )
 
-    # ROOT CAUSE 5 fix: promote the freshly-appended engineered
+    # Promote the freshly-appended engineered
     # columns directly into ``selected_vars`` (cols-space). They already
     # cleared every FE gate (pair-MI prevalence, engineered-MI prevalence,
     # external validation) - the gates ARE the selection criterion for FE
@@ -989,7 +989,7 @@ def materialise_and_finalise_fe_candidates(
         _sv_set = set(_sv)
         selected_vars = _sv + [i for i in _newly_engineered_indices if i not in _sv_set]
 
-    # C2 ADDITIVE-FUSION (2026-06-24, default-ON). MUST RUN BEFORE the cross-fold stability vote
+    # C2 ADDITIVE-FUSION (default-ON). MUST RUN BEFORE the cross-fold stability vote
     # below (ordering fix for the F2 DOMINANT-CAPTURE / weak-half class): the weak c/d half
     # ``mul(log(c),sin(d))`` alone FAILS the cross-fold vote (its uplift is carried by too few
     # rows to clear the per-fold quorum), so if the vote ran first it would DROP that half before
@@ -1189,7 +1189,7 @@ def materialise_and_finalise_fe_candidates(
                     selected_vars = [i for i in selected_vars if i not in _failed_idx]
                 for _fn in _failed_eng:
                     engineered_recipes.pop(_fn, None)
-                # BUG2: the vote pops the recipe + de-selects the column,
+                # The vote pops the recipe + de-selects the column,
                 # but the materialised bin-code column STAYS in ``cols``/``data`` and is
                 # therefore still visible to the downstream greedy screen (the step>1
                 # re-screen / final selection). That screen re-admits it on its marginal

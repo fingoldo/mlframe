@@ -490,7 +490,7 @@ def score_prospective_pairs(
             _operand_cache.popitem(last=False)
         return _val
 
-    # Per-call memoization for the SINGLE-operand half of usability_form_corrs's ``_cs`` (2026-07-11 perf
+    # Per-call memoization for the SINGLE-operand half of usability_form_corrs's ``_cs`` (perf
     # fix): ``pair_is_tail_concentrated_rankaware`` runs once per candidate PAIR (~85k calls in a wide 100k-row
     # FE fit) against a target fixed for this whole call, but only 2 of its 9 internal abs_pearson forms
     # (this operand's own value and its square) actually change per operand - the OTHER operand's forms and
@@ -517,7 +517,7 @@ def score_prospective_pairs(
         _val = _single_operand_usability_corr(_yc_cont_, _op)
         _single_corr_cache[_idx] = _val
         return _val
-    # PREVALENCE-FAILED SYNERGY RESCUE LEDGER (2026-06-12, F2 a**2/b miss): a synergy
+ # PREVALENCE-FAILED SYNERGY RESCUE LEDGER (F2 a**2/b miss): a synergy
     # pair (>=1 bootstrap-added operand) whose JOINT MI cleared the order-2 maxT floor
     # but missed the STRICTER ``fe_synergy_min_prevalence`` raw-MI ratio bar is recorded
     # here as ``{(pair_idx_tuple): pair_mi}``. The raw-MI prevalence ratio structurally
@@ -612,7 +612,7 @@ def score_prospective_pairs(
                 # Guard against ZeroDivisionError: when both individual features have zero MI with target
                 # (canonical 3-way XOR case: MI(x_i, y) = 0 for all i but the joint signal exists), any positive pair_mi
                 # qualifies as infinite uplift - keep the pair.
-                # MM-DEBIAS (2026-06-09, IRON RULE): the maxT floor was computed on the
+                # MM-DEBIAS (IRON RULE): the maxT floor was computed on the
                 # Miller-Madow-debiased joint-MI scale (per-pair bias subtracted inside the
                 # null kernel), so subtract the SAME per-pair joint-MI bias from the observed
                 # ``pair_mi`` before the ``>= floor`` comparison - consistent debias on both
@@ -666,7 +666,7 @@ def score_prospective_pairs(
                     )
                     continue
                 _passes_prevalence, _passes_maxt, _is_synergy_pair, _prev_thresh, _pair_mi_floor_cmp = _gate_state
-                # DATA-DRIVEN PREVALENCE (2026-06-12, EXPERIMENTAL, default OFF pending the
+                # DATA-DRIVEN PREVALENCE (EXPERIMENTAL, default OFF pending the
                 # 3-model RMSE A/B/C): the HARDCODED ratio bar over the MM-debiased joint MI
                 # under-admits an ASYMMETRIC interaction whose one operand has a strong
                 # marginal (the joint's analytic bias subtraction exceeds the marginals',
@@ -723,7 +723,7 @@ def score_prospective_pairs(
                     except Exception as e:
                         logger.debug("permutation-based admission check failed, not admitting via permutation: %s", e)
                         _admit_via_perm = False
-                # bench-attempt-rejected (2026-06-25): the cheap proxy below (2-operand joint OLS R^2 of the
+                # bench-attempt-rejected : the cheap proxy below (2-operand joint OLS R^2 of the
                 # CONTINUOUS y on the BINNED operand codes) does NOT recover with_outliers at any threshold
                 # (0.05/0.15/0.3 all leave the selection byte-identical to OFF). The signal is too diluted:
                 # y = a**2/b + f/5 + log(c)*sin(d), so a 2-var LINEAR fit on binned a,b captures only the linear
@@ -732,7 +732,7 @@ def score_prospective_pairs(
                 # this admission gate; a residual-target fit (y minus the already-captured c/d half) or actual
                 # form materialisation is required, not an operand proxy. Kept default-OFF + wired (reject =
                 # not-default, never deleted) so the next attempt builds on it instead of re-trying the proxy.
-                # USABILITY ADMISSION (2026-07-02, tail-concentrated ratio credit, default ON). Under heavy
+                # USABILITY ADMISSION (tail-concentrated ratio credit, default ON). Under heavy
                 # operand outliers a genuine ratio (a**2/b) is TAIL-CONCENTRATED: its rank-MI collapses (bulk
                 # Spearman ~0, signal only in the 5% tail) so it fails BOTH prevalence and maxT, and the
                 # rank-CMI perm path is gated behind maxT too - yet it carries strong LINEAR usability the

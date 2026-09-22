@@ -43,7 +43,7 @@ def _validate_string_params(self):
         ("mi_correction", self._VALID_MI_CORRECTIONS),
         ("redundancy_aggregator", self._VALID_REDUNDANCY_AGGREGATORS),
         ("stability_selection_method", self._VALID_STABILITY_SELECTION_METHODS),
-        # 2026-05-30 Wave 9 — DCD distance / swap-method strings.
+        # DCD distance / swap-method strings.
         ("dcd_distance", self._VALID_DCD_DISTANCES),
         ("dcd_swap_method", self._VALID_DCD_SWAP_METHODS),
         # additional_rfecv_selection_rule flows verbatim into RFECV's
@@ -51,7 +51,7 @@ def _validate_string_params(self):
         # fit() start, consistent with the other MRMR string params.
         ("additional_rfecv_selection_rule", self._VALID_RFECV_SELECTION_RULES),
     )
-    # 2026-05-30 Wave 9 — DCD range checks gated on dcd_enable.
+    # DCD range checks, gated on dcd_enable.
     if bool(getattr(self, "dcd_enable", False)):
         _d = getattr(self, "dcd_distance", "su")
         _tau_raw = getattr(self, "dcd_tau_cluster", 0.7)
@@ -72,7 +72,7 @@ def _validate_string_params(self):
                 raise ValueError(f"MRMR: dcd_tau_cluster must be in (0, 1] for " f"distance={_d!r}; got {_tau}.")
             if _d in ("vi", "sotoca_pla") and _tau <= 0.0:
                 raise ValueError(f"MRMR: dcd_tau_cluster must be > 0 for distance={_d!r}; " f"got {_tau}.")
-        # 2026-05-31 Layer 42: lower bound from 2 to 1. The threshold counts
+        # The lower bound is 1, not 2. The threshold counts
         # cluster MEMBERS (not anchor + members), so threshold=1 fires the
         # PC1 swap on the strict 2-feature redundancy case (anchor + 1
         # perfect duplicate); threshold=2 (the new default) fires only when
@@ -121,7 +121,7 @@ def _validate_string_params(self):
             raise ValueError(f"MRMR: {_name} must be a string; got {type(_val).__name__}={_val!r}. " f"Valid values: {_valid}.")
         if _val not in _valid:
             raise ValueError(f"MRMR: {_name}={_val!r} is not a recognised value. " f"Valid values: {_valid}.")
-    # 2026-06-01 Layer 85 — validate the orth default-scorer routing flag.
+    # Validate the orth default-scorer routing flag.
     # Kept outside the ``_checks`` loop because the attribute lives on the
     # MRMR class as ``_VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS`` (longer name
     # than the constants reused by the loop). Invalid value -> ValueError
@@ -846,7 +846,7 @@ def _append_engineered(self, base_out, X, recipes):
                     # group_col is an adaptive Fourier/chirp column produced by another
                     # recipe). Surface those TRANSITIVE deps so the scheduler waits for the
                     # producing recipe to replay first, instead of KeyError-ing on the
-                    # missing column. (2026-06-21: exposed once orth-FE/extra-basis is ON
+                    # missing column. (Exposed once orth-FE/extra-basis is ON
                     # by default and binned_agg feeds-forward on a chirp operand.)
                     out.extend(_unresolved_sources(_nested_by_pos[_pos]))
                     continue

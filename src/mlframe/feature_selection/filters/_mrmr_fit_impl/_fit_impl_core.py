@@ -22,6 +22,8 @@ from timeit import default_timer as timer
 from typing import Any, Optional
 
 import numpy as np
+
+from ._fe_roster_attrs import FE_ROSTER_ATTRS
 import pandas as pd
 from sklearn.metrics import make_scorer
 from mlframe.utils.log_throttle import log_throttle
@@ -814,32 +816,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             self._hinge_features_ = [c for c in (getattr(self, "_hinge_features_", None) or []) if c not in _eng_drop]
             self.mi_greedy_features_ = [c for c in (self.mi_greedy_features_ or []) if c not in _eng_drop]
             # Layer 33: mirror the same cleanup for TE-encoded columns.
-            self.kfold_te_features_ = [c for c in (getattr(self, "kfold_te_features_", []) or []) if c not in _eng_drop]
-            # Layer 34: mirror cleanup for count / freq / cat_num residual.
-            self.count_encoding_features_ = [c for c in (getattr(self, "count_encoding_features_", []) or []) if c not in _eng_drop]
-            self.frequency_encoding_features_ = [c for c in (getattr(self, "frequency_encoding_features_", []) or []) if c not in _eng_drop]
-            self.cat_num_interaction_features_ = [c for c in (getattr(self, "cat_num_interaction_features_", []) or []) if c not in _eng_drop]
-            # Layer 37: mirror cleanup for missingness indicator / count / pattern.
-            self.missingness_indicator_features_ = [c for c in (getattr(self, "missingness_indicator_features_", []) or []) if c not in _eng_drop]
-            self.missingness_count_features_ = [c for c in (getattr(self, "missingness_count_features_", []) or []) if c not in _eng_drop]
-            self.missingness_pattern_features_ = [c for c in (getattr(self, "missingness_pattern_features_", []) or []) if c not in _eng_drop]
-            # Layer 38: mirror cleanup for ratio / log_ratio / grouped_delta / lagged_diff.
-            self.pairwise_ratio_features_ = [c for c in (getattr(self, "pairwise_ratio_features_", []) or []) if c not in _eng_drop]
-            self.pairwise_log_ratio_features_ = [c for c in (getattr(self, "pairwise_log_ratio_features_", []) or []) if c not in _eng_drop]
-            self.grouped_delta_features_ = [c for c in (getattr(self, "grouped_delta_features_", []) or []) if c not in _eng_drop]
-            self.lagged_diff_features_ = [c for c in (getattr(self, "lagged_diff_features_", []) or []) if c not in _eng_drop]
-            # Layer 87: mirror cleanup for grouped_agg.
-            self.grouped_agg_features_ = [c for c in (getattr(self, "grouped_agg_features_", []) or []) if c not in _eng_drop]
-            # Layer 93: mirror cleanup for composite_group_agg.
-            self.composite_group_agg_features_ = [c for c in (getattr(self, "composite_group_agg_features_", []) or []) if c not in _eng_drop]
-            # Layer 88: mirror cleanup for grouped_quantile.
-            self.grouped_quantile_features_ = [c for c in (getattr(self, "grouped_quantile_features_", []) or []) if c not in _eng_drop]
-            # Layer 89: mirror cleanup for cat_pair crosses.
-            self.cat_pair_features_ = [c for c in (getattr(self, "cat_pair_features_", []) or []) if c not in _eng_drop]
-            # Layer 94: mirror cleanup for cat_triple crosses.
-            self.cat_triple_features_ = [c for c in (getattr(self, "cat_triple_features_", []) or []) if c not in _eng_drop]
-            # Layer 90: mirror cleanup for numeric-decomposition columns.
-            self.numeric_decompose_features_ = [c for c in (getattr(self, "numeric_decompose_features_", []) or []) if c not in _eng_drop]
+            # Every engineered roster, from the one shared tuple. Two hand-maintained copies of this list had already drifted: this pass
+            # filtered 18 rosters while the unified-gate pass below filtered 27, so a column dropped by the Spearman dedup stayed in the
+            # other nine until a later reconciliation happened to catch it.
+            for _roster_attr in FE_ROSTER_ATTRS:
+                setattr(self, _roster_attr, [c for c in (getattr(self, _roster_attr, []) or []) if c not in _eng_drop])
             for _c in list(_hybrid_orth_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _hybrid_orth_pre_recipes.pop(_c, None)
@@ -1000,27 +981,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         dict.fromkeys(list(getattr(self, "hybrid_orth_candidates_", None) or []) + list(getattr(self, "hybrid_orth_features_", None) or []))
                     )
                     X = X.drop(columns=list(_eng_drop_u))
-                    for _attr in (
-                        "hybrid_orth_features_", "mi_greedy_features_",
-                        "kfold_te_features_", "count_encoding_features_",
-                        "frequency_encoding_features_",
-                        "cat_num_interaction_features_",
-                        "missingness_indicator_features_",
-                        "missingness_count_features_",
-                        "missingness_pattern_features_",
-                        "pairwise_ratio_features_", "pairwise_log_ratio_features_",
-                        "grouped_delta_features_", "lagged_diff_features_",
-                        "grouped_agg_features_", "composite_group_agg_features_",
-                        "grouped_quantile_features_",
-                        "cat_pair_features_", "cat_triple_features_",
-                        "numeric_decompose_features_",
-                        "modular_features_", "group_distance_features_",
-                        "rare_category_features_",
-                        "conditional_residual_features_",
-                        "conditional_dispersion_features_", "wavelet_features_",
-                        "rankgauss_features_",
-                        "temporal_agg_features_",
-                    ):
+                    for _attr in FE_ROSTER_ATTRS:
                         setattr(self, _attr, [c for c in (getattr(self, _attr, []) or []) if c not in _eng_drop_u])
                     # Private hinge / adaptive-fourier protection rosters are not
                     # in the public-roster loop above; prune them explicitly so a

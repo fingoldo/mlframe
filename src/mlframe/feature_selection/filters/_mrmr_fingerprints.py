@@ -36,7 +36,7 @@ from mlframe._dtype_canon import canonicalise_dtype
 # Not used directly in this module - load-bearing for import ORDER. This module is reached via
 # filters/mrmr/__init__.py -> _legacy.py (circular: _legacy does ``from .mrmr import MRMR`` back into
 # the package being loaded). Forcing wrappers.RFECV to resolve HERE, before that circular re-entry,
-# keeps a working import order; removing it (2026-07-05 ruff "unused import" sweep) let a different
+# keeps a working import order; removing it in a ruff "unused import" sweep let a different
 # external entry point (importing RFECV directly) trigger the circular mrmr<->_legacy re-entry first
 # instead, which crashed the interpreter natively deep in the C-extension init chain. Restored with a
 # suppression comment rather than re-deleted - see CLAUDE.md's project-wide-rewrite-without-review incident.
@@ -87,7 +87,7 @@ _MRMR_IDENTITY_FP_LOCK = _threading.Lock()
 #   the per-pair joblib path is competitive (and avoids a redundant numba.cuda first-call compile when no GPU
 #   speedup would materialise).
 #
-# There is deliberately NO pool-size cap here. Until 2026-07-09 a flat ``_MRMR_BATCH_PRECOMPUTE_MAX_K=200``
+# There is deliberately NO pool-size cap here. A flat ``_MRMR_BATCH_PRECOMPUTE_MAX_K=200``
 # ceiling forced any wider pool onto a ~35s/pair legacy joblib fallback - a realistic several-hundred-column
 # production pool (well within normal use) fell off a catastrophic-runtime cliff. The batch path now enumerates
 # pairs via ``dispatch_batch_pair_mi_chunked`` (see ``batch_pair_mi_gpu.py``), which processes the C(k,2) pair
@@ -470,16 +470,16 @@ def _target_name_signature(y) -> tuple:
     return ()
 
 
-# iter627 (perf): single-entry "last computed" memo cache for MRMR's
+# Single-entry "last computed" memo cache for MRMR's
 # _full_x_content_hash. Caller sites at _mrmr_fit_impl.py:131 + :158
 # pass the SAME X frame in tight succession (line 131 builds the
 # signature for the cache lookup; line 158 re-runs the full hash for
 # the cache store key). The blake2b hash chain runs on the full X
-# frame bytes - ~50ms on a 200MB frame per the iter59 bench, but
+# frame bytes - ~50ms on a 200MB frame per the fingerprint bench, but
 # grows linear with frame size; on c0009-like wide post-FE frames
 # the second call wastes seconds re-hashing the same bytes.
 #
-# Same safety model as the iter625 _pipeline_cache._pre_pipeline_-
+# Same safety model as _pipeline_cache._pre_pipeline_-
 # cache_key memo: id() + shape discriminate against GC-recycled-id
 # collisions, the two calls happen microseconds apart within MRMR.fit
 # so the input is guaranteed unchanged.
@@ -546,7 +546,7 @@ def _full_x_content_hash(X) -> str:
         # Object dtype (mixed-type pandas frames) cannot be hashed via tobytes deterministically; skip cache.
         if arr.dtype == object:
             return ""
-        # iter627 fast-path memo: a recycled id(X) across fits (freed frame A, new frame B allocated at the
+        # Fast-path memo: a recycled id(X) across fits (freed frame A, new frame B allocated at the
         # same address + same shape) made the old (id, shape)-only key return A's digest for B. Fold the cheap
         # 10-cell strided content signature into the key so a different B is a memo MISS (recompute), while the
         # intra-fit second call on the SAME X (id+shape+content all identical) still hits and skips the full hash.
