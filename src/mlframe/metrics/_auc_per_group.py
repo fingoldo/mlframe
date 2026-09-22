@@ -200,6 +200,14 @@ def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.n
     return group_aucs
 
 
+def group_sizes_of(group_ids) -> Optional[dict]:
+    """``{group_id: n_rows}`` for ``compute_mean_aucs_per_group``'s row weighting; None when there are no group ids."""
+    if group_ids is None:
+        return None
+    ids, counts = np.unique(np.asarray(group_ids), return_counts=True)
+    return {(g.item() if hasattr(g, "item") else g): int(c) for g, c in zip(ids, counts)}
+
+
 def compute_mean_aucs_per_group(group_aucs: dict, group_sizes: Optional[dict] = None) -> tuple:
     """NaN-safe mean of per-group (roc_auc, pr_auc) entries.
 

@@ -34,6 +34,7 @@ from ..calibration._calibration_plot import (
 from .._auc_per_group import (
     fast_aucs_per_group_optimized,
     compute_mean_aucs_per_group,
+    group_sizes_of,
 )
 from ..calibration._calibration_metrics import (
     calibration_metrics_from_freqs,
@@ -217,6 +218,17 @@ class CalibrationReport(NamedTuple):
     fig: Any
 
 
+def _report_log_loss(y_true, y_pred) -> float:
+    """Log loss with ONE eps for every model in a report, whatever dtype it emitted.
+
+    ``fast_log_loss``'s default eps follows ``y_pred``'s dtype, so a confidently wrong row cost 15.9 for a model
+    emitting float32 probabilities and 36.0 for a float64 one, and a report comparing the two ranked them partly on
+    dtype. The per-group AUC beside it is row-weighted for the same reason of comparability (see
+    ``compute_mean_aucs_per_group``): tiny groups scoring 1.0 by luck must not inflate it.
+    """
+    return fast_log_loss(y_true, np.asarray(y_pred, dtype=np.float64), eps=float(np.finfo(np.float64).eps))
+
+
 def fast_calibration_report(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -375,13 +387,7 @@ def fast_calibration_report(
         roc_auc, pr_auc, group_aucs, _auc_desc_order, _ks_fused = fast_aucs_per_group_optimized(
             y_true=y_true, y_score=y_pred, group_ids=group_ids, return_order=True, return_ks=True
         )
-    # Row-weighted: the bracketed per-group figure in the title sits beside the pooled AUC and must not be inflated by
-    # tiny groups that score 1.0 by luck.
-    _group_sizes = None
-    if group_aucs and group_ids is not None:
-        _gids, _gcounts = np.unique(np.asarray(group_ids), return_counts=True)
-        _group_sizes = {(g.item() if hasattr(g, "item") else g): int(c) for g, c in zip(_gids, _gcounts)}
-    mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs, group_sizes=_group_sizes) if group_aucs else (None, None)
+    mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs, group_sizes=group_sizes_of(group_ids)) if group_aucs else (None, None)
 
     ice = integral_calibration_error_from_metrics(
         calibration_mae=calibration_mae,
@@ -394,10 +400,7 @@ def fast_calibration_report(
     )
 
     # Use fast numba version (returns nan for single-class data)
-    # One eps for every model in a report. ``fast_log_loss``'s default eps follows ``y_pred``'s dtype, so a confidently
-    # wrong row cost 15.9 for a model emitting float32 probabilities and 36.0 for a float64 one, and a report comparing
-    # them ranked on dtype. Upcast and clip at the float64 machine eps regardless of what the model emitted.
-    ll: Optional[float] = fast_log_loss(y_true, np.asarray(y_pred, dtype=np.float64), eps=float(np.finfo(np.float64).eps))
+    ll: Optional[float] = _report_log_loss(y_true, y_pred)
     if ll is not None and np.isnan(ll):
         ll = None
 

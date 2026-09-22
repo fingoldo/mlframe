@@ -42,6 +42,31 @@ from .classification._classification_report import (
 logger = logging.getLogger(__name__)
 
 
+def _every_class_bins_uniform(probs, y_true, labels, multilabel: bool) -> bool:
+    """Whether the shared binning resolver picks UNIFORM bins for every class the metric scores.
+
+    The batched ICE kernel only bins uniformly. When the resolver asks for equal-population bins for any class (a rare
+    positive class), the caller takes the per-class loop instead, where ``fast_ice_only`` honours the strategy - so the
+    metric and the calibration report that prints it stay on one partition.
+    """
+    from .calibration import resolve_binning_strategy
+
+    for c in range(len(probs)):
+        if len(probs) == 2 and c == 0 and not multilabel:
+            continue
+        if multilabel:
+            yt = y_true[:, c]
+        elif labels is not None:
+            yt = y_true == labels[c]
+        else:
+            yt = y_true == c
+        if isinstance(yt, pl.Series):
+            yt = yt.to_numpy()
+        if resolve_binning_strategy(np.asarray(yt, dtype=np.int8), "auto") != "uniform":
+            return False
+    return True
+
+
 def compute_probabilistic_multiclass_error(
     y_true: Union[pd.Series, pd.DataFrame, np.ndarray],
     y_score: Union[pd.Series, pd.DataFrame, np.ndarray, Sequence],
@@ -180,28 +205,7 @@ def compute_probabilistic_multiclass_error(
     # ~30 ms was Python glue for K=3 classes). Bit-exact equivalent
     # of the legacy fast_ice_only K-loop -- verified in
     # ``profiling/bench_compute_multiclass_error.py``.
-    # The batched kernel bins UNIFORMLY. When the shared resolver asks for equal-population bins (a rare positive class),
-    # take the per-class loop instead: ``fast_ice_only`` honours the strategy there, so the metric and the calibration
-    # report that prints it stay on one partition.
-    _binning_uniform = True
-    if method == "multicrit" and not verbose:
-        from .calibration import resolve_binning_strategy
-
-        for _c_probe in range(len(probs)):
-            if len(probs) == 2 and _c_probe == 0 and not multilabel:
-                continue
-            if multilabel:
-                _yt_probe = y_true[:, _c_probe]
-            elif labels is not None:
-                _yt_probe = y_true == labels[_c_probe]
-            else:
-                _yt_probe = y_true == _c_probe
-            if isinstance(_yt_probe, pl.Series):
-                _yt_probe = _yt_probe.to_numpy()
-            if resolve_binning_strategy(np.asarray(_yt_probe, dtype=np.int8), "auto") != "uniform":
-                _binning_uniform = False
-                break
-    if method == "multicrit" and not verbose and _binning_uniform:
+    if method == "multicrit" and not verbose and _every_class_bins_uniform(probs, y_true, labels, multilabel):
         # Build the set of class_ids to evaluate (binary case skips 0).
         _class_ids = [c for c in range(len(probs)) if not (len(probs) == 2 and c == 0 and not multilabel)]
         try:
