@@ -25,13 +25,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `feature_selection.md` | 21 | 3 | 0 | 18 | 0 | 0 |
 | `feature_engineering.md` | 14 | 2 | 0 | 12 | 0 | 0 |
 | `metrics.md` | 18 | 15 | 1 | 0 | 2 | 0 |
-| `predict_persistence.md` | 18 | 11 | 0 | 7 | 0 | 0 |
+| `predict_persistence.md` | 18 | 13 | 0 | 5 | 0 | 0 |
 | `ensembling_models.md` | 14 | 14 | 0 | 0 | 0 | 0 |
 | `evaluation_reporting.md` | 16 | 3 | 0 | 13 | 0 | 0 |
-| `performance.md` | 7 | 2 | 0 | 5 | 0 | 0 |
+| `performance.md` | 7 | 3 | 0 | 4 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 1 | 0 | 11 | 0 | 0 |
 | `config_contracts.md` | 32 | 4 | 0 | 27 | 0 | 1 |
-| **Total** | **165** | **56** | **1** | **104** | **2** | **2** |
+| **Total** | **165** | **59** | **1** | **101** | **2** | **2** |
 
 ## Per-report status
 
@@ -45,10 +45,10 @@ least one of its findings moves).
 | **PARTIAL** | [feature_selection.md](feature_selection.md) | 21 | feature selection (FS-01, FS-02, FS-03 fixed) |
 | **PARTIAL** | [feature_engineering.md](feature_engineering.md) | 14 | feature engineering and preprocessing (FE-01, FE-02 fixed) |
 | **PARTIAL** | [metrics.md](metrics.md) | 18 | metrics and calibration (15 fixed incl. MET-18 found during implementation, MET-04 partial, MET-08 and MET-16 rejected) |
-| **PARTIAL** | [predict_persistence.md](predict_persistence.md) | 18 | serving path and artifact round-trip (PRD-01..PRD-11 fixed) |
+| **PARTIAL** | [predict_persistence.md](predict_persistence.md) | 18 | serving path and artifact round-trip (PRD-01..PRD-12, PRD-15 fixed) |
 | **RESOLVED** | [ensembling_models.md](ensembling_models.md) | 14 | model zoo, blends, thresholds, votenrank |
 | **PARTIAL** | [evaluation_reporting.md](evaluation_reporting.md) | 16 | diagnostic verdicts (EVR-01, EVR-02, EVR-03 fixed) |
-| **PARTIAL** | [performance.md](performance.md) | 7 | measured performance (PRF-01, PRF-02 fixed) |
+| **PARTIAL** | [performance.md](performance.md) | 7 | measured performance (PRF-01, PRF-02, PRF-07 fixed) |
 | **PARTIAL** | [concurrency_resources.md](concurrency_resources.md) | 12 | concurrency and resources (CNC-01 fixed) |
 | **PARTIAL** | [config_contracts.md](config_contracts.md) | 32 | config contracts (CFG-01..CFG-04 fixed, CFG-05 not a defect) |
 
@@ -78,3 +78,17 @@ worker process and per notebook import, both import-graph edits).
 
 Each report carries its own table with `| Sev | ID | Finding | Evidence (file:line + quote) | Failure scenario |
 Suggested fix |`. Rows are dispositioned there and mirrored into the summary counts above as they are implemented.
+
+## Found during implementation
+
+Test failures met while verifying this wave that are NOT caused by it: each was re-run against the pre-wave source (`git archive 2769c85bc` on `PYTHONPATH`, current tests) and fails there with the same numbers. They are open and owed; none is deselected or marked.
+
+| Test | Pre-wave result | Note |
+|---|---|---|
+| `tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_residual_passes.py::test_biz_val_residual_passes_no_noise_inflation` | fails, 23 selected vs 6 | residual pass 2 rescues noise columns on a pure-strong bed |
+| `tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_residual_passes.py::test_biz_val_residual_hard_vs_soft` | fails (2/6 vs 3/6), gate-independent | |
+| `tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_faith_interaction.py::test_biz_val_faith_interaction_beats_additive_on_xor` | fails, additive recovers 2/2 XOR operands | the bed's premise no longer holds |
+| `tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_banzhaf_ranking.py::test_biz_val_banzhaf_ranking_seed_stability_low_snr` | fails, gate-independent | banzhaf Jaccard 0.574 vs mean-abs-phi 0.468 |
+| `tests/feature_selection/shap_proxied/test_shap_proxy_treeshap_interactions_gpu.py::test_biz_val_gpu_interaction_faster_than_numba` | 0.42x on a loaded host | a wall-clock ratio; re-measure on a quiet host before judging |
+| `tests/feature_selection/biz_val/test_biz_val_wrappers_rfecv_stability.py::test_biz_val_rfecv_stability_beats_importance_on_many_steady` | fails, 0.8214 vs 0.8104 (+0.04 required) | identical numbers with and without FS-01 |
+| `tests/feature_selection/fe/gates/test_fe_stability_vote.py::test_bizvalue_noise_survivor_reduction` | fails (2 <= 1) | |
