@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 19 | 0 | 11 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 14 | 0 | 8 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 15 | 0 | 7 | 0 | 0 |
 | `suite_integration.md` | 19 | 11 | 0 | 8 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 9 | 5 | 27 | 0 | 0 |
-| **Total** | **179** | **99** | **16** | **63** | **1** | **0** |
+| **Total** | **179** | **100** | **16** | **62** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -106,7 +106,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `EST-10` | `predict_quantile` returns zero-width intervals on fallback rows and crossed quantiles for sign-flipping multiplicative inverses | per-alpha train-y quantile fallback; monotone rearrangement |
 | **RESOLVED** | P2 | `EST-11` | The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE | dummy floor/baseline on the same OOF rows |
 | **TODO** | P2 | `EST-12` | `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path | |
-| **TODO** | P2 | `EST-13` | The CT_ENSEMBLE val/test metrics and charts describe the pre-MoE predictor, not the model that ships | |
+| **RESOLVED** | P2 | `EST-13` | The CT_ENSEMBLE val/test metrics and charts describe the pre-MoE predictor, not the model that ships | shipped MoE wrapper re-scored; ensemble metrics overwritten |
 | **TODO** | P2 | `EST-14` | A streaming `update()` refit leaves the soft-shrink base range at the dead regime, and its T-clip refresh leaves out the widening to the observed range that `fit()` applies | |
 | **RESOLVED** | P3 | `EST-15` | In the default shuffled K-fold OOF, recurrent composite components run their EWMA/rolling state over gapped (train) and scattered (holdout) row sequences | contiguous OOF folds for recurrent components |
 | **RESOLVED** | P3 | `EST-16` | The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level | fold groups/weights via call_transform, forward with groups, WARNING fallback; grouped components no longer drop out of OOF |

@@ -116,6 +116,32 @@ def _first_raw_shim(models: dict, tt_e: Any, orig_tname: str) -> PrePipelinePred
     return None
 
 
+def _restamp_shipped_metrics(metadata: dict, target_type: Any, target_name: str, shipped: Any, y_full: Any, splits: list) -> None:
+    """Overwrite ``cross_target_ensemble_metrics`` with the RMSE / MAE of the model that ships (the MoE wrapper), per split.
+
+    The ensemble builder scored the pre-MoE stack; the verdict and the targets table read these numbers, so they must
+    describe what is deployed. A split whose frame or targets are missing keeps its old numbers; one whose predict fails
+    has them removed rather than left describing a different model.
+    """
+    from mlframe.metrics.core import fast_mean_absolute_error, fast_root_mean_squared_error
+
+    slot = metadata.setdefault("cross_target_ensemble_metrics", {}).setdefault(str(target_type), {}).setdefault(target_name, {})
+    y_all = np.asarray(y_full, dtype=np.float64).reshape(-1)
+    for split, frame, idx in splits:
+        if frame is None or idx is None or len(idx) == 0:
+            continue
+        try:
+            pred = np.asarray(shipped.predict(frame), dtype=np.float64).reshape(-1)
+            yy = y_all[idx]
+            slot[f"{split}_RMSE"] = float(fast_root_mean_squared_error(yy, pred))
+            slot[f"{split}_MAE"] = float(fast_mean_absolute_error(yy, pred))
+        except Exception as err:
+            slot.pop(f"{split}_RMSE", None)
+            slot.pop(f"{split}_MAE", None)
+            logger.warning("[CompositeMoE] target='%s': could not re-score the shipped model on %s (%s); its metrics were removed.", target_name, split, err)
+    slot["model_name"] = f"{slot.get('model_name', 'CT_ENSEMBLE')}+MoE"
+
+
 def run_composite_moe_and_value_report(
     *,
     models: dict,
@@ -126,7 +152,7 @@ def run_composite_moe_and_value_report(
     filtered_val_df,
     filtered_train_idx,
     filtered_val_idx,
-    ctx: Any = None,
+    ctx: Any = None, test_df: Any = None, test_idx: Any = None,
 ) -> None:
     """Emit the composite VALUE report and (flag-gated) wrap deployed ensembles through a MoE selection gate.
 
@@ -190,7 +216,6 @@ def run_composite_moe_and_value_report(
                             _lag_model.fit(filtered_train_df)
                         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                             logger.debug("suppressed: %s", e)
-                            pass
                     _lag_sel = np.asarray(_lag_model.predict(filtered_val_df), dtype=np.float64).reshape(-1)
             except Exception as _pred_err:
                 log_throttle(
@@ -262,6 +287,7 @@ def run_composite_moe_and_value_report(
                     "guarantee": dict(_gate.guarantee_),
                     "group_column": _group_column,
                 }
+                _restamp_shipped_metrics(metadata, _tt_e, _orig_tname, _entries[0].model, _y_full, [("val", filtered_val_df, filtered_val_idx), ("test", test_df, test_idx)])
                 logger.info(
                     "[CompositeMoE] target='%s' wrapped deployed ensemble in MoE gate " "(global='%s', not_worse_than_lag=%s, pooled RMSE gate=%s vs lag=%s).",
                     _orig_tname,

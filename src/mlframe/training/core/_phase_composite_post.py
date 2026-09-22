@@ -310,7 +310,7 @@ def run_composite_post_processing(
             filtered_val_df=filtered_val_df,
             filtered_train_idx=filtered_train_idx,
             filtered_val_idx=filtered_val_idx,
-            ctx=ctx,
+            ctx=ctx, test_df=test_df_pd, test_idx=test_idx,
         )
     except Exception as _moe_err:
         logger.warning(

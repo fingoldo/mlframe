@@ -168,7 +168,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: The verdict can report a win over the dummy for a model that is no longer the one deployed.
 - **Suggested fix**: Re-score the ensemble slot after the MoE wrap (val/test predict on the final `entries[0].model`) and overwrite `cross_target_ensemble_metrics`. Alternatively, run the MoE step inside the builder before scoring.
 - **Test to add**: With MoE enabled, assert that `cross_target_ensemble_metrics[...]["test_RMSE"]` equals the RMSE of `models[..]["_CT_ENSEMBLE__t"][0].model.predict(test)`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. After the MoE gate wraps `entries[0].model`, `_restamp_shipped_metrics` re-scores that shipped wrapper on val and test and overwrites `cross_target_ensemble_metrics[...]['val_RMSE'/'val_MAE'/'test_RMSE'/'test_MAE']`. The `model_name` gets a `+MoE` suffix. A split whose predict fails has its numbers removed instead of left describing the pre-MoE stack. `run_composite_moe_and_value_report` takes `test_df` / `test_idx`, and `run_composite_post_processing` passes them. Regression test `test_the_ensemble_metrics_describe_the_model_that_ships`: the recorded test RMSE equals the RMSE of `models[...]['_CT_ENSEMBLE__t'][0].model.predict(test)` and replaces the stale stack number. It fails before the fix.
 
 ### EST-14 [P2] A streaming `update()` refit leaves the soft-shrink base range at the dead regime, and its T-clip refresh leaves out the widening to the observed range that `fit()` applies
 
