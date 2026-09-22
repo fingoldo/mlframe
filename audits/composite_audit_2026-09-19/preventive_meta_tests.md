@@ -109,7 +109,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. Counts are deterministic for a seeded fixture. The risk is budget formulas going stale as the design changes, which the note on each entry mitigates.
 - **Runtime**: about 20-40 s (one tiny discovery fit plus the post phases). Mark it `perf`, excluded from the local default run, and run it in CI.
 - **Repo**: mlframe (the `CallBudget` helper is generic and could later move to py-ci-shared).
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New `tests/training/composite/perf/_call_budget.py` (`CallBudget`: counts a primitive wherever an mlframe module bound it, and restores on exit) and test_composite_call_budgets.py (`slow`). One default single-threaded discovery fit (n=600, two bases, a group column) must hold each primitive to its ideal count or its recorded excess in `_composite_call_budget_baseline.json`, which may only go down: `data_signature` 0 and `generate_interaction_bases` 1 (at ideal); `_build_feature_matrix` 4 vs 1 (PRF-18), `near_collinear_keep_mask` 5 vs 1 (PRF-01) and `lgb.Dataset` 54 (PRF-07; 18 shared-fold, 18 per-spec CV, 9 honest-gate, 8 WAIC, 1 baseline), each with a note. The fixture is serial because the shared fold-dataset cache is per thread by design (`set_label` mutates it); in parallel the count varies with scheduling (141-156). Not built: the post-phase budgets (inner predicts per component/split, wrap-pass predicts, `pp.transform` per fold, honest-holdout gather, region-adaptive fits) and INT-17's import check, which belongs to INT-17.
 
 ### PMT-03 [P1] Fail-open and below-WARNING substitution handlers in gates (shared AST scanner)
 - **Asserts**: in scoped packages, an `except` handler must not:
