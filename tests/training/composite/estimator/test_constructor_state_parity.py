@@ -50,10 +50,10 @@ def _pair(name: str):
 def test_from_fitted_inner_matches_fit(name: str):
     """Same public fitted attributes (bar the exemptions), same parameter keys, same T-clip band, same predictions."""
     fitted, built, X = _pair(name)
-    pub = lambda est: {k for k in vars(est) if k.endswith("_") and not k.startswith("_")}  # noqa: E731
+    pub = lambda est: {k for k in vars(est) if k.endswith("_") and not k.startswith("_")}
     assert pub(fitted) ^ pub(built) <= set(_EXEMPT), sorted(pub(fitted) ^ pub(built))
     assert set(fitted.fitted_params_) == set(built.fitted_params_), sorted(set(fitted.fitted_params_) ^ set(built.fitted_params_))
-    band = lambda est: (est.fitted_params_["t_clip_low"], est.fitted_params_["t_clip_high"])  # noqa: E731
+    band = lambda est: (est.fitted_params_["t_clip_low"], est.fitted_params_["t_clip_high"])
     np.testing.assert_allclose(band(built), band(fitted), rtol=1e-9, err_msg="T-clip envelope differs from fit()")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
