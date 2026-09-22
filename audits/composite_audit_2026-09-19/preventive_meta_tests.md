@@ -419,7 +419,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. Legitimately fit-only diagnostics go in the exemption list with reasons.
 - **Runtime**: about 3-5 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New tests/training/composite/estimator/test_constructor_state_parity.py, parametrised over all 51 registry transforms. `from_fitted_inner` must match `fit` on the public fitted attributes (exempt: `inner_pre_pipeline_`, with its reason), the fitted-param keys, the T-clip band and the predictions. It found a real defect: without a stamped envelope, `from_fitted_inner` clipped T to `+/-10 std(y)` even when the train base was supplied. For 42 transforms that band was tens of times too wide (+/-48 vs [-0.17, 0.18] for asinh_residual) or off-centre (ratio [0.6, 4.8]), so the clip protected nothing. The fix is new `_reconstruct_t_train`: any transform whose inputs are present (y; plus `base_train` for base-dependent ones, 2-D for multi-base; plus the new `groups_train` for grouped ones) gets the exact train T through `call_transform` and the same MAD envelope as `fit`. The deployed wrapper and the OOF refit wraps pass groups. 42 of 51 cases fail before the fix. Not built: leg (b), `update()` parity (EST-14 is open), and the unpickle leg (the pickle round-trip suites cover pickling separately).
 
 ### PMT-24 [P1] Unseen-key fallback property for every router and grouped component
 - **Asserts**: for every class in `UNSEEN_KEY_ROUTERS` (the MoE gate, the OOD lag router, the volatility router, `per_group_router`, every `requires_groups` transform):
