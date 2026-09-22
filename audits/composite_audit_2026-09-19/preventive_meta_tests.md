@@ -302,7 +302,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. (d) makes a deliberate one-line bump per selection-affecting change, which is the purpose of the gate.
 - **Runtime**: under 3 s.
 - **Repo**: mlframe (the version gate reuses the py-ci-shared module).
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. Built: (a) for the discovery key. `test_the_discovery_cache_key_changes_with_every_input_that_changes_the_specs` perturbs group ids, hint strengths, time order, val y and val frame one at a time, and each changes the key (DSC-12 fixed). (c): the composite model cache records `composite_spec_digest`, and test_composite_model_cache_digest.py pins that the digest follows the fitted params and that a stale or digest-less dump is invalidated (INT-13). (d): `DISCOVERY_ALGO_VERSION` is in the key, and test_discovery_algo_version_bumped.py gates it on a CRLF-normalised hash of composite/discovery + composite/transforms. Versions now come from `importlib.metadata`, and a subprocess test shows no booster import (INT-17 fixed). Not built: (b), the automatic derivation of required key inputs from `CompositeTargetDiscovery.fit`'s parameters and the private attributes it reads; and the train_eval model-cache key perturbation table.
 
 ### PMT-16 [P2] polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared)
 - **Asserts**:

@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 15 | 0 | 4 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 12 | 14 | 15 | 0 | 0 |
-| **Total** | **179** | **113** | **25** | **40** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 12 | 15 | 14 | 0 | 0 |
+| **Total** | **179** | **113** | **26** | **39** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -210,7 +210,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `PMT-12` | Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered | OOD-edge + one-row Lipschitz legs; quantile contract (fixed EST-10) |
 | **PARTIAL** | P1 | `PMT-13` | Ensemble combiner invariants for every stacking strategy, including "the gate can fire" | gate-can-fire + cap tests (fixed EST-05/06); registry parametrisation + (d) open |
 | **PARTIAL** | P2 | `PMT-14` | Transform-call gateway: every registry-transform fit/forward/inverse call goes through one signature-gated helper, and weights are honoured | zero weight = dropped row for every order-free weighted fit (10 transforms fixed); gateway scanner with ratcheted baseline |
-| **TODO** | P2 | `PMT-15` | Cache-key completeness by input perturbation, plus a code-version gate on discovery sources | |
+| **PARTIAL** | P2 | `PMT-15` | Cache-key completeness by input perturbation, plus a code-version gate on discovery sources | discovery key inputs perturbed, spec digest, algo-version gate; auto-derived input table open |
 | **TODO** | P2 | `PMT-16` | polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared) | |
 | **PARTIAL** | P1 | `PMT-17` | Absorption and consistency on each transform's canonical DGP | canonical-DGP absorption for all 40 base transforms; fixed quantile_residual small-n; smoother/grouped legs open |
 | **PARTIAL** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | self-influence canaries (causal bases, OOF encoding, all transforms <0.1); leg c spy pending DSC-13/EST-17 |
