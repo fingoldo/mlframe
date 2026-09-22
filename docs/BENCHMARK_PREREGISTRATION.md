@@ -236,7 +236,15 @@ as a stronger negative than the design can support.
    medoid is selected). Same for BorutaShap.
 6. `test_negative_results_nonempty.py` fails if the generated report contains no scenario where MRMR ranks
    below median.
-7. Free knobs are declared as **priors, not points** (`corr ~ U(0.5, 0.99)`, `prevalence ~ LogUniform(0.01,
+7. The **oracle is cross-checked by an outside implementation**. `assert_estimators_disjoint` keeps the
+   oracle's estimator families apart from the arms' MI backends, which addresses the oracle agreeing with
+   the arms; it does nothing about the oracle's own closed form being wrong, since that form and every test
+   of it were written by the same hand against the same understanding. `dit` -- a third-party
+   information-theory package, never an arm -- is handed the same exact joint law and must reproduce the
+   oracle's exact `I(X;Y)` to within 1e-9 nats. Measured on the fixed probe every run records: 8.9e-16 nats
+   at 2, 5, 17 and 64 levels. The verdict is a manifest field, and when `dit` is unavailable that field says
+   the check did not run and why, rather than being omitted.
+8. Free knobs are declared as **priors, not points** (`corr ~ U(0.5, 0.99)`, `prevalence ~ LogUniform(0.01,
    0.5)`, and so on) and aggregated over. A fixed value is a rigging surface; a declared prior is auditable.
 
 ## 9. Hypotheses

@@ -63,6 +63,7 @@ bed that it stayed closed.
 | `_missing.py` | MCAR / MAR / MNAR masking, applied after the link |
 | `_target.py` | prevalence, calibration, the exact Bayes ceiling |
 | `_oracle.py` | the ceiling and the reference MI bundles |
+| `_oracle_crosscheck.py` | the oracle's exact MI, confirmed against third-party `dit` on the exact joint law |
 | `generator.py` | the orchestrator |
 | `scenarios/` | the named bed library and its lock file |
 
