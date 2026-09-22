@@ -13,7 +13,7 @@ import logging
 import os
 
 import numpy as np
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -464,14 +464,30 @@ def score_prospective_pairs(
     # serially from ``_step_core.py`` (no threading/loky dispatch at this level), so no shared-mutable-state
     # race risk (contrast the numba-typed-dict caches elsewhere in this package that DO cross worker threads
     # and need explicit per-worker copies).
-    _operand_cache: dict = {}
+    _operand_cache: OrderedDict = OrderedDict()
+
+    # BOUNDED: the prescan is capped, but the gate-failure path below asks for an operand for every pair with a positive pair MI, so the
+    # cache could hold one full-length column per operand in the pool. At 5000 operands and a million rows that is tens of GB standing behind
+    # a memoization whose justification was CPU time. Least-recently-used eviction keeps the win (a small pool of operands recurs across a
+    # much larger pool of pairs, so the working set is small) without the footprint. Stored at the dtype both consumers cast to anyway, so
+    # nothing they compute changes.
+    from .._fe_usability_signal import _crit_np_dtype as _op_cache_dtype
+
+    _operand_cache_max = max(512, 2 * int(getattr(self, "fe_pair_usability_prescan_max_pairs", 256) or 256))
 
     def _cached_operand(_idx):
         """Return operand ``_idx``'s continuous usability value, computing and memoizing it on first use."""
-        if _idx in _operand_cache:
-            return _operand_cache[_idx]
+        _hit = _operand_cache.get(_idx)
+        if _hit is not None:
+            _operand_cache.move_to_end(_idx)
+            return _hit
         _val = _usability_operand_continuous(self, X, cols, _idx)
+        if _val is None:
+            return None
+        _val = np.asarray(_val, dtype=_op_cache_dtype())
         _operand_cache[_idx] = _val
+        if len(_operand_cache) > _operand_cache_max:
+            _operand_cache.popitem(last=False)
         return _val
 
     # Per-call memoization for the SINGLE-operand half of usability_form_corrs's ``_cs`` (2026-07-11 perf

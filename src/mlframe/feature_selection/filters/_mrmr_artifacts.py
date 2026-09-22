@@ -151,6 +151,17 @@ def compute_mrmr_artifacts(
     bins_dict: dict[str, np.ndarray] | None = {} if retain_bins else None
     nbins_dict: dict[str, int] | None = {} if retain_bins else None
 
+    # One parallel pass for every retained column's bin counts, instead of a strided gather plus an np.bincount per feature from Python.
+    # Counts only: the entropy's float reduction stays below, so every reported H(X) and SU keeps its exact value.
+    _hist_cols = [name_to_data_col[nm] for nm in feature_names_in if name_to_data_col.get(nm) is not None]
+    _hist_by_col: dict = {}
+    if _hist_cols:
+        from ._mrmr_artifact_entropy import column_histograms
+
+        _hist_width = int(max(int(nbins[c]) for c in _hist_cols))
+        _hist_rows = column_histograms(data, _hist_cols, _hist_width)
+        _hist_by_col = {int(c): _hist_rows[j] for j, c in enumerate(_hist_cols)}
+
     for orig_idx, name in enumerate(feature_names_in):
         data_col = name_to_data_col.get(name)
         if data_col is None:
@@ -170,10 +181,14 @@ def compute_mrmr_artifacts(
         mi_to_target[orig_idx] = mi_val
 
         # Marginal H(X_j) from the binned column.
-        x_bins = data[:, data_col]
         x_nb = int(nbins[data_col])
-        _assert_nonneg_codes(x_bins, f"feature column {name!r} x_bins")
-        x_counts = np.bincount(x_bins, minlength=x_nb).astype(np.float64)
+        _row = _hist_by_col.get(int(data_col))
+        if _row is None:  # the batched pass skipped this column; fall back to the per-column histogram
+            x_bins = data[:, data_col]
+            _assert_nonneg_codes(x_bins, f"feature column {name!r} x_bins")
+            x_counts = np.bincount(x_bins, minlength=x_nb).astype(np.float64)
+        else:
+            x_counts = np.asarray(_row[:x_nb] if x_nb <= _row.shape[0] else np.pad(_row, (0, x_nb - _row.shape[0])), dtype=np.float64)
         x_total = float(x_counts.sum())
         if x_total > 0:
             x_p = x_counts / x_total

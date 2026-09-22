@@ -88,3 +88,30 @@ def fe_budget_active() -> bool:
 
 
 __all__ = ["set_fe_deadline", "clear_fe_deadline", "fe_deadline_scope", "fe_deadline_passed", "fe_budget_active"]
+
+
+def current_fe_deadline() -> "float | None":
+    """The deadline published on THIS thread, read where the thread-local actually lives so it can be carried across a worker boundary."""
+    return getattr(_state, "deadline", None)
+
+
+class DeadlineCarrying:
+    """Wrap a payload so it re-publishes the dispatching thread's deadline inside the worker that runs it.
+
+    A ``joblib`` worker gets a fresh thread (or a fresh process), and a thread-local does not follow it, so a family that fans out loses its
+    budget entirely rather than approximately: every ``fe_deadline_passed()`` inside the worker reads unset and the enrichment loop runs to
+    completion. Capturing the value at DISPATCH time on the main thread and re-publishing it around the call is the whole fix, and it is one
+    wrapper rather than an extra argument threaded through each family's payload signature.
+
+    Used as ``Parallel(...)(delayed(DeadlineCarrying(fn))(arg) for arg in items)``. A plain class, not a closure, so loky can pickle it.
+    """
+
+    def __init__(self, fn, deadline: "float | None" = None):
+        self.fn = fn
+        # Read here, on the dispatching thread, NOT inside __call__ where the thread-local is a different one.
+        self.deadline = current_fe_deadline() if deadline is None else deadline
+
+    def __call__(self, *args, **kwargs):
+        """Run the payload with the captured deadline published for its duration, then restore what the worker had."""
+        with fe_deadline_scope(self.deadline):
+            return self.fn(*args, **kwargs)
