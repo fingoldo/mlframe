@@ -549,7 +549,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low (2 sites in the package).
 - **Runtime**: under 1 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New py-ci-shared module `runtime_registry_mutation` (py-ci-shared 9117175, 6 unit tests, README section). It flags every function-scope write (subscript store, `setdefault`, `update`, `pop`, `del`) to a module-level `*REGISTRY*` dict defined in any scanned file, counting writes through an import. Helpers used as a module-scope decorator or called in a module-scope statement are exempt, since they run at import. `assert_writes_have_replay` requires a reasoned `replay_writers` entry for every other writer and fails on stale entries. mlframe wiring: `test_runtime_registry_writes_have_a_replay` in test_shared_checks_wired.py over all of src (pin bumped to 9117175). Five writers are listed, each with a reason: `reregister_auto_chain_transforms` (the replay itself), `_run_auto_chain` (replayed on load; proven in a fresh process by PMT-32), the provider cache's `_register_or_get` / `_do_load` (per-process, never named by a pickle) and the `register_metric` plugin API.
 
 ### PMT-34 [P2] getattr default parity: `getattr(cfg, "field", literal)` must match the pydantic field default (shared scanner)
 - **Asserts**: for every `getattr(<config-ish receiver>, "<field>", <literal>)` in scope, the literal equals the pydantic default of that field on the resolved config class. The receiver is resolved by name convention (`config`, `self.config`, `cfg`, `*_config`) and the class by the field set.
