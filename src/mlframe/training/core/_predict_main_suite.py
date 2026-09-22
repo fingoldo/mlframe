@@ -254,6 +254,13 @@ def predict_mlframe_models_suite(
         if verbose:
             logger.info("Applying pipeline transformation...")
         df = pipeline.transform(df)
+        # Same GBM-safe rename as fit time and as predict_from_models: the pipeline can emit engineered names with
+        # JSON-structural characters (``mul(log(f2),sin(f3))``) that training renamed right after this transform. Served
+        # from disk without it, CatBoost raised "should be feature with name ... (found ...)", the per-model handler
+        # swallowed that, and the model silently left the ensemble.
+        from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
+
+        df = _sanitize_frame_columns(df)
 
     # Row-wise extension columns (row_summary_*/row_extreme_*, default ON) are stateless per-row
     # functions with no fitted object to persist -- recompute them directly from the frame's own
@@ -317,11 +324,14 @@ def predict_mlframe_models_suite(
         _bn = os.path.basename(_mf).replace(".dump", "")
         _basename_counts[_bn] = _basename_counts.get(_bn, 0) + 1
 
+    _models_attempted = 0
+    _predict_errors: list[tuple[str, str]] = []
     for model_file in sorted(model_files):
         model_name = os.path.basename(model_file).replace(".dump", "")
 
         if model_names and model_name not in model_names:
             continue
+        _models_attempted += 1
         if _basename_counts.get(model_name, 0) > 1:
             model_name = os.path.relpath(model_file, models_path).replace(".dump", "").replace(os.sep, "/")
 
@@ -516,6 +526,7 @@ def predict_mlframe_models_suite(
                 "Error loading/predicting with model %s: %s", model_file, e,
                 exc_info=True,
             )
+            _predict_errors.append((model_name, f"{type(e).__name__}: {e}"))
             continue
 
     if len(all_probs) > 1:
@@ -639,5 +650,17 @@ def predict_mlframe_models_suite(
 
     if verbose:
         logger.info("Generated predictions for %d models", len(results["predictions"]))
+
+    # Every model failed: raise, as predict_from_models does, instead of returning an empty result that looks like
+    # success. A version-drift bundle whose every .dump fails to unpickle used to hand a serving wrapper
+    # ``ensemble_predictions=None`` with no error at all.
+    if _models_attempted > 0 and not results["predictions"] and not results["probabilities"] and _predict_errors:
+        _summary = "; ".join(f"{_mn}: {_err}" for _mn, _err in _predict_errors[:5])
+        if len(_predict_errors) > 5:
+            _summary += f"; ... (+{len(_predict_errors) - 5} more)"
+        raise RuntimeError(
+            f"predict_mlframe_models_suite: all {_models_attempted} model(s) under {models_path} failed to load or "
+            f"predict; producing no predictions or probabilities. Per-model errors: {_summary}"
+        )
 
     return results
