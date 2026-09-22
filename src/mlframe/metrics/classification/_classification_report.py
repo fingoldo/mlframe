@@ -388,7 +388,10 @@ def fast_calibration_report(
     )
 
     # Use fast numba version (returns nan for single-class data)
-    ll: Optional[float] = fast_log_loss(y_true, y_pred)
+    # One eps for every model in a report. ``fast_log_loss``'s default eps follows ``y_pred``'s dtype, so a confidently
+    # wrong row cost 15.9 for a model emitting float32 probabilities and 36.0 for a float64 one, and a report comparing
+    # them ranked on dtype. Upcast and clip at the float64 machine eps regardless of what the model emitted.
+    ll: Optional[float] = fast_log_loss(y_true, np.asarray(y_pred, dtype=np.float64), eps=float(np.finfo(np.float64).eps))
     if ll is not None and np.isnan(ll):
         ll = None
 

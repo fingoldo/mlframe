@@ -269,13 +269,14 @@ def compute_brier_decomposition_debiased(
     ``RES_db = RES_plugin - sum_b w_b Var(acc_b)``. Because the SAME amount leaves both, ``REL_db - RES_db ==
     REL_plugin - RES_plugin`` and the Murphy identity ``BinnedBrier = REL - RES + UNC`` (and the BinnedBrier value
     itself) is preserved EXACTLY -- only the split between the (now-unbiased) reliability and resolution shifts.
-    REL is clamped at 0 (true reliability is non-negative); the clamp can break the exact REL-RES cancellation in
-    the rare bins where the plug-in REL term falls below its noise floor, which is the deliberate accuracy choice.
-    Bins with n_b<2 have no variance estimate and contribute their raw squared term.
+    REL is clamped at 0 per bin (true reliability is non-negative). RES is computed through the identity,
+    ``RES = REL + UNC - BinnedBrier`` with the plug-in BinnedBrier, so the decomposition always adds up: without a
+    clamp that equals ``RES_plugin - sum_b w_b Var(acc_b)`` exactly, and when a bin clamps, RES absorbs the clamped
+    amount instead of the identity breaking. Bins with n_b<2 have no variance estimate and contribute their raw
+    squared term.
 
     Returns ``(reliability_debiased, resolution_debiased, uncertainty, brier_binned)``. ``uncertainty`` is unchanged
-    from the plug-in; ``brier_binned`` is recomputed from the debiased terms (equals the plug-in BinnedBrier when no
-    REL bin clamps). Uses the SAME fixed ``[0, 1]`` equal-width grid as ``compute_ece_and_brier_decomposition`` so the
+    from the plug-in; ``brier_binned`` is the plug-in BinnedBrier. Uses the SAME fixed ``[0, 1]`` equal-width grid as ``compute_ece_and_brier_decomposition`` so the
     debiased and plug-in decompositions are directly comparable AND comparable across datasets / resamples. Returns
     1.0/0.0/0.0/1.0 on empty input.
     """
@@ -304,7 +305,8 @@ def compute_brier_decomposition_debiased(
         true_sum[ind] += y_true[i]
 
     reliability = 0.0
-    resolution = 0.0
+    rel_plugin = 0.0
+    res_plugin = 0.0
     inv_n = 1.0 / n
     for k in range(nbins):
         nk = counts[k]
@@ -315,17 +317,21 @@ def compute_brier_decomposition_debiased(
         acc = true_sum[k] / nk
         diff = p_mean - acc
         rel_term = diff * diff
-        res_term = (acc - base_rate) ** 2
+        rel_plugin += w * diff * diff  # same operation order as the fused kernel, so the two stay bit-identical
+        res_plugin += w * (acc - base_rate) ** 2
         if nk >= 2:
-            var_acc = acc * (1.0 - acc) / (nk - 1)
-            rel_term -= var_acc
+            rel_term -= acc * (1.0 - acc) / (nk - 1)
             if rel_term < 0.0:
                 rel_term = 0.0
-            res_term -= var_acc
         reliability += w * rel_term
-        resolution += w * res_term
     uncertainty = base_rate * (1.0 - base_rate)
-    brier_binned = reliability - resolution + uncertainty
+    # BinnedBrier is a plain average of observed squared errors and needs no correction; take the plug-in value. RES
+    # is then defined through the Murphy identity rather than debiased independently. Without a clamp this is exactly
+    # Broecker's RES_plugin - sum w*Var (the same amount REL lost); with a clamp, the independently debiased RES left
+    # REL - RES + UNC above the Brier printed beside it - on a well-calibrated model with small bins nearly every bin
+    # clamps, and the decomposition token in the report visibly failed to add up. Now it always adds up.
+    brier_binned = rel_plugin - res_plugin + uncertainty
+    resolution = reliability + uncertainty - brier_binned
     return reliability, resolution, uncertainty, brier_binned
 
 
@@ -397,7 +403,6 @@ def compute_ece_brier_full_and_debiased(
         resolution += w * res_term_plugin
         # Debiased terms (compute_ece_debiased + compute_brier_decomposition_debiased).
         rel_term = diff * diff
-        res_term = res_term_plugin
         if nk >= 2:
             var_acc = acc * (1.0 - acc) / (nk - 1)
             # ECE debiased.
@@ -405,18 +410,19 @@ def compute_ece_brier_full_and_debiased(
             if corrected < 0.0:
                 corrected = 0.0
             ece_db += w * np.sqrt(corrected)
-            # Brier REL/RES debiased.
+            # Brier REL debiased (RES follows from the identity below, as in compute_brier_decomposition_debiased).
             rel_term -= var_acc
             if rel_term < 0.0:
                 rel_term = 0.0
-            res_term -= var_acc
         else:
             ece_db += w * abs(diff)
         rel_db += w * rel_term
-        res_db += w * res_term
     uncertainty = base_rate * (1.0 - base_rate)
     brier_binned = reliability - resolution + uncertainty
-    brier_binned_db = rel_db - res_db + uncertainty
+    # Same contract as compute_brier_decomposition_debiased: plug-in BinnedBrier, RES through the Murphy identity, so
+    # the debiased decomposition always adds up to the Brier it is printed beside.
+    brier_binned_db = brier_binned
+    res_db = rel_db + uncertainty - brier_binned_db
     return (
         ece, reliability, resolution, uncertainty, brier_binned,
         ece_db, rel_db, res_db, brier_binned_db,
