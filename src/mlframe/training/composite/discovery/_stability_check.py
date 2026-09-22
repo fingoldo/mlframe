@@ -31,9 +31,8 @@ def fit_with_stability_check(
     val_idx: np.ndarray | None = None,
     test_idx: np.ndarray | None = None,
     *,
-    n_bootstrap_runs: int = 5,
-    min_keep_fraction: float = 0.6,
-    subsample_fraction: float = 0.5,
+    n_bootstrap_runs: int = 5, min_keep_fraction: float = 0.6, subsample_fraction: float = 0.5,
+    time_ordering: Any = None, val_df: Any = None, val_y: np.ndarray | None = None,
 ) -> "CompositeTargetDiscovery":
     """Run :meth:`fit` ``n_bootstrap_runs`` times on DECORRELATED reseeds and per-run row subsamples, keeping only specs that survive in at least ``min_keep_fraction * n_bootstrap_runs`` runs.
 
@@ -75,7 +74,7 @@ def fit_with_stability_check(
     each replicate.
     """
     if n_bootstrap_runs <= 1:
-        return self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
+        return self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx, time_ordering=time_ordering, val_df=val_df, val_y=val_y)
 
     # Per-run reseeding (and any mid-fit heavy-tail mi_n_strata boost that swaps self.config for a model_copy) must mutate only a config we own:
     # otherwise the final restore would write back the swapped copy and leave the caller's shared config permanently reseeded, poisoning later targets.
@@ -153,7 +152,7 @@ def fit_with_stability_check(
             else:
                 _run_train_idx = _screen_pool
             try:
-                self.fit(df, target_col, feature_cols, _run_train_idx, val_idx, test_idx)
+                self.fit(df, target_col, feature_cols, _run_train_idx, val_idx, test_idx, time_ordering=time_ordering, val_df=val_df, val_y=val_y)
             except Exception as _exc:
                 log_throttle(
                     logger,

@@ -75,7 +75,7 @@ def _capture_run_calls(disc: CompositeTargetDiscovery, monkeypatch):
     actually running the heavy discovery. Returns the recording list."""
     calls: list[tuple[int, np.ndarray]] = []
 
-    def _fake_fit(self, df, target_col, feature_cols, train_idx, val_idx=None, test_idx=None, time_ordering=None):
+    def _fake_fit(self, df, target_col, feature_cols, train_idx, val_idx=None, test_idx=None, time_ordering=None, val_df=None, val_y=None):
         """Recording stand-in for ``fit``: logs (random_state, train_idx) instead of running discovery."""
         calls.append((int(self.config.random_state), np.asarray(train_idx).copy()))
         self.specs_ = []  # no specs -> gate keeps nothing, fine for these sensors

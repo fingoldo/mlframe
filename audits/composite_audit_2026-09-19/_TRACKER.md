@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 20 | 0 | 10 | 0 | 0 |
+| `discovery.md` | 30 | 21 | 0 | 9 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 16 | 0 | 6 | 0 | 0 |
 | `suite_integration.md` | 19 | 13 | 0 | 6 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 12 | 12 | 17 | 0 | 0 |
-| **Total** | **179** | **107** | **23** | **48** | **1** | **0** |
+| **Total** | **179** | **108** | **23** | **47** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -72,7 +72,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `DSC-11` | WAIC and auto-chain CVs use shuffled KFold, ignoring groups and time | splitter factory; WAIC + auto-chain CVs take groups/time |
 | **TODO** | P2 | `DSC-12` | The discovery disk-cache key leaves out inputs that change the result | |
 | **TODO** | P2 | `DSC-13` | The yscale gate's fallback path evaluates on rows the transform params were fit on | |
-| **TODO** | P2 | `DSC-14` | Stacked and stability-check fits drop `time_ordering`, `val_df` and `val_y` | |
+| **RESOLVED** | P2 | `DSC-14` | Stacked and stability-check fits drop `time_ordering`, `val_df` and `val_y` | variants forward time_ordering/val_df/val_y; phase passes them to stacked fits |
 | **TODO** | P2 | `DSC-15` | The stability-check majority threshold is truncated, so n=3 keeps specs found once | |
 | **RESOLVED** | P2 | `DSC-16` | Incremental drift detection cannot fire under default config | same-rows reference gain; appended rows only; default config now detects a destroyed base |
 | **RESOLVED** | P2 | `DSC-17` | The cross-target composite budget sorts three incompatible gain units together | budget ranks RMSE-gain tier before MI tier |

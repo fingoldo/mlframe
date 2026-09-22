@@ -118,7 +118,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: An opt-in feature silently removes leakage guards that are on by default.
 - **Suggested fix**: Add `time_ordering=None, val_df=None, val_y=None` to the three wrappers, forward them to every inner `fit`, and pass them from the core phase.
 - **Test to add**: Call `fit_stacked` with a `time_ordering` and assert `_base_leakage_guard_ran_` is True and `_screen_time_ordered_` is True after pass 1.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `fit_stacked`, `fit_stacked_on_residual` and `fit_with_stability_check` accept `time_ordering`, `val_df` and `val_y` and forward them to every pass-1 and bootstrap `fit`. Pass 2 of the stacked variants keeps `time_ordering` only: its features include pass-1 OOF columns the val frame lacks, and the residual variant's target is not the raw y. The discovery phase computes the time ordering and val frame before choosing the variant and passes them to the stacked calls too. Regression test tests/training/composite/discovery/test_variant_fits_forward_kwargs.py fails for all three variants before the fix. test_discovery_stability.py's fake `fit` gained the two keywords.
 
 ### DSC-15 [P2] The stability-check majority threshold is truncated, so n=3 keeps specs found once
 - **Where**: `_stability_check.py:174` (`threshold = max(1, int(min_keep_fraction * n_bootstrap_runs))`) and `:162-168`, `:176`.

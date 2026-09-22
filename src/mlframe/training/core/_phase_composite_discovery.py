@@ -614,6 +614,44 @@ def run_composite_target_discovery(
                     # of shuffled K-fold -- otherwise the pass-2 bases / residual
                     # target are built from future-contaminated OOF predictions.
                     _stacked_time_aware = bool(getattr(_disc_cfg, "time_column", None))
+                    # Extract the chronological-order column (if the
+                    # user named one) so discovery sorts the screening
+                    # sample into a forward-walk instead of leaking
+                    # future->past on temporal data via shuffled K-fold.
+                    _time_ordering = None
+                    _tcol = getattr(_disc_cfg, "time_column", None)
+                    if _tcol:
+                        try:
+                            if hasattr(_disc_df, "columns") and _tcol in _disc_df.columns:
+                                if hasattr(_disc_df, "get_column"):  # polars
+                                    _time_ordering = _disc_df.get_column(_tcol).to_numpy()
+                                else:  # pandas
+                                    _time_ordering = _disc_df[_tcol].to_numpy()
+                        except Exception as _tc_err:  # best-effort: falls back to base-monotonicity time detection below
+                            log_throttle(
+                                logger, "composite_discovery_time_column_extract_failed", logging.WARNING,
+                                "[CompositeTargetDiscovery] time_column='%s' "
+                                "could not be extracted (%s); discovery falls "
+                                "back to base-monotonicity time detection.",
+                                _tcol, _tc_err,
+                            )
+                            _time_ordering = None
+                    # Supply the VAL frame + val targets so the y-scale gate can validate the
+                    # predict-T -> invert-to-y pipeline on UNSEEN wells (val groups are disjoint
+                    # from train under the group-aware split) -- the regime where a residual inverse
+                    # extrapolates and collapses, which a train-group holdout cannot reproduce. The
+                    # discovery ``df`` is train-only, so the val split is passed as a separate frame.
+                    _disc_val_df = None
+                    _disc_val_y = None
+                    try:
+                        if val_df_pd is not None and val_idx is not None:
+                            _vy = np.asarray(_y_arr)[val_idx]
+                            if hasattr(val_df_pd, "__len__") and len(val_df_pd) == len(_vy):
+                                _disc_val_df = val_df_pd
+                                _disc_val_y = _vy
+                    except Exception as e:  # -- val gate is best-effort; fall back to train-group holdout
+                        logger.debug("val-gate construction failed, falling back to train-group holdout: %s", e)
+                        _disc_val_df, _disc_val_y = None, None
                     if _use_stacked_residual:
                         _disc = _disc_instance.fit_stacked_on_residual(
                             df=_disc_df,
@@ -631,7 +669,7 @@ def run_composite_target_discovery(
                                 "stacked_residual_max_pass1_specs_to_aggregate",
                                 3,
                             )),
-                            time_aware=_stacked_time_aware,
+                            time_aware=_stacked_time_aware, time_ordering=_time_ordering, val_df=_disc_val_df, val_y=_disc_val_y,
                         )
                     elif _use_stacked:
                         _disc = _disc_instance.fit_stacked(
@@ -645,47 +683,9 @@ def run_composite_target_discovery(
                             max_pass1_specs_to_stack=int(getattr(
                                 _disc_cfg, "stacked_max_pass1_specs", 3,
                             )),
-                            time_aware=_stacked_time_aware,
+                            time_aware=_stacked_time_aware, time_ordering=_time_ordering, val_df=_disc_val_df, val_y=_disc_val_y,
                         )
                     else:
-                        # Extract the chronological-order column (if the
-                        # user named one) so discovery sorts the screening
-                        # sample into a forward-walk instead of leaking
-                        # future->past on temporal data via shuffled K-fold.
-                        _time_ordering = None
-                        _tcol = getattr(_disc_cfg, "time_column", None)
-                        if _tcol:
-                            try:
-                                if hasattr(_disc_df, "columns") and _tcol in _disc_df.columns:
-                                    if hasattr(_disc_df, "get_column"):  # polars
-                                        _time_ordering = _disc_df.get_column(_tcol).to_numpy()
-                                    else:  # pandas
-                                        _time_ordering = _disc_df[_tcol].to_numpy()
-                            except Exception as _tc_err:  # best-effort: falls back to base-monotonicity time detection below
-                                log_throttle(
-                                    logger, "composite_discovery_time_column_extract_failed", logging.WARNING,
-                                    "[CompositeTargetDiscovery] time_column='%s' "
-                                    "could not be extracted (%s); discovery falls "
-                                    "back to base-monotonicity time detection.",
-                                    _tcol, _tc_err,
-                                )
-                                _time_ordering = None
-                        # Supply the VAL frame + val targets so the y-scale gate can validate the
-                        # predict-T -> invert-to-y pipeline on UNSEEN wells (val groups are disjoint
-                        # from train under the group-aware split) -- the regime where a residual inverse
-                        # extrapolates and collapses, which a train-group holdout cannot reproduce. The
-                        # discovery ``df`` is train-only, so the val split is passed as a separate frame.
-                        _disc_val_df = None
-                        _disc_val_y = None
-                        try:
-                            if val_df_pd is not None and val_idx is not None:
-                                _vy = np.asarray(_y_arr)[val_idx]
-                                if hasattr(val_df_pd, "__len__") and len(val_df_pd) == len(_vy):
-                                    _disc_val_df = val_df_pd
-                                    _disc_val_y = _vy
-                        except Exception as e:  # -- val gate is best-effort; fall back to train-group holdout
-                            logger.debug("val-gate construction failed, falling back to train-group holdout: %s", e)
-                            _disc_val_df, _disc_val_y = None, None
                         _disc = _disc_instance.fit(
                             df=_disc_df,
                             target_col=_tname_disc,
