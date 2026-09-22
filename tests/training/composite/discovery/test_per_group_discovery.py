@@ -243,3 +243,36 @@ def test_per_group_discovery_beats_global_forced_on_all_groups():
     # Group C (pure noise) must still produce finite, non-crashing predictions via the fallback path.
     c_mask = (holdout_df["group_id"] == "C").to_numpy()
     assert np.all(np.isfinite(router_pred[c_mask])), "group C (noise) predictions must stay finite"
+
+
+def test_a_group_delegate_gets_its_groups_val_rows_and_the_rerank_grouping(monkeypatch):
+    """Each per-group ``fit`` sees only its group's val rows, and inherits ``_group_ids_for_rerank`` / ``_hint_strengths_pct``."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.training.composite import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery._per_group import run_per_group_discovery
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    rng = np.random.default_rng(0)
+    n = 400
+    df = pd.DataFrame({"b": rng.uniform(1.0, 10.0, n), "c": np.repeat(["A", "B"], n // 2), "y": rng.normal(size=n)})
+    val_df, val_y = df.copy(), df["y"].to_numpy()
+    seen = []
+
+    def spy(self, *args, **kwargs):
+        """Record what the delegate received."""
+        seen.append((set(kwargs["val_df"]["c"]) if kwargs.get("val_df") is not None else None, 0 if kwargs.get("val_y") is None else len(kwargs["val_y"]),
+                     getattr(self, "_group_ids_for_rerank", None) is not None, getattr(self, "_hint_strengths_pct", None)))
+        self.specs_ = []
+        return self
+
+    monkeypatch.setattr(CompositeTargetDiscovery, "fit", spy)
+    cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, base_candidates=["b"], per_group_discovery_enabled=True,
+                                         per_group_column="c", per_group_min_rows=50)
+    parent = CompositeTargetDiscovery(cfg)
+    parent._group_ids_for_rerank = np.arange(n) % 7
+    parent._hint_strengths_pct = [12.0]
+    run_per_group_discovery(parent, df, "y", ["b"], np.arange(n), None, None, None, val_df, val_y)
+    assert sorted(s[0] for s in seen) == [{"A"}, {"B"}], seen
+    assert all(s[1] == n // 2 and s[2] and s[3] == [12.0] for s in seen), seen

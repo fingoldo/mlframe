@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 21 | 0 | 9 | 0 | 0 |
+| `discovery.md` | 30 | 22 | 0 | 8 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 16 | 0 | 6 | 0 | 0 |
 | `suite_integration.md` | 19 | 13 | 0 | 6 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 12 | 12 | 17 | 0 | 0 |
-| **Total** | **179** | **108** | **23** | **47** | **1** | **0** |
+| **Total** | **179** | **109** | **23** | **46** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -85,7 +85,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `DSC-24` | FDR control is "on by default" but inert by default | inactive FDR control logged at INFO; default bootstrap measured +70% wall, kept opt-in |
 | **TODO** | P3 | `DSC-25` | Alpha-drift flags leak between fits of one instance; the reject flag's code fallback contradicts the config default | |
 | **TODO** | P3 | `DSC-26` | The corr-filter log recommends an escape hatch that does not work | |
-| **TODO** | P3 | `DSC-27` | Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids | |
+| **RESOLVED** | P3 | `DSC-27` | Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids | per-group delegates gated on their own val rows; rerank grouping inherited |
 | **RESOLVED** | P3 | `DSC-28` | Multi-base upgraded specs inherit unmeasured statistics from their seed | upgrade MI stats NaN + stats_measured_for |
 | **RESOLVED** | P3 | `DSC-29` | The knn cost guard runs after the most expensive knn work | guard moved before base resolution; estimate includes auto-base + null-perm sweeps |
 | **RESOLVED** | P3 | `DSC-30` | The stratified MI sampler gives non-finite-y rows a full stratum share | NaN-y rows not sampled |

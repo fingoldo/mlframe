@@ -222,7 +222,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The opt-in path gates on the wrong population and silently loses group-awareness.
 - **Suggested fix**: Filter `val_df` / `val_y` to the group's rows (by `per_group_column`), and copy `_group_ids_for_rerank` and `_hint_strengths_pct` onto the delegate.
 - **Test to add**: With `per_group_discovery_enabled`, assert that the delegate's yscale gate sees only the group's val rows and that `_group_ids_for_rerank` is set on it.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Each per-group delegate now gets only its group's val rows (`_group_val_rows` filters `val_df` / `val_y` by `per_group_column`). When the val frame lacks the column or has no rows for the group, the delegate's y-scale gate falls back to its own train rows. The delegate also inherits `_group_ids_for_rerank` and `_hint_strengths_pct` from the parent. Regression test `test_a_group_delegate_gets_its_groups_val_rows_and_the_rerank_grouping` in test_per_group_discovery.py fails before the fix (every delegate got both groups' 400 val rows and no rerank grouping).
 
 ### DSC-28 [P3] Multi-base upgraded specs inherit unmeasured statistics from their seed
 - **Where**: `_fit_multibase.py:160-185`.
