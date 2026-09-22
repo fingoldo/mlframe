@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 22 | 0 | 8 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 16 | 0 | 6 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 17 | 0 | 5 | 0 | 0 |
 | `suite_integration.md` | 19 | 13 | 0 | 6 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 12 | 12 | 17 | 0 | 0 |
-| **Total** | **179** | **109** | **23** | **46** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 12 | 13 | 16 | 0 | 0 |
+| **Total** | **179** | **110** | **24** | **44** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -105,7 +105,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `EST-09` | The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit | OOF refit wrappers now get their training base (5 of 6 lacked it); pinned no-op test split into no-base no-op + with-base shrink |
 | **RESOLVED** | P2 | `EST-10` | `predict_quantile` returns zero-width intervals on fallback rows and crossed quantiles for sign-flipping multiplicative inverses | per-alpha train-y quantile fallback; monotone rearrangement |
 | **RESOLVED** | P2 | `EST-11` | The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE | dummy floor/baseline on the same OOF rows |
-| **TODO** | P2 | `EST-12` | `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path | |
+| **RESOLVED** | P2 | `EST-12` | `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path | OOF rows returned; stack solve, RMSEs, gate and calibrator weighted |
 | **RESOLVED** | P2 | `EST-13` | The CT_ENSEMBLE val/test metrics and charts describe the pre-MoE predictor, not the model that ships | shipped MoE wrapper re-scored; ensemble metrics overwritten |
 | **TODO** | P2 | `EST-14` | A streaming `update()` refit leaves the soft-shrink base range at the dead regime, and its T-clip refresh leaves out the widening to the observed range that `fit()` applies | |
 | **RESOLVED** | P3 | `EST-15` | In the default shuffled K-fold OOF, recurrent composite components run their EWMA/rolling state over gapped (train) and scattered (holdout) row sequences | contiguous OOF folds for recurrent components |
@@ -205,7 +205,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P1 | `PMT-07` | Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform | 7 findings fixed + invariance tests; typed Score/rank_specs + sort scan not built |
 | **RESOLVED** | P1 | `PMT-08` | Scale and shift metamorphic property over every registered transform | scale/shift property tests; fixed log_y +1.0 offset and raw-unit arcsinh |
 | **PARTIAL** | P2 | `PMT-09` | Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery | AST layout/copy/GIL-loop rules over discovery (0 hits, canary-pinned); tracemalloc budgets open |
-| **TODO** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | |
+| **PARTIAL** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | DSC-14 / DSC-27 / EST-12 fixed with tests; the shared scanner itself is open |
 | **PARTIAL** | P1 | `PMT-11` | Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test | ratchet on tested-but-uncalled (68 recorded) + gate modules imported by tests; triage of the 68 open |
 | **RESOLVED** | P1 | `PMT-12` | Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered | OOD-edge + one-row Lipschitz legs; quantile contract (fixed EST-10) |
 | **PARTIAL** | P1 | `PMT-13` | Ensemble combiner invariants for every stacking strategy, including "the gate can fire" | gate-can-fire + cap tests (fixed EST-05/06); registry parametrisation + (d) open |

@@ -367,7 +367,7 @@ def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_trai
 from ._oof_external import _compute_oof_with_external_holdout  # re-exported; carved to keep this module under 1000 lines
 
 
-def compute_oof_holdout_predictions(
+def _oof_holdout_predictions_with_rows(
     component_models: list[Any],
     component_names: list[str],
     component_specs: list[dict[str, Any] | None],
@@ -384,7 +384,7 @@ def compute_oof_holdout_predictions(
     external_holdout_y: np.ndarray | None = None,
     external_holdout_base_per_spec: dict[str, np.ndarray] | None = None,
     group_ids: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray, list[str]]:
+) -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray | None]:
     """Compute honest holdout predictions for each component.
 
     Approach: take a ``holdout_frac`` slice of train, re-fit a clone of each component's inner on the remaining (1-holdout_frac) rows, and predict on the held-out slice. For wrapped composite-target components re-apply the spec's transform on the same stack_train slice to get T values, train the inner clone on (X_stack_train, T_stack_train), then wrap via ``CompositeTargetEstimator.from_fitted_inner`` and predict in y-scale on stack_holdout. For raw-target components the inner clone is fit directly on (X_stack_train, y_stack_train).
@@ -411,7 +411,7 @@ def compute_oof_holdout_predictions(
     n_train = len(y_train_full)
     if n_train < 50 or holdout_frac <= 0 or holdout_frac >= 1:
         # Shape consistency across the three empty-return paths: ``surviving_names=[]`` means zero components survived; both axes are zero. Consumers probing ``.shape[1]`` against ``len(surviving_names)`` were correct; those probing against ``len(component_models)`` had been silently reading a non-empty K dimension with zero rows. Standardise to ``(0, 0)`` everywhere.
-        return np.zeros((0, 0)), np.zeros(0), []
+        return np.zeros((0, 0)), np.zeros(0), [], np.zeros(0, dtype=np.int64)
 
     # When the caller supplies a cache_key we look up the (key, kfold, rs) tuple. A hit is bit-identical with a previous call -- same components, X, y, fold strategy; caller semantics unchanged.
     _full_key = None
@@ -438,7 +438,7 @@ def compute_oof_holdout_predictions(
         _hit = _oof_cache_get(_full_key)
         if _hit is not None:
             logger.debug("compute_oof_holdout_predictions: cache HIT for key=%r", _full_key)
-            return cast(Tuple[np.ndarray, np.ndarray, List[str]], _hit)
+            return tuple(_hit) if len(_hit) == 4 else (*_hit, None)  # the external path caches 3-tuples
 
     # Forward-walking K-fold OOF. When kfold>1 AND time_ordering is
     # monotone (rows already in time order), use TimeSeriesSplit -- K expanding-
@@ -614,7 +614,7 @@ def compute_oof_holdout_predictions(
                 buf[fold_holdout_idx] = preds
         if not oof_preds_by_name or not survived_set:
             # Shape consistency -- match the (0, 0) tiny-data short-circuit. No components survived.
-            _empty: tuple = (np.zeros((0, 0)), np.zeros(0), [])
+            _empty: tuple = (np.zeros((0, 0)), np.zeros(0), [], np.zeros(0, dtype=np.int64))
             if _full_key is not None:
                 _oof_cache_put(_full_key, _empty)
             return _empty
@@ -627,6 +627,7 @@ def compute_oof_holdout_predictions(
             oof_matrix[finite_rows],
             y_train_full.astype(np.float64)[finite_rows],
             surviving_names,
+            np.flatnonzero(finite_rows),
         )
         if _full_key is not None:
             _oof_cache_put(_full_key, _result)
@@ -639,7 +640,7 @@ def compute_oof_holdout_predictions(
         # external_holdout_X at predict time, so a parallel holdout-base dict
         # is unused. The public param is retained for back-compat (callers may
         # still pass it) but has no effect.
-        return _compute_oof_with_external_holdout(
+        return (*_compute_oof_with_external_holdout(
             component_models=component_models,
             component_names=component_names,
             component_specs=component_specs,
@@ -652,7 +653,7 @@ def compute_oof_holdout_predictions(
             full_key=_full_key,
             group_ids=group_ids,
             random_state=random_state,
-        )
+        )[:3], None)
 
     # Decide whether to do a time-aware split. Only the EXPLICIT ``time_ordering`` signal (the suite threads ctx.timestamps here) flips to a trailing-slice holdout. The old behaviour also probed every base column and auto-switched if ANY was monotone -- a false positive on sorted-but-non-temporal bases (sorted ids, binned features) that silently turned a random holdout into a trailing slice and changed the OOF leakage profile. Random shuffle is the safe default when no explicit time signal is given.
     use_time_split = False
@@ -835,11 +836,11 @@ def compute_oof_holdout_predictions(
         )
     if not holdout_cols:
         # Shape consistency -- match the tiny-data + kfold short-circuits.
-        _empty = (np.zeros((0, 0)), np.zeros(0), [])
+        _empty = (np.zeros((0, 0)), np.zeros(0), [], np.zeros(0, dtype=np.int64))
         if _full_key is not None:
             _oof_cache_put(_full_key, _empty)
         return _empty
-    _final = (np.column_stack(holdout_cols), y_holdout, surviving_names)
+    _final = (np.column_stack(holdout_cols), y_holdout, surviving_names, np.asarray(holdout_idx))
     if _full_key is not None:
         _oof_cache_put(_full_key, _final)
     return _final
@@ -854,3 +855,26 @@ from ._stackers import (
     fit_lasso_meta_stacker,
     fit_ridge_meta_stacker,
 )
+
+
+def compute_oof_holdout_predictions(*args: Any, return_rows: bool = False, **kwargs: Any) -> tuple:
+    """Honest holdout predictions per component: ``(oof_matrix, y_holdout, surviving_names)``.
+
+    With ``return_rows=True`` a fourth element gives each holdout row's position among the train rows, so a caller can
+    align per-row data (sample weights) with the matrix; it is ``None`` on the external-holdout path, whose rows are the
+    caller's val frame. See :func:`_oof_holdout_predictions_with_rows` for the split strategy and parameters.
+    """
+    out = _oof_holdout_predictions_with_rows(*args, **kwargs)
+    return out if return_rows else out[:3]
+
+
+def _public_signature() -> Any:
+    """The implementation's parameters plus ``return_rows``, so introspection and IDEs see the real API."""
+    import inspect
+
+    sig = inspect.signature(_oof_holdout_predictions_with_rows)
+    extra = inspect.Parameter("return_rows", inspect.Parameter.KEYWORD_ONLY, default=False, annotation="bool")
+    return sig.replace(parameters=[*sig.parameters.values(), extra], return_annotation="tuple")
+
+
+compute_oof_holdout_predictions.__signature__ = _public_signature()  # type: ignore[attr-defined]

@@ -236,7 +236,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium for (b): a local named `groups` may carry a different grouping. It is baselined with notes. (a) and (c) are low.
 - **Runtime**: under 3 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. The three findings this scanner targets are fixed directly, each with a behavioural regression test: DSC-14 (stacked and stability-check variants forward `time_ordering` / `val_df` / `val_y`, test_variant_fits_forward_kwargs.py), DSC-27 (per-group delegates get their group's val rows and inherit `_group_ids_for_rerank` / `_hint_strengths_pct`) and EST-12 (the CT stack path is weighted end to end). Not built: the shared `kwarg_forwarding` scanner (variant-parameter drop, available-but-not-passed, delegate state loss) that would catch the next instance of the class.
 
 ### PMT-11 [P1] Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test
 - **Asserts**:
