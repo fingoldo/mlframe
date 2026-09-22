@@ -160,6 +160,12 @@ class Transform:
     # residual family absorbs it into the intercept). A normal-equations solve on an uncentred design breaks this.
     base_translation_invariant: bool = False
 
+    def __post_init__(self) -> None:
+        """A zero sample weight drops the row from an order-free fit (see ``_zero_weight``)."""
+        from ._zero_weight import with_zero_weight_drop
+
+        object.__setattr__(self, "fit", with_zero_weight_drop(self.fit, recurrent=self.recurrent))
+
 
 # ----------------------------------------------------------------------
 # Parent-resident threshold constants referenced as default-arg values

@@ -163,27 +163,26 @@ def _discovery_config_signature(config: Any) -> ConfigSignatureV1:
     except Exception as e:
         logger.debug("could not resolve mlframe version: %s", e)
         versions["mlframe"] = "?"
-    for _name in (
-        "sklearn",
-        "lightgbm",
-        "catboost",
-        "xgboost",
-        "polars",
-        "numpy",
-        "scipy",
-        "pandas",
+    from importlib.metadata import PackageNotFoundError, version as _dist_version
+
+    from ..composite.discovery._algo_version import DISCOVERY_ALGO_VERSION
+
+    # The selection logic's own version: a discovery fix inside a release must invalidate warm caches.
+    versions["discovery_algo"] = str(DISCOVERY_ALGO_VERSION)
+    # Distribution metadata, not ``__import__``: reading a version string must not load catboost / lightgbm / xgboost.
+    for _name, _dist in (
+        ("sklearn", "scikit-learn"), ("lightgbm", "lightgbm"), ("catboost", "catboost"), ("xgboost", "xgboost"),
+        ("polars", "polars"), ("numpy", "numpy"), ("scipy", "scipy"), ("pandas", "pandas"),
     ):
         try:
-            mod = __import__(_name)
-            _ver_str = str(getattr(mod, "__version__", "?"))
+            _ver_str = _dist_version(_dist)
             # Major.minor only -- patch bumps invalidate every cached spec even though MI /
             # Wilcoxon / boosting math is unchanged. Strip patch + any dev / rc tags.
             _parts = _ver_str.split(".")
             if len(_parts) >= 2 and _parts[0].isdigit():
                 _ver_str = f"{_parts[0]}.{_parts[1].split('+')[0].split('rc')[0].split('dev')[0]}"
             versions[_name] = _ver_str
-        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-            logger.debug("could not resolve version for %s: %s", _name, e)
+        except PackageNotFoundError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             versions[_name] = "absent"
     versions["python"] = f"{sys.version_info.major}.{sys.version_info.minor}"
     return compute_config_signature_v1(config, library_versions=versions)

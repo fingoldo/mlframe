@@ -307,3 +307,39 @@ def test_perturbing_one_row_moves_that_row_by_its_pointwise_derivative(name: str
         bumped[i] += d
         in_batch = abs(float(_call_inverse(t, bumped, b, params, g)[i] - _call_inverse(t, t_fit, b, params, g)[i])) / d
     assert in_batch <= 1.1 * pointwise + 1e-9, f"{name}: a one-row nudge moves y by {in_batch:.4g}/unit in a batch vs {pointwise:.4g} pointwise"
+
+
+_WEIGHTED = sorted(n for n, t in TRANSFORMS_REGISTRY.items() if "sample_weight" in __import__("inspect").signature(t.fit).parameters)
+
+
+@pytest.mark.parametrize("name", _WEIGHTED)
+def test_a_zero_weight_removes_the_row_from_the_fit(name: str):
+    """A fit with half the weights at zero equals the fit on the kept half (a zero weight must not move anything).
+
+    The grouped linear residual counted zero-weight rows in its group sizes and shrinkage (8.8 off in y), and the rank,
+    copula, robust and target-encoding fits counted them in their grids, trims and category counts.
+    """
+    import warnings
+
+    from .test_composite_transforms_registry_contract import _base_for
+    from .test_transform_canonical_dgp import _CANONICAL_DGP, _dgp
+
+    t = TRANSFORMS_REGISTRY[name]
+    n = 600
+    keep = np.arange(n) % 2 == 0
+    y, b, b2 = _dgp(_CANONICAL_DGP.get(name, "saturating"), n, 0.0)
+    base = _base_for(name, b, b2) if t.requires_base else None
+    g = (np.arange(n) % 6).astype(np.int64)
+    kw_all, kw_kept, kw_new = ({"groups": g}, {"groups": g[keep]}, {"groups": g[:40]}) if t.requires_groups else ({}, {}, {})
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        p_weighted = t.fit(y, base, sample_weight=keep.astype(float), **kw_all)
+        p_kept = t.fit(y[keep], None if base is None else base[keep], **kw_kept)
+        T, bb = np.linspace(-1.0, 1.0, 40), None if base is None else base[:40]
+        np.testing.assert_allclose(t.inverse(T, bb, p_weighted, **kw_new), t.inverse(T, bb, p_kept, **kw_new), rtol=1e-9, atol=1e-9)
+
+
+def test_the_weighted_set_covers_the_residual_family_and_its_chains():
+    """Every linear-residual chain accepts weights when its first stage does."""
+    assert {"linear_residual", "linear_residual_grouped", "target_encoding_residual"} <= set(_WEIGHTED)
+    assert all(c in _WEIGHTED for c in TRANSFORMS_REGISTRY if c.startswith("chain_linres"))
