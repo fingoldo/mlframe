@@ -38,6 +38,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array, base_arg as _base_arg
 from ._causal_lag import is_causal_base_name
@@ -234,6 +236,15 @@ def apply_structural_fragility_gate(
     return survivors
 
 
+def _warn_domain_check_failed(transform_name: str, exc: Exception) -> None:
+    """Warn that a transform's domain_check failed; once per transform, since every spec of that transform fails the same way."""
+    log_throttle(
+        logger, f"yscale_gate_domain_check_failed:{transform_name}", logging.WARNING,
+        "domain_check of %s failed (%s), treating all rows as valid for every spec using it", transform_name, exc,
+        max_count=1,
+    )
+
+
 def apply_yscale_holdout_gate(
     self,
     df: Any,
@@ -376,7 +387,7 @@ def apply_yscale_holdout_gate(
             if valid.shape != y_fit.shape:
                 valid = np.ones(y_fit.shape, dtype=bool)
         except Exception as e:
-            logger.warning("domain_check failed, treating all rows as valid: %s", e)
+            _warn_domain_check_failed(spec.transform_name, e)
             valid = np.ones(y_fit.shape, dtype=bool)
         if int(valid.sum()) < 50:
             survivors.append(spec)

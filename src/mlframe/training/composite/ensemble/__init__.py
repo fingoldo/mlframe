@@ -28,7 +28,7 @@ from .._composite_utils import is_polars_df as _is_polars_df
 
 from ..estimator import CompositeTargetEstimator
 from ..post_shim import PrePipelinePredictShim, subset_to_fit_columns
-from ..transforms import get_transform
+from ..transforms import UnknownTransformError, get_transform
 from ..transforms._call_gateway import call_transform
 from ._oof_split import (
     _align_fit_sw,
@@ -345,7 +345,7 @@ def _spec_is_recurrent(spec: Any) -> bool:
         return False
     try:
         return bool(getattr(get_transform(spec["transform_name"]), "recurrent", False))
-    except Exception:  # best-effort: an unresolvable transform is simply not treated as recurrent
+    except UnknownTransformError:  # an unregistered transform is simply not recurrent; anything else is a real bug
         return False
 
 

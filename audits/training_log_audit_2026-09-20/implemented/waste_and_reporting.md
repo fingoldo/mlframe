@@ -2,7 +2,7 @@
 
 Source: production training log of `jobsdetails_shuffled`, 2026-09-20 12:56-14:05.
 
-- **Disposition**: 8 findings, 5 RESOLVED / 2 PARTIAL / 0 TODO / 1 REJECTED / 0 NOT A DEFECT. Rows mirrored in [_TRACKER.md](_TRACKER.md).
+- **Disposition**: 8 findings, 7 RESOLVED / 0 PARTIAL / 0 TODO / 1 REJECTED / 0 NOT A DEFECT. Rows mirrored in [_TRACKER.md](../_TRACKER.md).
 
 ---
 
@@ -162,7 +162,7 @@ Cohen's kappa once, under its own name.
 
 ---
 
-## WST-07 (P3, PARTIAL) -- monitor ETA, and polls after the fit returned
+## WST-07 (P3, RESOLVED) -- monitor ETA, and polls after the fit returned
 
 ```
 13:27:29  iter=140/1000  it/s=2.33 (early 2.33) elapsed=60s  cb-ETA=4.8m

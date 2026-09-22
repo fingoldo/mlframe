@@ -2,7 +2,7 @@
 
 Source: production training log of `jobsdetails_shuffled`, 2026-09-20 12:56-14:05.
 
-- **Disposition**: 7 findings, 7 RESOLVED / 0 PARTIAL / 0 TODO / 0 REJECTED / 0 NOT A DEFECT. Rows mirrored in [_TRACKER.md](_TRACKER.md).
+- **Disposition**: 7 findings, 7 RESOLVED / 0 PARTIAL / 0 TODO / 0 REJECTED / 0 NOT A DEFECT. Rows mirrored in [_TRACKER.md](../_TRACKER.md).
 
 ---
 

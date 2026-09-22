@@ -2,7 +2,7 @@
 
 Source: production training log of `jobsdetails_shuffled` (576_646x127, 14 targets, CatBoost on GPU), 2026-09-20 12:56-14:05.
 
-- **Disposition**: 12 findings, 12 RESOLVED / 0 PARTIAL / 0 TODO / 0 REJECTED / 0 NOT A DEFECT. Rows mirrored in [_TRACKER.md](_TRACKER.md).
+- **Disposition**: 12 findings, 12 RESOLVED / 0 PARTIAL / 0 TODO / 0 REJECTED / 0 NOT A DEFECT. Rows mirrored in [_TRACKER.md](../_TRACKER.md).
 
 The common shape across this group: a sensor computes the right numbers, then compares them against a threshold whose
 units, scale or reference population do not match, and emits a verdict that reads as an all-clear.

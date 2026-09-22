@@ -2,10 +2,10 @@
 
 Findings derived from a full production training run of the suite (`jobsdetails_shuffled`, 576_646x127, 14 targets,
 CatBoost-only on GPU, 12:56 -> 14:05). The log is the evidence: every row below cites the log line that exposes it.
-Reports: [sensors_and_gates.md](sensors_and_gates.md) (drift / temporal / collapse / ceiling sensors and the gates that
-never gate), [training_loop.md](training_loop.md) (early stopping, loss recommendation, prediction path),
-[discovery_economics.md](discovery_economics.md) (composite discovery cost vs delivered value),
-[waste_and_reporting.md](waste_and_reporting.md) (recomputation, misleading log lines, metric instability).
+Reports: [sensors_and_gates.md](implemented/sensors_and_gates.md) (drift / temporal / collapse / ceiling sensors and the gates that
+never gate), [training_loop.md](implemented/training_loop.md) (early stopping, loss recommendation, prediction path),
+[discovery_economics.md](implemented/discovery_economics.md) (composite discovery cost vs delivered value),
+[waste_and_reporting.md](implemented/waste_and_reporting.md) (recomputation, misleading log lines, metric instability).
 
 Statuses: **RESOLVED** (fixed in code; the note names the test that pins it), **PARTIAL** (part fixed; the note says what
 remains), **TODO** (open), **REJECTED** (measured and declined; evidence in the note), **NOT A DEFECT** (the claimed
@@ -18,11 +18,11 @@ behaviour does not occur, or is outside mlframe; the note says where it lives).
 | `sensors_and_gates.md` | 12 | 12 | 0 | 0 | 0 | 0 |
 | `training_loop.md` | 7 | 7 | 0 | 0 | 0 | 0 |
 | `discovery_economics.md` | 6 | 6 | 0 | 0 | 0 | 0 |
-| `waste_and_reporting.md` | 8 | 5 | 2 | 0 | 1 | 0 |
-| **Total** | **33** | **30** | **2** | **0** | **1** | **0** |
+| `waste_and_reporting.md` | 8 | 7 | 0 | 0 | 1 | 0 |
+| **Total** | **33** | **32** | **0** | **0** | **1** | **0** |
 
-The two PARTIAL rows are partial for the same reason: each bundled two claims, one real and one that did not survive
-verification. `WST-01`'s PSI half is fixed and its adversarial half was never a defect (already cached on master --
+`WST-01` and `WST-07` were first carried as PARTIAL and are now RESOLVED: each bundled two claims, one real and one
+that did not survive verification, and nothing remains to do on either. `WST-01`'s PSI half is fixed and its adversarial half was never a defect (already cached on master --
 the log shows 4 dataset builds in total, not 14x4); `WST-07`'s stale-poll half is fixed and its ETA half was never a
 defect (the number printed is CatBoost's own ETA from its progress file, not an mlframe extrapolation). Both
 corrections are written into the finding bodies rather than quietly dropped.
@@ -82,13 +82,13 @@ conftest's own contention detector skipped a sibling perf test.
 
 | Status | Sev | ID | Finding | Evidence / what remains |
 |---|---|---|---|---|
-| **PARTIAL** | P1 | `WST-01` | Target-independent drift work repeated once per target | PSI: **RESOLVED** -- `_psi_cache_key` + `_PSI_CACHE` mirror the adversarial panel's existing cache (`diagnostics_dispatch`). Adversarial validation: **NOT A DEFECT** -- `_ADVERSARIAL_CACHE` already handles it on master, and the log confirms it (4 dataset builds in total, all for the first target, not 4 per target). The first-pass claim of 14 adversarial fits was wrong |
+| **RESOLVED** | P1 | `WST-01` | Target-independent drift work repeated once per target | PSI: **RESOLVED** -- `_psi_cache_key` + `_PSI_CACHE` mirror the adversarial panel's existing cache (`diagnostics_dispatch`). Adversarial validation: **NOT A DEFECT** -- `_ADVERSARIAL_CACHE` already handles it on master, and the log confirms it (4 dataset builds in total, all for the first target, not 4 per target). The first-pass claim of 14 adversarial fits was wrong |
 | **RESOLVED** | P2 | `WST-02` | `_maybe_auto_drop_after_feature_analyzer` KEPT 9 NaN-heavy columns as "signal" that the suite-wide pre-screen dropped as constant 12 minutes later | the keep decision now applies the pre-screen's own null-fraction bar, so a >99%-null column is dropped at the first opportunity rather than after discovery has screened it four times (`_main_train_suite_target_distribution`) |
 | **REJECTED** | P2 | `WST-03` | `feature_distribution_analyzer` reports redundant pairs that nothing applies; `_auto_base` re-derives them per target | the two are not redundant: the suite-level analyzer says WHICH pairs are correlated, while `_auto_base` additionally needs the target's own MI ranking to choose which member of a pair survives, and that is target-dependent by construction. The only duplicated work is the per-target correlation recompute, ~0.2s x 4 targets on this run. Consuming the suite-level list would change which feature survives per target -- a selection change with no measured benefit, so it is not made. The differing `|corr|` values across targets (0.975 / 0.979 / 0.985) are subsample estimates of one quantity, not a contradiction |
 | **RESOLVED** | P2 | `WST-04` | The split report printed two different train/val boundaries for the same split | the pre-augmentation line is labelled as the implied layout BEFORE val augmentation and says the realised split is reported separately (`splitting.make_train_test_split`) |
 | **RESOLVED** | P2 | `WST-05` | A val split augmented with random in-period rows silently disabled every time-series baseline, reported 13 times as an incidental per-target skip | throttled to one WARNING per process naming the suite-level consequence and the split knob responsible (`_dummy_baseline_regression`) |
 | **RESOLVED** | P2 | `WST-06` | `quadratic_weighted_kappa` / `weighted_kappa` were reported for BINARY targets, where both degenerate to plain Cohen's kappa -- one number printed twice under two ordinal names | the ordinal pair is registered for multiclass only; binary keeps the unweighted statistic already reported as `Cohen_kappa` (`metrics_registry`; `test_metrics_registry_classification.py` reframed) |
-| **PARTIAL** | P3 | `WST-07` | The CatBoost GPU monitor extrapolated its ETA from the first sample and kept polling after the fit returned | stale poll: **RESOLVED** -- `_safe_poll` re-checks the stop flag after its interval wait. ETA: **NOT A DEFECT** -- the printed `cb-ETA` is CatBoost's own estimate read from its progress file (`read_time_left_tail`), not an mlframe extrapolation; the first-sample rate is used only for the collapse check |
+| **RESOLVED** | P3 | `WST-07` | The CatBoost GPU monitor extrapolated its ETA from the first sample and kept polling after the fit returned | stale poll: **RESOLVED** -- `_safe_poll` re-checks the stop flag after its interval wait. ETA: **NOT A DEFECT** -- the printed `cb-ETA` is CatBoost's own estimate read from its progress file (`read_time_left_tail`), not an mlframe extrapolation; the first-sample rate is used only for the collapse check |
 | **RESOLVED** | P3 | `WST-08` | The classification report printed an empty `RICEs:` section | the header is emitted only when it has contents (`_reporting_probabilistic`) |
 
 ## Out of scope (not mlframe)

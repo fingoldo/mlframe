@@ -72,5 +72,6 @@ def _adversarial_cache_key(train_frame: Any, test_frame: Any, val_frame: Any, na
 
         sig = tuple(compute_signature(f)[:4] if f is not None else None for f in (train_frame, test_frame, val_frame))
         return (*sig, tuple(str(n) for n in names) if names is not None else None, int(seed))
-    except Exception:
+    except Exception as exc:  # an unkeyable frame only means "do not cache": the figure is recomputed, never wrong
+        logger.debug("adversarial-validation cache key unavailable (%s); computing the figure uncached", exc)
         return None

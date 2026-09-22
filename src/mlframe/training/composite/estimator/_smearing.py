@@ -13,9 +13,14 @@ the correction errs on the side of too little, never too much.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Optional, cast
 
 import numpy as np
+
+from mlframe.utils.log_throttle import log_throttle
+
+logger = logging.getLogger(__name__)
 
 SMEARED_TRANSFORMS = frozenset({"log_y", "cbrt_y", "yeo_johnson_y", "box_cox_y", "signed_power_y"})
 N_SMEAR_QUANTILES = 32
@@ -31,7 +36,15 @@ def residual_quantiles(estimator: Any, X: Any, t_train: np.ndarray, seed: int = 
     try:
         X_s = X.iloc[idx] if hasattr(X, "iloc") else X[idx]  # pandas by position; polars / numpy by row index
         pred = np.asarray(estimator.predict(X_s), dtype=np.float64).reshape(-1)
-    except Exception:
+    except Exception as exc:
+        # No residuals means no smearing: predictions fall back to the plain back-transform, which is biased low for a
+        # log-like transform. That changes every prediction of this model, so it must be visible, not a silent None.
+        log_throttle(
+            logger, "smearing_residual_predict_failed", logging.WARNING,
+            "[composite] smearing disabled for %s: predicting on the residual sample failed (%s: %s), so its predictions "
+            "use the plain back-transform (biased low for a log-like transform).",
+            type(estimator).__name__, type(exc).__name__, exc,
+        )
         return None
     r = np.asarray(t_train, dtype=np.float64)[idx] - pred
     r = r[np.isfinite(r)]
