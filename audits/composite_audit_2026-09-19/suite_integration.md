@@ -71,7 +71,7 @@ Overlap notes: DSC-12 (cache key contents), DSC-18 (verdict split), DSC-20 (auto
 - **Why it matters**: The config's main restriction knob is silently widened. That costs an extra per-target model fit per chain and brings in INT-05's fresh-process failure.
 - **Suggested fix**: Only run auto-chain when the caller left `transforms` at its default or listed a `chain_*` entry. Otherwise log once that auto-chain was skipped because of the whitelist.
 - **Test to add**: `transforms=["linear_residual"]` means no spec whose `transform_name` starts with `chain_`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Auto-chain now runs only when the `transforms` whitelist names at least one `chain_*` transform. The default list names four, so the default behaviour is unchanged. Otherwise it logs once at INFO that it was skipped. Regression test `test_a_transforms_whitelist_without_chains_builds_no_chain` fails before the fix: `transforms=['linear_residual']` produced `chain_linear_residual_cbrt`.
 
 ### INT-08 [P2] Suite logic identifies composite targets by a name heuristic that misses auto-chain names and matches dashed raw targets
 - **Where**: `composite/transforms/naming.py:126` (`_COMPOSITE_NAME_TOKENS` frozen at import from `TRANSFORM_NAME_SHORT`) and `:218-265`. Consumers: `core/_phase_train_one_target_post.py:219`, `core/_phase_train_one_target_mlp_helpers.py:204`, `targets/_train_eval_select_target.py:130-131`, `core/_phase_dummy_baselines.py:86,185`, `core/_phase_composite_post.py:213`.

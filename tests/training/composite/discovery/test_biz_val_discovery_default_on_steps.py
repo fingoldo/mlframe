@@ -129,3 +129,18 @@ def test_biz_val_default_config_opt_in_step_flags():
     assert cfg.region_adaptive_enabled is False
     assert cfg.interaction_base_discovery_enabled is True
     assert cfg.auto_chain_discovery_enabled is True
+
+
+def test_a_transforms_whitelist_without_chains_builds_no_chain():
+    """``transforms=["linear_residual"]`` restricts auto-chain too: no ``chain_*`` spec is built (the default list names chains, so the default keeps it on)."""
+    from mlframe.training.composite import CompositeTargetDiscovery
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    rng = np.random.default_rng(0)
+    n = 2000
+    base = rng.uniform(1.0, 10.0, n)
+    df = pd.DataFrame({"b": base, "x": rng.normal(size=n), "y": 2.0 * base + rng.normal(0.0, 0.5, n)})
+    kw = dict(enabled=True, random_state=0, base_candidates=["b"], eps_mi_gain=-10.0, auto_chain_discovery_enabled=True)
+    only = CompositeTargetDiscovery(CompositeTargetDiscoveryConfig(transforms=["linear_residual"], **kw)).fit(df, "y", ["b", "x"], np.arange(n))
+    assert not [s for s in only.specs_ if s.transform_name.startswith("chain_")], [s.transform_name for s in only.specs_]
+    assert not only.auto_chains_

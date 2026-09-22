@@ -318,6 +318,11 @@ def run_optional_discovery_steps(
     ra_on = bool(getattr(config, "region_adaptive_enabled", False))
     ib_on = bool(getattr(config, "interaction_base_discovery_enabled", False))
     ac_on = bool(getattr(config, "auto_chain_discovery_enabled", False))
+    # ``transforms`` is the caller's whitelist: chains are a transform family, so they are built only when it lists one
+    # (the default list does). ``transforms=["linear_residual"]`` used to train an extra chain model regardless.
+    if ac_on and not any(str(t).startswith("chain_") for t in (getattr(config, "transforms", None) or [])):
+        ac_on = False
+        logger.info("[CompositeTargetDiscovery.auto_chain] skipped: the transforms whitelist lists no chain_* transform.")
     if not (ra_on or ib_on or ac_on) or not kept_specs:
         return []
 
