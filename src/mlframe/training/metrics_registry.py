@@ -182,7 +182,11 @@ _KNOWN_METRIC_DIRECTIONS_HIGHER: frozenset[str] = frozenset({
     "cohen_kappa", "kappa", "weighted_kappa", "quadratic_weighted_kappa", "qwk",
     "subset_accuracy", "jaccard_score_multilabel", "jaccard", "jaccard_macro",
     "gini",
-    # Binary higher-is-better extras from 2026-05-28 audit batch.
+    # Binary higher-is-better extras.
+    # Bare "ks" means the DISCRIMINATION statistic here (max |TPR - FPR|, higher is better): that is what the suite
+    # emits under "KS" in class metrics and iteration metrics. A distribution-DRIFT KS distance is lower-is-better and
+    # must be named explicitly ("ks_distribution_distance", below) - a drift monitor that logs it as bare "ks" will be
+    # ranked the wrong way round.
     "g_mean", "ks", "ks_statistic", "bss", "brier_skill_score",
     "lift", "lift_at_k",
     # Top-k accuracy for multiclass
