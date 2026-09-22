@@ -621,3 +621,25 @@ def run_optional_diagnostics_and_composite_discovery(
             precomputed_specs=_pre_specs,
         )
     return target_by_type, metadata
+
+
+def begin_suite_process_state(verbose: int, suite_module: Any) -> None:
+    """Process-level setup at the start of every suite call: the logging level, the module-global patches, and fresh registries."""
+    from ..feature_handling.fingerprint import reset_session as reset_fh_session
+    from ..phases import reset_phase_registry
+    from ..reporting._reporting_regression._sensor_ledger import clear_sensor_trips
+    from .utils import _ensure_logging_visible
+
+    # Map the 0/1/2 verbose contract to a logging level once at entry so
+    # ``verbose=2`` actually surfaces DEBUG output (the per-site ``if verbose:``
+    # gates only distinguish silent vs non-silent; the level does the 1-vs-2 work).
+    if verbose:
+        _ensure_logging_visible(level=logging.DEBUG if verbose >= 2 else logging.INFO)
+    apply_module_global_patches(suite_module)
+    # Module-global registry; not safe to invoke concurrent training suites from the same process.
+    reset_phase_registry()
+    # Rotate the FH InMemoryKey session token alongside the phase registry. Without this, two consecutive suite calls within the
+    # same process keep the prior SessionToken and any ``id(train_df)`` reuse (Python may recycle ids after the first frame is GC'd)
+    # collides on a cached entry whose underlying state belongs to the prior suite. The reset gives each suite a fresh FH namespace.
+    reset_fh_session()
+    clear_sensor_trips()  # sensor trips are process-level, keyed by model name: else one suite's flags attach to the next's same-named models
