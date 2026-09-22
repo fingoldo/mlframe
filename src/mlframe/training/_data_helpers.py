@@ -575,8 +575,8 @@ def _setup_eval_set(
         Per-row attributes for the *full* val. When ``extra_eval_sets`` is given, the function
         also propagates ``sample_weight_eval_set`` / ``base_margin_eval_set`` / ``eval_qid``
         (XGB) / ``eval_group`` (LGB) lists in parallel so each registered eval-set has its own
-        aligned arrays. Without ``extra_eval_sets`` these are ignored (the caller is responsible
-        for setting them up in fit_params directly, as before).
+        aligned arrays; without it they are attached to the single val the same way (see
+        ``_attach_eval_row_attributes``).
     """
     eval_set_configs = {
         "lgb": ("eval_set", "tuple"),
@@ -591,12 +591,14 @@ def _setup_eval_set(
     # Use provided model_category if available, otherwise derive from model_type_name
     if model_category is None:
         model_type_lower = model_type_name.lower()
-        for key in eval_set_configs:
-            if key in model_type_lower:
-                model_category = key
-                break
+        model_category = next((key for key in eval_set_configs if key in model_type_lower), None)
+        if model_category is None:
+            # A category that was passed but has no eval set (linear & co.) is expected; a name that matched nothing
+            # is not: the model then trains to its iteration cap with no early stopping and nothing says so.
+            logger.warning("_setup_eval_set: %r matches no known eval-set model type; it trains WITHOUT an eval set or early stopping. Pass model_category explicitly.", model_type_name)
+            return
 
-    if model_category is None or model_category not in eval_set_configs:
+    if model_category not in eval_set_configs:
         return
 
     # Defensive non-empty val assertion. A 0-row val silently disables early stopping
@@ -658,24 +660,6 @@ def _setup_eval_set(
         elif value_format == "separate_Y":
             fit_params["X_val"] = val_df
             fit_params["Y_val"] = val_target
-        # Parallel-aligned arrays for boosters that read them via separate kwargs.
-        if model_category in ("xgb", "lgb", "cb"):
-            if sample_weight_val is not None:
-                sw_list: list[Any] = [sample_weight_val]
-                sw_list.extend(shard.sample_weight for shard in extra_eval_sets)
-                fit_params["sample_weight_eval_set"] = sw_list
-            if base_margin_val is not None and model_category == "xgb":
-                bm_list: list[Any] = [base_margin_val]
-                bm_list.extend(shard.base_margin for shard in extra_eval_sets)
-                fit_params["base_margin_eval_set"] = bm_list
-            if group_ids_val is not None:
-                grp_list: list[Any] = [group_ids_val]
-                grp_list.extend(shard.group_ids for shard in extra_eval_sets)
-                if model_category == "xgb":
-                    fit_params["eval_qid"] = grp_list
-                elif model_category == "lgb":
-                    # LGB takes per-set group SIZES (not ids). Convert each ids vector to run-lengths.
-                    fit_params["eval_group"] = [_groupids_to_sizes(g) for g in grp_list]
     else:
         if value_format == "tuple":
             fit_params[param_name] = (val_df, val_target)
@@ -692,8 +676,59 @@ def _setup_eval_set(
             fit_params["X_val"] = val_df
             fit_params["Y_val"] = val_target
 
+    _attach_eval_row_attributes(
+        fit_params, model_category, model_obj, model_type_name, extra_eval_sets if use_shards else [],
+        sample_weight_val=sample_weight_val, base_margin_val=base_margin_val, group_ids_val=group_ids_val,
+    )
+
     if callback_params:
         _setup_early_stopping_callback(model_category, fit_params, callback_params, model_obj)
+
+
+def _fit_accepts(model_obj: Any, kwarg: str, model_type_name: str) -> bool:
+    """Whether ``model_obj.fit`` names ``kwarg`` explicitly; without an estimator to inspect, whether it is a ranker.
+
+    A ``**kwargs`` wrapper does not count: it would forward a ranker-only kwarg into a classifier's fit and crash it.
+    """
+    import inspect
+
+    if model_obj is None:
+        return "ranker" in model_type_name.lower()
+    try:
+        return kwarg in inspect.signature(model_obj.fit).parameters
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _attach_eval_row_attributes(
+    fit_params: dict[str, Any], model_category: str, model_obj: Any, model_type_name: str, shards: list[Any], *,
+    sample_weight_val: Any, base_margin_val: Any, group_ids_val: Any,
+) -> None:
+    """Per-eval-set weights / margins / query groups, under the kwarg each booster actually reads.
+
+    One list entry per registered eval set: the full val first, then each shard. The val weights matter for the single
+    val too: without them a weighted run trained on weighted rows but early-stopped on an UNWEIGHTED val metric, and a
+    ranker's val NDCG treated every val row as one query. The names differ per library - XGBoost
+    ``sample_weight_eval_set`` / ``base_margin_eval_set`` / ``eval_qid`` (rankers only), LightGBM ``eval_sample_weight`` /
+    ``eval_group`` as group SIZES (rankers only), and CatBoost none at all: its weights go on the eval Pool
+    (``cb._cb_eval_weights``). Group kwargs are passed only to an estimator whose fit accepts them.
+    """
+    if model_category not in ("xgb", "lgb", "cb"):
+        return
+    if sample_weight_val is not None:
+        sw_list: list[Any] = [sample_weight_val, *(shard.sample_weight for shard in shards)]
+        from .cb._cb_eval_weights import CB_EVAL_WEIGHTS_KEY
+
+        fit_params[{"xgb": "sample_weight_eval_set", "lgb": "eval_sample_weight", "cb": CB_EVAL_WEIGHTS_KEY}[model_category]] = sw_list
+    if base_margin_val is not None and model_category == "xgb":
+        fit_params["base_margin_eval_set"] = [base_margin_val, *(shard.base_margin for shard in shards)]
+    if group_ids_val is not None:
+        grp_list: list[Any] = [group_ids_val, *(shard.group_ids for shard in shards)]
+        if model_category == "xgb" and _fit_accepts(model_obj, "eval_qid", model_type_name):
+            fit_params["eval_qid"] = grp_list
+        elif model_category == "lgb" and _fit_accepts(model_obj, "eval_group", model_type_name):
+            # LGB takes per-set group SIZES (not ids). Convert each ids vector to run-lengths.
+            fit_params["eval_group"] = [_groupids_to_sizes(g) for g in grp_list]
 
 
 def _groupids_to_sizes(group_ids: Any) -> np.ndarray | None:
