@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 22 | 0 | 8 | 0 | 0 |
+| `discovery.md` | 30 | 23 | 0 | 7 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 17 | 0 | 5 | 0 | 0 |
 | `suite_integration.md` | 19 | 14 | 0 | 5 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 12 | 14 | 15 | 0 | 0 |
-| **Total** | **179** | **111** | **25** | **42** | **1** | **0** |
+| **Total** | **179** | **112** | **25** | **41** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -70,7 +70,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `DSC-09` | Gate exceptions keep the spec (fail-open), and an all-NaN tiny-CV score passes the raw-baseline gate | gate evaluation errors / unregistered transforms reject with WARNING + ledger; non-finite tiny-CV scores rejected before the threshold |
 | **RESOLVED** | P2 | `DSC-10` | The WAIC tie-break compares log predictive densities of different target scales | WAIC tie-break only within additive-in-T bands |
 | **RESOLVED** | P2 | `DSC-11` | WAIC and auto-chain CVs use shuffled KFold, ignoring groups and time | splitter factory; WAIC + auto-chain CVs take groups/time |
-| **TODO** | P2 | `DSC-12` | The discovery disk-cache key leaves out inputs that change the result | |
+| **RESOLVED** | P2 | `DSC-12` | The discovery disk-cache key leaves out inputs that change the result | cache key includes group ids, hint strengths, time order and the val frame |
 | **TODO** | P2 | `DSC-13` | The yscale gate's fallback path evaluates on rows the transform params were fit on | |
 | **RESOLVED** | P2 | `DSC-14` | Stacked and stability-check fits drop `time_ordering`, `val_df` and `val_y` | variants forward time_ordering/val_df/val_y; phase passes them to stacked fits |
 | **TODO** | P2 | `DSC-15` | The stability-check majority threshold is truncated, so n=3 keeps specs found once | |
