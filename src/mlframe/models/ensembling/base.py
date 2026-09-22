@@ -651,7 +651,10 @@ def combine_probs(
     elif flav in ("cubic",):
         flav = "qube"
 
-    if ensure_prob_limits and flav in ("arithm", "harm", "quad", "qube", "median"):
+    # "geo" belongs here too: its log only clips the LOWER bound, so an out-of-range member value (a raw margin of 1.4
+    # leaking through a shim) pulled the geometric mean above every member's clipped value before the final clip hid
+    # it, and geo disagreed with the other flavours for a reason that is a bug rather than a property of the blend.
+    if ensure_prob_limits and flav in ("arithm", "harm", "quad", "qube", "median", "geo"):
         stacked = np.clip(stacked, 0.0, 1.0)
 
     weights_arr: Optional[np.ndarray] = None

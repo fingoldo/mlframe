@@ -188,6 +188,8 @@ _KNOWN_METRIC_DIRECTIONS_HIGHER: frozenset[str] = frozenset({
     # must be named explicitly ("ks_distribution_distance", below) - a drift monitor that logs it as bare "ks" will be
     # ranked the wrong way round.
     "g_mean", "ks", "ks_statistic", "bss", "brier_skill_score",
+    # Report fields where more is better: share of bins the reliability curve covers, and the Brier RESOLUTION term.
+    "calibration_coverage", "brier_resolution",
     "lift", "lift_at_k",
     # Top-k accuracy for multiclass
     "top_k_accuracy", "top1", "top3", "top5",
@@ -213,6 +215,9 @@ _KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
     "mbe", "mean_bias_error",
     # Probabilistic / calibration losses
     "log_loss", "logloss", "brier", "brier_score", "cross_entropy",
+    # The names the suite's own calibration report emits (CalibrationReport fields and the regression block), which a
+    # direction-aware consumer (the flavour leaderboard, selection) otherwise dropped as unknown.
+    "brier_loss", "ll", "calibration_mae", "calibration_std", "brier_reliability", "maxerror",
     # Exponential proper scoring rule (per-object minimizer is the true probability).
     "exploss",
     # Multi-class / multi-label aggregation variants of the probabilistic
