@@ -180,3 +180,36 @@ def test_the_discovery_cache_signature_carries_the_algo_version_and_imports_no_b
     out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env, timeout=300, check=False)
     assert out.returncode == 0, out.stderr[-2000:]
     assert out.stdout.strip().splitlines()[-1] == "[] True", out.stdout
+
+
+def test_the_discovery_cache_key_changes_with_every_input_that_changes_the_specs(tmp_path):
+    """Same data and config, but a different group split, hint strengths, time order or val set: a different cache key."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+    from mlframe.training.core._phase_composite_discovery_gates import _discovery_cache_lookup, discovery_inputs_digest
+
+    rng = np.random.default_rng(0)
+    n = 300
+    df = pd.DataFrame({"b": rng.normal(size=n), "t": np.arange(n, dtype=float), "y": rng.normal(size=n)})
+    val = df.iloc[:50].copy()
+    cfg = CompositeTargetDiscoveryConfig(enabled=True, time_column="t")
+    base = dict(group_ids=np.arange(n) % 5, hint_strengths=[10.0], disc_df=df, time_column="t", val_df=val, val_y=val["y"].to_numpy())
+
+    def key(**over):
+        """The cache key under ``base`` with ``over`` applied."""
+        return _discovery_cache_lookup(cfg, df, "y", ["b", "t"], tmp_path, inputs_digest=discovery_inputs_digest(**{**base, **over}))[1]
+
+    ref = key()
+    assert ref == key(), "the key must be deterministic"
+    shuffled = df.assign(t=rng.permutation(n).astype(float))
+    variants = {
+        "group_ids": key(group_ids=np.arange(n) % 7),
+        "no group_ids": key(group_ids=None),
+        "hint_strengths": key(hint_strengths=[25.0]),
+        "time order": key(disc_df=shuffled),
+        "val_y": key(val_y=val["y"].to_numpy() + 1.0),
+        "val_df": key(val_df=val.assign(b=val["b"] + 1.0)),
+    }
+    assert all(v != ref for v in variants.values()), [k for k, v in variants.items() if v == ref]

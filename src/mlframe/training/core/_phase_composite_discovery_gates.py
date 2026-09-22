@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from ..composite.cache import (
     DiscoveryCache,
@@ -139,7 +140,45 @@ def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, tar
     return dropped
 
 
-def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_dir):
+def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None, disc_df: Any = None, time_column: Any = None,
+                            val_df: Any = None, val_y: Any = None) -> str:
+    """A digest of the discovery inputs that change the selected specs but are neither data columns nor config fields.
+
+    The group ids drive the group-disjoint holdout, the GroupKFold rerank and the fragility gate; the hint strengths decide
+    the hint cap and the ablation skip; the time-column values order the screen; the val frame is the y-scale gate's
+    evaluation set. Without them in the key a rerun under a new group split or val set replayed specs gated on the old one.
+    """
+    import hashlib
+
+    h = hashlib.blake2b(digest_size=16)
+
+    def _arr(tag: str, a: Any) -> None:
+        h.update(tag.encode())
+        if a is None:
+            h.update(b"<none>")
+            return
+        arr = np.asarray(a)
+        h.update(str((arr.shape, arr.dtype.str)).encode())
+        h.update(np.ascontiguousarray(arr.astype(str) if arr.dtype == object else arr).tobytes())
+
+    _arr("groups", group_ids)
+    _arr("hints", None if hint_strengths is None else np.asarray(list(hint_strengths), dtype=np.float64))
+    _time = None
+    if time_column and disc_df is not None and time_column in getattr(disc_df, "columns", ()):
+        _time = disc_df.get_column(time_column).to_numpy() if hasattr(disc_df, "get_column") else disc_df[time_column].to_numpy()
+    _arr("time", _time)
+    _arr("val_y", val_y)
+    if val_df is None:
+        h.update(b"val_df<none>")
+    else:
+        h.update(str((tuple(getattr(val_df, "columns", ())), getattr(val_df, "shape", None))).encode())
+        head = val_df.head(2000)
+        _rows = head.hash_rows().to_numpy() if hasattr(head, "hash_rows") else pd.util.hash_pandas_object(head, index=False).to_numpy()
+        h.update(np.ascontiguousarray(_rows).tobytes())
+    return h.hexdigest()
+
+
+def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_dir, inputs_digest: str = ""):
     """The discovery cache, its key and any cached payload for this target; a failed key build yields no cache.
 
     The key carries the data fingerprint, the target column and the config signature (which embeds the library
@@ -162,8 +201,9 @@ def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_
         )
         _cfg_sig = _discovery_config_signature(disc_cfg)
         # random_state is already folded into _df_sig (seeds the row-sample) and into _cfg_sig (via the dataclass dump). Passing it again to make_discovery_cache_key would be a double-fold (DISC-RANDOM-STATE-DBL): the same data + same config but with random_state mutated would produce three independent hash mixes. We rename the kwarg here to ``_legacy_random_state_sentinel=0`` so a future reader cannot misread "random_state=0" as the actual seed in use.
+        # The inputs digest (group ids, hint strengths, time order, val frame) rides with the data fingerprint.
         cache_key = make_discovery_cache_key(
-            _df_sig, target_name, _cfg_sig,
+            f"{_df_sig}|{inputs_digest}" if inputs_digest else _df_sig, target_name, _cfg_sig,
             _legacy_random_state_sentinel=0,
         )
         payload = cache.get(cache_key)
