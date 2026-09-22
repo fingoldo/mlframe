@@ -9,5 +9,5 @@
   "src/mlframe/feature_selection/filters/discretization/__init__.py": 1074,
   "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py": 4265,
   "src/mlframe/training/_trainer_train_and_evaluate.py": 1033,
-  "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py": 1173
+  "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py": 1095
 }

@@ -18,7 +18,9 @@ from ..utils import _build_full_column_from_splits
 from .._phase_composite_post_lag_predict import _LagPredictDeployableModel
 from ._post_xt_ensemble_mtr import _build_mtr_per_column_ensemble
 from ._crossfit import gate_stack_rmse, refit_capped_stack
-from ._prescreen import PRESCREEN_SAFETY, dummy_floor_from_metadata, leaky_rmse_keep_mask, prescreen_frame, same_split_dummy_rmse
+from ._prescreen import (
+    PRESCREEN_SAFETY, apply_dummy_floor_gate, dummy_floor_from_metadata, leaky_rmse_keep_mask, prescreen_frame, same_split_dummy_rmse,
+)
 from .._prediction_memo import memo_predict
 from mlframe.utils.log_throttle import log_throttle
 
@@ -670,56 +672,11 @@ def _build_cross_target_ensemble_for_target(
                 _oof_frac,
                 len(_oof_y_holdout),
             )
-            # Dummy-floor gate: drop any component whose honest-OOF RMSE exceeds the raw target's strongest-dummy RMSE by more than the configured tolerance. A trained model that loses to a parameter-free dummy on the honest holdout cannot improve the ensemble; keeping it dilutes NNLS weights and harms test performance.
-            # The dummy's primary_metric value is compared directly against component OOF RMSEs, so the floor is unit-consistent only while the regression primary is RMSE (currently the only option).
-            _dummy_floor_enabled = bool(getattr(
-                composite_target_discovery_config,
-                "ct_ensemble_dummy_floor_enabled", True,
-            ))
-            _dummy_floor_tol = float(getattr(
-                composite_target_discovery_config,
-                "ct_ensemble_dummy_floor_tolerance", 0.0,
-            ))
-            if (_dummy_floor_enabled
-                    and _oof_pred_matrix is not None
-                    and _oof_pred_matrix.shape[1] > 0
-                    and len(_oof_rmses) > 0):
-                # The floor is measured on the same OOF rows as the components it gates (see same_split_dummy_rmse).
-                _dummy_floor_rmse = same_split_dummy_rmse(metadata, _tt_e, _orig_tname, _oof_names, _oof_rmses, _oof_y_holdout)
-                if _dummy_floor_rmse is not None:
-                    _dummy_floor_rmse *= 1.0 + _dummy_floor_tol
-                if _dummy_floor_rmse is not None:
-                    _keep_idx = [_i for _i in range(len(_oof_rmses)) if np.isfinite(_oof_rmses[_i]) and _oof_rmses[_i] <= _dummy_floor_rmse]
-                    _dropped_idx = [_i for _i in range(len(_oof_rmses)) if _i not in set(_keep_idx)]
-                    if _dropped_idx and len(_keep_idx) >= 1:
-                        _dropped_names = [f"{_oof_names[_i]}(OOF={_oof_rmses[_i]:.4g})" for _i in _dropped_idx]
-                        _floor_base = _dummy_floor_rmse / (1.0 + _dummy_floor_tol)
-                        logger.warning(
-                            "[CompositeCrossTargetEnsemble] target='%s' "
-                            "dummy-floor gate fired: dropping %d/%d "
-                            "component(s) whose OOF RMSE > the strongest "
-                            "dummy's same-split OOF RMSE %.4g x (1+%.2f) = %.4g. "
-                            "Dropped: %s",
-                            _orig_tname, len(_dropped_idx),
-                            len(_oof_rmses),
-                            _floor_base, _dummy_floor_tol,
-                            _dummy_floor_rmse, _dropped_names,
-                        )
-                        _oof_components = [_oof_components[_i] for _i in _keep_idx]
-                        _oof_names = [_oof_names[_i] for _i in _keep_idx]
-                        _oof_rmses = _oof_rmses[_keep_idx]
-                        _oof_pred_matrix = _oof_pred_matrix[:, _keep_idx]
-                    elif not _keep_idx:
-                        logger.warning(
-                            "[CompositeCrossTargetEnsemble] target='%s' "
-                            "dummy-floor gate would drop ALL %d "
-                            "component(s) (every OOF RMSE > %.4g); "
-                            "keeping all to avoid empty pool. The "
-                            "honest-OOF gate below will fall back to "
-                            "best single.",
-                            _orig_tname, len(_oof_rmses),
-                            _dummy_floor_rmse,
-                        )
+            # Dummy-floor gate: drop components whose honest-OOF RMSE loses to the strongest dummy on the same OOF rows.
+            _oof_components, _oof_names, _oof_rmses, _oof_pred_matrix = apply_dummy_floor_gate(
+                composite_target_discovery_config, metadata, _tt_e, _orig_tname,
+                _oof_components, _oof_names, _oof_rmses, _oof_pred_matrix, _oof_y_holdout,
+            )
 
         # Residual-correlation dedup (opt-in): drop near-duplicate members (|residual corr| > threshold), keeping
         # the lower-OOF-RMSE one, so a redundant pair can't split + dominate the NNLS weight. Runs on the honest
