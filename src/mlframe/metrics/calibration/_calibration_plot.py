@@ -279,12 +279,9 @@ def _fast_calibration_binning_serial(y_true: np.ndarray, y_pred: np.ndarray, nbi
 
     hits = pockets_predicted[idx]
     if len(hits) > 0:
-        # Mean predicted prob per present bin; bin-centre kept only as the empty-bin fallback geometry.
-        centres = (min_val + (np.arange(nbins)[idx] + 0.5) * span / nbins).astype(np.float64)
+        # Mean predicted prob per present bin. ``idx`` selects populated bins only, so there is no empty bin to give
+        # a centre to (a bin-centre fallback used to be computed here on every call and could never be used).
         freqs_predicted = pockets_pred_sum[idx] / hits
-        for b in range(len(hits)):
-            if hits[b] == 0:
-                freqs_predicted[b] = centres[b]
         freqs_true = pockets_true[idx] / pockets_predicted[idx]
     else:
         freqs_predicted, freqs_true = np.array((), dtype=np.float64), np.array((), dtype=np.float64)

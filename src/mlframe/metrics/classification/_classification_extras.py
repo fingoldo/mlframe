@@ -533,9 +533,19 @@ def lift_at_k(
     if n_pos == 0:
         return np.nan
     cutoff = max(1, int(np.ceil(n * k_pct / 100.0)))
-    # argpartition for top-k cutoff selection (no full sort needed).
-    top_idx = np.argpartition(-ys, cutoff - 1)[:cutoff]
-    captured = int(yt[top_idx].sum())
+    # The score at the cutoff (argpartition, no full sort). Rows strictly above it are in the top-k; rows EQUAL to it
+    # share the remaining slots. Picking which tied rows get in was argpartition's arbitrary choice, so a calibrator
+    # that snaps scores to a coarse grid gave different lift on identical data between runs. The tied run is folded in
+    # at its average positive rate instead - the expectation over every tie-break, and deterministic.
+    threshold = -np.partition(-ys, cutoff - 1)[cutoff - 1]
+    above = ys > threshold
+    tied = ys == threshold
+    n_above = int(above.sum())
+    slots_for_ties = cutoff - n_above
+    captured = float(yt[above].sum())
+    n_tied = int(tied.sum())
+    if slots_for_ties > 0 and n_tied > 0:
+        captured += float(yt[tied].sum()) * slots_for_ties / n_tied
     p_top = captured / cutoff
     p_overall = n_pos / n
     return float(p_top / p_overall)

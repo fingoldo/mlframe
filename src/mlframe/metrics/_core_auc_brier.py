@@ -534,6 +534,19 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
     return _resampler_fast
 
 
+def _binary_labels_01(y_true):
+    """``y_true`` as {0, 1} labels, positive = 1 - the convention ``fast_roc_curve`` and sklearn's default ``pos_label``
+    use. The AUC kernels count ``tps += y`` / ``fps += 1 - y``, so {-1, 1} labels gave NaN while sklearn returned the
+    real AUC on the same data. Labels already in [0, 1] (the overwhelmingly common case) pass through untouched; the
+    min/max probe is O(n) against the kernel's O(n log n) sort."""
+    y = np.asarray(y_true)
+    if y.dtype == np.bool_ or y.size == 0:
+        return y
+    if y.min() < 0 or y.max() > 1:
+        return np.ascontiguousarray(y == 1, dtype=np.float64)
+    return y
+
+
 def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     """Compute ROC AUC efficiently using numba.
 
@@ -586,6 +599,7 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
     _check_equal_length(y_true, y_score)
+    y_true = _binary_labels_01(y_true)
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
     if sample_weight is not None:
         if isinstance(sample_weight, (pd.Series, pl.Series)):
@@ -831,6 +845,7 @@ def fast_aucs(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> tuple[float,
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
     _check_equal_length(y_true, y_score)
+    y_true = _binary_labels_01(y_true)
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
     roc_auc, pr_auc = fast_numba_aucs(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
     return float(roc_auc), float(pr_auc)
