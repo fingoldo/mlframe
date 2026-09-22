@@ -53,7 +53,9 @@ def test_hook_records_val_and_test_and_verdict_compares_with_raw(caplog) -> None
     )
     assert len(metadata["composite_target_y_scale_metrics"]["regression"][comp]) == 1
 
-    raw_entry = types.SimpleNamespace(model=object(), model_name="cb_raw", metrics={"val": {"RMSE": comp_val * 2.0}})
+    comp_test = rows[0]["metrics"]["test"]["RMSE"]
+    # The verdict is decided on TEST (the composite was selected on val), so the raw model carries both splits.
+    raw_entry = types.SimpleNamespace(model=object(), model_name="cb_raw", metrics={"val": {"RMSE": comp_val * 2.0}, "test": {"RMSE": comp_test * 2.0}})
     ens_entry = types.SimpleNamespace(model=object(), model_name="EnsARITHM [ridge]")
     models = {"regression": {"y": [raw_entry], comp: [entry, ens_entry]}}
     rep = {"strongest": "mean", "primary_metric": "val_RMSE", "data": {"mean": {"val_RMSE": comp_val * 4.0}}}
@@ -70,3 +72,21 @@ def test_hook_records_val_and_test_and_verdict_compares_with_raw(caplog) -> None
     assert vs, text
     assert "2.000x" in vs[0] and "4.000x" in vs[0] and "cb_raw" in vs[0]
     assert "no y-scale metric: EnsARITHM [ridge]" in vs[0]
+
+
+def test_the_composite_vs_raw_verdict_is_decided_on_test():
+    """A composite that wins on val (where discovery selected it) and loses on test is RAW_BEATS_COMPOSITE."""
+    from mlframe.training.core._phase_composite_post_summary import format_composite_vs_raw_block
+
+    comp = "y-linres-b"
+    metadata = {
+        "dummy_baselines": {"regression": {"y": {"strongest": "mean", "primary_metric": "val_RMSE", "data": {"mean": {"val_RMSE": 5.0}}}}},
+        "composite_target_y_scale_metrics": {"regression": {comp: [{"model_name": "lgb", "metrics": {"val": {"RMSE": 1.0}, "test": {"RMSE": 3.0}}}]}},
+    }
+    best = {("regression", "y"): {"val_RMSE": 2.0, "model_name": "lgb_raw", "test_RMSE": 2.0}}
+    text = format_composite_vs_raw_block(models={"regression": {comp: []}}, metadata=metadata, best_metrics=best, composite_to_raw={("regression", comp): "y"})
+    row = next(ln for ln in text.splitlines() if ln.startswith(comp))
+    assert "RAW_BEATS_COMPOSITE" in row, row
+    best_no_test = {("regression", "y"): {"val_RMSE": 2.0, "model_name": "lgb_raw (test fallback)", "test_RMSE": None}}
+    text = format_composite_vs_raw_block(models={"regression": {comp: []}}, metadata=metadata, best_metrics=best_no_test, composite_to_raw={("regression", comp): "y"})
+    assert "NO_TEST_METRIC_TO_COMPARE" in text, "without a raw test metric the val numbers must not decide the verdict"

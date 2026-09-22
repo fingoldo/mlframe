@@ -144,14 +144,29 @@ class TestVerdictTableTestFallback:
         """When val metrics are missing for all trained models, the
         suite-end summary must fall back to test metrics (tagged so
         the operator sees the cross-split comparison)."""
-        src = self._summary_src()
-        # Both passes (val first, then test fallback) must be present.
-        assert '_entry_metric(_m, "val"' in src
-        assert '_entry_metric(_m, "test"' in src
-        assert "test fallback" in src
-        # The "_best_split" tracker prevents tagging val-found models
-        # as test fallback by accident.
-        assert "_best_split" in src
+        import logging
+        import types
+
+        from mlframe.training.core._phase_composite_post_summary import _run_suite_end_dummy_baselines_summary
+
+        # Checked by behaviour: a raw model with only TEST metrics is picked and tagged; one with VAL metrics is not tagged.
+        rep = {"strongest": "mean", "primary_metric": "val_RMSE", "data": {"mean": {"val_RMSE": 10.0}}}
+        cfg = types.SimpleNamespace(best_model_min_lift=1.5)
+        for metrics, tagged in (({"test": {"RMSE": 2.0}}, True), ({"val": {"RMSE": 2.0}, "test": {"RMSE": 3.0}}, False)):
+            entry = types.SimpleNamespace(model=object(), model_name="ridge", metrics=metrics)
+            records: list[str] = []
+            handler = logging.Handler()
+            handler.emit = lambda r, _out=records: _out.append(r.getMessage())
+            log = logging.getLogger("mlframe.training.core._phase_composite_post")
+            log.addHandler(handler)
+            old_level, log.level = log.level, logging.INFO
+            try:
+                _run_suite_end_dummy_baselines_summary(models={"regression": {"y": [entry]}}, metadata={"dummy_baselines": {"regression": {"y": dict(rep)}}}, dummy_baselines_config=cfg)
+            finally:
+                log.removeHandler(handler)
+                log.level = old_level
+            text = "\n".join(records)
+            assert ("ridge (test" in text) is tagged, text  # the verdict table truncates the name column
 
     def test_fallback_tag_in_display_name(self) -> None:
         """The fallback tag '(test fallback)' is what operators see in

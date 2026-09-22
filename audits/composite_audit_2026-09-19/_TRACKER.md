@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 19 | 0 | 11 | 0 | 0 |
+| `discovery.md` | 30 | 20 | 0 | 10 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 15 | 0 | 7 | 0 | 0 |
 | `suite_integration.md` | 19 | 11 | 0 | 8 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 9 | 7 | 25 | 0 | 0 |
-| **Total** | **179** | **100** | **18** | **60** | **1** | **0** |
+| **Total** | **179** | **101** | **18** | **59** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -76,7 +76,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `DSC-15` | The stability-check majority threshold is truncated, so n=3 keeps specs found once | |
 | **RESOLVED** | P2 | `DSC-16` | Incremental drift detection cannot fire under default config | same-rows reference gain; appended rows only; default config now detects a destroyed base |
 | **RESOLVED** | P2 | `DSC-17` | The cross-target composite budget sorts three incompatible gain units together | budget ranks RMSE-gain tier before MI tier |
-| **TODO** | P2 | `DSC-18` | The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection | |
+| **RESOLVED** | P2 | `DSC-18` | The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection | composite-vs-raw verdict on test; val shown for reference; cross-split refuses a verdict |
 | **RESOLVED** | P2 | `DSC-19` | The group-disjoint honest-holdout carve can hold out most of the training rows | holdout within +/-25% or iid fallback |
 | **TODO** | P3 | `DSC-20` | Auto-chain proposals are not required to beat raw y, and duplicate the hard-coded default chains | |
 | **RESOLVED** | P3 | `DSC-21` | The raw-y baseline and the per-spec CV can use different splitters | one fold scheme per rerank |
