@@ -221,7 +221,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium for (b)/(c) (a one-off upcast outside a loop is fine, so the rule is scoped to loop bodies). (d) is low-risk but depends on the host, so it uses a ratio against the input size, not absolute bytes.
 - **Runtime**: AST under 1 s; tracemalloc about 5-10 s.
 - **Repo**: mlframe. Rule (c) is generic and could move to py-ci-shared later.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New tests/test_meta/test_discovery_layout_and_copies.py scans the discovery package (AST) for three rules, with a ratchet baseline `_discovery_layout_baseline.json`: (a) a column read inside a loop of a matrix allocated C-order (`np.empty((n, m))` / `np.column_stack` without `order='F'`); (b) a float64 `asarray` / `ascontiguousarray` / `array` of a feature-matrix-named value inside a loop; (c) a loop that draws from an RNG and calls a module-level `@njit` kernel on every iteration. A canary pins each rule firing on its shape and not on the fixed form. Today there are 0 hits; the expected hits the audit listed are gone after the PRF fixes. Rule (a) is scoped to reads: the only candidate was `forward_stepwise_multi_base` writing columns into a C buffer that per-fold row gathers read, where C order is right. Not built: (d), the tracemalloc peak budgets for `_filter_features` and the rerank checkpoint.
 
 ### PMT-10 [P2] Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner)
 - **Asserts**:
