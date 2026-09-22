@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -486,6 +487,7 @@ from ._diagnostics_adversarial import (  # noqa: F401  (re-exported; tests clear
 
 
 _PSI_CACHE: dict = {}
+_PSI_CACHE_LOCK = threading.Lock()  # concurrent suites share it; the evict-then-insert must not interleave
 
 
 def _psi_cache_key(test_frame: Any, timestamps: Any, names: Any) -> Optional[tuple]:
@@ -521,10 +523,14 @@ def _psi_heatmap_cached(test_frame: Any, ts: np.ndarray, names: Any) -> Any:
     from mlframe.reporting.charts.drift import psi_heatmap
 
     key = _psi_cache_key(test_frame, ts, names)
-    spec = _PSI_CACHE.get(key) if key is not None else None
-    if spec is None:
-        spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=names)
-        if key is not None:
+    if key is not None:
+        with _PSI_CACHE_LOCK:
+            spec = _PSI_CACHE.get(key)
+        if spec is not None:
+            return spec
+    spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=names)  # computed outside the lock
+    if key is not None:
+        with _PSI_CACHE_LOCK:
             while len(_PSI_CACHE) >= 8:
                 _PSI_CACHE.pop(next(iter(_PSI_CACHE)))
             _PSI_CACHE[key] = spec

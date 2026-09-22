@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import threading
 from timeit import default_timer as timer
 from typing import Any, Callable, Optional, Sequence, TYPE_CHECKING
 if TYPE_CHECKING:
@@ -124,6 +125,9 @@ logger = logging.getLogger("mlframe.training.trainer")
 # dicts) so the contract stays "memo when safe; direct otherwise".
 _GTC_CACHE_MAX = 16
 _GTC_CACHE: "dict[tuple, Any]" = {}
+# Guards _GTC_CACHE and its pin dict together: concurrent fits could otherwise evict a key between another
+# thread's insert into one dict and the other, leaving a pin without its entry or an entry without its pin.
+_GTC_CACHE_LOCK = threading.Lock()
 # Pins the exact ``subgroups`` object whose id() was folded into a live cache key, keyed by that same
 # key. CPython can reuse a freed object's id() for a brand-new, unrelated object -- without this pin, a
 # short-lived ``indexed_subgroups`` dict from one target being garbage-collected and a DIFFERENT
@@ -188,20 +192,23 @@ def _get_training_configs_cached(**kwargs):
     if not cacheable:
         return get_training_configs(**kwargs)
     key = tuple(items)
-    hit = _GTC_CACHE.get(key)
+    with _GTC_CACHE_LOCK:
+        hit = _GTC_CACHE.get(key)
     if hit is not None:
         return copy.deepcopy(hit)
     res = get_training_configs(**kwargs)
-    if len(_GTC_CACHE) >= _GTC_CACHE_MAX:
-        # FIFO eviction (Python dict insertion order). Cheap; the cache is small
-        # so an LRU dance via OrderedDict would add complexity without measurable
-        # gain at maxsize=16.
-        _evicted_key = next(iter(_GTC_CACHE))
-        _GTC_CACHE.pop(_evicted_key)
-        _GTC_CACHE_SUBGROUPS_PIN.pop(_evicted_key, None)
-    _GTC_CACHE[key] = copy.deepcopy(res)
-    if _subgroups_obj is not None:
-        _GTC_CACHE_SUBGROUPS_PIN[key] = _subgroups_obj
+    _stored = copy.deepcopy(res)
+    with _GTC_CACHE_LOCK:
+        if len(_GTC_CACHE) >= _GTC_CACHE_MAX:
+            # FIFO eviction (Python dict insertion order). Cheap; the cache is small
+            # so an LRU dance via OrderedDict would add complexity without measurable
+            # gain at maxsize=16.
+            _evicted_key = next(iter(_GTC_CACHE))
+            _GTC_CACHE.pop(_evicted_key)
+            _GTC_CACHE_SUBGROUPS_PIN.pop(_evicted_key, None)
+        _GTC_CACHE[key] = _stored
+        if _subgroups_obj is not None:
+            _GTC_CACHE_SUBGROUPS_PIN[key] = _subgroups_obj
     return res
 
 
