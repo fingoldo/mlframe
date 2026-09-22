@@ -26,6 +26,9 @@ from mlframe.data.datasets.ground_truth import PRIMARY_TARGET_SET
 from mlframe.data.datasets.spec import DatasetSpec
 
 from ._causal import mediator_chain_spec, spouse_collider_spec
+from ._causal_extra import confounder_spec, instrument_spec, m_bias_spec, proxy_attenuation_spec
+from ._corrupted import coarsened_label_spec, feature_dependent_flip_spec, uniform_flip_spec
+from ._economics import expensive_signal_spec, graded_redundancy_spec
 from ._interactions import parity_plus_decoy_spec, parity_spec
 from ._linear import linear_lowdim_spec, linear_spec
 from ._marginals import heavy_tail_spec, outlier_contaminated_spec, quantized_spec, zero_inflated_spec
@@ -33,6 +36,7 @@ from ._mixed_types import graded_cardinality_spec, id_trap_spec, zipf_levels_spe
 from ._observation import concept_shift_spec, covariate_shift_spec, missingness_trio_spec, rare_class_spec
 from ._null import null_spec
 from ._redundant import exact_redundancy_spec, private_delta_spec
+from ._structure import grouped_rows_spec, simpson_reversal_spec
 from ._reference import friedman1_spec, friedman2_spec, friedman3_spec, weston_guyon_spec
 from ._tails import gaussian_tail_control_spec, tail_dependence_spec, tail_isolation_spec
 from ._targets import count_spec, multiclass_spec, ordinal_spec
@@ -312,6 +316,83 @@ SCENARIOS: Tuple[Scenario, ...] = (
         builder=count_spec,
         expected_to_break=("skb-f", "skb-mi", "select-fdr", "lars-order", "rank-vote"),
         purpose="a Poisson target whose variance is its mean, so a constant-variance scorer is mis-weighted where it matters",
+    ),
+    Scenario(
+        name="label_flip_uniform_15pct",
+        family="corrupted",
+        builder=uniform_flip_spec,
+        expected_to_break=("boruta", "rfecv", "sfm-lgbm", "byproduct-ensemble"),
+        purpose="symmetric label noise: the declared ceiling is unreachable and the gap is the information the flip destroyed",
+    ),
+    Scenario(
+        name="label_flip_regional_35pct",
+        family="corrupted",
+        builder=feature_dependent_flip_spec,
+        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr", "rank-vote"),
+        purpose="label reliability depends on a column, which nothing scoring against the observed label can see",
+    ),
+    Scenario(
+        name="label_coarsened",
+        family="corrupted",
+        builder=coarsened_label_spec,
+        expected_to_break=("skb-mi", "univariate-mi", "knockoffs"),
+        purpose="the label is a lossy function of the truth rather than a noisy copy of it",
+    ),
+    Scenario(
+        name="m_bias",
+        family="causal",
+        builder=m_bias_spec,
+        expected_to_break=("mrmr", "ace", "boruta", "rfecv", "lars-order"),
+        purpose="a column every marginal score recommends, whose admission manufactures an association the graph does not contain",
+    ),
+    Scenario(
+        name="confounder_backdoor",
+        family="causal",
+        builder=confounder_spec,
+        expected_to_break=("variance-sort", "rank-vote"),
+        purpose="a column predictive of the target that causes none of it: right under prediction, wrong under causation",
+    ),
+    Scenario(
+        name="instrument_screened_off",
+        family="causal",
+        builder=instrument_spec,
+        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr", "rank-vote"),
+        purpose="structural redundancy rather than correlational: a column screened off by one already selected",
+    ),
+    Scenario(
+        name="proxy_attenuation",
+        family="causal",
+        builder=proxy_attenuation_spec,
+        expected_to_break=("lars-order", "knockoffs", "byproduct-ensemble"),
+        purpose="a clean proxy out-predicts the noisy measurement of the real cause, so prediction and causation disagree",
+    ),
+    Scenario(
+        name="expensive_signal",
+        family="economics",
+        builder=expensive_signal_spec,
+        expected_to_break=("skb-f", "skb-mi", "sfm-lgbm", "boruta", "rank-vote"),
+        purpose="the informative columns cost a hundred times the probes, so a cost-blind selection is unaffordable",
+    ),
+    Scenario(
+        name="redundancy_graded",
+        family="economics",
+        builder=graded_redundancy_spec,
+        expected_to_break=("mrmr", "knockoffs", "boruta-shap", "sfm-lgbm"),
+        purpose="four correlation levels in one bed, so a threshold's breaking point is a curve rather than a guess",
+    ),
+    Scenario(
+        name="simpson_sign_reversal",
+        family="structure",
+        builder=simpson_reversal_spec,
+        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr", "lars-order", "rank-vote", "byproduct-ensemble"),
+        purpose="a strong column whose marginal association is zero because its sign flips between subgroups",
+    ),
+    Scenario(
+        name="grouped_rows_40",
+        family="structure",
+        builder=grouped_rows_spec,
+        expected_to_break=("variance-sort", "skb-mi", "knockoffs"),
+        purpose="rows of one group share an offset no feature explains, so a row-wise split reports a number it should not",
     ),
     Scenario(
         name="mb_spouse_collider",

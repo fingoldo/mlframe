@@ -77,12 +77,15 @@ Beds are grouped by what they attack, not by how they were built:
 | `redundant` | 2 | importance splitting across copies; jointly necessary members |
 | `interactions` | 2 | zero marginal association; finding the wrong thing confidently |
 | `tails` | 3 | non-monotone joint structure, and tail dependence isolated from rank correlation |
-| `causal` | 2 | a blanket member invisible until a collider is conditioned on |
+| `causal` | 6 | a blanket member invisible until a collider is conditioned on; M-bias, confounding, an instrument, proxy attenuation |
 | `reference` | 4 | published formulas nobody here chose |
 | `marginals` | 4 | heavy tails, contamination, point masses, quantisation |
 | `mixed_types` | 3 | cardinality bias, the identifier trap, power-law levels |
 | `observation` | 4 | missingness mechanisms, rare classes, the two halves of drift |
 | `targets` | 3 | multiclass, ordinal and count, sharing one structure so only the target varies |
+| `corrupted` | 3 | label noise: the only place the declared ceiling and the reachable one diverge |
+| `economics` | 2 | columns that cost different amounts, and four correlation levels in one bed |
+| `structure` | 2 | a sign that flips between subgroups, and rows that are not independent |
 
 Every scenario declares `expected_to_break` — which arms it is designed to defeat — **before** the run.
 Those declarations are scored afterwards, so declaring one costs something. Roughly half hold, which is

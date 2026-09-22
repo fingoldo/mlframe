@@ -177,8 +177,9 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
     # the target are built here, before the link consumes them; descendants are built after the label
     # exists, further down.
     graph = graph_from_spec(spec, target_name=target.name)
-    before_target, after_target = derived_order(graph, list(spec.feature_names()), target.name)
-    realize_derived(before_target, graph, columns, scales, target.name, {}, spec.root_seed, spec.name)
+    reflected = [name for latent in spec.latents for name in latent.reflections]
+    before_target, after_target = derived_order(graph, list(spec.feature_names()), target.name, list(factors), reflected)
+    realize_derived(before_target, graph, columns, scales, target.name, {}, spec.root_seed, spec.name, latent_values=factors)
 
     # Private deltas are addressable by the link but never emitted as columns: they are what makes the
     # reflections jointly necessary, and exposing them would hand the answer to any selector.
@@ -217,7 +218,7 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
         # path: the declared link scale, the kind's own law, and the kind's own exact ceiling. The binary
         # machinery above is not "skipped" here -- it is meaningless for these kinds, and forcing them
         # through it would report a ceiling in a metric the target does not have.
-        return _generate_non_binary(spec, target, columns, scales, unit_score, knob_rng, graph, after_target, redundancy_groups)
+        return _generate_non_binary(spec, target, columns, scales, unit_score, knob_rng, graph, after_target, redundancy_groups, factors)
 
     if target.calibrate_to is not None and target.calibrate_to.metric == "auc":
         scale, achieved = calibrate_scale(probability_at, float(target.calibrate_to.value))
@@ -236,7 +237,7 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
         # A child of the label -- a collider, a downstream measurement -- is realised from the label that
         # actually happened, not from the probability behind it: an observable of this kind never sees the
         # probability, and building it from one would make it cleaner than any real measurement can be.
-        realize_derived(after_target, graph, columns, scales, target.name, {target.name: labels}, spec.root_seed, spec.name)
+        realize_derived(after_target, graph, columns, scales, target.name, {target.name: labels}, spec.root_seed, spec.name, latent_values=factors)
 
     # Masking happens HERE: after the link, after calibration, after the labels. `true_prob` is the law
     # relating COMPLETE values to the target, and that is the law the labels came from; hiding values
@@ -290,6 +291,7 @@ def _generate_non_binary(
     graph: Any,
     after_target: Any,
     redundancy_groups: Any,
+    factors: Dict[str, np.ndarray],
 ) -> GeneratedDataset:
     """Realise a multiclass, ordinal or count target, with the exact ceiling its own law supplies.
 
@@ -307,6 +309,10 @@ def _generate_non_binary(
         graph: The SCM graph, for realising descendants of the label.
         after_target: Nodes to realise once the label exists.
         redundancy_groups: Redundancy groups from the latent layer.
+        factors: Realised latent factors, so a column declaring an unobserved parent can still be built
+            here. Passed explicitly rather than closed over: this function is not nested in `generate`,
+            and reaching for the name without it is a NameError that only fires on a bed with both a
+            non-binary target and a post-target derived column.
 
     Returns:
         A :class:`GeneratedDataset` whose ``truth.true_mean`` carries the full per-row law -- the ``(n, K)``
@@ -363,7 +369,7 @@ def _generate_non_binary(
         raise ValueError(f"target kind {target.kind!r} has no non-binary implementation; a binary label under its name would be worse than this error")
 
     if after_target:
-        realize_derived(after_target, graph, columns, scales, target.name, {target.name: labels}, spec.root_seed, spec.name)
+        realize_derived(after_target, graph, columns, scales, target.name, {target.name: labels}, spec.root_seed, spec.name, latent_values=factors)
     columns, missing_caveats = apply_missingness(spec.missingness, columns, spec.root_seed, spec.name, knob_rng)
 
     structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups)

@@ -335,9 +335,13 @@ class BasisTerm(_DatasetSubSpec):
       single row that dominates every scale computed downstream.
     * ``identity`` -- the column itself, so a bed can express a weighted linear term in the same list as
       its nonlinear ones instead of splitting one formula across two fields.
+    * ``group_effect`` -- one value drawn per DISTINCT LEVEL of a column and shared by every row of that
+      level. It is the only term here that makes rows non-independent, which is the point: two rows of the
+      same group share an offset no feature explains, so a random split puts correlated rows on both
+      sides of it and every estimate taken across that split is optimistic.
     """
 
-    kind: Literal["sin_product", "centered_square", "abs_deviation", "ratio", "identity"] = "identity"
+    kind: Literal["sin_product", "centered_square", "abs_deviation", "ratio", "identity", "group_effect"] = "identity"
     columns: Tuple[str, ...] = Field(min_length=1)
     weight: float = 1.0
     #: Kind-specific constants: ``frequency`` for ``sin_product``, ``center`` for the centred kinds,
@@ -357,7 +361,7 @@ class BasisTerm(_DatasetSubSpec):
                 silently ignored extra operand would change the formula from the one the bed's name
                 promises, which for a reference bed is the whole of its value.
         """
-        if self.kind in ("centered_square", "abs_deviation", "identity") and len(self.columns) != 1:
+        if self.kind in ("centered_square", "abs_deviation", "identity", "group_effect") and len(self.columns) != 1:
             raise ValueError(f"basis term {self.kind!r} takes exactly one column; got {self.columns!r}")
         if self.kind == "ratio" and len(self.columns) != 2:
             raise ValueError(f"basis term 'ratio' takes exactly two columns (numerator, denominator); got {self.columns!r}")

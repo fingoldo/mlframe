@@ -121,7 +121,7 @@ def tail_gate_term(operands: Sequence[np.ndarray], quantile: float, direction: s
     return fires
 
 
-def basis_term_value(term: "BasisTerm", columns: Mapping[str, np.ndarray]) -> np.ndarray:
+def basis_term_value(term: "BasisTerm", columns: Mapping[str, np.ndarray], rng: Optional[np.random.Generator] = None) -> np.ndarray:
     """Return one named nonlinear term's contribution, already weighted.
 
     Args:
@@ -131,10 +131,18 @@ def basis_term_value(term: "BasisTerm", columns: Mapping[str, np.ndarray]) -> np
     Returns:
         The weighted values, one per row.
 
+    Args:
+        term: The declared term.
+        columns: Realised columns, which must contain every column the term names.
+        rng: Stream for the one kind that needs a draw, ``group_effect``. Required for it, because a
+            per-level effect drawn from an unnamed generator would differ between two runs of the same
+            spec and the bed would stop being reproducible.
+
     Raises:
         KeyError: If the term names a column the dataset does not have.
         ValueError: If the kind is not one this function implements, which means a spec was extended and
-            this dispatch was not -- a silent zero term would leave the bed looking like its own control.
+            this dispatch was not -- a silent zero term would leave the bed looking like its own control;
+            or if ``group_effect`` is asked for without a stream to draw from.
     """
     operands = []
     for name in term.columns:
@@ -157,6 +165,12 @@ def basis_term_value(term: "BasisTerm", columns: Mapping[str, np.ndarray]) -> np
         for values in operands[1:]:
             product = product * values
         return np.asarray(weight * np.sin(frequency * product), dtype=np.float64)
+    if term.kind == "group_effect":
+        if rng is None:
+            raise ValueError("a 'group_effect' term needs a stream: an unnamed draw would make the bed differ between runs of one spec")
+        levels, inverse = np.unique(operands[0], return_inverse=True)
+        effects = np.asarray(rng.normal(0.0, 1.0, int(levels.shape[0])), dtype=np.float64)
+        return np.asarray(weight * effects[np.asarray(inverse, dtype=np.intp)], dtype=np.float64)
     if term.kind == "ratio":
         # Floored rather than clipped to a tiny epsilon: a denominator near zero otherwise produces one
         # enormous row that sets the scale of the whole score, and the bed then measures outlier handling
@@ -167,11 +181,11 @@ def basis_term_value(term: "BasisTerm", columns: Mapping[str, np.ndarray]) -> np
     raise ValueError(f"unsupported basis term kind {term.kind!r}")
 
 
-def basis_score(terms: Sequence["BasisTerm"], columns: Mapping[str, np.ndarray], n: int) -> np.ndarray:
+def basis_score(terms: Sequence["BasisTerm"], columns: Mapping[str, np.ndarray], n: int, rng: Optional[np.random.Generator] = None) -> np.ndarray:
     """Return the summed contribution of every declared nonlinear term."""
     score = np.zeros(n, dtype=np.float64)
     for term in terms:
-        score = score + basis_term_value(term, columns)
+        score = score + basis_term_value(term, columns, rng)
     return score
 
 
@@ -234,7 +248,7 @@ def link_score(
     """
     score = additive_score(link.coefficients, columns, n)
     if link.basis_terms:
-        score = score + basis_score(link.basis_terms, columns, n)
+        score = score + basis_score(link.basis_terms, columns, n, knob_rng)
     if link.interactions:
         score = score + interaction_score(link.kind, link.interactions, link.interaction_weights, columns, n, tail_quantile=link.tail_quantile, tail_direction=link.tail_direction)
     if link.kind == "polynomial":
