@@ -104,7 +104,7 @@ def _hybrid_orth_family_variants_group1(
                 X = fe_append_columns(X, fe_extract_columns(X_t, _t_triplet_only))
                 self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_t_triplet_only)
                 # ``_hybrid_orth_pre_recipes`` is unconditionally
-                # initialised earlier in this function (line ~245); the
+                # initialised earlier in this function; the
                 # triplet stage shares the same dict so its recipes
                 # merge into ``_engineered_recipes_`` at end-of-fit via
                 # the existing remap.

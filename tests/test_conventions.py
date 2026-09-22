@@ -118,3 +118,23 @@ def test_no_process_markers_in_cleaned_package_comments() -> None:
                 if found:
                     offenders.append(f"{path.relative_to(src)}:{lineno}: {found.group(0)}")
     assert not offenders, "process/audit markers in comments (keep the reasoning, drop the label): " + ", ".join(offenders)
+
+
+# A line number is a reference that rots: six comments in the fit-impl package cited lines from the pre-split 10056-line monolith, and one of
+# them built a load-bearing argument ("this read happens AFTER it, so the freshly repopulated attribute is authoritative") on a number the
+# reader could not check. Naming the function or section instead says the same thing and stays true.
+_LINE_CITATION_RE = re.compile(r"line\s*~?\s*\d{3,}")
+_CITATION_FREE_PACKAGES = ("feature_selection/filters/_mrmr_fit_impl",)
+
+
+def test_no_stale_line_number_citations_in_comments() -> None:
+    """Comments must refer to code by name, not by a line number that no longer points anywhere."""
+    src = TESTS_DIR.parent / "src" / "mlframe"
+    offenders: list[str] = []
+    for package in _CITATION_FREE_PACKAGES:
+        for path in sorted((src / package).rglob("*.py")):
+            for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+                stripped = line.strip()
+                if stripped.startswith("#") and _LINE_CITATION_RE.search(stripped):
+                    offenders.append(f"{path.relative_to(src)}:{lineno}")
+    assert not offenders, "comment(s) citing a line number instead of a name: " + ", ".join(offenders)

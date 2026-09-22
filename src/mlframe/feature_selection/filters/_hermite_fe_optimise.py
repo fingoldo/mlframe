@@ -11,10 +11,9 @@ from __future__ import annotations
 import logging
 
 import numpy as np
-
-from mlframe.feature_selection.filters._safe_scale import unit_vector
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 
+from mlframe.feature_selection.filters._safe_scale import unit_vector
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")

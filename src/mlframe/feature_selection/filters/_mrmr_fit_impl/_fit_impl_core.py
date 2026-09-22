@@ -272,8 +272,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     signature = (X.shape, y.shape, _y_hash_for_sig, _x_hash_for_sig, _x_cols_sig, _self_params_sig)
     if getattr(self, "skip_retraining_on_same_content", None) if getattr(self, "skip_retraining_on_same_content", None) is not None else getattr(self, "skip_retraining_on_same_shape", True):
         # Empty X hash (uncacheable) => fall through to full fit to
-        # avoid risking a wrong replay, mirroring the _FIT_CACHE rule
-        # at line 144 below.
+        # avoid risking a wrong replay, mirroring the _FIT_CACHE rule below.
         if signature == self.signature and _x_hash_for_sig:
             if self.verbose:
                 logger.info("Skipping retraining on the same inputs signature %s", signature)
@@ -2154,7 +2153,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # redundancy term, and every surviving column - raw OR engineered -
             # earns a real ``mrmr_gain`` / ``support_rank``. The next iteration
             # hits the ``num_fs_steps >= fe_max_steps`` break at the TOP of the
-            # loop (line ~5085) BEFORE the FE step, so FE never runs again - no
+            # loop BEFORE the FE step, so FE never runs again - no
             # unbounded recursion, no new engineered columns.
             if getattr(self, "fe_reselect_after_engineering", True) and n_recommended_features > 0 and not _did_confirm_rescreen:
                 _did_confirm_rescreen = True

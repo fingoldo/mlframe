@@ -201,15 +201,18 @@ def perm_null_residue_mis_resident(
         if codes_r is None:
             return None
         codes_r = codes_r.astype(cp.int64, copy=False).ravel()
-        # column i = codes_r[inv_perm_i]. Build the inverse-perm index matrix on the host and gather on device ->
-        # (n, n_perm) int64 code matrix. The inverse is a scatter (``inv[perm] = arange``), not ``np.argsort(perm)``:
-        # bit-identical for a duplicate-free permutation, but O(n) instead of an O(n log n) sort per column.
-        inv_idx = np.empty((n, n_perm), dtype=np.int64)
-        _arange_n = np.arange(n, dtype=np.int64)
+        # column i = codes_r[inv_perm_i], gathered on device into an (n, n_perm) int64 code matrix.
+        # One (n,) index vector at a time, not an (n, n_perm) matrix. The matrix cost n * n_perm * 8 bytes on the HOST and again on the
+        # device - 96 MB at n=1e6 and 960 MB at n=1e7, on a card this workload is documented to run with as little as 1.25 GB free - for a
+        # path whose whole purpose is to avoid H2D traffic. Column by column the host holds one (n,) buffer and the device holds only the
+        # result. int32 because the index is a row number: n < 2^31 everywhere this runs, and it halves both the traffic and the buffer.
+        code_mat = cp.empty((n, n_perm), dtype=cp.int64)
+        inv_col = np.empty(n, dtype=np.int32)
+        _arange_n = np.arange(n, dtype=np.int32)
         for i, perm in enumerate(perms):
-            inv_idx[np.asarray(perm), i] = _arange_n
-        inv_g = cp.asarray(np.ascontiguousarray(inv_idx))
-        code_mat = cp.ascontiguousarray(codes_r[inv_g])  # (n, n_perm), gathered codes
+            # The inverse is a scatter, not an argsort: bit-identical for a duplicate-free permutation and O(n) rather than O(n log n).
+            inv_col[np.asarray(perm)] = _arange_n
+            code_mat[:, i] = codes_r[cp.asarray(inv_col)]
         # y rides the SAME resident "y_mi_classif" role the host STRICT MI path uses (uploaded once per fit).
         _yi = np.ascontiguousarray(encode_y_for_classif_mi(y))
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
