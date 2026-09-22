@@ -24,14 +24,14 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `training_core.md` | 13 | 1 | 0 | 11 | 0 | 1 |
 | `feature_selection.md` | 21 | 3 | 0 | 18 | 0 | 0 |
 | `feature_engineering.md` | 14 | 2 | 0 | 12 | 0 | 0 |
-| `metrics.md` | 17 | 5 | 1 | 11 | 0 | 0 |
+| `metrics.md` | 17 | 5 | 1 | 10 | 1 | 0 |
 | `predict_persistence.md` | 18 | 9 | 0 | 9 | 0 | 0 |
 | `ensembling_models.md` | 14 | 4 | 0 | 10 | 0 | 0 |
 | `evaluation_reporting.md` | 16 | 3 | 0 | 13 | 0 | 0 |
 | `performance.md` | 6 | 2 | 0 | 4 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 1 | 0 | 11 | 0 | 0 |
 | `config_contracts.md` | 32 | 4 | 0 | 27 | 0 | 1 |
-| **Total** | **163** | **34** | **1** | **126** | **0** | **2** |
+| **Total** | **163** | **34** | **1** | **125** | **1** | **2** |
 
 ## Per-report status
 

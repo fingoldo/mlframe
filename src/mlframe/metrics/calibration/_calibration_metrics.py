@@ -191,7 +191,16 @@ def compute_ece_debiased(
     noise term and clamping at 0 gives a debiased squared gap; the debiased ECE is
     ``sum_b (n_b/N)*sqrt(max(g_b^2 - Var(acc_b), 0))``. Bins with ``n_b < 2`` have no variance estimate and
     keep the raw gap. This removes the noise floor so a calibrated model scores ~0 rather than a positive
-    artefact, without changing the verdict on a genuinely miscalibrated model (the true-gap term dominates).
+    artefact.
+
+    It is biased DOWNWARD on a model with small real gaps: ``sqrt`` is concave and each bin is clamped at 0 before
+    the root, so a bin whose true gap is near its own noise scale contributes less than its gap. Measured over 200
+    draws of a model miscalibrated by +5 points in every bin (n=500, nbins=10): mean 0.038 against a true 0.050,
+    exactly 0 in 1% of draws. Read a small debiased ECE as "within noise", not as "calibrated". Clamping once on the
+    weighted SUM instead (the debiased L2 error) was measured and not adopted: mean 0.043, but exactly 0 in 18% of
+    draws, in L2 units that are not comparable with the plug-in ECE it is reported beside.
+
+    bench-attempt-rejected (2026-09-22): per-bin clamp -> single clamp on the weighted sum, reason above.
 
     Uses the SAME fixed ``[0, 1]`` equal-width binning grid as ``compute_ece_and_brier_decomposition`` so the
     debiased and plug-in estimates are directly comparable AND comparable across datasets / resamples (the grid
