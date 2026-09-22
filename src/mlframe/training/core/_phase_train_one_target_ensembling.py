@@ -55,6 +55,16 @@ def _finalize_per_target_ensembling(
     avoid positional-arg drift when callers grow extra context.
     """
     if not (ens_models and len(ens_models) > 1):
+        # A single model still needs its threshold: this early return used to skip tuning entirely, so a lone
+        # CatBoost on a 2%-positive target kept 0.5 and predicted the negative class almost everywhere, while the same
+        # config with two models was tuned.
+        # With ensembling off there is no ens_models list at all; the target's trained models are the members.
+        _members = ens_models or list((models or {}).get(target_type, {}).get(cur_target_name, []) or [])
+        _tune_decision_thresholds(
+            ens_models=_members, target_type=target_type, cur_target_name=cur_target_name,
+            behavior_config=behavior_config, common_params=common_params, metadata=metadata, verbose=verbose,
+            current_val_target=current_val_target, ensembles=None, chosen_flavour=None,
+        )
         return
 
     if verbose:
@@ -121,6 +131,7 @@ def _finalize_per_target_ensembling(
         target_type=target_type,
         **_ens_kwargs,
     )
+    _chosen = None  # the winning flavour, set below when there is one; the threshold tuner reads it
     # Persist the ensemble outputs so finalize_suite can serialise them and downstream
     # consumers (predict, reporting) see them. Pre-fix this return value was bound to a
     # local that nothing read, silently discarding every ensemble model the suite built.
@@ -216,45 +227,13 @@ def _finalize_per_target_ensembling(
                 str(cur_target_name), {}
             )["rrf_k"] = _rrf_k_used
 
-    # Per-target binary decision-threshold tuning on val (NEVER test). Tri-state behavior_config.tune_decision_threshold:
-    # "auto" (default) tunes only when the val target is imbalanced and leaves 0.5 otherwise, True always tunes, False forces 0.5.
-    # val is the biased ES detector and an allowed tuning surface; test is structurally untouched. The chosen path is stamped into metadata.
-    try:
-        from ..configs import TargetTypes
-        _is_binary = (target_type == TargetTypes.BINARY_CLASSIFICATION)
-        _mode = getattr(behavior_config, "tune_decision_threshold", "auto")
-        if _is_binary and _mode is not False:
-            _val_target = current_val_target
-            if _val_target is None and isinstance(common_params, dict):
-                _val_target = common_params.get("val_target")
-            # Member tuple layout: (model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics).
-            _best_val_probs = None
-            for _m in ens_models:
-                _vp = _m[4] if isinstance(_m, (tuple, list)) and len(_m) > 4 else getattr(_m, "val_probs", None)
-                if _vp is not None:
-                    _best_val_probs = _vp
-                    break
-            if _val_target is not None and _best_val_probs is not None:
-                import numpy as _np
-                from ._setup_helpers import tune_decision_threshold as _tune, should_tune_decision_threshold as _should_tune
-                _key = f"{target_type}|{cur_target_name}"
-                _y = _np.asarray(_val_target).ravel()
-                if _should_tune(_mode, _y):
-                    _vp_arr = _np.asarray(_best_val_probs)
-                    _pos = _vp_arr[:, 1] if _vp_arr.ndim == 2 and _vp_arr.shape[1] >= 2 else _vp_arr.ravel()
-                    _metric = str(getattr(behavior_config, "tune_decision_threshold_metric", "balanced_accuracy"))
-                    _thr = _tune(_y, _pos, metric=_metric)
-                    metadata.setdefault("decision_thresholds", {})[_key] = _thr
-                    metadata.setdefault("decision_threshold_paths", {})[_key] = "tuned"
-                    if verbose:
-                        logger.info("tuned decision threshold for %s/%s: %.4f (metric=%s, val)", target_type, cur_target_name, _thr, _metric)
-                else:
-                    metadata.setdefault("decision_thresholds", {})[_key] = 0.5
-                    metadata.setdefault("decision_threshold_paths", {})[_key] = "default_0.5"
-                    if verbose:
-                        logger.info("decision threshold for %s/%s: 0.5 (auto: balanced target, not tuned)", target_type, cur_target_name)
-    except Exception as _thr_err:
-        logger.warning("decision-threshold tuning failed for %s/%s: %s", target_type, cur_target_name, _thr_err)
+    # Per-target binary decision thresholds (val, never test): one per member, tuned on that member's own val
+    # probabilities, and one for the ensemble, tuned on the BLEND's. See _tune_decision_thresholds.
+    _tune_decision_thresholds(
+        ens_models=ens_models, target_type=target_type, cur_target_name=cur_target_name, behavior_config=behavior_config,
+        common_params=common_params, metadata=metadata, verbose=verbose, current_val_target=current_val_target,
+        ensembles=_ensembles, chosen_flavour=_chosen,
+    )
 
     # VOTENRANK-WIRE (diversity): rank the suite's own fitted-but-not-selected members for genuine
     # blend-additive diversity, over the same ``ens_models`` pool ``score_ensemble`` just blended above.
@@ -272,3 +251,90 @@ def _finalize_per_target_ensembling(
             metadata.setdefault("diversity_recommendations", {}).setdefault(str(target_type), {})[str(cur_target_name)] = _div_shortlist
     except Exception as _div_err:
         logger.warning("diversity_recommendations wiring failed for %s/%s: %s", target_type, cur_target_name, _div_err)
+
+
+def _member_name(member, index: int) -> str:
+    """The name a member's predictions are keyed by at predict time (``model.model_name`` = its .dump basename)."""
+    name = getattr(member, "model_name", None)
+    return str(name) if name else f"member{index}"
+
+
+def _member_val_probs(member):
+    """Val probabilities of one member; the member tuple layout is (model, test_preds, test_probs, val_preds, val_probs, ...)."""
+    if isinstance(member, (tuple, list)):
+        return member[4] if len(member) > 4 else None
+    return getattr(member, "val_probs", None)
+
+
+def _tune_decision_thresholds(
+    *, ens_models, target_type, cur_target_name, behavior_config, common_params, metadata, verbose,
+    current_val_target=None, ensembles=None, chosen_flavour=None,
+) -> None:
+    """Tune a binary decision threshold for every member AND for the ensemble, each on its OWN val probabilities.
+
+    One threshold per target used to be tuned on the FIRST member that exposed val probabilities and then applied to
+    everything - to each other member and to the blend. A linear member's flatter probabilities put the tuned value
+    (e.g. 0.31) far below the sharper blend's operating point, so the deployed hard labels over-predicted the positive
+    class while the log said "tuned". Members are stamped under ``"{tt}|{tname}|{model_name}"`` and read that key first
+    at predict; the target key ``"{tt}|{tname}"`` is the ensemble's (the blend's own val probabilities), or the lone
+    model's when there is only one.
+
+    Tri-state ``behavior_config.tune_decision_threshold``: "auto" tunes only an imbalanced val target, True always,
+    False forces 0.5. Val is the early-stopping surface and an allowed tuning surface; test is never touched.
+    """
+    try:
+        from ..configs import TargetTypes
+
+        if target_type != TargetTypes.BINARY_CLASSIFICATION:
+            return
+        mode = getattr(behavior_config, "tune_decision_threshold", "auto")
+        if mode is False:
+            return
+        val_target = current_val_target
+        if val_target is None and isinstance(common_params, dict):
+            val_target = common_params.get("val_target")
+        if val_target is None:
+            return
+        import numpy as _np
+        from ._setup_helpers import should_tune_decision_threshold as _should_tune, tune_decision_threshold as _tune
+
+        y = _np.asarray(val_target).ravel()
+        target_key = f"{target_type}|{cur_target_name}"
+        metric = str(getattr(behavior_config, "tune_decision_threshold_metric", "balanced_accuracy"))
+        tune = _should_tune(mode, y)
+        thresholds = metadata.setdefault("decision_thresholds", {})
+        paths = metadata.setdefault("decision_threshold_paths", {})
+
+        def _stamp(key: str, probs, label: str) -> None:
+            if not tune:
+                thresholds[key], paths[key] = 0.5, "default_0.5"
+                return
+            arr = _np.asarray(probs)
+            pos = arr[:, 1] if arr.ndim == 2 and arr.shape[1] >= 2 else arr.ravel()
+            if pos.shape[0] != y.shape[0]:
+                return  # a confidence-filtered subset cannot be scored against the full val target
+            thresholds[key] = float(_tune(y, pos, metric=metric))
+            paths[key] = "tuned"
+            if verbose:
+                logger.info("tuned decision threshold for %s: %.4f (metric=%s, val, %s)", key, thresholds[key], metric, label)
+
+        member_probs = [(i, m, _member_val_probs(m)) for i, m in enumerate(ens_models or [])]
+        member_probs = [(i, m, p) for i, m, p in member_probs if p is not None]
+        for i, m, p in member_probs:
+            _stamp(f"{target_key}|{_member_name(m, i)}", p, "member")
+
+        blend_probs = None
+        if ensembles is not None and chosen_flavour is not None:
+            entry = ensembles.get(chosen_flavour)
+            result = entry[0] if isinstance(entry, tuple) and entry else entry
+            blend_probs = getattr(result, "val_probs", None)
+        if blend_probs is not None:
+            _stamp(target_key, blend_probs, f"ensemble '{chosen_flavour}'")
+        elif len(member_probs) == 1:
+            _stamp(target_key, member_probs[0][2], "single model")
+        elif not tune:
+            thresholds[target_key], paths[target_key] = 0.5, "default_0.5"
+            if verbose:
+                logger.info("decision threshold for %s: 0.5 (auto: balanced target, not tuned)", target_key)
+    except Exception as _thr_err:
+        logger.warning("decision-threshold tuning failed for %s/%s: %s", target_type, cur_target_name, _thr_err)

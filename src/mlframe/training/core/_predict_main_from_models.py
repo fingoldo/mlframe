@@ -607,7 +607,11 @@ def predict_from_models(
                         per_target_calib_flags.setdefault((target_type, target_name), []).append(_is_cal)
 
                         # Binary threshold from val/OOF-tuned metadata (never test); 0.5 fallback.
-                        _bin_thr = get_decision_threshold(metadata, f"{target_type}|{target_name}", DEFAULT_PROBABILITY_THRESHOLD)
+                        # The member's own tuned threshold first (stamped per model at train time), then the target's.
+                        _bin_thr = get_decision_threshold(
+                            metadata, f"{target_type}|{target_name}|{getattr(model_obj, 'model_name', None) or model_name}",
+                            get_decision_threshold(metadata, f"{target_type}|{target_name}", DEFAULT_PROBABILITY_THRESHOLD),
+                        )
                         if probs.ndim == 2:
                             if probs.shape[1] == 2:
                                 preds = (probs[:, 1] >= _bin_thr).astype(int)

@@ -485,7 +485,11 @@ def predict_mlframe_models_suite(
                 # (N,K>2) = argmax. Multilabel cannot be inferred from shape; caller must hold that contract.
                 # Binary threshold is the per-target tuned value stamped into metadata (val/OOF-tuned,
                 # never test); falls back to 0.5 when no tuned threshold is present.
-                _bin_thr = get_decision_threshold(metadata, f"{_tt}|{_tn}", DEFAULT_PROBABILITY_THRESHOLD)
+                # The member's own tuned threshold first (stamped per model at train time), then the target's.
+                _bin_thr = get_decision_threshold(
+                    metadata, f"{_tt}|{_tn}|{getattr(model_obj, 'model_name', None) or model_name}",
+                    get_decision_threshold(metadata, f"{_tt}|{_tn}", DEFAULT_PROBABILITY_THRESHOLD),
+                )
                 if probs.ndim == 2:
                     if probs.shape[1] == 2:
                         preds = (probs[:, 1] >= _bin_thr).astype(int)
