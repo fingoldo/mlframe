@@ -119,7 +119,7 @@ Overlap notes: DSC-12 (cache key contents), DSC-18 (verdict split), DSC-20 (auto
 - **Why it matters**: Stale inner models give silently wrong composite predictions after an otherwise-legitimate rerun.
 - **Suggested fix**: Fold a digest of the spec's `transform_name` + `fitted_params` into the composite model's file name, or record it on the dumped entry and invalidate on mismatch.
 - **Test to add**: Two runs whose spec differs only in `fitted_params`. The second run must retrain, not load, the composite model.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The fix landed in dbe77db39: `composite_spec_digest` (transform, base columns and canonical fitted params) is stamped on each wrapper as `spec_digest_` and passed to the cache path as `common_params['composite_spec_digest']`. `train_eval._composite_cache_mismatch` invalidates a cached dump whose recorded digest differs, or which records none. New regression tests in tests/training/test_composite_model_cache_digest.py pin both: the digest changes with the fitted params alone, and a mismatched or digest-less dump is stale while a raw target is unaffected.
 
 ### INT-14 [P3] The discovery "winning-spec" charts plot y and T over all rows, including test rows and median-imputed T values
 - **Where**: `core/_phase_composite_discovery.py:855-860` (non-finite val/test T replaced by `median(T_train)`) and `:894-897` (`y_full=_y_arr`, `t_by_spec` full-length). `core/_phase_composite_discovery_helpers.py:70-83`.
