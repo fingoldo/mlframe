@@ -1,0 +1,111 @@
+name: fs-benchmark-nightly
+
+# The tier-2 leg of the feature-selection benchmark.
+#
+# This repository already contains about two hundred `bench_*` scripts and a gitignored `_results/`, which
+# is what a benchmark looks like after a year of being run by hand: nobody can say which of its numbers
+# are still true. The tier-1 quality gate runs on every push and answers "did a change break the harness";
+# it is capped at ninety seconds and cannot answer "did a change move the RESULT".
+#
+# That question needs a real grid and a real seed count, which is a nightly job rather than a per-push one.
+# What this workflow adds over running it by hand:
+#
+#   * the cells and the manifest are published as an ARTIFACT, so a result has a commit attached to it and
+#     can be compared with the one before it;
+#   * the staleness check runs against the published manifest, so the atlas knows how far behind the code
+#     its numbers have fallen instead of reading as true forever;
+#   * a failure opens nothing and breaks nothing downstream -- the benchmark is a measurement, and a
+#     measurement that can fail a build is a measurement people learn to skip.
+#
+# GPU stays out: GitHub-hosted runners have none, and the arms that would use one fall back to CPU rather
+# than failing, which would silently make the cost axis mean something different from the local runs.
+
+on:
+  schedule:
+    # 02:20 UTC. Between deep-nightly (01:40) and numba-coverage (03:00) so the three do not contend for
+    # the account-wide concurrency ceiling, and off the hour for the same reason deep-nightly is.
+    - cron: "20 2 * * *"
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: "Run tier: nightly (every arm, 3 seeds) or weekly (20 seeds, hours)"
+        required: false
+        default: nightly
+        type: choice
+        options: [nightly, weekly]
+
+permissions:
+  contents: read
+
+concurrency:
+  # One benchmark at a time. Two overlapping runs would contend for the same runner CPU and both would
+  # publish timings that are a function of the other one.
+  group: fs-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: tier-2 benchmark (${{ inputs.tier || 'nightly' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # No token is needed to read a public repo, and a persisted one would be reachable from every
+          # later step -- including the one that uploads an artifact.
+          persist-credentials: false
+          # Full history: the staleness check counts commits between the published manifest and HEAD, and
+          # a shallow clone makes every result read as "unknown" rather than as current.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Price the run before paying for it
+        run: |
+          python -m mlframe.feature_selection._benchmarks.fs_hybrid.run_experiment \
+            --tier "${{ inputs.tier || 'nightly' }}" --dry-run
+
+      - name: Run the tier
+        env:
+          # The runner has two cores; the pool's default of four workers times four threads would
+          # oversubscribe it and make every timing a queueing measurement.
+          MLFRAME_BENCH_WORKERS: "1"
+        run: |
+          python -m mlframe.feature_selection._benchmarks.fs_hybrid.run_experiment \
+            --tier "${{ inputs.tier || 'nightly' }}"
+
+      - name: Report how far behind the code this result already is
+        if: always()
+        run: |
+          python - <<'PY'
+          import glob
+          import os
+
+          from mlframe.feature_selection._benchmarks.fs_hybrid._staleness import assess, format_staleness
+
+          manifests = glob.glob(os.path.join("src", "mlframe", "feature_selection", "_benchmarks", "_results", "*MANIFEST*.json"))
+          for line in format_staleness({os.path.basename(path): assess(path, repo=".") for path in manifests}):
+              print(line)
+          PY
+
+      - name: Publish the cells and the manifest
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: fs-benchmark-${{ inputs.tier || 'nightly' }}-${{ github.sha }}
+          path: |
+            src/mlframe/feature_selection/_benchmarks/_results/*.jsonl
+            src/mlframe/feature_selection/_benchmarks/_results/*.json
+          # Long enough that a result can be compared against the one from a month ago, which is the
+          # comparison that catches a slow drift rather than a single bad night.
+          retention-days: 90
+          if-no-files-found: warn

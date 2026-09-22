@@ -22,7 +22,7 @@ the probability would make the collider cleaner than any observable of its kind 
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Mapping, Sequence, Set, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -40,18 +40,30 @@ __all__ = ["derived_order", "realize_derived"]
 DEFAULT_RESIDUAL_SD = 0.6
 
 
-def _feature_parents(graph: CausalGraph, node: str, observed: Set[str], target: str) -> Tuple[str, ...]:
-    """Return the parents of ``node`` that are realisable columns or the target itself."""
-    return tuple(parent for parent in graph.parents(node) if parent in observed or parent == target)
+def _feature_parents(graph: CausalGraph, node: str, observed: Set[str], target: str, latents: Optional[Set[str]] = None) -> Tuple[str, ...]:
+    """Return the parents of ``node`` that are realisable: observed columns, latent factors, or the target.
+
+    Latents count as parents even though they are never emitted as columns. A column with TWO latent
+    parents is the only way to express a collider whose confounders are unobserved -- the M-bias shape,
+    where conditioning on the collider creates an association the graph does not contain. Expressing it
+    through ``LatentSpec.reflections`` does not work: a reflection OVERWRITES its column, so a column named
+    by two latents ends up a reflection of whichever ran last, and the first arm of the M disappears
+    silently. Measured on the first attempt: the collider came out correlated 0.35 with the target instead
+    of 0.00, and uncorrelated with the cause instead of 0.5.
+    """
+    latent_names = latents or set()
+    return tuple(parent for parent in graph.parents(node) if parent in observed or parent in latent_names or parent == target)
 
 
-def derived_order(graph: CausalGraph, observed: Sequence[str], target: str) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+def derived_order(graph: CausalGraph, observed: Sequence[str], target: str, latents: Sequence[str] = (), reflections: Sequence[str] = ()) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
     """Return ``(before_target, after_target)``: derived columns in an order their parents precede them.
 
     Args:
         graph: The scenario's causal graph.
         observed: Observed column names.
         target: The target node's name.
+        latents: Latent factor names, which may be parents of a derived column.
+        reflections: Columns the latent layer already built. They are never rebuilt here.
 
     Returns:
         Two tuples of column names. The first holds columns the target's link depends on, the second holds
@@ -62,13 +74,19 @@ def derived_order(graph: CausalGraph, observed: Sequence[str], target: str) -> T
             acyclicity check and every value produced afterwards would depend on evaluation order.
     """
     observed_set = set(observed)
-    derived = [name for name in observed if _feature_parents(graph, name, observed_set, target)]
+    latent_set = set(latents)
+    # A latent's REFLECTION is built by the latent layer, with its own loading and noise. An edge from that
+    # latent into the same column documents the structure for the truth record; it is not a second
+    # instruction to build it. Rebuilding one here would silently discard the loading, which is how a bed
+    # made entirely of an asymmetry between two reflections came out symmetric.
+    built_by_the_latent_layer = set(reflections)
+    derived = [name for name in observed if name not in built_by_the_latent_layer and _feature_parents(graph, name, observed_set, target, latent_set)]
     after = {name for name in derived if target in graph.ancestors(name)}
 
     ordered: List[str] = []
     remaining = list(derived)
     while remaining:
-        ready = [name for name in remaining if all(parent not in remaining for parent in _feature_parents(graph, name, observed_set, target))]
+        ready = [name for name in remaining if all(parent not in remaining for parent in _feature_parents(graph, name, observed_set, target, latent_set))]
         if not ready:
             raise ValueError(f"cannot order derived columns {sorted(remaining)}: their parent relation has a cycle")
         ordered.extend(ready)
@@ -87,6 +105,7 @@ def realize_derived(
     root_seed: int,
     spec_name: str,
     residual_sd: float = DEFAULT_RESIDUAL_SD,
+    latent_values: Optional[Mapping[str, np.ndarray]] = None,
 ) -> None:
     """Overwrite each named column with a realisation of its declared parents, in place.
 
@@ -105,13 +124,17 @@ def realize_derived(
         root_seed: Dataset root seed.
         spec_name: Dataset name, namespacing the streams.
         residual_sd: Residual scale relative to the parents' contribution.
+        latent_values: Realised latent factors, so a column can declare an unobserved parent. They are
+            never emitted as columns; a bed that put them in the frame would let a method condition on the
+            very thing the structure depends on being hidden.
 
     Raises:
         KeyError: If a parent has not been realised yet, which means the ordering was bypassed.
     """
     observed = set(columns)
+    factors: Mapping[str, np.ndarray] = latent_values or {}
     for name in names:
-        parents = _feature_parents(graph, name, observed, target)
+        parents = _feature_parents(graph, name, observed, target, set(factors))
         if not parents:
             continue
         contribution = np.zeros(len(columns[name]), dtype=np.float64)
@@ -124,10 +147,11 @@ def realize_derived(
                 values = np.asarray(target_values[target], dtype=np.float64)
                 contribution = contribution + (values - float(values.mean()))
             else:
-                if parent not in columns:
+                source = columns.get(parent, factors.get(parent))
+                if source is None:
                     raise KeyError(f"column {name!r} has parent {parent!r}, which has not been realised")
                 weight = next((edge.weight for edge in graph.edges if edge.source == parent and edge.target == name), 1.0)
-                contribution = contribution + float(weight) * columns[parent]
+                contribution = contribution + float(weight) * np.asarray(source, dtype=np.float64)
         residual = stream_for(root_seed, spec_name, "derived", name).normal(0.0, 1.0, contribution.shape[0])
         realised, scale = standardize(contribution + float(residual_sd) * residual)
         columns[name] = realised

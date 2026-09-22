@@ -137,6 +137,11 @@ def build_manifest(
 ) -> Dict[str, Any]:
     """Assemble the manifest for one run."""
     prereg = os.path.join(_repo_root(), _PREREG_RELATIVE)
+    # The oracle is what every recovery and ceiling number is scored against, and it was written here. The
+    # record says whether an outside implementation confirmed its exact identity on this run, and when it
+    # did not, why -- an omitted field would read as a run whose oracle was never in question.
+    from mlframe.data.datasets._oracle_crosscheck import reference_crosscheck
+
     return {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -152,6 +157,7 @@ def build_manifest(
         "arms": [str(a) for a in arms],
         "arm_families": sorted({arm_family(str(a)) for a in arms}),
         "environment": environment_tuple(),
+        "oracle_crosscheck": reference_crosscheck(),
     }
 
 

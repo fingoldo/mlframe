@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 24 | 0 | 6 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 18 | 0 | 4 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 19 | 0 | 3 | 0 | 0 |
 | `suite_integration.md` | 19 | 15 | 0 | 4 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 12 | 17 | 12 | 0 | 0 |
-| **Total** | **179** | **115** | **28** | **35** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 12 | 18 | 11 | 0 | 0 |
+| **Total** | **179** | **116** | **29** | **33** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -114,7 +114,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P3 | `EST-18` | The five `moe_*` constructor parameters of `CompositeTargetEstimator` are never read | |
 | **RESOLVED** | P3 | `EST-19` | The `lag_predict` component that ships in CT_ENSEMBLE is never fit, so NaN lag rows at predict time are imputed with the median of the predict batch itself | fitted on train at injection; unfitted predict with a missing lag raises instead of using the batch median |
 | **RESOLVED** | P3 | `EST-20` | `predict` / `predict_quantile` change shared state without synchronisation | stats under a lock; soft_shrink_info_ per thread; 8x150 threaded test |
-| **TODO** | P3 | `EST-21` | `from_fitted_inner` cannot express grouped transforms or recurrence continuation | |
+| **RESOLVED** | P3 | `EST-21` | `from_fitted_inner` cannot express grouped transforms or recurrence continuation | grouped specs expressible; groups_train for their exact envelope; parity-tested |
 | **RESOLVED** | P3 | `EST-22` | Routers and vetoes chosen on the val split are then reported with val-split metrics as if those were held-out | val-selected ensembles flagged in metadata and tagged in the verdict |
 
 ### `suite_integration.md`
@@ -218,7 +218,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | liveness registry: every default-on knob mapped to its effect test; found dead MoE params + 3 inert defaults (fixed) |
 | **RESOLVED** | P1 | `PMT-21` | Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST) | AST persist-after-mutate over training/core; fires on the INT-02 shape |
 | **PARTIAL** | P1 | `PMT-22` | One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts | one-run suite contract fixture, 7 identity legs; d/h/i suite variants + TST-17 rewrite open |
-| **TODO** | P2 | `PMT-23` | State parity across alternate constructors: fit() vs from_fitted_inner() vs update() vs unpickle | |
+| **PARTIAL** | P2 | `PMT-23` | State parity across alternate constructors: fit() vs from_fitted_inner() vs update() vs unpickle | fit vs from_fitted_inner parity over the registry; found + fixed the T-clip envelope for 42 transforms; update() leg open |
 | **PARTIAL** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | unseen-key fallbacks pinned to exact global answers; MoE vs pooled-best; recurrent seed leg open |
 | **TODO** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | |
 | **TODO** | P2 | `PMT-26` | Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test | |

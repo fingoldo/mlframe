@@ -79,10 +79,12 @@ def test_the_guard_covers_auto_base_ranking(monkeypatch):
     real_mi, real_auto = fs.mutual_info_regression, CompositeTargetDiscovery._auto_base
 
     def mi_spy(*a, **k):
+        """Count every MI call so the budget can be checked against what was actually spent."""
         calls["n"] += 1
         return real_mi(*a, **k)
 
     def auto_spy(self, *a, **k):
+        """Record the MI tally at the moment base ranking starts, which is the point the budget applies to."""
         at_auto_base["n"] = calls["n"]
         return real_auto(self, *a, **k)
 

@@ -255,6 +255,19 @@ def _pooled_block(records: Sequence[Dict[str, Any]], models: Sequence[str], k_la
     return out
 
 
+def _variance_block(records: Sequence[Dict[str, Any]], models: Sequence[str], k_labels: Sequence[str]) -> List[str]:
+    """Render where each arm's advantage actually moves: the bed, the data draw, the split or the rows.
+
+    Same (model, K) as the pooled block, since the two answer halves of one question -- how large the
+    advantage is, and whether it is an advantage at all once the bed it was measured on is named.
+    """
+    from ._variance_decomposition import variance_table
+
+    if not k_labels or not models:
+        return []
+    return variance_table(records, model=models[0], k_label=k_labels[0])
+
+
 def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PANEL_MEMBERS) -> str:
     """Build the full text report for a set of cell records."""
     lines: List[str] = [DISCLAIMER, "", f"null hypothesis: {NULL_ARM}", f"cells: {len(records)}"]
@@ -273,6 +286,7 @@ def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PAN
     # the vs-random column can be computed. Omitting it would leave the whole column empty.
     lines += _control_adjusted_block(records, models=models, k_labels=[*k_labels, SELF_CHOSEN_K])
     lines += _pooled_block(records, models=models, k_labels=k_labels)
+    lines += _variance_block(records, models=models, k_labels=k_labels)
     if k_labels:
         from ._stability import recovery_table, stability_table
 

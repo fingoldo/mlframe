@@ -24,7 +24,7 @@ maximally attractive to an impurity measure and worth exactly nothing.
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 from mlframe.data.datasets.scenarios._common import probes
 from mlframe.data.datasets.spec import CeilingTarget, DatasetSpec, EdgeSpec, FeatureSpec, LinkSpec, TargetSpec
@@ -100,13 +100,17 @@ def zipf_levels_spec(n_noise: int = 20, n_samples: int = 8000, ceiling: float = 
     cannot balance levels it is not allowed to split, so the requested bin count is not the delivered one.
     Both degrade quietly, which is why the bed states the shape rather than leaving it to chance.
     """
-    informative = tuple(FeatureSpec(name=f"z{i}", family="zipf", params={"a": 2.0, "max_value": 200.0}, dtype="int", standardize=False) for i in range(3))
+    zipf: Dict[str, Any] = {"family": "zipf", "params": {"a": 2.0, "max_value": 200.0}, "dtype": "int", "standardize": False}
+    informative = tuple(FeatureSpec(name=f"z{i}", **zipf) for i in range(3))
+    # Every probe is Zipf too. A handful of Zipf columns beside a crowd of standard normals is separable by
+    # variance alone, so the bed would be solvable without ever looking at the target.
+    zipf_probes = tuple(FeatureSpec(name=f"zp{i:03d}", **zipf) for i in range(n_noise))
     weights = {f"z{i}": float(0.02 * (0.85**i)) for i in range(3)}
     return DatasetSpec(
         name="zipf_levels",
         n_samples=n_samples,
         root_seed=seed,
-        features=informative + tuple(FeatureSpec(name=f"zp{i}", family="zipf", params={"a": 2.0, "max_value": 200.0}, dtype="int", standardize=False) for i in range(3)) + probes(n_noise),
+        features=informative + zipf_probes,
         targets=(TargetSpec(name="y", prevalence=0.4, link=LinkSpec(kind="logistic", coefficients=weights), calibrate_to=CeilingTarget(metric="auc", value=ceiling)),),
         edges=tuple(EdgeSpec(source=column, target="y") for column in weights),
         provenance={"family": "mixed_types", "purpose": "power-law level frequencies: a long tail with almost no rows per level"},

@@ -151,8 +151,8 @@ class CompositeTargetDiscovery:
     _time_ordering_: Any
     _fit_data_signature: str | None
     _fit_data_signature_inputs: tuple | None
-    # Assigned beside the inputs in ``_fit``; ``discover_incremental`` reads it to re-score only the appended rows.
-    _fit_n_rows: int | None
+    # Row count at fit time, so an incremental re-score can tell appended rows from the original ones.
+    _fit_n_rows: int
     # Sweep-shared honest holdout set by ``fit_with_stability_check`` (consumed by
     # ``carve_screening_holdout``); ``None`` outside a stability sweep.
     _stability_shared_holdout_idx: np.ndarray | None

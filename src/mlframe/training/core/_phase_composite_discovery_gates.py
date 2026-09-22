@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -157,7 +157,7 @@ def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None
     h = hashlib.blake2b(digest_size=16)
 
     def _arr(tag: str, a: Any) -> None:
-        """Fold one tagged array into the running digest by shape and dtype, treating None as its own token."""
+        """Fold one array-like into the digest by tag, shape and dtype, with a distinct marker for a missing one."""
         h.update(tag.encode())
         if a is None:
             h.update(b"<none>")
@@ -280,7 +280,7 @@ _DEFAULT_MIN_HONEST_GAIN_Z: float = 2.0
 the constant ``min_honest_gain_to_train`` floor. 0 disables the noise-aware half and restores the constant-only bar."""
 
 
-def _relative_gain_se(spec: Any, raw_rmse: float | None) -> float | None:
+def _relative_gain_se(spec: Any, raw_rmse: Optional[float]) -> float | None:
     """The spec's paired standard error of its honest RMSE gain, on the same relative-to-raw scale as the gain itself."""
     _gain_se = getattr(spec, "honest_holdout_rmse_gain_se", None)
     return float(_gain_se) / float(raw_rmse) if (_gain_se is not None and raw_rmse) else None

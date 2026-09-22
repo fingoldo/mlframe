@@ -389,6 +389,9 @@ unsupervised = [
 # Classical statistics.
 stats = [
     "statsmodels>=0.14",
+    # Third-party information theory, used ONLY to cross-check the dataset oracle's own exact mutual
+    # information against an implementation nobody here wrote. It is deliberately not an arm backend.
+    "dit>=1.5",
 ]
 
 # GPU acceleration (CuPy). The CuPy wheel is CUDA-major-specific, so pick the extra matching your CUDA toolkit:

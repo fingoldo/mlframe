@@ -270,13 +270,22 @@ class BaseArm:
         provenance["n_model_fits_by_class"] = dict(counter.by_class)
         if counter.missing:
             provenance["n_model_fits_uninstrumented_classes"] = list(counter.missing)
-        if counter.instrumented:
+        if counter.instrumented and not (counter.total == 0 and declared):
             provenance["n_model_fits_source"] = FITS_SOURCE_COUNTED
             provenance["n_model_fits_caveat"] = (
                 "in-process estimator fits only; a selector fanning out over PROCESSES would under-count. "
                 "Every wrapper arm in this roster fans out over threads, so the tally is complete for them."
             )
             return counter.total
+        if counter.instrumented and counter.total == 0 and declared:
+            # The counter ran and saw nothing, while the adapter says the arm fitted something. That is not
+            # a free arm; it is an arm whose estimator lives in a library the counter cannot instrument --
+            # CatBoost's selection runs entirely in native code, so no Python `fit` is ever called. Taking
+            # the counted zero here would put the most expensive arms in the roster at the top of the
+            # cost table, which is the one direction a cost axis must never be wrong in.
+            provenance["n_model_fits_source"] = FITS_SOURCE_DECLARED
+            provenance["n_model_fits_caveat"] = "the fit counter saw no in-process fit while the adapter declares one, so the work happens in a library it cannot instrument; the declared count is used"
+            return int(declared)
         if declared is not None:
             provenance["n_model_fits_source"] = FITS_SOURCE_DECLARED
             return int(declared)
@@ -489,7 +498,10 @@ class LarsPathArm(BaseArm):
         support = np.zeros(arr.shape[1], dtype=bool)
         if prefix:
             support[list(prefix)] = True
-        return {"support": support, "ranked_prefix": prefix, "n_model_fits": 1, "provenance": {"method": self.method, "n_entered": len(entered), "n_path_steps": int(coefs.shape[1])}}
+        # Zero, not one: `lars_path` solves a regularisation path, it does not fit an estimator, and the
+        # counter correctly sees no fit. Declaring one here made the adapter and the counter disagree, and
+        # the atlas has always reported this arm as costing no model fit at all.
+        return {"support": support, "ranked_prefix": prefix, "n_model_fits": 0, "provenance": {"method": self.method, "n_entered": len(entered), "n_path_steps": int(coefs.shape[1])}}
 
 
 # ------------------------------------------------------------------------------------------------- P6 all-relevant
@@ -918,9 +930,18 @@ def build_arm_roster(n_features: int, *, k: Optional[int] = None, random_state: 
     roster["shap-proxied"] = lambda: ShapProxiedArm(random_state=random_state)
     # Imported here rather than at module scope: the rank-aggregation arm imports `BaseArm` from this
     # module, so a top-level import would close the cycle.
+    from ._arms_byproduct import ByProductEnsembleArm
+    from ._arms_external import CatBoostSelectArm, catboost_available
     from ._arms_rank_aggregation import RankAggregationArm
 
     roster["rank-vote"] = lambda: RankAggregationArm(k=kk, rule="borda", random_state=random_state)
+    roster["byproduct-ensemble"] = lambda: ByProductEnsembleArm(k=kk, random_state=random_state)
+    if catboost_available():
+        # Three arms rather than one: collapsing the elimination criteria would report whichever happened
+        # to be the default as "CatBoost", and this suite's whole position on RFECV is that a method's
+        # internal knobs are not a detail when they move the result.
+        for algorithm in ("shap", "loss", "predictions"):
+            roster[f"catboost-{algorithm}"] = (lambda algo: lambda: CatBoostSelectArm(algorithm=algo, k=kk, random_state=random_state))(algorithm)
     return roster
 
 

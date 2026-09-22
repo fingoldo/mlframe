@@ -1,5 +1,41 @@
 {
   "scenarios": {
+    "confounder_backdoor": {
+      "expected_to_break": [
+        "variance-sort",
+        "rank-vote"
+      ],
+      "family": "causal",
+      "primary_target_set": "markov_blanket",
+      "purpose": "a column predictive of the target that causes none of it: right under prediction, wrong under causation",
+      "spec_hash": "356154e927a87bbe9380296e8345962b"
+    },
+    "count_poisson": {
+      "expected_to_break": [
+        "skb-f",
+        "skb-mi",
+        "select-fdr",
+        "lars-order",
+        "rank-vote"
+      ],
+      "family": "targets",
+      "primary_target_set": "markov_blanket",
+      "purpose": "a Poisson target whose variance is its mean, so a constant-variance scorer is mis-weighted where it matters",
+      "spec_hash": "74942163f7f97c7e8d4abeafee363528"
+    },
+    "expensive_signal": {
+      "expected_to_break": [
+        "skb-f",
+        "skb-mi",
+        "sfm-lgbm",
+        "boruta",
+        "rank-vote"
+      ],
+      "family": "economics",
+      "primary_target_set": "markov_blanket",
+      "purpose": "the informative columns cost a hundred times the probes, so a cost-blind selection is unaffordable",
+      "spec_hash": "66d25b863eeaa896c689052eb53fdba7"
+    },
     "friedman1": {
       "expected_to_break": [
         "skb-f",
@@ -45,6 +81,17 @@
       "purpose": "equal signal at four cardinalities: a method ranking them apart is ranking by split opportunities",
       "spec_hash": "3cdf54a5d10dc46cc222b45577940736"
     },
+    "grouped_rows_40": {
+      "expected_to_break": [
+        "variance-sort",
+        "skb-mi",
+        "knockoffs"
+      ],
+      "family": "structure",
+      "primary_target_set": "markov_blanket",
+      "purpose": "rows of one group share an offset no feature explains, so a row-wise split reports a number it should not",
+      "spec_hash": "c39ced4839508c2d1996f3dcc0d86679"
+    },
     "heavy_tail_t4": {
       "expected_to_break": [
         "skb-f",
@@ -68,6 +115,19 @@
       "purpose": "a unique-per-row column that maximises impurity importance and generalises to nothing",
       "spec_hash": "04d6fcd08c8e844c7ea98f9c13bc5b5b"
     },
+    "instrument_screened_off": {
+      "expected_to_break": [
+        "skb-f",
+        "skb-mi",
+        "univariate-mi",
+        "select-fdr",
+        "rank-vote"
+      ],
+      "family": "causal",
+      "primary_target_set": "markov_blanket",
+      "purpose": "structural redundancy rather than correlational: a column screened off by one already selected",
+      "spec_hash": "b51be03ec3c51c90e1e6cadccf869215"
+    },
     "joint_tail_gaussian_control": {
       "expected_to_break": [
         "lars-order",
@@ -89,6 +149,42 @@
       "primary_target_set": "markov_blanket",
       "purpose": "the signal fires only where both columns share a tail, so no linear marginal statistic sees it",
       "spec_hash": "7dc1dfe798841fddd25cdadc3e6b774d"
+    },
+    "label_coarsened": {
+      "expected_to_break": [
+        "skb-mi",
+        "univariate-mi",
+        "knockoffs"
+      ],
+      "family": "corrupted",
+      "primary_target_set": "markov_blanket",
+      "purpose": "the label is a lossy function of the truth rather than a noisy copy of it",
+      "spec_hash": "c1c03a067fbffd937fa698b2e858457f"
+    },
+    "label_flip_regional_35pct": {
+      "expected_to_break": [
+        "skb-f",
+        "skb-mi",
+        "univariate-mi",
+        "select-fdr",
+        "rank-vote"
+      ],
+      "family": "corrupted",
+      "primary_target_set": "markov_blanket",
+      "purpose": "label reliability depends on a column, which nothing scoring against the observed label can see",
+      "spec_hash": "49b59fafdcdc6c56d9de66ac121e00d4"
+    },
+    "label_flip_uniform_15pct": {
+      "expected_to_break": [
+        "boruta",
+        "rfecv",
+        "sfm-lgbm",
+        "byproduct-ensemble"
+      ],
+      "family": "corrupted",
+      "primary_target_set": "markov_blanket",
+      "purpose": "symmetric label noise: the declared ceiling is unreachable and the gap is the information the flip destroyed",
+      "spec_hash": "03119e1afa070265f5061c26f27e6477"
     },
     "latent_replicates_private_delta": {
       "expected_to_break": [
@@ -122,6 +218,19 @@
       "purpose": "control: every method should succeed here, except the one that never looks at the target",
       "spec_hash": "c0f774e22b84ab81e5c2988dd57c1579"
     },
+    "m_bias": {
+      "expected_to_break": [
+        "mrmr",
+        "ace",
+        "boruta",
+        "rfecv",
+        "lars-order"
+      ],
+      "family": "causal",
+      "primary_target_set": "markov_blanket",
+      "purpose": "a column every marginal score recommends, whose admission manufactures an association the graph does not contain",
+      "spec_hash": "d1f088a8a1367e82027db3b467cfeae2"
+    },
     "mb_spouse_collider": {
       "expected_to_break": [
         "univariate-mi",
@@ -129,7 +238,8 @@
         "skb-mi",
         "select-fdr",
         "lars-order",
-        "rank-vote"
+        "rank-vote",
+        "byproduct-ensemble"
       ],
       "family": "causal",
       "primary_target_set": "markov_blanket",
@@ -159,6 +269,18 @@
       "purpose": "three missingness mechanisms on sibling columns, so one run separates recoverable bias from unrecoverable",
       "spec_hash": "c848f58560b319de6aa1e81fe8135354"
     },
+    "multiclass_k3": {
+      "expected_to_break": [
+        "skb-f",
+        "select-fdr",
+        "lars-order",
+        "knockoffs"
+      ],
+      "family": "targets",
+      "primary_target_set": "markov_blanket",
+      "purpose": "each class depends on a different rotation of the weights, so the answer key is the union over classes",
+      "spec_hash": "b31bac255400b7cc3d7690525d5d711b"
+    },
     "null_p100": {
       "expected_to_break": [
         "select-fdr",
@@ -185,6 +307,17 @@
       "purpose": "the same discipline where the best-looking noise column is genuinely convincing",
       "spec_hash": "b95ffcc42961864650e8d2805b373921"
     },
+    "ordinal_k4": {
+      "expected_to_break": [
+        "skb-mi",
+        "univariate-mi",
+        "variance-sort"
+      ],
+      "family": "targets",
+      "primary_target_set": "markov_blanket",
+      "purpose": "ordered classes on one latent axis, paired with the multiclass bed to separate class structure from class count",
+      "spec_hash": "f20802a6bceddf306435f87dbb40c5b5"
+    },
     "outliers_020permille": {
       "expected_to_break": [
         "skb-f",
@@ -195,6 +328,17 @@
       "primary_target_set": "markov_blanket",
       "purpose": "fixed-rate contamination rather than a heavy law, which is what a broken sensor actually produces",
       "spec_hash": "b880ba5cb3e8882a345b770b3e88b43b"
+    },
+    "proxy_attenuation": {
+      "expected_to_break": [
+        "lars-order",
+        "knockoffs",
+        "byproduct-ensemble"
+      ],
+      "family": "causal",
+      "primary_target_set": "markov_blanket",
+      "purpose": "a clean proxy out-predicts the noisy measurement of the real cause, so prediction and causation disagree",
+      "spec_hash": "8cab26239b00408ed57d36228037aa26"
     },
     "quantized_6levels": {
       "expected_to_break": [
@@ -219,6 +363,18 @@
       "primary_target_set": "markov_blanket",
       "purpose": "a one-per-cent positive rate reached by intercept shift, so imbalance is not confounded with sample size",
       "spec_hash": "cf01b5f96acea7cc666782bad0d49572"
+    },
+    "redundancy_graded": {
+      "expected_to_break": [
+        "mrmr",
+        "knockoffs",
+        "boruta-shap",
+        "sfm-lgbm"
+      ],
+      "family": "economics",
+      "primary_target_set": "markov_blanket",
+      "purpose": "four correlation levels in one bed, so a threshold's breaking point is a curve rather than a guess",
+      "spec_hash": "303887769656a48cca14a49c6ea326a2"
     },
     "redundant_exact_k5": {
       "expected_to_break": [
@@ -251,7 +407,22 @@
       "family": "observation",
       "primary_target_set": "markov_blanket",
       "purpose": "P(x) moves and P(y|x) does not: paired with the concept-shift bed, which differs in exactly one declaration",
-      "spec_hash": "e4bafc2354b8d47028d8101ed3038aff"
+      "spec_hash": "e317ce043bc2302415b8ba668b1a83c1"
+    },
+    "simpson_sign_reversal": {
+      "expected_to_break": [
+        "skb-f",
+        "skb-mi",
+        "univariate-mi",
+        "select-fdr",
+        "lars-order",
+        "rank-vote",
+        "byproduct-ensemble"
+      ],
+      "family": "structure",
+      "primary_target_set": "markov_blanket",
+      "purpose": "a strong column whose marginal association is zero because its sign flips between subgroups",
+      "spec_hash": "915d4315525234165435cabe1634e6fa"
     },
     "tail_isolation_clayton_vs_gaussian": {
       "expected_to_break": [
@@ -261,7 +432,8 @@
         "select-fdr",
         "lars-order",
         "mrmr",
-        "rank-vote"
+        "rank-vote",
+        "byproduct-ensemble"
       ],
       "family": "tails",
       "primary_target_set": "markov_blanket",
@@ -290,7 +462,8 @@
         "lars-order",
         "select-fdr",
         "variance-sort",
-        "rank-vote"
+        "rank-vote",
+        "byproduct-ensemble"
       ],
       "family": "interactions",
       "primary_target_set": "markov_blanket",
@@ -330,7 +503,7 @@
       "family": "mixed_types",
       "primary_target_set": "markov_blanket",
       "purpose": "power-law level frequencies: a long tail with almost no rows per level",
-      "spec_hash": "21b5f2fe2b5b31f782b83962f2b1250c"
+      "spec_hash": "51c4837a4da96623889b987b5917ddca"
     }
   },
   "schema_version": 1,

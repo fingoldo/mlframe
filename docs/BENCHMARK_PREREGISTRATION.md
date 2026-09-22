@@ -236,7 +236,15 @@ as a stronger negative than the design can support.
    medoid is selected). Same for BorutaShap.
 6. `test_negative_results_nonempty.py` fails if the generated report contains no scenario where MRMR ranks
    below median.
-7. Free knobs are declared as **priors, not points** (`corr ~ U(0.5, 0.99)`, `prevalence ~ LogUniform(0.01,
+7. The **oracle is cross-checked by an outside implementation**. `assert_estimators_disjoint` keeps the
+   oracle's estimator families apart from the arms' MI backends, which addresses the oracle agreeing with
+   the arms; it does nothing about the oracle's own closed form being wrong, since that form and every test
+   of it were written by the same hand against the same understanding. `dit` -- a third-party
+   information-theory package, never an arm -- is handed the same exact joint law and must reproduce the
+   oracle's exact `I(X;Y)` to within 1e-9 nats. Measured on the fixed probe every run records: 8.9e-16 nats
+   at 2, 5, 17 and 64 levels. The verdict is a manifest field, and when `dit` is unavailable that field says
+   the check did not run and why, rather than being omitted.
+8. Free knobs are declared as **priors, not points** (`corr ~ U(0.5, 0.99)`, `prevalence ~ LogUniform(0.01,
    0.5)`, and so on) and aggregated over. A fixed value is a rigging surface; a declared prior is auditable.
 
 ## 9. Hypotheses
@@ -330,3 +338,37 @@ Wall-clock is advisory and stays advisory. Three conditions must hold before it 
 
 `n_model_fits` remains the primary cost axis, and every arm in the roster reports a counted figure -- an
 arm whose fits nobody counted would appear in the cost table as free.
+
+## 7a. Hypothesis 7, answered: RFECV's aggregation choice does not move its result here
+
+Run: the full 24-point grid (8 `VotesAggregation` rules x 3 `fi_missing_policy` values), three seeds, on
+four beds -- `linear_k5_p50` and `mb_spouse_collider` at 2 500 rows, `xor3` and `joint_tail_t4` at 6 000.
+
+**Three of the four beds answer nothing, and the fourth answers the question.**
+
+| bed | kept | precision | recall spread over 24 configs | reading |
+|---|---|---|---|---|
+| `linear_k5_p50` | 15 | 0.508 | 0.000, all at 1.000 | at ceiling: no knob has room to act |
+| `mb_spouse_collider` | 7 | 0.450 | 0.000, all at 1.000 | at ceiling |
+| `xor3` | 33 of 33 | 0.091 | 0.000, all at 1.000 | selecting EVERYTHING: recall 1.000 by not selecting |
+| `joint_tail_t4` | 2.7 | 0.800 | 0.000, against a per-seed noise of 0.289 | **the configuration does not matter** |
+
+On the one bed where RFECV is genuinely choosing -- keeping under three columns of the bed's width at a
+precision of 0.800, and scoring 0.833 rather than 1.000 -- all twenty-four configurations produce the
+identical result, while the same configuration varies by 0.289 across seeds. The aggregation knob is
+forty times smaller than the data draw. H7's alternative is rejected on this evidence: "RFECV" names a
+method here, not a family, and every RFECV row in the atlas stands as written.
+
+The `xor3` row is the reason this section exists in this shape. Its recall of 1.000 is the artefact this
+suite has already withdrawn a headline over: the arm kept all thirty-three columns, so it recovered the
+answer key by not selecting. The ablation's summary now refuses to read that as a result and names it,
+because the first version of this run reported `xor3` at 1.000 alongside the real numbers.
+
+## 7b. What a null from an at-ceiling cell can and cannot say
+
+The general form of the above, because it will recur. A configuration sweep over cells where the arm
+already scores perfectly measures the ceiling, not the configuration -- and a cell where the arm selects
+everything is worse, since its perfect recall is the absence of selection rather than success at it.
+Before a sweep's null is reported as "this knob does not matter", the cells it ran on must have had room
+for the knob to matter in: the arm choosing a proper subset, and at least one configuration scoring below
+the maximum. Otherwise the sweep answers a different question than the one it was run to answer.

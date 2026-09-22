@@ -240,7 +240,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Enabling a grouped transform in discovery gives composites that never predict on the y scale, with only a WARNING.
 - **Suggested fix**: Add `group_column` and `recurrence_continuation` to `from_fitted_inner` and have the wrapping sites pass them from the spec / discovery config. Alternatively, reject grouped transforms at discovery-config validation until that is done.
 - **Test to add**: Wrap a `linear_residual_grouped` inner via the suite wrapping phase and assert that `predict` returns y-scale values.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `from_fitted_inner` takes `group_column` and `recurrence_continuation` (added earlier), and now also `groups_train`, so a grouped spec gets its exact T-clip envelope. test_constructor_state_parity.py builds every registry transform, all seven grouped ones included, through both constructors and requires identical predictions. The deployed wrapper (`build_composite_wrapper`) and the three OOF-refit wraps pass the train groups when the frame carries the group column.
 
 ### EST-22 [P3] Routers and vetoes chosen on the val split are then reported with val-split metrics as if those were held-out
 

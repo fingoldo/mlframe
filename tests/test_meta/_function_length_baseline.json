@@ -266,7 +266,7 @@
   "src/mlframe/training/composite/ensemble/__init__.py::_oof_holdout_predictions_with_rows": 474,
   "src/mlframe/training/composite/ensemble/_cross_target.py::CompositeCrossTargetEnsemble.from_train_metrics": 185,
   "src/mlframe/training/composite/estimator/_estimator.py::CompositeTargetEstimator.fit": 341,
-  "src/mlframe/training/composite/estimator/_from_fitted.py::from_fitted_inner": 168,
+  "src/mlframe/training/composite/estimator/_from_fitted.py::from_fitted_inner": 150,
   "src/mlframe/training/composite/estimator/_predict.py::predict_quantile": 191,
   "src/mlframe/training/composite/highlevel.py::discover_and_wrap": 157,
   "src/mlframe/training/composite/hpo.py::optimize_composite": 166,
