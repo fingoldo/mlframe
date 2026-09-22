@@ -299,9 +299,7 @@ def _conditional_permutation_importance(
                         score_losses.append(np.nan)
             finally:
                 X_perm[:, j] = orig_col
-            # NaN, not 0.0, when nothing could be measured: real importances are ``baseline - score`` and routinely
-            # negative, so a neutral 0.0 outranks every feature measured to be harmful.
-            importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else np.nan
+            importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else np.nan  # never a winning 0.0
             continue
 
         # F10/F11: pass max_depth + min_samples_leaf. max_depth=None grows the tree
@@ -327,8 +325,7 @@ def _conditional_permutation_importance(
             # E11: widen the except to catch MemoryError
             # on 1M-row Xnotj and RuntimeError from custom-estimator paths
             # raising AttributeError-like wrapped exceptions. Conditioning
-            # fit failed (constant Xj, all-NaN row, etc.); skip. NaN means "not measured" - recording 0.0 made an
-            # unmeasurable feature rank above every feature measured to hurt.
+            # fit failed (constant Xj, all-NaN row, etc.); skip. NaN = "not measured", never a rank-competitive 0.0.
             importances[j] = np.nan
             continue
 
@@ -505,9 +502,7 @@ def get_feature_importances(
                     _scores[_j] = _baseline - float(_m.score(_X_drop, target))
                 except Exception as e:
                     logger.debug("drop-column importance fit/score failed for column %d, recording NaN: %s", _j, e)
-                    # NaN, not 0.0: a 0.0 here ranks above every column whose removal IMPROVED the score, so a broken
-                    # evaluation is preferred over a measured-useless feature.
-                    _scores[_j] = np.nan
+                    _scores[_j] = np.nan  # a 0.0 would outrank every column whose removal IMPROVED the score
             res = _scores
         elif importance_getter == "boruta":
             # Classical Boruta (Kursa & Rudnicki 2010, JSS-36): pair each real

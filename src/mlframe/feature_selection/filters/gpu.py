@@ -90,8 +90,14 @@ class _GpuBufferPool:
 
 
 _GPU_POOL = _GpuBufferPool()
-# Guards every read/write of the pool above; see the acquire site in ``mi_direct_gpu``. Re-entrant so a nested helper
-# that also touches the pool cannot self-deadlock.
+# Guards every read/write of the pool above. The FE pair sweep dispatches its workers with joblib ``backend="threading"``,
+# so without it two workers inside ``mi_direct_gpu`` interleave: one fills ``classes_x`` while another reallocates
+# ``joint_counts`` for a different ``nbins_y`` or overwrites the same buffers, the first thread's histogram is built from
+# the second's data, and the MI comes back silently wrong - a junk engineered pair admitted or a good one dropped,
+# differently on every run. ``mi_direct_gpu`` holds it across the whole ensure-fill-launch block, not just
+# ``ensure()``, because the buffers stay shared for the entire permutation loop; that costs nothing real, since the
+# work inside is GPU-bound and the device runs it one kernel at a time anyway. Re-entrant so a nested helper that also
+# touches the pool cannot self-deadlock.
 _GPU_POOL_LOCK = threading.RLock()
 
 # Wave 27 P2 fix: the prior docstring claimed
@@ -588,18 +594,8 @@ def mi_direct_gpu(
                 max_failed = 1
 
         # Persistent device buffers. Pool grows monotonically so back-to-back calls on similarly-sized inputs reuse the same allocations.
-        n = len(classes_x)
-        nbins_x = len(freqs_x)
-        nbins_y = len(freqs_y)
-        # The pool is a module singleton of device buffers, and the FE pair sweep dispatches its workers with
-        # joblib ``backend="threading"``: two workers inside this function would otherwise interleave, one thread
-        # filling ``classes_x`` while another reallocates ``joint_counts`` for a different ``nbins_y`` or overwrites
-        # the same buffers, so the first thread's histogram is built from the second's data and the MI comes back
-        # silently wrong - a junk engineered pair admitted, or a good one dropped, differently on every run. The
-        # lock spans the whole ensure-fill-launch block, not just ``ensure()``, because the buffers stay shared for
-        # the entire permutation loop. Serialising here costs nothing real: the work inside is GPU-bound and the
-        # device executes it one kernel at a time anyway.
-        with _GPU_POOL_LOCK:
+        n, nbins_x, nbins_y = len(classes_x), len(freqs_x), len(freqs_y)
+        with _GPU_POOL_LOCK:  # the whole ensure-fill-launch block; see the lock's definition
             _GPU_POOL.ensure(n=n, nbins_x=nbins_x, nbins_y=nbins_y)
             # .ensure() allocates every buffer below unconditionally; narrows the pool's Optional[...] attrs for mypy.
             assert _GPU_POOL.classes_x is not None and _GPU_POOL.classes_y is not None

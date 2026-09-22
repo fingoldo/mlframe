@@ -284,12 +284,7 @@ def screen_predictors(
     # ---------------------------------------------------------------------------------------------------------------
     # Input checks
     # ---------------------------------------------------------------------------------------------------------------
-
-    # Idempotent; see the note next to the import. Constructing the first unicode-keyed typed.Dict in a process
-    # JIT-compiles the whole method suite (~5 s of LLVM codegen, not disk-cacheable), so it is done once here rather
-    # than on the critical path of the caches built below.
-    warmup_typed_dict()
-
+    warmup_typed_dict()  # idempotent, once per process; see the note next to the import
     if parallel_kwargs is None:
         # backend="threading" mirrors the mrmr.py default flip (iter-371 fix):
         # joblib ThreadPoolExecutor in-process shares the data arrays zero-copy
