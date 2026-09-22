@@ -42,8 +42,7 @@ def _feature_names(X_rows: Any) -> list[str]:
 def _subset_rows(X_rows: Any, idx: np.ndarray) -> Any:
     """Select rows of ``X_rows`` (pandas, polars, or array-like) by integer positions ``idx``."""
     if isinstance(X_rows, pl.DataFrame):
-        mask = np.isin(np.arange(X_rows.height), idx, assume_unique=True)
-        return X_rows.filter(pl.Series(mask))
+        return X_rows[np.asarray(idx, dtype=np.int64)]  # positional gather: keeps idx order, like the pandas .iloc branch
     if isinstance(X_rows, pd.DataFrame):
         return X_rows.iloc[idx].reset_index(drop=True)
     return np.asarray(X_rows)[idx]

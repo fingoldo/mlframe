@@ -187,12 +187,9 @@ def composite_oof_predictions(
     for train_idx, val_idx in kf.split(indices, y_arr, groups_arr):
         # Subset X for the fold. Polars / pandas handled separately to avoid silent materialisation.
         if _HAS_POLARS and isinstance(X, pl.DataFrame):
-            # Build boolean masks once per fold: np.isin avoids the O(n^2)
-            # python list-comp + set(train_idx.tolist()) rebuild.
-            train_mask = np.isin(indices, train_idx, assume_unique=True)
-            val_mask = np.isin(indices, val_idx, assume_unique=True)
-            X_train = X.filter(pl.Series(train_mask))
-            X_val = X.filter(pl.Series(val_mask))
+            # Gather by position (order-preserving, like the pandas .iloc branch); a boolean mask keeps row order instead.
+            X_train = X[np.asarray(train_idx, dtype=np.int64)]
+            X_val = X[np.asarray(val_idx, dtype=np.int64)]
         elif isinstance(X, pd.DataFrame):
             X_train = X.iloc[train_idx].reset_index(drop=True)
             X_val = X.iloc[val_idx].reset_index(drop=True)

@@ -483,13 +483,10 @@ def _oof_holdout_predictions_with_rows(
         for fold_train_idx, fold_holdout_idx in _kf_split:
             # Sub-frame views by index; fit/predict inlined per fold.
             if _is_polars_df(train_X):
-                fold_train_mask = np.zeros(n_train, dtype=bool)
-                fold_train_mask[fold_train_idx] = True
-                # Build the holdout from an EXPLICIT fold_holdout_idx mask, not ~train_mask: under TimeSeriesSplit ~train includes the FUTURE rows beyond this fold's holdout, so ~train_mask yields a frame longer than fold_holdout_idx -> length mismatch silently drops the component every fold (the pandas/ndarray branches already index by fold_holdout_idx).
-                fold_holdout_mask = np.zeros(n_train, dtype=bool)
-                fold_holdout_mask[fold_holdout_idx] = True
-                X_stack = train_X.filter(pl.Series(fold_train_mask))
-                X_holdout = train_X.filter(pl.Series(fold_holdout_mask))
+                # Gather by the EXPLICIT fold indices (as the pandas/ndarray branches do), never ~train: under TimeSeriesSplit ~train includes the
+                # FUTURE rows beyond this fold's holdout, and a boolean mask would also drop the index order the targets follow.
+                X_stack = train_X[np.asarray(fold_train_idx, dtype=np.int64)]
+                X_holdout = train_X[np.asarray(fold_holdout_idx, dtype=np.int64)]
             elif isinstance(train_X, pd.DataFrame):
                 X_stack = train_X.iloc[fold_train_idx].reset_index(drop=True)
                 X_holdout = train_X.iloc[fold_holdout_idx].reset_index(drop=True)
@@ -717,10 +714,10 @@ def _oof_holdout_predictions_with_rows(
 
     # Subset X. Branch on type so we don't pull pandas APIs on polars frames.
     if _is_polars_df(train_X):
-        train_mask = np.zeros(n_train, dtype=bool)
-        train_mask[train_idx] = True
-        X_stack = train_X.filter(pl.Series(train_mask))
-        X_holdout = train_X.filter(pl.Series(~train_mask))
+        # Gather by position, not by a boolean mask: a mask keeps ROW order, while y_train_full[holdout_idx] follows the
+        # index order (time order on the sorted-holdout path), so every row would meet another row's target.
+        X_stack = train_X[np.asarray(train_idx, dtype=np.int64)]
+        X_holdout = train_X[np.asarray(holdout_idx, dtype=np.int64)]
     elif isinstance(train_X, pd.DataFrame):
         X_stack = train_X.iloc[train_idx].reset_index(drop=True)
         X_holdout = train_X.iloc[holdout_idx].reset_index(drop=True)

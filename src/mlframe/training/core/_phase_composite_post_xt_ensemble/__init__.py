@@ -62,9 +62,7 @@ def _slice_frame_rows(frame, pos):
     try:
         import polars as pl
         if isinstance(frame, pl.DataFrame):
-            mask = np.zeros(frame.height, dtype=bool)
-            mask[pos] = True
-            return frame.filter(pl.Series(mask))
+            return frame[np.asarray(pos, dtype=np.int64)]  # positional gather: keeps the caller's order, like .iloc
     except ImportError:
         pass
     if hasattr(frame, "iloc"):

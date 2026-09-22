@@ -314,7 +314,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low for (a). (b) is low, because a mask filter is only flagged when it sits next to a positional-index branch built from the same index.
 - **Runtime**: (a) about 2 s; (b) under 1 s.
 - **Repo**: (a) mlframe; (b) py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. Leg (a) built: test_frame_carrier_parity.py checks OOF holdout alignment with an identity component (pandas vs polars; monotone / reversed / shuffled time; k=1 and 3) and three row slicers against pandas under all three index orders. It found and fixed EST-07 plus the same order-losing mask in `feature_stacking`, `_slice_frame_rows`, `_row_select` and `_subset_rows`. Not built: the meta-guard registering every `(X, idx)` function that branches on polars, and leg (b), the shared `order_losing_filters` scanner. A grep for mask-from-index next to `.iloc` found 7 functions, and the 5 with a real order dependence are fixed.
 
 ### PMT-17 [P1] Absorption and consistency on each transform's canonical DGP
 - **Asserts**: every registry entry has a `canonical_dgp` factory in `_CANONICAL_DGP` (a meta-guard enforces `keys == registry`, so a new transform must declare one). On that DGP:
