@@ -611,7 +611,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low to medium. A copy intentionally scoped to one call is allowlisted with a reason.
 - **Runtime**: under 1 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New py-ci-shared module `discarded_model_copy` (py-ci-shared b8aaa18, 10 unit tests, README section). It flags a function-scope `name = <expr>.model_copy(update=...)` whose `name`, or a plain alias of it, is never returned or yielded, stored into an attribute or subscript, passed to a call, or used as its own method's receiver. `assert_no_discarded_model_copy` takes reasoned allowlist entries and fails on stale ones. Wired in mlframe as `test_no_discarded_model_copy` over all of src with an empty allowlist (pin bumped to b8aaa18). The one initial hit, `_disc_cfg_base` in `run_composite_target_discovery`, was a false positive: the copy reaches its consumers through the alias `_disc_cfg = _disc_cfg_base`, so the scanner learned to follow aliases. The INT-04 shape (a copy only read locally) is pinned by the scanner's `test_a_copy_used_only_for_a_local_read_is_found`.
 
 ### PMT-39 [P2] Survivorship-scored metrics: a metric computed only on rows where the prediction is finite (shared scanner)
 - **Asserts**: a call to a metric function (`rmse|mae|mse|r2|mean_squared_error|...`) whose y_true and y_pred arguments are both indexed by the same mask, where that mask is derived from `np.isfinite(<prediction>)`, is flagged, unless the enclosing function also scores the non-finite rows (fills and rescores) or records the dropped fraction in the returned verdict.

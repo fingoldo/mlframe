@@ -54,5 +54,5 @@
 # Bumped 2026-09-21 from 861b595 to fdbed25: test_shared_checks_wired wires fail_open_handlers (absent before fdbed25);
 # _fail_open_handlers_baseline.json is added in the same commit.
 # Bumped 2026-09-21 from fdbed25 to d619ced: test_no_nondiscriminating_assert imports nondiscriminating_shapes (absent before d619ced).
-# Bumped 2026-09-22 from d619ced to 9117175: test_runtime_registry_writes_have_a_replay imports runtime_registry_mutation.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@91171756bbc011d670ba98113836bd1cf22512d4
+# Bumped 2026-09-22 from d619ced to b8aaa18: the runtime_registry_mutation and discarded_model_copy checks.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@b8aaa186b9149d6a440e249b981cdd2bc42b96a1

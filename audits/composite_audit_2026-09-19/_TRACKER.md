@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 13 | 0 | 6 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 11 | 10 | 20 | 0 | 0 |
-| **Total** | **179** | **106** | **21** | **51** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 12 | 10 | 19 | 0 | 0 |
+| **Total** | **179** | **107** | **21** | **50** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -233,7 +233,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P3 | `PMT-35` | Unread constructor parameters in estimator classes (shared scanner) | |
 | **TODO** | P3 | `PMT-36` | Environment flags parsed through one shared parser (shared scanner) | |
 | **TODO** | P3 | `PMT-37` | Deferred-dead config fields must warn when set, and no allowlisted field may advertise how to enable it | |
-| **TODO** | P1 | `PMT-38` | A config rebuilt with `model_copy(update=...)` must reach its consumers (shared scanner) | |
+| **RESOLVED** | P1 | `PMT-38` | A config rebuilt with `model_copy(update=...)` must reach its consumers (shared scanner) | shared discarded-model_copy scanner wired with an empty allowlist |
 | **TODO** | P2 | `PMT-39` | Survivorship-scored metrics: a metric computed only on rows where the prediction is finite (shared scanner) | |
 | **TODO** | P2 | `PMT-40` | `source_text_claims` misses source text accumulated with `+=`: close the taint gap and drain the composite allowlist | |
 | **TODO** | P3 | `PMT-41` | Advisory scan for tests that pin a conceded defect | |
