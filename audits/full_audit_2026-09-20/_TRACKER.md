@@ -24,14 +24,14 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `training_core.md` | 13 | 1 | 0 | 11 | 0 | 1 |
 | `feature_selection.md` | 21 | 3 | 0 | 18 | 0 | 0 |
 | `feature_engineering.md` | 14 | 2 | 0 | 12 | 0 | 0 |
-| `metrics.md` | 17 | 3 | 1 | 13 | 0 | 0 |
+| `metrics.md` | 17 | 5 | 1 | 11 | 0 | 0 |
 | `predict_persistence.md` | 18 | 9 | 0 | 9 | 0 | 0 |
 | `ensembling_models.md` | 14 | 4 | 0 | 10 | 0 | 0 |
 | `evaluation_reporting.md` | 16 | 3 | 0 | 13 | 0 | 0 |
 | `performance.md` | 6 | 2 | 0 | 4 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 1 | 0 | 11 | 0 | 0 |
-| `config_contracts.md` | 32 | 1 | 0 | 31 | 0 | 0 |
-| **Total** | **163** | **29** | **1** | **132** | **0** | **1** |
+| `config_contracts.md` | 32 | 4 | 0 | 27 | 0 | 1 |
+| **Total** | **163** | **34** | **1** | **126** | **0** | **2** |
 
 ## Per-report status
 
@@ -44,13 +44,13 @@ least one of its findings moves).
 | **PARTIAL** | [training_core.md](training_core.md) | 13 | suite orchestration, splits, booster dataset reuse (TRC-02 fixed) |
 | **PARTIAL** | [feature_selection.md](feature_selection.md) | 21 | feature selection (FS-01, FS-02, FS-03 fixed) |
 | **PARTIAL** | [feature_engineering.md](feature_engineering.md) | 14 | feature engineering and preprocessing (FE-01, FE-02 fixed) |
-| **PARTIAL** | [metrics.md](metrics.md) | 17 | metrics and calibration (MET-01..MET-03 fixed, MET-04 partial) |
+| **PARTIAL** | [metrics.md](metrics.md) | 17 | metrics and calibration (MET-01..MET-03, MET-06, MET-09 fixed, MET-04 partial) |
 | **PARTIAL** | [predict_persistence.md](predict_persistence.md) | 18 | serving path and artifact round-trip (PRD-01..PRD-08, PRD-11 fixed) |
 | **PARTIAL** | [ensembling_models.md](ensembling_models.md) | 14 | model zoo, blends, thresholds, votenrank (ENS-01..ENS-04 fixed) |
 | **PARTIAL** | [evaluation_reporting.md](evaluation_reporting.md) | 16 | diagnostic verdicts (EVR-01, EVR-02, EVR-03 fixed) |
 | **PARTIAL** | [performance.md](performance.md) | 6 | measured performance (PRF-01, PRF-02 fixed) |
 | **PARTIAL** | [concurrency_resources.md](concurrency_resources.md) | 12 | concurrency and resources (CNC-01 fixed) |
-| **PARTIAL** | [config_contracts.md](config_contracts.md) | 32 | config contracts (CFG-01 fixed) |
+| **PARTIAL** | [config_contracts.md](config_contracts.md) | 32 | config contracts (CFG-01..CFG-04 fixed, CFG-05 not a defect) |
 
 ## What the wave is about
 

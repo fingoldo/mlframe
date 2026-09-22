@@ -392,7 +392,10 @@ class FeatureSelectionConfig(BaseConfig):
             if not levers:
                 continue
             merged = dict(current or {})
-            conflicts = sorted(set(levers) & set(merged))
+            # A key present in both with the SAME value is not a conflict, it is this validator's own earlier fold
+            # coming back: ``model_dump()`` emits the lever field AND the folded kwargs entry, so re-validating a
+            # dumped config raised here on a config the user never mis-specified (cache keys, JSON reload, sweeps).
+            conflicts = sorted(k for k in set(levers) & set(merged) if merged[k] != levers[k])
             if conflicts:
                 raise ValueError(
                     f"FeatureSelectionConfig: key(s) {conflicts} set BOTH as a first-class lever field AND inside "
