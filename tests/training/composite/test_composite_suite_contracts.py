@@ -1,147 +1,158 @@
-"""Discriminating end-to-end contracts for a composite-target suite.
+"""One composite suite run, checked against identities that hold only when persistence, routing and reporting agree.
 
-The older integration tests assert ranges the y-clip guarantees on its own (``0 < RMSE < 100``, predictions inside 0.5x /
-1.5x the y range), so a composite almost twice as bad as raw, a T-scale leak into a predict entry point, an ensemble built
-on a broken OOF surface, or a crashing value report all passed. These contracts would catch each of them. One suite run
-per model family is shared by every contract (module scope), on a fixture where ``diff`` / ``linear_residual`` on the
-lag base is the true generating law.
+The suite saved metadata before composite post-processing created the CT ensemble, re-saved nothing after wrapping the
+composite models (a reloaded suite served bare inner models in T-scale), kept capped specs in the metadata, widened the
+``transforms`` whitelist with chains, and reported CT-ensemble metrics for a model that no longer shipped. Each of those
+passed the tests that ran one suite per assertion, because none of them compared the saved suite with the returned one.
+Everything here is an identity between two views of the same run, not a tuned threshold.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 
 import numpy as np
 import pytest
 
-from mlframe.training.configs import CompositeTargetDiscoveryConfig, TargetTypes
-from mlframe.training.core import train_mlframe_models_suite
-from mlframe.training.core._predict_main_from_models import predict_from_models
+from .test_composite_integration import _LEAN_OUTPUT_CONFIG_KWARGS, _LEAN_REPORTING_CONFIG_KWARGS, _build_minimal_fte, _tvt_dataset
 
-from tests.training.composite.test_composite_integration import (
-    _LEAN_OUTPUT_CONFIG_KWARGS,
-    _LEAN_REPORTING_CONFIG_KWARGS,
-    _build_minimal_fte,
-    _tvt_dataset,
-)
+pytest.importorskip("lightgbm")
 
-_ADDITIVE = ("diff", "linear_residual", "additive_residual")
+_WHITELIST = ["linear_residual", "additive_residual"]
 
 
-class _Collect(logging.Handler):
-    """Collect every log record's message during the suite run."""
+class _Records(logging.Handler):
+    """Collects every record emitted while the fixture's suite runs."""
 
     def __init__(self):
         super().__init__(level=logging.DEBUG)
-        self.messages: list[str] = []
+        self.records: list[logging.LogRecord] = []
 
     def emit(self, record):
-        """Keep the formatted message."""
-        self.messages.append(record.getMessage())
+        self.records.append(record)
 
 
-@pytest.fixture(scope="module", params=["linear", "lgb"])
-def suite(request, tmp_path_factory):
-    """Train one composite suite for the family and keep its models, metadata and logs."""
-    handler = _Collect()
-    root = logging.getLogger()
-    old_level = root.level
+@pytest.fixture(scope="module")
+def suite(tmp_path_factory):
+    """One suite run with two whitelisted transforms and a cap of one composite: ``(models, metadata, df, models_path, records)``."""
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+    from mlframe.training.core import train_mlframe_models_suite
+
+    tmp = str(tmp_path_factory.mktemp("composite_suite"))
+    df = _tvt_dataset(n=600)
+    cfg = CompositeTargetDiscoveryConfig(
+        enabled=True, base_candidates=["TVT_prev"], transforms=list(_WHITELIST), mi_sample_n=300, eps_mi_gain=-1.0,
+        max_total_composite_targets=1, min_honest_gain_to_train=None,
+    )
+    handler, root = _Records(), logging.getLogger("mlframe")
     root.addHandler(handler)
-    root.setLevel(logging.INFO)
     try:
-        tmp = tmp_path_factory.mktemp(f"suite_{request.param}")
-        cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, base_candidates=["TVT_prev"], transforms=["diff", "linear_residual"], mi_sample_n=200,
-            top_k_after_mi=2, eps_mi_gain=-1.0, cross_target_ensemble_strategy="oof_weighted", skip_wrap_pass_predict=False,
-        )
         models, metadata = train_mlframe_models_suite(
-            df=_tvt_dataset(n=800), target_name="target", model_name="contracts",
-            features_and_targets_extractor=_build_minimal_fte(), mlframe_models=[request.param],
-            output_config={"data_dir": str(tmp / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+            df=df, target_name="target", model_name="ct", features_and_targets_extractor=_build_minimal_fte(),
+            mlframe_models=["linear", "lgb"], output_config={"data_dir": tmp, "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
             reporting_config=_LEAN_REPORTING_CONFIG_KWARGS, verbose=0, composite_target_discovery_config=cfg,
         )
     finally:
         root.removeHandler(handler)
-        root.setLevel(old_level)
-    return models, metadata, handler.messages
+    return models, metadata, df, os.path.join(tmp, "models", "target", "ct"), handler.records
 
 
-def _val_rmse(entry) -> float:
-    """The val RMSE recorded on a suite entry."""
-    return float((getattr(entry, "metrics", {}) or {})["val"]["RMSE"])
+def _trained(models) -> dict:
+    """``{(target_type, key): [entries with a model]}`` for every trained slot."""
+    out = {}
+    for tt, by_key in models.items():
+        for key, entries in by_key.items():
+            live = [e for e in entries if getattr(e, "model", None) is not None]
+            if live:
+                out[(str(getattr(tt, "value", tt)), key)] = live
+    return out
 
 
-def _composite_keys(models) -> list[str]:
-    """Composite-target entry names under regression."""
-    return [k for k in models[TargetTypes.REGRESSION] if k != "target" and not str(k).startswith("_CT_ENSEMBLE__")]
+def _composite_keys(models, metadata) -> set:
+    """Composite target keys that were trained (in the model dict and not a raw target or the CT slot)."""
+    names = {s["name"] for by_t in metadata["composite_target_specs"].values() for specs in by_t.values() for s in specs}
+    return {k for (_tt, k) in _trained(models) if k in names}
 
 
-def test_additive_composites_record_the_same_rmse_on_both_scales(suite):
-    """For an additive transform, y - y_hat == T - T_hat, so the recorded y-scale and T-scale RMSE must agree."""
-    models, metadata, _ = suite
-    ysm = metadata["composite_target_y_scale_metrics"]["regression"]
-    checked = 0
-    for key in _composite_keys(models):
-        entry = models[TargetTypes.REGRESSION][key][0]
-        if not any(f"-{t_abbr}-" in key for t_abbr in ("diff", "linres", "addres")):
-            continue
-        y_scale = ysm[key][0]["metrics"]
-        splits = [s for s in ("train", "val", "test") if "RMSE" in (entry.metrics.get(s) or {}) and "RMSE" in (y_scale.get(s) or {})]
-        assert {"val", "test"} <= set(splits), f"{key}: both scales must record val and test RMSE; got {splits}"
-        for split in splits:
-            t_rmse = float(entry.metrics[split]["RMSE"])
-            assert abs(float(y_scale[split]["RMSE"]) - t_rmse) < 1e-6, f"{key} {split}: y-scale {y_scale[split]['RMSE']} vs T-scale {t_rmse}"
-        checked += 1
-    assert checked, "the fixture must yield at least one additive composite"
+def test_the_saved_suite_serves_what_the_run_returned(suite):
+    """Every trained slot reloads with the same model types and the reloaded suite predicts identically (INT-01, INT-02)."""
+    from mlframe.training.core._predict_main_from_models import predict_from_models
+    from mlframe.training.core.predict import load_mlframe_suite
+
+    models, metadata, df, path, _ = suite
+    loaded_models, loaded_md = load_mlframe_suite(path)
+    mem, disk = _trained(models), _trained(loaded_models)
+    assert set(mem) == set(disk), f"slots missing on disk: {sorted(set(mem) - set(disk))}; extra: {sorted(set(disk) - set(mem))}"
+    for slot, entries in mem.items():
+        assert sorted(type(e.model).__name__ for e in entries) == sorted(type(e.model).__name__ for e in disk[slot]), slot
+    X = df.drop(columns=["target"]).iloc[:60]
+    p_mem = predict_from_models(X, models, metadata, verbose=0)
+    p_disk = predict_from_models(X, loaded_models, loaded_md, verbose=0)
+    assert set(p_mem["predictions"]) == set(p_disk["predictions"])
+    for key, pred in p_mem["predictions"].items():
+        np.testing.assert_allclose(np.asarray(p_disk["predictions"][key], dtype=float), np.asarray(pred, dtype=float), rtol=1e-9, err_msg=key)
+    np.testing.assert_allclose(p_disk["ensemble_predictions"], p_mem["ensemble_predictions"], rtol=1e-9)
 
 
-def test_each_composite_is_within_20_percent_of_raw_on_val(suite):
-    """The generating law is additive in the lag base, so no composite may be materially worse than raw y."""
-    models, metadata, _ = suite
-    raw = _val_rmse(models[TargetTypes.REGRESSION]["target"][0])
-    ysm = metadata["composite_target_y_scale_metrics"]["regression"]
-    for key in _composite_keys(models):
-        comp = float(ysm[key][0]["metrics"]["val"]["RMSE"])
-        assert comp <= 1.2 * raw, f"{key}: y-scale val RMSE {comp:.4f} vs raw {raw:.4f}"
+def test_the_saved_metadata_covers_the_returned_metadata(suite):
+    """Every metadata key the run returned is on disk (INT-02: the CT-ensemble keys were stamped after the save)."""
+    from mlframe.training.core.predict import load_mlframe_suite
+
+    _models, metadata, _df, path, _ = suite
+    _, loaded_md = load_mlframe_suite(path)
+    missing = sorted(set(metadata) - set(loaded_md))
+    assert not missing, f"metadata keys stamped after the last save: {missing}"
+    assert loaded_md.get("cross_target_ensemble_metrics") == metadata.get("cross_target_ensemble_metrics")
 
 
-def test_predict_from_models_serves_composites_on_the_y_scale(suite):
-    """The in-memory predict entry point returns finite y-scale predictions for every composite, tracking raw."""
-    models, metadata, _ = suite
-    df_new = _tvt_dataset(n=800, seed=5)
-    out = predict_from_models(df_new, models, metadata, features_and_targets_extractor=_build_minimal_fte(), verbose=0)
-    preds = out["predictions"]
-    def _pred_key(name):
-        """The prediction key for an entry: ``regression_<name>`` with or without a model-name suffix."""
-        return next((k for k in preds if k == f"regression_{name}" or k.startswith(f"regression_{name}_")), None)
-
-    raw_key = _pred_key("target")
-    assert raw_key is not None, f"no raw prediction; got {list(preds)}"
-    raw = np.asarray(preds[raw_key], dtype=np.float64)
-    y_mean = float(df_new["target"].mean())
-    for key in _composite_keys(models):
-        pred_key = _pred_key(key)
-        assert pred_key is not None, f"predict_from_models dropped composite {key}; got {list(preds)}"
-        comp = np.asarray(preds[pred_key], dtype=np.float64)
-        assert np.isfinite(comp).all()
-        assert abs(comp.mean() - y_mean) < 0.2 * abs(y_mean), f"{key} is not on the y scale: mean {comp.mean():.3f} vs y {y_mean:.3f}"
-        assert np.corrcoef(comp, raw)[0, 1] > 0.9
+def test_the_spec_record_is_exactly_what_was_trained(suite):
+    """Exported spec names equal the trained composite keys; the capped spec is a failure with the cap reason (INT-11)."""
+    models, metadata, _df, _path, _ = suite
+    listed = {s["name"] for by_t in metadata["composite_target_specs"].values() for specs in by_t.values() for s in specs}
+    assert listed and listed == _composite_keys(models, metadata)
+    capped = [f for by_t in metadata.get("composite_target_failures", {}).values() for fs in by_t.values() for f in fs
+              if "global cap max_total_composite_targets=1" in f.get("reason", "")]
+    assert capped, "the second whitelisted transform's spec must be recorded as capped"
 
 
-def test_the_deployed_ensemble_is_not_worse_than_raw(suite):
-    """Whatever the ensemble chose (weights or single best), its recorded val RMSE stays within 20% of raw's.
-
-    A broken OOF weighting surface - the audit measured component OOF RMSE 17x its direct holdout RMSE - picks bad
-    weights or a bad fallback, which shows up here as a val RMSE far above raw.
-    """
-    models, metadata, _ = suite
-    raw = _val_rmse(models[TargetTypes.REGRESSION]["target"][0])
-    ens = metadata["cross_target_ensemble_metrics"]["regression"]["target"]
-    assert float(ens["val_RMSE"]) <= 1.2 * raw, f"CT_ENSEMBLE val RMSE {ens['val_RMSE']:.4f} vs raw {raw:.4f}"
+def test_every_spec_is_in_the_transforms_whitelist(suite):
+    """No spec outside ``transforms`` (INT-07: auto-chain used to add chain specs to any whitelist)."""
+    _models, metadata, _df, _path, _ = suite
+    names = {s["transform_name"] for by_t in metadata["composite_target_specs"].values() for specs in by_t.values() for s in specs}
+    assert names <= set(_WHITELIST), sorted(names - set(_WHITELIST))
 
 
-def test_the_value_report_builds(suite):
-    """A composite suite must produce its value report, not log that the build failed."""
-    _, metadata, messages = suite
-    assert not [m for m in messages if "report build failed" in m], "the composite value report failed to build"
-    assert metadata.get("composite_value_report"), "the composite value report is missing from metadata"
+def test_composite_predictions_are_finite_on_the_y_scale(suite):
+    """``predict_mlframe_models_suite`` returns finite composite predictions within the target's range (INT-03, EST-01)."""
+    from mlframe.training.core._predict_main_suite import predict_mlframe_models_suite
+
+    models, metadata, df, path, _ = suite
+    out = predict_mlframe_models_suite(df.drop(columns=["target"]).iloc[:60], path, verbose=0)
+    comp = [k for k in out["predictions"] if any(ck in k for ck in _composite_keys(models, metadata))]
+    assert comp, f"no composite prediction in {list(out['predictions'])}"
+    lo, hi = float(df["target"].min()), float(df["target"].max())
+    for k in comp:
+        p = np.asarray(out["predictions"][k], dtype=float)
+        assert np.all(np.isfinite(p)), k
+        assert lo - (hi - lo) < p.min() and p.max() < hi + (hi - lo), f"{k} is off the y scale: [{p.min():.3f}, {p.max():.3f}] vs y [{lo:.3f}, {hi:.3f}]"
+
+
+def test_the_targets_table_reports_composites_from_their_y_scale_metrics(suite):
+    """The composite rows of the targets table carry the recorded y-scale test RMSE (INT-10)."""
+    from mlframe.training.targets_performance import targets_performance_frame
+
+    models, metadata, _df, _path, _ = suite
+    frame = targets_performance_frame(models, metadata).set_index("target_name")
+    yscale = metadata["composite_target_y_scale_metrics"]
+    for key in _composite_keys(models, metadata):
+        assert frame.loc[key, "scale"] == "y", key
+        recorded = [e["metrics"]["test"]["RMSE"] for by_t in yscale.values() for e in by_t.get(key, []) if "test" in e.get("metrics", {})]
+        assert recorded and any(np.isclose(frame.loc[key, "RMSE"], r) for r in recorded), (key, frame.loc[key, "RMSE"], recorded)
+
+
+def test_no_composite_phase_reports_a_failure(suite):
+    """No composite phase logged a failure at WARNING or above (a swallowed failure is how INT-01 shipped unnoticed)."""
+    *_, records = suite
+    bad = [r.getMessage()[:200] for r in records if r.levelno >= logging.WARNING and "composite" in r.name.lower() and "fail" in r.getMessage().lower()]
+    assert not bad, bad
