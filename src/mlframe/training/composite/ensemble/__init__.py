@@ -349,10 +349,21 @@ def _spec_is_recurrent(spec: Any) -> bool:
         return False
 
 
-def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_train: np.ndarray, base_train: np.ndarray, group_column: Any = None) -> CompositeTargetEstimator:
+def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_train: np.ndarray, base_train: np.ndarray, group_column: Any = None,
+                       raw_rows: Any = None, valid: Any = None) -> CompositeTargetEstimator:
     """Wrap an OOF-refit inner as the deployed wrapper would be: the full ``base_columns`` tuple for a multi-base spec (predict rebuilds
-    the K-column base matrix the K alphas expect), and the train base so the stand-in captures its range and shrinks deep-OOD rows too."""
+    the K-column base matrix the K alphas expect), and the train base so the stand-in captures its range and shrinks deep-OOD rows too.
+    ``raw_rows[valid]`` supplies a grouped spec's train groups, so its T-clip envelope is computed exactly rather than guessed."""
     extra = tuple(spec.get("extra_base_columns") or ())
+    groups_train = None
+    if group_column and raw_rows is not None:
+        try:
+            from ..estimator import _extract_groups
+
+            groups_train = np.asarray(_extract_groups(raw_rows, group_column))
+            groups_train = groups_train if valid is None else groups_train[valid]
+        except (KeyError, ValueError, TypeError) as err:  # the frame lacks the column: the envelope falls back to its proxy
+            logger.debug("OOF wrap: no %r groups on the refit rows (%s).", group_column, err)
     return CompositeTargetEstimator.from_fitted_inner(
         fitted_inner=inner_clone,
         transform_name=spec["transform_name"],
@@ -362,6 +373,7 @@ def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_trai
         y_train=y_train,
         base_train=base_train,
         group_column=group_column,
+        groups_train=groups_train,
     )
 
 from ._oof_external import _compute_oof_with_external_holdout  # re-exported; carved to keep this module under 1000 lines
@@ -560,7 +572,7 @@ def _oof_holdout_predictions_with_rows(
                             eval_set=_eval_set_kc, fitted_source=inner.estimator_,
                         )
                         # Multi-base parity with _phase_composite_post: pass the full base_columns tuple so predict reconstructs the K-column base matrix matching the K alphas.
-                        wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid], getattr(inner, "group_column", None))
+                        wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid], getattr(inner, "group_column", None), X_stack, valid)
                         preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
                     else:
                         inner_clone = clone(inner)
@@ -791,7 +803,7 @@ def _oof_holdout_predictions_with_rows(
                     eval_set=_eval_set_c, fitted_source=inner.estimator_,
                 )
                 # Multi-base parity: same fix as the kfold OOF branch above. Without base_columns, predict reconstructs only the primary base column and trips the K-alphas shape check.
-                wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid], getattr(inner, "group_column", None))
+                wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid], getattr(inner, "group_column", None), X_stack, valid)
                 preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
             else:
                 # Raw-target component. Re-fit the inner on (X_stack, y_stack) and predict on X_holdout.

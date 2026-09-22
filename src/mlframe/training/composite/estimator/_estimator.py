@@ -328,6 +328,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         group_column: str | None = None,
         recurrence_continuation: bool = False,
         target_name: str | None = None,
+        groups_train: np.ndarray | None = None,
     ) -> CompositeTargetEstimator:
         """Build a wrapper around an ALREADY-FITTED inner model.
 
@@ -373,6 +374,8 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             See :meth:`__init__`; required to wrap grouped / continuation-seeded transforms.
         target_name
             Original target name, used to resolve the causal-lag column for the deep-OOD fallback.
+        groups_train
+            Train-row group labels of a grouped transform; with ``base_train`` they let the T-clip envelope be computed exactly.
 
         Note: a lambda / closure ``runtime_stats_callback`` makes the fitted wrapper unpicklable; pass a module-level callable when persisting.
         """
@@ -382,7 +385,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             cls, fitted_inner, transform_name, base_column, transform_fitted_params, y_train,
             fallback_predict=fallback_predict, base_columns=base_columns, inner_pre_pipeline=inner_pre_pipeline,
             base_train=base_train, group_column=group_column, recurrence_continuation=recurrence_continuation,
-            target_name=target_name,
+            target_name=target_name, groups_train=groups_train,
         ))
 
     def __setstate__(self, state: dict[str, Any]) -> None:

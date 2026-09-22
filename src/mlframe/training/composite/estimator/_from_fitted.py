@@ -19,6 +19,33 @@ from ._routing import resolve_transform as get_transform
 logger = logging.getLogger("mlframe.training.composite.estimator._estimator")
 
 
+def _reconstruct_t_train(transform: Any, name: str, y_train: np.ndarray, finite: np.ndarray, params: Any,
+                         base_train: Any, groups_train: Any) -> np.ndarray | None:
+    """The exact train T when the inputs to recompute it are here, so the clip envelope matches ``fit()``; else None.
+
+    A unary transform needs y alone (a zeros base placeholder is ignored by the adapter). A base-dependent one needs the
+    train base (``base_train``, the calibration range callers already pass), and a grouped one its train groups. Without
+    them the caller keeps the ``+/-10 * std(y)`` proxy, which is far off for scaled or offset residuals: +/-48 against a
+    true [-0.17, 0.18] for asinh_residual, and not even centred for ratio's [0.6, 4.8].
+    """
+    n = y_train.shape[0]
+    if transform.requires_base and (base_train is None or np.asarray(base_train).shape[0] != n):
+        return None
+    if getattr(transform, "requires_groups", False) and (groups_train is None or np.asarray(groups_train).shape[0] != n):
+        return None
+    from ..transforms._call_gateway import call_transform
+
+    y_fin = y_train[finite]
+    base = np.zeros_like(y_fin) if not transform.requires_base else np.asarray(base_train)[finite]
+    groups = None if groups_train is None else np.asarray(groups_train)[finite]
+    try:
+        return np.asarray(call_transform(transform, "forward", y_fin, base, dict(params), groups=groups), dtype=np.float64).reshape(-1)
+    except Exception as err:
+        logger.warning("[CompositeTargetEstimator.from_fitted_inner] T reconstruction failed for transform '%s' (%r); falling back to "
+                       "the y_std envelope proxy.", name, err)
+        return None
+
+
 def from_fitted_inner(
     cls: type,
     fitted_inner: Any,
@@ -33,6 +60,7 @@ def from_fitted_inner(
     group_column: str | None = None,
     recurrence_continuation: bool = False,
     target_name: str | None = None,
+    groups_train: np.ndarray | None = None,
 ) -> Any:
     """Body of ``CompositeTargetEstimator.from_fitted_inner`` (see its docstring)."""
     instance = cls(
@@ -81,27 +109,8 @@ def from_fitted_inner(
     if _env_lo is not None and _env_hi is not None and np.isfinite(_env_lo) and np.isfinite(_env_hi) and _env_hi >= _env_lo:
         t_clip_low, t_clip_high = float(_env_lo), float(_env_hi)
     elif int(finite.sum()) >= 10:
-        _transform = get_transform(transform_name)
-        _t_train_recon: np.ndarray | None = None
-        if not _transform.requires_base:
-            # Unary: reconstruct exact T from y alone (base ignored by the
-            # unary registry adapter, so a zeros placeholder is sound).
-            try:
-                _y_fin = y_train[finite]
-                _t_train_recon = np.asarray(
-                    _transform.forward(
-                        _y_fin, np.zeros_like(_y_fin), dict(transform_fitted_params),
-                    ),
-                    dtype=np.float64,
-                ).reshape(-1)
-            except Exception as _recon_err:  # pragma: no cover - defensive
-                logger.warning(
-                    "[CompositeTargetEstimator.from_fitted_inner] unary T "
-                    "reconstruction failed for transform '%s' (%r); falling "
-                    "back to the y_std envelope proxy.",
-                    transform_name, _recon_err,
-                )
-                _t_train_recon = None
+        _t_train_recon = _reconstruct_t_train(get_transform(transform_name), transform_name, y_train, finite,
+                                              transform_fitted_params, base_train, groups_train)
         if _t_train_recon is not None:
             t_finite = _t_train_recon[np.isfinite(_t_train_recon)]
             if t_finite.size >= 10:

@@ -95,6 +95,19 @@ def find_composite_spec(metadata: Any, target_type: Any, target_name: Any) -> Op
     return None
 
 
+def _train_groups(train_df: Any, group_column: Optional[str]) -> Any:
+    """The train rows' group labels of a grouped spec (for its exact T-clip envelope), or None when unavailable."""
+    if not group_column or train_df is None:
+        return None
+    from ..composite.estimator import _extract_groups
+
+    try:
+        return np.asarray(_extract_groups(train_df, group_column))
+    except (KeyError, ValueError, TypeError) as err:  # the frame lacks the column: the envelope falls back to its proxy
+        logger.debug("composite wrap: no %r groups on the train frame (%s).", group_column, err)
+        return None
+
+
 def build_composite_wrapper(
     *,
     entry: Any,
@@ -123,6 +136,7 @@ def build_composite_wrapper(
         group_column=(spec.get("group_column") or group_column) if transform.requires_groups else None,
         recurrence_continuation=bool(spec.get("recurrence_continuation", False)),
         target_name=target_name or spec.get("target_col"),
+        groups_train=_train_groups(train_df, (spec.get("group_column") or group_column) if transform.requires_groups else None),
     )
     wrapper.spec_digest_ = composite_spec_digest(spec)
     return wrapper

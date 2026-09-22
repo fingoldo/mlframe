@@ -109,7 +109,8 @@ def _compute_oof_with_external_holdout(
                     inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
                     eval_set=_eval_set_c, fitted_source=inner.estimator_,
                 )
-                wrapped = _ens._wrap_fitted_inner(spec, inner_clone, spec["fitted_params"], y_train_full[valid], base_full[valid], getattr(inner, "group_column", None))
+                wrapped = _ens._wrap_fitted_inner(spec, inner_clone, spec["fitted_params"], y_train_full[valid], base_full[valid], getattr(inner, "group_column", None),
+                                                  train_X, valid)
                 preds = wrapped.predict(external_holdout_X, inner_X=X_holdout_t)
             else:
                 inner_clone = clone(inner)
