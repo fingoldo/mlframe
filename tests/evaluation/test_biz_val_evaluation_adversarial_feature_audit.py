@@ -97,7 +97,7 @@ def test_biz_val_adversarial_feature_audit_stability_folds_default_omitted_is_bi
 
     assert baseline["adversarial_auc"] == repeat["adversarial_auc"]
     assert "stability_folds" not in baseline
-    assert list(zip(baseline['audited_features'], repeat['audited_features'])), "the loop below must iterate at least once"
+    assert list(zip(baseline["audited_features"], repeat["audited_features"])), "the loop below must iterate at least once"
     for a, b in zip(baseline["audited_features"], repeat["audited_features"]):
         assert a["name"] == b["name"]
         assert a["private_auc_delta_when_dropped"] == b["private_auc_delta_when_dropped"]

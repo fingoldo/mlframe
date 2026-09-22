@@ -43,9 +43,7 @@ def _singleton_group_split(seed: int = 0):
 
 def test_singleton_groups_no_longer_emit_zero_or_one():
     frame, y_train, _y_val = _singleton_group_split()
-    _train, val_pred, _test, _diag = _per_group_predict(
-        frame, frame, frame, y_train, "g", "binary_classification"
-    )
+    _train, val_pred, _test, _diag = _per_group_predict(frame, frame, frame, y_train, "g", "binary_classification")
     assert not np.any(val_pred == 0.0), "a one-row group must not predict a certain negative"
     assert not np.any(val_pred == 1.0), "a one-row group must not predict a certain positive"
     # Every group is a singleton, so nothing supports trusting a group over the global prior and the estimated
@@ -59,9 +57,7 @@ def test_singleton_groups_no_longer_emit_zero_or_one():
 def test_exploss_no_longer_explodes_on_singleton_groups():
     """The metric the production log showed jumping 0.88 -> 18.29 must stay in the same order as log loss."""
     frame, y_train, y_val = _singleton_group_split()
-    _train, val_pred, _test, _diag = _per_group_predict(
-        frame, frame, frame, y_train, "g", "binary_classification"
-    )
+    _train, val_pred, _test, _diag = _per_group_predict(frame, frame, frame, y_train, "g", "binary_classification")
     assert exploss(y_val, val_pred) < 2.0, "an unbounded scoring rule must not be dominated by the clip constant"
 
 
@@ -111,9 +107,7 @@ def test_polars_and_pandas_paths_agree():
 def test_unseen_groups_still_fall_back_to_the_global_mean():
     frame, y_train, _y_val = _singleton_group_split(seed=5)
     unseen = pd.DataFrame({"g": np.array([f"unseen{i}" for i in range(200)])})
-    _train, val_pred, _test, _diag = _per_group_predict(
-        frame, unseen, unseen, y_train, "g", "binary_classification"
-    )
+    _train, val_pred, _test, _diag = _per_group_predict(frame, unseen, unseen, y_train, "g", "binary_classification")
     assert np.allclose(val_pred, y_train.mean())
 
 

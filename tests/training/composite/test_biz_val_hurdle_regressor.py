@@ -37,9 +37,7 @@ def _r2(y: np.ndarray, p: np.ndarray) -> float:
 def _fit_all(sigma: float) -> dict:
     X, y = _zero_inflated(2 * N_TRAIN, sigma)
     Xtr, ytr, Xte, yte = X[:N_TRAIN], y[:N_TRAIN], X[N_TRAIN:], y[N_TRAIN:]
-    hurdle = HurdleRegressor(
-        classifier=HistGradientBoostingClassifier(**_KW), regressor=HistGradientBoostingRegressor(**_KW)
-    ).fit(Xtr, ytr)
+    hurdle = HurdleRegressor(classifier=HistGradientBoostingClassifier(**_KW), regressor=HistGradientBoostingRegressor(**_KW)).fit(Xtr, ytr)
     return {
         "y": yte,
         "hurdle": hurdle.predict(Xte),

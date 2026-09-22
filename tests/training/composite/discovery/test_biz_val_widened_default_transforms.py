@@ -85,8 +85,7 @@ def test_biz_val_widened_transforms_gaussian_copula_beats_narrow_old_list():
     # no worse than the narrow list's, and a gaussian_copula that is competitive rather than an also-ran.
     best_new_rmse = min(s.honest_holdout_rmse for s in disc_new.specs_ if s.honest_holdout_rmse is not None)
     assert best_new_rmse <= best_old_rmse, (
-        f"the widened pool's best spec (honest y-RMSE={best_new_rmse}) must not lose to the best narrow-old-list spec "
-        f"(honest y-RMSE={best_old_rmse})"
+        f"the widened pool's best spec (honest y-RMSE={best_new_rmse}) must not lose to the best narrow-old-list spec " f"(honest y-RMSE={best_old_rmse})"
     )
     assert gc_rmse == pytest.approx(best_old_rmse, rel=0.02), (
         f"gaussian_copula_residual (honest y-RMSE={gc_rmse}) must stay within 2% of the best narrow-old-list spec "

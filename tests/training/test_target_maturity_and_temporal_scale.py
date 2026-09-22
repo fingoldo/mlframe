@@ -69,9 +69,7 @@ def test_temporal_audit_keeps_absolute_threshold_for_binary_targets():
     ts, days, rng = _timeline()
     p = np.where(days < 90, 0.20, 0.40)
     y = (rng.random(N) < p).astype(int)
-    result = audit_target_over_time(
-        _frame(ts, y), "ts", "y", granularity="week", target_type="binary_classification"
-    )
+    result = audit_target_over_time(_frame(ts, y), "ts", "y", granularity="week", target_type="binary_classification")
     unstable = [w for w in result.warnings if "NOT stable" in w]
     assert unstable, result.warnings
     assert "rates are probabilities" in unstable[0]
@@ -121,9 +119,7 @@ def test_maturity_audit_reports_stable_for_a_rising_target():
 
 def test_maturity_audit_on_the_production_bin_profile():
     """The weekly means logged for ``target_total_charge`` (130.451 / 84.484 / 40.984) read as censoring."""
-    result = audit_binned_target_maturity(
-        bin_stats=[130.451] * 4 + [84.484] * 11 + [40.984] * 9, target_name="target_total_charge"
-    )
+    result = audit_binned_target_maturity(bin_stats=[130.451] * 4 + [84.484] * 11 + [40.984] * 9, target_name="target_total_charge")
     assert result.verdict == "censoring_likely", (result.verdict, result.origin_ratio)
 
 
@@ -165,9 +161,7 @@ def test_dropped_bin_warning_names_the_bins_and_the_covered_window():
     # Thin out the newest fortnight so its bins fall under the 0.5x-median-n_obs filter.
     keep = (days < DAYS - 14) | (rng.random(N) < 0.05)
     y = rng.gamma(2.0, 50.0, N)
-    result = audit_target_over_time(
-        _frame(ts[keep], y[keep]), "ts", "y", granularity="week", target_type="regression"
-    )
+    result = audit_target_over_time(_frame(ts[keep], y[keep]), "ts", "y", granularity="week", target_type="regression")
     dropped = [w for w in result.warnings if "dropped from the audit" in w]
     assert dropped, result.warnings
     assert "the audit therefore covers" in dropped[0]

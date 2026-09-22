@@ -65,7 +65,7 @@ def test_preset_unary_operators_are_strings(preset):
     # for custom operators. Both must be `str`.
     """Preset unary operators are strings."""
     out = get_preset_kwargs(preset)
-    assert len(out['unary_operators']) > 0, "the loop below must iterate at least once"
+    assert len(out["unary_operators"]) > 0, "the loop below must iterate at least once"
     for op in out["unary_operators"]:
         assert isinstance(op, str), f"unary op {op!r} not a string in preset {preset!r}"
 
@@ -74,7 +74,7 @@ def test_preset_unary_operators_are_strings(preset):
 def test_preset_binary_operators_are_strings(preset):
     """Preset binary operators are strings."""
     out = get_preset_kwargs(preset)
-    assert len(out['binary_operators']) > 0, "the loop below must iterate at least once"
+    assert len(out["binary_operators"]) > 0, "the loop below must iterate at least once"
     for op in out["binary_operators"]:
         assert isinstance(op, str), f"binary op {op!r} not a string in preset {preset!r}"
 

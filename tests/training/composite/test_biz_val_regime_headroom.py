@@ -91,7 +91,7 @@ def test_no_lag_failsafe_is_raw():
     comp = y + rng.normal(0, 0.4, n)
     rep = regime_headroom_map(y, raw, comp, axis_values=axis, n_bins=4)
     assert rep["has_lag"] is False
-    assert len(rep['bins']) > 0
+    assert len(rep["bins"]) > 0
     for b in rep["bins"]:
         assert b["rmse_lag"] is None
         assert b["failsafe_rmse"] == pytest.approx(b["rmse_raw"])
@@ -174,7 +174,7 @@ def test_group_ids_counts_distinct_per_bin():
     y = rng.normal(0, 1, n)
     gids = rng.integers(0, 5, n)
     rep = regime_headroom_map(y, y + 1.0, y + 0.5, axis_values=axis, n_bins=4, group_ids=gids)
-    assert len(rep['bins']) > 0
+    assert len(rep["bins"]) > 0
     for b in rep["bins"]:
         assert b["n_groups"] is not None
         assert 1 <= b["n_groups"] <= 5

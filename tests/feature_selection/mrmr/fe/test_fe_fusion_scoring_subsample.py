@@ -108,6 +108,6 @@ def test_fusion_scoring_subsample_keeps_output_full_n():
     if captured["admitted"] is None:
         pytest.skip("resident fusion twin admitted no compound (CPU fallback or no fusion on this box)")
     assert cap < n
-    assert len(captured['admitted']) > 0
+    assert len(captured["admitted"]) > 0
     for _len in captured["admitted"]:
         assert _len == n, f"admitted compound values are {_len} rows, must be full-n {n} (scoring subsample leaked)"
