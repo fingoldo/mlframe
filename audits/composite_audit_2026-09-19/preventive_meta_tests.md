@@ -386,7 +386,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. A post-save mutation that is intentionally not persisted (a transient report) is allowlisted with a reason.
 - **Runtime**: under 1 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New tests/test_meta/test_persist_after_mutate.py. An AST walk of `training/core` classifies mutators: functions that assign into `models[...]` / `metadata[...]` (bare or as an attribute) or set `.model`, closed transitively over calls, so the composite wrap in `_run_composite_target_wrapping` reaches `run_composite_post_processing`. Persisters are the save entry points plus any function whose last save follows its last mutation. In every `_main_train_suite*.py` function that saves, no mutator may be called after the last persister; `_ALLOWED_LATE` takes intentional exceptions with a reason (none today). Leg (b), the `entry.model = wrapper` assignments, is covered through that closure: the test asserts the wrap counts as a mutation. Proof: deleting the `persist_after_composite_post(ctx)` re-save (the INT-02 shape) fails the test at `run_recurrent_finalize_and_composite_post:397:run_composite_post_processing`; a canary pins the detector on the same shape.
 
 ### PMT-22 [P1] One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts
 - **Asserts**: one tiny suite run (TVT fixture, `mlframe_models=["linear","lgb"]`, `transforms=["linear_residual"]`, `max_total_composite_targets=1`, `data_dir=tmp_path`), plus one precomputed-bundle rerun and one grouped variant with MoE on. After these runs:
