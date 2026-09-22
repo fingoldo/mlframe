@@ -97,9 +97,13 @@ def crps(y: np.ndarray, y_preds: np.ndarray) -> float:
 # Core functionality
 # ----------------------------------------------------------------------------------------------------------------------------
 
+# Everything here except BR is computed on the ~nbins BINNED reliability-curve points, not on the observations, and is
+# named "_curve" so it is not read as the per-sample metric of the same name: fed two length-20 pocket vectors, CRPS
+# degenerates to the mean absolute reliability-curve gap - roughly an order of magnitude below a per-sample CRPS on
+# the same data - and R2 becomes the fit of the curve to the diagonal.
 METRICS_TO_SHOW = {
     #
-    "R2": fast_r2_score,
+    "R2_curve": fast_r2_score,
     # "EV": explained_variance_score,
     #
     # "MSE": mean_squared_error,
@@ -109,7 +113,7 @@ METRICS_TO_SHOW = {
     # "MEAE": median_absolute_error,
     "BR": fast_brier_score_loss,
     # "MI": mutual_information_score,
-    "CRPS": crps,
+    "CRPS_curve": crps,
     #
     # "MPL": mean_pinball_loss,
     # "SEP": get_separation_percent,
