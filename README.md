@@ -627,7 +627,10 @@ quantitative business-value test under `tests/`:
   zero is gone. Removes the collapse a log / cbrt target shows on a target that
   is mostly exact zeros, and exposes both halves (`predict_event_proba`,
   `predict_magnitude`) -- often the two business questions anyway ("will it
-  happen?" and "how big if it does?").
+  happen?" and "how big if it does?"). `train_mlframe_models_suite` adds one
+  automatically for every regression target that sits on a point mass at its
+  minimum for at least half its train rows, and trains it on those targets only
+  (`TrainingBehaviorConfig.hurdle_for_zero_inflated`, default ON).
 - **`mlframe.training.targets.target_maturity_audit`** — tells a still-accruing
   (right-censored) target apart from a genuine regime change. Both make the
   marginal decline toward the present, and the time axis cannot separate them

@@ -526,6 +526,7 @@ def run_distribution_analyzer_and_estimator_injection(
     """
     from ._main_train_suite_target_distribution import _run_target_distribution_analyzer
     from ..composite._estimator_dispatch import maybe_inject_distribution_driven_estimator
+    from ..composite._hurdle_dispatch import maybe_inject_hurdle_for_zero_inflated
 
     hyperparams_config, train_df, val_df, test_df = _run_target_distribution_analyzer(
         enable_target_distribution_analyzer=enable_target_distribution_analyzer,
@@ -537,6 +538,10 @@ def run_distribution_analyzer_and_estimator_injection(
     mlframe_models = maybe_inject_distribution_driven_estimator(
         ctx=ctx, metadata=metadata, mlframe_models=mlframe_models, target_by_type=target_by_type,
         train_idx=ctx.train_idx, train_df=train_df, behavior_config=behavior_config,
+    )
+    mlframe_models = maybe_inject_hurdle_for_zero_inflated(
+        ctx=ctx, metadata=metadata, mlframe_models=mlframe_models, target_by_type=target_by_type,
+        train_idx=ctx.train_idx, behavior_config=behavior_config,
     )
     return hyperparams_config, train_df, val_df, test_df, mlframe_models
 

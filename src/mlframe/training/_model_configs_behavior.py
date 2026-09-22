@@ -95,6 +95,12 @@ class TrainingBehaviorConfig(BaseConfig):
     # actually fit/evaluated, not merely advised. Regression-only; the base column is auto-picked (max |corr| to y).
     # Default OFF -- it adds one extra model per regression target. Requires ``enable_target_distribution_analyzer``.
     distribution_driven_estimator: bool = False
+    # When a regression target sits on a point mass at its minimum for at least half its train rows (a zero-inflated
+    # amount), also train a HurdleRegressor for that target: a classifier for whether the event happened and a regressor
+    # for its magnitude. Against a plain LightGBM on raw y it ranks rows better and never predicts a negative amount, at
+    # equal RMSE (test_biz_val_hurdle_suite); against log-scale fits, which collapse on this shape, it keeps the spread.
+    # Default ON: it adds one model, and only for targets of that shape.
+    hurdle_for_zero_inflated: bool = True
     prefer_cpu_for_lightgbm: bool = True
     prefer_cpu_for_xgboost: bool = False
     prefer_calibrated_classifiers: bool = True
