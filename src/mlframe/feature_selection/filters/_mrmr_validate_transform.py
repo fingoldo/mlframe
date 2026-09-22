@@ -27,10 +27,16 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 _RAW_SEED_ONLY_RECIPE_KINDS = frozenset({"mi_greedy_transform"})
 
 
+# Values the validator accepts because they are part of the documented menu, but which no implementation distinguishes yet: a fit asked for
+# either of these runs the fleuret redundancy path and produces identical output. Silently aliasing is the problem; saying so is the fix.
+_UNIMPLEMENTED_REDUNDANCY_ALGOS = {
+    "pld_max": "max over the selected set",
+    "pld_mean": "mean over the selected set",
+}
+
+
 def _validate_string_params(self):
-    """Raise ValueError on bad constructor strings. Each branch lists the
-    accepted values verbatim so the error message is actionable. fix audit
-    row FS-P2-1."""
+    """Raise ValueError on bad constructor strings. Each branch lists the accepted values verbatim so the error message is actionable."""
     _checks = (
         ("quantization_method", self._VALID_QUANTIZATION_METHODS),
         ("nan_strategy", self._VALID_NAN_STRATEGIES),
@@ -149,6 +155,14 @@ def _validate_string_params(self):
                 raise ValueError(
                     f"MRMR: cluster_aggregate_methods contains {_m!r}, not a recognised value. " f"Valid values: {self._VALID_CLUSTER_AGGREGATE_METHODS}."
                 )
+
+    _redundancy = getattr(self, "mrmr_redundancy_algo", None)
+    if _redundancy in _UNIMPLEMENTED_REDUNDANCY_ALGOS:
+        logger.warning(
+            "mrmr_redundancy_algo=%r (%s) is accepted but not implemented: the fit runs the 'fleuret' redundancy path and the "
+            "result is identical to mrmr_redundancy_algo='fleuret'. Set it explicitly if that is what you want.",
+            _redundancy, _UNIMPLEMENTED_REDUNDANCY_ALGOS[_redundancy],
+        )
 
 def _validate_hybrid_orth_string_params(self) -> None:
     """Raise ValueError on an unrecognised hybrid-orth basis / kernel / aggregator / scorer string, listing the accepted values."""

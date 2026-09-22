@@ -383,6 +383,8 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "embedding_passthrough_detect_embeddings": True,
     "embedding_passthrough_detect_text": True,
     # Fitted-attribute mirror: an unpickled pre-feature fit has no passthrough roster; default empty so transform's re-attach loop is a no-op.
+    # False, not None: an estimator from before this flag existed did run the audit, so "it did not fail" is the truthful default.
+    "degenerate_audit_failed_": False,
     "_passthrough_features_": [],
 }
 

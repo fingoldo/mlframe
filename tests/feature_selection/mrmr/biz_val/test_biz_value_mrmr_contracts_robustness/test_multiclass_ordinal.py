@@ -86,7 +86,9 @@ from sklearn.metrics import f1_score, recall_score
 # Constants
 # ---------------------------------------------------------------------------
 
-N_TOTAL = 2_500
+# 5000 rows so the 10% minority class leaves ~500 rows overall and ~50 in the holdout: enough for a per-class recall to be a
+# measurement rather than an estimate, per the rare-imbalance sizing rule.
+N_TOTAL = 5_000
 N_NOISE = 5
 N_HOLDOUT = 500
 SEEDS = (1, 7, 13, 42, 101)
@@ -359,10 +361,10 @@ class TestImbalancedMulticlassMinorityRecall:
         X, y = _build_imbalanced_3class_data(seed)
         X_tr, X_te = X.iloc[:-N_HOLDOUT].copy(), X.iloc[-N_HOLDOUT:].copy()
         y_tr, y_te = y.iloc[:-N_HOLDOUT], y.iloc[-N_HOLDOUT:]
-        # Sanity: holdout must contain at least a few minority samples
-        # for the recall number to be meaningful.
-        if int((y_te == 2).sum()) < 10:
-            pytest.skip(f"holdout has <10 minority rows on seed={seed}; recall estimate would be unstable")
+        # The fixture is sized so the holdout always carries enough minority rows for the recall to mean something; assert that rather than
+        # skipping the seeds where it does not, which hid an undersized fixture behind a green run.
+        n_minority = int((y_te == 2).sum())
+        assert n_minority >= 25, f"seed={seed}: holdout carries only {n_minority} minority rows; the fixture is undersized for this metric"
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X_tr, y_tr)
         Xs_tr = sel.transform(X_tr)

@@ -600,9 +600,12 @@ class _MRMRFitHelpersMixin:
         try:
             from .._mrmr_degenerate import audit_degenerate_columns
             self.degenerate_columns_ = audit_degenerate_columns(X)
+            self.degenerate_audit_failed_ = False
         except Exception as exc:
             logger.debug("mrmr multioutput: degenerate-column audit failed (diagnostic only): %r", exc, exc_info=True)
+            # An empty dict alone cannot be told apart from "audited, found nothing".
             self.degenerate_columns_ = {}
+            self.degenerate_audit_failed_ = True
         _seed_resolved = self._effective_random_seed()
         self.provenance_ = {
             "step": "mrmr_multioutput",

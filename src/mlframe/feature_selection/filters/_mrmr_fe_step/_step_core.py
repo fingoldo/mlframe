@@ -70,21 +70,35 @@ def _free_gpu_fe_mempool() -> bool:
     try:
         from ..info_theory._cmi_cuda import clear_cmi_resident_cache
         clear_cmi_resident_cache()
-    except Exception as exc:  # nosec B110 - optional dependency import guard
-        logger.debug("mrmr: clearing the CMI resident device cache at FE-step teardown failed (best-effort): %r", exc, exc_info=True)
+    except ImportError as exc:  # the CUDA CMI module is genuinely absent
+        logger.debug("mrmr: no CMI resident device cache to clear at FE-step teardown (%s)", exc)
+    except Exception as exc:
+        # NOT a missing dependency: the module imported and the clear itself failed, which is a device or driver fault worth seeing.
+        logger.warning("mrmr: clearing the CMI resident device cache at FE-step teardown failed (%s: %s); VRAM may not be reclaimed", type(exc).__name__, exc)
     # FE operand resident cache: drop the fit-constant operand device copies (y / z / base columns) so their
     # device arrays carry no live reference -> free_all_blocks below can reclaim them (a fit-scoped cache).
     try:
         from .._fe_resident_operands import clear_fe_resident_operands
         clear_fe_resident_operands()
-    except Exception as exc:  # nosec B110 - optional dependency import guard
-        logger.debug("mrmr: clearing FE resident operands at teardown failed (best-effort): %r", exc, exc_info=True)
+    except ImportError as exc:  # the resident-operand module is genuinely absent
+        logger.debug("mrmr: no FE resident operands to clear at teardown (%s)", exc)
+    except Exception as exc:
+        logger.warning("mrmr: clearing FE resident operands at teardown failed (%s: %s); VRAM may not be reclaimed", type(exc).__name__, exc)
     try:
         import cupy as _cp
         _cp.get_default_memory_pool().free_all_blocks()
         return True
+    except ImportError as exc:  # cupy not installed: this is the CPU-only path, not a failure
+        logger.debug("mrmr: cupy is not available, so there is no device pool to free at FE-step teardown (%s)", exc)
+        return False
     except Exception as exc:
-        logger.debug("mrmr: cupy default-pool free_all_blocks() at FE-step teardown failed (VRAM will not be reclaimed this step): %r", exc, exc_info=True)
+        # cupy imported and the free itself failed. Reported at warning because the documented consequence - the retained pool sitting at its
+        # high-water mark and the allocator thrashing, measured as 11.2s -> 31.8s -> 32.3s across consecutive fits - is otherwise invisible.
+        logger.warning(
+            "mrmr: cupy free_all_blocks() at FE-step teardown failed (%s: %s); VRAM will not be reclaimed this step and repeated fits will "
+            "degrade as the pool stays at its high-water mark",
+            type(exc).__name__, exc,
+        )
         return False
 
 

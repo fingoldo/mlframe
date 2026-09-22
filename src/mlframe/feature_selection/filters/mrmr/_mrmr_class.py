@@ -3603,9 +3603,12 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # diagnostic failure can never break a fit that would otherwise succeed.
         try:
             self.degenerate_columns_ = audit_degenerate_columns(X)
+            self.degenerate_audit_failed_ = False
         except Exception as exc:
             logger.debug("mrmr: degenerate-column audit failed (diagnostic only): %r", exc, exc_info=True)
+            # An empty dict alone cannot be told apart from "audited, found nothing", which is the answer a reader most wants.
             self.degenerate_columns_ = {}
+            self.degenerate_audit_failed_ = True
 
         # #2 cross-target identity cache.
         _identity_skip = bool(getattr(self, "mrmr_skip_when_prior_was_identity", False))
