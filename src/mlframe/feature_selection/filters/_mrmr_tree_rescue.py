@@ -142,28 +142,44 @@ class MRMRTreeRescued(MRMR):
             m = Est(n_estimators=self.tree_rescue_n_estimators, max_depth=self.tree_rescue_max_depth,
                     num_leaves=2 ** self.tree_rescue_max_depth, learning_rate=0.1,
                     n_jobs=getattr(self, "n_jobs", -1), verbose=-1, random_state=int(seed))
-            m.fit(Xnum, yv)
-            imp = np.asarray(m.feature_importances_, dtype=float)
-            order = _rank_by_importance(imp)
-            # respect factors_to_use if the user restricted the pool: filter the FULL ranking BEFORE the
-            # top-k cut, so an allowed feature ranked below the global top-k is still eligible for rescue
-            # (truncating first dropped allowed-but-globally-lower features -> under-added).
+            # ``factors_to_use`` restricts the FIT, not just the ranking. Fitting on the full frame and filtering afterwards let excluded
+            # columns consume split budget and shift the importances of the allowed ones, so the exclusion was a display filter for this path.
             allowed = getattr(self, "factors_to_use", None)
+            allowed = None if allowed is None else sorted({int(a) for a in allowed if 0 <= int(a) < Xnum.shape[1]})
+            if allowed is not None and not allowed:
+                return  # every column excluded: nothing to rescue from
+            _fit_cols = np.asarray(allowed, dtype=np.int64) if allowed is not None else None
+            m.fit(Xnum if _fit_cols is None else Xnum[:, _fit_cols], yv)
+            _imp_fit = np.asarray(m.feature_importances_, dtype=float)
+            if _fit_cols is None:
+                imp = _imp_fit
+            else:
+                # Scatter back to full width so the ranking, the top-k cut and the logged shares all speak in the caller's column indices.
+                imp = np.zeros(Xnum.shape[1], dtype=float)
+                imp[_fit_cols] = _imp_fit
+            order = _rank_by_importance(imp)
             if allowed is not None:
-                allowed = set(int(a) for a in allowed)
-                order = [i for i in order if i in allowed]
+                _allowed_set = set(allowed)
+                order = [i for i in order if i in _allowed_set]
             order = order[: self.tree_rescue_top_k]
             existing = {int(i) for i in np.asarray(self.support_, dtype=np.int64)}
             added = [i for i in order if i not in existing]
             if added:
                 self.support_ = np.concatenate([np.asarray(self.support_, dtype=np.int64), np.asarray(added, dtype=np.int64)])
                 self.n_features_ = int(self.support_.size)
+                # Report what each rescued feature was rescued ON. The importance is IN-SCREEN: the GBM saw the same rows MRMR did, so it
+                # carries a winner's-curse bias and is evidence to read sceptically, not a held-out gain. Saying so is the point: a count and
+                # a list of names gave the reader no way to tell whether a rescued feature was worth anything.
+                _imp_total = float(imp.sum())
+                _shares = {int(i): (float(imp[i]) / _imp_total if _imp_total > 0.0 else 0.0) for i in added}
+                self.tree_rescue_importances_ = {(str(cols[i]) if cols else int(i)): _shares[int(i)] for i in added}
                 logger.info(
-                    "[MRMR] tree-rescue: under-selected (%d of %d raw) -> added %d shallow-GBM " "importance feature(s) [%s]",
+                    "[MRMR] tree-rescue: under-selected (%d of %d raw) -> added %d shallow-GBM feature(s) on IN-SCREEN importance "
+                    "(same rows as the fit, so biased upward; not a held-out gain): %s",
                     len(existing),
                     int(self.n_features_in_),
                     len(added),
-                    ", ".join(str(cols[i]) for i in added[:8]) if cols else str(added[:8]),
+                    ", ".join(f"{str(cols[i]) if cols else i}={_shares[int(i)]:.4f}" for i in added[:8]),
                 )
         except Exception as e:  # never let the rescue break a successful MRMR fit
             warnings.warn(f"MRMRTreeRescued: tree-rescue degraded ({type(e).__name__}: {e}); selection unchanged", stacklevel=2)

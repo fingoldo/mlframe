@@ -82,8 +82,8 @@ _VALID_RFECV_SELECTION_RULES = ("auto", "argmax", "one_se_min", "one_se_max")
 # behaviour byte-for-byte; the other 12 entries route the univariate
 # basis-selection stage through the Layers listed alongside.
 _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS = (
-    "plug_in",  # Layer 21 (default)
-    "cmim",  # Layer 74
+    "plug_in",  # Layer 21
+    "cmim",  # Layer 74 (default: 5/7 dataset wins in the L83 bake-off, see recommend_default_scorer)
     "jmim",  # Layer 72
     "tc",  # Layer 73
     "ksg",  # Layer 65

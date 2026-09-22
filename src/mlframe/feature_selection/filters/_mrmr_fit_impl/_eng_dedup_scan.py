@@ -7,6 +7,7 @@ and so compared the kernel against a policy production no longer runs.
 """
 from __future__ import annotations
 
+from functools import cmp_to_key
 from typing import Callable
 
 import numpy as np
@@ -92,7 +93,25 @@ def scan_engineered_duplicates(
         return _row
 
     _eng_fully_finite: dict[str, bool] = {}
-    for _c in _eng_cols_appended:
+    # Near-duplicate at a 0.99 rank correlation is NOT transitive: A~B and B~C with A!~C is routine at that threshold. A single pass that
+    # compares each candidate only against what is currently kept therefore returns a survivor SET that depends on the order candidates were
+    # emitted in (A,B,C keeps {A, C}; B,A,C keeps {B} alone), and that order is whatever the upstream families happened to append, which
+    # shifts whenever one of their top_k does. Processing strongest-first makes the survivor set a function of the values instead: the
+    # preferred column of any colliding cluster is always already kept when the others arrive, so it is never evicted by a weaker one.
+    # ``_eng_dedup_prefer`` reports False both ways when MI is unavailable, which sorts as equal and leaves those columns in emission order,
+    # exactly the previous behaviour for an unscored cluster.
+    def _prefer_cmp(_a: str, _b: str) -> int:
+        """Order two candidates strongest-first, treating an unscored pair as equal so the sort stays stable."""
+        if _a == _b:
+            return 0
+        if _eng_dedup_prefer(_a, _b):
+            return -1
+        if _eng_dedup_prefer(_b, _a):
+            return 1
+        return 0
+
+    _scan_order = sorted(_eng_cols_appended, key=cmp_to_key(_prefer_cmp))
+    for _c in _scan_order:
         if _c in _eng_drop:
             continue
         if _c in _adaptive_fourier_keep:
