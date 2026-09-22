@@ -18,11 +18,11 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 22 | 0 | 8 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 17 | 0 | 5 | 0 | 0 |
-| `suite_integration.md` | 19 | 13 | 0 | 6 | 0 | 0 |
+| `suite_integration.md` | 19 | 14 | 0 | 5 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 12 | 14 | 15 | 0 | 0 |
-| **Total** | **179** | **110** | **25** | **43** | **1** | **0** |
+| **Total** | **179** | **111** | **25** | **42** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -137,7 +137,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `INT-14` | The discovery "winning-spec" charts plot y and T over all rows, including test rows and median-imputed T values | charts plot train rows with a real T; imputed fill kept out of charts and dedup |
 | **RESOLVED** | P3 | `INT-15` | Two config fields are accepted and documented as effective but do nothing, with no warning | non-default values warn; misleading config comment fixed; allowlist entries removed |
 | **TODO** | P3 | `INT-16` | Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on | |
-| **TODO** | P3 | `INT-17` | The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target | |
+| **RESOLVED** | P3 | `INT-17` | The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target | DISCOVERY_ALGO_VERSION in the cache key + source-hash bump gate; versions via importlib.metadata |
 | **TODO** | P3 | `INT-18` | A composite spec name that equals an existing target name silently overwrites that target's values | |
 | **TODO** | P3 | `INT-19` | The predict-time composite env-signature check warns on any patch or Python bump, contrary to its documented major/minor policy | |
 

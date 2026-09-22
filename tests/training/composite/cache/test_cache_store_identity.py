@@ -150,3 +150,33 @@ def test_discovery_cache_survives_pickle_roundtrip(tmp_path):
     # The restored lock must actually work (not a stale/shared reference from the original).
     with restored._init_lock:
         assert restored._init_lock.locked()
+
+
+def test_the_discovery_cache_signature_carries_the_algo_version_and_imports_no_booster():
+    """The signature includes ``DISCOVERY_ALGO_VERSION`` (a bump invalidates warm caches) and computing it imports no booster."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[4]
+    script = (
+        "import sys\n"
+        "from mlframe.training.configs import CompositeTargetDiscoveryConfig\n"
+        "from mlframe.training.core._phase_composite_discovery_helpers import _discovery_config_signature\n"
+        "import mlframe.training.composite.discovery._algo_version as av\n"
+        # Evict the boosters the imports above loaded, so only an import made BY the signature call shows up.
+        "for m in ('catboost', 'lightgbm', 'xgboost'):\n"
+        "    sys.modules.pop(m, None)\n"
+        "before = set()\n"
+        "a = _discovery_config_signature(CompositeTargetDiscoveryConfig(enabled=True))\n"
+        "loaded = {m for m in ('catboost', 'lightgbm', 'xgboost') if m in sys.modules} - before\n"
+        "av.DISCOVERY_ALGO_VERSION += 1\n"
+        "b = _discovery_config_signature(CompositeTargetDiscoveryConfig(enabled=True))\n"
+        "print(sorted(loaded), a != b)\n"
+    )
+    import os
+
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(root / "src"), str(root)]))
+    out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env, timeout=300, check=False)
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert out.stdout.strip().splitlines()[-1] == "[] True", out.stdout
