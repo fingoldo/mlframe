@@ -215,12 +215,14 @@ def predict_mlframe_models_suite(
         _name_set = set(model_names)
         _model_files_for_native_probe = [_f for _f in _all_model_files if os.path.basename(_f).replace(".dump", "") in _name_set]
         if not _model_files_for_native_probe:
-            logger.warning(
-                "predict_mlframe_models_suite: model_names=%r matched 0 of %d .dump files in %s; falling back "
-                "to loading all models. Check for typos / slug mismatch.",
-                model_names, len(_all_model_files), models_path,
+            # An explicit filter that matches nothing is a caller error. Falling back to every model served a
+            # different, unrequested prediction (the full-suite ensemble in place of one champion) on a WARN that a
+            # production log filter drops.
+            _available = sorted(os.path.basename(_f).replace(".dump", "") for _f in _all_model_files)
+            raise ValueError(
+                f"predict_mlframe_models_suite: model_names={list(model_names)!r} matched none of the {len(_available)} "
+                f"model(s) in {models_path}. Available: {_available[:20]}{' ...' if len(_available) > 20 else ''}"
             )
-            _model_files_for_native_probe = _all_model_files
     else:
         _model_files_for_native_probe = _all_model_files
     _loaded_models_cache: dict[str, Any] = {}
@@ -616,7 +618,16 @@ def predict_mlframe_models_suite(
 
         if avg_probs.ndim == 2:
             if avg_probs.shape[1] == 2:
-                ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                # The tuned threshold of the suite's target when there is exactly one, and ``>=`` like every other
+                # decision site: this used a fixed 0.5 with a strict ``>``, so on a target tuned to 0.18 the suite-wide
+                # key labelled at 0.5 while per_target_predictions beside it labelled at 0.18. A multi-target suite
+                # has no single tuned value for a cross-target blend and keeps the default.
+                _suite_keys = list(per_target_probs.keys())
+                _suite_thr = (
+                    get_decision_threshold(metadata, f"{_suite_keys[0][0]}|{_suite_keys[0][1]}", DEFAULT_PROBABILITY_THRESHOLD)
+                    if len(_suite_keys) == 1 else DEFAULT_PROBABILITY_THRESHOLD
+                )
+                ensemble_preds = (avg_probs[:, 1] >= _suite_thr).astype(int)
             else:
                 # NaN-safe argmax for the suite-wide ensemble row: same reasoning as the
                 # per-target site above; plain np.argmax sent NaN rows to class 0.
