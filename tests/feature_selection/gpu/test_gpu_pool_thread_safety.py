@@ -70,6 +70,7 @@ def test_concurrent_callers_get_the_same_answers_as_serial_ones():
     for t in threads:
         t.join(timeout=120)
     assert not any(t.is_alive() for t in threads), "a worker did not finish: the pool lock must not deadlock"
-    assert len(expected) == len(got) == len(beds) == 4
-    for i, (exp, actual) in enumerate(zip(expected, got)):
+    pairs = list(zip(expected, got))
+    assert pairs and len(pairs) == len(beds) == 4
+    for i, (exp, actual) in enumerate(pairs):
         assert actual == pytest.approx(exp, rel=1e-9), f"bed {i}: concurrent MI {actual} != serial MI {exp}"

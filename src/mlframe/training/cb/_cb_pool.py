@@ -361,6 +361,18 @@ def _wrap_predict_result(result: Any, method: str = "predict", classes_: Any = N
     return np.asarray(result)
 
 
+def _polars_fastpath_flag_reason(model) -> str:
+    """Where a model's "use pandas from now on" flag came from, for the log line that announces it.
+
+    It is raised either by an observed dispatch miss on THIS model or, before any predict, by the installed build
+    failing the polars probe. A production log showed the message asserting an earlier miss that had never happened,
+    on a build the same line reported as working.
+    """
+    if getattr(model, "_mlframe_polars_fastpath_miss_observed", False):
+        return "this model hit the polars-fastpath dispatch miss on an earlier call"
+    return "the installed build was pre-flagged as lacking the polars fastpath (no miss was observed on this model)"
+
+
 def _predict_with_fallback(
     model: Any,
     X: Any,
@@ -459,19 +471,11 @@ def _predict_with_fallback(
         except Exception as exc:
             logger.debug("polars-native probe failed (%s: %s); the message omits the library's own answer", type(exc).__name__, exc)
             _native = None
-        # Say WHERE the flag came from, not just that it is set. It is raised either by an observed dispatch miss on
-        # THIS model or, before any predict, by the installed build failing the polars probe. A production log showed
-        # the message asserting an earlier miss that had never happened, on a build the same line reported as working.
-        _observed = getattr(model, "_mlframe_polars_fastpath_miss_observed", False)
         log_throttle(
             logger, "cb_sticky_pandas_predict", logging.INFO,
             "  [predict] CatBoost frames are converted to pandas from here on because %s. The installed CatBoost %s "
             "accept a polars frame in a probe.",
-            (
-                "this model hit the polars-fastpath dispatch miss on an earlier call"
-                if _observed
-                else "the installed build was pre-flagged as lacking the polars fastpath (no miss was observed on this model)"
-            ),
+            _polars_fastpath_flag_reason(model),
             {True: "DOES", False: "does NOT", None: "could not be probed to"}.get(_native, "could not be probed to"),
         )
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)

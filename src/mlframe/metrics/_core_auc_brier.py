@@ -534,19 +534,6 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
     return _resampler_fast
 
 
-def _binary_labels_01(y_true):
-    """``y_true`` as {0, 1} labels, positive = 1 - the convention ``fast_roc_curve`` and sklearn's default ``pos_label``
-    use. The AUC kernels count ``tps += y`` / ``fps += 1 - y``, so {-1, 1} labels gave NaN while sklearn returned the
-    real AUC on the same data. Labels already in [0, 1] (the overwhelmingly common case) pass through untouched; the
-    min/max probe is O(n) against the kernel's O(n log n) sort."""
-    y = np.asarray(y_true)
-    if y.dtype == np.bool_ or y.size == 0:
-        return y
-    if y.min() < 0 or y.max() > 1:
-        return np.ascontiguousarray(y == 1, dtype=np.float64)
-    return y
-
-
 def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     """Compute ROC AUC efficiently using numba.
 
@@ -990,6 +977,7 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
 
 # Brier score kernels + scorers live in the sibling ``_core_brier`` (carved out to keep this module
 # under the 1k LOC ceiling); re-exported here so existing importers of this module are unaffected.
+from ._auc_labels import _binary_labels_01
 from ._core_brier import (  # noqa: F401
     _fast_brier_checked_par,
     _fast_brier_checked_seq,

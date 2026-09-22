@@ -91,6 +91,13 @@ apply_loky_cpu_count_override = None
 apply_third_party_patches_once = None
 
 
+def _clear_sensor_trips() -> None:
+    """Reset the process-level regression-sensor ledger at the start of a suite (lazy: keeps the import off startup)."""
+    from mlframe.training.reporting._reporting_regression._sensor_ledger import clear_sensor_trips
+
+    clear_sensor_trips()
+
+
 def train_mlframe_models_suite(
     df: Union[pl.DataFrame, pd.DataFrame, str],
     target_name: str,
@@ -217,10 +224,7 @@ def train_mlframe_models_suite(
         quantile_regression_config: Quantile-regression alphas / crossing-fix / coverage. See ``QuantileRegressionConfig``.
         conformal_config: Conformal prediction intervals (regression) / sets (classification) plus
             achieved coverage into ``metadata["conformal"]``; default ON. See ``ConformalConfig``.
-        regression_calibration_config: Monotone point recalibration g(yhat)~=E[y|yhat] for regression models,
-            opt-in and OFF by default (``point="off"``). Note that the same config also carries
-            ``apply_confidence_shrinkage``, which is ON by default and applies whether or not this argument is
-            passed. See ``RegressionCalibrationConfig``.
+        regression_calibration_config: point recalibration, OFF by default; its apply_confidence_shrinkage is ON by default and always applies.
         composite_target_discovery_config: Composite-target (diff/ratio/linres) discovery. ``MLFRAME_DISABLE_COMPOSITE=1`` forces off. See ``CompositeTargetDiscoveryConfig``.
         feature_handling_config: Feature-handling / caching config bundle (advanced). See the feature_handling package.
         enable_target_distribution_analyzer: When True (default), run the mini-HPT target-distribution analyzer
@@ -287,11 +291,7 @@ def train_mlframe_models_suite(
     # cached entry whose underlying state belongs to the prior suite. The session reset guarantees
     # each suite starts from a fresh FH cache namespace.
     reset_fh_session()
-    # Regression sensor trips are process-level and keyed by model name, so one suite's flags would otherwise be
-    # attributed to the next suite's identically-named models.
-    from mlframe.training.reporting._reporting_regression._sensor_ledger import clear_sensor_trips
-
-    clear_sensor_trips()
+    _clear_sensor_trips()  # process-level and keyed by model name: one suite's flags must not reach the next one's models
 
     # Ergonomic happy path: when no extractor is supplied, build a
     # SimpleFeaturesAndTargetsExtractor from ``target_name`` alone, inferring the
