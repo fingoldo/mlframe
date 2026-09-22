@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 11 | 0 | 8 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 9 | 6 | 26 | 0 | 0 |
-| **Total** | **179** | **100** | **17** | **61** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 9 | 7 | 25 | 0 | 0 |
+| **Total** | **179** | **100** | **18** | **60** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -219,7 +219,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `PMT-21` | Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST) | AST persist-after-mutate over training/core; fires on the INT-02 shape |
 | **PARTIAL** | P1 | `PMT-22` | One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts | one-run suite contract fixture, 7 identity legs; d/h/i suite variants + TST-17 rewrite open |
 | **TODO** | P2 | `PMT-23` | State parity across alternate constructors: fit() vs from_fitted_inner() vs update() vs unpickle | |
-| **TODO** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | |
+| **PARTIAL** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | unseen-key fallbacks pinned to exact global answers; MoE vs pooled-best; recurrent seed leg open |
 | **TODO** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | |
 | **TODO** | P2 | `PMT-26` | Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test | |
 | **TODO** | P3 | `PMT-27` | Diagnostics truthfulness: report reasons come from the ledger, printed advice is executed, alert policy matches its docstring | |
