@@ -103,6 +103,24 @@ def _rank_features_by_importance(
     )
 
 
+def _in_and_out_of_bag(X, y_arr, idx, n_samples: int, is_df: bool):
+    """``(X_sub, y_sub, X_eval, y_eval)``: the bootstrap's fitted rows and the rows it did NOT fit on, which its
+    importances are measured on.
+
+    Permutation importance on the SAME rows the estimator was just fit on rewards memorisation: a high-cardinality
+    noise column is memorised on every subsample, permuting it destroys the memorised mapping, its importance is large
+    in every bootstrap, and selection_freq = 1.0 clears the stability threshold while weak true signals drop out.
+    ``importance_getter='auto'`` is documented as held-out, and the CV-fold path already passes a held-out split. With
+    ``sub_size == n_samples`` nothing is held out and the fitted rows are all there is.
+    """
+    X_sub = X.iloc[idx] if is_df else X[idx]
+    y_sub = y_arr[idx]
+    oob_idx = np.setdiff1d(np.arange(n_samples), idx, assume_unique=False)
+    if oob_idx.size == 0:
+        return X_sub, y_sub, X_sub, y_sub
+    return X_sub, y_sub, (X.iloc[oob_idx] if is_df else X[oob_idx]), y_arr[oob_idx]
+
+
 def _fit_stability_selection(self, X, y, signature):
     """Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
 
@@ -188,12 +206,7 @@ def _fit_stability_selection(self, X, y, signature):
 
     for b in range(int(self.stability_n_bootstrap)):
         idx = rng.choice(n_samples, size=sub_size, replace=False)
-        if is_df:
-            X_sub = X.iloc[idx]
-        else:
-            X_sub = X[idx]
-        y_arr = np.asarray(y)
-        y_sub = y_arr[idx]
+        X_sub, y_sub, X_eval, y_eval = _in_and_out_of_bag(X, np.asarray(y), idx, n_samples, is_df)
         sw_sub = _fit_sw_arr[idx] if _fit_sw_arr is not None else None
 
         # Aggregate FI across estimators within this bootstrap.
@@ -222,7 +235,7 @@ def _fit_stability_selection(self, X, y, signature):
             try:
                 fi_dict = get_feature_importances(
                     model=est_clone, current_features=feature_names,
-                    data=X_sub, target=y_sub,
+                    data=X_eval, target=y_eval,
                     importance_getter=importance_getter,
                     n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5) or 5),
                     # W3: same fix as the main RFECV fold path - derive a per-bootstrap seed from the
@@ -243,7 +256,7 @@ def _fit_stability_selection(self, X, y, signature):
                 continue
             # Align with feature_names.
             fi_arr = np.array([float(fi_dict.get(n, 0.0)) for n in feature_names])
-            fi_arr = np.where(np.isnan(fi_arr), 0.0, fi_arr)
+            fi_arr = np.where(np.isnan(fi_arr), 0.0, fi_arr)  # unmeasured gets no vote: selection needs a strictly positive sum
             per_feature_score_sum += fi_arr
 
         # Top-K from this bootstrap (across-estimator mean importance).

@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from mlframe.metrics._ice_metric import ICE
+from mlframe.metrics.calibration import ICE_UNCOMPUTABLE
 
 
 def _metric(y_true, y_score):
@@ -20,7 +21,7 @@ def test_largest_set_is_skipped_only_after_a_second_size_appears():
     m = ICE(metric=_metric, higher_is_better=False, skip_largest_set=True)
     assert _call(m, 1000) == 0.25, "the only set seen so far must still be scored"
     assert _call(m, 200) == 0.25, "the smaller (eval) set is always scored"
-    assert _call(m, 1000) == 0, "the larger (learn) set is skipped once an eval set is known"
+    assert _call(m, 1000) == ICE_UNCOMPUTABLE, "the larger (learn) set is skipped once an eval set is known"
     assert _call(m, 200) == 0.25
 
 

@@ -19,17 +19,36 @@ def _fast_brier_score_loss_seq(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     return float(np.mean((y_true - y_prob) ** 2))
 
 
+_BRIER_REDUCTION_CHUNKS = 256  # fixed, data-independent partition: see ``_fast_brier_score_loss_par``
+
+
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_brier_score_loss_par(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     """Parallel variant. ~7.7x faster than seq at N=10M (verified
     on 8-thread numba runtime). Loses to seq below N~50k due to
     thread-spawn overhead -- the public ``fast_brier_score_loss``
-    wrapper auto-dispatches based on N."""
+    wrapper auto-dispatches based on N.
+
+    The sum is accumulated into a FIXED number of per-chunk partials and combined in chunk order, not as a bare
+    ``prange`` reduction: a bare one combines the per-thread partials in whatever order the threads finish, so the same
+    input gave a different last ulp on every call (measured: five runs of the same 300k-row report returned five
+    distinct Brier values, and ICE inherited the drift). The partition depends only on ``n``, so the result is
+    reproducible across runs, thread counts and the sort backend upstream."""
     n = len(y_true)
+    n_chunks = _BRIER_REDUCTION_CHUNKS if n >= _BRIER_REDUCTION_CHUNKS else 1
+    chunk = (n + n_chunks - 1) // n_chunks
+    partials = np.zeros(n_chunks, dtype=np.float64)
+    for c in numba.prange(n_chunks):
+        start = c * chunk
+        stop = min(start + chunk, n)
+        acc = 0.0
+        for i in range(start, stop):
+            d = y_true[i] - y_prob[i]
+            acc += d * d
+        partials[c] = acc
     s = 0.0
-    for i in numba.prange(n):
-        d = y_true[i] - y_prob[i]
-        s += d * d
+    for c in range(n_chunks):
+        s += partials[c]
     return s / n
 
 
@@ -57,19 +76,30 @@ def _fast_brier_checked_seq(y_true: np.ndarray, y_prob: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_brier_checked_par(y_true: np.ndarray, y_prob: np.ndarray) -> float:
-    """Parallel fused validation + Brier. ``bad`` and ``s`` are both prange
-    reductions. See ``_fast_brier_checked_seq``."""
+    """Parallel fused validation + Brier, over the same fixed chunk partition as ``_fast_brier_score_loss_par`` so the
+    value is reproducible run to run. ``bad`` stays an ordinary count (integer addition is order-independent). See
+    ``_fast_brier_checked_seq``."""
     n = len(y_true)
-    s = 0.0
+    n_chunks = _BRIER_REDUCTION_CHUNKS if n >= _BRIER_REDUCTION_CHUNKS else 1
+    chunk = (n + n_chunks - 1) // n_chunks
+    partials = np.zeros(n_chunks, dtype=np.float64)
     bad = 0
-    for i in numba.prange(n):
-        pi = y_prob[i]
-        if not (0.0 <= pi <= 1.0):
-            bad += 1
-        d = y_true[i] - pi
-        s += d * d
+    for c in numba.prange(n_chunks):
+        start = c * chunk
+        stop = min(start + chunk, n)
+        acc = 0.0
+        for i in range(start, stop):
+            pi = y_prob[i]
+            if not (0.0 <= pi <= 1.0):
+                bad += 1
+            d = y_true[i] - pi
+            acc += d * d
+        partials[c] = acc
     if bad > 0:
         return np.nan
+    s = 0.0
+    for c in range(n_chunks):
+        s += partials[c]
     return s / n
 
 

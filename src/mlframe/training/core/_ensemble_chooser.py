@@ -162,6 +162,19 @@ def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
         else:
             _scored.sort(key=lambda kv: (-kv[1], kv[0]))
         # The module-top comment promises a "one-time WARN at first use" of the test.* fallback because using the honest test split for model selection biases every subsequent test-set metric optimistic. Surface that WARN so production runs reaching this branch are visible in the suite log.
+        if _split == "val":
+            # Val is the surface every member early-stopped on, so picking the winning flavour there is picking on a
+            # biased number; it is also the DEFAULT path, because OOF is only stamped when oof_n_splits >= 2 (off by
+            # default). compare_ensembles warns in exactly this situation - so does the suite now.
+            log_throttle(
+                logger,
+                "ensemble_chooser_val_split_fallback",
+                logging.WARNING,
+                "[_choose_ensemble_flavour] resolved winner %r via val.%s: no OOF metrics were stamped, and val is the "
+                "early-stopping surface of every member, so the pick is optimistic. Set oof_n_splits>=2 (or a "
+                "calib_size>0 calibration slice) for an honest selection surface.",
+                _scored[0][0], _metric,
+            )
         if _split == "test":
             log_throttle(
                 logger,

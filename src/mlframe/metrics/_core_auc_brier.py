@@ -586,6 +586,7 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
     _check_equal_length(y_true, y_score)
+    y_true = _binary_labels_01(y_true)
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
     if sample_weight is not None:
         if isinstance(sample_weight, (pd.Series, pl.Series)):
@@ -831,6 +832,7 @@ def fast_aucs(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> tuple[float,
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
     _check_equal_length(y_true, y_score)
+    y_true = _binary_labels_01(y_true)
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
     roc_auc, pr_auc = fast_numba_aucs(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
     return float(roc_auc), float(pr_auc)
@@ -975,6 +977,7 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
 
 # Brier score kernels + scorers live in the sibling ``_core_brier`` (carved out to keep this module
 # under the 1k LOC ceiling); re-exported here so existing importers of this module are unaffected.
+from ._auc_labels import _binary_labels_01
 from ._core_brier import (  # noqa: F401
     _fast_brier_checked_par,
     _fast_brier_checked_seq,

@@ -451,6 +451,19 @@ def _full_x_content_hash(arr) -> str:
         return ""
 
 
+def target_label_changed(last_signature, new_signature) -> bool:
+    """Whether a cached Pool's label must be swapped before it is reused.
+
+    An empty signature means ``_full_target_content_hash`` could not hash that target, never that the target is
+    unchanged - so two DIFFERENT targets that both fail hashing used to compare equal, the swap was skipped, and
+    CatBoost fitted the new target's model on the previous target's labels (on a val Pool: early-stopped against
+    them) with no error anywhere. Unknown therefore forces the swap.
+    """
+    if not last_signature or not new_signature:
+        return True
+    return last_signature != new_signature
+
+
 def _full_target_content_hash(arr) -> str:
     """Full blake2b content hash of a 1-D / 2-D target-like array.
 
@@ -487,6 +500,12 @@ def _full_target_content_hash(arr) -> str:
         else:
             np_arr = np.asarray(arr)
         if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
+            return ""
+        if np_arr.dtype == object:
+            # blake2b would read the buffer of an object array, i.e. the POINTER bytes: the digest then describes
+            # where the elements live, not what they are. Two runs of the same target hash differently and a recycled
+            # address can make two different targets hash the same. Report "unknown" and let the caller skip the cache.
+            logger.debug("_full_target_content_hash: object-dtype target cannot be content-hashed; reporting unknown")
             return ""
         # blake2b reads the contiguous array via the buffer protocol directly;
         # dropping the .tobytes() materialisation saves an O(nbytes) copy and is

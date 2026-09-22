@@ -141,6 +141,16 @@ def _score_blend(
         # below never accepts a candidate and silently degenerates to whichever model index came first.
         labels = np.asarray(y)
         classes = np.unique(labels[np.isfinite(labels)] if labels.dtype.kind == "f" else labels)
+        if classes.size > 2 and blend.ndim == 2 and blend.shape[1] == classes.size:
+            # Multiclass: macro one-vs-rest AUC over every class column. Scoring class 1 alone judged a 5-class blend
+            # purely on how it separates class 1, so a member excellent on the other four classes was never picked,
+            # and the weights learned that way were applied to all five columns.
+            aucs = [
+                fast_roc_auc((labels == c).astype(np.int64), np.ascontiguousarray(blend[:, k], dtype=np.float64))
+                for k, c in enumerate(classes)
+            ]
+            finite = [a for a in aucs if np.isfinite(a)]
+            return float(np.mean(finite)) if finite else float("nan")
         binary = (labels == classes[-1]).astype(np.int64) if classes.size == 2 else labels.astype(np.int64)
         return float(fast_roc_auc(binary, score.astype(np.float64)))
     return float(metric(y, blend))
@@ -158,7 +168,10 @@ class CaruanaSelectionResult:
     order : list[int]
         Model indices in the order they were added to the bag.
     score : float
-        Best held-out metric value the bag reached (direction per ``greater_is_better``).
+        The selection objective at the chosen bag (direction per ``greater_is_better``), measured on the SAME rows the
+        greedy walk optimised. It is the maximum of a search, so it is optimistically biased - with many members and
+        picks, visibly - and is not an honest estimate of the ensemble's performance; score the weights on rows the
+        selection did not see for that.
     n_picks : int
         Total number of greedy additions (bag size).
     """

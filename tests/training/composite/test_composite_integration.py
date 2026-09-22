@@ -133,6 +133,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
             base_candidates=["TVT_prev"],
@@ -179,6 +183,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
             base_candidates=["TVT_prev"],
@@ -266,6 +274,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=600)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
             base_candidates=["TVT_prev"],
@@ -311,6 +323,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
             base_candidates=["TVT_prev"],
@@ -371,6 +387,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
             base_candidates=["TVT_prev"],
@@ -512,6 +532,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
             base_candidates=["TVT_prev"],
@@ -563,6 +587,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=600)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
             base_candidates=["TVT_prev"],
@@ -616,6 +644,10 @@ class TestCompositeIntegration:
 
         df = _tvt_dataset(n=400)
         cfg = CompositeTargetDiscoveryConfig(
+            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+            min_honest_gain_z=0.0,
             enabled=True,
             min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
             base_candidates=["TVT_prev"],

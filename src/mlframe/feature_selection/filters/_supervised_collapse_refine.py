@@ -15,7 +15,7 @@ missing resolution is restored. Columns whose supervised bins are reasonably bal
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, cast, overload
 
 import numpy as np
 
@@ -28,7 +28,15 @@ def _fallback_edges(finite: np.ndarray, base: str, n_bins: int) -> np.ndarray:
         full = np.percentile(finite, np.linspace(0.0, 100.0, n_bins + 1))
     else:
         full = np.linspace(float(finite.min()), float(finite.max()), n_bins + 1)
-    return np.unique(full[1:-1])
+    return cast(np.ndarray, np.unique(full[1:-1]))
+
+
+@overload
+def refine_near_collapsed_supervised_edges(edges: np.ndarray, finite: np.ndarray, base: str, fallback_nbins: int) -> np.ndarray: ...
+
+
+@overload
+def refine_near_collapsed_supervised_edges(edges: None, finite: np.ndarray, base: str, fallback_nbins: int) -> None: ...
 
 
 def refine_near_collapsed_supervised_edges(
@@ -45,4 +53,4 @@ def refine_near_collapsed_supervised_edges(
     extra = _fallback_edges(np.asarray(finite, dtype=np.float64), base, fallback_nbins)
     if extra.size == 0:
         return edges
-    return np.unique(np.concatenate([inner, extra]))
+    return cast(np.ndarray, np.unique(np.concatenate([inner, extra])))

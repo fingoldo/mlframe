@@ -62,6 +62,50 @@ if _NUMBA_AVAILABLE:
         return means, stds, medians
 
     @numba.njit(cache=True)
+    def _expanding_stats_njit(values_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray) -> tuple:
+        """Per-row mean/std/median over each group's values UP TO AND INCLUDING that row.
+
+        The whole-segment variant gives row 0 a number determined by events that happen later, which cannot exist at
+        serving time and flatters any backtest. The running median keeps a sorted buffer of the finite values seen so
+        far and inserts each new one, so the whole pass is O(k^2) in a group's length in the worst case but touches
+        contiguous memory; entity segments are short in practice.
+        """
+        n = values_sorted.shape[0]
+        means = np.full(n, np.nan, dtype=np.float64)
+        stds = np.full(n, np.nan, dtype=np.float64)
+        medians = np.full(n, np.nan, dtype=np.float64)
+        for g in range(starts.shape[0]):
+            lo = starts[g]
+            hi = ends[g]
+            buf = np.empty(hi - lo, dtype=np.float64)
+            count = 0
+            total = 0.0
+            total_sq = 0.0
+            for i in range(lo, hi):
+                v = values_sorted[i]
+                if np.isfinite(v):
+                    # Insertion into the sorted running buffer.
+                    pos = count
+                    while pos > 0 and buf[pos - 1] > v:
+                        buf[pos] = buf[pos - 1]
+                        pos -= 1
+                    buf[pos] = v
+                    count += 1
+                    total += v
+                    total_sq += v * v
+                if count == 0:
+                    continue
+                mean = total / count
+                means[i] = mean
+                if count > 1:
+                    var = total_sq / count - mean * mean
+                    stds[i] = np.sqrt(var) if var > 0.0 else 0.0
+                else:
+                    stds[i] = 0.0
+                medians[i] = _median_sorted_njit(buf[:count])
+        return means, stds, medians
+
+    @numba.njit(cache=True)
     def _windowed_stats_by_count_njit(values_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, window_size: int) -> tuple:
         """Compute per-row trailing fixed-count window mean/std within each group's sorted range."""
         n = values_sorted.shape[0]
@@ -236,8 +280,14 @@ def _windowed_group_stats(
     return mean_out, std_out
 
 
-def _broadcast_group_stats(values: np.ndarray, group_ids: np.ndarray) -> tuple:
-    """Per-group mean/std/median, broadcast back to every row in original order."""
+def _broadcast_group_stats(values: np.ndarray, group_ids: np.ndarray, causal: bool = True) -> tuple:
+    """Per-group mean/std/median in original row order.
+
+    ``causal=True`` (the default) computes each row's statistics over that entity's values up to and including the
+    row - the "whole-history-to-date" the public docstring always promised. ``causal=False`` restores the previous
+    whole-segment aggregate, the same number repeated for every row of the entity, which for any row but the last is
+    partly determined by events that had not happened yet.
+    """
     from mlframe.feature_engineering.grouped import iter_group_segments
 
     values_arr = np.ascontiguousarray(values, dtype=np.float64)
@@ -246,12 +296,18 @@ def _broadcast_group_stats(values: np.ndarray, group_ids: np.ndarray) -> tuple:
 
     if _NUMBA_AVAILABLE:
         values_sorted = values_arr[sort_idx]
-        means, stds, medians = _group_mean_std_median_njit(values_sorted, starts.astype(np.int64), ends.astype(np.int64))
-        group_lengths = ends - starts
-        group_of_sorted_row = np.repeat(np.arange(starts.shape[0]), group_lengths)
         mean_out = np.empty(n, dtype=np.float64)
         std_out = np.empty(n, dtype=np.float64)
         median_out = np.empty(n, dtype=np.float64)
+        if causal:
+            means_rows, stds_rows, medians_rows = _expanding_stats_njit(values_sorted, starts.astype(np.int64), ends.astype(np.int64))
+            mean_out[sort_idx] = means_rows
+            std_out[sort_idx] = stds_rows
+            median_out[sort_idx] = medians_rows
+            return mean_out, std_out, median_out
+        means, stds, medians = _group_mean_std_median_njit(values_sorted, starts.astype(np.int64), ends.astype(np.int64))
+        group_lengths = ends - starts
+        group_of_sorted_row = np.repeat(np.arange(starts.shape[0]), group_lengths)
         mean_out[sort_idx] = means[group_of_sorted_row]
         std_out[sort_idx] = stds[group_of_sorted_row]
         median_out[sort_idx] = medians[group_of_sorted_row]
@@ -259,17 +315,26 @@ def _broadcast_group_stats(values: np.ndarray, group_ids: np.ndarray) -> tuple:
 
     from mlframe.feature_engineering.grouped import per_group_apply
 
+    def _expanding(seg: np.ndarray, fn) -> np.ndarray:
+        """``fn`` applied to every prefix of the segment (NaN while no finite value has been seen yet)."""
+        out = np.full(seg.shape, np.nan, dtype=np.float64)
+        for i in range(seg.shape[0]):
+            prefix = seg[: i + 1]
+            if np.isfinite(prefix).any():
+                out[i] = fn(prefix)
+        return out
+
     def _mean_fn(seg: np.ndarray) -> np.ndarray:
         """Broadcast the segment's nan-mean to every row of the segment."""
-        return np.full(seg.shape, np.nanmean(seg))
+        return _expanding(seg, np.nanmean) if causal else np.full(seg.shape, np.nanmean(seg))
 
     def _std_fn(seg: np.ndarray) -> np.ndarray:
         """Broadcast the segment's nan-std to every row of the segment."""
-        return np.full(seg.shape, np.nanstd(seg))
+        return _expanding(seg, np.nanstd) if causal else np.full(seg.shape, np.nanstd(seg))
 
     def _median_fn(seg: np.ndarray) -> np.ndarray:
         """Broadcast the segment's nan-median to every row of the segment."""
-        return np.full(seg.shape, np.nanmedian(seg))
+        return _expanding(seg, np.nanmedian) if causal else np.full(seg.shape, np.nanmedian(seg))
 
     return (
         per_group_apply(values_arr, group_ids, _mean_fn),
@@ -285,6 +350,7 @@ def entity_inter_event_features(
     *,
     window_size: Optional[int] = None,
     window_time: Optional[float] = None,
+    causal: bool = True,
 ) -> dict[str, np.ndarray]:
     """Time-gap + group-aggregate features keyed by ``entity_ids``.
 
@@ -304,6 +370,11 @@ def entity_inter_event_features(
     window_time
         Opt-in: like ``window_size`` but the window is the trailing T time-units ending at each row's
         timestamp, rather than a fixed event count. Mutually exclusive with ``window_size``.
+    causal
+        Default ``True``: each row's group statistics cover that entity's events UP TO AND INCLUDING the row, which is
+        what the feature names promise and what is reconstructible at serving time. ``False`` restores the previous
+        whole-segment aggregate, where an entity with gaps ``[1, 1, 1, 100]`` gave row 0 a mean of 25.75 - a number
+        determined by an event three steps in its future, which flatters a backtest and changes with the batch split.
 
     Returns
     -------
@@ -311,7 +382,8 @@ def entity_inter_event_features(
         ``time_since_prev_event`` / ``time_to_next_event`` (NaN at each entity's first/last row —
         boundaries never bleed across entities, per ``per_group_shift``'s contract), plus
         ``group_mean_time_delta`` / ``group_std_time_delta`` / ``group_median_time_delta`` (that entity's
-        overall inter-event-gap statistics, same value repeated for every row of the entity). When
+        inter-event-gap statistics to date under the default ``causal=True``; with ``causal=False``, one
+        whole-segment value repeated for every row of the entity). When
         ``value_col`` is given, the same three group-aggregate stats are added for it as
         ``group_mean_value`` / ``group_std_value`` / ``group_median_value``. When ``window_size`` or
         ``window_time`` is given, adds causal windowed counterparts ``group_mean_time_delta_windowed`` /
@@ -334,7 +406,7 @@ def entity_inter_event_features(
     time_since_prev = ts - prev_ts
     time_to_next = next_ts - ts
 
-    mean_dt, std_dt, median_dt = _broadcast_group_stats(time_since_prev, entity_ids)
+    mean_dt, std_dt, median_dt = _broadcast_group_stats(time_since_prev, entity_ids, causal=causal)
     out = {
         "time_since_prev_event": time_since_prev,
         "time_to_next_event": time_to_next,
@@ -344,7 +416,7 @@ def entity_inter_event_features(
     }
 
     if value_col is not None:
-        mean_v, std_v, median_v = _broadcast_group_stats(value_col, entity_ids)
+        mean_v, std_v, median_v = _broadcast_group_stats(value_col, entity_ids, causal=causal)
         out["group_mean_value"] = mean_v
         out["group_std_value"] = std_v
         out["group_median_value"] = median_v

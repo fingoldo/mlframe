@@ -84,6 +84,7 @@ def test_the_saved_suite_serves_what_the_run_returned(suite):
     loaded_models, loaded_md = load_mlframe_suite(path)
     mem, disk = _trained(models), _trained(loaded_models)
     assert set(mem) == set(disk), f"slots missing on disk: {sorted(set(mem) - set(disk))}; extra: {sorted(set(disk) - set(mem))}"
+    assert mem.items(), "the run trained no models"
     for slot, entries in mem.items():
         assert sorted(type(e.model).__name__ for e in entries) == sorted(type(e.model).__name__ for e in disk[slot]), slot
     X = df.drop(columns=["target"]).iloc[:60]

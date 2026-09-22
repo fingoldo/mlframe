@@ -29,7 +29,15 @@ from mlframe.metrics.core import format_classification_report
 
 def init_model_instance(model_class: Any, params: dict) -> Any:
     """Instantiate ``model_class`` with ``params``, recursing into each step's params when it is an imblearn ``Pipeline``."""
-    from imblearn.pipeline import Pipeline  # pylint: disable=import-outside-toplevel
+    # imblearn is optional, and importing it drags in the whole sampler tree - which fails outright when the installed
+    # imblearn predates the installed scikit-learn (`cannot import name 'parse_version' from 'sklearn.utils'`). That is
+    # no reason to refuse to instantiate a plain estimator that has nothing to do with imblearn, so a failed import
+    # just means "this object cannot be an imblearn Pipeline".
+    try:
+        from imblearn.pipeline import Pipeline  # pylint: disable=import-outside-toplevel
+    except ImportError as _imb_err:
+        logger.debug("imblearn unavailable (%s); treating %s as a plain estimator class", _imb_err, model_class)
+        return model_class(**params)
     if isinstance(model_class, Pipeline):
         modified_steps = []
         for step in model_class.steps:

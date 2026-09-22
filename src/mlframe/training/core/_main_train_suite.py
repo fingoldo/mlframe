@@ -216,8 +216,7 @@ def train_mlframe_models_suite(
         quantile_regression_config: Quantile-regression alphas / crossing-fix / coverage. See ``QuantileRegressionConfig``.
         conformal_config: Conformal prediction intervals (regression) / sets (classification) plus
             achieved coverage into ``metadata["conformal"]``; default ON. See ``ConformalConfig``.
-        regression_calibration_config: Opt-in monotone point recalibration g(yhat)~=E[y|yhat] for
-            regression models (default OFF). See ``RegressionCalibrationConfig``.
+        regression_calibration_config: point recalibration, OFF by default; its apply_confidence_shrinkage is ON by default and always applies.
         composite_target_discovery_config: Composite-target (diff/ratio/linres) discovery. ``MLFRAME_DISABLE_COMPOSITE=1`` forces off. See ``CompositeTargetDiscoveryConfig``.
         feature_handling_config: Feature-handling / caching config bundle (advanced). See the feature_handling package.
         enable_target_distribution_analyzer: When True (default), run the mini-HPT target-distribution analyzer

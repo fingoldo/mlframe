@@ -123,6 +123,11 @@ def _build_votenrank_leaderboard_from_results(res: dict, *, is_regression: bool)
         for _split, _split_metrics in (_metrics or {}).items():
             if not isinstance(_split_metrics, dict):
                 continue
+            # Never the test split: this table is persisted under res["_leaderboard"] and named a ranking of
+            # flavours, so a consumer taking its top row would be selecting on test without passing through the
+            # split policy _choose_ensemble_flavour enforces.
+            if str(_split).lower() == "test":
+                continue
             for _k, _v in _split_metrics.items():
                 if isinstance(_v, (int, float, np.floating, np.integer)) and np.isfinite(float(_v)):
                     _flat[f"{_split}.{_k}"] = float(_v)
@@ -131,12 +136,26 @@ def _build_votenrank_leaderboard_from_results(res: dict, *, is_regression: bool)
     if not rows:
         return None
     table = pd.DataFrame.from_dict(rows, orient="index").sort_index()
-    # Build a votenrank.Leaderboard. Higher-is-better is the convention; classification flips for
-    # error-style metrics is up to the caller (rank methods are unbiased under uniform flip).
+    # votenrank ranks every column DESCENDING. The columns mix directions (roc_auc next to brier_loss / ice / RMSE), and
+    # the "rank methods are unbiased under a uniform flip" argument only holds for a flip applied to every column, not
+    # per column: on each error column the worst flavour was rank 1. Orient every column higher-is-better (negate the
+    # lower-is-better ones) for the ranking, and leave out columns whose direction the registry does not know. The
+    # displayed ``table`` keeps the original values. The flip is a reflection within the column's own range
+    # (max + min - x) rather than a negation: it reverses the order and keeps the spacing, and it keeps a positive
+    # column positive, which rules such as the geometric mean ranking require.
     try:
+        from mlframe.training.metrics_registry import metric_name_higher_is_better
         from mlframe.votenrank import Leaderboard
 
-        lb = Leaderboard(table=table)
+        oriented = {}
+        for col in table.columns:
+            direction = metric_name_higher_is_better(str(col).rsplit(".", 1)[-1])
+            if direction is None:
+                continue
+            oriented[col] = table[col] if direction else (table[col].max() + table[col].min() - table[col])
+        if not oriented:
+            return None
+        lb = Leaderboard(table=pd.DataFrame(oriented, index=table.index))
         return EnsembleLeaderboard(table=table, lb=lb, is_regression=is_regression)
     except Exception as exc:
         logger.debug("ensemble leaderboard build failed: %s", exc)

@@ -51,9 +51,10 @@ def test_pinball_loss_value_incl_extreme_alpha(alpha, expected):
     assert got == pytest.approx(mean_pinball_loss(y, q, alpha=alpha), abs=1e-12)
 
 
-def test_pinball_loss_empty_returns_zero_and_shape_mismatch_raises():
-    """Pinball loss empty returns zero and shape mismatch raises."""
-    assert pinball_loss(np.array([]), np.array([]), 0.5) == 0.0
+def test_pinball_loss_empty_returns_nan_and_shape_mismatch_raises():
+    """Empty input is NaN, not 0.0: 0.0 is the best value of a lower-is-better loss, so an empty slice used to win
+    every min() model/threshold selection. The numpy fallback path already returned NaN."""
+    assert np.isnan(pinball_loss(np.array([]), np.array([]), 0.5))
     with pytest.raises(ValueError, match="shape"):
         pinball_loss(np.array([1.0, 2.0]), np.array([1.0]), 0.5)
 
@@ -78,8 +79,8 @@ def test_coverage_all_inside_and_empty():
     """Coverage all inside and empty."""
     y = np.array([2.0, 5.0, 8.0])
     assert coverage(y, np.full(3, 1.0), np.full(3, 9.0)) == 1.0
-    # Empty input -> the n==0 kernel branch returns 0.0 (documented contract, NOT NaN).
-    assert coverage(np.array([]), np.array([]), np.array([])) == 0.0
+    # Empty input -> NaN: there are no rows whose coverage could be measured, and 0.0 read as "every interval missed".
+    assert np.isnan(coverage(np.array([]), np.array([]), np.array([])))
 
 
 # ----------------------------------------------------------------------------
@@ -107,9 +108,9 @@ def test_winkler_score_rejects_out_of_range_alpha(bad_alpha):
         winkler_score(y, np.array([0.0, 0.0]), np.array([3.0, 3.0]), bad_alpha)
 
 
-def test_winkler_score_empty_returns_zero():
-    """Winkler score empty returns zero."""
-    assert winkler_score(np.array([]), np.array([]), np.array([]), 0.2) == 0.0
+def test_winkler_score_empty_returns_nan():
+    """Empty input is NaN, not the perfect 0.0 an empty slice used to score."""
+    assert np.isnan(winkler_score(np.array([]), np.array([]), np.array([]), 0.2))
 
 
 # ----------------------------------------------------------------------------

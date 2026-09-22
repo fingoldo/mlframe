@@ -11,7 +11,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _resolve_brute_force_n_sub_gate
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _resolve_brute_force_n_sub_gate, _resolve_brute_force_work_budget
 
 # gt_08 auto-path-ONLY SNR tightening. The opt-in ``su_seeded_interactions=True`` flag keeps its
 # original defaults (snr_z=3.0 / snr_abs_floor=1e-3, unchanged) - these only apply when
@@ -233,7 +233,7 @@ class ShapProxiedMethodsMixin:
             y = y.astype(np.float64)
         return y
 
-    def _resolve_optimizer(self, n_features: int) -> str:
+    def _resolve_optimizer(self, n_features: int, n_rows: int | None = None) -> str:
         """Pick the optimizer for the post-prescreen candidate pool.
 
         At ``optimizer="auto"``, brute force is the preferred path when (a) the post-prescreen
@@ -250,7 +250,10 @@ class ShapProxiedMethodsMixin:
 
         if n_features <= self.brute_force_max_features:
             n_sub = total_subsets(n_features, self.min_features, self.max_features)
-            if n_sub <= _resolve_brute_force_n_sub_gate():
+            # Both the subset count AND the work it implies: the kernel scores every row for every subset, so the
+            # same 67M subsets that take seconds on a small frame took minutes on a 1300-row one.
+            fits_work = n_rows is None or n_sub * int(n_rows) <= _resolve_brute_force_work_budget()
+            if n_sub <= _resolve_brute_force_n_sub_gate() and fits_work:
                 return "bruteforce_gpu" if self.use_gpu else "bruteforce"
         return "beam"
 

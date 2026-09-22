@@ -31,14 +31,16 @@ def _column_stats(df: pd.DataFrame, group_cols: Sequence[str], y: np.ndarray, mi
     return eligible, int(stats.shape[0])
 
 
-def _scan_one(name: object, group_cols: Sequence[str], df: pd.DataFrame, y: np.ndarray, min_group_size: int, overall_var: float, variance_ratio_threshold: float) -> dict:
+def _scan_one(name: object, group_cols: Sequence[str], df: pd.DataFrame, y: np.ndarray, min_group_size: int, overall_var: float, variance_ratio_threshold: float, family_alpha: float = 0.05) -> dict:
     """Score one candidate column (or column combo) for the constant-target-per-group leak pattern."""
     eligible, n_groups = _column_stats(df, group_cols, y, min_group_size)
     if eligible.empty:
         return {
             "column": name,
             "n_groups": n_groups,
+            "n_eligible_groups": 0,
             "min_group_variance_ratio": np.nan,
+            "min_group_variance_pvalue": np.nan,
             "worst_group_value": None,
             "worst_group_size": 0,
             "flagged": False,
@@ -48,13 +50,31 @@ def _scan_one(name: object, group_cols: Sequence[str], df: pd.DataFrame, y: np.n
     worst_pos = int(np.argmin(eligible["var"].to_numpy()))
     worst = eligible.index[worst_pos]
     min_ratio = float(eligible["var"].iloc[worst_pos] / overall_var)
+
+    # The minimum over MANY groups is not a fair test: a date column with 800 eligible groups contains, by chance
+    # alone, some group whose variance sits below 0.1x the overall variance, and the scan reported it as a de facto
+    # leak. Under the null (the column partitions rows at random) a group of size m has (m-1)*s^2/sigma^2 ~ chi2_{m-1},
+    # so each group's ratio carries a p-value; the smallest of them is corrected for how many groups were searched
+    # (Sidak over the eligible groups, which is why ``n_groups`` existed in the output but never in the decision).
+    from scipy.stats import chi2
+
+    _sizes = eligible["size"].to_numpy().astype(np.int64)
+    _ratios = (eligible["var"].to_numpy() / overall_var) if overall_var > 0 else np.full(_sizes.shape, np.nan)
+    _dof = np.maximum(_sizes - 1, 1)
+    with np.errstate(invalid="ignore"):
+        _p_per_group = chi2.cdf(_ratios * _dof, _dof)
+    _p_min = float(np.nanmin(_p_per_group)) if np.isfinite(_p_per_group).any() else np.nan
+    _n_eligible = int(eligible.shape[0])
+    _p_adj = float(1.0 - (1.0 - _p_min) ** _n_eligible) if np.isfinite(_p_min) else np.nan
     return {
         "column": name,
         "n_groups": n_groups,
+        "n_eligible_groups": _n_eligible,
         "min_group_variance_ratio": min_ratio,
+        "min_group_variance_pvalue": _p_adj,
         "worst_group_value": worst,
         "worst_group_size": int(eligible["size"].iloc[worst_pos]),
-        "flagged": min_ratio < variance_ratio_threshold,
+        "flagged": bool(min_ratio < variance_ratio_threshold and (not np.isfinite(_p_adj) or _p_adj < family_alpha)),
     }
 
 
@@ -64,6 +84,7 @@ def constant_group_target_scan(
     candidate_cols: Sequence[str],
     min_group_size: int = 20,
     variance_ratio_threshold: float = 0.1,
+    family_alpha: float = 0.05,
     combo_max_size: int = 1,
     combo_max_cols: int = 8,
 ) -> pd.DataFrame:
@@ -84,6 +105,11 @@ def constant_group_target_scan(
         A column is flagged when its LOWEST within-group variance (among groups meeting ``min_group_size``),
         divided by the overall target variance, falls below this ratio -- i.e. at least one group is far more
         deterministic than the target is overall.
+    family_alpha
+        The ratio alone is a minimum over however many groups the column has, and a column with hundreds of eligible
+        groups clears any fixed ratio by chance. Each group's variance ratio is turned into a chi-square p-value, the
+        smallest is Sidak-corrected for the number of eligible groups, and a column is flagged only when that
+        corrected p-value is below ``family_alpha`` as well. The value is reported as ``min_group_variance_pvalue``.
     combo_max_size
         Opt-in multi-column mode. ``1`` (default) reproduces the original single-column-only scan exactly.
         ``2`` additionally scans every 2-way combination of ``candidate_cols`` (up to ``combo_max_cols`` of
@@ -120,12 +146,15 @@ def constant_group_target_scan(
     if overall_var <= 0.0:
         raise ValueError("constant_group_target_scan: y has zero overall variance -- nothing to compare groups against")
 
-    rows = [_scan_one(col, (col,), df, y, min_group_size, overall_var, variance_ratio_threshold) for col in candidate_cols]
+    rows = [_scan_one(col, (col,), df, y, min_group_size, overall_var, variance_ratio_threshold, family_alpha) for col in candidate_cols]
 
     if combo_max_size > 1:
         combo_cols = list(candidate_cols)[:combo_max_cols]
         for depth in range(2, combo_max_size + 1):
-            rows.extend(_scan_one(combo, combo, df, y, min_group_size, overall_var, variance_ratio_threshold) for combo in combinations(combo_cols, depth))
+            rows.extend(
+                _scan_one(combo, combo, df, y, min_group_size, overall_var, variance_ratio_threshold, family_alpha)
+                for combo in combinations(combo_cols, depth)
+            )
 
     # pd.DataFrame([]) has no columns for sort_values to find -- an empty candidate_cols (and no combo
     # rows either) would otherwise raise KeyError instead of returning an empty, correctly-columned frame.

@@ -126,9 +126,17 @@ def test_biz_val_widened_transforms_g2_still_rejects_seasonal_when_irrelevant():
     feats = ["base", "x0", "noise0"]
     disc = CompositeTargetDiscovery(_config(transforms=["seasonal_residual"], base_candidates=["base"]))
     disc.fit(df, "y", feats, np.arange(len(df)))
-    assert not disc.specs_, "seasonal_residual must be rejected by the honest RMSE gate when it ignores the true (base-driven) structure"
-    stages = {row["stage"] for row in disc.rejection_ledger}
-    assert "honest_rmse" in stages
+    # The contract is that an irrelevant transform never reaches TRAINING, not which gate stops it. Before the inverse
+    # carried a smearing correction this spec failed catastrophically (honest y-RMSE 122.6 vs raw 12.96) and the honest
+    # gate rejected it outright; now its seasonal component on non-periodic data is ~0, it ties raw, and the honest
+    # gate - which admits specs within 5% of raw by design - lets the tie through. The training floor is what stops
+    # a tie from being trained, so a surviving spec must sit at or below it.
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    floor = float(CompositeTargetDiscoveryConfig().min_honest_gain_to_train)
+    for spec in disc.specs_:
+        gain = float(spec.honest_holdout_rmse_gain)
+        assert gain <= floor, f"{spec.name}: honest gain {gain:.6f} clears the training floor {floor}; an irrelevant transform would be trained"
 
 
 if __name__ == "__main__":
