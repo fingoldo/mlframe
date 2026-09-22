@@ -145,3 +145,15 @@ class TestGlobalCompositeCap:
         assert len(kept_names) == 1, f"expected exactly 1 composite kept under cap=1, got {kept_names}"
         kept_name = next(iter(kept_names))
         assert kept_name.startswith("target_clean-"), f"cap=1 kept '{kept_name}' -- expected the CLEAN target's spec (higher honest gain), not the noisy one"
+
+    def test_capped_specs_leave_the_metadata_and_are_recorded_as_failures(self):
+        """The exported spec names equal the trained composite keys; each spec the cap dropped is a failure with the cap reason."""
+        feats_df, targets = _synthetic_two_targets()
+        cfg = CompositeTargetDiscoveryConfig(enabled=True, max_total_composite_targets=1, min_honest_gain_z=0.0)
+        target_by_type, metadata = _run(cfg, targets, feats_df)
+        trained = set(target_by_type[TargetTypes.REGRESSION]) - set(targets)
+        listed = {s["name"] for by_t in metadata["composite_target_specs"].values() for specs in by_t.values() for s in specs}
+        assert listed == trained, f"metadata lists specs that were never trained: {sorted(listed - trained)}"
+        capped = [f for by_t in metadata.get("composite_target_failures", {}).values() for fs in by_t.values() for f in fs
+                  if "global cap max_total_composite_targets=1" in f.get("reason", "")]
+        assert capped, "the specs the cap dropped must be recorded in composite_target_failures"

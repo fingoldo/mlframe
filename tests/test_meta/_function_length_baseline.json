@@ -278,7 +278,7 @@
   "src/mlframe/training/core/_main_train_suite_target_distribution.py::_run_target_distribution_analyzer": 330,
   "src/mlframe/training/core/_misc_helpers.py::_validate_input_columns_against_metadata": 188,
   "src/mlframe/training/core/_misc_helpers_feature_types.py::_auto_detect_feature_types": 326,
-  "src/mlframe/training/core/_phase_composite_discovery.py::run_composite_target_discovery": 864,
+  "src/mlframe/training/core/_phase_composite_discovery.py::run_composite_target_discovery": 850,
   "src/mlframe/training/core/_phase_composite_post.py::run_composite_post_processing": 178,
   "src/mlframe/training/core/_phase_composite_post_moe.py::run_composite_moe_and_value_report": 160,
   "src/mlframe/training/core/_phase_composite_post_summary.py::_run_suite_end_dummy_baselines_summary": 156,

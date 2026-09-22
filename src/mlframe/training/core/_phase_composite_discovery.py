@@ -54,6 +54,7 @@ from ._phase_composite_discovery_gates import (  # noqa: F401  (re-exported)
     _drop_specs_whose_bases_the_suite_cannot_materialise,
     _discovery_cache_lookup,
     rank_pending_composites,
+    select_composites_to_train,
 )
 
 
@@ -817,7 +818,7 @@ def run_composite_target_discovery(
                     _honest_mi = getattr(_spec, "honest_holdout_gain", None)
                     _rel_gain = float(_honest_mi) if _honest_mi is not None else float(_spec.mi_gain)
                 _pending_composite.append({
-                    "tt": _tt_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain,
+                    "tt": _tt_disc, "target": _tname_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain,
                     "rmse_gain": _gain_is_rmse, "gain_se": _relative_gain_se(_spec, _raw_rmse) if _gain_is_rmse else None,
                 })
             # Each shipped spec costs a full model-zoo fit: drop ones whose T is equivalent to raw y or to a better spec's T.
@@ -852,21 +853,7 @@ def run_composite_target_discovery(
     # Global selection: every base target's discovery has now run, so every candidate's honest-holdout
     # quality score is comparable at once. Keep the best-scoring specs across the WHOLE run (not an equal
     # share per target) up to max_total_composite_targets; None keeps every discovered spec (old behaviour).
-    _max_total = getattr(composite_target_discovery_config, "max_total_composite_targets", None)
-    _pending_composite = _drop_below_honest_gain_floor(_pending_composite, composite_target_discovery_config)
-    _pending_composite = rank_pending_composites(_pending_composite)
-    if _max_total is not None and len(_pending_composite) > int(_max_total):
-        _kept_composite = _pending_composite[: int(_max_total)]
-        _dropped_composite = _pending_composite[int(_max_total) :]
-        logger.info(
-            "[CompositeTargetDiscovery] global cap: keeping the %d best-scoring composite target(s) of %d "
-            "discovered (max_total_composite_targets=%d, ranked by honest-holdout OOS RMSE gain vs raw-y, "
-            "%% of baseline saved). Dropped: %s",
-            len(_kept_composite), len(_pending_composite), int(_max_total),
-            ", ".join(f"{d['name']}({d['gain']:+.3f})" for d in _dropped_composite),
-        )
-    else:
-        _kept_composite = _pending_composite
+    _kept_composite = select_composites_to_train(_pending_composite, composite_target_discovery_config, metadata)
     for _item in _kept_composite:
         target_by_type[_item["tt"]][_item["name"]] = _item["values"]
         logger.info(

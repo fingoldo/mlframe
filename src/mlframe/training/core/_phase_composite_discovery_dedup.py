@@ -69,3 +69,21 @@ def prune_equivalent_composite_specs(
     fails.extend({"name": n, "kept": False, "rejected": True, "reason": f"redundant: {why}"} for n, why in drops.items())
     metadata.setdefault("composite_target_equivalence_drops", {}).setdefault(str(target_type), {})[target_name] = dict(drops)
     return drops
+
+
+def forget_untrained_specs(metadata: dict, dropped: list[dict], reason: str) -> None:
+    """Remove the exported specs of ``dropped`` pending entries from ``metadata['composite_target_specs']`` and record each in
+    ``composite_target_failures`` with ``reason``, so saved metadata lists only the specs that were trained.
+
+    Every reader of the spec list (the CT-ensemble builder, the suite-end summary, composite-feature stacking, the
+    precomputed-bundle replay) treats a listed spec as shipped; a spec dropped by the global cap or the gain floor was not.
+    """
+    for p in dropped:
+        tt, target, name = str(p.get("tt")), p.get("target"), p.get("name")
+        if target is None:
+            continue
+        specs = metadata.get("composite_target_specs", {}).get(tt, {}).get(target)
+        if isinstance(specs, list):
+            specs[:] = [s for s in specs if _spec_name(s) != name]
+        fails = metadata.setdefault("composite_target_failures", {}).setdefault(tt, {}).setdefault(target, [])
+        fails.append({"name": name, "kept": False, "rejected": True, "reason": reason})

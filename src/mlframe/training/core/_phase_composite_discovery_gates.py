@@ -277,3 +277,32 @@ def _drop_below_honest_gain_floor(pending: list[dict], composite_target_discover
         ),
     )
     return [p for p in pending if p not in _below]
+
+
+def select_composites_to_train(pending: list[dict], cfg: Any, metadata: dict) -> list[dict]:
+    """The pending composites to train: drop those at or below their honest-gain floor, rank the rest by gain across the
+    whole run, keep the best ``max_total_composite_targets`` (None keeps all). Every dropped spec leaves
+    ``metadata['composite_target_specs']`` and is recorded in ``composite_target_failures`` with the reason.
+    """
+    max_total = getattr(cfg, "max_total_composite_targets", None)
+    from ._phase_composite_discovery_dedup import forget_untrained_specs
+
+    before_floor = pending
+    pending = _drop_below_honest_gain_floor(pending, cfg)
+    kept_ids = {id(p) for p in pending}
+    forget_untrained_specs(metadata, [p for p in before_floor if id(p) not in kept_ids], "honest-holdout RMSE gain at or below its floor")
+    pending = rank_pending_composites(pending)
+    if max_total is not None and len(pending) > int(max_total):
+        kept = pending[: int(max_total)]
+        dropped = pending[int(max_total) :]
+        logger.info(
+            "[CompositeTargetDiscovery] global cap: keeping the %d best-scoring composite target(s) of %d "
+            "discovered (max_total_composite_targets=%d, ranked by honest-holdout OOS RMSE gain vs raw-y, "
+            "%% of baseline saved). Dropped: %s",
+            len(kept), len(pending), int(max_total),
+            ", ".join(f"{d['name']}({d['gain']:+.3f})" for d in dropped),
+        )
+        forget_untrained_specs(metadata, dropped, f"global cap max_total_composite_targets={int(max_total)}")
+    else:
+        kept = pending
+    return kept
