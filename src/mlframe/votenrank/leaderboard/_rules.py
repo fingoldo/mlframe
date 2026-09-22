@@ -9,8 +9,13 @@ from scipy.stats import gmean
 from ..utils import ranking2top
 
 
+def _fill_partial(self, table):
+    """Fill missing cells per ``self.partial_fill``: the task's worst score ("min", default) or its median."""
+    fill = table.min() if getattr(self, "partial_fill", "min") == "min" else table.median()
+    return table.fillna(fill)
+
 def mean_ranking(self, mean_type: str = "arithmetic"):
-    """Rank models by weighted arithmetic or geometric mean score across tasks; NaN cells filled with the task median when the table is partial.
+    """Rank models by weighted arithmetic or geometric mean score across tasks; NaN cells filled per ``partial_fill`` (the task's worst score by default) when the table is partial.
 
     ``mean_type="geometric"`` requires every score to be strictly positive (``scipy.stats.gmean``'s own
     domain constraint) -- a task column with a zero or negative score (plausible for a raw margin/log-loss
@@ -18,7 +23,7 @@ def mean_ranking(self, mean_type: str = "arithmetic"):
     """
     table = self.table.copy()
     if self.is_partial:
-        table = table.fillna(table.median())
+        table = _fill_partial(self, table)
 
     if mean_type == "arithmetic":
         return (table * self.weights / self.weights.sum()).sum(axis=1).sort_values(ascending=False)
@@ -182,10 +187,10 @@ def minimax_election(self, score_type: str = "winning_votes"):
 
 
 def optimality_gap_ranking(self, gamma: int):
-    """Rank models by weighted mean gap-to-``gamma`` score (``min(score, gamma) - gamma``, capping credit for scores above ``gamma``); NaN cells filled with the task median when partial."""
+    """Rank models by weighted mean gap-to-``gamma`` score (``min(score, gamma) - gamma``, capping credit for scores above ``gamma``); NaN cells filled per ``partial_fill`` (the task's worst score by default) when partial."""
     table = self.table.copy()
     if self.is_partial:
-        table = table.fillna(table.median())
+        table = _fill_partial(self, table)
 
     gap_scores_np = np.minimum(table, gamma) - gamma
     gap_scores = pd.DataFrame(index=table.index, columns=table.columns, data=gap_scores_np)

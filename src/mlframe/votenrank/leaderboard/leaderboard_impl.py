@@ -45,7 +45,10 @@ class Leaderboard:
     )
     from ._cw import _get_tasks_onehot, _find_weights_for_majority_graph  # type: ignore[misc]  # same class-scoped-import pattern as above
 
-    def __init__(self, table: pd.DataFrame, weights: Optional[Dict[str, float]] = None, allow_partial: bool = False):
+    def __init__(
+        self, table: pd.DataFrame, weights: Optional[Dict[str, float]] = None, allow_partial: bool = False,
+        partial_fill: str = "min",
+    ):
         """Store the score table and per-task weights (default 1.0), then build ranks.
 
         ``allow_partial``: bypass ``_partial_table_guard`` for methods with no NaN-fill strategy
@@ -55,6 +58,14 @@ class Leaderboard:
         ``PARTIAL_METHODS`` filter instead of setting this.
         """
         self.allow_partial = allow_partial
+        # How the score-based rules (mean / optimality-gap) fill a model's missing task. "min" (default) gives it the
+        # task's WORST observed score; "median" is the historical behaviour, which credited a model that crashed or
+        # timed out on a task with a median result there - so a model missing the two hardest tasks could beat one
+        # that ran everywhere and scored below median on them. The filled cells are listed in ``imputed_cells_``.
+        if partial_fill not in ("min", "median"):
+            raise ValueError(f"Leaderboard: partial_fill must be 'min' or 'median', got {partial_fill!r}")
+        self.partial_fill = partial_fill
+        self.imputed_cells_ = [(str(table.index[int(r)]), str(table.columns[int(c)])) for r, c in zip(*np.where(table.isna().to_numpy()))]
         self.table = table
         self.tasks = list(self.table.columns)
         self.n_tasks = len(self.tasks)
