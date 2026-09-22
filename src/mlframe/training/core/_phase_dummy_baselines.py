@@ -6,7 +6,7 @@ import logging
 import numpy as np
 
 from .._format import format_metric as _dummy_fmt
-from ..composite.transforms import is_composite_target_name
+from ..composite.transforms import composite_target_names, is_composite_target
 from ..evaluation import report_model_perf
 from ..phases import phase
 from .utils import _augment_with_dropped_high_card_cols
@@ -83,7 +83,7 @@ def run_dummy_baselines(
         # inversion the leaderboard falsely fired MODELS_BARELY_BEAT_TRIVIAL on
         # apples-to-oranges comparisons. We now COMPUTE the T-scale dummies and
         # rely on the y-scale inversion path to add the y-scale-comparable view.
-        if is_composite_target_name(cur_target_name):
+        if is_composite_target(cur_target_name, composite_target_names(metadata)):
             logger.info(
                 "[dummy-baselines] target='%s' is a composite target -- "
                 "computing T-scale dummies AND y-scale inversion so the suite-end "
@@ -182,7 +182,7 @@ def run_dummy_baselines(
                 _strongest_val_raw = _db_report.extras.get("strongest_val_preds")
                 _strongest_test_raw = _db_report.extras.get("strongest_test_preds")
 
-                _dummy_is_composite = is_composite_target_name(cur_target_name)
+                _dummy_is_composite = is_composite_target(cur_target_name, composite_target_names(metadata))
                 _dummy_mt_tag = "MTRESID" if _dummy_is_composite else "MTTR"
                 try:
                     if current_train_target is not None and len(current_train_target) > 0:

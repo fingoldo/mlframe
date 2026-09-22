@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 
+from ._sensor_ledger import record_sensor_trip
+
 logger = logging.getLogger(__name__)
 
 
@@ -178,6 +180,14 @@ def run_collapse_sensor(
             _max_err, _max_err / max(_y_std, 1e-12),
             _r2,
             _hint,
+        )
+        # A WARNING that nothing collects is evidence that lives only in the log stream: a production run tripped
+        # this sensor four times on one target and persisted the artefact exactly like a clean one. Record it so
+        # persistence and the suite-end verdict can see what the log saw.
+        record_sensor_trip(
+            model_name, "collapse", _branch,
+            pred_std=_pred_std, target_std=_y_std, pred_mean=_pred_mean, target_mean=_y_mean,
+            max_abs_error=_max_err, r2=_r2,
         )
     except Exception as _sensor_err:
         logger.debug(

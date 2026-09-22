@@ -88,10 +88,7 @@ def test_known_limit_unbounded_memory_recurrences_only_approach_the_one_batch_an
 
     def worst(prefix: int) -> float:
         """Largest chunk-vs-batch deviation over a few chunks with this much prefix."""
-        return max(
-            float(np.max(np.abs(np.asarray(est.predict(cont.iloc[s - prefix : s + 20]))[-20:] - full[s : s + 20])))
-            for s in range(300, 480, 60)
-        )
+        return max(float(np.max(np.abs(np.asarray(est.predict(cont.iloc[s - prefix : s + 20]))[-20:] - full[s : s + 20]))) for s in range(300, 480, 60))
 
     assert worst(300) <= worst(0) + 1e-12, f"{name}: a longer warm-up must not make the chunk worse"
 

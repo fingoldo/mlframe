@@ -389,6 +389,48 @@ def evaluate_gain(
     return stopped_early, current_gain, k - 1, sink_reasons
 
 
+def _materialise_knob_columns(*, factors_data, X, y, factors_nbins, dtype, selected_vars, relax_y_col, relax_k_y, relax_sel_cols, relax_sel_nbins) -> dict:
+    """Materialise the candidate, target and selected-set columns the research knobs share.
+
+    Carved out of ``evaluate_candidate`` to keep it under its length ceiling. RelaxMRMR, PID, the CMI-permutation stop and CPT all want
+    the same three things, and each block used to materialise all of them for itself: with two knobs on, the same candidate was factorised
+    twice in one call, and the target and selected set, fixed for the whole greedy round, were rebuilt per candidate. The round's hoist is
+    used when the driver supplied it.
+
+    Args:
+        factors_data: the binned design the columns are materialised from.
+        X: the candidate variable.
+        y: the target variable.
+        factors_nbins: per-column bin counts.
+        dtype: the dtype the materialised columns are cast to.
+        selected_vars: the round's already-selected variables.
+        relax_y_col: the hoisted target column, or None.
+        relax_k_y: the hoisted target bin count, or None.
+        relax_sel_cols: the hoisted selected-set columns, or None.
+        relax_sel_nbins: the hoisted selected-set bin counts, or None.
+
+    Returns:
+        A mapping with ``"x"``, ``"y"``, ``"sel"`` and ``"hoisted"``; ``hoisted`` says whether the round-level hoist was used, which the
+        caller needs because the hoisted path has already range-checked the target and selected set for this round.
+    """
+    out: dict = {}
+    out["x"] = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
+    if relax_y_col is not None and relax_k_y is not None and relax_sel_cols is not None and relax_sel_nbins is not None:
+        out["y"] = (relax_y_col, relax_k_y)
+        out["sel"] = (relax_sel_cols, relax_sel_nbins)
+        out["hoisted"] = True
+        return out
+    out["y"] = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
+    cols, nbins = [], []
+    for sv in selected_vars:
+        svc, svk = _materialize_var(factors_data, sv, factors_nbins, dtype=dtype)
+        cols.append(svc)
+        nbins.append(svk)
+    out["sel"] = (cols, nbins)
+    out["hoisted"] = False
+    return out
+
+
 def evaluate_candidate(
     cand_idx: int,
     X: Sequence[int],
@@ -766,20 +808,9 @@ def evaluate_candidate(
     def _knob_columns():
         """``((x, k_x), (y, k_y), (sel_cols, sel_nbins))`` for the research knobs, materialised at most once per call."""
         if not _knob_cols_cache:
-            _knob_cols_cache["x"] = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
-            if _relax_y_col is not None and _relax_k_y is not None and _relax_sel_cols is not None and _relax_sel_nbins is not None:
-                _knob_cols_cache["y"] = (_relax_y_col, _relax_k_y)
-                _knob_cols_cache["sel"] = (_relax_sel_cols, _relax_sel_nbins)
-                _knob_cols_cache["hoisted"] = True
-            else:
-                _knob_cols_cache["y"] = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
-                _cols, _nbins = [], []
-                for _sv in selected_vars:
-                    _svc, _svk = _materialize_var(factors_data, _sv, factors_nbins, dtype=dtype)
-                    _cols.append(_svc)
-                    _nbins.append(_svk)
-                _knob_cols_cache["sel"] = (_cols, _nbins)
-                _knob_cols_cache["hoisted"] = False
+            _knob_cols_cache.update(_materialise_knob_columns(
+                factors_data=factors_data, X=X, y=y, factors_nbins=factors_nbins, dtype=dtype, selected_vars=selected_vars,
+                relax_y_col=_relax_y_col, relax_k_y=_relax_k_y, relax_sel_cols=_relax_sel_cols, relax_sel_nbins=_relax_sel_nbins))
         return _knob_cols_cache["x"], _knob_cols_cache["y"], _knob_cols_cache["sel"]
 
     # RelaxMRMR 3-D-redundancy score (Vinh 2016). Default alpha=0.0 -> dispatch skipped, legacy Fleuret score untouched (byte-identical). When alpha>0 the candidate's

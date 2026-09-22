@@ -32,9 +32,20 @@ def _snapshot_registry():
 
 @pytest.mark.parametrize("tt", [TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION])
 def test_kappa_metrics_registered_for_binary_and_multiclass(tt):
-    """Kappa metrics registered for binary and multiclass."""
+    """Weighted kappa is registered for MULTICLASS only.
+
+    Reframed by audit 2026-09-20 (WST-06). Weighted kappa measures ORDINAL agreement and needs three or more
+    classes for the weighting to exist: with two, the single off-diagonal distance makes quadratic and linear
+    weighting identical to each other and to plain Cohen's kappa. A production run printed
+    ``quadratic_weighted_kappa=0.37`` and ``weighted_kappa=0.37`` on a binary target -- one number twice, under
+    two names implying an ordinal reading the target does not have. The statistic they collapse to is already
+    reported for binary as ``Cohen_kappa``.
+    """
     names = set(mr.list_registered(tt))
-    assert {"quadratic_weighted_kappa", "weighted_kappa"} <= names, f"kappa metrics missing for {tt}: {names}"
+    if tt == TargetTypes.MULTICLASS_CLASSIFICATION:
+        assert {"quadratic_weighted_kappa", "weighted_kappa"} <= names, f"kappa metrics missing for {tt}: {names}"
+    else:
+        assert not ({"quadratic_weighted_kappa", "weighted_kappa"} & names), f"ordinal kappa must not be registered for {tt}: {names}"
 
 
 def test_exploss_registered_for_binary_only():
@@ -46,9 +57,8 @@ def test_exploss_registered_for_binary_only():
 
 def test_registered_directions_correct():
     """Registered directions correct."""
-    for tt in (TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION):
-        assert mr.get_metric_direction(tt, "quadratic_weighted_kappa") is True
-        assert mr.get_metric_direction(tt, "weighted_kappa") is True
+    assert mr.get_metric_direction(TargetTypes.MULTICLASS_CLASSIFICATION, "quadratic_weighted_kappa") is True
+    assert mr.get_metric_direction(TargetTypes.MULTICLASS_CLASSIFICATION, "weighted_kappa") is True
     assert mr.get_metric_direction(TargetTypes.BINARY_CLASSIFICATION, "exploss") is False
 
 
@@ -72,9 +82,9 @@ def test_iter_extra_metrics_binary_finite():
     probs = np.column_stack([1 - p1, p1])
     preds = (p1 >= 0.5).astype(np.int64)
     out = dict(mr.iter_extra_metrics(TargetTypes.BINARY_CLASSIFICATION, y, probs, preds))
-    for name in ("quadratic_weighted_kappa", "weighted_kappa", "exploss"):
-        assert name in out, f"{name} must surface for binary"
-        assert np.isfinite(out[name]), f"{name} must be finite; got {out[name]!r}"
+    assert "exploss" in out and np.isfinite(out["exploss"]), out
+    # Ordinal kappa is multiclass-only; see test_kappa_metrics_registered_for_binary_and_multiclass.
+    assert not ({"quadratic_weighted_kappa", "weighted_kappa"} & set(out)), out
 
 
 def test_iter_extra_metrics_multiclass_finite():
@@ -172,9 +182,10 @@ def test_reporting_path_binary_lands_scalars():
         print_report=False,
         metrics=metrics,
     )
-    for name in ("quadratic_weighted_kappa", "weighted_kappa", "exploss"):
-        assert name in metrics, f"{name} must land in the binary report metrics dict; keys={sorted(map(str, metrics))}"
-        assert np.isfinite(metrics[name]), f"{name} must be finite; got {metrics[name]!r}"
+    assert "exploss" in metrics and np.isfinite(metrics["exploss"]), sorted(map(str, metrics))
+    # The binary report keeps the unweighted Cohen kappa (per-class block) and drops the two identical ordinal
+    # aliases; see test_kappa_metrics_registered_for_binary_and_multiclass.
+    assert not ({"quadratic_weighted_kappa", "weighted_kappa"} & set(map(str, metrics))), sorted(map(str, metrics))
 
 
 def test_reporting_path_multiclass_lands_kappa_scalars():

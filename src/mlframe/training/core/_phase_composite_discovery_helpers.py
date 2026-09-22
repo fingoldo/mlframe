@@ -25,8 +25,13 @@ def _render_composite_discovery_diagnostics(
     y_full: np.ndarray,
     t_by_spec: Dict[str, np.ndarray],
     specs_export: List[dict],
+    train_idx: Any = None,
 ) -> List[str]:
     """Render the winning-spec target-distribution + MI-gain diagnostics into the run's chart tree.
+
+    The y-vs-T chart is a train-time selection diagnostic, so it plots the ``train_idx`` rows only, and only those with a
+    finite T: a domain-violating row has no T (drawing it at an imputed constant made a spurious spike), and val / test
+    rows must not shape it. The number of rows left out is in the title.
 
     One ``plot_mi_gain_with_jitter`` per raw target (ranks the accepted specs), plus one
     ``plot_target_distribution`` per accepted spec (y-vs-T shape sanity-check). Both are small
@@ -40,6 +45,9 @@ def _render_composite_discovery_diagnostics(
     Discovery runs before any model exists, hence a ``composite_discovery`` leaf rather than the per-model
     ``<model>/<target_type>/<cur_target>`` tail the trained-model charts use.
     """
+    from ..composite._row_roles import note_rows
+
+    note_rows("train", "plot", "discovery_target_distribution_chart", train_idx)
     import os
 
     import matplotlib.pyplot as plt
@@ -71,12 +79,16 @@ def _render_composite_discovery_diagnostics(
         except Exception as _mi_err:
             logger.info("[CompositeTargetDiscovery] mi-gain diagnostic render failed for '%s': %s.", raw_target_name, _mi_err)
     _spec_meta = {str(d.get("name")): d for d in (specs_export or []) if isinstance(d, dict)}
+    _rows = np.arange(len(y_full)) if train_idx is None else np.asarray(train_idx)
     for _spec_name, _t_full in t_by_spec.items():
         _safe_spec = "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(_spec_name))
+        _y_tr, _t_tr = np.asarray(y_full, dtype=np.float64)[_rows], np.asarray(_t_full, dtype=np.float64)[_rows]
+        _ok = np.isfinite(_y_tr) & np.isfinite(_t_tr)
+        _left_out = f", {int((~_ok).sum())} train rows without a finite T left out" if not _ok.all() else ""
         try:
             _save(
                 plot_target_distribution(
-                    y_full, _t_full, title=f"Target distribution: y vs T ({_spec_name})",
+                    _y_tr[_ok], _t_tr[_ok], title=f"Target distribution on train: y vs T ({_spec_name}{_left_out})",
                     y_name=str(raw_target_name),
                     transform_name=_spec_meta.get(_spec_name, {}).get("transform_name"),
                     base_column=_spec_meta.get(_spec_name, {}).get("base_column") or None,
@@ -151,27 +163,26 @@ def _discovery_config_signature(config: Any) -> ConfigSignatureV1:
     except Exception as e:
         logger.debug("could not resolve mlframe version: %s", e)
         versions["mlframe"] = "?"
-    for _name in (
-        "sklearn",
-        "lightgbm",
-        "catboost",
-        "xgboost",
-        "polars",
-        "numpy",
-        "scipy",
-        "pandas",
+    from importlib.metadata import PackageNotFoundError, version as _dist_version
+
+    from ..composite.discovery._algo_version import DISCOVERY_ALGO_VERSION
+
+    # The selection logic's own version: a discovery fix inside a release must invalidate warm caches.
+    versions["discovery_algo"] = str(DISCOVERY_ALGO_VERSION)
+    # Distribution metadata, not ``__import__``: reading a version string must not load catboost / lightgbm / xgboost.
+    for _name, _dist in (
+        ("sklearn", "scikit-learn"), ("lightgbm", "lightgbm"), ("catboost", "catboost"), ("xgboost", "xgboost"),
+        ("polars", "polars"), ("numpy", "numpy"), ("scipy", "scipy"), ("pandas", "pandas"),
     ):
         try:
-            mod = __import__(_name)
-            _ver_str = str(getattr(mod, "__version__", "?"))
+            _ver_str = _dist_version(_dist)
             # Major.minor only -- patch bumps invalidate every cached spec even though MI /
             # Wilcoxon / boosting math is unchanged. Strip patch + any dev / rc tags.
             _parts = _ver_str.split(".")
             if len(_parts) >= 2 and _parts[0].isdigit():
                 _ver_str = f"{_parts[0]}.{_parts[1].split('+')[0].split('rc')[0].split('dev')[0]}"
             versions[_name] = _ver_str
-        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-            logger.debug("could not resolve version for %s: %s", _name, e)
+        except PackageNotFoundError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             versions[_name] = "absent"
     versions["python"] = f"{sys.version_info.major}.{sys.version_info.minor}"
     return compute_config_signature_v1(config, library_versions=versions)

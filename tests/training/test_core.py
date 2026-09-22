@@ -1901,7 +1901,7 @@ class TestPredictMLFrameModelsSuite:
 
         # Verify predictions
         assert len(results["predictions"]) > 0
-        assert results['predictions'].values()
+        assert results["predictions"].values()
         for preds in results["predictions"].values():
             assert len(preds) == n_test
             assert all(p in [0, 1] for p in preds)
@@ -1952,7 +1952,7 @@ class TestPredictMLFrameModelsSuite:
 
         # Verify predictions
         assert len(results["predictions"]) > 0
-        assert results['predictions'].values()
+        assert results["predictions"].values()
         for preds in results["predictions"].values():
             assert len(preds) == n_test
             assert all(isinstance(p, (int, float, np.integer, np.floating)) for p in preds)

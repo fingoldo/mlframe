@@ -109,9 +109,12 @@ def _evaluate_mlp_extreme_ar_gate(
         _ea_lag1 = _td_diag.get("lag1_autocorr_per_group")
         _split_overrides = _td_knobs.get("split_config", {}) or {}
         _group_aware = bool(_split_overrides.get("prefer_group_aware", False))
+        from ..composite.transforms import composite_target_names
+
         _skip, _extreme_ar_fired = extreme_ar_skip_decision(
             mlframe_model_name,
             cur_target_name,
+            composite_names=composite_target_names(metadata),
             skip_models=_skip_models,
             skip_enabled=bool(
                 getattr(
@@ -214,9 +217,9 @@ def _run_per_model_post_train_tail(
     # end-of-target pass still runs the full train/val/test
     # metrics block + watchdog on the (now wrapped) entry.
     try:
-        from ..composite.transforms import is_composite_target_name as _is_comp
+        from ..composite.transforms import composite_target_names, is_composite_target
 
-        if _is_comp(cur_target_name):
+        if is_composite_target(cur_target_name, composite_target_names(metadata)):
             _specs = (metadata.get("composite_target_specs") or {}).get(str(target_type)) or {}
             _spec_pair = None
             for _orig_n, _spec_list in _specs.items():

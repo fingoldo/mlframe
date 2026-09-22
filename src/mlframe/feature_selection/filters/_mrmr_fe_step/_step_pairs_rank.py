@@ -432,6 +432,46 @@ def _prepass_gate_and_usability_candidates(
     return _gate_cache, _need_usability
 
 
+def _make_cached_operand(self, X, cols, *, max_entries: int):
+    """Build the per-call memo for an operand's continuous usability value, with least-recently-used eviction.
+
+    Carved out of ``score_prospective_pairs`` to keep it under its length ceiling. The prescan is capped, but the gate-failure path asks
+    for an operand for every pair with a positive pair MI, so an unbounded memo could hold one full-length column per operand in the pool:
+    at 5000 operands and a million rows, tens of GB standing behind a memoization whose justification was CPU time. Least-recently-used
+    eviction keeps the win, since a small pool of operands recurs across a much larger pool of pairs, without the footprint. Values are
+    stored at the dtype both consumers cast to anyway, so nothing they compute changes.
+
+    Args:
+        self: the estimator the operand value is computed against.
+        X: the frame the operand column is read from.
+        cols: the column names, indexed by operand index.
+        max_entries: the most operands held before the least recently used one is evicted.
+
+    Returns:
+        A one-argument callable mapping an operand index to its value, or ``None`` when it has none.
+    """
+    from .._fe_usability_signal import _crit_np_dtype as _op_cache_dtype
+
+    _operand_cache: OrderedDict = OrderedDict()
+
+    def _cached_operand(_idx):
+        """Return operand ``_idx``'s continuous usability value, computing and memoizing it on first use."""
+        _hit = _operand_cache.get(_idx)
+        if _hit is not None:
+            _operand_cache.move_to_end(_idx)
+            return _hit
+        _val = _usability_operand_continuous(self, X, cols, _idx)
+        if _val is None:
+            return None
+        _val = np.asarray(_val, dtype=_op_cache_dtype())
+        _operand_cache[_idx] = _val
+        if len(_operand_cache) > max_entries:
+            _operand_cache.popitem(last=False)
+        return _val
+
+    return _cached_operand
+
+
 def score_prospective_pairs(
     self,
     *,
@@ -464,31 +504,7 @@ def score_prospective_pairs(
     # serially from ``_step_core.py`` (no threading/loky dispatch at this level), so no shared-mutable-state
     # race risk (contrast the numba-typed-dict caches elsewhere in this package that DO cross worker threads
     # and need explicit per-worker copies).
-    _operand_cache: OrderedDict = OrderedDict()
-
-    # BOUNDED: the prescan is capped, but the gate-failure path below asks for an operand for every pair with a positive pair MI, so the
-    # cache could hold one full-length column per operand in the pool. At 5000 operands and a million rows that is tens of GB standing behind
-    # a memoization whose justification was CPU time. Least-recently-used eviction keeps the win (a small pool of operands recurs across a
-    # much larger pool of pairs, so the working set is small) without the footprint. Stored at the dtype both consumers cast to anyway, so
-    # nothing they compute changes.
-    from .._fe_usability_signal import _crit_np_dtype as _op_cache_dtype
-
-    _operand_cache_max = max(512, 2 * int(getattr(self, "fe_pair_usability_prescan_max_pairs", 256) or 256))
-
-    def _cached_operand(_idx):
-        """Return operand ``_idx``'s continuous usability value, computing and memoizing it on first use."""
-        _hit = _operand_cache.get(_idx)
-        if _hit is not None:
-            _operand_cache.move_to_end(_idx)
-            return _hit
-        _val = _usability_operand_continuous(self, X, cols, _idx)
-        if _val is None:
-            return None
-        _val = np.asarray(_val, dtype=_op_cache_dtype())
-        _operand_cache[_idx] = _val
-        if len(_operand_cache) > _operand_cache_max:
-            _operand_cache.popitem(last=False)
-        return _val
+    _cached_operand = _make_cached_operand(self, X, cols, max_entries=max(512, 2 * int(getattr(self, "fe_pair_usability_prescan_max_pairs", 256) or 256)))
 
     # Per-call memoization for the SINGLE-operand half of usability_form_corrs's ``_cs`` (perf
     # fix): ``pair_is_tail_concentrated_rankaware`` runs once per candidate PAIR (~85k calls in a wide 100k-row

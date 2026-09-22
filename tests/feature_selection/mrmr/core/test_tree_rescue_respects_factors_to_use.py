@@ -62,19 +62,20 @@ def test_the_rescue_fit_sees_only_the_allowed_columns(frame, monkeypatch):
     """With three columns allowed, the rescue GBM's design must be three wide, not the full frame."""
     allowed = [0, 1, 2]
     _est, widths = _rescued_estimator(frame, allowed, monkeypatch)
-    if not widths:
-        pytest.skip("the rescue did not fire on this fit, so there is no design to inspect")
+    # Asserted: this fixture and configuration exist to make the rescue fire, so an empty record means it silently stopped running and
+    # the width contract below was never examined.
+    assert widths, "the rescue GBM never fit, so no design width was observed"
     assert all(w == len(allowed) for w in widths), f"the rescue fit on {widths} columns, expected {len(allowed)}"
 
 
 def test_rescued_features_come_with_a_recorded_importance(frame, monkeypatch):
     """Each rescued feature's importance share is recorded, so the fit itself carries the evidence."""
     est, widths = _rescued_estimator(frame, [0, 1, 2, 3], monkeypatch)
-    if not widths:
-        pytest.skip("the rescue did not fire on this fit")
+    assert widths, "the rescue GBM never fit, so nothing could have been rescued"
     shares = getattr(est, "tree_rescue_importances_", None)
-    if not shares:
-        pytest.skip("the rescue fired but added nothing on this fixture")
+    # Both asserted rather than skipped: an empty mapping would make the ``all(...)`` below true for vacuous reasons, which is exactly how
+    # a rescue that records nothing keeps a green test.
+    assert shares, f"the rescue fired but recorded no importance share: {shares!r}"
     assert all(isinstance(v, float) and 0.0 <= v <= 1.0 for v in shares.values()), shares
 
 
@@ -82,6 +83,5 @@ def test_no_rescued_feature_falls_outside_the_allowed_set(frame, monkeypatch):
     """Whatever the rescue adds must come from the columns the user allowed."""
     allowed = [0, 1, 2, 3]
     est, widths = _rescued_estimator(frame, allowed, monkeypatch)
-    if not widths:
-        pytest.skip("the rescue did not fire on this fit")
+    assert widths, "the rescue GBM never fit, so the containment claim below is vacuous"
     assert set(np.asarray(est.support_).tolist()) <= set(allowed), f"support {sorted(np.asarray(est.support_).tolist())} escaped {allowed}"

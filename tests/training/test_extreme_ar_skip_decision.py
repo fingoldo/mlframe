@@ -119,3 +119,31 @@ class TestDiscoverySkipNotFiredLogLevel:
     def test_high_lag1_on_another_target_warns(self):
         """High lag-1 on a target other than the picked one still warns."""
         assert self._blocked(lag1_ar=0.999, is_picked_target=False) is True
+
+
+def test_composite_status_comes_from_the_spec_names_not_the_name_shape():
+    """A dashed raw target is raw and a chain spec is composite once the suite's spec names are known.
+
+    The name heuristic calls ``price-diff-7d`` composite (so it was never MLP-skipped and got no lag failsafe) and misses
+    ``target-chain_linear_residual_cbrt-TVT_prev`` (so the extreme-AR skip applied to a composite).
+    """
+    from mlframe.training.composite import composite_target_names
+    from mlframe.training.core._phase_train_one_target_mlp_helpers import extreme_ar_skip_decision
+
+    chain = "target-chain_linear_residual_cbrt-TVT_prev"
+    names = composite_target_names({"composite_target_specs": {"regression": {"target": [{"name": chain}]}}})
+    kw = dict(skip_models=["mlp"], skip_enabled=True, lag1_autocorr_per_group=0.999, group_aware=True, composite_names=names)
+    assert extreme_ar_skip_decision("mlp", "price-diff-7d", **kw) == (True, True), "a raw dashed target must still be skipped"
+    assert extreme_ar_skip_decision("mlp", chain, **kw) == (False, False), "a chain composite must never be skipped"
+
+
+def test_a_dashed_raw_target_gets_a_raw_only_ensemble_entry():
+    """``price-diff-7d`` has models and no spec: it is raw, so the CT-ensemble loop gets an entry for its lag failsafe."""
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig, TargetTypes
+    from mlframe.training.core._phase_composite_post import _with_raw_only_ensemble_entries
+
+    specs = {TargetTypes.REGRESSION: {"target": [{"name": "target-linres-b"}]}}
+    models = {TargetTypes.REGRESSION: {"price-diff-7d": [object()], "target-linres-b": [object()]}}
+    merged = _with_raw_only_ensemble_entries(specs, models, CompositeTargetDiscoveryConfig(), discovery_enabled=True, ce_strategy="nnls")
+    assert "price-diff-7d" in merged[TargetTypes.REGRESSION]
+    assert "target-linres-b" not in merged[TargetTypes.REGRESSION]

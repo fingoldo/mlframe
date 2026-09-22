@@ -524,6 +524,12 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # a production run trained 12 specs with gain <= 0 (down to -0.008), ~4 min each, and none of its 25 composites beat
     # raw at the end. Specs scored by the MI fallback (no honest RMSE) are not subject to it. None disables the floor.
     min_honest_gain_to_train: Optional[float] = 0.001
+    # The constant above cannot tell a real 0.4% gain from a 0.4% measurement error, and a production run shipped 9
+    # specs at gains of +0.002..+0.011 while warning in the next log line that GPU non-determinism across those same
+    # extra fits is of the same order. Each spec now carries the PAIRED standard error of its own gain (spec vs the
+    # raw baseline on identical holdout rows), so the effective floor is max(constant, z * se). 0 disables the
+    # noise-aware half and restores the constant-only bar.
+    min_honest_gain_z: float = 2.0
     tiny_model_n_jobs: int = 0  # CV-fold joblib parallelism for the tiny models; 0 = auto (physical core count), >=1 = explicit, 1 = serial folds
 
     # Parallelise the per-spec rerank loop in

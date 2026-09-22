@@ -151,6 +151,8 @@ class CompositeTargetDiscovery:
     _time_ordering_: Any
     _fit_data_signature: str | None
     _fit_data_signature_inputs: tuple | None
+    # Assigned beside the inputs in ``_fit``; ``discover_incremental`` reads it to re-score only the appended rows.
+    _fit_n_rows: int | None
     # Sweep-shared honest holdout set by ``fit_with_stability_check`` (consumed by
     # ``carve_screening_holdout``); ``None`` outside a stability sweep.
     _stability_shared_holdout_idx: np.ndarray | None
@@ -311,6 +313,10 @@ class CompositeTargetDiscovery:
                 "honest_holdout_rmse": getattr(s, "honest_holdout_rmse", None),
                 "honest_holdout_raw_rmse": getattr(s, "honest_holdout_raw_rmse", None),
                 "honest_holdout_rmse_gain": getattr(s, "honest_holdout_rmse_gain", None),
+                # The paired standard error the ship/no-ship floor is judged against. Without it here a spec dropped
+                # by that floor showed a positive gain and no reason in the metadata -- the decision was made on a
+                # number nobody could see.
+                "honest_holdout_rmse_gain_se": getattr(s, "honest_holdout_rmse_gain_se", None),
             }
             for s in getattr(self, "specs_", [])
         ]

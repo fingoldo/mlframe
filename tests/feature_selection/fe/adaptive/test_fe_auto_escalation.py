@@ -102,7 +102,7 @@ def test_escalation_silent_when_library_capture_is_exact():
     sel.fit(df, pd.Series(y, name="y"))
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
     assert any(("x0" in nm and "x1" in nm) for nm in recipes), f"the exact library capture should be admitted+selected: {list(recipes)}"
-    assert list(getattr(sel, 'fe_escalation_history_', []) or [])
+    assert list(getattr(sel, "fe_escalation_history_", []) or [])
     for h in getattr(sel, "fe_escalation_history_", []) or []:
         assert ("x0", "x1") not in (h.get("eligible_pairs") or []), "a COMPLETELY captured pair must never be escalated (leg-3 control)"
     assert not [nm for nm in recipes if nm.startswith("esc_")]
@@ -138,7 +138,7 @@ def test_biz_val_escalation_skips_complete_he3_capture():
     # A COMPLETELY captured pair must never be escalated (same contract as the He2
     # leg-3 control): the continuous-y ALS makes the He3 capture complete, so the
     # (x0, x1) pair must NOT appear in any escalation round's eligible_pairs.
-    assert list(getattr(sel, 'fe_escalation_history_', []) or [])
+    assert list(getattr(sel, "fe_escalation_history_", []) or [])
     for h in getattr(sel, "fe_escalation_history_", []) or []:
         assert ("x0", "x1") not in (h.get("eligible_pairs") or []), "a COMPLETELY captured He3 pair must never be escalated"
 

@@ -53,51 +53,69 @@ from ._regression_metrics import fast_r2_score
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _rmsle_kernel_seq(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[float, int]:
-    """Returns (RMSLE, count_of_negatives). Negatives are skipped from the
-    sum so the kernel does not crash on a stray <0 row; the count is
-    surfaced to the wrapper so a warning can fire."""
+    """Returns (RMSLE, count_of_negative_rows).
+
+    A negative value is CLIPPED to 0 and the row stays in the denominator - the convention ``metrics.scoring.rmsle_loss``
+    and the usual Kaggle/sklearn definitions use. Skipping such rows instead (the previous rule here) made the same
+    predictions score differently under the scorer and under the registry metric, and rewarded a model for pushing
+    more rows negative: every row it moved below zero left the average. The count is still returned so the wrapper can
+    warn.
+    """
     n = y_true.shape[0]
+    if n == 0:
+        return np.nan, 0
     s = 0.0
     neg = 0
-    used = 0
     for i in range(n):
         yt = y_true[i]
         yp = y_pred[i]
         if yt < 0.0 or yp < 0.0:
             neg += 1
-            continue
+            if yt < 0.0:
+                yt = 0.0
+            if yp < 0.0:
+                yp = 0.0
         d = log1p(yp) - log1p(yt)
         s += d * d
-        used += 1
-    if used == 0:
-        return np.nan, neg
-    return sqrt(s / used), neg
+    return sqrt(s / n), neg
+
+
+_RMSLE_REDUCTION_CHUNKS = 256  # fixed, data-independent partition: reproducible sums, see _rmsle_kernel_par
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _rmsle_kernel_par(y_true: np.ndarray, y_pred: np.ndarray, nthr: int) -> Tuple[float, int]:
-    """Parallel (prange) variant of ``_rmsle_kernel_seq``: per-thread partial sums/counts, reduced at the end. Same
-    negative-row skip semantics and (RMSLE, count_of_negatives) return contract."""
+    """Parallel variant of ``_rmsle_kernel_seq`` with the same clip semantics and return contract.
+
+    The partials are accumulated per fixed CHUNK, not per ``numba.get_thread_id()``: which rows a thread handles
+    depends on scheduling, so thread-keyed partials summed in a different grouping on every call and the metric moved
+    in its last ulps between identical runs. ``nthr`` is kept for the caller's signature and no longer used.
+    """
     n = y_true.shape[0]
-    sums = np.zeros(nthr, dtype=np.float64)
-    negs = np.zeros(nthr, dtype=np.int64)
-    used = np.zeros(nthr, dtype=np.int64)
-    for i in numba.prange(n):
-        t = numba.get_thread_id()
-        yt = y_true[i]
-        yp = y_pred[i]
-        if yt < 0.0 or yp < 0.0:
-            negs[t] += 1
-            continue
-        d = log1p(yp) - log1p(yt)
-        sums[t] += d * d
-        used[t] += 1
-    total = sums.sum()
-    used_total = int(used.sum())
-    neg_total = int(negs.sum())
-    if used_total == 0:
-        return np.nan, neg_total
-    return sqrt(total / used_total), neg_total
+    if n == 0:
+        return np.nan, 0
+    n_chunks = _RMSLE_REDUCTION_CHUNKS if n >= _RMSLE_REDUCTION_CHUNKS else 1
+    chunk = (n + n_chunks - 1) // n_chunks
+    sums = np.zeros(n_chunks, dtype=np.float64)
+    neg_total = 0
+    for c in numba.prange(n_chunks):
+        acc = 0.0
+        for i in range(c * chunk, min(c * chunk + chunk, n)):
+            yt = y_true[i]
+            yp = y_pred[i]
+            if yt < 0.0 or yp < 0.0:
+                neg_total += 1
+                if yt < 0.0:
+                    yt = 0.0
+                if yp < 0.0:
+                    yp = 0.0
+            d = log1p(yp) - log1p(yt)
+            acc += d * d
+        sums[c] = acc
+    total = 0.0
+    for c in range(n_chunks):
+        total += sums[c]
+    return sqrt(total / n), neg_total
 
 
 _RMSLE_NEG_WARN_SEEN: set = set()
@@ -108,9 +126,10 @@ def fast_rmsle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
     RMSLE = sqrt(mean((log(1 + y_pred) - log(1 + y_true))^2))
 
-    Defined only for y_true, y_pred >= 0; negative rows are skipped and
-    a rate-limited warning fires (silently dropping them masks data
-    leakage). NaN when zero non-negative rows.
+    Defined for y_true, y_pred >= 0. A negative value is clipped to 0 and
+    its row stays in the average (the ``rmsle_loss`` / Kaggle convention),
+    and a rate-limited warning fires because such rows usually mean the
+    target or the model is on the wrong scale. NaN on empty input.
 
     Penalises under-prediction more than over-prediction (asymmetric);
     standard in retail forecasting, energy demand, click-through rate.
@@ -124,6 +143,10 @@ def fast_rmsle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         val, neg = _rmsle_kernel_par(yt, yp, numba.get_num_threads())
     else:
         val, neg = _rmsle_kernel_seq(yt, yp)
+    if neg == yt.shape[0]:
+        # Every row was clipped: the score would be computed over zeros and read as a perfect 0.0 on data where RMSLE
+        # is not defined. ``rmsle_loss`` makes the same call.
+        val = np.nan
     if neg > 0:
         key = (int(neg), int(yt.shape[0]))
         if key not in _RMSLE_NEG_WARN_SEEN:
@@ -131,7 +154,7 @@ def fast_rmsle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
             import warnings
             warnings.warn(
                 f"fast_rmsle: {neg} of {yt.shape[0]} rows had y_true<0 or y_pred<0 "
-                f"and were skipped. RMSLE is defined only on non-negative targets; "
+                f"and were clipped to 0. RMSLE is defined only on non-negative targets; "
                 f"check that the target really is on a count / log-scale.",
                 RuntimeWarning, stacklevel=2,
             )

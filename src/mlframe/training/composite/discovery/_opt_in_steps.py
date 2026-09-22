@@ -147,9 +147,14 @@ def _run_interaction_bases(
         return {}, []
     top_k = int(getattr(self.config, "interaction_base_top_k", 4))
     max_pairs = int(getattr(self.config, "interaction_base_max_pairs", 3))
+    # Every row here is a train row by construction: ``_auto_base_pool`` is already restricted to ``train_idx`` and
+    # the screen sample indexes into it. Pass that explicitly rather than leaving it implicit -- the generator warns
+    # about a possible test-scale leak when the mask is absent, which on this path was a false alarm four times per
+    # run, and a WARNING that cries leak without a leak teaches the reader to ignore the one that matters.
+    train_mask = np.ones(y_screen.shape[0], dtype=bool)
     synth, records = discover_interaction_bases(
         candidates, y_screen, top_k=top_k, max_pairs=max_pairs,
-        nbins=int(self.config.mi_nbins),
+        nbins=int(self.config.mi_nbins), train_mask=train_mask,
     )
     return synth, records
 
@@ -313,6 +318,11 @@ def run_optional_discovery_steps(
     ra_on = bool(getattr(config, "region_adaptive_enabled", False))
     ib_on = bool(getattr(config, "interaction_base_discovery_enabled", False))
     ac_on = bool(getattr(config, "auto_chain_discovery_enabled", False))
+    # ``transforms`` is the caller's whitelist: chains are a transform family, so they are built only when it lists one
+    # (the default list does). ``transforms=["linear_residual"]`` used to train an extra chain model regardless.
+    if ac_on and not any(str(t).startswith("chain_") for t in (getattr(config, "transforms", None) or [])):
+        ac_on = False
+        logger.info("[CompositeTargetDiscovery.auto_chain] skipped: the transforms whitelist lists no chain_* transform.")
     if not (ra_on or ib_on or ac_on) or not kept_specs:
         return []
 

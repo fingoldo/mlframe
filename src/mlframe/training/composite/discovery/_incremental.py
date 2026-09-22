@@ -291,6 +291,9 @@ def incremental_discovery_check(
     rs = int(config.random_state)
     appended = prior_n_rows is not None and 0 < int(prior_n_rows) < n_rows
     if appended:
+        # `appended` is only true when `prior_n_rows` is not None; the assert is what says so to a reader
+        # and to the type checker at once.
+        assert prior_n_rows is not None
         n_old = int(prior_n_rows)
         idx = n_old + _sample_indices(n_rows - n_old, sample_n, rs)
         idx_old = _sample_indices(n_old, sample_n, rs)

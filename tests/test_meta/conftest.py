@@ -70,3 +70,7 @@ def pytest_addoption(parser):
     from py_ci_shared.uncalled_functions import register_refresh_option as register_uncalled_functions_refresh_option
 
     register_uncalled_functions_refresh_option(parser)  # --refresh-uncalled-functions-baseline, shared with every other consumer
+
+    from py_ci_shared.content_hash_version_bump_gate import register_refresh_option as register_content_hash_refresh_option
+
+    register_content_hash_refresh_option(parser)  # --refresh-content-hash-version-baseline

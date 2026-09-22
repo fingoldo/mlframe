@@ -67,10 +67,12 @@ def test_numerical_equivalence_vs_separate_kernels(n, y_mean, y_std):
         assert diff < tol, f"fused {k} = {fused[k]}, ref = {ref[k]}, diff = {diff} (tol = {tol}) at n={n}, y_mean={y_mean}, y_std={y_std}"
 
 
-def test_empty_input_returns_zero_dict():
-    """Empty input returns zero dict."""
+def test_empty_input_returns_nan_dict():
+    """Empty input is NaN in every metric. The zero dict this used to return is the BEST possible MAE/RMSE/MaxError,
+    so an empty split scored as a perfect model and won any min() selection it entered."""
     out = fast_regression_metrics_block(np.array([], dtype=np.float64), np.array([], dtype=np.float64))
-    assert out == {"MAE": 0.0, "RMSE": 0.0, "MaxError": 0.0, "R2": 0.0}
+    assert set(out) == {"MAE", "RMSE", "MaxError", "R2"}
+    assert all(np.isnan(v) for v in out.values())
 
 
 def test_constant_y_true_returns_r2_one_when_perfect():

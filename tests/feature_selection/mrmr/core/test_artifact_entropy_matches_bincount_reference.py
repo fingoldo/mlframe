@@ -50,7 +50,56 @@ def test_requesting_no_columns_returns_an_empty_block():
 
 
 def test_the_entropies_a_fit_reports_match_a_bincount_recomputation():
-    """End to end: every retained feature's reported H(X) equals the entropy recomputed from ``np.bincount``."""
+    """End to end: the H(X) implied by every exported SU and MI is the entropy recomputed from ``np.bincount`` on the exported bins."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(0)
+    n = 2000
+    a = rng.normal(size=n)
+    b = rng.normal(size=n)
+    c = rng.normal(size=n)
+    # Three informative columns of decreasing strength, so the identity below is checked on more than one feature, plus one pure-noise
+    # column that legitimately reports SU=0 and carries no equation.
+    y = ((a + 0.7 * b + 0.3 * c + 0.25 * rng.normal(size=n)) > 0).astype(np.int64)
+    X = pd.DataFrame({"a": a, "b": b, "c": c, "d": rng.normal(size=n)})
+    MRMR._FIT_CACHE.clear()
+    est = MRMR(random_state=0, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2, retain_artifacts=True).fit(X, y)
+
+    # ``export_artifacts()`` is the surface: a fit asked to retain artifacts that cannot produce them is a broken contract, not a
+    # configuration to step around, and the capture path swallows its own failure into a warning.
+    artifacts = est.export_artifacts()
+    names = artifacts["feature_names"]
+    su = np.asarray(artifacts["su_to_target"], dtype=np.float64)
+    mi = np.asarray(artifacts["mi_to_target"], dtype=np.float64)
+    bins, nbins = artifacts["bins"], artifacts["nbins_per_feature"]
+    assert set(bins) == set(names), f"exported bins {sorted(bins)} do not cover the exported features {sorted(names)}"
+
+    y_counts = np.bincount(y, minlength=2).astype(np.float64)
+    y_p = y_counts / y_counts.sum()
+    h_y = float(-np.sum(y_p[y_p > 0] * np.log(y_p[y_p > 0])))
+
+    # SU = 2*I(X,y) / (H(X) + H(y)), so the reported pair pins H(X) exactly. Recomputing it from the exported bins closes the loop on the
+    # batched histogram pass: if those counts ever stopped matching a per-column bincount, this equality is where it would show.
+    checked = 0
+    for i, name in enumerate(names):
+        if not (np.isfinite(mi[i]) and su[i] > 0.0):
+            continue
+        counts = np.bincount(np.asarray(bins[name]), minlength=int(nbins[name])).astype(np.float64)
+        p = counts / counts.sum()
+        h_x_recomputed = float(-np.sum(p[p > 0] * np.log(p[p > 0])))
+        h_x_implied = 2.0 * mi[i] / su[i] - h_y
+        assert h_x_recomputed == pytest.approx(h_x_implied, abs=1e-9), (
+            f"{name}: H(X) recomputed from the exported bins is {h_x_recomputed:.9f}, but the reported SU={su[i]:.9f} and "
+            f"MI={mi[i]:.9f} imply {h_x_implied:.9f}"
+        )
+        checked += 1
+    assert checked >= 3, f"only {checked} feature(s) carried a usable SU, so this reconciliation checked almost nothing"
+
+
+def test_every_reported_su_is_a_valid_similarity():
+    """SU is a normalised quantity: outside [0, 1] means the cached MI and the marginal entropies disagree."""
     import pandas as pd
 
     from mlframe.feature_selection.filters.mrmr import MRMR
@@ -62,10 +111,7 @@ def test_the_entropies_a_fit_reports_match_a_bincount_recomputation():
     y = (a > 0).astype(np.int64)
     MRMR._FIT_CACHE.clear()
     est = MRMR(random_state=0, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2, retain_artifacts=True).fit(X, y)
-    su = getattr(est, "su_to_target_", None)
-    if su is None:
-        pytest.skip("this fit did not retain the artifact arrays")
-    su = np.asarray(su, dtype=np.float64)
+    su = np.asarray(est.export_artifacts()["su_to_target"], dtype=np.float64)
     assert su.shape[0] == X.shape[1]
     finite = su[np.isfinite(su)]
     assert finite.size, "every reported SU was NaN, so this test is not looking at anything"

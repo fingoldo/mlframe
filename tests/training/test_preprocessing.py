@@ -18,6 +18,18 @@ import time
 from mlframe.training.splitting import make_train_test_split
 from mlframe.training.configs import PreprocessingConfig, TrainingSplitConfig
 from mlframe.training.utils import process_nans, process_nulls, remove_constant_columns
+
+
+def _split_kwargs(config) -> dict:
+    """The config fields ``make_train_test_split`` accepts, as the suite passes them (minus ``calib_size``, keeping the 6-tuple return).
+
+    Dumping the whole config minus a hand-kept exclude list broke each time the config grew a field the splitter does not
+    take (``id_column`` and the other exact-split fields).
+    """
+    import inspect
+
+    accepted = set(inspect.signature(make_train_test_split).parameters) - {"calib_size"}
+    return {k: v for k, v in config.model_dump().items() if k in accepted}
 from pyutilz.strings import slugify
 
 
@@ -231,9 +243,7 @@ class TestTrainTestSplit:
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
             df,
-            **config.model_dump(
-                exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}
-            ),
+            **_split_kwargs(config),
             timestamps=None,
         )
 
@@ -262,9 +272,7 @@ class TestTrainTestSplit:
         timestamps = pd.Series(dates, name="timestamp")
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
             df,
-            **config.model_dump(
-                exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}
-            ),
+            **_split_kwargs(config),
             timestamps=timestamps,
         )
 
@@ -288,18 +296,14 @@ class TestTrainTestSplit:
 
         train_idx1, val_idx1, test_idx1, _, _, _ = make_train_test_split(
             df,
-            **config.model_dump(
-                exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}
-            ),
+            **_split_kwargs(config),
             timestamps=None,
         )
 
         # Run again with same seed
         train_idx2, val_idx2, test_idx2, _, _, _ = make_train_test_split(
             df,
-            **config.model_dump(
-                exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}
-            ),
+            **_split_kwargs(config),
             timestamps=None,
         )
 
@@ -322,9 +326,7 @@ class TestTrainTestSplit:
 
         _train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
             df,
-            **config.model_dump(
-                exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}
-            ),
+            **_split_kwargs(config),
             timestamps=None,
         )
 

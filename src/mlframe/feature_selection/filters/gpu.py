@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import math
 import multiprocessing
+import threading
 import sys
 from typing import Any, Optional
 
@@ -89,6 +90,15 @@ class _GpuBufferPool:
 
 
 _GPU_POOL = _GpuBufferPool()
+# Guards every read/write of the pool above. The FE pair sweep dispatches its workers with joblib ``backend="threading"``,
+# so without it two workers inside ``mi_direct_gpu`` interleave: one fills ``classes_x`` while another reallocates
+# ``joint_counts`` for a different ``nbins_y`` or overwrites the same buffers, the first thread's histogram is built from
+# the second's data, and the MI comes back silently wrong - a junk engineered pair admitted or a good one dropped,
+# differently on every run. ``mi_direct_gpu`` holds it across the whole ensure-fill-launch block, not just
+# ``ensure()``, because the buffers stay shared for the entire permutation loop; that costs nothing real, since the
+# work inside is GPU-bound and the device runs it one kernel at a time anyway. Re-entrant so a nested helper that also
+# touches the pool cannot self-deadlock.
+_GPU_POOL_LOCK = threading.RLock()
 
 # Wave 27 P2 fix: the prior docstring claimed
 # "Cross-process safe ... picks up the host process's mutex on spawn".
@@ -584,112 +594,111 @@ def mi_direct_gpu(
                 max_failed = 1
 
         # Persistent device buffers. Pool grows monotonically so back-to-back calls on similarly-sized inputs reuse the same allocations.
-        n = len(classes_x)
-        nbins_x = len(freqs_x)
-        nbins_y = len(freqs_y)
-        _GPU_POOL.ensure(n=n, nbins_x=nbins_x, nbins_y=nbins_y)
-        # .ensure() allocates every buffer below unconditionally; narrows the pool's Optional[...] attrs for mypy.
-        assert _GPU_POOL.classes_x is not None and _GPU_POOL.classes_y is not None
-        assert _GPU_POOL.freqs_x is not None and _GPU_POOL.freqs_y is not None
-        assert _GPU_POOL.joint_counts is not None and _GPU_POOL.totals is not None
+        n, nbins_x, nbins_y = len(classes_x), len(freqs_x), len(freqs_y)
+        with _GPU_POOL_LOCK:  # the whole ensure-fill-launch block; see the lock's definition
+            _GPU_POOL.ensure(n=n, nbins_x=nbins_x, nbins_y=nbins_y)
+            # .ensure() allocates every buffer below unconditionally; narrows the pool's Optional[...] attrs for mypy.
+            assert _GPU_POOL.classes_x is not None and _GPU_POOL.classes_y is not None
+            assert _GPU_POOL.freqs_x is not None and _GPU_POOL.freqs_y is not None
+            assert _GPU_POOL.joint_counts is not None and _GPU_POOL.totals is not None
 
-        # classes_y_safe override path (caller passed cached GPU arrays).
-        # The permutation loop below shuffles this buffer IN PLACE and cumulatively. When the caller supplied
-        # it (the pre-warmed-device-buffer path in evaluation.py / _confirm_predictor.py) that left their
-        # cached array permanently permuted relative to classes_x. Harmless for the null itself -- a
-        # composition of random permutations is still a random permutation, and original_mi is computed from
-        # the HOST classes_y -- but any future consumer reading that shared buffer as the TRUE label vector
-        # would silently get scrambled labels. Shuffle a scratch copy instead, so the caller's buffer is
-        # exactly as they left it.
-        if classes_y_safe is None:
-            classes_y_safe = _GPU_POOL.classes_y[:n]
-            classes_y_safe[:] = cp.asarray(classes_y, dtype=cp.int32)
-        else:
-            classes_y_safe = classes_y_safe.copy()
-        if freqs_y_safe is None:
-            freqs_y_safe = _GPU_POOL.freqs_y[:nbins_y]
-            freqs_y_safe[:] = cp.asarray(freqs_y)
+            # classes_y_safe override path (caller passed cached GPU arrays).
+            # The permutation loop below shuffles this buffer IN PLACE and cumulatively. When the caller supplied
+            # it (the pre-warmed-device-buffer path in evaluation.py / _confirm_predictor.py) that left their
+            # cached array permanently permuted relative to classes_x. Harmless for the null itself -- a
+            # composition of random permutations is still a random permutation, and original_mi is computed from
+            # the HOST classes_y -- but any future consumer reading that shared buffer as the TRUE label vector
+            # would silently get scrambled labels. Shuffle a scratch copy instead, so the caller's buffer is
+            # exactly as they left it.
+            if classes_y_safe is None:
+                classes_y_safe = _GPU_POOL.classes_y[:n]
+                classes_y_safe[:] = cp.asarray(classes_y, dtype=cp.int32)
+            else:
+                classes_y_safe = classes_y_safe.copy()
+            if freqs_y_safe is None:
+                freqs_y_safe = _GPU_POOL.freqs_y[:nbins_y]
+                freqs_y_safe[:] = cp.asarray(freqs_y)
 
-        totals = _GPU_POOL.totals
-        totals.fill(0)
-        joint_counts = _GPU_POOL.joint_counts[:nbins_x, :nbins_y]
+            totals = _GPU_POOL.totals
+            totals.fill(0)
+            joint_counts = _GPU_POOL.joint_counts[:nbins_x, :nbins_y]
 
-        # block_size via the per-host kernel_tuning_cache: lets fast GPUs
-        # (cc 7+, more registers/warp scheduler) pick a smaller block size
-        # when the per-perm kernel is dispatch-bound. Cache miss -> the
-        # hardcoded ``GPU_MAX_BLOCK_SIZE`` (1024), unchanged.
-        # Module-singleton cache (see ._kernel_tuning); a fresh
-        # KernelTuningCache() here would re-spawn nvidia-smi per call.
-        block_size = GPU_MAX_BLOCK_SIZE
-        from ._kernel_tuning import get_kernel_tuning_cache
-        _ktc = get_kernel_tuning_cache()
-        if _ktc is not None:
-            try:
-                _ktc_entry = _ktc.lookup("joint_hist_single_perm", n_samples=int(n))
-                if _ktc_entry is not None and "block_size" in _ktc_entry:
-                    block_size = int(_ktc_entry["block_size"])
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
-        grid_size = math.ceil(n / block_size)
+            # block_size via the per-host kernel_tuning_cache: lets fast GPUs
+            # (cc 7+, more registers/warp scheduler) pick a smaller block size
+            # when the per-perm kernel is dispatch-bound. Cache miss -> the
+            # hardcoded ``GPU_MAX_BLOCK_SIZE`` (1024), unchanged.
+            # Module-singleton cache (see ._kernel_tuning); a fresh
+            # KernelTuningCache() here would re-spawn nvidia-smi per call.
+            block_size = GPU_MAX_BLOCK_SIZE
+            from ._kernel_tuning import get_kernel_tuning_cache
+            _ktc = get_kernel_tuning_cache()
+            if _ktc is not None:
+                try:
+                    _ktc_entry = _ktc.lookup("joint_hist_single_perm", n_samples=int(n))
+                    if _ktc_entry is not None and "block_size" in _ktc_entry:
+                        block_size = int(_ktc_entry["block_size"])
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed: %s", e)
+                    pass
+            grid_size = math.ceil(n / block_size)
 
-        classes_x_gpu = _GPU_POOL.classes_x[:n]
-        classes_x_gpu[:] = cp.asarray(classes_x, dtype=cp.int32)
-        classes_x = classes_x_gpu
-        freqs_x_gpu = _GPU_POOL.freqs_x[:nbins_x]
-        freqs_x_gpu[:] = cp.asarray(freqs_x)
-        freqs_x = freqs_x_gpu
-        nfailed = 0
-        _i = 0
-        # Modern Generator (XORWOW) rather than legacy cp.random.shuffle: the legacy global cuRAND host
-        # generator fails to init (CURAND_STATUS_INITIALIZATION_FAILED) on some driver/lib combos. cupy's
-        # Generator has no .shuffle, so shuffle in-place via argsort(random) (a permutation of distinct
-        # floats is a bijection) - preserving the pooled buffer identity downstream consumers rely on.
-        _shuf_rng = cp.random.default_rng(base_seed)
-        _shuf_n = classes_y_safe.shape[0]
-        # Per-permutation ``totals.get()`` cost one FULL device sync per permutation, so D2H traffic scaled
-        # linearly with the permutation budget and each read stalled the pipeline behind the next launch.
-        # The MIs are instead staged into a small device buffer (device-to-device, no sync) and read back one
-        # chunk at a time. The host-side pass over each chunk is byte-for-byte the original loop body, so
-        # nfailed, _nchecked and the break point are identical - the only difference is that up to
-        # ``_PERM_READBACK_CHUNK - 1`` extra permutations may be COMPUTED before a short-circuit is noticed,
-        # matching the batch-granularity contract ``mi_direct_gpu_batched`` already documents. On the
-        # return_null_mean path there is nothing to lose at all: max_failed is lifted to the full budget just
-        # above, precisely so the early stop cannot truncate the null.
-        _chunk = min(_PERM_READBACK_CHUNK, npermutations)
-        _mi_buf = cp.empty(_chunk, dtype=totals.dtype)
-        _done = 0
-        _stop = False
-        while _done < npermutations and not _stop:
-            _m = min(_chunk, npermutations - _done)
-            for _j in range(_m):
-                classes_y_safe[:] = classes_y_safe[cp.argsort(_shuf_rng.random(_shuf_n))]
-                joint_counts.fill(0)
-                compute_joint_hist_cuda(
-                    (grid_size,),
-                    (block_size,),
-                    (classes_x, classes_y_safe, joint_counts, len(classes_x), len(freqs_y)),
-                )
-                compute_mi_from_classes_cuda(
-                    (1,),
-                    (1,),
-                    (classes_x, freqs_x, classes_y_safe, freqs_y_safe, joint_counts, totals, len(classes_x), len(freqs_x), len(freqs_y)),
-                )
-                _mi_buf[_j] = totals[0]  # stays on the device; the readback below is the only D2H
-            _host_mi = cp.asnumpy(_mi_buf[:_m])
-            for _j in range(_m):
-                mi = float(_host_mi[_j])
-                _i = _done + _j
-                _null_sum += mi  # accumulate for the empirical null mean (return_null_mean path)
-                if mi >= original_mi:
-                    nfailed += 1
-                    if nfailed >= max_failed:
-                        original_mi = 0.0
-                        _stop = True
-                        break
-            _done += _m
-        confidence = 1 - nfailed / (_i + 1)
-        _nchecked = _i + 1
+            classes_x_gpu = _GPU_POOL.classes_x[:n]
+            classes_x_gpu[:] = cp.asarray(classes_x, dtype=cp.int32)
+            classes_x = classes_x_gpu
+            freqs_x_gpu = _GPU_POOL.freqs_x[:nbins_x]
+            freqs_x_gpu[:] = cp.asarray(freqs_x)
+            freqs_x = freqs_x_gpu
+            nfailed = 0
+            _i = 0
+            # Modern Generator (XORWOW) rather than legacy cp.random.shuffle: the legacy global cuRAND host
+            # generator fails to init (CURAND_STATUS_INITIALIZATION_FAILED) on some driver/lib combos. cupy's
+            # Generator has no .shuffle, so shuffle in-place via argsort(random) (a permutation of distinct
+            # floats is a bijection) - preserving the pooled buffer identity downstream consumers rely on.
+            _shuf_rng = cp.random.default_rng(base_seed)
+            _shuf_n = classes_y_safe.shape[0]
+            # Per-permutation ``totals.get()`` cost one FULL device sync per permutation, so D2H traffic scaled
+            # linearly with the permutation budget and each read stalled the pipeline behind the next launch.
+            # The MIs are instead staged into a small device buffer (device-to-device, no sync) and read back one
+            # chunk at a time. The host-side pass over each chunk is byte-for-byte the original loop body, so
+            # nfailed, _nchecked and the break point are identical - the only difference is that up to
+            # ``_PERM_READBACK_CHUNK - 1`` extra permutations may be COMPUTED before a short-circuit is noticed,
+            # matching the batch-granularity contract ``mi_direct_gpu_batched`` already documents. On the
+            # return_null_mean path there is nothing to lose at all: max_failed is lifted to the full budget just
+            # above, precisely so the early stop cannot truncate the null.
+            _chunk = min(_PERM_READBACK_CHUNK, npermutations)
+            _mi_buf = cp.empty(_chunk, dtype=totals.dtype)
+            _done = 0
+            _stop = False
+            while _done < npermutations and not _stop:
+                _m = min(_chunk, npermutations - _done)
+                for _j in range(_m):
+                    classes_y_safe[:] = classes_y_safe[cp.argsort(_shuf_rng.random(_shuf_n))]
+                    joint_counts.fill(0)
+                    compute_joint_hist_cuda(
+                        (grid_size,),
+                        (block_size,),
+                        (classes_x, classes_y_safe, joint_counts, len(classes_x), len(freqs_y)),
+                    )
+                    compute_mi_from_classes_cuda(
+                        (1,),
+                        (1,),
+                        (classes_x, freqs_x, classes_y_safe, freqs_y_safe, joint_counts, totals, len(classes_x), len(freqs_x), len(freqs_y)),
+                    )
+                    _mi_buf[_j] = totals[0]  # stays on the device; the readback below is the only D2H
+                _host_mi = cp.asnumpy(_mi_buf[:_m])
+                for _j in range(_m):
+                    mi = float(_host_mi[_j])
+                    _i = _done + _j
+                    _null_sum += mi  # accumulate for the empirical null mean (return_null_mean path)
+                    if mi >= original_mi:
+                        nfailed += 1
+                        if nfailed >= max_failed:
+                            original_mi = 0.0
+                            _stop = True
+                            break
+                _done += _m
+            confidence = 1 - nfailed / (_i + 1)
+            _nchecked = _i + 1
 
     if return_null_mean:
         # Mirror the CPU mi_direct(return_null_mean=True) contract: empirical null mean over the permutations

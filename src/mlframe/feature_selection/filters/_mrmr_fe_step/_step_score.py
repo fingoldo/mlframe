@@ -1011,8 +1011,7 @@ def materialise_and_finalise_fe_candidates(
         engineered_recipes is not None
         and bool(getattr(self, "fe_additive_fusion_enable", True))
         and int(getattr(self, "fe_max_engineered_operands", 8)) != 0
-        and _newly_engineered_indices
-        and not _fe_tail_budget_spent("additive fusion", verbose)
+        and _newly_engineered_indices and not _fe_tail_budget_spent("additive fusion", verbose)
     ):
         try:
             from .._fe_additive_fusion import propose_additive_fusions

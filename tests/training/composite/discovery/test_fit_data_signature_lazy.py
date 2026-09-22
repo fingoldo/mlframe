@@ -77,7 +77,7 @@ def test_the_signature_matches_the_eager_value_and_is_computed_once(monkeypatch)
 def test_a_pickled_result_keeps_the_signature_for_warm_start():
     """Pickling drops the frame, so the signature is materialised first; the warm-start still takes its fast path."""
     df = _frame()
-    restored = pickle.loads(pickle.dumps(_fit(df)))
+    restored = pickle.loads(pickle.dumps(_fit(df)))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert restored.fit_data_signature() == cache_mod.data_signature(df, "y", _FEATS)
     decision = discover_incremental(restored, df, "y", _FEATS)
     assert decision.reuse, "an identical frame must be reused on the byte-identical fast path"

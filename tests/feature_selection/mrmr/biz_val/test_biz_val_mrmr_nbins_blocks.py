@@ -48,8 +48,9 @@ def test_blocks_beats_a_uniform_grid_on_piecewise_constant_data():
     """The regime the method exists for: regime boundaries recovered as edges carry more about y than an even split does."""
     x, y = _piecewise_constant()
     edges = np.asarray(edges_bayesian_blocks(x))
-    if edges.size < 3:
-        pytest.skip(f"blocks found no interior edge on this fixture ({edges.size} edge(s))")
+    # The precondition is asserted, not skipped: this fixture is seeded, so finding no interior edge is not an environment quirk but the
+    # method failing at the one shape it exists for, and skipping would hide exactly that.
+    assert edges.size >= 3, f"blocks found no interior edge on the piecewise-constant fixture ({edges.size} edge(s)), so it split nothing"
     mi_blocks = _mi(np.searchsorted(edges[1:-1], x), y)
     uniform = np.linspace(x.min(), x.max(), num=edges.size)
     mi_uniform = _mi(np.searchsorted(uniform[1:-1], x), y)

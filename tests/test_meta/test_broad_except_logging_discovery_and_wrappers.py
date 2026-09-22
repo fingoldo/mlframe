@@ -227,7 +227,7 @@ def test_ensembling_leaderboard_build_logs_on_failure(caplog, monkeypatch):
 
     monkeypatch.setattr(mlframe.votenrank, "Leaderboard", _raising_leaderboard)
 
-    res = {"mean": {"metrics": {"test": {"rmse": 1.0}}}}
+    res = {"mean": {"metrics": {"val": {"rmse": 1.0}}}}  # val: the test split never enters the leaderboard
     with caplog.at_level(logging.DEBUG, logger="mlframe.models.ensembling"):
         out = _build_votenrank_leaderboard_from_results(res, is_regression=True)
     assert out is None

@@ -93,6 +93,10 @@ def rmsle_loss(y_true, y_pred):
             RuntimeWarning,
             stacklevel=2,
         )
+    if y_true.size and bool(((y_true < 0) | (y_pred < 0)).all()):
+        # Every row clipped: both sides collapse to 0 and the score would read 0.0, the best possible value, on data
+        # where RMSLE is not defined at all.
+        return float("nan")
     return np.sqrt(np.mean(np.power(np.log1p(np.clip(y_true, 0, None)) - np.log1p(np.clip(y_pred, 0, None)), 2)))
 
 

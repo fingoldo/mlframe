@@ -85,12 +85,16 @@ def test_lgb_with_shards_uses_list_format(val_data) -> None:
 
 
 def test_cb_with_shards_propagates_sample_weight(val_data) -> None:
-    """Cb with shards propagates sample weight."""
+    """CatBoost's per-set val weights travel under the private key the eval-Pool step consumes: CatBoost.fit has no
+    ``sample_weight_eval_set`` kwarg, so passing that name would raise instead of weighting the eval metric."""
+    from mlframe.training.cb._cb_eval_weights import CB_EVAL_WEIGHTS_KEY
+
     X, y, shards = val_data
     fit_params: dict = {}
     _setup_eval_set("CatBoostClassifier", fit_params, X, y, model_category="cb", extra_eval_sets=shards, sample_weight_val=np.full(100, 0.9))
     assert len(fit_params["eval_set"]) == 5
-    sw = fit_params["sample_weight_eval_set"]
+    assert "sample_weight_eval_set" not in fit_params
+    sw = fit_params[CB_EVAL_WEIGHTS_KEY]
     assert len(sw) == 5
     assert np.array_equal(sw[0], np.full(100, 0.9))
 

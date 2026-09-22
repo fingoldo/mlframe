@@ -59,7 +59,7 @@ from typing import Optional
 
 import numpy as np
 
-from mlframe.feature_selection.filters._safe_scale import standardise
+from ._safe_scale import standardise
 
 logger = logging.getLogger(__name__)
 

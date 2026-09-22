@@ -36,6 +36,33 @@ def _calib_target_of(members) -> Optional[np.ndarray]:
         return None
 
 
+def resolve_gate_target_arr(
+    _gate_source_split: Optional[str],
+    train_target_arr: Optional[np.ndarray] = None,
+    val_target_arr: Optional[np.ndarray] = None,
+    test_target_arr: Optional[np.ndarray] = None,
+    level_models_and_predictions=None,
+) -> Optional[np.ndarray]:
+    """The target rows that match the split the member gate scored its predictions on - which is what the blend-weight
+    fit must be handed too: with the whole-frame target every member failed its length check, nothing survived, and
+    the advertised NNLS/Caruana blend was a uniform mean every time.
+
+    ``oof_*`` predictions are cross_val_predict rows and align with train; ``calib`` with the slice stamped on the
+    members; ``val`` / ``test`` / ``train`` (and their ``*-coarse`` variants) with the matching target array. Anything
+    else - including the whole-frame target - is a different number of rows, and every consumer of this value compares
+    shapes, so the mismatch silently disables the caller rather than raising.
+    """
+    if _gate_source_split in ("test", "test-coarse"):
+        return test_target_arr
+    if _gate_source_split in ("val", "val-coarse"):
+        return val_target_arr
+    if _gate_source_split in ("train", "train-coarse", "oof"):
+        return train_target_arr
+    if _gate_source_split == "calib":
+        return _calib_target_of(level_models_and_predictions)
+    return None
+
+
 def select_gate_source_split(
     *,
     level_models_and_predictions,
@@ -146,9 +173,7 @@ def select_gate_source_split(
     )
 
 
-def realign_gate_preds(
-    pre_gate_members: List[Any], post_gate_members: List[Any], gate_preds: Optional[List[np.ndarray]]
-) -> Optional[List[np.ndarray]]:
+def realign_gate_preds(pre_gate_members: List[Any], post_gate_members: List[Any], gate_preds: Optional[List[np.ndarray]]) -> Optional[List[np.ndarray]]:
     """Slice the gate-source preds to the members that survived ``apply_quality_gate_kn``.
 
     That gate slices members / tags but not the gate preds; the stale full-length list then fed the stacking-aware weight gate, which
@@ -183,17 +208,13 @@ def catastrophic_drop_kn(
     """
     if not (_gate_preds_for_check is not None and len(_gate_preds_for_check) > 2 and k2_catastrophic_mae_ratio > 1.0):
         return level_models_and_predictions, _gate_preds_for_check, _ensemble_member_tags, _ensemble_short_tags
-    _gate_target_arr_kn = None
-    if _gate_source_split in ("test", "test-coarse"):
-        _gate_target_arr_kn = test_target_arr
-    elif _gate_source_split in ("val", "val-coarse"):
-        _gate_target_arr_kn = val_target_arr
-    elif _gate_source_split in ("train", "train-coarse"):
-        _gate_target_arr_kn = train_target_arr
-    elif _gate_source_split == "oof":
-        _gate_target_arr_kn = train_target_arr
-    elif _gate_source_split == "calib":
-        _gate_target_arr_kn = _calib_target_of(level_models_and_predictions)
+    _gate_target_arr_kn = resolve_gate_target_arr(
+        _gate_source_split,
+        train_target_arr=train_target_arr,
+        val_target_arr=val_target_arr,
+        test_target_arr=test_target_arr,
+        level_models_and_predictions=level_models_and_predictions,
+    )
     if not (isinstance(_gate_target_arr_kn, np.ndarray) and _gate_target_arr_kn.size > 0):
         return level_models_and_predictions, _gate_preds_for_check, _ensemble_member_tags, _ensemble_short_tags
     try:
@@ -314,17 +335,13 @@ def catastrophic_drop_k2(
     if not (_gate_preds_for_check is not None and len(_gate_preds_for_check) == 2 and k2_catastrophic_mae_ratio > 1.0):
         return level_models_and_predictions, _ensemble_member_tags, _ensemble_short_tags, ensemble_name, False
     # Match the gate source to its target array. ``oof_*`` aligns with train rows; ``val/test/train`` (and their *-coarse variants) align with the matching target_arr that score_ensemble already produced above.
-    _gate_target_arr = None
-    if _gate_source_split in ("test", "test-coarse"):
-        _gate_target_arr = test_target_arr
-    elif _gate_source_split in ("val", "val-coarse"):
-        _gate_target_arr = val_target_arr
-    elif _gate_source_split in ("train", "train-coarse"):
-        _gate_target_arr = train_target_arr
-    elif _gate_source_split == "oof":
-        _gate_target_arr = train_target_arr
-    elif _gate_source_split == "calib":
-        _gate_target_arr = _calib_target_of(level_models_and_predictions)
+    _gate_target_arr = resolve_gate_target_arr(
+        _gate_source_split,
+        train_target_arr=train_target_arr,
+        val_target_arr=val_target_arr,
+        test_target_arr=test_target_arr,
+        level_models_and_predictions=level_models_and_predictions,
+    )
     if not (isinstance(_gate_target_arr, np.ndarray) and _gate_target_arr.size > 0):
         return level_models_and_predictions, _ensemble_member_tags, _ensemble_short_tags, ensemble_name, False
     try:

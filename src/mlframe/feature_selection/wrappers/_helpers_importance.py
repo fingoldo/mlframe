@@ -299,7 +299,7 @@ def _conditional_permutation_importance(
                         score_losses.append(np.nan)
             finally:
                 X_perm[:, j] = orig_col
-            importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else 0.0
+            importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else np.nan  # never a winning 0.0
             continue
 
         # F10/F11: pass max_depth + min_samples_leaf. max_depth=None grows the tree
@@ -325,8 +325,8 @@ def _conditional_permutation_importance(
             # E11: widen the except to catch MemoryError
             # on 1M-row Xnotj and RuntimeError from custom-estimator paths
             # raising AttributeError-like wrapped exceptions. Conditioning
-            # fit failed (constant Xj, all-NaN row, etc.); skip.
-            importances[j] = 0.0
+            # fit failed (constant Xj, all-NaN row, etc.); skip. NaN = "not measured", never a rank-competitive 0.0.
+            importances[j] = np.nan
             continue
 
         score_losses = []
@@ -501,8 +501,8 @@ def get_feature_importances(
                     _m.fit(_X_drop, target)
                     _scores[_j] = _baseline - float(_m.score(_X_drop, target))
                 except Exception as e:
-                    logger.debug("drop-column importance fit/score failed for column %d, recording 0.0: %s", _j, e)
-                    _scores[_j] = 0.0
+                    logger.debug("drop-column importance fit/score failed for column %d, recording NaN: %s", _j, e)
+                    _scores[_j] = np.nan  # a 0.0 would outrank every column whose removal IMPROVED the score
             res = _scores
         elif importance_getter == "boruta":
             # Classical Boruta (Kursa & Rudnicki 2010, JSS-36): pair each real

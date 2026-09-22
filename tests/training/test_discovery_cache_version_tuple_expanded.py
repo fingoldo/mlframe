@@ -68,7 +68,7 @@ def test_discovery_cache_version_tuple_covers_polars_numpy_pandas_scipy_xgboost_
     assert versions["python"] == expected, f"python tuple should be major.minor only; got {versions['python']!r}"
 
 
-def test_discovery_cache_signature_changes_when_simulated_polars_version_bumps():
+def test_discovery_cache_signature_changes_when_simulated_polars_version_bumps(monkeypatch):
     """A simulated polars version change must change the signature -
     otherwise a polars upgrade would silently replay stale specs.
     """
@@ -84,14 +84,11 @@ def test_discovery_cache_signature_changes_when_simulated_polars_version_bumps()
 
     real_signature = _discovery_config_signature(_Cfg())
 
-    # Bump the polars version in-process; the signature must move.
-    import polars as pl
+    # Bump the installed polars version; the signature reads distribution metadata, so that is what moves.
+    import importlib.metadata as md
 
-    original_version = pl.__version__
-    try:
-        pl.__version__ = "999.999.999"
-        bumped_signature = _discovery_config_signature(_Cfg())
-    finally:
-        pl.__version__ = original_version
+    real = md.version
+    monkeypatch.setattr(md, "version", lambda name: "999.999.999" if name == "polars" else real(name))
+    bumped_signature = _discovery_config_signature(_Cfg())
 
     assert real_signature != bumped_signature, "polars version bump did not change cache signature - stale spec replay hazard"

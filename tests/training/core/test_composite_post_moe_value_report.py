@@ -226,3 +226,42 @@ def test_missing_group_column_in_frame_no_ops_gate():
     )
     assert models[_TT][f"_CT_ENSEMBLE__{_TNAME}"][0].model is composite
     assert "composite_moe_gate" not in metadata
+
+
+def test_the_ensemble_metrics_describe_the_model_that_ships():
+    """With the MoE gate on, ``cross_target_ensemble_metrics`` val/test RMSE equal the wrapped deployed model's, not the pre-MoE stack's."""
+    df, y, grp = _build_synthetic()
+    idx = np.arange(len(y))
+    models, metadata, composite = _make_models_metadata()
+    stale = _rmse(composite.predict(df), y)
+    metadata["cross_target_ensemble_metrics"] = {str(_TT): {_TNAME: {"val_RMSE": stale, "test_RMSE": stale, "model_name": "CT_ENSEMBLE[nnls]"}}}
+    run_composite_moe_and_value_report(
+        models=models, metadata=metadata, target_by_type={_TT: {_TNAME: y}}, composite_target_discovery_config=_config(),
+        filtered_train_df=df, filtered_val_df=df, filtered_train_idx=idx, filtered_val_idx=idx,
+        ctx=SimpleNamespace(group_ids=grp, sample_weights=None, timestamps=None), test_df=df, test_idx=idx,
+    )
+    shipped = models[_TT][f"_CT_ENSEMBLE__{_TNAME}"][0].model
+    assert isinstance(shipped, _MoEGatedDeployableModel)
+    m = metadata["cross_target_ensemble_metrics"][str(_TT)][_TNAME]
+    assert np.isclose(m["test_RMSE"], _rmse(shipped.predict(df), y)) and np.isclose(m["val_RMSE"], _rmse(shipped.predict(df), y))
+    assert m["test_RMSE"] < stale, "the fixture's gate improves on the stack, so the stale number must have been replaced"
+    assert m["model_name"].endswith("+MoE")
+
+
+def test_a_val_selected_ensemble_is_flagged_and_tagged_in_the_verdict():
+    """The MoE gate chooses on val, so the stamped val metric is marked selection-biased and the verdict names it so."""
+    from mlframe.training.baselines._dummy_summary_format import format_suite_end_summary
+
+    df, y, grp = _build_synthetic()
+    idx = np.arange(len(y))
+    models, metadata, _composite = _make_models_metadata()
+    run_composite_moe_and_value_report(
+        models=models, metadata=metadata, target_by_type={_TT: {_TNAME: y}}, composite_target_discovery_config=_config(),
+        filtered_train_df=df, filtered_val_df=df, filtered_train_idx=idx, filtered_val_idx=idx,
+        ctx=SimpleNamespace(group_ids=grp, sample_weights=None, timestamps=None), test_df=df, test_idx=idx,
+    )
+    m = metadata["cross_target_ensemble_metrics"][str(_TT)][_TNAME]
+    assert m["val_selection_biased"] is True
+    rep = {"strongest": "mean", "primary_metric": "val_RMSE", "data": {"mean": {"val_RMSE": 1e6}}}
+    text = format_suite_end_summary({str(_TT): {_TNAME: rep}}, cross_target_ensemble_metrics={(str(_TT), _TNAME): m})
+    assert "[val-selected: lift optimistic]" in text, text

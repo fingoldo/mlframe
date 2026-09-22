@@ -11,12 +11,10 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_a_failed_degenerate_audit_is_distinguishable_from_a_clean_one(monkeypatch, caplog):
     """The companion flag separates "audited, found nothing" from "the audit did not run"."""
-    from mlframe.feature_selection.filters import mrmr as mrmr_mod
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)
@@ -33,12 +31,19 @@ def test_a_failed_degenerate_audit_is_distinguishable_from_a_clean_one(monkeypat
         """Stand in for an audit that raises."""
         raise RuntimeError("audit exploded")
 
-    monkeypatch.setattr(mrmr_mod._mrmr_class, "audit_degenerate_columns", boom, raising=False)
+    # The recorder resolves ``audit_degenerate_columns`` in its OWN module, so that is the binding a patch has to replace; patching the
+    # importing module would leave the real audit running and this test would pass while checking nothing.
+    from mlframe.feature_selection.filters import _mrmr_degenerate
+
+    monkeypatch.setattr(_mrmr_degenerate, "audit_degenerate_columns", boom, raising=False)
     MRMR._FIT_CACHE.clear()
     with caplog.at_level(logging.DEBUG):
         broken = MRMR(random_state=0, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2).fit(X, y)
-    if getattr(broken, "degenerate_audit_failed_", None) is not True:
-        pytest.skip("the patched audit was not the one this fit calls")
+    # Asserted, not skipped: a patch that misses its target is the way this test quietly stops testing anything, and it is a mistake that
+    # is easy to make when the name is imported directly rather than looked up on the module at call time.
+    assert (
+        getattr(broken, "degenerate_audit_failed_", None) is True
+    ), "the patched audit never ran, so this test exercised the unpatched path; patch the name the fit actually resolves"
     assert broken.degenerate_columns_ == {}
     assert broken.degenerate_audit_failed_ is True, "a failed audit must be distinguishable from an empty one"
 

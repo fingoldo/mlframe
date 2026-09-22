@@ -63,7 +63,10 @@ def test_two_instances_unpickled_from_the_same_bytes_do_not_share_a_roster_list(
     blob = pickle.dumps(MRMR(random_state=0, verbose=0, fe_max_steps=0).fit(X, y))
 
     first, second = pickle.loads(blob), pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
-    if not isinstance(getattr(first, attr, None), list):
-        pytest.skip(f"{attr} is not a list on this fitted estimator")
+    # The injected roster being a list IS the precondition the aliasing contract rests on: if it arrives as something else, the append
+    # below cannot demonstrate sharing either way, and skipping would hide that the default stopped being injected at all.
+    assert isinstance(
+        getattr(first, attr, None), list
+    ), f"{attr} came back as {type(getattr(first, attr, None)).__name__}, not a list, so the setstate default was not injected"
     getattr(first, attr).append("sentinel")
     assert "sentinel" not in getattr(second, attr), f"{attr} is shared between two unpickled instances"

@@ -342,7 +342,9 @@ def _friend_graph_and_redundancy_passes_group2(
             if _rp_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_rp_yv)):
                 _rp_y = _rp_yv
         except Exception as exc:
-            logger.debug("mrmr: y coercion for the raw-protection re-add probe failed; raw protection disabled: %r", exc, exc_info=True)
+            # WARNING, not DEBUG: this does not degrade the probe, it switches the whole raw-protection pass off, and a run where a raw
+            # feature was never considered for re-add is indistinguishable downstream from one where it was considered and rejected.
+            logger.warning("mrmr: y coercion for the raw-protection re-add probe failed; raw protection is DISABLED for this fit: %r", exc, exc_info=True)
             _rp_y = None
         if _rp_y is not None:
             _RAW_PROTECT_MIN_INCR_R2 = 0.005  # genuine linear raw signal lifts held-out R^2 >> 0.005; noise ~0

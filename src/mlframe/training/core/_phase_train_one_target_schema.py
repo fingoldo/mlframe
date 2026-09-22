@@ -138,6 +138,8 @@ def _clone_model_with_sticky_flags(
     if getattr(original_model, "_mlframe_polars_fastpath_broken", False):
         try:
             cloned_model._mlframe_polars_fastpath_broken = True
+            if getattr(original_model, "_mlframe_polars_fastpath_miss_observed", False):
+                cloned_model._mlframe_polars_fastpath_miss_observed = True
         except Exception as _attr_err:
             logger_obj.debug("Could not set _mlframe_polars_fastpath_broken on clone: %s", _attr_err)
     _forward_dataset_reuse_cache(original_model, cloned_model)

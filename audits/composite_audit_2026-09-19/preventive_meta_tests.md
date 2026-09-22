@@ -109,7 +109,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. Counts are deterministic for a seeded fixture. The risk is budget formulas going stale as the design changes, which the note on each entry mitigates.
 - **Runtime**: about 20-40 s (one tiny discovery fit plus the post phases). Mark it `perf`, excluded from the local default run, and run it in CI.
 - **Repo**: mlframe (the `CallBudget` helper is generic and could later move to py-ci-shared).
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New `tests/training/composite/perf/_call_budget.py` (`CallBudget`: counts a primitive wherever an mlframe module bound it, and restores on exit) and test_composite_call_budgets.py (`slow`). One default single-threaded discovery fit (n=600, two bases, a group column) must hold each primitive to its ideal count or its recorded excess in `_composite_call_budget_baseline.json`, which may only go down: `data_signature` 0 and `generate_interaction_bases` 1 (at ideal); `_build_feature_matrix` 4 vs 1 (PRF-18), `near_collinear_keep_mask` 5 vs 1 (PRF-01) and `lgb.Dataset` 54 (PRF-07; 18 shared-fold, 18 per-spec CV, 9 honest-gate, 8 WAIC, 1 baseline), each with a note. The fixture is serial because the shared fold-dataset cache is per thread by design (`set_label` mutates it); in parallel the count varies with scheduling (141-156). Not built: the post-phase budgets (inner predicts per component/split, wrap-pass predicts, `pp.transform` per fold, honest-holdout gather, region-adaptive fits) and INT-17's import check, which belongs to INT-17.
 
 ### PMT-03 [P1] Fail-open and below-WARNING substitution handlers in gates (shared AST scanner)
 - **Asserts**: in scoped packages, an `except` handler must not:
@@ -221,7 +221,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium for (b)/(c) (a one-off upcast outside a loop is fine, so the rule is scoped to loop bodies). (d) is low-risk but depends on the host, so it uses a ratio against the input size, not absolute bytes.
 - **Runtime**: AST under 1 s; tracemalloc about 5-10 s.
 - **Repo**: mlframe. Rule (c) is generic and could move to py-ci-shared later.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New tests/test_meta/test_discovery_layout_and_copies.py scans the discovery package (AST) for three rules, with a ratchet baseline `_discovery_layout_baseline.json`: (a) a column read inside a loop of a matrix allocated C-order (`np.empty((n, m))` / `np.column_stack` without `order='F'`); (b) a float64 `asarray` / `ascontiguousarray` / `array` of a feature-matrix-named value inside a loop; (c) a loop that draws from an RNG and calls a module-level `@njit` kernel on every iteration. A canary pins each rule firing on its shape and not on the fixed form. Today there are 0 hits; the expected hits the audit listed are gone after the PRF fixes. Rule (a) is scoped to reads: the only candidate was `forward_stepwise_multi_base` writing columns into a C buffer that per-fold row gathers read, where C order is right. Not built: (d), the tracemalloc peak budgets for `_filter_features` and the rerank checkpoint.
 
 ### PMT-10 [P2] Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner)
 - **Asserts**:
@@ -236,7 +236,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium for (b): a local named `groups` may carry a different grouping. It is baselined with notes. (a) and (c) are low.
 - **Runtime**: under 3 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. The three findings this scanner targets are fixed directly, each with a behavioural regression test: DSC-14 (stacked and stability-check variants forward `time_ordering` / `val_df` / `val_y`, test_variant_fits_forward_kwargs.py), DSC-27 (per-group delegates get their group's val rows and inherit `_group_ids_for_rerank` / `_hint_strengths_pct`) and EST-12 (the CT stack path is weighted end to end). Not built: the shared `kwarg_forwarding` scanner (variant-parameter drop, available-but-not-passed, delegate state loss) that would catch the next instance of the class.
 
 ### PMT-11 [P1] Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test
 - **Asserts**:
@@ -288,7 +288,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium. `quantile.py:166` is a probe fit on a fake y (allowlist); receiver-name heuristics could mis-bind (scope limited to composite/core).
 - **Runtime**: AST under 1 s; property about 2 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. (b) is built and found a real defect, now fixed. A zero sample weight did not remove the row: the grouped linear residual counted zero-weight rows in its group sizes and James-Stein shrinkage (8.8 off in y), and rank-ECDF, copula, robust, Theil-Sen, target-encoding, multi-base, causal-anchor and monotone-chain fits counted them in their grids, trims and counts (0.004-0.58 off). The fix is new `transforms/_zero_weight.ZeroWeightDroppingFit`, installed by `Transform.__post_init__` on every order-free fit that takes `sample_weight` (recurrent transforms are exempt). It drops zero-weight rows, with their `groups`, before fitting; it is a module-level class so transforms still pickle. `test_a_zero_weight_removes_the_row_from_the_fit` (17 weighted transforms) fails for 10 of them before the fix, and `test_the_weighted_set_covers_the_residual_family_and_its_chains` checks every `chain_linres*` accepts weights. (a): tests/test_meta/test_transform_calls_use_gateway.py (AST over composite and core, canary) records the 53 remaining bare `fit` / `forward` / `inverse` calls on transform-bound names in `_transform_gateway_baseline.json`, which may only shrink. `CompositeTargetEstimator.fit` now fits through `call_transform` (groups / sample_weight / row_index signature-gated), which replaces its hand-rolled gate (fit 360 -> 341 lines). Not done: converting the other 10 bare fits; none has groups or weights in scope today.
 
 ### PMT-15 [P2] Cache-key completeness by input perturbation, plus a code-version gate on discovery sources
 - **Asserts**:
@@ -302,7 +302,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. (d) makes a deliberate one-line bump per selection-affecting change, which is the purpose of the gate.
 - **Runtime**: under 3 s.
 - **Repo**: mlframe (the version gate reuses the py-ci-shared module).
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. Built: (a) for the discovery key. `test_the_discovery_cache_key_changes_with_every_input_that_changes_the_specs` perturbs group ids, hint strengths, time order, val y and val frame one at a time, and each changes the key (DSC-12 fixed). (c): the composite model cache records `composite_spec_digest`, and test_composite_model_cache_digest.py pins that the digest follows the fitted params and that a stale or digest-less dump is invalidated (INT-13). (d): `DISCOVERY_ALGO_VERSION` is in the key, and test_discovery_algo_version_bumped.py gates it on a CRLF-normalised hash of composite/discovery + composite/transforms. Versions now come from `importlib.metadata`, and a subprocess test shows no booster import (INT-17 fixed). Not built: (b), the automatic derivation of required key inputs from `CompositeTargetDiscovery.fit`'s parameters and the private attributes it reads; and the train_eval model-cache key perturbation table.
 
 ### PMT-16 [P2] polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared)
 - **Asserts**:
@@ -314,7 +314,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low for (a). (b) is low, because a mask filter is only flagged when it sits next to a positional-index branch built from the same index.
 - **Runtime**: (a) about 2 s; (b) under 1 s.
 - **Repo**: (a) mlframe; (b) py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. Leg (a) built: test_frame_carrier_parity.py checks OOF holdout alignment with an identity component (pandas vs polars; monotone / reversed / shuffled time; k=1 and 3) and three row slicers against pandas under all three index orders. It found and fixed EST-07 plus the same order-losing mask in `feature_stacking`, `_slice_frame_rows`, `_row_select` and `_subset_rows`. Not built: the meta-guard registering every `(X, idx)` function that branches on polars, and leg (b), the shared `order_losing_filters` scanner. A grep for mask-from-index next to `.iloc` found 7 functions, and the 5 with a real order dependence are fixed.
 
 ### PMT-17 [P1] Absorption and consistency on each transform's canonical DGP
 - **Asserts**: every registry entry has a `canonical_dgp` factory in `_CANONICAL_DGP` (a meta-guard enforces `keys == registry`, so a new transform must declare one). On that DGP:
@@ -356,7 +356,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low with the 9/10 majority. The seeds are fixed, so the test is deterministic.
 - **Runtime**: about 15-30 s (the discovery-on-noise cells dominate; one fit at n=600).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New tests/training/composite/test_null_canaries.py, deterministic seeds. The seasonal period is 1 on noise and 12 on a period-12 signal, `signed_power_y` fits p = 1 on symmetric y, and the stability check drops a spec found in one run of three (DSC-15 fixed here). `test_default_discovery_emits_no_spec_on_pure_noise` (slow) requires zero specs on all 10 noise seeds, and it found a real defect. The honest RMSE gate compared composites only with the raw tiny model, which overfits noise and loses to the constant mean, so seed 1 shipped 10 noise specs. The gate now also rejects a spec whose honest y-RMSE does not beat the constant train mean (`_no_better_than_constant`, ledgered); `DISCOVERY_ALGO_VERSION` was bumped to 2 because selection changed. The MI winner's-curse test, which needs noise specs to reach the report, now disables that gate explicitly. Covered elsewhere: drift on a permuted base (test_incremental_discovery.py, DSC-16), inactive FDR is reported (DSC-24). Not built: `discover_chains` returning [] when raw beats every chain (DSC-20 is open) and the meta-guard registering every argmin / select routine.
 
 ### PMT-20 [P1] Liveness registry for default-ON mechanisms: every corrective default must change something on the default path
 - **Asserts**: a `DEFAULT_ON_MECHANISMS` table maps each default-ON knob to a probe that runs the DEFAULT construction path (the suite's `from_fitted_inner`, the default `oof_holdout_source="kfold"`, the default discovery config). Each probe asserts an observable effect:
@@ -374,7 +374,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. A knob that is legitimately inert on some path must say so in the allowlist, which is the point.
 - **Runtime**: about 15-30 s (7 small probes, n <= 600).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New tests/training/composite/test_default_on_liveness.py. The meta-guard enumerates every default-True field of `CompositeTargetDiscoveryConfig` and every default-True ctor param of `CompositeTargetEstimator` that matches the corrective-name pattern (15 plus 1). Each must appear in `DEFAULT_ON_MECHANISMS`, which maps it to the test asserting its effect with the knob at its default, or in `INERT_BY_DESIGN` with a reason. The one inert entry is `enable_multiseed_early_stop`: the default `honest_oof_selection` skips the CV seeds it would cut short. Stale entries fail too. Each liveness test must exist and build at least one configuration with the knob on (an OFF control run beside it is allowed; a canary pins the check). `MECHANISMS_WITHOUT_A_KNOB` pins drift detection, the knn guard before auto-base, the OOF pre-screen under kfold, and auto-enabled discovery reaching post-processing. Found and fixed on the way: DSC-24 (inactive FDR now reported), DSC-16 (drift judged against prior-rows gain), DSC-29 (knn guard before auto-base), and five `CompositeTargetEstimator` MoE ctor params that were never read (removed, ea55262e4). Two mechanisms had no default-path test and got one: the honest-OOF floor (probe in this file) and the ct-ensemble dummy floor (carved into `apply_dummy_floor_gate`, 10e902b7e). The probes live in the tests where each fix landed rather than being duplicated here.
 
 ### PMT-21 [P1] Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST)
 - **Asserts**:
@@ -386,7 +386,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. A post-save mutation that is intentionally not persisted (a transient report) is allowlisted with a reason.
 - **Runtime**: under 1 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New tests/test_meta/test_persist_after_mutate.py. An AST walk of `training/core` classifies mutators: functions that assign into `models[...]` / `metadata[...]` (bare or as an attribute) or set `.model`, closed transitively over calls, so the composite wrap in `_run_composite_target_wrapping` reaches `run_composite_post_processing`. Persisters are the save entry points plus any function whose last save follows its last mutation. In every `_main_train_suite*.py` function that saves, no mutator may be called after the last persister; `_ALLOWED_LATE` takes intentional exceptions with a reason (none today). Leg (b), the `entry.model = wrapper` assignments, is covered through that closure: the test asserts the wrap counts as a mutation. Proof: deleting the `persist_after_composite_post(ctx)` re-save (the INT-02 shape) fails the test at `run_recurrent_finalize_and_composite_post:397:run_composite_post_processing`; a canary pins the detector on the same shape.
 
 ### PMT-22 [P1] One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts
 - **Asserts**: one tiny suite run (TVT fixture, `mlframe_models=["linear","lgb"]`, `transforms=["linear_residual"]`, `max_total_composite_targets=1`, `data_dir=tmp_path`), plus one precomputed-bundle rerun and one grouped variant with MoE on. After these runs:
@@ -406,7 +406,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. The assertions are identities, not tuned thresholds.
 - **Runtime**: about 90-180 s for 3 suite runs. That replaces the 8 runs (620 s recorded) of the current file, so it is a net saving. Not a meta-test.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New tests/training/composite/test_composite_suite_contracts.py runs ONE module-scoped suite (TVT fixture, linear + lgb, `transforms=['linear_residual','additive_residual']`, `max_total_composite_targets=1`, 49 s for all seven tests). Built legs: (a) every trained slot reloads via `load_mlframe_suite` with the same model types, and `predict_from_models` on the reloaded suite equals the in-memory one key by key; (b) the saved metadata covers every returned key, and the CT-ensemble metrics match; (c) exported spec names equal the trained composite keys, and the capped spec is a failure with the cap reason; (e) every spec's transform is in the whitelist; (f) `predict_mlframe_models_suite` composite predictions are finite and on the y scale; (g) the targets-table composite rows carry `scale='y'` and the recorded y-scale test RMSE; (j) no composite logger emits a failure at WARNING. Proof: deleting `persist_after_composite_post(ctx)` fails (a) with `_CT_ENSEMBLE__target` missing on disk. Fixed to make the legs hold: INT-07, INT-08, INT-11, EST-13. Not built: (d) the precomputed-bundle rerun; the additive `RMSE_y == RMSE_T` identity in (f); (h) and (i) as suite variants (unit-level in test_extreme_ar_skip_decision.py and test_composite_post_moe_value_report.py); and the TST-17 rewrite of test_composite_integration.py onto this fixture.
 
 ### PMT-23 [P2] State parity across alternate constructors: fit() vs from_fitted_inner() vs update() vs unpickle
 - **Asserts**: for every registry transform, fit a CTE on tiny data, then build `from_fitted_inner` from the same inner and spec.
@@ -432,7 +432,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low.
 - **Runtime**: about 3 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New tests/training/composite/test_unseen_key_fallback.py. The meta-guard requires every class that stores a group-keyed global fallback (`global_choice_|_global_idx|global_estimator_|_global_prior`) to be in `UNSEEN_KEY_ROUTERS` with the test that pins its unseen-key answer. The spec's `fallback_*` pattern was dropped because it matched the `fallback_predict` constructor parameter of six estimators, which is an OOD-row policy, not key routing. The OOD and volatility lag routers are excluded with the reason (they route on base range and local volatility, not a key table). Legs: (a) the MoE gate, fitted on groups 0-29 and served groups 100-129, is within 1.02x the pooled-best expert on the same rows. Proof: forcing unseen rows to lag reproduces EST-02 exactly (8.05 vs 0.98) and fails. (c) linear/monotonic/quantile grouped and target encoding reproduce the inverse from their stored global parameters to 1e-12. All seven grouped transforms give label-independent unseen-group inverses. `PerGroupCompositeRouter` serves unseen groups exactly `global_estimator_`, and `LeakageSafeEncoder` encodes unseen categories to `_global_prior` for three methods. Not built: leg (b), that a grouped recurrent transform's unseen-group seed equals the ungrouped continuation seed; only label-independence covers the three recurrent transforms.
 
 ### PMT-25 [P2] Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists
 - **Asserts**:
@@ -498,7 +498,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low once roles are annotated. The work is annotating the consumer call sites (about 15).
 - **Runtime**: about 10-15 s (one tiny discovery fit plus the stub ensemble build).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New `composite/_row_roles.py`: `note_rows(row_set, role, consumer, rows)` records a read when `MLFRAME_ROW_ROLE_LEDGER=1` or a test forces it, and is a single boolean check otherwise. Annotated consumers: `apply_honest_rmse_gate` and `honest_oof_reconstruction_rmse` (honest_holdout, select), `apply_honest_holdout` (honest_holdout, report), `format_composite_vs_raw_block` (test, verdict) and the discovery chart (train, plot). tests/training/composite/test_row_role_ledger.py checks the contracts on one grouped discovery fit: the honest-holdout rows read to select are disjoint from the rows read to report; verdict consumers read only test; the discovery chart reads exactly its train rows; the ledger is off by default and rejects unknown roles. Proof: feeding the gate the whole holdout (the DSC-03 shape) fails with 450 rows both selected and reported. Fixed first so the legs could hold: DSC-18 (verdict on test), EST-22 (val-selected metrics flagged), INT-14 (charts on train). Not built: the `fit`-vs-`report` leg for the xt-ensemble OOF matrix (EST-05 is fixed by cross-fitting, not yet annotated); EST-22's val selection is carried as `val_selection_biased` in metadata rather than as ledger reads.
 
 ### PMT-30 [P1] Config-restriction and per-candidate isolation contract: every registry transform is accepted, isolated and honoured
 - **Asserts**: for each registry transform, a tiny discovery fit with `transforms=[name]`, `group_column` set and `screening="mi"`. The fast subset is one transform per family; the full set runs under `slow`. Each fit must:
@@ -511,7 +511,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low.
 - **Runtime**: fast subset about 15-25 s (about 10 fits at n=300); the full set about 90 s under `slow`.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New tests/training/composite/discovery/test_config_restriction_contract.py runs `run_composite_target_discovery` with `transforms=[name]` and a group column for every registry transform: 10 family representatives always, the other 42 under `slow` (all 52 pass in 64 s). Each run must (a) record no target-level failure (discovery did not abort), (b) export only specs of the listed family, and (c) name only base columns present in the frame. Found and fixed while building it: with a group column set, discovery aborted for 8 of the 10 representatives with `KeyError: 'y__gcausal_lag1'`. The y-scale gate evaluates on the val frame, which lacked the engineered grouped causal bases. New `grouped_causal_bases_for_frame` builds them on val from `val_y`; they are strictly causal within each group. INT-07 and INT-09 are fixed too.
 
 ### PMT-31 [P1] Stage-sentinel inner: wrappers and every predict entry point must feed the inner its own pipeline stage and the base its raw stage
 - **Asserts**:
@@ -525,7 +525,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low.
 - **Runtime**: about 5-10 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New tests/training/composite/estimator/test_stage_routing_contract.py. `StageSentinelInner` fingerprints the frame it was fit on (columns, per-column mean/std) and raises on any other stage. The base is checked through the y-scale RMSE against a large-scale raw base: reading it scaled lands 50+ off. Covered entry points: a wrapper carrying `inner_pre_pipeline` (`predict(raw)`); a pipeline-less wrapper through `composite_predict`, the route `predict_from_models` uses; `PrePipelinePredictShim`; and a CT ensemble of shims. Each must reach RMSE < 1 on a y with noise sd 0.5. A canary pins both misroutes. Proof: disabling `composite_predict`'s stage computation (the EST-01 shape) fails with the inner seeing a 152.9-sd mean drift. Not built: the MoE wrapper, the wrap-pass metric block, the per-model hook, `_get_train_pred` and the OOF refits as entry points, and the meta-guard registering every class that holds `estimator_` plus a base read.
 
 ### PMT-32 [P1] Fresh-process persistence round trip for every registry transform and the whole auto-chain name space
 - **Asserts**:
@@ -537,7 +537,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low.
 - **Runtime**: about 10-20 s (one interpreter start with mlframe import, plus 51 tiny builds).
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL. New tests/inference/test_composite_fresh_process_roundtrip.py wraps every registry transform plus every auto-chain name (`_RESIDUAL_STAGE_NAMES` x `_TAIL_UNARIES`, 57 wrappers in all) around a picklable linear inner via `from_fitted_inner`. Each is saved with `save_mlframe_model`, as is a CT ensemble of a plain and a chain wrapper. ONE subprocess loads everything through `load_mlframe_model` and predicts, and predictions must equal the in-process ones to 1e-9. Proof: disabling the wrapper's chain re-registration (the INT-05 shape) fails 7 of 58 with `UnknownTransformError`. Not built: `_MoEGatedDeployableModel` in the round trip.
 
 ### PMT-33 [P1] Runtime registry mutation must have a load-time replay (shared scanner)
 - **Asserts**: a function-scope write (`X[k] = ...`, `X.setdefault`, `X.update`, `X.pop`) to a module-level dict named `*REGISTRY*` is flagged unless the enclosing function is:
@@ -549,7 +549,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low (2 sites in the package).
 - **Runtime**: under 1 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New py-ci-shared module `runtime_registry_mutation` (py-ci-shared 9117175, 6 unit tests, README section). It flags every function-scope write (subscript store, `setdefault`, `update`, `pop`, `del`) to a module-level `*REGISTRY*` dict defined in any scanned file, counting writes through an import. Helpers used as a module-scope decorator or called in a module-scope statement are exempt, since they run at import. `assert_writes_have_replay` requires a reasoned `replay_writers` entry for every other writer and fails on stale entries. mlframe wiring: `test_runtime_registry_writes_have_a_replay` in test_shared_checks_wired.py over all of src (pin bumped to 9117175). Five writers are listed, each with a reason: `reregister_auto_chain_transforms` (the replay itself), `_run_auto_chain` (replayed on load; proven in a fresh process by PMT-32), the provider cache's `_register_or_get` / `_do_load` (per-process, never named by a pickle) and the `register_metric` plugin API.
 
 ### PMT-34 [P2] getattr default parity: `getattr(cfg, "field", literal)` must match the pydantic field default (shared scanner)
 - **Asserts**: for every `getattr(<config-ish receiver>, "<field>", <literal>)` in scope, the literal equals the pydantic default of that field on the resolved config class. The receiver is resolved by name convention (`config`, `self.config`, `cfg`, `*_config`) and the class by the field set.
@@ -611,7 +611,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low to medium. A copy intentionally scoped to one call is allowlisted with a reason.
 - **Runtime**: under 1 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New py-ci-shared module `discarded_model_copy` (py-ci-shared b8aaa18, 10 unit tests, README section). It flags a function-scope `name = <expr>.model_copy(update=...)` whose `name`, or a plain alias of it, is never returned or yielded, stored into an attribute or subscript, passed to a call, or used as its own method's receiver. `assert_no_discarded_model_copy` takes reasoned allowlist entries and fails on stale ones. Wired in mlframe as `test_no_discarded_model_copy` over all of src with an empty allowlist (pin bumped to b8aaa18). The one initial hit, `_disc_cfg_base` in `run_composite_target_discovery`, was a false positive: the copy reaches its consumers through the alias `_disc_cfg = _disc_cfg_base`, so the scanner learned to follow aliases. The INT-04 shape (a copy only read locally) is pinned by the scanner's `test_a_copy_used_only_for_a_local_read_is_found`.
 
 ### PMT-39 [P2] Survivorship-scored metrics: a metric computed only on rows where the prediction is finite (shared scanner)
 - **Asserts**: a call to a metric function (`rmse|mae|mse|r2|mean_squared_error|...`) whose y_true and y_pred arguments are both indexed by the same mask, where that mask is derived from `np.isfinite(<prediction>)`, is flagged, unless the enclosing function also scores the non-finite rows (fills and rescores) or records the dropped fraction in the returned verdict.

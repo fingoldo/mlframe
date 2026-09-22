@@ -60,6 +60,33 @@ def _detect_native_cat_models(strategies) -> tuple[bool, bool]:
     return has_cb, all_native
 
 
+def _row_wise_replay_config(preprocessing_extensions, fitted: dict) -> dict | None:
+    """What predict needs to recompute the row-wise extension columns (row_summary_* / row_extreme_*), or None when
+    neither step is enabled.
+
+    The enabled/params knobs, plus the state fitted on train that ``apply_row_wise_steps`` hands back in ``fitted``:
+    the pinned numeric column list and the extremality reference. The columns are NOT stateless - scored without the
+    reference, a single-row serving batch is its own median and every extremality score is 0.0, and re-deriving the
+    column list from the serving frame admits a column that was all-null on train. Without this stamp at all, predict
+    never reproduces these columns and every model that saw them at fit time raises "feature names ... unseen at fit
+    time" on its first real call - default-ON, so that hit every deployed model.
+    """
+    if preprocessing_extensions is None or not (
+        getattr(preprocessing_extensions, "row_wise_summary_stats_enabled", False)
+        or getattr(preprocessing_extensions, "row_wise_extreme_columns_enabled", False)
+    ):
+        return None
+    k_raw = getattr(preprocessing_extensions, "row_wise_extreme_columns_k", None)
+    config = {
+        "summary_stats_enabled": bool(getattr(preprocessing_extensions, "row_wise_summary_stats_enabled", False)),
+        "summary_stats_list": getattr(preprocessing_extensions, "row_wise_summary_stats_list", None),
+        "extreme_columns_enabled": bool(getattr(preprocessing_extensions, "row_wise_extreme_columns_enabled", False)),
+        "extreme_columns_k": int(k_raw) if k_raw is not None else 3,
+    }
+    config.update(fitted)
+    return config
+
+
 def _phase_fit_pipeline(
     *,
     train_df: pl.DataFrame | pd.DataFrame | None,
@@ -594,31 +621,17 @@ def _phase_fit_pipeline(
     _pre_polars_columns_snapshot = list(train_df_polars_pre.columns) if isinstance(train_df_polars_pre, pl.DataFrame) else None
     # Capture PySR's equation -> column-name map so predict can replay symbolic features against the same content-hashed column names that training emitted.
     _pysr_equations_out: dict = {}
+    _row_wise_replay_out: dict = {}
     train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
         train_df, val_df, test_df, preprocessing_extensions, verbose=verbose, y_train=_y_train_for_ext,
         out_pysr_equations=_pysr_equations_out,
+        out_row_wise_replay=_row_wise_replay_out,
     )
     if _pysr_equations_out:
         metadata["pysr_equations"] = dict(_pysr_equations_out)
-    # Row-wise extension columns (row_summary_*/row_extreme_*) are STATELESS -- computed per-row
-    # from that row's own numeric column values, not fit-time population statistics -- so unlike
-    # the sklearn-bridge ``extensions_pipeline`` above, there is no fitted object to persist for
-    # them. Predict-time (``_predict_pre_pipeline._apply_row_wise_extensions``) needs only the
-    # enabled/params knobs to recompute them identically from the predict-time frame's own numeric
-    # columns. Without this stamp, predict-time never reproduces these columns and every model
-    # whose pre_pipeline/estimator saw them at fit time raises "feature names ... unseen at fit
-    # time" on the very first real predict call -- default-ON, so this hit every deployed model.
-    if preprocessing_extensions is not None and (
-        getattr(preprocessing_extensions, "row_wise_summary_stats_enabled", False)
-        or getattr(preprocessing_extensions, "row_wise_extreme_columns_enabled", False)
-    ):
-        _rwk_raw = getattr(preprocessing_extensions, "row_wise_extreme_columns_k", None)
-        metadata["row_wise_extensions_config"] = {
-            "summary_stats_enabled": bool(getattr(preprocessing_extensions, "row_wise_summary_stats_enabled", False)),
-            "summary_stats_list": getattr(preprocessing_extensions, "row_wise_summary_stats_list", None),
-            "extreme_columns_enabled": bool(getattr(preprocessing_extensions, "row_wise_extreme_columns_enabled", False)),
-            "extreme_columns_k": int(_rwk_raw) if _rwk_raw is not None else 3,
-        }
+    _rw_replay_config = _row_wise_replay_config(preprocessing_extensions, _row_wise_replay_out)
+    if _rw_replay_config is not None:
+        metadata["row_wise_extensions_config"] = _rw_replay_config
     if verbose and preprocessing_extensions is not None:
         logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))
     if extensions_pipeline is not None:

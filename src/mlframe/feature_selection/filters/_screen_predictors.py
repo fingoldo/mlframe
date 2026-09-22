@@ -36,12 +36,13 @@ from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
-# Pre-compile the typed.Dict(unicode->float64) machinery that screen_predictors'
-# memoization caches rely on, synchronously at import. This ~5s of otherwise-
-# per-first-fit LLVM codegen is not numba-disk-cacheable; paying it here (once
-# per process) keeps it off every fit's critical path. Opt out with
-# MLFRAME_SKIP_NUMBA_WARMUP=1. See _numba_warmup for the full rationale.
-warmup_typed_dict()
+# The typed.Dict(unicode->float64) warm-up used to run HERE, at import. That made every process which merely imports
+# this module transitively - each loky FE worker, and anything importing mlframe.preprocessing or mlframe.reporting -
+# pay it without ever calling ``screen_predictors``: measured 36.4 s per worker to import
+# ``filters.polynom_pair_fe`` in four workers, against 19.x s with MLFRAME_SKIP_NUMBA_WARMUP=1, and loky respawns
+# workers after its idle timeout. It now runs on the first ``screen_predictors`` call instead, where it is actually
+# needed; the per-process saving for a screening process is unchanged (the warm-up is idempotent and still happens
+# before any fit work). Opt out with MLFRAME_SKIP_NUMBA_WARMUP=1. See _numba_warmup for the full rationale.
 
 
 def _short_name(name, maxlen: int = 28) -> str:
@@ -283,7 +284,7 @@ def screen_predictors(
     # ---------------------------------------------------------------------------------------------------------------
     # Input checks
     # ---------------------------------------------------------------------------------------------------------------
-
+    warmup_typed_dict()  # idempotent, once per process; see the note next to the import
     if parallel_kwargs is None:
         # backend="threading" mirrors the mrmr.py default flip (iter-371 fix):
         # joblib ThreadPoolExecutor in-process shares the data arrays zero-copy

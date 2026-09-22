@@ -39,6 +39,7 @@ from .._mrmr_fe_step_helpers import (
 )
 from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 from ._helpers import _synergy_bootstrap_can_supply_pool
+from ._step_pair_order import order_prospective_pairs
 
 
 def _should_serialize_fe_pair_check(n_prospective_pairs: int, gpu_fe_active: bool, serial_min_pairs_per_worker: int) -> bool:
@@ -473,10 +474,7 @@ def _run_fe_step_impl(
 
     # Now need to sort prospective_pairs by the uplift, to check most promising pairs within the time budget.
     # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
-    # Ties on the reuse counter break by pair MI, so the strongest pair of a tie group is searched first.
-    from ._step_pair_order import order_prospective_pairs
-
-    prospective_pairs = order_prospective_pairs(prospective_pairs)
+    prospective_pairs = order_prospective_pairs(prospective_pairs)  # reuse-counter ties break by pair MI: strongest of a tie group first
 
     # SUCCESSIVE-HALVING / RUNG-SCHEDULE FE-search budget.
     # ON by default. Before the EXPENSIVE per-pair operator search below

@@ -110,3 +110,17 @@ def test_the_floor_comes_from_the_strongest_dummy_baseline():
     assert dummy_floor_from_metadata({}, "TargetTypes.REGRESSION", "y") is None
     metadata["dummy_baselines"]["TargetTypes.REGRESSION"]["y"]["data"]["median"]["RMSE"] = float("nan")
     assert dummy_floor_from_metadata(metadata, "TargetTypes.REGRESSION", "y") is None
+
+
+def test_the_dummy_floor_gate_drops_a_component_that_loses_to_the_dummy_by_default():
+    """Under the default config the honest dummy-floor gate removes the component whose OOF RMSE exceeds the floor."""
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+    from mlframe.training.core._phase_composite_post_xt_ensemble._prescreen import apply_dummy_floor_gate
+
+    y = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    floor = float(np.sqrt(np.mean((y - np.median(y)) ** 2)))
+    rmses = np.array([0.5 * floor, 3.0 * floor])
+    P = np.column_stack([y, y + 10.0])
+    md = {"dummy_baselines": {"regression": {"y": {"strongest": "median", "primary_metric": "val_RMSE", "data": {"median": {"val_RMSE": 99.0}}}}}}
+    comps, names, kept_rmses, kept_P = apply_dummy_floor_gate(CompositeTargetDiscoveryConfig(), md, "regression", "y", ["a", "b"], ["good", "bad"], rmses, P, y)
+    assert names == ["good"] and comps == ["a"] and kept_P.shape[1] == 1 and list(kept_rmses) == [rmses[0]]

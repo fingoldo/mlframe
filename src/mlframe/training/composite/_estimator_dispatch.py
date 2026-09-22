@@ -196,18 +196,34 @@ def maybe_inject_distribution_driven_estimator(
     if estimator is None:
         return mlframe_models
 
+    # A regressor must not be fit on the run's classification targets: the per-target loop trains every entry of
+    # ``mlframe_models`` on every target, so the entry carries the targets it was chosen for.
+    estimator._mlframe_only_targets = frozenset(str(n) for n in reg_targets)
     new_models = [*list(mlframe_models), estimator]
+    register_injected_models(ctx, new_models)
 
-    # Mirror setup_configuration: extend the strategy map + tier-sort so the per-target loop trains the new entry.
+    metadata.setdefault("distribution_driven_estimator", {})[rec["estimator"]] = {
+        "reason": rec["reason"],
+        "base_column": base_column,
+    }
+    return new_models
+
+
+def register_injected_models(ctx: Any, new_models: list) -> None:
+    """Make model entries appended after ``setup_configuration`` trainable: strategy map, tier sort and ``ctx.mlframe_models``.
+
+    Mirrors ``setup_configuration``. The per-target setup (``_setup_per_target_mlframe_models``) reads
+    ``ctx.mlframe_models`` to build ``models_params`` via ``select_target`` -> ``configure_training_params``, so an entry
+    missing there would be skipped as "not known".
+    """
     from ..strategies import get_strategy as _get_strategy
     from ..models import is_neural_model as _is_neural_model
 
     sbm = getattr(ctx, "strategy_by_model", None)
     if sbm is not None:
-        sbm[id(estimator)] = _get_strategy(estimator)
 
         def _tier(m):
-            """Sort key for the per-target training order: negated feature-tier tuple (memoized in ``sbm`` by estimator identity) so higher tiers train first."""
+            """Sort key for the per-target training order: negated feature-tier tuple (memoized in ``sbm`` by entry identity) so higher tiers train first."""
             strat = sbm.get(id(m))
             if strat is None:
                 strat = _get_strategy(m)
@@ -215,13 +231,4 @@ def maybe_inject_distribution_driven_estimator(
             return tuple(-int(t) for t in strat.feature_tier())
 
         ctx.sorted_mlframe_models = sorted(new_models, key=lambda m: (_is_neural_model(m), _tier(m)))
-    # The per-target setup (``_setup_per_target_mlframe_models``) reads ``ctx.mlframe_models`` to build
-    # ``models_params`` via ``select_target`` -> ``configure_training_params``; keep it in sync so the
-    # injected estimator gets a params entry and is not skipped as "not known".
     ctx.mlframe_models = new_models
-
-    metadata.setdefault("distribution_driven_estimator", {})[rec["estimator"]] = {
-        "reason": rec["reason"],
-        "base_column": base_column,
-    }
-    return new_models

@@ -38,6 +38,7 @@ from ._misc_helpers import (
 )
 from ._setup_helpers import (
     _build_process_model_kwargs,
+    _entry_not_for_target,
     _should_skip_catboost_metamodel,
 )
 from ._phase_train_one_target_ensembling import _finalize_per_target_ensembling
@@ -268,7 +269,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 mlframe_model_name = _model_entry
             else:
                 mlframe_model_name = type(_model_entry).__name__
-            if _should_skip_catboost_metamodel(mlframe_model_name, target_type, behavior_config):
+            if _should_skip_catboost_metamodel(mlframe_model_name, target_type, behavior_config) or _entry_not_for_target(_model_entry, cur_target_name):
                 continue
             # Extreme-AR + group-aware MLP trigger predicate (shared by 3 protections: skip /
             # drop per-group aggregate cols / bump weight_decay 100x). Computed once per (target,

@@ -17,7 +17,8 @@ from typing import Tuple
 
 import numpy as np
 
-from mlframe.feature_engineering.fuzzy_features import fuzzy_partition_fit, fuzzy_partition_names, fuzzy_partition_transform
+# ``mlframe.feature_engineering`` is imported lazily in the function below: at module scope it dragged the feature
+# engineering package - and transitively feature_selection.filters - into ``import mlframe.reporting``.
 from mlframe.reporting.spec import FIGSIZE_STANDARD, AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
 
 # Cap the length-n fit backing so the quantile sort stays bounded on 100+ GB frames; a random subsample leaves the centre
@@ -31,6 +32,8 @@ def fuzzy_membership_curves(x, *, n_partitions: int = 5, kind: str = "triangular
     Returns ``(grid_x (grid,), memberships (n_sets, grid))`` where ``n_sets`` is the number of fitted sets (equal to
     ``n_partitions`` unless duplicate quantiles collapsed on a low-cardinality column).
     """
+    from mlframe.feature_engineering.fuzzy_features import fuzzy_partition_fit, fuzzy_partition_transform
+
     xx = np.asarray(x, dtype=np.float64).ravel()
     finite = xx[np.isfinite(xx)]
     if finite.size == 0:
@@ -61,6 +64,8 @@ def fuzzy_membership_panel(x, *, n_partitions: int = 5, kind: str = "triangular"
         # Every sibling builder degrades to an annotation on empty input; this one alone propagated the exception
         # and took the caller's whole figure down with it.
         return AnnotationPanelSpec(text=f"Fuzzy partition unavailable: {exc}", title="Fuzzy partition")
+    from mlframe.feature_engineering.fuzzy_features import fuzzy_partition_names
+
     n_sets = memberships.shape[0]
     labels = tuple(fuzzy_partition_names(feature_name, n_sets))
     return LinePanelSpec(

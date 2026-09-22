@@ -140,6 +140,6 @@ def test_the_missing_value_fill_is_also_fold_local():
     result = select_column_transforms(df, y, task="classification", n_splits=4, random_state=0)
     assert result["noise_with_gaps"]["all_scores"], "the non-finite branch must still produce scores"
     ceiling = _pure_noise_score_ceiling(with_gaps=True)
-    assert len(result['noise_with_gaps']['all_scores'].items()) > 0, "the loop below must iterate at least once"
+    assert len(result["noise_with_gaps"]["all_scores"].items()) > 0, "the loop below must iterate at least once"
     for name, score in result["noise_with_gaps"]["all_scores"].items():
         assert score <= ceiling, f"pure-noise column with gaps scored {score:.4f} under {name}, above the {ceiling:.4f} ceiling of 8 independent gapped noise draws -- the imputation is leaking"

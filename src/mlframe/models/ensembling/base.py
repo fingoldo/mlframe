@@ -26,6 +26,7 @@ from __future__ import annotations
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import logging
+import warnings
 
 logger = logging.getLogger("mlframe.models.ensembling")
 
@@ -197,6 +198,8 @@ except ImportError:  # pragma: no cover
 
 
 from mlframe.system import try_import_cupy
+
+from ._combine_fallback import _finite_member_mean
 
 _, _HAS_CUPY = try_import_cupy()  # pragma: no cover -- env-dependent
 
@@ -650,7 +653,10 @@ def combine_probs(
     elif flav in ("cubic",):
         flav = "qube"
 
-    if ensure_prob_limits and flav in ("arithm", "harm", "quad", "qube", "median"):
+    # "geo" belongs here too: its log only clips the LOWER bound, so an out-of-range member value (a raw margin of 1.4
+    # leaking through a shim) pulled the geometric mean above every member's clipped value before the final clip hid
+    # it, and geo disagreed with the other flavours for a reason that is a bug rather than a property of the blend.
+    if ensure_prob_limits and flav in ("arithm", "harm", "quad", "qube", "median", "geo"):
         stacked = np.clip(stacked, 0.0, 1.0)
 
     weights_arr: Optional[np.ndarray] = None
@@ -761,11 +767,7 @@ def combine_probs(
     # predict now does the same so a single NaN cell doesn't poison the whole batch.
     non_finite_mask = ~np.isfinite(combined)
     if non_finite_mask.any():
-        # F4: honour precomputed_weights (NNLS/Caruana weights) here too -- previously this always
-        # recomputed an UNWEIGHTED mean even when the main flavour reduction had used weights_arr,
-        # so any row that fell into this fallback silently reverted to unweighted arithmetic mean
-        # for that row only, while every other row stayed correctly weighted.
-        _arith = np.average(stacked, axis=0, weights=weights_arr) if weights_arr is not None else np.mean(stacked, axis=0)
+        _arith = _finite_member_mean(stacked, weights_arr)
         # Wave 78 (2026-05-21): hard-assert shape contract -- np.where broadcasts
         # silently on shape mismatch, which would silently produce wrong-shape
         # ensemble output if a future flavour returns a different reduce shape.

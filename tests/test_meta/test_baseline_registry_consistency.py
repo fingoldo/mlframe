@@ -34,6 +34,10 @@ FLAG_EXEMPT: dict[str, str] = {
     "_fail_open_handlers_baseline.json": "python tests/test_meta/regen_baselines.py",
     # Pruned by hand as entries are wired in or justified; the test names every stale or new key.
     "_tested_but_uncalled_baseline.json": "edit by hand (test_tested_but_uncalled.py lists the keys)",
+    "_discovery_layout_baseline.json": "edit by hand (test_discovery_layout_and_copies.py lists new and fixed keys)",
+    "_transform_gateway_baseline.json": "edit by hand (test_transform_calls_use_gateway.py lists new and fixed keys)",
+    # py-ci-shared content-hash gate: its shared flag, not a per-file one.
+    "_discovery_algo_version_baseline.json": "--refresh-content-hash-version-baseline",
     "_function_length_baseline.json": "python tests/test_meta/regen_baselines.py",
     # The shared py_ci_shared.loc_budget module names its own flag, one for every repo that uses it.
     "_loc_over_1k_baseline.json": "--refresh-loc-budget-baseline",

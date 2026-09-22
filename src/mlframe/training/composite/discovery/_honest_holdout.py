@@ -339,6 +339,9 @@ def apply_honest_holdout(
     in-screen ``mi_gain`` is unaffected -- because the honest gain is a diagnostic
     overlay, never load-bearing for the spec itself.
     """
+    from .._row_roles import note_rows
+
+    note_rows("honest_holdout", "report", "honest_holdout_rescore", holdout_idx)
     if np.intersect1d(train_idx, holdout_idx).size:
         raise ValueError("[CompositeTargetDiscovery] honest-holdout indices overlap the screening " "pool -- post-selection estimate would leak.")
     try:

@@ -102,7 +102,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The cache reuses stale specs whose gates never ran on the current inputs.
 - **Suggested fix**: Fold into the key a cheap digest of the group-id array, of the time-ordering array restricted to `filtered_train_idx`, of `(len(val_y), a sample of val_y and val features)`, and of the hint-strength list.
 - **Test to add**: Two discovery-phase runs with identical data and config but different `group_ids` must produce different cache keys. Do the same for different `val` frames.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. New `discovery_inputs_digest` (in `_phase_composite_discovery_gates.py`) hashes the four inputs that change the selected specs but are neither data columns nor config fields: the rerank group ids, the hint strengths (when the hint is used), the time-column values and the val frame plus val targets (shape, columns and a row hash of the first 2000 rows, polars or pandas). It is folded into the data fingerprint of the discovery cache key. All four are known at lookup time. Regression test `test_the_discovery_cache_key_changes_with_every_input_that_changes_the_specs`: identical data and config with a different group split, missing group ids, other hint strengths, a reordered time column, or a changed val y or val frame each yields a different key, and the key is deterministic. Before the fix the digest did not exist and all of these collided.
 
 ### DSC-13 [P2] The yscale gate's fallback path evaluates on rows the transform params were fit on
 - **Where**: `_yscale_holdout_gate.py:293-316`. The eval rows are carved from `screen_idx`, which is the `train_idx` screening pool the spec's `fitted_params` were fit on (`_eval.py:344`). The params are reused at `:367` / `:382-384`.
@@ -118,7 +118,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: An opt-in feature silently removes leakage guards that are on by default.
 - **Suggested fix**: Add `time_ordering=None, val_df=None, val_y=None` to the three wrappers, forward them to every inner `fit`, and pass them from the core phase.
 - **Test to add**: Call `fit_stacked` with a `time_ordering` and assert `_base_leakage_guard_ran_` is True and `_screen_time_ordered_` is True after pass 1.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. `fit_stacked`, `fit_stacked_on_residual` and `fit_with_stability_check` accept `time_ordering`, `val_df` and `val_y` and forward them to every pass-1 and bootstrap `fit`. Pass 2 of the stacked variants keeps `time_ordering` only: its features include pass-1 OOF columns the val frame lacks, and the residual variant's target is not the raw y. The discovery phase computes the time ordering and val frame before choosing the variant and passes them to the stacked calls too. Regression test tests/training/composite/discovery/test_variant_fits_forward_kwargs.py fails for all three variants before the fix. test_discovery_stability.py's fake `fit` gained the two keywords.
 
 ### DSC-15 [P2] The stability-check majority threshold is truncated, so n=3 keeps specs found once
 - **Where**: `_stability_check.py:174` (`threshold = max(1, int(min_keep_fraction * n_bootstrap_runs))`) and `:162-168`, `:176`.
@@ -126,7 +126,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The stability filter is weaker than documented, and the shipped params are estimated on half the data.
 - **Suggested fix**: Use `math.ceil(min_keep_fraction * n_bootstrap_runs)`. After selecting stable names, refit those specs once on the full screen pool, or document that params come from a subsample and re-stamp `report_` consistently.
 - **Test to add**: With `n_bootstrap_runs=3` and a spec forced to appear in exactly 1 run, the spec must not be in `specs_`.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The stability-check majority threshold rounds up (`ceil(min_keep_fraction * n_bootstrap_runs)`, floored at 1): n=3 at 0.6 now needs 2 runs where `int(1.8) = 1` kept a spec found once, and n=5 is unchanged at 3. Regression test `test_the_stability_check_drops_a_spec_found_in_one_run_of_three` (test_null_canaries.py) scripts three runs and asserts the once-found spec is dropped and the twice-found one kept; it fails before the fix.
 
 ### DSC-16 [P2] Incremental drift detection cannot fire under default config
 - **Where**: `_incremental.py:237` (`eps = config.eps_mi_gain`, default -10.0) and `:276-281`. The sample is drawn over the whole new frame at `:269`.
@@ -150,7 +150,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The headline "did the composite help" verdict uses the selection-biased split. Per the project's val/test convention, the verdict should use test.
 - **Suggested fix**: Compute the verdict from test metrics for both sides, with val shown for reference. Refuse to emit a verdict (show `CROSS_SPLIT`) when the two sides come from different splits.
 - **Test to add**: Construct metadata where the composite wins on val and loses on test. The verdict must be RAW_BEATS_COMPOSITE. Construct a raw test-fallback and assert the verdict is not a bare val-vs-test comparison.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. The COMPOSITE vs RAW verdict is decided on TEST for both sides. `_best_metrics` now also stores the chosen raw model's test metric (`test_<metric>`); the raw pick moved into `_best_entry_on`. The composite side uses its best-on-val model's y-scale test metric. The val lift stays in the table as a reference column, and new `raw_test` and `test_lift` columns show what decided the verdict. When either side lacks a test metric the verdict is `NO_TEST_METRIC_TO_COMPARE`, never a val (or val-vs-test-fallback) comparison. Regression test `test_the_composite_vs_raw_verdict_is_decided_on_test`: a composite that wins on val and loses on test is RAW_BEATS_COMPOSITE (COMPOSITE_BEATS_RAW before the fix), and a raw test-fallback gives NO_TEST_METRIC_TO_COMPARE. The composite-verdict fixture gained the raw test metric, and the grep-for-`_entry_metric` source check was reframed as a behavioural test of the test-fallback tag. `_run_suite_end_dummy_baselines_summary` shrank from 156 to 137 lines.
 
 ### DSC-19 [P2] The group-disjoint honest-holdout carve can hold out most of the training rows
 - **Where**: `_honest_holdout.py:100-113`.
@@ -222,7 +222,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The opt-in path gates on the wrong population and silently loses group-awareness.
 - **Suggested fix**: Filter `val_df` / `val_y` to the group's rows (by `per_group_column`), and copy `_group_ids_for_rerank` and `_hint_strengths_pct` onto the delegate.
 - **Test to add**: With `per_group_discovery_enabled`, assert that the delegate's yscale gate sees only the group's val rows and that `_group_ids_for_rerank` is set on it.
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED. Each per-group delegate now gets only its group's val rows (`_group_val_rows` filters `val_df` / `val_y` by `per_group_column`). When the val frame lacks the column or has no rows for the group, the delegate's y-scale gate falls back to its own train rows. The delegate also inherits `_group_ids_for_rerank` and `_hint_strengths_pct` from the parent. Regression test `test_a_group_delegate_gets_its_groups_val_rows_and_the_rerank_grouping` in test_per_group_discovery.py fails before the fix (every delegate got both groups' 400 val rows and no rerank grouping).
 
 ### DSC-28 [P3] Multi-base upgraded specs inherit unmeasured statistics from their seed
 - **Where**: `_fit_multibase.py:160-185`.

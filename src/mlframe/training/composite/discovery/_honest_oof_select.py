@@ -106,6 +106,9 @@ def honest_oof_reconstruction_rmse(
     group-internal CV-RMSE. Also records the raw-y honest-OOF baseline on ``self._honest_oof_raw_rmse`` and the AR
     failsafe (lag_predict) baseline on ``self._honest_oof_lag_rmse`` so the gate can floor specs against ``min(raw, lag)``.
     """
+    from .._row_roles import note_rows
+
+    note_rows("honest_holdout", "select", "honest_oof_rerank", holdout_idx)
     out: dict[str, float] = {}
     # Reset the per-target honest-OOF floor references so a stale value from a prior target cannot leak into this gate.
     self._honest_oof_raw_rmse = float("nan")

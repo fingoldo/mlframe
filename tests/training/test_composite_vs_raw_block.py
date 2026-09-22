@@ -10,9 +10,7 @@ from mlframe.training.core._phase_composite_post_summary import format_composite
 def test_untrained_composite_is_not_listed():
     meta = {
         "dummy_baselines": {"regression": {"y": {"primary_metric": "val_RMSE", "strongest": "mean", "data": {"mean": {"val_RMSE": 2.0}}}}},
-        "composite_target_y_scale_metrics": {
-            "regression": {"y-logY": [{"model_name": "cb", "metrics": {"val": {"RMSE": 1.5}, "test": {"RMSE": 1.6}}}]}
-        },
+        "composite_target_y_scale_metrics": {"regression": {"y-logY": [{"model_name": "cb", "metrics": {"val": {"RMSE": 1.5}, "test": {"RMSE": 1.6}}}]}},
     }
     models = {"regression": {"y-logY": [SimpleNamespace(model_name="cb")]}}
     text = format_composite_vs_raw_block(

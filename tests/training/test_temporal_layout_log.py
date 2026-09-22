@@ -34,7 +34,7 @@ def test_d1_p2_10_temporal_layout_info_fires_on_default_forward_placement(caplog
             random_seed=42,
         )
     msgs = [r.message for r in caplog.records if r.levelno >= logging.INFO]
-    layout_msgs = [m for m in msgs if "Temporal layout" in m and "val->train_gap" in m]
+    layout_msgs = [m for m in msgs if "temporal layout" in m.lower() and "val->train_gap" in m]
     assert layout_msgs, f"Expected 'Temporal layout' INFO line; got: {msgs}"
 
 
@@ -54,7 +54,7 @@ def test_d1_p2_10_temporal_layout_not_emitted_when_no_timestamps(caplog):
             random_seed=42,
         )
     msgs = [r.message for r in caplog.records]
-    assert not any("Temporal layout" in m for m in msgs), f"Did not expect 'Temporal layout' line without timestamps; got: {msgs}"
+    assert not any("temporal layout" in m.lower() for m in msgs), f"Did not expect 'Temporal layout' line without timestamps; got: {msgs}"
 
 
 def test_d1_p2_10_temporal_layout_not_emitted_on_backward_placement(caplog):
@@ -75,4 +75,4 @@ def test_d1_p2_10_temporal_layout_not_emitted_on_backward_placement(caplog):
             random_seed=42,
         )
     msgs = [r.message for r in caplog.records]
-    assert not any("Temporal layout" in m and "val->train_gap" in m for m in msgs), f"Did not expect default-forward INFO under explicit backward; got: {msgs}"
+    assert not any("temporal layout" in m.lower() and "val->train_gap" in m for m in msgs), f"Did not expect default-forward INFO under explicit backward; got: {msgs}"

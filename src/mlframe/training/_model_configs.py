@@ -90,7 +90,9 @@ class LinearModelConfig(ModelConfig):
     solver : str
         Solver for LogisticRegression (default: "lbfgs").
     use_calibrated_classifier : bool
-        Whether to use probability calibration (default: True).
+        Wrap the classifier in ``CalibratedClassifierCV`` (default: False). Off because it refits the model k times
+        and the suite calibrates probabilities post hoc on its own calibration slice when one is configured; stacking
+        the two would calibrate twice.
     """
 
     model_type: str = "linear"

@@ -126,10 +126,13 @@ def matthews_corrcoef_from_counts(tp: int, fp: int, tn: int, fn: int) -> float:
 # ---------- KS statistic ----------
 
 # The inline-ordered kernel (indexes through ``order``, no gather temporaries) wins in TWO regions, with a losing middle band:
-#   - n < _KS_FUSED_MAX_N: the double-indirect scan is cheap and skipping the two N-length gathers wins 1.3-1.7x (small per-class report arrays).
+#   - n < _KS_FUSED_MAX_N: the double-indirect scan is cheap and skipping the two N-length gathers wins (small per-class report arrays).
+#     Re-measured 2026-09-20 (9 best-of blocks x 2000 iters per point, Ryzen/Windows): 128 -> 1.24x, 256 -> 1.19x, 384 -> 1.12x,
+#     512 -> 1.03x, 768..2048 -> 0.95-1.01x. The win is gone by ~512, so the bound moved 2048 -> 512; at 1000 the old bound
+#     dispatched to the fused kernel for no gain (the perf sentinel measured a median 1.00x there).
 #   - n >= _KS_INLINE_ORDERED_MIN_N: the two N-length fancy-index gathers (int64 + float64) become memory-bandwidth-bound and the inline scan wins ~1.05x@200k / ~1.2x@500k bit-identically (bench_ks_desc_order_inline_gather_iter72).
 # Between the two the pre-gathered contiguous-scan reference is fastest. Retune per hardware.
-_KS_FUSED_MAX_N = 2048
+_KS_FUSED_MAX_N = 512
 _KS_INLINE_ORDERED_MIN_N = 150_000
 
 
@@ -268,7 +271,7 @@ def ks_statistic(y_true: np.ndarray, y_score: np.ndarray, desc_order: Optional[n
     # standalone-replace rejected (_benchmarks/bench_ks_statistic_njit.py): np.argsort
     # dominates so no all-sizes win; the in-kernel-argsort variant is 0.3-0.5x.
     # BUT _ks_statistic_kernel_ordered (indexes through order inline, zero gather
-    # temporaries) is gated in for n < _KS_FUSED_MAX_N (1.3-1.7x; tiny per-class arrays)
+    # temporaries) is gated in for n < _KS_FUSED_MAX_N (~1.2x at n<=384; tiny per-class arrays)
     # AND for n >= _KS_INLINE_ORDERED_MIN_N (~1.05x@200k / ~1.2x@500k; the two N-length
     # gathers turn memory-bandwidth-bound) -- bit-identical, bench_ks_desc_order_inline_gather_iter72.
     # The middle band keeps the pre-gathered contiguous-scan reference.
@@ -530,9 +533,19 @@ def lift_at_k(
     if n_pos == 0:
         return np.nan
     cutoff = max(1, int(np.ceil(n * k_pct / 100.0)))
-    # argpartition for top-k cutoff selection (no full sort needed).
-    top_idx = np.argpartition(-ys, cutoff - 1)[:cutoff]
-    captured = int(yt[top_idx].sum())
+    # The score at the cutoff (argpartition, no full sort). Rows strictly above it are in the top-k; rows EQUAL to it
+    # share the remaining slots. Picking which tied rows get in was argpartition's arbitrary choice, so a calibrator
+    # that snaps scores to a coarse grid gave different lift on identical data between runs. The tied run is folded in
+    # at its average positive rate instead - the expectation over every tie-break, and deterministic.
+    threshold = -np.partition(-ys, cutoff - 1)[cutoff - 1]
+    above = ys > threshold
+    tied = ys == threshold
+    n_above = int(above.sum())
+    slots_for_ties = cutoff - n_above
+    captured = float(yt[above].sum())
+    n_tied = int(tied.sum())
+    if slots_for_ties > 0 and n_tied > 0:
+        captured += float(yt[tied].sum()) * slots_for_ties / n_tied
     p_top = captured / cutoff
     p_overall = n_pos / n
     return float(p_top / p_overall)

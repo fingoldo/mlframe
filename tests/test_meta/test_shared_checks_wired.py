@@ -456,6 +456,40 @@ def test_no_new_fail_open_handlers():
     assert_no_new_fail_open_handlers(files=files, repo_root=REPO_ROOT, baseline_path=_FAIL_OPEN_BASELINE)
 
 
+# Each function allowed to write a module registry at runtime, with how its entries survive into another process.
+_REGISTRY_REPLAY_WRITERS = {
+    "reregister_auto_chain_transforms": "the replay itself: CompositeTargetEstimator routing calls it for a chain transform on load",
+    "_run_auto_chain": "discovery-time chain registration; every wrapper naming a chain replays it on load via reregister_auto_chain_transforms",
+    "_register_or_get": "per-process provider cache (weakref lifecycle); no pickled object names an entry",
+    "_do_load": "per-process provider cache load path; no pickled object names an entry",
+    "register_metric": "public plugin API for custom metrics; the built-ins register at import",
+}
+
+
+def test_runtime_registry_writes_have_a_replay():
+    """A registry entry added at runtime must be replayed on load, or a pickled object naming it fails in another process.
+
+    An auto-discovered chain transform was registered during discovery only, so a saved composite raised
+    ``UnknownTransformError`` in a new interpreter.
+    """
+    from py_ci_shared.runtime_registry_mutation import assert_writes_have_replay
+
+    files = sorted(p for p in (REPO_ROOT / "src").rglob("*.py") if "_benchmarks" not in p.parts)
+    assert_writes_have_replay(files=files, repo_root=REPO_ROOT, replay_writers=_REGISTRY_REPLAY_WRITERS, min_files=1000)
+
+
+def test_no_discarded_model_copy():
+    """A config rebuilt with ``model_copy(update=...)`` must reach a consumer, or later phases read the original.
+
+    Discovery was auto-enabled on a local copy that post-processing never saw, so the cross-target ensemble and the lag
+    failsafe were skipped for every auto-enabled run.
+    """
+    from py_ci_shared.discarded_model_copy import assert_no_discarded_model_copy
+
+    files = sorted(p for p in (REPO_ROOT / "src").rglob("*.py") if "_benchmarks" not in p.parts)
+    assert_no_discarded_model_copy(files=files, repo_root=REPO_ROOT, allowed={}, min_files=1000)
+
+
 def regenerate_fail_open_baseline() -> None:
     """Rewrite the fail-open baseline from the current tree, keeping every existing note. Called by `regen_baselines.py`."""
     import orjson

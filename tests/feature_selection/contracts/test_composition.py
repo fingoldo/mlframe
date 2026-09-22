@@ -169,7 +169,7 @@ class TestComposePairFE:
         )
         assert out["names"][:2] == ["alpha", "beta"]
         # The engineered column's label must reference the parent names.
-        assert len(out['names'][2:]) > 0
+        assert len(out["names"][2:]) > 0
         for nm in out["names"][2:]:
             assert "alpha" in nm and "beta" in nm
 

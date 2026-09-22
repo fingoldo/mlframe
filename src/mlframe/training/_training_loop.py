@@ -30,10 +30,13 @@ from ._eval_helpers import _align_xgb_cat_categories
 # monolith threshold; imported here so callers keep using
 # ``from mlframe.training._training_loop import _maybe_refit_on_*``.
 from ._training_loop_text_retry import retry_params_after_empty_text_dictionary
-from ._training_loop_refit import (
+from ._training_loop_refit import (  # noqa: F401  (re-exported)
     _maybe_refit_on_collapsed_predictions,
+    _maybe_refit_on_best_iter_pathology,
     _maybe_refit_on_degenerate_best_iter,
+    _maybe_refit_on_saturated_best_iter,
 )
+from .cb._cb_eval_weights import apply_cb_eval_sample_weights
 from .cb import (
     _maybe_get_or_build_cb_pool,
     _maybe_rewrite_eval_set_as_cb_pool,
@@ -347,14 +350,12 @@ def _train_model_with_fallback_unguarded(
         train_target=train_target,
         fit_params=fit_params,
     )
-    # Also reuse the val Pool across fits.
-    # Rewrites fit_params['eval_set'] from (val_df, val_target) to a
-    # cached Pool so CB's sklearn wrapper short-circuits the val-side
-    # rebuild too. Only fires when _cb_pool is active (train-side reuse
-    # succeeded) -- otherwise the mixed-container path (train=df,
-    # eval_set=pool) confuses CB's fit signature.
+    # Also reuse the val Pool across fits: rewrite fit_params['eval_set'] from (val_df, val_target) to a cached Pool so CB's
+    # sklearn wrapper short-circuits the val-side rebuild too. Only when _cb_pool is active (train-side reuse succeeded):
+    # otherwise the cached-Pool path mixes containers (train=df, eval_set=pool), which confuses CB's fit signature.
     if _cb_pool is not None and model_type_name in CATBOOST_MODEL_TYPES:
         _maybe_rewrite_eval_set_as_cb_pool(fit_params)
+    apply_cb_eval_sample_weights(fit_params, model_type_name)  # CB has no eval-weight kwarg; the weights ride on the eval Pool
     # Diagnostic: log the type+module of train_df right before model.fit so
     # silent type drift is visible in the log (Polars vs pandas vs numpy).
     # Critical: type(pl.DataFrame).__name__ == "DataFrame" -- same as pandas --
@@ -745,12 +746,12 @@ def _train_model_with_fallback_unguarded(
             # _predict_with_fallback.
             try:
                 model._mlframe_polars_fastpath_broken = True
+                model._mlframe_polars_fastpath_miss_observed = True
             except Exception as _mark_broken_err:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 # Deliberately NOT named `e`: this is nested inside the outer `except Exception as e:` handler,
                 # and Python implicitly `del`s the exception name at the end of its own except clause -- reusing
                 # `e` here would delete the OUTER `e` too, breaking the `raise e` re-raise further down.
                 logger.debug("suppressed: %s", _mark_broken_err)
-                pass
             schema_dump = _polars_schema_diagnostic(
                 train_df,
                 cat_features=fit_params.get("cat_features"),
@@ -902,7 +903,7 @@ def _train_model_with_fallback_unguarded(
     # default. Logic carved into ``_maybe_refit_on_degenerate_best_iter``
     # for focused unit testing.
     if model is not None and best_iter is not None:
-        _new_best_iter = _maybe_refit_on_degenerate_best_iter(
+        _new_best_iter = _maybe_refit_on_best_iter_pathology(
             model_obj=model_obj,
             model_type_name=model_type_name,
             best_iter=best_iter,

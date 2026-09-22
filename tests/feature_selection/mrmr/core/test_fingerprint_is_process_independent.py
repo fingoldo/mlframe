@@ -15,7 +15,6 @@ import textwrap
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters._mrmr_fingerprints import _mrmr_compute_x_fingerprint, _mrmr_compute_y_fingerprint_sample
 
@@ -51,8 +50,9 @@ def test_the_fingerprint_is_the_same_in_a_process_with_a_different_hash_seed():
             text=True,
             env={**__import__("os").environ, "PYTHONHASHSEED": seed, "CUDA_VISIBLE_DEVICES": ""},
         )
-        if proc.returncode != 0:
-            pytest.skip(f"subprocess could not import the package: {proc.stderr[-400:]}")
+        # A subprocess that cannot run leaves nothing to compare, so the whole point of this test evaporates. Fail loudly instead of
+        # reporting a skip that reads as "checked, fine".
+        assert proc.returncode == 0, f"the PYTHONHASHSEED={seed} subprocess failed, so the fingerprint was never compared: {proc.stderr[-400:]}"
         outs.append(proc.stdout.strip().splitlines()[-1])
     assert outs[0] == outs[1], f"the fingerprint moved with PYTHONHASHSEED: {outs}"
     assert outs[0] == here, f"the subprocess fingerprint differs from this process: {outs[0]} vs {here}"

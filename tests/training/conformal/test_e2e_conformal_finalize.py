@@ -123,6 +123,6 @@ def test_e2e_calib_size_zero_no_conformal(tmp_path):
     # Without a calib slice the split-conformal source is absent; metadata['conformal'] may still appear via the
     # OOF/CV+ fallback if OOF preds exist, but the calib-driven path must be inert.
     if "conformal" in metadata:
-        assert metadata['conformal'].values()
+        assert metadata["conformal"].values()
         for rep in metadata["conformal"].values():
             assert rep["method"] == "cv_plus", "calib_size=0 must not produce split_conformal"

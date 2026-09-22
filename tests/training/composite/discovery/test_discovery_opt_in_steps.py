@@ -234,7 +234,8 @@ def test_discover_incremental_rescores_on_appended_frame():
     decision = discover_incremental(disc, grown, "y", ["base", "x1", "x2", "x3"])
     assert isinstance(decision, IncrementalDecision)
     # Different frame => the cheap MI re-score actually ran on each prior spec.
-    assert decision.n_rescored == len(disc.specs_)
+    # An appended frame re-scores every spec twice: on the appended rows and, as the reference, on the prior rows.
+    assert decision.n_rescored == 2 * len(disc.specs_)
     assert decision.new_signature != decision.prior_signature
 
 

@@ -97,3 +97,15 @@ def test_from_fitted_inner_uses_discovery_t_envelope() -> None:
     )
     assert w.fitted_params_["t_clip_low"] == pytest.approx(params["t_train_envelope_low"])
     assert w.fitted_params_["t_clip_high"] == pytest.approx(params["t_train_envelope_high"])
+
+
+def test_a_spec_dropped_before_training_leaves_the_metadata_spec_list():
+    """A capped (or below-floor) spec is removed from ``composite_target_specs`` and recorded in the failures with the reason."""
+    from mlframe.training.core._phase_composite_discovery_dedup import forget_untrained_specs
+
+    md = {"composite_target_specs": {"regression": {"y": [{"name": "y-linres-b"}, {"name": "y-diff-b"}]}}}
+    forget_untrained_specs(md, [{"tt": "regression", "target": "y", "name": "y-diff-b"}], "global cap max_total_composite_targets=1")
+    assert [s["name"] for s in md["composite_target_specs"]["regression"]["y"]] == ["y-linres-b"]
+    assert md["composite_target_failures"]["regression"]["y"] == [
+        {"name": "y-diff-b", "kept": False, "rejected": True, "reason": "global cap max_total_composite_targets=1"}
+    ]

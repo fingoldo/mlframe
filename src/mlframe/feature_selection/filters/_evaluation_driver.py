@@ -293,6 +293,51 @@ def evaluate_candidates(
         set_group_mi(_prev_gmi)
 
 
+def _hoist_round_shared_columns(*, selected_vars, y, factors_data, factors_nbins, dtype, use_simple_mode: bool, mrmr_relevance_algo):
+    """Materialise the round's target column and selected-set columns once, for every knob that would otherwise rebuild them.
+
+    Carved out of ``_evaluate_candidates_inner`` to keep it under its length ceiling. Any failure here falls through to per-candidate
+    recomputation inside ``evaluate_candidate`` (its own precomputed-args check no-ops on None), so this cannot change a score.
+
+    Args:
+        selected_vars: the round's already-selected variables; nothing is hoisted when empty.
+        y: the target variable.
+        factors_data: the binned design the columns are materialised from.
+        factors_nbins: per-column bin counts.
+        dtype: the dtype the materialised columns are cast to.
+        use_simple_mode: whether simple scoring mode is active (RelaxMRMR needs complex mode).
+        mrmr_relevance_algo: the relevance algorithm name (RelaxMRMR needs ``fleuret``).
+
+    Returns:
+        ``(y_col, k_y, sel_cols, sel_nbins)``, each ``None`` when nothing was hoisted.
+    """
+    _relax_y_col: Optional[np.ndarray] = None
+    _relax_k_y: Optional[int] = None
+    _relax_sel_cols: Optional[list] = None
+    _relax_sel_nbins: Optional[list] = None
+    # The hoist serves every research knob that needs the round's target and selected set, not only RelaxMRMR: PID, the CMI permutation
+    # stop and CPT each rebuilt them per candidate. RelaxMRMR additionally requires fleuret complex mode; the others do not.
+    _knobs_need_hoist = get_pid_synergy_bonus() > 0.0 or bool(get_cmi_perm_stop()[0]) or bool(get_cpt_test()[0])
+    _relax_needs_hoist = get_relaxmrmr_alpha() > 0.0 and not use_simple_mode and str(mrmr_relevance_algo) == "fleuret"
+    if selected_vars and (_relax_needs_hoist or _knobs_need_hoist):
+        try:
+            from .evaluation import _materialize_var
+            _relax_y_col, _relax_k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
+            _relax_sel_cols, _relax_sel_nbins = [], []
+            for _z in selected_vars:
+                _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
+                _relax_sel_cols.append(_zc)
+                _relax_sel_nbins.append(_zk)
+            # Range-check the hoisted set once here rather than once per candidate inside the score.
+            from ._relaxmrmr_3d import assert_relax_inputs_in_range
+
+            assert_relax_inputs_in_range(_relax_y_col, _relax_k_y, _relax_sel_cols, _relax_sel_nbins)
+        except Exception as e:  # best-effort: the hoist is a cache; on failure every consumer recomputes these columns per candidate
+            logger.debug("relaxed-selection column materialization failed, falling back to per-candidate materialization: %s", e)
+            _relax_y_col = _relax_k_y = _relax_sel_cols = _relax_sel_nbins = None
+    return _relax_y_col, _relax_k_y, _relax_sel_cols, _relax_sel_nbins
+
+
 def _evaluate_candidates_inner(
     workload, y, best_gain, factors_data, factors_nbins, factors_names,
     partial_gains, selected_vars, baseline_npermutations,
@@ -367,30 +412,10 @@ def _evaluate_candidates_inner(
     # RelaxMRMR block on and compute once per greedy iteration instead of once per candidate. Gated
     # behind relaxmrmr_alpha>0 (default OFF); any failure here falls through to per-candidate
     # recomputation inside evaluate_candidate (its own precomputed-args check no-ops to None).
-    _relax_y_col: Optional[np.ndarray] = None
-    _relax_k_y: Optional[int] = None
-    _relax_sel_cols: Optional[list] = None
-    _relax_sel_nbins: Optional[list] = None
-    # The hoist serves every research knob that needs the round's target and selected set, not only RelaxMRMR: PID, the CMI permutation
-    # stop and CPT each rebuilt them per candidate. RelaxMRMR additionally requires fleuret complex mode; the others do not.
-    _knobs_need_hoist = get_pid_synergy_bonus() > 0.0 or bool(get_cmi_perm_stop()[0]) or bool(get_cpt_test()[0])
-    _relax_needs_hoist = get_relaxmrmr_alpha() > 0.0 and not use_simple_mode and str(mrmr_relevance_algo) == "fleuret"
-    if selected_vars and (_relax_needs_hoist or _knobs_need_hoist):
-        try:
-            from .evaluation import _materialize_var
-            _relax_y_col, _relax_k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
-            _relax_sel_cols, _relax_sel_nbins = [], []
-            for _z in selected_vars:
-                _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
-                _relax_sel_cols.append(_zc)
-                _relax_sel_nbins.append(_zk)
-            # Range-check the hoisted set once here rather than once per candidate inside the score.
-            from ._relaxmrmr_3d import assert_relax_inputs_in_range
-
-            assert_relax_inputs_in_range(_relax_y_col, _relax_k_y, _relax_sel_cols, _relax_sel_nbins)
-        except Exception as e:
-            logger.debug("relaxed-selection column materialization failed: %s", e)
-            _relax_y_col = _relax_k_y = _relax_sel_cols = _relax_sel_nbins = None
+    _relax_y_col, _relax_k_y, _relax_sel_cols, _relax_sel_nbins = _hoist_round_shared_columns(
+        selected_vars=selected_vars, y=y, factors_data=factors_data, factors_nbins=factors_nbins, dtype=dtype,
+        use_simple_mode=use_simple_mode, mrmr_relevance_algo=mrmr_relevance_algo,
+    )
 
     for cand_idx, X, nexisting in tqdmu(workload, leave=False, desc="Thread Candidates", disable=not verbose):
 

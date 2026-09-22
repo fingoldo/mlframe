@@ -19,6 +19,7 @@ from ._setup_helpers import (  # noqa: F401
     _finalize_and_save_metadata,
     tune_decision_threshold,
     get_decision_threshold,
+    member_decision_threshold,
 )
 
 from ._phase_helpers import (  # noqa: F401

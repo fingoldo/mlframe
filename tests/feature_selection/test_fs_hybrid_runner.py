@@ -23,6 +23,7 @@ def _record(arm: str, wall: float, status: str = "ok", drained: bool = True) -> 
 
 def test_every_tier_names_a_source_that_exists() -> None:
     """A tier resolving its beds from an environment variable is a run nobody can reproduce from its manifest."""
+    assert TIERS.values()
     for tier in TIERS.values():
         assert tier.source in SOURCES, f"tier {tier.name!r} names source {tier.source!r}, which is not one of {SOURCES}"
 
@@ -55,6 +56,7 @@ def test_the_weekly_tier_meets_the_pre_registered_seed_floor() -> None:
 
 def test_no_tier_reaches_into_the_report_only_seed_range() -> None:
     """Seeds 1000-1099 are reserved for the report, and tuning anything against them is the violation."""
+    assert TIERS.values()
     for tier in TIERS.values():
         assert all(seed < 1000 for seed in tier.dataset_seeds), f"tier {tier.name!r} uses a report-only seed"
 

@@ -8,7 +8,6 @@ because a helper that quietly no-ops still leaves a green integration suite.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters._mrmr_fe_step_helpers import (
     apply_interaction_information_routing,
@@ -64,8 +63,9 @@ def test_the_maxt_floor_bias_keys_are_canonically_ordered():
     _floor, bias = compute_pair_maxt_floor(
         est, numeric_vars_to_consider={0, 1, 2, 3, 4}, n_pairs=10, data=data, nbins=nbins, classes_y=classes_y, freqs_y=freqs_y, verbose=0
     )
-    if not bias:
-        pytest.skip("this configuration produced no bias map to check")
+    # Asserted, not skipped: an empty map is the STRONGER failure here. If the debias pass stops emitting bias at all, the gate below
+    # silently has nothing to look up, and a key-ordering regression would sail through a test that never examined a key.
+    assert bias, "the prevalence-debias pass produced no pair bias, so the ordering contract below would be vacuous"
     bad = [k for k in bias if not (isinstance(k, tuple) and len(k) == 2 and k[0] <= k[1])]
     assert not bad, f"bias keys are not canonically ordered, so the gate's sorted-tuple lookup will miss them: {bad[:5]}"
 

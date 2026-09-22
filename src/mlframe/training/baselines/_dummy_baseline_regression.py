@@ -13,6 +13,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,6 +29,24 @@ def _extract_col_1d(df: Any, col: str) -> np.ndarray:
     if hasattr(df, "select"):
         return np.asarray(df.select(col).to_numpy().reshape(-1))
     return np.asarray(df[col])
+
+
+def _warn_ts_baselines_skipped_interleaved(target_name: str) -> None:
+    """Warn, once per process, that an interleaved split skips every time-series baseline.
+
+    Throttled because the cause is ONE suite-level split decision, and repeating it per target turned a structural gap
+    ("no regression target in this run was ever compared against a time-series-naive baseline") into thirteen
+    incidental-looking skips.
+    """
+    log_throttle(
+        logger, "dummy_baselines_ts_skip_interleaved", logging.WARNING,
+        "[dummy-baselines] the split is interleaved in time (monotonic check failed), so EVERY time-series "
+        "baseline (lag_predict / drift / seasonal naive) is skipped for EVERY regression target in this run "
+        "-- first seen on target='%s'. On temporal data that removes the most informative comparison the "
+        "suite has. The usual cause is a val split augmented with random in-period rows; keep val purely "
+        "temporal (val_placement='forward' with no random top-up) to restore them.",
+        target_name,
+    )
 
 
 def _compute_regression_baselines(
@@ -240,9 +260,6 @@ def _compute_regression_baselines(
                 )
         else:
             extras["ts_skip_reason"] = "interleaved split -- TS baselines skipped; for TS-naive use val_placement='forward'"
-            logger.info(
-                "[dummy-baselines] target='%s' timestamps present but split is interleaved " "(monotonic check failed) -- TS baselines skipped",
-                target_name,
-            )
+            _warn_ts_baselines_skipped_interleaved(target_name)
 
     return val_preds, test_preds, extras

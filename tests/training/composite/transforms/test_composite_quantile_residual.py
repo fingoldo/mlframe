@@ -60,10 +60,10 @@ class TestFit:
         # Every bin has ~3 rows; all should fall back to global.
         assert all(s < 20 for s in params["bin_sizes"])
         # Each bin's median must equal global_median.
-        assert len(params['bin_medians']) > 0
+        assert len(params["bin_medians"]) > 0
         for bin_med in params["bin_medians"]:
             assert bin_med == pytest.approx(params["global_median"], rel=1e-9)
-        assert len(params['bin_iqrs']) > 0
+        assert len(params["bin_iqrs"]) > 0
         for bin_iqr in params["bin_iqrs"]:
             assert bin_iqr == pytest.approx(params["global_iqr"], rel=1e-9)
 

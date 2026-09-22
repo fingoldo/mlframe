@@ -37,16 +37,20 @@ def _weak(obj: Any) -> Optional[Callable[[], Any]]:
         return None
 
 
-def shared_error_prep(df: Any, y_true: Any, y_pred: Any, task: str, seed: int, build: Callable[[], Tuple]) -> Tuple:
+def shared_error_prep(df: Any, y_true: Any, y_pred: Any, task: str, seed: int, build: Callable[[], Tuple], extra: Any = None) -> Tuple:
     """``build()``'s result for these exact inputs, computed once and reused by the second diagnostic.
 
     ``build`` returns whatever the caller needs (loss, sample indices, sub-frame, names); it is only called
     on a miss. Falls back to calling ``build`` directly whenever the inputs cannot be weak-referenced.
+
+    ``y_true`` / ``y_pred`` must be the arrays the CALLER holds, not views derived inside the caller: the key is
+    their identity, so a fresh ``yt[:n]`` per entry point missed every time and the cache only grew. ``extra``
+    carries any derived parameter that changes the result - the row count both entry points trim to, in practice.
     """
     refs = [_weak(o) for o in (df, y_true, y_pred)]
     if any(r is None for r in refs):
         return build()
-    key = (id(df), id(y_true), id(y_pred), task, int(seed))
+    key = (id(df), id(y_true), id(y_pred), task, int(seed), extra)
     with _PREP_LOCK:
         entry = _PREP_CACHE.get(key)
     if entry is not None:

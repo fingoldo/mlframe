@@ -202,6 +202,14 @@ def tune_decision_threshold(
     return best_thr
 
 
+def member_decision_threshold(metadata: dict | None, target_type, target_name, model_name) -> float:
+    """A model's own tuned threshold (``"{tt}|{tname}|{model_name}"``, stamped per member at train time), falling back
+    to the target's (``"{tt}|{tname}"``) and then to the default. Members and the ensemble are tuned on their own val
+    probabilities, so a member must not be labelled with a threshold fitted to the blend or to another member."""
+    target = get_decision_threshold(metadata, f"{target_type}|{target_name}", DEFAULT_PROBABILITY_THRESHOLD)
+    return get_decision_threshold(metadata, f"{target_type}|{target_name}|{model_name}", target)
+
+
 def get_decision_threshold(metadata: dict | None, target_key: str | None = None, default: float = DEFAULT_PROBABILITY_THRESHOLD) -> float:
     """Read a per-target tuned decision threshold stamped into metadata, falling back to 0.5.
 
@@ -502,6 +510,19 @@ def _compute_fairness_subgroups(
         min_pop_cat_thresh=behavior_config.fairness_min_pop_cat_thresh,
     )
     return subgroups, fairness_features
+
+
+def _entry_not_for_target(model_entry: Any, target_name: Any) -> bool:
+    """True when an injected model entry declares the targets it was chosen for and ``target_name`` is not one of them.
+
+    The per-target loop trains every ``mlframe_models`` entry on every target. A model the suite adds for a target shape
+    (a hurdle for a zero-inflated amount, a tail estimator for a heavy-tailed regression target) carries
+    ``_mlframe_only_targets`` so it is not also fit on the classification targets or the ordinary regression targets of
+    the same run. Entries without the attribute -- every user-requested model -- train everywhere as before.
+    """
+    est = model_entry[1] if isinstance(model_entry, tuple) and len(model_entry) == 2 else model_entry
+    only = getattr(est, "_mlframe_only_targets", None)
+    return only is not None and str(target_name) not in only
 
 
 def _should_skip_catboost_metamodel(

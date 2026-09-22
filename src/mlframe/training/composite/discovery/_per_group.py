@@ -33,6 +33,27 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+
+def _group_val_rows(val_df: Any, val_y: Any, group_col: str, group_val: Any) -> tuple[Any, Any]:
+    """The val rows of one group, so its specs are gated on the population they will be routed to.
+
+    Returns ``(None, None)`` when the val frame is absent or lacks ``group_col``, or when the group has no val rows: the
+    delegate's y-scale gate then falls back to a group-disjoint carve of its own training rows.
+    """
+    if val_df is None or val_y is None:
+        return None, None
+    try:
+        g = _extract_groups(val_df, group_col)
+    except Exception as exc:  # nosec B110 -- a val frame without the group column cannot be split per group; logged
+        logger.info("[CompositeTargetDiscovery.per_group] val frame has no %r column (%s); group gates use their train rows.", group_col, exc)
+        return None, None
+    mask = np.asarray(g) == group_val
+    if not mask.any():
+        return None, None
+    from ..ensemble._oof_split import _slice_rows
+
+    return _slice_rows(val_df, mask), np.asarray(val_y)[mask]
+
 def run_per_group_discovery(
     self: "CompositeTargetDiscovery",
     df: Any,
@@ -86,6 +107,12 @@ def run_per_group_discovery(
 
         _group_config = config.model_copy(update={"per_group_discovery_enabled": False})
         _group_discovery = _CompositeTargetDiscoveryCls(_group_config)
+        # The delegate is a fresh instance: hand it the rerank grouping and the hint strengths the caller set on this one,
+        # or its rerank, group-disjoint holdout and fragility gate run group-blind inside the group.
+        for _attr in ("_group_ids_for_rerank", "_hint_strengths_pct"):
+            if getattr(self, _attr, None) is not None:
+                setattr(_group_discovery, _attr, getattr(self, _attr))
+        _g_val_df, _g_val_y = _group_val_rows(val_df, val_y, group_col, group_val)
         try:
             _group_discovery.fit(
                 df,
@@ -95,8 +122,8 @@ def run_per_group_discovery(
                 val_idx=val_idx,
                 test_idx=test_idx,
                 time_ordering=time_ordering,
-                val_df=val_df,
-                val_y=val_y,
+                val_df=_g_val_df,
+                val_y=_g_val_y,
             )
         except Exception as exc:
             log_throttle(

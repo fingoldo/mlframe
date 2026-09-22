@@ -363,16 +363,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     def _fe_family_on(flag: str, default: bool = False) -> bool:
         """True iff the family's own ``fe_*_enable`` flag is set AND this fit has an FE budget.
 
-        ``fe_max_steps=0`` is the "no feature engineering at all" contract, and it is unconditional: a family
-        flag can only ENABLE a family within that budget, never buy its way past it. Reading the budget from
-        ``self`` (not the local) so the helper is safe to call from anywhere in the fit.
+        ``fe_max_steps=0`` is the "no feature engineering at all" contract, and it is unconditional: a family flag can only ENABLE a family
+        within that budget, never buy its way past it. The budget is read from ``self`` (not the local), so the helper is safe anywhere in the fit.
 
         Previously only the hybrid-orth / univariate-basis pair honoured this; every other family fired at
         ``fe_max_steps=0``, which made "no FE" mean "no FE except the ~30 default-ON families" and silently
-        engineered columns into fits that had explicitly asked for none.
-
-        The wall-clock budget is part of the same question. ``_fe_budget_ok`` used to be consulted at four of the ~35 cascade stages, so a
-        spent ``max_runtime_mins`` still let the other ~31 families start; asking here covers every family that routes through this helper.
+        engineered columns into fits that had explicitly asked for none. The wall-clock budget is part of the same question: ``_fe_budget_ok``
+        used to be consulted at 4 of the ~35 cascade stages, so a spent ``max_runtime_mins`` still let the other ~31 families start.
         """
         return bool(getattr(self, flag, default)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0 and _fe_budget_ok()
 

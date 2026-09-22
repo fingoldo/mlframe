@@ -71,8 +71,58 @@ def compute_signature(X: Any, *, extra: tuple = ()) -> tuple:
     shape = getattr(X, "shape", (None, None))
     n_rows = int(shape[0]) if shape and shape[0] is not None else None
     n_cols = int(shape[1]) if shape and len(shape) > 1 and shape[1] is not None else None
-    content_hash = _row_sample_hash(X, n_rows)
-    return (cols, n_rows, n_cols, content_hash, extra)
+    content_hash: object = _row_sample_hash(X, n_rows)
+    if content_hash is None:
+        # The row sample could not be hashed, so this key would say nothing about CONTENT: two different frames of the
+        # same columns and shape would share it and one would be served the other's cached dataset. A fresh sentinel
+        # makes the key match nothing - a cache miss, which is the safe answer to "cannot tell".
+        content_hash = ("unhashable", object())
+    # dtypes, as step 1 of the module docstring always said: a tier transition that recasts the same columns
+    # float64 -> float32 (or int -> category) otherwise produces an identical key, and the booster caches hand back
+    # a dataset built from the old dtypes.
+    return (cols, n_rows, n_cols, _dtype_signature(X), content_hash, extra)
+
+
+_POLARS_DTYPE_CANON = {
+    "Float64": "f8", "Float32": "f4", "Int64": "i8", "Int32": "i4", "Int16": "i2", "Int8": "i1",
+    "UInt64": "u8", "UInt32": "u4", "UInt16": "u2", "UInt8": "u1", "Boolean": "b1",
+    "String": "O", "Utf8": "O", "Object": "O", "Categorical": "category", "Enum": "category",
+}
+
+
+def _canonical_dtype(d: Any) -> str:
+    """A container-agnostic dtype name, so the same logical column keys the same from pandas, polars and numpy."""
+    name = str(d)
+    if name in _POLARS_DTYPE_CANON:
+        return _POLARS_DTYPE_CANON[name]
+    base = name.split("(", 1)[0]  # polars parametrised types: Datetime(time_unit='us'), Enum(categories=[...])
+    if base in _POLARS_DTYPE_CANON:
+        return _POLARS_DTYPE_CANON[base]
+    if name == "category":
+        return "category"
+    if name in ("str", "string", "object") or name.startswith("string["):  # pandas string dtypes (pandas 3 default "str")
+        return "O"
+    try:
+        nd = np.dtype(d)
+        return "O" if nd.kind in "OUS" else f"{nd.kind}{nd.itemsize}"
+    except TypeError:
+        return name
+
+
+def _dtype_signature(X: Any):
+    """Per-column canonical dtypes (pandas / polars), the array dtype for an ndarray, or None when neither is known."""
+    try:
+        dtypes = getattr(X, "dtypes", None)
+        if dtypes is None:
+            dtype = getattr(X, "dtype", None)  # ndarray
+            return _canonical_dtype(dtype) if dtype is not None else None
+        if hasattr(dtypes, "tolist"):  # pandas Series of dtypes
+            return tuple(_canonical_dtype(d) for d in dtypes.tolist())
+        if isinstance(dtypes, (list, tuple)):  # polars
+            return tuple(_canonical_dtype(d) for d in dtypes)
+        return _canonical_dtype(dtypes)
+    except Exception:  # a dtype probe must never break the key; it only sharpens it
+        return None
 
 
 def _canonicalise_row(row_values: Any) -> tuple:

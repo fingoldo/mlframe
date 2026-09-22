@@ -22,6 +22,20 @@ from .base import _per_member_mae_std
 logger = logging.getLogger("mlframe.models.ensembling")
 
 
+def _exclude_if_non_finite(i: int, tot_mae: float, tot_std: float, excluded: list) -> bool:
+    """Record member ``i`` as excluded (and warn) when its distance statistic is not a number; True when it was.
+
+    A NaN statistic means the member produced non-finite predictions on part of the frame. Every
+    ``tot_mae > threshold`` comparison against NaN is False, so such a member used to pass both gates untouched and
+    then turn the whole blend into NaN; restoring one in the too-restrictive fallback would do the same.
+    """
+    if np.isfinite(tot_mae) and np.isfinite(tot_std):
+        return False
+    excluded.append((i, f"mae={tot_mae}, std={tot_std} [non-finite member statistic: predictions contain NaN/inf]"))
+    logger.warning("Ensemble member #%s excluded: its predictions are non-finite (mae=%s, std=%s).", i, tot_mae, tot_std)
+    return True
+
+
 def compute_member_quality_gate(
     preds_list: Sequence,
     *,
@@ -203,6 +217,8 @@ def compute_member_quality_gate(
     for i in range(n):
         tot_mae = float(per_member_mae[i])
         tot_std = float(per_member_std[i])
+        if _exclude_if_non_finite(i, tot_mae, tot_std, excluded):
+            continue
         abs_violation = (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std)
         rel_violation = (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold) or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
         if abs_violation or rel_violation:
@@ -220,29 +236,17 @@ def compute_member_quality_gate(
     # for the data; fall back to the original list (else
     # ensemble_probabilistic_predictions returns a degenerate empty
     # ensemble downstream).
+    info = {
+        "median_mae": median_mae,
+        "median_std": median_std,
+        "rel_mae_threshold": rel_mae_threshold,
+        "rel_std_threshold": rel_std_threshold,
+        "per_member_mae": per_member_mae,
+        "per_member_std": per_member_std,
+    }
     if not kept:
-        return (
-            list(range(n)),
-            [],
-            {
-                "median_mae": median_mae,
-                "median_std": median_std,
-                "rel_mae_threshold": rel_mae_threshold,
-                "rel_std_threshold": rel_std_threshold,
-                "per_member_mae": per_member_mae,
-                "per_member_std": per_member_std,
-                "filter_too_restrictive": True,
-            },
-        )
-    return (
-        kept,
-        excluded,
-        {
-            "median_mae": median_mae,
-            "median_std": median_std,
-            "rel_mae_threshold": rel_mae_threshold,
-            "rel_std_threshold": rel_std_threshold,
-            "per_member_mae": per_member_mae,
-            "per_member_std": per_member_std,
-        },
-    )
+        # The filter is too tight for this data: restore the members, never one excluded for being non-finite.
+        kept = [i for i in range(n) if np.isfinite(per_member_mae[i]) and np.isfinite(per_member_std[i])] or list(range(n))
+        excluded = [row for row in excluded if row[0] not in set(kept)]
+        info["filter_too_restrictive"] = True
+    return kept, excluded, info

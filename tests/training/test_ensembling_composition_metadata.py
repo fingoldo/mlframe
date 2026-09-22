@@ -2,7 +2,7 @@
 
 Arch-3: ``metadata["ensembles_chosen"]`` is sub-keyed per family ("simple" / "cross_target").
 Arch-4: ``_combine_probs`` emits a WARN on calibrated/uncalibrated mix and stamps
-        ``metadata["ensembles_calibrated"]``.
+        ``metadata["ensembles_calibrated_by_target"][target]``.
 Arch-6: ``metadata["ensemble_composition"]`` exposes per-target {flavour, members, fallback_reason}.
 
 Behavioural, not source-inspecting; assertions hit the metadata dict directly.
@@ -77,8 +77,9 @@ def test_combine_probs_warns_on_calibration_mix(caplog):
     assert out.shape == (3,)
     # WARN log mentions "mixing calibrated"
     assert any("mixing calibrated" in r.message for r in caplog.records)
-    # Metadata stamped False because not all members calibrated
-    assert metadata["ensembles_calibrated"] is False
+    # Stamped per target, not as one suite-wide key: the caller owns this dict (in the in-memory predict path it is
+    # the training run's own metadata), and each target's blend has its own calibration status.
+    assert metadata["ensembles_calibrated_by_target"] == {"binary/y": False}
 
 
 def test_combine_probs_no_warn_when_all_calibrated(caplog):
@@ -95,7 +96,7 @@ def test_combine_probs_no_warn_when_all_calibrated(caplog):
             metadata=metadata,
         )
     assert not any("mixing calibrated" in r.message for r in caplog.records)
-    assert metadata["ensembles_calibrated"] is True
+    assert metadata["ensembles_calibrated_by_target"] == {"ensemble": True}
 
 
 def test_combine_probs_no_warn_when_none_calibrated(caplog):
@@ -112,7 +113,7 @@ def test_combine_probs_no_warn_when_none_calibrated(caplog):
             metadata=metadata,
         )
     assert not any("mixing calibrated" in r.message for r in caplog.records)
-    assert metadata["ensembles_calibrated"] is False
+    assert metadata["ensembles_calibrated_by_target"] == {"ensemble": False}
 
 
 def test_combine_probs_proceeds_on_mix_does_not_refuse():

@@ -17,6 +17,7 @@ from ..extractors import FeaturesAndTargetsExtractor
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
     get_decision_threshold,
+    member_decision_threshold,
     _drop_cols_df,
     _validate_input_columns_against_metadata,
 )
@@ -88,7 +89,7 @@ def predict_from_models(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
+    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _select_trained_members, _align_frame_to_schema, suite_binary_threshold, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
     from .._classif_helpers import _canonical_predict_proba_shape
     from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
     from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
@@ -112,6 +113,7 @@ def predict_from_models(
                 return_probabilities=return_probabilities,
                 verbose=verbose,
                 predict_batch_rows=None,
+                auxiliary_events_df=auxiliary_events_df,  # an events TABLE (entity/time join): each batch needs all of it
             ),
             df, predict_batch_rows,
         )
@@ -318,6 +320,7 @@ def predict_from_models(
     # (target_type, target_name) -- the suite-wide np.mean previously blended every model's prediction across
     # targets, which silently ignored the per-target flavour choice.
     per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = {}
+    per_target_member_names: dict[tuple[Any, Any], list[str]] = {}
     per_target_preds: dict[tuple[Any, Any], list[np.ndarray]] = {}
     # Arch-4: per-member calibration flags for mix detection in _combine_probs.
     all_calib_flags: list[bool] = []
@@ -500,17 +503,7 @@ def predict_from_models(
                                 f"from input: {_missing}. Restore the upstream "
                                 f"extraction or retrain on the current schema."
                             )
-                        _drop_extra = [c for c in input_for_model.columns if c not in _expected_list]
-                        if _drop_extra:
-                            # Pandas accepts ``drop(columns=...)``; polars 1.x
-                            # accepts ``drop(list)`` positionally and raises
-                            # TypeError on ``columns=`` kwarg. Surfaced by
-                            # fuzz iter#145 (xgb-only polars path keeps df
-                            # as polars via the ``_all_polars_native`` gate).
-                            if isinstance(input_for_model, pl.DataFrame):
-                                input_for_model = input_for_model.drop(_drop_extra)
-                            else:
-                                input_for_model = input_for_model.drop(columns=_drop_extra)
+                        input_for_model = _align_frame_to_schema(input_for_model, _expected_list)
 
                     # per-model pre_pipeline.transform
                     # (with text/embedding passthrough stashing + feature-
@@ -585,12 +578,13 @@ def predict_from_models(
                         results["probabilities"][model_name] = probs
                         all_probs.append(probs)
                         per_target_probs.setdefault((target_type, target_name), []).append(probs)
+                        per_target_member_names.setdefault((target_type, target_name), []).append(str(getattr(model_obj, "model_name", None) or model_name))
                         _is_cal = _is_post_hoc_calibrated_model(model_obj)
                         all_calib_flags.append(_is_cal)
                         per_target_calib_flags.setdefault((target_type, target_name), []).append(_is_cal)
 
                         # Binary threshold from val/OOF-tuned metadata (never test); 0.5 fallback.
-                        _bin_thr = get_decision_threshold(metadata, f"{target_type}|{target_name}", DEFAULT_PROBABILITY_THRESHOLD)
+                        _bin_thr = member_decision_threshold(metadata, target_type, target_name, getattr(model_obj, "model_name", None) or model_name)
                         if probs.ndim == 2:
                             if probs.shape[1] == 2:
                                 preds = (probs[:, 1] >= _bin_thr).astype(int)
@@ -648,13 +642,16 @@ def predict_from_models(
             except (AttributeError, IndexError, TypeError):
                 _sample_model = None
             _q_alphas = _resolve_quantile_alphas(metadata, _tt, _tname, _sample_model)
+            _probs_list, _cal_flags_sel, _weights_sel = _select_trained_members(_probs_list, per_target_member_names.get((_tt, _tname), []),
+                                                                                per_target_calib_flags.get((_tt, _tname)), _ens_params, target_label=f"{_tt}/{_tname}")
             if len(_probs_list) > 1:
                 _combined = _combine_probs(
                     _probs_list, _flavour, quantile_alphas=_q_alphas, rrf_k=_rrf_k_replay,
-                    is_calibrated_per_model=per_target_calib_flags.get((_tt, _tname)),
+                    is_calibrated_per_model=_cal_flags_sel,
                     metadata=metadata,
                     target_label=f"{_tt}/{_tname}",
                     target_type=_tt,
+                    precomputed_weights=_weights_sel,
                 )
             else:
                 _combined = _probs_list[0]
@@ -699,7 +696,7 @@ def predict_from_models(
 
         if avg_probs.ndim == 2:
             if avg_probs.shape[1] == 2:
-                ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                ensemble_preds = (avg_probs[:, 1] >= suite_binary_threshold(metadata, per_target_probs)).astype(int)
             else:
                 # NaN-safe argmax for the suite-wide ensemble row.
                 from ...utils.nan_safe import argmax_classes_safe

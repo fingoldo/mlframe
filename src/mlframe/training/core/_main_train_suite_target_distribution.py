@@ -40,6 +40,46 @@ def _all_models_handle_nan(mlframe_models) -> bool:
     return bool(keys) and all(k in _NAN_NATIVE_MODEL_KEYS for k in keys)
 
 
+def _nan_fraction_of(_report: Any, _col: str) -> float:
+    """Null fraction the feature analyzer recorded for ``_col``, parsed from its ``nan_fraction=<x> >= <t>``
+    warning; ``0.0`` when it recorded none, so an unparseable entry never triggers a drop."""
+    for _msg in _report.feature_warnings.get(_col, ()) or ():
+        _m = str(_msg)
+        if _m.startswith("nan_fraction="):
+            try:
+                return float(_m.split("=", 1)[1].split()[0])
+            except (ValueError, IndexError):
+                return 0.0
+    return 0.0
+
+
+def _nan_signal_columns_to_keep(candidates: list, fd_report: Any, behavior_config: Any, verbose: bool) -> list:
+    """Drop candidates flagged ONLY for NaN-heaviness (kept as missingness signal), minus those above the pre-screen null bar.
+
+    "Missingness is signal" needs the missingness to carry information the frame does not already have. Past the
+    suite's own null-fraction bar there is nothing but the present/absent bit, and the later suite-wide pre-screen
+    drops those columns anyway -- a production run kept nine of them here and dropped the same nine twelve minutes
+    later, after composite discovery had screened them four times. Keep and drop now agree on one bar.
+    """
+    _warn_map_nan = getattr(fd_report, "feature_warnings", {}) or {}
+    nan_only = [
+        _c for _c in candidates if (_warn_map_nan.get(_c) or []) and all(str(_m).startswith("nan_fraction") for _m in _warn_map_nan.get(_c) or [])
+    ]
+    _null_bar = float(getattr(getattr(behavior_config, "feature_selection_config", None), "pre_screen_null_fraction_threshold", 0.99))
+    _too_empty = [_c for _c in nan_only if _nan_fraction_of(fd_report, _c) > _null_bar]
+    if not _too_empty:
+        return nan_only
+    if verbose:
+        logger.info(
+            "[mini-HPT] dropping %d of the NaN-heavy column(s) now rather than keeping them as signal: "
+            "their null fraction is above %.2f, so the only thing left in them is the present/absent bit "
+            "and the suite-wide pre-screen would drop them later anyway. Dropped: %s",
+            len(_too_empty), _null_bar, ", ".join(_too_empty[:8]),
+        )
+    _drop = set(_too_empty)
+    return [_c for _c in nan_only if _c not in _drop]
+
+
 def _maybe_auto_drop_after_feature_analyzer(
     *,
     fd_report,
@@ -89,10 +129,7 @@ def _maybe_auto_drop_after_feature_analyzer(
     if _do_drop_candidates:
         _candidates = getattr(fd_report, "drop_candidates", []) or []
         if _keep_nan_heavy:
-            _warn_map_nan = getattr(fd_report, "feature_warnings", {}) or {}
-            _nan_only = [
-                _c for _c in _candidates if (_warn_map_nan.get(_c) or []) and all(str(_m).startswith("nan_fraction") for _m in _warn_map_nan.get(_c) or [])
-            ]
+            _nan_only = _nan_signal_columns_to_keep(_candidates, fd_report, behavior_config, verbose)
             if _nan_only:
                 _candidates = [_c for _c in _candidates if _c not in set(_nan_only)]
                 if verbose:

@@ -49,7 +49,7 @@ def test_identity_equivalent_dedup_still_records_schema_and_caches_before_break(
     monkeypatch.setattr(wi, "_clone_model_with_sticky_flags", lambda **kwargs: (MagicMock(), kwargs["_ngb_fallback_snapshot"]))
     monkeypatch.setattr(wi, "is_neural_model", lambda name: False)
 
-    pipeline_cache = SimpleNamespace(get=lambda key: None, set=lambda *a, **k: calls.append("cache"))
+    pipeline_cache = SimpleNamespace(get=lambda key: None, set=lambda *a, **k: calls.append("cache"), set_fitted_pipeline=lambda *a, **k: calls.append("fitted_pipeline"))
     pre_pipeline = SimpleNamespace(_mlframe_identity_equivalent=False)
     target_type = SimpleNamespace(is_multi_target_regression=False)
     behavior_config = SimpleNamespace(mlp_drop_per_group_constants=False, model_file_hash_suffix=False, continue_on_model_failure=False)

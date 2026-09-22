@@ -137,7 +137,9 @@ def hill_climb_ensemble(
         bag (kept for inspection), while ``weights``/``ensemble_pred``/``score`` reflect the bag-averaged
         blend. ``weights`` — ``(n_models,)`` array, each model's final blend weight (count of appearances /
         total appearances, averaged across bags when ``n_bags > 1``). ``ensemble_pred`` — the final blended
-        ``(n_samples,)`` prediction. ``score`` — the final ensemble's ``metric_fn`` value.
+        ``(n_samples,)`` prediction. ``score`` — the final ensemble's ``metric_fn`` value on the SAME ``y`` the climb optimised: the
+        maximum of a search, so it is optimistically biased and is not an honest estimate - score the returned
+        weights on held-out rows for that.
         ``history`` — list of scores after each accepted step (length == number of accepted additions) of the
         representative bag (or the single run when ``n_bags == 1``). ``bag_scores`` — list of each bag's own
         final score (only present when ``n_bags > 1``).

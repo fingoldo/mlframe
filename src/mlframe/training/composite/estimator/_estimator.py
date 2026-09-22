@@ -580,33 +580,14 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
                 raise ValueError(f"CompositeTargetEstimator: transform '{self.transform_name}' " f"requires groups; configure ``group_column`` on the wrapper.")
             groups_full = _extract_groups(X, self.group_column)
             groups_train = groups_full[valid]
-        # transform_fit_kwargs is separate from fit_kwargs (which is
-        # the caller's pass-through to the inner estimator's .fit() at
-        # the bottom of this method). Only ``groups`` flows into the
-        # transform; sample_weight is also threaded through but lives
-        # in its own kwarg name.
-        transform_fit_kwargs: dict[str, Any] = {}
-        if groups_train is not None:
-            transform_fit_kwargs["groups"] = groups_train
-        if _callable_accepts_param(transform.fit, "row_index"):
-            # transform.fit() always sees domain-filter-COMPACTED y_train/base_train (unlike forward(),
-            # which the recurrent branch below routes through the FULL sequence) -- a transform whose
-            # fit needs each row's TRUE absolute position (e.g. seasonal_residual's phase = row_index %
-            # period) would otherwise silently learn from COMPACTED-array position instead, misaligned
-            # whenever any row was dropped. Signature-gated so only a
-            # transform that declares this param receives it.
-            transform_fit_kwargs["row_index"] = np.flatnonzero(valid)
-        # Signature-gate sample_weight instead of an ``except TypeError`` retry.
-        # A TypeError raised DEEP inside a weight-aware transform.fit (bad dtype
-        # / shape) would otherwise be mis-read as "no sample_weight support" and
-        # the transform silently re-fit UNWEIGHTED. Gating on the declared
-        # signature passes the weight only where it is actually a parameter and
-        # lets every genuine error propagate.
-        if sample_weight_train is not None and _callable_accepts_param(transform.fit, "sample_weight"):
-            transform_fit_kwargs = {**transform_fit_kwargs, "sample_weight": sample_weight_train}
-        transform_params = transform.fit(
-            y_train, base_train, **transform_fit_kwargs,
-        )
+        # The transform fit gets ``groups``, ``sample_weight`` and ``row_index`` exactly when it declares them (``call_transform`` gates on the
+        # signature, so a TypeError deep inside a weight-aware fit propagates instead of reading as "no weight support"). ``row_index``: fit
+        # always sees domain-filter-COMPACTED y_train/base_train (unlike forward(), which the recurrent branch below routes through the FULL
+        # sequence), so a fit that needs each row's TRUE absolute position (seasonal_residual's phase = row_index % period) gets it explicitly.
+        from ..transforms._call_gateway import call_transform
+
+        transform_params = call_transform(transform, "fit", y_train, base_train, groups=groups_train, sample_weight=sample_weight_train,
+                                          row_index=np.flatnonzero(valid))
 
         # Compute T on the valid rows. Grouped transforms need the
         # groups kwarg for forward as well.

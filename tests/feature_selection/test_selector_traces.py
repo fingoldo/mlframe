@@ -148,6 +148,7 @@ def test_pruning_rounds_shrink_the_surviving_set() -> None:
 
     _kept, trace = iterative_zero_importance_pruning(RandomForestClassifier(n_estimators=20, random_state=0), frame, labels, roc_auc_score, max_rounds=4, return_trace=True)
 
+    assert trace, "the pruning run recorded no rounds"
     for round_ in trace:
         assert len(round_.dropped) > 0, "a recorded round dropped no columns"
     sizes = [round_.n_remaining for round_ in trace]

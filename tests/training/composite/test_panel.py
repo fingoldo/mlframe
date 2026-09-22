@@ -56,7 +56,7 @@ def test_alpha_zero_gives_raw_means():
     df = _make_panel(n_entities=5, per_entity=20, seed=1)
     est = CompositePanelEstimator(LinearRegression(), entity_column="entity", shrinkage_alpha=0.0)
     est.fit(df[["entity", "x"]], df["y"])
-    assert list(df.groupby('entity'))
+    assert list(df.groupby("entity"))
     for e, grp in df.groupby("entity"):
         assert abs(est.entity_offsets_[e] - grp["y"].mean()) < 1e-9
 

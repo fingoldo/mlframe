@@ -880,6 +880,7 @@
   "src/mlframe/training/targets/_target_distribution_analyzer_stats.py::_skewness",
   "src/mlframe/training/targets/_target_temporal_changepoint.py::find_change_points",
   "src/mlframe/training/targets/_target_temporal_plot.py::plot_target_over_time",
+  "src/mlframe/training/targets/target_maturity_audit.py::audit_target_maturity",
   "src/mlframe/training/targets/target_temporal_audit.py::audit_target_over_time",
   "src/mlframe/training/targets/target_temporal_audit.py::format_temporal_audit_report",
   "src/mlframe/training/targets_performance.py::compare_targets_performance",

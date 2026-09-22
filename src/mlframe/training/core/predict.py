@@ -155,29 +155,33 @@ def _ensure_pandas_view(df: Any, view_cache: dict) -> Any:
     return _view
 
 
-def _load_ct_ensemble_entries(
-    models_path: str, slug_to_original_target_type: dict, slug_to_original_target_name: dict, trusted_root: str | None = None
-) -> dict:
-    """Scan ``models_path`` for cross-target ensemble dumps stored under ``<target_type_slug>/_CT_ENSEMBLE__<original_target>/CT_ENSEMBLE.dump`` and return a nested dict keyed ``{target_type: {_CT_ENSEMBLE__<orig>: [entry]}}`` so callers can merge it into the loaded ``models`` structure."""
-    out: dict = defaultdict(lambda: defaultdict(list))
-    _ct_files = glob.glob(join(models_path, "**", "_CT_ENSEMBLE__*", "*.dump"), recursive=True)
-    for _f in _ct_files:
-        _validate_trusted_path(_f, trusted_root or os.path.abspath(models_path))
-        _rel = os.path.relpath(_f, models_path)
-        _parts = _rel.split(os.sep)
-        if len(_parts) < 3:
-            continue
-        _tt_slug = _parts[0]
-        _tname_slug = _parts[1]
-        if not _tname_slug.startswith("_CT_ENSEMBLE__"):
-            continue
-        _tt = slug_to_original_target_type.get(_tt_slug, _tt_slug)
-        # The _CT_ENSEMBLE__<orig> directory name is the in-memory dict key, so reuse it verbatim (no slugify round-trip).
-        _ct_key = _tname_slug
-        _entry = load_mlframe_model(_f)
-        if _entry is not None:
-            out[_tt][_ct_key].append(_entry)
-    return out
+def _align_frame_to_schema(frame, expected: list):
+    """Drop columns the model was not fitted on and put the rest in fit-time ORDER.
+
+    Dropping the extras is not enough: LGB/XGB accept a frame carrying every required name in the wrong order and then
+    score each value against another feature's split thresholds - plausible-looking, entirely wrong predictions, no
+    exception. A replay step that appends its columns in a different order (composite FE replay, extensions
+    back-merge) is how the order diverges. Polars 1.x takes ``drop(list)`` positionally and rejects ``columns=``.
+    """
+    extra = [c for c in frame.columns if c not in expected]
+    if extra:
+        frame = frame.drop(extra) if isinstance(frame, pl.DataFrame) else frame.drop(columns=extra)
+    if [str(c) for c in frame.columns] != list(expected):
+        frame = frame.select(list(expected)) if isinstance(frame, pl.DataFrame) else frame.loc[:, list(expected)]
+    return frame
+
+
+def suite_binary_threshold(metadata: dict, per_target_probs: dict) -> float:
+    """The decision threshold for the suite-wide binary ensemble: the tuned threshold of the suite's target when there
+    is exactly one. A fixed 0.5 (with a strict ``>``) used to label the suite-wide key differently from
+    ``per_target_predictions`` beside it; a multi-target suite has no single tuned value for a cross-target blend and
+    keeps the default."""
+    from .utils import DEFAULT_PROBABILITY_THRESHOLD, get_decision_threshold
+
+    keys = list(per_target_probs.keys())
+    if len(keys) != 1:
+        return DEFAULT_PROBABILITY_THRESHOLD
+    return get_decision_threshold(metadata, f"{keys[0][0]}|{keys[0][1]}", DEFAULT_PROBABILITY_THRESHOLD)
 
 
 def _combine_probs(
@@ -192,6 +196,7 @@ def _combine_probs(
     metadata: dict | None = None,
     target_label: str | None = None,
     target_type: Any = None,
+    precomputed_weights: Sequence[float] | None = None,
 ) -> np.ndarray:
     """Combine per-model prediction probabilities using the training-time-selected ``flavour``.
 
@@ -209,8 +214,8 @@ def _combine_probs(
     that model's probabilities have been post-hoc calibrated. A mix (some True, some False) produces a
     ``logger.warning`` because blending calibrated with uncalibrated probs degrades calibration of the
     ensemble; the function does NOT refuse (user policy: WARN, NOT REFUSE). When ``metadata`` is
-    supplied, ``metadata["ensembles_calibrated"]`` is stamped as a bool reflecting "all members
-    calibrated" (True only when every flag is True; False otherwise).
+    supplied, ``metadata["ensembles_calibrated_by_target"][target_label]`` is stamped as a bool
+    reflecting "all members calibrated" (True only when every flag is True; False otherwise).
     """
     from mlframe.models.ensembling import combine_probs as _shared_combine_probs
 
@@ -227,7 +232,11 @@ def _combine_probs(
                 _n_cal, len(_flags),
             )
         if isinstance(metadata, dict) and _flags:
-            metadata["ensembles_calibrated"] = bool(all(_flags))
+            # The flag describes THIS blend, so it is reported per target rather than overwriting one suite-wide key on
+            # a dict the caller owns (in the in-memory path that dict is the training run's own metadata, and a predict
+            # call used to stamp its verdict back onto it).
+            _cal_key = str(target_label) if target_label else "ensemble"
+            metadata.setdefault("ensembles_calibrated_by_target", {})[_cal_key] = bool(all(_flags))
 
     stacked = np.stack(all_probs)
     # When the caller passes ``quantile_alphas`` (even an empty list) they are
@@ -241,10 +250,25 @@ def _combine_probs(
     # ``ensure_prob_limits`` flag stays the source of truth in non-quantile
     # (classification) paths.
     _effective_ensure_prob_limits = ensure_prob_limits and (quantile_alphas is None)
+    # Train-time blend weights, when the run persisted any. A length mismatch means the deployed member set is not the
+    # one the weights were fitted for (a model failed to load, or the artefact predates the stamp), and silently
+    # applying them would map each weight to the wrong model; the blend degrades to the unweighted mean with a WARN.
+    _weights = None
+    if precomputed_weights is not None:
+        _w = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
+        if _w.shape[0] == len(all_probs) and np.isfinite(_w).all() and _w.sum() > 0:
+            _weights = _w
+        else:
+            logger.warning(
+                "[_combine_probs] persisted blend weights (%s) do not match the %d loaded members%s; "
+                "falling back to an unweighted blend.",
+                _w.shape[0], len(all_probs), f" for target={target_label!r}" if target_label else "",
+            )
     combined = _shared_combine_probs(
         stacked, flavour or "arithm",
         rrf_k=int(rrf_k),
         ensure_prob_limits=_effective_ensure_prob_limits,
+        precomputed_weights=_weights,
     )
 
     if quantile_alphas is not None and combined.ndim == 2:
@@ -385,12 +409,16 @@ def _is_post_hoc_calibrated_model(model_obj: Any) -> bool:
     """
     if model_obj is None:
         return False
+    _WRAPPERS = ("_PostHocCalibratedModel", "_PostHocMultiCalibratedModel")
     try:
-        _name = type(model_obj).__name__
+        # The calibrator wraps the ESTIMATOR and the bundle keeps it under ``.model`` (`entry.model = wrapped`), so
+        # the predict path was reading the bundle's own class name and answering False for every member, calibrated or
+        # not: the mixed-calibration WARN could never fire. Both levels are checked, the inner one first.
+        _names = [type(getattr(model_obj, "model", model_obj)).__name__, type(model_obj).__name__]
     except Exception as exc:
         logger.debug("_is_post_hoc_calibrated_model: type introspection failed: %s", exc)
         return False
-    return _name in ("_PostHocCalibratedModel", "_PostHocMultiCalibratedModel")
+    return any(_n in _WRAPPERS for _n in _names)
 
 
 def _resolve_quantile_alphas(metadata: dict, target_type: Any, target_name: Any, model_obj: Any = None) -> Sequence[float] | None:
@@ -430,12 +458,49 @@ def _resolve_quantile_alphas(metadata: dict, target_type: Any, target_name: Any,
     return None
 
 
+def _select_trained_members(
+    probs_list: list,
+    member_names: Sequence[Any],
+    calib_flags: Sequence[bool] | None,
+    params: dict,
+    target_label: str = "",
+) -> tuple[list, list | None, list | None]:
+    """Restrict a target's loaded members to the set training blended, in training's order.
+
+    Training's gates (quality, catastrophic, diversity) drop members, and predict used to re-blend every model it could
+    load for the target - including the one training removed, so the served mean was one whose metrics were never
+    measured. ``params["members"]`` is that surviving set; the persisted blend weights are aligned with it, which is why
+    the result is re-ordered to match. Returns ``(probs, calib_flags, weights)``. Legacy artefacts without the stamp,
+    or a load that is missing some of the members, keep the loaded set (the latter with a WARN) and drop the weights,
+    which cannot be mapped onto a different member set.
+    """
+    members = params.get("members") if isinstance(params, dict) else None
+    weights = params.get("blend_weights") if isinstance(params, dict) else None
+    if not members:
+        return probs_list, (list(calib_flags) if calib_flags is not None else None), weights
+    by_name = {str(n): i for i, n in enumerate(member_names)}
+    missing = [m for m in members if str(m) not in by_name]
+    if missing:
+        logger.warning(
+            "[predict] %s: %d of the %d member(s) training blended did not load (%s); blending the %d loaded model(s) "
+            "unweighted instead, which is not the ensemble whose metrics were reported.",
+            target_label or "target", len(missing), len(members), missing[:5], len(probs_list),
+        )
+        return probs_list, (list(calib_flags) if calib_flags is not None else None), None
+    order = [by_name[str(m)] for m in members]
+    extra = [n for n in member_names if str(n) not in set(map(str, members))]
+    if extra:
+        logger.info("[predict] %s: leaving out %d model(s) training's ensemble gates dropped: %s", target_label or "target", len(extra), extra[:5])
+    flags = [calib_flags[i] for i in order] if calib_flags is not None else None
+    return [probs_list[i] for i in order], flags, weights
+
+
 def _resolve_chosen_ensemble_params(metadata: dict, target_type: Any = None, target_name: Any = None) -> dict:
     """Look up persisted ensemble replay params (rrf_k, etc.) for ``(target_type, target_name)``.
 
     C-P1-11: predict-side blend math must use the SAME rrf_k the train side recorded; pre-fix the
     predict path hard-coded k=60 which silently drifted when a user changed it at train time.
-    ``metadata["ensembles_chosen_params"][tt][tname] = {"rrf_k": ...}`` is written by the per-target
+    ``metadata["ensembles_chosen_params"][tt][tname] = {"rrf_k": ..., "blend_weights": [...]}`` is written by the per-target
     stamper in ``_phase_train_one_target``; this helper tolerates the absence (legacy models) and
     returns ``{}`` -- callers should treat that as "use defaults".
     """
@@ -575,10 +640,21 @@ def _slice_frame(df: Any, start: int, length: int) -> Any:
     raise TypeError(f"_slice_frame: unsupported type {type(df).__name__}")
 
 
-def _concat_probs_dicts(parts: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
-    """Concatenate per-batch probability dicts along axis 0 by model_name. Missing keys in any part are skipped
-    (a model that crashed on one batch shouldn't poison the others; the caller's warn-and-continue handler
-    already logged the failure)."""
+def _concat_probs_dicts(
+    parts: list[dict[str, np.ndarray]],
+    batch_rows: Sequence[int] | None = None,
+    partial: set[str] | None = None,
+) -> dict[str, np.ndarray]:
+    """Concatenate per-batch probability dicts along axis 0 by model_name.
+
+    A model that crashed on one batch must not poison the others, but dropping that batch's rows silently returns a
+    SHORT array under the model's name: every caller zipping it against the input frame then assigns predictions to
+    the wrong rows from the failed batch onwards. The gap is filled with NaN for the batch's own row count instead, so
+    positions stay aligned and the missing rows are visibly missing; ``batch_rows`` supplies those counts and the
+    model's name is added to ``partial`` so the caller can refuse to use it at all.
+
+    Without ``batch_rows`` (an unbatched caller) the legacy skip-and-concatenate behaviour is kept.
+    """
     if not parts:
         return {}
     out: dict[str, np.ndarray] = {}
@@ -586,9 +662,31 @@ def _concat_probs_dicts(parts: list[dict[str, np.ndarray]]) -> dict[str, np.ndar
     for part in parts:
         keys.update(part.keys())
     for key in keys:
-        chunks = [part[key] for part in parts if key in part and part[key] is not None]
-        if chunks:
-            out[key] = np.concatenate(chunks, axis=0)
+        present = [(i, part[key]) for i, part in enumerate(parts) if key in part and part[key] is not None]
+        if not present:
+            continue
+        if batch_rows is None or len(present) == len(parts):
+            out[key] = np.concatenate([c for _, c in present], axis=0)
+            continue
+        if partial is not None:
+            partial.add(key)
+        _template = present[0][1]
+        _tail = np.shape(_template)[1:]
+        _dtype = _template.dtype if np.issubdtype(_template.dtype, np.floating) else np.float64
+        _present_by_idx = dict(present)
+        chunks = []
+        for i in range(len(parts)):
+            _chunk = _present_by_idx.get(i)
+            if _chunk is None:
+                chunks.append(np.full((int(batch_rows[i]), *_tail), np.nan, dtype=_dtype))
+            else:
+                chunks.append(_chunk.astype(_dtype, copy=False))
+        out[key] = np.concatenate(chunks, axis=0)
+        logger.warning(
+            "_concat_probs_dicts: %r produced no output on %d of %d batches; those rows are NaN-filled to keep the "
+            "array aligned with the input frame. The model is listed under results['partial_models'].",
+            key, len(parts) - len(present), len(parts),
+        )
     return out
 
 
@@ -607,21 +705,26 @@ def _run_batched(
     if n == 0:
         return dict(entry_fn(df, *args, **kwargs))
     batch_outs: list[dict[str, Any]] = []
+    _batch_rows: list[int] = []
     _start = 0
     while _start < n:
         _length = min(predict_batch_rows, n - _start)
         _slice = _slice_frame(df, _start, _length)
         _out = entry_fn(_slice, *args, **kwargs)
         batch_outs.append(_out)
+        _batch_rows.append(_length)
         _start += _length
 
     if len(batch_outs) == 1:
         return batch_outs[0]
 
     merged: dict[str, Any] = dict(batch_outs[0])  # carry metadata / models_used etc. from batch-0
+    _partial: set[str] = set()
     for _key in ("predictions", "probabilities", "per_target_probabilities", "per_target_predictions"):
         if _key in merged and isinstance(merged[_key], dict):
-            merged[_key] = _concat_probs_dicts([b.get(_key, {}) or {} for b in batch_outs])
+            merged[_key] = _concat_probs_dicts([b.get(_key, {}) or {} for b in batch_outs], _batch_rows, _partial)
+    if _partial:
+        merged["partial_models"] = sorted(_partial)
     for _key in ("ensemble_predictions", "ensemble_probabilities"):
         _parts: list = [b.get(_key) for b in batch_outs if b.get(_key) is not None]
         if _parts:
@@ -729,6 +832,7 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
     models: defaultdict = defaultdict(lambda: defaultdict(list))
     model_files = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
 
+    _failed_loads: dict = {}
     for model_file in model_files:
         rel_path = os.path.relpath(model_file, models_path)
         path_parts = rel_path.split(os.sep)
@@ -745,6 +849,20 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
         model_obj = load_mlframe_model(model_file)
         if model_obj is not None:
             models[target_type][target_name].append(model_obj)
+        else:
+            _failed_loads.setdefault((target_type, target_name), []).append(os.path.basename(model_file))
+
+    # load_mlframe_model returns None on any failure, and those members used to vanish without a word: a caller
+    # ensembling a target believed it had five members when it had two, and the mean shifted with no record of which
+    # were gone. Report every target that lost members; a target left with NONE cannot be served at all.
+    for (_tt, _tn), _names in _failed_loads.items():
+        _left = len(models.get(_tt, {}).get(_tn, []))
+        logger.error(
+            "load_mlframe_suite: %d model(s) for %s/%s failed to load and are NOT in the returned suite (%d loaded): %s",
+            len(_names), _tt, _tn, _left, _names[:10],
+        )
+        if _left == 0:
+            raise RuntimeError(f"load_mlframe_suite: every model for {_tt}/{_tn} failed to load: {_names[:10]}")
 
     return dict(models), metadata
 

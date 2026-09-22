@@ -71,7 +71,9 @@ class TestTheFlagIsMeasuredNotAssumed:
     def test_the_flag_agrees_with_the_number(self, leaky_setup):
         """A flag derived from a different quantity than the one reported would be worse than none."""
         res = _run(*leaky_setup)
-        assert res["remediation_verified"] == (res["remediation_inflation"] <= ewl._LEAK_TOLERANCE)
+        # Against the band the run actually used, which is relative to the honest score's own magnitude now that
+        # ``scoring`` can be any scorer; the module constant is only the last-resort value when there is no scale.
+        assert res["remediation_verified"] == (res["remediation_inflation"] <= res["leak_tolerance"])
 
     def test_the_verification_is_not_a_tautology(self, leaky_setup, monkeypatch):
         """The old callback made the two branches identical; assert they now see different arrays."""
