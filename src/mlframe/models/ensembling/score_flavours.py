@@ -237,6 +237,20 @@ def collapse_to_single_flavour_if_identical(
     return ensembling_methods
 
 
+def _stamp_surviving_members(res: dict, members) -> None:
+    """Record the member set that survived the quality / catastrophic / diversity gates under ``res["_surviving_members"]``.
+
+    Members are named by ``model.model_name``, which is the .dump basename predict loads them by. Predict used to
+    re-blend every model file it found for the target, including the member training deliberately dropped - a
+    4-member mean with an R2=-4.75 MLP whose metrics were never measured. Recorded only when every survivor has a name,
+    so an unnamed member cannot make a partial list look complete. The persisted blend weights
+    (``_stacking_gate.aligned_weights``) are aligned with this order.
+    """
+    names = [getattr(m, "model_name", None) for m in members]
+    if names and all(isinstance(n, str) and n for n in names):
+        res["_surviving_members"] = list(names)
+
+
 def run_stacking_aware_gate(
     enable_stacking_aware_gate: bool,
     _gate_preds_for_check: Optional[Sequence[np.ndarray]],
@@ -257,6 +271,8 @@ def run_stacking_aware_gate(
     (AUC) on the OOF member preds. AP7: assemble length-M weight vector aligned with ``level_models_and_predictions``;
     members not in the survivor set (or whose gate-source was missing) get weight 0.
     """
+    # Runs before any early return: the survivor list must be recorded whether or not the weight fit runs.
+    _stamp_surviving_members(res, level_models_and_predictions)
     _nnls_weights_for_blend: Optional[np.ndarray] = None
     if not (enable_stacking_aware_gate and _gate_preds_for_check is not None and target_arr is not None):
         return _nnls_weights_for_blend

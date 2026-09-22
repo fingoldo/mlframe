@@ -27,8 +27,9 @@ def test_largest_set_is_skipped_only_after_a_second_size_appears():
 
 def test_single_set_run_keeps_its_metric():
     m = ICE(metric=_metric, higher_is_better=False, skip_largest_set=True)
-    for _ in range(5):
-        assert _call(m, 5000) == 0.25
+    values = [_call(m, 5000) for _ in range(5)]
+    assert len(values) == 5
+    assert all(v == 0.25 for v in values), values
 
 
 def test_flag_off_scores_everything():

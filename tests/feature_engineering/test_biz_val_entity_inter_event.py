@@ -84,6 +84,7 @@ def test_entity_inter_event_features_group_stat_never_looks_past_the_row():
     entity_ids, timestamps, _ = _make_entity_tempo_data(6, 8, seed=1)
     out = entity_inter_event_features(entity_ids, timestamps)
     whole = entity_inter_event_features(entity_ids, timestamps, causal=False)
+    assert len(np.unique(entity_ids)) == 6, "the bed must actually contain entities to check"
     for e in np.unique(entity_ids):
         mask = entity_ids == e
         vals = out["group_mean_time_delta"][mask]

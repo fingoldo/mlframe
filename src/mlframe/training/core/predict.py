@@ -155,29 +155,33 @@ def _ensure_pandas_view(df: Any, view_cache: dict) -> Any:
     return _view
 
 
-def _load_ct_ensemble_entries(
-    models_path: str, slug_to_original_target_type: dict, slug_to_original_target_name: dict, trusted_root: str | None = None
-) -> dict:
-    """Scan ``models_path`` for cross-target ensemble dumps stored under ``<target_type_slug>/_CT_ENSEMBLE__<original_target>/CT_ENSEMBLE.dump`` and return a nested dict keyed ``{target_type: {_CT_ENSEMBLE__<orig>: [entry]}}`` so callers can merge it into the loaded ``models`` structure."""
-    out: dict = defaultdict(lambda: defaultdict(list))
-    _ct_files = glob.glob(join(models_path, "**", "_CT_ENSEMBLE__*", "*.dump"), recursive=True)
-    for _f in _ct_files:
-        _validate_trusted_path(_f, trusted_root or os.path.abspath(models_path))
-        _rel = os.path.relpath(_f, models_path)
-        _parts = _rel.split(os.sep)
-        if len(_parts) < 3:
-            continue
-        _tt_slug = _parts[0]
-        _tname_slug = _parts[1]
-        if not _tname_slug.startswith("_CT_ENSEMBLE__"):
-            continue
-        _tt = slug_to_original_target_type.get(_tt_slug, _tt_slug)
-        # The _CT_ENSEMBLE__<orig> directory name is the in-memory dict key, so reuse it verbatim (no slugify round-trip).
-        _ct_key = _tname_slug
-        _entry = load_mlframe_model(_f)
-        if _entry is not None:
-            out[_tt][_ct_key].append(_entry)
-    return out
+def _align_frame_to_schema(frame, expected: list):
+    """Drop columns the model was not fitted on and put the rest in fit-time ORDER.
+
+    Dropping the extras is not enough: LGB/XGB accept a frame carrying every required name in the wrong order and then
+    score each value against another feature's split thresholds - plausible-looking, entirely wrong predictions, no
+    exception. A replay step that appends its columns in a different order (composite FE replay, extensions
+    back-merge) is how the order diverges. Polars 1.x takes ``drop(list)`` positionally and rejects ``columns=``.
+    """
+    extra = [c for c in frame.columns if c not in expected]
+    if extra:
+        frame = frame.drop(extra) if isinstance(frame, pl.DataFrame) else frame.drop(columns=extra)
+    if [str(c) for c in frame.columns] != list(expected):
+        frame = frame.select(list(expected)) if isinstance(frame, pl.DataFrame) else frame.loc[:, list(expected)]
+    return frame
+
+
+def suite_binary_threshold(metadata: dict, per_target_probs: dict) -> float:
+    """The decision threshold for the suite-wide binary ensemble: the tuned threshold of the suite's target when there
+    is exactly one. A fixed 0.5 (with a strict ``>``) used to label the suite-wide key differently from
+    ``per_target_predictions`` beside it; a multi-target suite has no single tuned value for a cross-target blend and
+    keeps the default."""
+    from .utils import DEFAULT_PROBABILITY_THRESHOLD, get_decision_threshold
+
+    keys = list(per_target_probs.keys())
+    if len(keys) != 1:
+        return DEFAULT_PROBABILITY_THRESHOLD
+    return get_decision_threshold(metadata, f"{keys[0][0]}|{keys[0][1]}", DEFAULT_PROBABILITY_THRESHOLD)
 
 
 def _combine_probs(
@@ -828,6 +832,7 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
     models: defaultdict = defaultdict(lambda: defaultdict(list))
     model_files = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
 
+    _failed_loads: dict = {}
     for model_file in model_files:
         rel_path = os.path.relpath(model_file, models_path)
         path_parts = rel_path.split(os.sep)
@@ -844,6 +849,20 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
         model_obj = load_mlframe_model(model_file)
         if model_obj is not None:
             models[target_type][target_name].append(model_obj)
+        else:
+            _failed_loads.setdefault((target_type, target_name), []).append(os.path.basename(model_file))
+
+    # load_mlframe_model returns None on any failure, and those members used to vanish without a word: a caller
+    # ensembling a target believed it had five members when it had two, and the mean shifted with no record of which
+    # were gone. Report every target that lost members; a target left with NONE cannot be served at all.
+    for (_tt, _tn), _names in _failed_loads.items():
+        _left = len(models.get(_tt, {}).get(_tn, []))
+        logger.error(
+            "load_mlframe_suite: %d model(s) for %s/%s failed to load and are NOT in the returned suite (%d loaded): %s",
+            len(_names), _tt, _tn, _left, _names[:10],
+        )
+        if _left == 0:
+            raise RuntimeError(f"load_mlframe_suite: every model for {_tt}/{_tn} failed to load: {_names[:10]}")
 
     return dict(models), metadata
 

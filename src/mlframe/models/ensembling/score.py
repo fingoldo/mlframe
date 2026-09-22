@@ -382,20 +382,10 @@ def score_ensemble(
         verbose=verbose,
     )
 
-    # The weight fit compares member predictions against ground truth ROW BY ROW, so it needs the target of the split
-    # the gate predictions come from, not the whole-frame target: with the full series every member failed the length
-    # check inside the gate, no member survived, and the advertised NNLS/Caruana blend was a uniform mean every time.
-    _saw_target_arr = resolve_gate_target_arr(
-        _gate_source_split,
-        train_target_arr=train_target_arr,
-        val_target_arr=val_target_arr,
-        test_target_arr=test_target_arr,
-        level_models_and_predictions=level_models_and_predictions,
-    )
     _nnls_weights_for_blend = run_stacking_aware_gate(
         enable_stacking_aware_gate=enable_stacking_aware_gate,
         _gate_preds_for_check=_gate_preds_for_check,
-        target_arr=_saw_target_arr,
+        target_arr=resolve_gate_target_arr(_gate_source_split, train_target_arr, val_target_arr, test_target_arr, level_models_and_predictions),
         level_models_and_predictions=level_models_and_predictions,
         _ensemble_member_tags=_ensemble_member_tags,
         stacking_gate_min_weight=stacking_gate_min_weight,
@@ -404,15 +394,6 @@ def score_ensemble(
         res=res,
         verbose=verbose,
     )
-
-    # The member set that survived the quality / catastrophic / diversity gates, by the model name each member was
-    # saved under (``model.model_name`` is the .dump basename). Predict used to re-blend every model file it found for
-    # the target, i.e. also the member training deliberately dropped - a 4-member mean including an R2=-4.75 MLP whose
-    # metrics were never measured. Recorded only when every survivor has a name, so an unnamed member cannot make a
-    # partial list look complete. Blend weights (``_stacking_gate.aligned_weights``) are aligned with this order.
-    _survivor_names = [getattr(_m, "model_name", None) for _m in level_models_and_predictions]
-    if _survivor_names and all(isinstance(_n, str) and _n for _n in _survivor_names):
-        res["_surviving_members"] = list(_survivor_names)
 
     run_ensembling_levels(
         res=res,

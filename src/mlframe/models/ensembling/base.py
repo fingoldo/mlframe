@@ -199,6 +199,8 @@ except ImportError:  # pragma: no cover
 
 from mlframe.system import try_import_cupy
 
+from ._combine_fallback import _finite_member_mean
+
 _, _HAS_CUPY = try_import_cupy()  # pragma: no cover -- env-dependent
 
 
@@ -765,24 +767,7 @@ def combine_probs(
     # predict now does the same so a single NaN cell doesn't poison the whole batch.
     non_finite_mask = ~np.isfinite(combined)
     if non_finite_mask.any():
-        # F4: honour precomputed_weights (NNLS/Caruana weights) here too -- previously this always
-        # recomputed an UNWEIGHTED mean even when the main flavour reduction had used weights_arr,
-        # so any row that fell into this fallback silently reverted to unweighted arithmetic mean
-        # for that row only, while every other row stayed correctly weighted.
-        # The fallback must IGNORE the non-finite members, not average them in: `np.mean`/`np.average` over a stack
-        # containing one NaN member is NaN everywhere, so the documented "fallback to arithmetic mean" reproduced the
-        # exact value it was supposed to repair. Weights are renormalised over the members finite at each cell.
-        _finite_cells = np.isfinite(stacked)
-        if weights_arr is not None:
-            _w = np.asarray(weights_arr, dtype=np.float64).reshape((-1,) + (1,) * (stacked.ndim - 1))
-            _w_eff = np.where(_finite_cells, _w, 0.0)
-            _wsum = _w_eff.sum(axis=0)
-            with np.errstate(invalid="ignore", divide="ignore"):
-                _arith = np.where(_wsum > 0, (np.where(_finite_cells, stacked, 0.0) * _w_eff).sum(axis=0) / _wsum, np.nan)
-        else:
-            with warnings.catch_warnings():  # an all-NaN cell stays NaN; there is nothing to fall back to for it
-                warnings.simplefilter("ignore", RuntimeWarning)
-                _arith = np.nanmean(stacked, axis=0)
+        _arith = _finite_member_mean(stacked, weights_arr)
         # Wave 78 (2026-05-21): hard-assert shape contract -- np.where broadcasts
         # silently on shape mismatch, which would silently produce wrong-shape
         # ensemble output if a future flavour returns a different reduce shape.

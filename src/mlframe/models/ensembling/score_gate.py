@@ -38,13 +38,14 @@ def _calib_target_of(members) -> Optional[np.ndarray]:
 
 def resolve_gate_target_arr(
     _gate_source_split: Optional[str],
-    *,
     train_target_arr=None,
     val_target_arr=None,
     test_target_arr=None,
     level_models_and_predictions=None,
 ) -> Optional[np.ndarray]:
-    """The target rows that match the split the member gate scored its predictions on.
+    """The target rows that match the split the member gate scored its predictions on - which is what the blend-weight
+    fit must be handed too: with the whole-frame target every member failed its length check, nothing survived, and
+    the advertised NNLS/Caruana blend was a uniform mean every time.
 
     ``oof_*`` predictions are cross_val_predict rows and align with train; ``calib`` with the slice stamped on the
     members; ``val`` / ``test`` / ``train`` (and their ``*-coarse`` variants) with the matching target array. Anything

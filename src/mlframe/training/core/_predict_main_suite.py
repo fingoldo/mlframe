@@ -25,6 +25,7 @@ from ..utils import get_pandas_view_of_polars_df
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
     get_decision_threshold,
+    member_decision_threshold,
     _drop_cols_df,
     _validate_input_columns_against_metadata,
     _validate_trusted_path,
@@ -90,7 +91,7 @@ def predict_mlframe_models_suite(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
+    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, suite_binary_threshold, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
     from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
     from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
     from ..pipeline._cross_sectional_composite_fe import replay_cross_sectional_composite_fe
@@ -121,10 +122,7 @@ def predict_mlframe_models_suite(
                 verbose=verbose,
                 trusted_root=trusted_root,
                 predict_batch_rows=None,
-                # An events TABLE joined by entity/time, not row-aligned with ``df``, so every batch gets all of it.
-                # Omitting it here silently skipped the latent_interaction_svd / nearest_past_join replay for batched
-                # calls only - a memory knob changed the prediction.
-                auxiliary_events_df=auxiliary_events_df,
+                auxiliary_events_df=auxiliary_events_df,  # an events TABLE (entity/time join), so each batch needs all of it
             ),
             df, predict_batch_rows,
         )
@@ -210,21 +208,7 @@ def predict_mlframe_models_suite(
     # Respect ``model_names`` filter before loading: the probe only needs to inspect models the user actually
     # requested. Loading every .dump in the directory wasted RSS for one-model-needed inference calls.
     _input_is_polars = isinstance(df, pl.DataFrame)
-    _all_model_files = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
-    if model_names:
-        _name_set = set(model_names)
-        _model_files_for_native_probe = [_f for _f in _all_model_files if os.path.basename(_f).replace(".dump", "") in _name_set]
-        if not _model_files_for_native_probe:
-            # An explicit filter that matches nothing is a caller error. Falling back to every model served a
-            # different, unrequested prediction (the full-suite ensemble in place of one champion) on a WARN that a
-            # production log filter drops.
-            _available = sorted(os.path.basename(_f).replace(".dump", "") for _f in _all_model_files)
-            raise ValueError(
-                f"predict_mlframe_models_suite: model_names={list(model_names)!r} matched none of the {len(_available)} "
-                f"model(s) in {models_path}. Available: {_available[:20]}{' ...' if len(_available) > 20 else ''}"
-            )
-    else:
-        _model_files_for_native_probe = _all_model_files
+    _model_files_for_native_probe = _resolve_model_files(models_path, model_names)
     _loaded_models_cache: dict[str, Any] = {}
     _all_polars_native = False
     if _input_is_polars and _model_files_for_native_probe:
@@ -260,13 +244,7 @@ def predict_mlframe_models_suite(
         if verbose:
             logger.info("Applying pipeline transformation...")
         df = pipeline.transform(df)
-        # Same GBM-safe rename as fit time and as predict_from_models: the pipeline can emit engineered names with
-        # JSON-structural characters (``mul(log(f2),sin(f3))``) that training renamed right after this transform. Served
-        # from disk without it, CatBoost raised "should be feature with name ... (found ...)", the per-model handler
-        # swallowed that, and the model silently left the ensemble.
-        from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
-
-        df = _sanitize_frame_columns(df)
+        df = _sanitize_after_pipeline(df)
 
     # Row-wise extension columns (row_summary_*/row_extreme_*, default ON) are stateless per-row
     # functions with no fitted object to persist -- recompute them directly from the frame's own
@@ -331,14 +309,9 @@ def predict_mlframe_models_suite(
         _bn = os.path.basename(_mf).replace(".dump", "")
         _basename_counts[_bn] = _basename_counts.get(_bn, 0) + 1
 
-    _models_attempted = 0
     _predict_errors: list[tuple[str, str]] = []
     for model_file in sorted(model_files):
-        model_name = os.path.basename(model_file).replace(".dump", "")
-
-        if model_names and model_name not in model_names:
-            continue
-        _models_attempted += 1
+        model_name = os.path.basename(model_file).replace(".dump", "")  # already filtered by model_names
         if _basename_counts.get(model_name, 0) > 1:
             model_name = os.path.relpath(model_file, models_path).replace(".dump", "").replace(os.sep, "/")
 
@@ -413,16 +386,7 @@ def predict_mlframe_models_suite(
                 verbose=verbose,
             )
 
-            # LGB/XGB categorical dtype coercion, with the train-time Enum domains. Only the in-memory entry point ran
-            # it, so the same bundle served from disk handed LightGBM a cat column as float64/object instead of pandas
-            # ``category``: its predict-time categorical auto-detection then disagreed with the booster's fit-time
-            # spec, and unseen categories were not mapped through the train-time domain, so the codes shifted.
-            _cat_features_suite = (metadata.get("cat_features") or []) if isinstance(metadata, dict) else []
-            _enum_domains_suite = metadata.get("enum_domains") if isinstance(metadata, dict) else None
-            input_for_model = _coerce_cat_dtype_for_lgb_xgb(
-                input_for_model, model=model, cat_features=_cat_features_suite,
-                enum_domains=_enum_domains_suite,
-            )
+            input_for_model = _coerce_cat_dtypes_from_metadata(input_for_model, model, metadata)
 
             # Subset + reorder to the model's own expected feature schema. Without this, a model
             # trained on a NARROWER feature set than what reaches this point (e.g. a
@@ -487,11 +451,7 @@ def predict_mlframe_models_suite(
                 # (N,K>2) = argmax. Multilabel cannot be inferred from shape; caller must hold that contract.
                 # Binary threshold is the per-target tuned value stamped into metadata (val/OOF-tuned,
                 # never test); falls back to 0.5 when no tuned threshold is present.
-                # The member's own tuned threshold first (stamped per model at train time), then the target's.
-                _bin_thr = get_decision_threshold(
-                    metadata, f"{_tt}|{_tn}|{getattr(model_obj, 'model_name', None) or model_name}",
-                    get_decision_threshold(metadata, f"{_tt}|{_tn}", DEFAULT_PROBABILITY_THRESHOLD),
-                )
+                _bin_thr = member_decision_threshold(metadata, _tt, _tn, getattr(model_obj, "model_name", None) or model_name)
                 if probs.ndim == 2:
                     if probs.shape[1] == 2:
                         preds = (probs[:, 1] >= _bin_thr).astype(int)
@@ -559,10 +519,8 @@ def predict_mlframe_models_suite(
             _rrf_k_replay = int(_ens_params.get("rrf_k", 60))
             _key = f"{_tt_k}_{_tn_k}"
             _q_alphas = _resolve_quantile_alphas(metadata, _tt_k, _tn_k, per_target_sample_model.get((_tt_k, _tn_k)))
-            _probs_list, _cal_flags_sel, _weights_sel = _select_trained_members(
-                _probs_list, per_target_member_names.get((_tt_k, _tn_k), []), per_target_calib_flags.get((_tt_k, _tn_k)),
-                _ens_params, target_label=f"{_tt_k}/{_tn_k}",
-            )
+            _probs_list, _cal_flags_sel, _weights_sel = _select_trained_members(_probs_list, per_target_member_names.get((_tt_k, _tn_k), []),
+                                                                                per_target_calib_flags.get((_tt_k, _tn_k)), _ens_params, target_label=f"{_tt_k}/{_tn_k}")
             if len(_probs_list) > 1:
                 _combined = _combine_probs(
                     _probs_list, _flavour, quantile_alphas=_q_alphas, rrf_k=_rrf_k_replay,
@@ -618,16 +576,7 @@ def predict_mlframe_models_suite(
 
         if avg_probs.ndim == 2:
             if avg_probs.shape[1] == 2:
-                # The tuned threshold of the suite's target when there is exactly one, and ``>=`` like every other
-                # decision site: this used a fixed 0.5 with a strict ``>``, so on a target tuned to 0.18 the suite-wide
-                # key labelled at 0.5 while per_target_predictions beside it labelled at 0.18. A multi-target suite
-                # has no single tuned value for a cross-target blend and keeps the default.
-                _suite_keys = list(per_target_probs.keys())
-                _suite_thr = (
-                    get_decision_threshold(metadata, f"{_suite_keys[0][0]}|{_suite_keys[0][1]}", DEFAULT_PROBABILITY_THRESHOLD)
-                    if len(_suite_keys) == 1 else DEFAULT_PROBABILITY_THRESHOLD
-                )
-                ensemble_preds = (avg_probs[:, 1] >= _suite_thr).astype(int)
+                ensemble_preds = (avg_probs[:, 1] >= suite_binary_threshold(metadata, per_target_probs)).astype(int)
             else:
                 # NaN-safe argmax for the suite-wide ensemble row: same reasoning as the
                 # per-target site above; plain np.argmax sent NaN rows to class 0.
@@ -676,16 +625,68 @@ def predict_mlframe_models_suite(
     if verbose:
         logger.info("Generated predictions for %d models", len(results["predictions"]))
 
-    # Every model failed: raise, as predict_from_models does, instead of returning an empty result that looks like
-    # success. A version-drift bundle whose every .dump fails to unpickle used to hand a serving wrapper
-    # ``ensemble_predictions=None`` with no error at all.
-    if _models_attempted > 0 and not results["predictions"] and not results["probabilities"] and _predict_errors:
-        _summary = "; ".join(f"{_mn}: {_err}" for _mn, _err in _predict_errors[:5])
-        if len(_predict_errors) > 5:
-            _summary += f"; ... (+{len(_predict_errors) - 5} more)"
-        raise RuntimeError(
-            f"predict_mlframe_models_suite: all {_models_attempted} model(s) under {models_path} failed to load or "
-            f"predict; producing no predictions or probabilities. Per-model errors: {_summary}"
-        )
+    _raise_if_every_model_failed(results, len(model_files), _predict_errors, models_path)
 
     return results
+
+
+def _resolve_model_files(models_path: str, model_names) -> list:
+    """Every ``.dump`` under ``models_path``, or just those named in ``model_names``.
+
+    An explicit filter that matches nothing is a caller error and raises, naming what is available. Falling back to
+    every model served a different, unrequested prediction (the full-suite ensemble in place of one champion) on a WARN
+    that a production log filter drops.
+    """
+    all_files = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
+    if not model_names:
+        return all_files
+    wanted = set(model_names)
+    selected = [f for f in all_files if os.path.basename(f).replace(".dump", "") in wanted]
+    if not selected:
+        available = sorted(os.path.basename(f).replace(".dump", "") for f in all_files)
+        more = " ..." if len(available) > 20 else ""
+        raise ValueError(
+            f"predict_mlframe_models_suite: model_names={list(model_names)!r} matched none of the {len(available)} "
+            f"model(s) in {models_path}. Available: {available[:20]}{more}"
+        )
+    return selected
+
+
+def _raise_if_every_model_failed(results: dict, n_attempted: int, errors: list, models_path: str) -> None:
+    """Raise, as ``predict_from_models`` does, when no model produced anything.
+
+    Returning the empty result instead looked like success: a version-drift bundle whose every .dump failed to unpickle
+    handed a serving wrapper ``ensemble_predictions=None`` with no error at all.
+    """
+    if n_attempted > 0 and not results["predictions"] and not results["probabilities"] and errors:
+        summary = "; ".join(f"{name}: {err}" for name, err in errors[:5])
+        if len(errors) > 5:
+            summary += f"; ... (+{len(errors) - 5} more)"
+        raise RuntimeError(
+            f"predict_mlframe_models_suite: all {n_attempted} model(s) under {models_path} failed to load or "
+            f"predict; producing no predictions or probabilities. Per-model errors: {summary}"
+        )
+
+
+def _coerce_cat_dtypes_from_metadata(frame, model, metadata):
+    """LGB/XGB categorical dtype coercion with the train-time Enum domains, exactly as the in-memory entry point does.
+
+    Served from disk without it, LightGBM received a cat column as float64/object instead of pandas ``category``: its
+    predict-time categorical auto-detection disagreed with the booster's fit-time spec, and unseen categories were not
+    mapped through the train-time domain, so the codes shifted.
+    """
+    from .predict import _coerce_cat_dtype_for_lgb_xgb
+
+    cat_features = (metadata.get("cat_features") or []) if isinstance(metadata, dict) else []
+    enum_domains = metadata.get("enum_domains") if isinstance(metadata, dict) else None
+    return _coerce_cat_dtype_for_lgb_xgb(frame, model=model, cat_features=cat_features, enum_domains=enum_domains)
+
+
+def _sanitize_after_pipeline(df):
+    """The GBM-safe column rename training applies right after the suite pipeline transform, and ``predict_from_models``
+    applies too. The pipeline can emit engineered names with JSON-structural characters (``mul(log(f2),sin(f3))``);
+    served from disk without the rename, CatBoost raised "should be feature with name ... (found ...)", the per-model
+    handler swallowed it, and the model silently left the ensemble."""
+    from .._feature_name_sanitize import sanitize_frame_columns
+
+    return sanitize_frame_columns(df)

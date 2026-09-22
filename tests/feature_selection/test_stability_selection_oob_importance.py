@@ -64,6 +64,7 @@ def test_importance_is_measured_on_the_held_out_complement(monkeypatch):
         assert fitted_rows, f"the bootstrap loop did not run: {exc}"
 
     assert fitted_rows and scored_rows and len(fitted_rows) == len(scored_rows)
+    assert len(scored_rows) == 3, "one importance call per bootstrap"
     for fit_rows, score_rows in zip(fitted_rows, scored_rows):
         assert score_rows, "the importance call must receive rows"
         assert not (fit_rows & score_rows), "importance must be measured out of bag, not on the fitted rows"
