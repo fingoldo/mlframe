@@ -40,17 +40,18 @@ def _tiny_rerank_ram_checkpoint(label: str) -> None:
     )
 
 
-def _honest_oof_prepass(self, df, target_col, kept_specs, usable_features, train_idx, y_full, *, will_run: bool, per_bin_enabled: bool, use_wilcoxon: bool) -> dict[str, float]:
-    """Honest group-OOF reconstruction RMSE measured BEFORE the CV sweep, or ``{}`` when the sweep must run anyway.
+def _honest_oof_prepass(self, df, target_col, kept_specs, usable_features, train_idx, y_full, *, will_run: bool, per_bin_enabled: bool, use_wilcoxon: bool) -> "dict[str, float] | None":
+    """Honest group-OOF reconstruction RMSE measured BEFORE the CV sweep, or ``None`` when the sweep must run anyway.
 
     Honest-OOF REPLACES the group-internal CV-RMSE of every spec it can measure, so computing those scores first was
     pure waste: on a 16-spec grouped run the sweep cost 11.6 s of model fits against 0.26 s for this measurement, and
     all 16 results were overwritten. Measuring it first lets the covered specs skip the sweep. That is only safe when
     nothing else consumes the sweep -- the per-bin regime gate reuses its first-pass breakdown and the Wilcoxon gate
-    needs its per-seed vectors -- so with either enabled this returns nothing and every spec is fitted as before.
+    needs its per-seed vectors -- so with either enabled this returns ``None`` and every spec is fitted as before. ``None``
+    (not measured) is kept distinct from ``{}`` (measured, nothing scorable) so the latter is not measured a second time.
     """
     if not (will_run and not per_bin_enabled and not use_wilcoxon):
-        return {}
+        return None
     from ._honest_oof_select import honest_oof_reconstruction_rmse
 
     select_idx = getattr(self, "honest_holdout_select_idx_", None)
@@ -94,7 +95,7 @@ def _apply_honest_oof_ordering(self, df, target_col, kept_specs, agg_scores, usa
         from ._honest_oof_select import honest_oof_reconstruction_rmse
 
         # Reuse the pre-sweep measurement when it was taken (same inputs, same selection half); otherwise measure now.
-        _honest_oof = _honest_oof_pre or honest_oof_reconstruction_rmse(
+        _honest_oof = _honest_oof_pre if _honest_oof_pre is not None else honest_oof_reconstruction_rmse(
             self, df, target_col, kept_specs, usable_features,
             # Selection half: this score is a ranking key, so it must not be measured on the reported rows.
             train_idx, getattr(self, "honest_holdout_select_idx_", None) if getattr(self, "honest_holdout_select_idx_", None) is not None else getattr(self, "honest_holdout_idx_", None), y_full,

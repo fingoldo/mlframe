@@ -298,20 +298,24 @@ class TestBlockShuffleGatherBitIdentity:
             assert np.array_equal(got, ref), f"divergence m={m} dtype={dtype} seed={seed}"
 
     def test_auto_base_block_shuffle_routes_through_fused_gather(self, monkeypatch) -> None:
-        """The auto-base permutation-MI null loop must call ``block_shuffle_gather``; a regression
-        that reverts to the inline numpy path is caught by the spy never firing."""
+        """The auto-base permutation-MI null loop must shuffle through the fused kernels: ``null_mis_binned`` (the batched
+        numba kernel that gathers inside) on binned columns, ``shuffle_by`` (``block_shuffle_gather``) otherwise. A regression
+        that reverts to an inline numpy shuffle is caught by neither spy firing."""
         import mlframe.training.composite.discovery._auto_base as _ab
 
-        assert hasattr(_ab, "block_shuffle_gather"), "fused gather not wired into _auto_base"
+        assert hasattr(_ab, "null_mis_binned") and hasattr(_ab, "shuffle_by"), "fused gather not wired into _auto_base"
         calls = {"n": 0}
-        orig = _ab.block_shuffle_gather
 
-        def spy(arr, perm, block_len):
-            """Spy."""
-            calls["n"] += 1
-            return orig(arr, perm, block_len)
+        def spying(orig):
+            """Wrap ``orig`` to count calls."""
+            def spy(*a, **k):
+                """Spy."""
+                calls["n"] += 1
+                return orig(*a, **k)
+            return spy
 
-        monkeypatch.setattr(_ab, "block_shuffle_gather", spy)
+        monkeypatch.setattr(_ab, "null_mis_binned", spying(_ab.null_mis_binned))
+        monkeypatch.setattr(_ab, "shuffle_by", spying(_ab.shuffle_by))
 
         import numpy as _np
         import pandas as pd
@@ -331,4 +335,4 @@ class TestBlockShuffleGatherBitIdentity:
         cfg = CompositeTargetDiscoveryConfig(enabled=True, auto_base_null_perms=5)
         disco = CompositeTargetDiscovery(cfg)
         disco.fit(Xy, "y", list(cols.keys()), _np.arange(n))
-        assert calls["n"] > 0, "block_shuffle_gather was never invoked by the null loop"
+        assert calls["n"] > 0, "the null loop shuffled without the fused kernels"

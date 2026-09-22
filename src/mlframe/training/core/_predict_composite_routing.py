@@ -78,13 +78,19 @@ def composite_predict(model: Any, model_obj: Any, df: Any, df_pre_pipeline: Any,
 
 def _is_fitted_pipeline(pp: Any) -> bool:
     """Whether ``pp`` is a fitted transformer (an unfitted placeholder means the inner was trained on the frame as it stands)."""
+    from sklearn.exceptions import NotFittedError
     from sklearn.utils.validation import check_is_fitted
 
     try:
         check_is_fitted(pp)
         return True
-    except Exception as exc:
+    except NotFittedError as exc:
         logger.debug("check_is_fitted(pre_pipeline) says unfitted: %s", exc)
+        return False
+    except TypeError as exc:
+        # Not an sklearn estimator at all, so fittedness cannot be read. Treating it as unfitted routes the frame past
+        # it untransformed, which is only right if it really is a placeholder -- say so rather than decide silently.
+        logger.warning("pre_pipeline %s is not an sklearn estimator (%s); treating it as an unfitted placeholder", type(pp).__name__, exc)
         return False
 
 

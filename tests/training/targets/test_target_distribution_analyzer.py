@@ -138,6 +138,24 @@ class TestHelperDetectors:
 # ---------------------------------------------------------------------------
 
 
+def _heavy_tail_within_huber_band(seed: int, n: int = 5000) -> np.ndarray:
+    """Heavy-tailed target whose excess kurtosis lands INSIDE the band where a bounded-influence loss still works.
+
+    ``standard_t(df=3)`` was used here before, but its sample kurtosis swings across seeds (168 on seed 101, under
+    20 on seed 301), so the same fixture exercised different branches per test. A two-component mixture puts the
+    kurtosis where the test intends it: above the heavy-tail trigger, below the ceiling past which Huber's gradient
+    vanishes and the suite reverts to RMSE (audit 2026-09-20, TRN-05/TRN-06).
+    """
+    rng = np.random.default_rng(seed)
+    y = rng.normal(0.0, 1.0, n)
+    # FIXED outlier magnitude, not a scaled random draw: scaling made the realised kurtosis swing 4.2-17.3 across
+    # seeds, which is the same fragility the old standard_t(df=3) fixture had. With a fraction p and magnitude c,
+    # excess kurtosis is ~ (3(1-p) + p*c^4) / (1-p + p*c^2)^2 - 3, i.e. ~9.4 here, on every seed.
+    idx = rng.choice(n, size=max(1, round(n * 0.004)), replace=False)
+    y[idx] = 8.0 * np.where(rng.random(idx.size) < 0.5, -1.0, 1.0)
+    return y
+
+
 class TestRegressionAnalyzer:
     """Groups tests covering regression analyzer."""
     def test_clean_gaussian_no_pathologies(self):
@@ -151,14 +169,35 @@ class TestRegressionAnalyzer:
         assert rep.knob_overrides == {}
 
     def test_heavy_tail_recommends_huber(self):
-        """Heavy tail recommends huber."""
-        rng = np.random.default_rng(101)
-        y = rng.standard_t(df=3, size=5000)
+        """A heavy tail within the bounded-influence band recommends Huber for EVERY backend, CatBoost included.
+
+        CatBoost was missing from this list, so a CatBoost-only run received no target-side loss recommendation at
+        all while the three that were emitted went to backends the run did not contain (audit 2026-09-20, TRN-05).
+        """
+        y = _heavy_tail_within_huber_band(101)
         rep = analyze_target_distribution(y, has_time_axis=False)
         assert any("heavy_tail" in p for p in rep.pathologies), rep.pathologies
         assert rep.knob_overrides.get("mlp_kwargs", {}).get("model_params", {}).get("loss_fn") == "huber"
         assert rep.knob_overrides.get("lgb_kwargs", {}).get("objective") == "huber"
         assert "reg:pseudohubererror" in str(rep.knob_overrides.get("xgb_kwargs", {}).get("objective", ""))
+        assert "Huber" in str(rep.knob_overrides.get("cb_kwargs", {}).get("loss_function", ""))
+        assert "Huber" in str(rep.knob_overrides.get("cb_kwargs", {}).get("eval_metric", ""))
+
+    def test_extreme_kurtosis_recommends_no_robust_loss(self):
+        """Past the ceiling, Huber's gradient vanishes and the suite's objective-setter reverts to RMSE.
+
+        Recommending Huber anyway put this analyzer in direct contradiction with ``loss_recommendation`` on the
+        same statistic: a production target at excess_kurt=2415 got ``lgb/xgb/mlp huber`` here and an explicit
+        "Huber gradient collapses on extreme-kurt residual" rejection there (audit 2026-09-20, TRN-06).
+        """
+        rng = np.random.default_rng(77)
+        n = 5000
+        y = np.where(rng.random(n) < 0.0015, rng.normal(0, 150, n), rng.normal(0, 1, n))
+        rep = analyze_target_distribution(y, has_time_axis=False)
+        assert rep.diagnostics["excess_kurtosis"] > 20.0
+        assert any("heavy_tail" in p for p in rep.pathologies), rep.pathologies
+        for slot in ("mlp_kwargs", "lgb_kwargs", "xgb_kwargs", "cb_kwargs"):
+            assert slot not in rep.knob_overrides, (slot, rep.knob_overrides)
 
     def test_strong_AR_recommends_no_layernorm(self):
         """Strong a r recommends no layernorm."""
@@ -388,9 +427,8 @@ class TestMergeIntoConfig:
     """Groups tests covering merge into config."""
     def test_recommendations_fill_gaps_but_preserve_user_values(self):
         """Recommendations fill gaps but preserve user values."""
-        rng = np.random.default_rng(300)
-        # Heavy-tail target so we know which knobs are recommended.
-        y = rng.standard_t(df=3, size=5000)
+        # Heavy-tail target inside the bounded-influence band, so we know which knobs are recommended.
+        y = _heavy_tail_within_huber_band(300)
         rep = analyze_target_distribution(y, has_time_axis=False)
         # User config has mlp_kwargs with their own loss_fn -- must be preserved.
         user_config = {"mlp_kwargs": {"model_params": {"loss_fn": "mse", "learning_rate": 1e-3}}}
@@ -403,8 +441,7 @@ class TestMergeIntoConfig:
 
     def test_override_existing_lets_recommendation_win(self):
         """Override existing lets recommendation win."""
-        rng = np.random.default_rng(301)
-        y = rng.standard_t(df=3, size=5000)
+        y = _heavy_tail_within_huber_band(301)
         rep = analyze_target_distribution(y, has_time_axis=False)
         user_config = {"mlp_kwargs": {"model_params": {"loss_fn": "mse"}}}
         merged = rep.merge_into_config(user_config, override_existing=True)

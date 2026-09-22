@@ -15,15 +15,16 @@ from typing import Any
 
 from mlframe.utils.log_throttle import log_throttle
 
+from ._predict_composite_routing import is_composite_wrapper
+
 logger = logging.getLogger(__name__)
 
 # Attribute ``process_model`` stamps on each in-memory entry: the path of that entry's per-model ``.dump``.
 DUMP_PATH_ATTR = "model_file_path"
 
 
-def _is_post_processed_model(model: Any) -> bool:
-    """True for a model object that composite post-processing put on an entry after its dump was written."""
-    return bool(getattr(model, "_routes_inner_input", False))
+# A model composite post-processing put on an entry after its dump was written is exactly a composite wrapper.
+_is_post_processed_model = is_composite_wrapper
 
 
 def resave_post_processed_entries(ctx: Any) -> int:

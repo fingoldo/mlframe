@@ -67,8 +67,6 @@ def test_transform_name_tables_in_src_are_derived_or_explained():
             found[rel] = n
     assert_scanned_enough(scanned, "mlframe src modules")
     unexplained = {rel: n for rel, n in found.items() if n > _ALLOWED.get(rel, (0, ""))[0]}
-    assert not unexplained, (
-        f"hand-kept transform-name tables {unexplained}: derive them from a Transform attribute, or add the file to _ALLOWED with a reason"
-    )
+    assert not unexplained, f"hand-kept transform-name tables {unexplained}: derive them from a Transform attribute, or add the file to _ALLOWED with a reason"
     stale = sorted(rel for rel in _ALLOWED if rel not in found)
     assert not stale, f"_ALLOWED entries whose literal is gone: {stale}"

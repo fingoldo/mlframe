@@ -73,6 +73,7 @@ import pandas as pd
 
 from .hermite_fe import _POLY_BASES
 from ._orthogonal_shared import coerce_y_classif
+from ._safe_scale import standardise
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
@@ -326,8 +327,6 @@ def generate_conditional_basis_routing_features(
         _yf = y_arr.astype(np.float64)
         _ystd = float(_yf.std())
         if _ystd > 1e-12:
-            from ._safe_scale import standardise
-
             _Mz = standardise(cand_mat)
             route_score = np.abs(_Mz.T @ ((_yf - _yf.mean()) / _ystd) / _yf.size)
         else:

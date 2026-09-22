@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 # Bounded LRU-ish: cap entries so a long-lived process can't grow it unboundedly.
 _KFOLD_SPLIT_CACHE: dict[tuple[int, int, int], list[tuple[np.ndarray, np.ndarray]]] = {}
 _KFOLD_SPLIT_CACHE_MAX = 256
+_KFOLD_SPLIT_CACHE_LOCK = threading.Lock()  # parallel screening workers share the cache; clear-then-insert must not interleave
 
 
 def _cached_kfold_splits(n_rows: int, cv_folds: int, random_state: int):
@@ -58,14 +59,16 @@ def _cached_kfold_splits(n_rows: int, cv_folds: int, random_state: int):
     the split is a pure function of those three ints. Cached arrays are only
     READ downstream (fancy-indexed into copies), so reuse is safe without a copy."""
     key = (int(n_rows), int(cv_folds), int(random_state))
-    cached = _KFOLD_SPLIT_CACHE.get(key)
+    with _KFOLD_SPLIT_CACHE_LOCK:
+        cached = _KFOLD_SPLIT_CACHE.get(key)
     if cached is not None:
         return cached
     kf = make_discovery_splitter(cv_folds, random_state=random_state)[0]  # the one place a shuffled discovery KFold is built
     splits = list(kf.split(np.empty(n_rows, dtype=np.uint8)))
-    if len(_KFOLD_SPLIT_CACHE) >= _KFOLD_SPLIT_CACHE_MAX:
-        _KFOLD_SPLIT_CACHE.clear()  # cheap bounded reset; sweeps reuse one key set
-    _KFOLD_SPLIT_CACHE[key] = splits
+    with _KFOLD_SPLIT_CACHE_LOCK:
+        if len(_KFOLD_SPLIT_CACHE) >= _KFOLD_SPLIT_CACHE_MAX:
+            _KFOLD_SPLIT_CACHE.clear()  # cheap bounded reset; sweeps reuse one key set
+        _KFOLD_SPLIT_CACHE[key] = splits
     return splits
 
 

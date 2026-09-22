@@ -264,7 +264,6 @@ def test_gate_falls_back_to_coarse_when_require_oof_for_gate_and_oof_missing(cap
 
     reset_throttle_counts()  # the coarse-gate note is logged once per process
 
-
     def _make(val_preds, has_oof: bool):
         """Make."""
         return SimpleNamespace(
@@ -672,7 +671,6 @@ def test_coarse_gate_drops_catastrophic_outlier_member(caplog):
     from mlframe.utils.log_throttle import reset_throttle_counts
 
     reset_throttle_counts()  # the coarse-gate note is logged once per process
-
 
     def _make(val_preds):
         """Make."""

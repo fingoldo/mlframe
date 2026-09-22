@@ -258,7 +258,11 @@ def _fast_calibration_binning_serial(y_true: np.ndarray, y_pred: np.ndarray, nbi
     span = max_val - min_val
 
     if span > 0:
-        multiplier = (nbins - 1) / span
+        # ``nbins / span``, not ``(nbins - 1) / span``: the latter made every bin ``span/(nbins-1)`` wide, so the grid covered
+        # ``nbins - 1`` bins of data plus a last bin holding only the exact maximum (one row, freqs_true 0 or 1, a
+        # near-1.0 gap in CMAEW); at nbins=2 every row landed in ONE bin. The ``ind >= nbins`` clamp below puts the
+        # maximum itself in the last bin.
+        multiplier = nbins / span
         for true_class, predicted_prob in zip(y_true, y_pred):
             ind = floor((predicted_prob - min_val) * multiplier)
             if ind < 0:
@@ -279,12 +283,9 @@ def _fast_calibration_binning_serial(y_true: np.ndarray, y_pred: np.ndarray, nbi
 
     hits = pockets_predicted[idx]
     if len(hits) > 0:
-        # Mean predicted prob per present bin; bin-centre kept only as the empty-bin fallback geometry.
-        centres = (min_val + (np.arange(nbins)[idx] + 0.5) * span / nbins).astype(np.float64)
+        # Mean predicted prob per present bin. ``idx`` selects populated bins only, so there is no empty bin to give
+        # a centre to (a bin-centre fallback used to be computed here on every call and could never be used).
         freqs_predicted = pockets_pred_sum[idx] / hits
-        for b in range(len(hits)):
-            if hits[b] == 0:
-                freqs_predicted[b] = centres[b]
         freqs_true = pockets_true[idx] / pockets_predicted[idx]
     else:
         freqs_predicted, freqs_true = np.array((), dtype=np.float64), np.array((), dtype=np.float64)
@@ -338,7 +339,11 @@ def _fast_calibration_binning_prange(y_true: np.ndarray, y_pred: np.ndarray, nbi
     part_true = np.zeros((nth, nbins), dtype=np.int64)
     part_sum = np.zeros((nth, nbins), dtype=np.float64)
     if span > 0:
-        multiplier = (nbins - 1) / span
+        # ``nbins / span``, not ``(nbins - 1) / span``: the latter made every bin ``span/(nbins-1)`` wide, so the grid covered
+        # ``nbins - 1`` bins of data plus a last bin holding only the exact maximum (one row, freqs_true 0 or 1, a
+        # near-1.0 gap in CMAEW); at nbins=2 every row landed in ONE bin. The ``ind >= nbins`` clamp below puts the
+        # maximum itself in the last bin.
+        multiplier = nbins / span
         for t in numba.prange(nth):
             lo = t * chunk
             hi = min(lo + chunk, n)
@@ -411,6 +416,23 @@ def _quantile_binning_kernel(y_true: np.ndarray, y_pred: np.ndarray, edges: np.n
     return freqs_predicted, freqs_true, hits
 
 
+# Base rate below which "auto" switches to equal-population bins: uniform bins leave most pockets empty on a rare
+# positive class, so the calibration curve is estimated from a handful of them.
+_QUANTILE_BINNING_MAX_BASE_RATE = 0.10
+
+
+def resolve_binning_strategy(y_true, strategy: str = "auto") -> str:
+    """Resolve ``"auto"`` to ``"uniform"`` / ``"quantile"``; any other value passes through.
+
+    Exposed so every ICE path resolves identically: the metric used to be pinned to uniform while the report resolved
+    auto, and the same predictions scored -0.294 and -0.313 under a "bit-exact" claim.
+    """
+    if strategy != "auto":
+        return strategy
+    base_rate = float(np.mean(y_true)) if len(y_true) else 0.0
+    return "quantile" if 0.0 < base_rate < _QUANTILE_BINNING_MAX_BASE_RATE else "uniform"
+
+
 def calibration_binning(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -438,10 +460,7 @@ def calibration_binning(
         empty = np.array((), dtype=np.float64)
         return empty, empty, np.array((), dtype=np.int64)
 
-    resolved = strategy
-    if strategy == "auto":
-        base_rate = float(np.mean(y_true))
-        resolved = "quantile" if (0.0 < base_rate < 0.10) else "uniform"
+    resolved = resolve_binning_strategy(y_true, strategy)
 
     if resolved == "uniform":
         return fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)

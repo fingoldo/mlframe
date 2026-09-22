@@ -691,6 +691,17 @@ from ._phase_helpers_fit_split import (  # noqa: F401
 )
 
 
+def _positional_group_ids(group_ids: Any) -> Any:
+    """``group_ids`` as a plain array, so ``group_ids[val_idx]`` selects by POSITION like every other per-row vector.
+
+    An extractor returning ``df["match_id"]`` hands over a pandas Series, and indexing that with the positional split
+    indices is a LABEL lookup: under a non-RangeIndex it returns the groups of other rows - silently, whenever every label
+    exists - and group-aware val metrics and ranking ``eval_group`` are computed against the wrong grouping.
+    ``group_ids_raw`` is left as returned: it is read by name, not indexed.
+    """
+    return None if group_ids is None else np.asarray(group_ids)
+
+
 def _phase_load_and_preprocess(
     ctx: TrainingContext,
     *,
@@ -776,7 +787,7 @@ def _phase_load_and_preprocess(
     ctx.df = df
     ctx.target_by_type = target_by_type
     ctx.group_ids_raw = group_ids_raw
-    ctx.group_ids = group_ids
+    ctx.group_ids = _positional_group_ids(group_ids)
     ctx.timestamps = timestamps
     ctx.artifacts = artifacts
     ctx.additional_columns_to_drop = additional_columns_to_drop

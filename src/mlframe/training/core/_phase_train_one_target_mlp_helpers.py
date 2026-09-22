@@ -181,6 +181,7 @@ def extreme_ar_skip_decision(
     lag1_autocorr_per_group,
     group_aware: bool,
     threshold: float = 0.99,
+    composite_names: "frozenset[str] | None" = None,
 ) -> "tuple[bool, bool]":
     """Decide whether to SKIP fitting ``model_name`` on ``target_name``.
 
@@ -199,9 +200,10 @@ def extreme_ar_skip_decision(
     Composite targets are NEVER skipped: residual/diff/linres targets bound
     the variance and are exactly where neural nets belong.
     """
-    from ..composite.transforms import is_composite_target_name
+    from ..composite.transforms import is_composite_target
 
-    if is_composite_target_name(target_name):
+    # ``composite_names`` (the suite's spec names) decides when known; the name heuristic is the fallback for callers without metadata.
+    if is_composite_target(target_name, composite_names):
         return False, False
     fired = bool(group_aware and lag1_autocorr_per_group is not None and float(lag1_autocorr_per_group) >= float(threshold))
     skip = bool(fired and skip_enabled and model_name in tuple(skip_models))

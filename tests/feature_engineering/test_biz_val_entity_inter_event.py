@@ -60,23 +60,41 @@ def test_entity_inter_event_features_first_and_last_row_of_group_are_nan():
 
 
 def test_entity_inter_event_features_value_col_adds_value_stats():
-    """Entity inter event features value col adds value stats."""
+    """The value stats are to-date: row 0 of an entity sees only its own value, row 1 the mean of both.
+
+    They used to be the whole-segment mean repeated on every row ([15, 15, 200, 200] here), i.e. row 0 already knew
+    the value of an event that had not happened yet.
+    """
     entity_ids = np.array([1, 1, 2, 2])
     timestamps = np.array([0.0, 1.0, 0.0, 1.0])
     values = np.array([10.0, 20.0, 100.0, 300.0])
     out = entity_inter_event_features(entity_ids, timestamps, value_col=values)
-    assert np.allclose(out["group_mean_value"], [15.0, 15.0, 200.0, 200.0])
+    assert np.allclose(out["group_mean_value"], [10.0, 15.0, 100.0, 200.0])
+    assert np.allclose(out["group_mean_value"][[1, 3]], [15.0, 200.0]), "the last row still sees the whole history"
     assert "group_std_value" in out and "group_median_value" in out
 
 
-def test_entity_inter_event_features_group_stat_constant_within_entity():
-    """Entity inter event features group stat constant within entity."""
+def test_entity_inter_event_features_group_stat_never_looks_past_the_row():
+    """Each row's group stat covers that entity's gaps TO DATE, and its last row equals the whole-segment mean.
+
+    The stat used to be one whole-segment number repeated on every row, which for any row but the last was partly
+    determined by events in that row's future; ``causal=False`` still produces exactly that, and this test pins the
+    relationship between the two.
+    """
     entity_ids, timestamps, _ = _make_entity_tempo_data(6, 8, seed=1)
     out = entity_inter_event_features(entity_ids, timestamps)
-    for e in np.unique(entity_ids):
+    whole = entity_inter_event_features(entity_ids, timestamps, causal=False)
+    entities = list(np.unique(entity_ids))
+    assert entities, "the bed must actually contain entities to check"
+    for e in entities:
         mask = entity_ids == e
         vals = out["group_mean_time_delta"][mask]
-        assert np.allclose(vals, vals[0])  # same broadcast value for every row of the entity
+        gaps = out["time_since_prev_event"][mask]
+        assert np.isnan(vals[0]), "the first event of an entity has no gap yet"
+        assert range(1, len(vals)), "each entity must have several events"
+        for i in range(1, len(vals)):
+            assert np.isclose(vals[i], np.nanmean(gaps[: i + 1])), "row i must average exactly the gaps up to i"
+        assert np.isclose(vals[-1], whole["group_mean_time_delta"][mask][-1])
 
 
 def _make_entity_tempo_shift_data(n_entities: int, events_per_entity: int, switch_idx: int, seed: int):
@@ -178,7 +196,9 @@ def test_biz_val_entity_group_mean_gap_predicts_target_while_raw_timestamp_does_
     entity_ids, timestamps, y = _make_entity_tempo_data(n_entities=200, events_per_entity=10, seed=42)
     out = entity_inter_event_features(entity_ids, timestamps)
 
-    corr_group_mean, _ = spearmanr(out["group_mean_time_delta"], y)
+    # nan_policy="omit": the first event of each entity has no gap yet, and NaN is the honest value for it under the
+    # causal default (the old whole-segment stat gave that row a number built from its future).
+    corr_group_mean, _ = spearmanr(out["group_mean_time_delta"], y, nan_policy="omit")
     corr_raw_timestamp, _ = spearmanr(timestamps, y)
 
     # group_mean_time_delta directly encodes entity tempo (small = bursty = target 1), so it should

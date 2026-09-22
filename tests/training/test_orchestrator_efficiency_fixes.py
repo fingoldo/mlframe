@@ -313,4 +313,5 @@ def test_main_del_df_has_why_comment():
     # memory is not actually reclaimed. That is a property of the code, unlike the comment window that used to
     # be checked here, which passed or failed on wording.
     _tail = src[_m.end() : _m.end() + 400]
-    assert re.search(r"^[ \t]*ctx\.df = None$", _tail, re.MULTILINE), "`del df` without clearing ctx.df leaves the context holding the frame, so nothing is reclaimed"
+    # A chained reset (``ctx.df = ctx.split_row_ids = None``) clears ctx.df just the same.
+    assert re.search(r"^[ \t]*ctx\.df = (?:[\w.]+ = )*None\b", _tail, re.MULTILINE), "`del df` without clearing ctx.df leaves the context holding the frame, so nothing is reclaimed"

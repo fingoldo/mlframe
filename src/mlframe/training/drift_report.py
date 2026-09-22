@@ -17,6 +17,7 @@ Public surface:
 - format_drift_report(...)
 - DEFAULT_BINARY_DRIFT_WARN_THRESHOLD_PP — 5 percentage points
 - DEFAULT_REGRESSION_MEAN_Z_WARN_THRESHOLD — 0.5 sigma
+- DEFAULT_REGRESSION_REL_SHIFT_WARN_THRESHOLD — 20% relative move in level / dispersion / upper tail
 
 Auto-emitted via train_mlframe_models_suite right after the
 train/val/test split materialises, with the report tucked into
@@ -40,6 +41,15 @@ P(y=1) differs from train's by more than this many percentage points."""
 DEFAULT_REGRESSION_MEAN_Z_WARN_THRESHOLD: float = 0.5
 """Default warn threshold for regression targets: emit if any split's
 mean differs from train's by more than this many train-target sigma."""
+
+DEFAULT_REGRESSION_REL_SHIFT_WARN_THRESHOLD: float = 0.20
+"""Default warn threshold for a regression split's RELATIVE shift in level (mean), dispersion (std) or upper tail
+(p99) against train. Scale-free, so it stays reachable on a heavy-tailed target where the sigma test cannot fire: a
+production run whose target mean fell 59% and p99 fell 63% scored 0.09 sigma and reported no drift at all."""
+
+_MIN_RESOLVABLE_SE_MULTIPLE: float = 5.0
+"""A train statistic smaller than this many standard errors of the train mean is inside sampling noise, so its ratio
+against a split carries no information and the relative check skips it."""
 
 DEFAULT_MULTI_DRIFT_WARN_THRESHOLD_PP: float = 5.0
 """Default warn threshold for multiclass / multilabel: emit if any class's
@@ -150,6 +160,50 @@ def _regression_split_summary(arr: np.ndarray) -> dict[str, float]:
     }
 
 
+def _regression_shape_warnings(split_name: str, splits: dict[str, Any], drifts: dict[str, Any], rel_threshold: float) -> list[str]:
+    """Relative level / dispersion / upper-tail shift warnings for ``splits[split_name]`` vs ``splits["train"]``, recording every ratio into ``drifts``.
+
+    The sigma test alone is unreachable on a heavy-tailed target: sigma is set by the tail while the shift happens in
+    the bulk, so a production target whose mean fell 59% and whose p99 fell 63% scored 0.09 sigma and reported no
+    drift. These three ratios are scale-free and each catches a shift the others miss -- level (mean), dispersion
+    (std) and upper tail (p99). A near-zero train reference makes a ratio meaningless rather than large, so those are
+    skipped rather than warned on.
+    """
+    train_summary, split_summary = splits["train"], splits[split_name]
+    out: list[str] = []
+    checks = (
+        ("mean", "level", "mean"),
+        ("std", "dispersion", "std"),
+        ("p99", "upper tail", "p99"),
+    )
+    # A ratio is only meaningful when its denominator is resolvable above sampling noise. A target centred on ~0 has
+    # a train mean of a few standard errors, so ANY split produces a large ratio out of pure noise -- which would
+    # replace one useless verdict with another. The standard error of the train mean is the resolution limit for
+    # every statistic here, so one rule covers all three.
+    train_std = float(train_summary.get("std") or 0.0)
+    n_train = int(train_summary.get("n") or 0)
+    resolvable = (
+        _MIN_RESOLVABLE_SE_MULTIPLE * train_std / np.sqrt(n_train) if train_std > 0 and n_train > 1 else 0.0
+    )
+    for key, label, stat_name in checks:
+        train_v = train_summary.get(key)
+        split_v = split_summary.get(key)
+        if train_v is None or split_v is None or not np.isfinite(train_v) or not np.isfinite(split_v):
+            continue
+        if train_v == 0 or abs(train_v) < resolvable:
+            continue
+        ratio = float(split_v) / float(train_v)
+        drifts[f"{split_name}_{stat_name}_ratio_vs_train"] = ratio
+        rel_shift = ratio - 1.0
+        if abs(rel_shift) > rel_threshold:
+            out.append(
+                f"{split_name.upper()} {stat_name}={split_v:.4g} vs train {train_v:.4g} "
+                f"({rel_shift:+.1%}, threshold +/-{rel_threshold:.0%}); regression target {label} shift suspected. "
+                f"A sigma-scaled mean test can miss this on a heavy-tailed target."
+            )
+    return out
+
+
 def compute_label_distribution_drift(
     train_target: Any,
     val_target: Any,
@@ -158,6 +212,7 @@ def compute_label_distribution_drift(
     *,
     warn_threshold_pp: float = DEFAULT_BINARY_DRIFT_WARN_THRESHOLD_PP,
     regression_mean_z_threshold: float = DEFAULT_REGRESSION_MEAN_Z_WARN_THRESHOLD,
+    regression_rel_shift_threshold: float = DEFAULT_REGRESSION_REL_SHIFT_WARN_THRESHOLD,
     multi_warn_threshold_pp: float = DEFAULT_MULTI_DRIFT_WARN_THRESHOLD_PP,
 ) -> dict[str, Any]:
     """Compute label-distribution drift between train, val, test splits.
@@ -285,10 +340,10 @@ def compute_label_distribution_drift(
             drifts[f"{split_name}_mean_z_vs_train"] = float(z)
             if not np.isnan(z) and abs(z) > regression_mean_z_threshold:
                 warnings.append(
-                    f"{split_name.upper()} mean={split_mean:.4g} vs "
-                    f"train {train_mean:.4g} (Δ={delta:+.4g}, z={z:+.2f}σ "
+                    f"{split_name.upper()} mean={split_mean:.4g} vs train {train_mean:.4g} (Δ={delta:+.4g}, z={z:+.2f}σ "
                     f"vs train σ={train_std:.4g}); regression target shift suspected."
                 )
+            warnings.extend(_regression_shape_warnings(split_name, splits, drifts, regression_rel_shift_threshold))
 
     elif is_multiclass:
         # Discover class labels from the union of all three splits.
@@ -324,10 +379,9 @@ def compute_label_distribution_drift(
             drifts[f"{split_name}_minus_train_pp"] = float(delta_pp)
             if abs(delta_pp) > warn_threshold_pp:
                 warnings.append(
-                    f"{split_name.upper()} P(y=1)={split_p:.3f} vs train "
-                    f"{train_p:.3f} (Δ={delta_pp:+.1f}pp); selection-bias / "
-                    f"prior-shift suspected - model will be miscalibrated on "
-                    f"{split_name}."
+                    f"{split_name.upper()} P(y=1)={split_p:.3f} vs train {train_p:.3f} (Δ={delta_pp:+.1f}pp); selection-bias / "
+                    f"prior-shift suspected - model will be miscalibrated on {split_name}. The remedy is a held-out calibration split "
+                    f"(TrainingSplitConfig.calib_size); without one the suite can measure the miscalibration but cannot correct it."
                 )
         # Track val-vs-test as a separate diagnostic (val-test mismatch
         # is common with shuffled val + temporal test).

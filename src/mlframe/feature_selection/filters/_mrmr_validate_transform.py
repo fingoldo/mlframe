@@ -707,6 +707,15 @@ def transform(self, X, y=None):
             pass
     return out
 
+def _fresh_recipe_caches() -> "tuple[dict, dict]":
+    """Empty ``(column cache, basis cache)`` for one ``_append_engineered`` call.
+
+    A hub source column is pulled from X once and a shared orth operand's basis is evaluated once, however many recipes
+    read it. Recipes never write into what they read, so the cached arrays stay valid for the call.
+    """
+    return {}, {}
+
+
 def _append_engineered(self, base_out, X, recipes):
     """Append engineered-recipe columns onto ``base_out``.
 
@@ -739,14 +748,10 @@ def _append_engineered(self, base_out, X, recipes):
     # Lazy import keeps import-time cost off MRMR users who never engage FE.
     from .engineered_recipes import apply_recipe
 
-    # K-way recipes ship a chained-lookup payload (extras ``chain_lookups`` / ``chain_nuniqs``) so they
-    # replay on test data alongside pair recipes. The only filter is the legacy ``requires_refit_for_replay``
-    # flag retained for OLD pickles that pre-date the chain payload.
+    # K-way recipes ship a chained-lookup payload (extras ``chain_lookups`` / ``chain_nuniqs``) so they replay on test data alongside pair
+    # recipes. The only filter is the legacy ``requires_refit_for_replay`` flag retained for OLD pickles that pre-date the chain payload.
     replayable = [r for r in recipes if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")]
-    # One column cache and one basis cache for this call: a hub source column is pulled from X once and a shared orth operand's basis is
-    # evaluated once, however many recipes read it. Recipes never write into what they read, so the cached arrays stay valid for the call.
-    _col_cache: dict = {}
-    _basis_cache: dict = {}
+    _col_cache, _basis_cache = _fresh_recipe_caches()
     if len(replayable) < len(recipes) and self.verbose:
         logger.info(
             "MRMR.transform: skipping %d legacy k-way recipe(s) " "without chained-lookup payload (pre-D3 pickle). Re-fit " "to materialise the chain.",

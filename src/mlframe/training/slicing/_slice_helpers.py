@@ -102,12 +102,9 @@ def _row_select(frame: Any, row_idx: np.ndarray) -> Any:
     if pd is not None and isinstance(frame, pd.DataFrame):
         return frame.iloc[row_idx].reset_index(drop=True)
     if _is_polars_df(frame):
-        # Match the row-selection idiom used elsewhere in mlframe (composite_ensemble.py:616-620):
-        # boolean mask via pl.Series keeps Enum / Categorical dtypes intact.
-        assert _pl is not None  # nosec B101 - internal invariant check in src/mlframe/training/slicing, not reachable with untrusted input
-        mask = np.zeros(frame.height, dtype=bool)
-        mask[row_idx] = True
-        return frame.filter(_pl.Series(mask))
+        # Positional gather keeps Enum / Categorical dtypes AND the order of ``row_idx`` (a boolean mask kept row order, so an
+        # unsorted index returned rows the aligned arrays did not match).
+        return frame[np.asarray(row_idx, dtype=np.int64)]
     arr = np.asarray(frame)
     return arr[row_idx]
 

@@ -232,6 +232,26 @@ def _mi_y_baseline(self, *, x_prebinned, per_feat_y_full, surviving_orig_idx, ba
         )
 
 
+def _point_mass_skips_logged(y_train) -> set:
+    """Curved y-compressors to skip because the target is a point mass, logging the skip when there is one.
+
+    Their convex inverse cannot reconstruct spread from a point mass -- a production run measured pred_std at 1.3-1.8%
+    of target_std for log/cbrt on a zero-inflated amount, after paying for the fits.
+    """
+    from ._point_mass_gate import point_mass_curved_inverse_skips, point_mass_fraction
+
+    _skip_curved = point_mass_curved_inverse_skips(y_train)
+    if _skip_curved:
+        logger.info(
+            "[CompositeTargetDiscovery] %.0f%% of the target sits on a single value; skipping curved y-compressors %s "
+            "(their convex inverse cannot reconstruct spread from a point mass -- a production run measured "
+            "pred_std at 1.3-1.8%% of target_std for log/cbrt on a zero-inflated amount, after paying for the fits). "
+            "Clipping-style y-transforms keep a piecewise-linear inverse and stay.",
+            100.0 * point_mass_fraction(y_train), sorted(_skip_curved),
+        )
+    return set(_skip_curved)
+
+
 def fit(
     self: "CompositeTargetDiscovery",
     df: Any,
@@ -700,7 +720,7 @@ def fit(
             "skew). yeo_johnson_y stays: it fits lambda > 1 for a left tail.", sorted(_skip_right_tail),
         )
     candidates.extend(_evaluate_work_items(
-        self, base_candidates, _base_contexts, _skip_right_tail, _unary_evaluated, _unary_context_available, y_train, y_screen, target_col,
+        self, base_candidates, _base_contexts, _skip_right_tail | _point_mass_skips_logged(y_train), _unary_evaluated, _unary_context_available, y_train, y_screen, target_col,
     ))
     # The per-base float and prebinned copies and the full matrices are read by nothing past this point; holding them
     # kept (bases + 1) x rows x features x 6 bytes resident through the rerank, the holdout gates and the re-score.

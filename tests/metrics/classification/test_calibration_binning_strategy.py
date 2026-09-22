@@ -35,8 +35,10 @@ def _reference_uniform_binning(y_true, y_pred, nbins):
     lo, hi = y_pred.min(), y_pred.max()
     span = hi - lo
     if span > 0:
-        mult = (nbins - 1) / span
-        idx = np.floor((y_pred - lo) * mult).astype(int)
+        # nbins equal-width bins over [lo, hi], the maximum itself in the last one. The (nbins - 1)/span width this
+        # reference used to encode left the last bin holding only the exact maximum.
+        mult = nbins / span
+        idx = np.minimum(np.floor((y_pred - lo) * mult).astype(int), nbins - 1)
     else:
         idx = np.zeros(len(y_pred), dtype=int)
     means, freqs, counts = [], [], []

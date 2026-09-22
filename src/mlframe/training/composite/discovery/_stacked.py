@@ -93,10 +93,8 @@ def fit_stacked(
     val_idx: np.ndarray | None = None,
     test_idx: np.ndarray | None = None,
     *,
-    n_oof_folds: int = 3,
-    max_pass1_specs_to_stack: int = 3,
-    time_aware: bool = False,
-    cv_splitter: Any = None,
+    n_oof_folds: int = 3, max_pass1_specs_to_stack: int = 3, time_aware: bool = False, cv_splitter: Any = None,
+    time_ordering: Any = None, val_df: Any = None, val_y: np.ndarray | None = None,
 ):
     """2-pass stacked composite discovery.
 
@@ -122,8 +120,10 @@ def fit_stacked(
     respect time order. The suite forwards ``time_aware=True`` automatically
     when a ``time_column`` is configured. Defaults preserve the historical
     shuffled-K-fold numerics for non-temporal callers.
+
+    ``time_ordering`` / ``val_df`` / ``val_y`` forward to :meth:`fit`; pass 2 keeps only ``time_ordering`` (its OOF columns are absent from val).
     """
-    self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
+    self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx, time_ordering=time_ordering, val_df=val_df, val_y=val_y)
     pass1_specs = list(self.specs_) if self.specs_ else []
     if not pass1_specs:
         logger.info("[CompositeTargetDiscovery.stacked] pass1 yielded 0 specs; skipping pass 2.")
@@ -216,7 +216,7 @@ def fit_stacked(
         return self
 
     try:
-        self.fit(df_aug, target_col, new_feature_cols, train_idx, val_idx, test_idx)
+        self.fit(df_aug, target_col, new_feature_cols, train_idx, val_idx, test_idx, time_ordering=time_ordering)
     except Exception as _p2_err:
         logger.warning(
             "[CompositeTargetDiscovery.stacked] pass 2 failed: %s. Returning pass-1 specs.",
@@ -251,11 +251,9 @@ def fit_stacked_on_residual(
     val_idx: np.ndarray | None = None,
     test_idx: np.ndarray | None = None,
     *,
-    n_oof_folds: int = 3,
-    residual_aggregation: str = "mean",
-    max_pass1_specs_to_aggregate: int = 3,
-    time_aware: bool = False,
-    cv_splitter: Any = None,
+    n_oof_folds: int = 3, residual_aggregation: str = "mean", max_pass1_specs_to_aggregate: int = 3,
+    time_aware: bool = False, cv_splitter: Any = None,
+    time_ordering: Any = None, val_df: Any = None, val_y: np.ndarray | None = None,
 ):
     """Residual-target stacked discovery (ALTERNATIVE to ``fit_stacked``).
 
@@ -283,7 +281,7 @@ def fit_stacked_on_residual(
 
     Returns: ``self.specs_`` = pass1_specs UNION pass2_specs, with ``discovered_on_residual=True`` annotation in spec metadata for pass-2 entries. Suite-side training integration (fit pass-2 specs on the actual residual not raw y) is the follow-up step -- the current scaffolding returns the specs for inspection / experimentation. Because the suite does NOT yet route these specs through a residual-aware training path, a WARNING is emitted listing them: their ``fitted_params`` were fit against the residual but training would apply them against raw ``y``, so they must be treated as inspection-only until the residual-aware path lands.
     """
-    self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
+    self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx, time_ordering=time_ordering, val_df=val_df, val_y=val_y)
     pass1_specs = list(self.specs_) if self.specs_ else []
     if not pass1_specs:
         logger.info("[CompositeTargetDiscovery.stacked_on_residual] pass1 yielded 0 specs; " "skipping residual-target pass 2.")
@@ -381,9 +379,10 @@ def fit_stacked_on_residual(
             return self
 
     try:
+        # The pass-2 target is the residual, so the raw-target val_y does not apply; time order still does.
         self.fit(
             df_with_resid, _residual_col, feature_cols,
-            train_idx, val_idx, test_idx,
+            train_idx, val_idx, test_idx, time_ordering=time_ordering,
         )
     except Exception as _p2_err:
         logger.warning(

@@ -21,7 +21,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional, Sequence
+import threading
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -168,7 +169,10 @@ def _bounded_sample_idx(n: int, loss: np.ndarray, seed: int = 0) -> np.ndarray:
     )
 
 
-def _prepared_error_inputs(df: Any, yt: np.ndarray, yp: np.ndarray, task: str, seed: int, n: int, feature_names: Optional[Sequence[str]]):
+def _prepared_error_inputs(
+    df: Any, yt: np.ndarray, yp: np.ndarray, task: str, seed: int, n: int, feature_names: Optional[Sequence[str]],
+    cache_key_arrays: Optional[Tuple[Any, Any]] = None,
+):
     """``(loss, sample_idx, sub_df, names)`` for the error diagnostics, computed once per (frame, target, seed).
 
     Both entry points draw the same bounded worst-error-preserving sample from the same per-row error, cap
@@ -191,7 +195,11 @@ def _prepared_error_inputs(df: Any, yt: np.ndarray, yp: np.ndarray, task: str, s
         _capped_df, names = _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)
         return loss, sample_idx, _subset_rows(_capped_df, sample_idx), names
 
-    return shared_error_prep(df, yt, yp, task, seed, _build)
+    # Key on the arrays the CALLER passed in, not on the sliced views built here: ``np.asarray(...).ravel()[:n]``
+    # produces a new object on every call, so an id()-keyed entry could never be hit and the second diagnostic paid
+    # the full densify again - the saving this cache documents was never realised.
+    _key_yt, _key_yp = cache_key_arrays if cache_key_arrays is not None else (yt, yp)
+    return shared_error_prep(df, _key_yt, _key_yp, task, seed, _build, extra=int(n))
 
 
 def render_split_error_diagnostics(
@@ -241,7 +249,7 @@ def render_split_error_diagnostics(
     # Shared with the slice-finder diagnostic, which a report runs on the same frame, targets and seed
     # immediately afterwards and which prepared all of this a second time -- including the densify inside
     # its builder, 0.29 s on 100k x 200 all-numeric and 2.55 s with twenty object columns.
-    loss, sample_idx, sub_df, names = _prepared_error_inputs(df, yt, yp, task, seed, n, feature_names)
+    loss, sample_idx, sub_df, names = _prepared_error_inputs(df, yt, yp, task, seed, n, feature_names, cache_key_arrays=(y_true, y_pred))
     if timestamps is None:
         ts_arg = None
     elif n <= DIAG_ROW_CAP:
@@ -359,7 +367,6 @@ def render_target_drift_diagnostics(
 
     from mlframe.reporting.charts.drift import (
         metric_over_time,
-        psi_heatmap,
         residual_vs_time,
     )
 
@@ -389,7 +396,7 @@ def render_target_drift_diagnostics(
     if has_time and test_frame is not None:
         ts = np.asarray(timestamps)
         try:
-            spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=_non_calendar)
+            spec = _psi_heatmap_cached(test_frame, ts, _non_calendar)
             if _calendar:
                 spec = _with_caption_note(spec, f"Excluded {len(_calendar)} calendar feature(s) derived from the timestamp (they differ between time buckets by construction): {', '.join(_calendar)}.")
             ok = _save_spec(spec, plot_outputs, base_path + "_psi")
@@ -479,6 +486,57 @@ from ._diagnostics_adversarial import (  # noqa: F401  (re-exported; tests clear
 )
 
 
+_PSI_CACHE: dict = {}
+_PSI_CACHE_LOCK = threading.Lock()  # concurrent suites share it; the evict-then-insert must not interleave
+
+
+def _psi_cache_key(test_frame: Any, timestamps: Any, names: Any) -> Optional[tuple]:
+    """Content key for a PSI heatmap: the frame's signature, the timestamp axis and the feature set.
+
+    The timestamps enter via length plus their endpoints rather than a full hash: the axis that reaches this builder
+    is a split's own ordered timestamp column, so two calls sharing a frame signature and those three numbers are
+    reading the same rows.
+    """
+    try:
+        from mlframe.training._dataset_cache_fingerprint import compute_signature
+
+        ts = np.asarray(timestamps)
+        ts_key = (int(ts.size), str(ts[0]), str(ts[-1])) if ts.size else (0,)
+        return (
+            compute_signature(test_frame)[:4],
+            ts_key,
+            tuple(str(n) for n in names) if names is not None else None,
+        )
+    except Exception as exc:  # an unhashable frame only means "do not cache": the heatmap is recomputed, never wrong
+        logger.debug("PSI cache key unavailable (%s); computing the heatmap uncached", exc)
+        return None
+
+
+def _psi_heatmap_cached(test_frame: Any, ts: np.ndarray, names: Any) -> Any:
+    """``psi_heatmap`` memoised on (frame signature, timestamp axis, feature set).
+
+    Quantile PSI reads only the feature frame and the timestamps, never the target, so every target of a run
+    recomputed an identical matrix -- 14 of them in one production log, over a feature frame the suite's own
+    PipelineCache reported as a single cached entry. Same content key and eviction as the adversarial cache.
+    """
+    # Imported per call, not at module import: the builder's real home is the patch point tests reach for.
+    from mlframe.reporting.charts.drift import psi_heatmap
+
+    key = _psi_cache_key(test_frame, ts, names)
+    if key is not None:
+        with _PSI_CACHE_LOCK:
+            spec = _PSI_CACHE.get(key)
+        if spec is not None:
+            return spec
+    spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=names)  # computed outside the lock
+    if key is not None:
+        with _PSI_CACHE_LOCK:
+            while len(_PSI_CACHE) >= 8:
+                _PSI_CACHE.pop(next(iter(_PSI_CACHE)))
+            _PSI_CACHE[key] = spec
+    return spec
+
+
 def _with_caption_note(spec: Any, note: str) -> Any:
     """Return ``spec`` with ``note`` appended to its caption (FigureSpec is a frozen dataclass)."""
     import dataclasses
@@ -535,7 +593,7 @@ def render_slice_finder_diagnostic(
 
     # Same prepared inputs the split-error diagnostic used, reused rather than rebuilt -- see
     # ``_prepared_error_inputs``.
-    _, idx, sub_df, names = _prepared_error_inputs(df, yt, yp, task, seed, n, feature_names)
+    _, idx, sub_df, names = _prepared_error_inputs(df, yt, yp, task, seed, n, feature_names, cache_key_arrays=(y_true, y_pred))
     try:
         res = find_weak_slices(
             sub_df, yt[idx], yp[idx], task=task, feature_names=names, seed=seed,

@@ -7,7 +7,7 @@ longer exists, so do not import from that path.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .registry import _TRANSFORMS_REGISTRY
 from . import UnknownTransformError
@@ -278,3 +278,28 @@ def list_transforms(*, tags: frozenset[str] | None = None) -> list[str]:
     if tags is None:
         return sorted(_TRANSFORMS_REGISTRY)
     return sorted(name for name, t in _TRANSFORMS_REGISTRY.items() if t.tags & tags)
+
+
+def composite_target_names(metadata: Any) -> frozenset[str] | None:
+    """Every composite target name the suite discovered, from ``metadata['composite_target_specs']``; None when the metadata has
+    no spec record (a legacy pickle or a caller without metadata), so :func:`is_composite_target` falls back to the name.
+    """
+    specs = metadata.get("composite_target_specs") if isinstance(metadata, dict) else None
+    if not isinstance(specs, dict):
+        return None
+    return frozenset(
+        str(s.get("name") if isinstance(s, dict) else getattr(s, "name", ""))
+        for by_target in specs.values() if isinstance(by_target, dict)
+        for spec_list in by_target.values() for s in (spec_list or ())
+    )
+
+
+def is_composite_target(name: str, composite_names: frozenset[str] | set[str] | None) -> bool:
+    """True when ``name`` is a composite target: a member of the suite's spec names when those are known, else the name heuristic.
+
+    The heuristic freezes its token set at import, so it misses runtime-registered chain transforms
+    (``target-chain_linear_residual_cbrt-TVT_prev``) and matches dashed raw names (``price-diff-7d``). The spec set is exact.
+    """
+    if composite_names is not None:
+        return str(name) in composite_names
+    return is_composite_target_name(str(name))

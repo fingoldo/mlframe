@@ -154,6 +154,7 @@ def test_the_watched_paths_exist_in_this_repository() -> None:
     """A watched path that was renamed silently stops ageing anything, which reads as permanent freshness."""
     root = Path(__file__).resolve().parents[2]
 
+    assert WATCHED_PATHS
     for relative in WATCHED_PATHS:
         assert (root / relative).is_dir(), f"the staleness check watches {relative!r}, which this repository does not have"
 

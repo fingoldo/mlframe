@@ -45,6 +45,10 @@ def composite_suite(tmp_path_factory):
     data_dir = str(tmp_path_factory.mktemp("composite_suite"))
     df = _tvt_dataset(n=400)
     cfg = CompositeTargetDiscoveryConfig(
+        # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
+        # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
+        # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
+        min_honest_gain_z=0.0,
         enabled=True,
         base_candidates=[BASE_COLUMN],
         transforms=["linear_residual"],

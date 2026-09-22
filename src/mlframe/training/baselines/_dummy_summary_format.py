@@ -142,7 +142,7 @@ def format_suite_end_summary(
             # lag_predict; before this change the verdict ignored the ensemble and
             # falsely flagged BEST_MODEL_BELOW_DUMMY even when CT_ENSEMBLE clearly
             # cleared the dummy floor.
-            best_model_name = "-"
+            best_model_name, _val_selected = "-", False  # _val_selected: the shown CT-ensemble metric was chosen on this split
             model_val: float | None = None
             from ..metrics_registry import metric_name_higher_is_better as _mhb_pick
             _direction_pick = _mhb_pick(primary_metric)
@@ -168,8 +168,8 @@ def format_suite_end_summary(
                 _ens_m = cross_target_ensemble_metrics.get(_ens_key, {})
                 _ens_val = _ens_m.get(primary_metric) if _ens_m else None
                 if _better(_ens_val, model_val):
-                    model_val = _ens_val
-                    best_model_name = str(_ens_m.get("model_name", "CT_ENSEMBLE"))
+                    model_val, best_model_name = _ens_val, str(_ens_m.get("model_name", "CT_ENSEMBLE"))
+                    _val_selected = bool(_ens_m.get("val_selection_biased")) and str(primary_metric).startswith("val_")
 
             # Wave 20 fix: registry dispatcher. The previous substring
             # whitelist missed val_MAPE (MAPE not in 'MAE' substring),
@@ -242,7 +242,7 @@ def format_suite_end_summary(
                 f"{str(target_name)[:24]:<24} {_strongest_label[:28]:<28} "
                 f"{primary_metric}={dummy_val:<.4f}     {str(best_model_name)[:12]:<12} "
                 f"{(primary_metric + '=' + (f'{model_val:.4f}' if model_val is not None else '-'))[:22]:<22} "
-                f"{lift_str:<8} {verdict}"
+                f"{lift_str:<8} {verdict}" + (" [val-selected: lift optimistic]" if _val_selected else "")
             )
 
     # PARTIAL_FAILURE WARN -- emitted once per target with failures.

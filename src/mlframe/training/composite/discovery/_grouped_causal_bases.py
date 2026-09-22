@@ -272,6 +272,22 @@ def attach_grouped_causal_bases(
     return _attach_columns(df, to_add), list(to_add.keys())
 
 
+def grouped_causal_bases_for_frame(self: Any, frame: Any, y: np.ndarray, target_col: str, needed: Sequence[str]) -> Any:
+    """``frame`` with the same engineered grouped causal bases discovery built on its train frame, computed from ``y``.
+
+    A second split (the val frame of the y-scale gate) carries the raw columns only, so a feature or spec base named
+    ``<target>__gcausal_*`` raised a KeyError that aborted the whole discovery fit whenever a group column was set. The
+    bases are strictly causal within each group (only earlier rows of that split), so building them on the split's own
+    targets reads no future and no other split. Returns ``frame`` unchanged when none of ``needed`` is missing.
+    """
+    existing = set(_frame_columns(frame))
+    if all(c in existing for c in needed):
+        return frame
+    with_y = _attach_columns(frame, {target_col: np.asarray(y, dtype=np.float64)})
+    augmented, _unused_features, _unused_bases = maybe_add_grouped_causal_bases(self, with_y, target_col, [], [], np.arange(len(y)))
+    return augmented
+
+
 def maybe_add_grouped_causal_bases(
     self: Any,
     df: Any,

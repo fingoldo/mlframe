@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, Optional
 
 import numpy as np
+import pandas as pd
 
 from ..composite.cache import (
     DiscoveryCache,
@@ -138,7 +140,50 @@ def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, tar
     return dropped
 
 
-def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_dir):
+def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None, disc_df: Any = None, time_column: Any = None,
+                            val_df: Any = None, val_y: Any = None, y_full: Any = None, val_idx: Any = None) -> str:
+    """A digest of the discovery inputs that change the selected specs but are neither data columns nor config fields.
+
+    The group ids drive the group-disjoint holdout, the GroupKFold rerank and the fragility gate; the hint strengths decide
+    the hint cap and the ablation skip; the time-column values order the screen; the val frame is the y-scale gate's
+    evaluation set. Without them in the key a rerun under a new group split or val set replayed specs gated on the old one.
+    """
+    import hashlib
+
+    if val_y is None and y_full is not None and val_idx is not None:
+        val_y = np.asarray(y_full)[val_idx]  # the val targets as the phase hands them to the y-scale gate
+    if val_y is None:
+        val_df = None  # the gate ignores a val frame without targets
+    h = hashlib.blake2b(digest_size=16)
+
+    def _arr(tag: str, a: Any) -> None:
+        """Fold one array-like into the digest by tag, shape and dtype, with a distinct marker for a missing one."""
+        h.update(tag.encode())
+        if a is None:
+            h.update(b"<none>")
+            return
+        arr = np.asarray(a)
+        h.update(str((arr.shape, arr.dtype.str)).encode())
+        h.update(np.ascontiguousarray(arr.astype(str) if arr.dtype == object else arr).tobytes())
+
+    _arr("groups", group_ids)
+    _arr("hints", None if hint_strengths is None else np.asarray(list(hint_strengths), dtype=np.float64))
+    _time = None
+    if time_column and disc_df is not None and time_column in getattr(disc_df, "columns", ()):
+        _time = disc_df.get_column(time_column).to_numpy() if hasattr(disc_df, "get_column") else disc_df[time_column].to_numpy()
+    _arr("time", _time)
+    _arr("val_y", val_y)
+    if val_df is None:
+        h.update(b"val_df<none>")
+    else:
+        h.update(str((tuple(getattr(val_df, "columns", ())), getattr(val_df, "shape", None))).encode())
+        head = val_df.head(2000)
+        _rows = head.hash_rows().to_numpy() if hasattr(head, "hash_rows") else pd.util.hash_pandas_object(head, index=False).to_numpy()
+        h.update(np.ascontiguousarray(_rows).tobytes())
+    return h.hexdigest()
+
+
+def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_dir, inputs_digest: str = ""):
     """The discovery cache, its key and any cached payload for this target; a failed key build yields no cache.
 
     The key carries the data fingerprint, the target column and the config signature (which embeds the library
@@ -161,8 +206,9 @@ def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_
         )
         _cfg_sig = _discovery_config_signature(disc_cfg)
         # random_state is already folded into _df_sig (seeds the row-sample) and into _cfg_sig (via the dataclass dump). Passing it again to make_discovery_cache_key would be a double-fold (DISC-RANDOM-STATE-DBL): the same data + same config but with random_state mutated would produce three independent hash mixes. We rename the kwarg here to ``_legacy_random_state_sentinel=0`` so a future reader cannot misread "random_state=0" as the actual seed in use.
+        # The inputs digest (group ids, hint strengths, time order, val frame) rides with the data fingerprint.
         cache_key = make_discovery_cache_key(
-            _df_sig, target_name, _cfg_sig,
+            f"{_df_sig}|{inputs_digest}" if inputs_digest else _df_sig, target_name, _cfg_sig,
             _legacy_random_state_sentinel=0,
         )
         payload = cache.get(cache_key)
@@ -183,3 +229,122 @@ def rank_pending_composites(pending: list) -> list:
     i.e. arbitrarily across targets. A non-finite gain sorts last in its tier.
     """
     return sorted(pending, key=lambda item: (bool(item.get("rmse_gain")), item["gain"] if np.isfinite(item["gain"]) else -np.inf), reverse=True)
+
+
+def _maybe_narrow_to_unary_transforms(disc_cfg: Any, diag: Any, target_name: str) -> Any:
+    """Drop base-dependent transforms when BaselineDiagnostics found no dominant feature to residualise against.
+
+    BaselineDiagnostics computes a ``composite_recommendation`` whose whole purpose is to say whether composite
+    discovery is worth running, and the suite already has it at the per-target decision point (the same precompute the
+    dominant-features hint comes from) -- it was simply never read, so the verdict only reached the log AFTER discovery
+    had finished and committed its specs.
+
+    ``unlikely_to_help`` means "no dominant features", which is a statement about BASE-DEPENDENT families: a residual
+    transform has nothing to residualise against. The base-free unary y-transforms are untouched by that finding, and
+    in the production run the one composite that beat raw y was exactly one of those. So the verdict narrows discovery
+    to the unary family rather than cancelling it.
+
+    Returns ``disc_cfg`` unchanged when the diagnostic is absent, says something else, or the narrowing would leave
+    nothing to search.
+    """
+    if not isinstance(diag, dict) or diag.get("composite_recommendation") != "unlikely_to_help":
+        return disc_cfg
+    try:
+        from ..composite.transforms import UnknownTransformError, get_transform
+
+        unary: list[str] = []
+        for name in list(getattr(disc_cfg, "transforms", ()) or ()):
+            try:
+                if not get_transform(name).requires_base:
+                    unary.append(name)
+            except UnknownTransformError:  # noqa: PERF203 -- per-transform fault isolation is intentional; an unknown name skips, never aborts the narrowing
+                continue
+        if not unary or len(unary) == len(list(disc_cfg.transforms)):
+            return disc_cfg
+        logger.info(
+            "[CompositeTargetDiscovery] target=%r: BaselineDiagnostics reports composite_recommendation="
+            "'unlikely_to_help' (%s). That verdict is about BASE-DEPENDENT families -- with no dominant feature "
+            "there is nothing to residualise against -- so discovery is narrowed from %d transform(s) to the %d "
+            "base-free unary one(s), which the finding does not bear on.",
+            target_name, diag.get("composite_recommendation_reason", "no reason recorded"),
+            len(list(disc_cfg.transforms)), len(unary),
+        )
+        return disc_cfg.model_copy(update={"transforms": unary})
+    except Exception as exc:
+        logger.debug("narrowing discovery to unary transforms failed for %r (%s); full search proceeds", target_name, exc)
+        return disc_cfg
+
+
+_DEFAULT_MIN_HONEST_GAIN_Z: float = 2.0
+"""Standard errors a spec's honest-holdout RMSE gain must clear before the spec is worth a full model fit, on top of
+the constant ``min_honest_gain_to_train`` floor. 0 disables the noise-aware half and restores the constant-only bar."""
+
+
+def _relative_gain_se(spec: Any, raw_rmse: Optional[float]) -> float | None:
+    """The spec's paired standard error of its honest RMSE gain, on the same relative-to-raw scale as the gain itself."""
+    _gain_se = getattr(spec, "honest_holdout_rmse_gain_se", None)
+    return float(_gain_se) / float(raw_rmse) if (_gain_se is not None and raw_rmse) else None
+
+
+def _drop_below_honest_gain_floor(pending: list[dict], composite_target_discovery_config: Any) -> list[dict]:
+    """``pending`` minus the RMSE-gain specs at or below their ship floor, logging the dropped ones.
+
+    A constant floor cannot tell a real 0.4% gain from a 0.4% measurement error. Each spec carries the paired standard
+    error of its own gain, so the bar is "beats the constant ``min_honest_gain_to_train`` AND is larger than
+    ``min_honest_gain_z`` of its own noise" -- a production run shipped 9 specs at gains of +0.002..+0.011 and warned
+    about GPU non-determinism of the same order in the very next log line. No-op when the constant floor is unset.
+    """
+    _min_gain = getattr(composite_target_discovery_config, "min_honest_gain_to_train", None)
+    if _min_gain is None:
+        return pending
+    _min_gain_z = float(getattr(composite_target_discovery_config, "min_honest_gain_z", _DEFAULT_MIN_HONEST_GAIN_Z))
+
+    def _floor_for(p: dict) -> float:
+        """Ship/no-ship floor for one pending spec: the configured constant, raised to its measurement noise when known."""
+        _se = p.get("gain_se")
+        if _min_gain_z <= 0 or _se is None or not np.isfinite(_se) or _se <= 0:
+            return float(_min_gain)
+        return max(float(_min_gain), _min_gain_z * float(_se))
+
+    _below = [p for p in pending if p.get("rmse_gain") and p["gain"] <= _floor_for(p)]
+    if not _below:
+        return pending
+    logger.info(
+        "[CompositeTargetDiscovery] not training %d composite target(s) whose honest-holdout RMSE gain is at or "
+        "below its floor (min_honest_gain_to_train=%.3f, raised to %.1f x the gain's own paired standard error "
+        "where measurable): %s",
+        len(_below), float(_min_gain), _min_gain_z,
+        ", ".join(
+            f"{d['name']}({d['gain']:+.4f} vs floor {_floor_for(d):.4f}" + (f", se={d['gain_se']:.4f}" if d.get("gain_se") else "") + ")" for d in _below
+        ),
+    )
+    return [p for p in pending if p not in _below]
+
+
+def select_composites_to_train(pending: list[dict], cfg: Any, metadata: dict) -> list[dict]:
+    """The pending composites to train: drop those at or below their honest-gain floor, rank the rest by gain across the
+    whole run, keep the best ``max_total_composite_targets`` (None keeps all). Every dropped spec leaves
+    ``metadata['composite_target_specs']`` and is recorded in ``composite_target_failures`` with the reason.
+    """
+    max_total = getattr(cfg, "max_total_composite_targets", None)
+    from ._phase_composite_discovery_dedup import forget_untrained_specs
+
+    before_floor = pending
+    pending = _drop_below_honest_gain_floor(pending, cfg)
+    kept_ids = {id(p) for p in pending}
+    forget_untrained_specs(metadata, [p for p in before_floor if id(p) not in kept_ids], "honest-holdout RMSE gain at or below its floor")
+    pending = rank_pending_composites(pending)
+    if max_total is not None and len(pending) > int(max_total):
+        kept = pending[: int(max_total)]
+        dropped = pending[int(max_total) :]
+        logger.info(
+            "[CompositeTargetDiscovery] global cap: keeping the %d best-scoring composite target(s) of %d "
+            "discovered (max_total_composite_targets=%d, ranked by honest-holdout OOS RMSE gain vs raw-y, "
+            "%% of baseline saved). Dropped: %s",
+            len(kept), len(pending), int(max_total),
+            ", ".join(f"{d['name']}({d['gain']:+.3f})" for d in dropped),
+        )
+        forget_untrained_specs(metadata, dropped, f"global cap max_total_composite_targets={int(max_total)}")
+    else:
+        kept = pending
+    return kept

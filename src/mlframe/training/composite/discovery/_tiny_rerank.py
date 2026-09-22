@@ -368,7 +368,7 @@ def _tiny_model_rerank(
         will_run=_honest_oof_will_run, per_bin_enabled=per_bin_enabled_pre, use_wilcoxon=use_wilcoxon,
     )
     # Spec names whose CV score would be discarded: the worker returns immediately for these.
-    _skip_cv_names = set(_honest_oof_pre)
+    _skip_cv_names = set(_honest_oof_pre) if _honest_oof_pre is not None else set()
 
     _early_stop_threshold = float("inf")
     if (

@@ -45,11 +45,17 @@ from ._phase_composite_discovery_helpers import (
 
 from ._phase_composite_discovery_gates import (  # noqa: F401  (re-exported)
     _AUTO_ENABLE_DISCOVERY_PATHOLOGY_PREFIXES,
+    _DEFAULT_MIN_HONEST_GAIN_Z,
+    _drop_below_honest_gain_floor,
+    _relative_gain_se,
     _target_pathologies_for_auto_enable,
     _maybe_auto_enable_discovery,
+    _maybe_narrow_to_unary_transforms,
     _drop_specs_whose_bases_the_suite_cannot_materialise,
     _discovery_cache_lookup,
+    discovery_inputs_digest,
     rank_pending_composites,
+    select_composites_to_train,
 )
 
 
@@ -423,6 +429,7 @@ def run_composite_target_discovery(
 
             # If hint enabled and BD ran, derive per-target config with dominant_features_hint from ablation top-K.
             _disc_cfg = _disc_cfg_base
+            _disc_cfg = _maybe_narrow_to_unary_transforms(_disc_cfg, _diag, _tname_disc)
             if _use_hint and _diag is not None:
                 _hint_top_k = max(1, int(getattr(
                     composite_target_discovery_config,
@@ -477,9 +484,9 @@ def run_composite_target_discovery(
                     len(_cached_payload["specs_export"]), _tname_disc,
                 )
             elif discovery_cache_dir is not None:
-                _disc_cache, _disc_cache_key, _cached_payload = _discovery_cache_lookup(
-                    _disc_cfg, _disc_df, _tname_disc, _disc_feature_cols, discovery_cache_dir,
-                )
+                _digest = discovery_inputs_digest(group_ids=_grp_filtered_slice, hint_strengths=_hint_strengths if _use_hint else None, disc_df=_disc_df,
+                                                  time_column=getattr(_disc_cfg, "time_column", None), val_df=val_df_pd, y_full=_y_arr, val_idx=val_idx)
+                _disc_cache, _disc_cache_key, _cached_payload = _discovery_cache_lookup(_disc_cfg, _disc_df, _tname_disc, _disc_feature_cols, discovery_cache_dir, _digest)
             else:
                 _cached_payload = None
 
@@ -608,6 +615,44 @@ def run_composite_target_discovery(
                     # of shuffled K-fold -- otherwise the pass-2 bases / residual
                     # target are built from future-contaminated OOF predictions.
                     _stacked_time_aware = bool(getattr(_disc_cfg, "time_column", None))
+                    # Extract the chronological-order column (if the
+                    # user named one) so discovery sorts the screening
+                    # sample into a forward-walk instead of leaking
+                    # future->past on temporal data via shuffled K-fold.
+                    _time_ordering = None
+                    _tcol = getattr(_disc_cfg, "time_column", None)
+                    if _tcol:
+                        try:
+                            if hasattr(_disc_df, "columns") and _tcol in _disc_df.columns:
+                                if hasattr(_disc_df, "get_column"):  # polars
+                                    _time_ordering = _disc_df.get_column(_tcol).to_numpy()
+                                else:  # pandas
+                                    _time_ordering = _disc_df[_tcol].to_numpy()
+                        except Exception as _tc_err:  # best-effort: falls back to base-monotonicity time detection below
+                            log_throttle(
+                                logger, "composite_discovery_time_column_extract_failed", logging.WARNING,
+                                "[CompositeTargetDiscovery] time_column='%s' "
+                                "could not be extracted (%s); discovery falls "
+                                "back to base-monotonicity time detection.",
+                                _tcol, _tc_err,
+                            )
+                            _time_ordering = None
+                    # Supply the VAL frame + val targets so the y-scale gate can validate the
+                    # predict-T -> invert-to-y pipeline on UNSEEN wells (val groups are disjoint
+                    # from train under the group-aware split) -- the regime where a residual inverse
+                    # extrapolates and collapses, which a train-group holdout cannot reproduce. The
+                    # discovery ``df`` is train-only, so the val split is passed as a separate frame.
+                    _disc_val_df = None
+                    _disc_val_y = None
+                    try:
+                        if val_df_pd is not None and val_idx is not None:
+                            _vy = np.asarray(_y_arr)[val_idx]
+                            if hasattr(val_df_pd, "__len__") and len(val_df_pd) == len(_vy):
+                                _disc_val_df = val_df_pd
+                                _disc_val_y = _vy
+                    except Exception as e:  # -- val gate is best-effort; fall back to train-group holdout
+                        logger.debug("val-gate construction failed, falling back to train-group holdout: %s", e)
+                        _disc_val_df, _disc_val_y = None, None
                     if _use_stacked_residual:
                         _disc = _disc_instance.fit_stacked_on_residual(
                             df=_disc_df,
@@ -625,7 +670,7 @@ def run_composite_target_discovery(
                                 "stacked_residual_max_pass1_specs_to_aggregate",
                                 3,
                             )),
-                            time_aware=_stacked_time_aware,
+                            time_aware=_stacked_time_aware, time_ordering=_time_ordering, val_df=_disc_val_df, val_y=_disc_val_y,
                         )
                     elif _use_stacked:
                         _disc = _disc_instance.fit_stacked(
@@ -639,47 +684,9 @@ def run_composite_target_discovery(
                             max_pass1_specs_to_stack=int(getattr(
                                 _disc_cfg, "stacked_max_pass1_specs", 3,
                             )),
-                            time_aware=_stacked_time_aware,
+                            time_aware=_stacked_time_aware, time_ordering=_time_ordering, val_df=_disc_val_df, val_y=_disc_val_y,
                         )
                     else:
-                        # Extract the chronological-order column (if the
-                        # user named one) so discovery sorts the screening
-                        # sample into a forward-walk instead of leaking
-                        # future->past on temporal data via shuffled K-fold.
-                        _time_ordering = None
-                        _tcol = getattr(_disc_cfg, "time_column", None)
-                        if _tcol:
-                            try:
-                                if hasattr(_disc_df, "columns") and _tcol in _disc_df.columns:
-                                    if hasattr(_disc_df, "get_column"):  # polars
-                                        _time_ordering = _disc_df.get_column(_tcol).to_numpy()
-                                    else:  # pandas
-                                        _time_ordering = _disc_df[_tcol].to_numpy()
-                            except Exception as _tc_err:  # best-effort: falls back to base-monotonicity time detection below
-                                log_throttle(
-                                    logger, "composite_discovery_time_column_extract_failed", logging.WARNING,
-                                    "[CompositeTargetDiscovery] time_column='%s' "
-                                    "could not be extracted (%s); discovery falls "
-                                    "back to base-monotonicity time detection.",
-                                    _tcol, _tc_err,
-                                )
-                                _time_ordering = None
-                        # Supply the VAL frame + val targets so the y-scale gate can validate the
-                        # predict-T -> invert-to-y pipeline on UNSEEN wells (val groups are disjoint
-                        # from train under the group-aware split) -- the regime where a residual inverse
-                        # extrapolates and collapses, which a train-group holdout cannot reproduce. The
-                        # discovery ``df`` is train-only, so the val split is passed as a separate frame.
-                        _disc_val_df = None
-                        _disc_val_y = None
-                        try:
-                            if val_df_pd is not None and val_idx is not None:
-                                _vy = np.asarray(_y_arr)[val_idx]
-                                if hasattr(val_df_pd, "__len__") and len(val_df_pd) == len(_vy):
-                                    _disc_val_df = val_df_pd
-                                    _disc_val_y = _vy
-                        except Exception as e:  # -- val gate is best-effort; fall back to train-group holdout
-                            logger.debug("val-gate construction failed, falling back to train-group holdout: %s", e)
-                            _disc_val_df, _disc_val_y = None, None
                         _disc = _disc_instance.fit(
                             df=_disc_df,
                             target_col=_tname_disc,
@@ -788,12 +795,12 @@ def run_composite_target_discovery(
                     _ct_t_full[_valid] = _transform.forward(
                         _y_arr[_valid], _base_for_forward, _spec.fitted_params,
                     )
+                _t_by_spec_for_charts[_spec.name] = _ct_t_full.copy()  # un-imputed: charts and the dedup must not see the fill value
                 if not np.all(np.isfinite(_ct_t_full)):
                     _t_train_for_median = _ct_t_full[filtered_train_idx]
                     _t_train_for_median = _t_train_for_median[np.isfinite(_t_train_for_median)]
                     if _t_train_for_median.size > 0:
                         _ct_t_full[~np.isfinite(_ct_t_full)] = float(np.median(_t_train_for_median))
-                _t_by_spec_for_charts[_spec.name] = _ct_t_full
                 # Not written to target_by_type yet -- buffered so the max_total_composite_targets budget
                 # (spent across ALL base targets, not per-target) can pick the best-scoring specs seen so
                 # far across the WHOLE run once every target's own discovery has finished. See the
@@ -812,7 +819,8 @@ def run_composite_target_discovery(
                     _honest_mi = getattr(_spec, "honest_holdout_gain", None)
                     _rel_gain = float(_honest_mi) if _honest_mi is not None else float(_spec.mi_gain)
                 _pending_composite.append({
-                    "tt": _tt_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain, "rmse_gain": _gain_is_rmse,
+                    "tt": _tt_disc, "target": _tname_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain,
+                    "rmse_gain": _gain_is_rmse, "gain_se": _relative_gain_se(_spec, _raw_rmse) if _gain_is_rmse else None,
                 })
             # Each shipped spec costs a full model-zoo fit: drop ones whose T is equivalent to raw y or to a better spec's T.
             from ._phase_composite_discovery_dedup import prune_equivalent_composite_specs
@@ -831,7 +839,7 @@ def run_composite_target_discovery(
                     _saved_charts = _render_composite_discovery_diagnostics(
                         data_dir=data_dir,
                         raw_target_name=_tname_disc,
-                        y_full=_y_arr,
+                        y_full=_y_arr, train_idx=filtered_train_idx,
                         t_by_spec=_t_by_spec_for_charts,
                         specs_export=list(_chart_specs or []),
                     )
@@ -846,30 +854,7 @@ def run_composite_target_discovery(
     # Global selection: every base target's discovery has now run, so every candidate's honest-holdout
     # quality score is comparable at once. Keep the best-scoring specs across the WHOLE run (not an equal
     # share per target) up to max_total_composite_targets; None keeps every discovered spec (old behaviour).
-    _max_total = getattr(composite_target_discovery_config, "max_total_composite_targets", None)
-    _min_gain = getattr(composite_target_discovery_config, "min_honest_gain_to_train", None)
-    if _min_gain is not None:
-        _below = [p for p in _pending_composite if p.get("rmse_gain") and p["gain"] <= float(_min_gain)]
-        if _below:
-            _pending_composite = [p for p in _pending_composite if p not in _below]
-            logger.info(
-                "[CompositeTargetDiscovery] not training %d composite target(s) whose honest-holdout RMSE gain is <= %.3f "
-                "(min_honest_gain_to_train): %s",
-                len(_below), float(_min_gain), ", ".join(f"{d['name']}({d['gain']:+.3f})" for d in _below),
-            )
-    _pending_composite = rank_pending_composites(_pending_composite)
-    if _max_total is not None and len(_pending_composite) > int(_max_total):
-        _kept_composite = _pending_composite[: int(_max_total)]
-        _dropped_composite = _pending_composite[int(_max_total) :]
-        logger.info(
-            "[CompositeTargetDiscovery] global cap: keeping the %d best-scoring composite target(s) of %d "
-            "discovered (max_total_composite_targets=%d, ranked by honest-holdout OOS RMSE gain vs raw-y, "
-            "%% of baseline saved). Dropped: %s",
-            len(_kept_composite), len(_pending_composite), int(_max_total),
-            ", ".join(f"{d['name']}({d['gain']:+.3f})" for d in _dropped_composite),
-        )
-    else:
-        _kept_composite = _pending_composite
+    _kept_composite = select_composites_to_train(_pending_composite, composite_target_discovery_config, metadata)
     for _item in _kept_composite:
         target_by_type[_item["tt"]][_item["name"]] = _item["values"]
         logger.info(

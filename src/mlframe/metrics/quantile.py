@@ -53,10 +53,13 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(**_NJIT_KW)
     def _fast_pinball(y: np.ndarray, q: np.ndarray, alpha: float) -> float:
-        """Mean pinball loss for one alpha. y, q: (N,) float64."""
+        """Mean pinball loss for one alpha. y, q: (N,) float64. NaN on empty input."""
         n = y.shape[0]
         if n == 0:
-            return 0.0
+            # NaN, not 0.0: 0.0 is the BEST value of a lower-is-better loss, so an empty slice (an empty group in a
+            # per-group loop, an over-filtered holdout) won every min() selection over models with real data. The
+            # numpy fallbacks below already return NaN here (mean of an empty array).
+            return np.nan
         s = 0.0
         for i in range(n):
             e = y[i] - q[i]
@@ -79,6 +82,7 @@ if _NUMBA_AVAILABLE:
         k = P.shape[1]
         out = np.zeros(k, dtype=np.float64)
         if n == 0:
+            out[:] = np.nan  # same reason as _fast_pinball: an empty slice must not score a perfect 0.0
             return out
         for i in range(n):
             yi = y[i]
@@ -95,10 +99,11 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(**_NJIT_KW)
     def _fast_coverage(y: np.ndarray, q_lo: np.ndarray, q_hi: np.ndarray) -> float:
-        """Fraction of rows where ``y`` falls within [q_lo, q_hi] inclusive; 0.0 on empty input."""
+        """Fraction of rows where ``y`` falls within [q_lo, q_hi] inclusive; NaN on empty input (no rows, no coverage
+        to measure - 0.0 read as "every interval missed")."""
         n = y.shape[0]
         if n == 0:
-            return 0.0
+            return np.nan
         c = 0
         for i in range(n):
             if q_lo[i] <= y[i] <= q_hi[i]:
@@ -110,10 +115,10 @@ if _NUMBA_AVAILABLE:
         y: np.ndarray, q_lo: np.ndarray, q_hi: np.ndarray, alpha_miscov: float,
     ) -> float:
         """Mean Winkler interval score. ``alpha_miscov`` is the NOMINAL
-        miscoverage (e.g. 0.2 for an 80% interval). Lower is better."""
+        miscoverage (e.g. 0.2 for an 80% interval). Lower is better. NaN on empty input, like _fast_pinball."""
         n = y.shape[0]
         if n == 0:
-            return 0.0
+            return np.nan
         s = 0.0
         two_over_a = 2.0 / max(alpha_miscov, 1e-12)
         for i in range(n):

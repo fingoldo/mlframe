@@ -84,7 +84,7 @@ def _sampled_positions(length: int, n_iter: int, metric_period: Optional[int]) -
         if len(pos) == length:
             return np.asarray(pos, dtype=np.float64)
         if pos[-1] != n_iter - 1 and len(pos) + 1 == length:
-            return np.asarray(pos + [n_iter - 1], dtype=np.float64)
+            return np.asarray([*pos, n_iter - 1], dtype=np.float64)
     return None
 
 

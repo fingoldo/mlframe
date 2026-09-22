@@ -182,8 +182,14 @@ _KNOWN_METRIC_DIRECTIONS_HIGHER: frozenset[str] = frozenset({
     "cohen_kappa", "kappa", "weighted_kappa", "quadratic_weighted_kappa", "qwk",
     "subset_accuracy", "jaccard_score_multilabel", "jaccard", "jaccard_macro",
     "gini",
-    # Binary higher-is-better extras from 2026-05-28 audit batch.
+    # Binary higher-is-better extras.
+    # Bare "ks" means the DISCRIMINATION statistic here (max |TPR - FPR|, higher is better): that is what the suite
+    # emits under "KS" in class metrics and iteration metrics. A distribution-DRIFT KS distance is lower-is-better and
+    # must be named explicitly ("ks_distribution_distance", below) - a drift monitor that logs it as bare "ks" will be
+    # ranked the wrong way round.
     "g_mean", "ks", "ks_statistic", "bss", "brier_skill_score",
+    # Report fields where more is better: share of bins the reliability curve covers, and the Brier RESOLUTION term.
+    "calibration_coverage", "brier_resolution",
     "lift", "lift_at_k",
     # Top-k accuracy for multiclass
     "top_k_accuracy", "top1", "top3", "top5",
@@ -209,6 +215,9 @@ _KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
     "mbe", "mean_bias_error",
     # Probabilistic / calibration losses
     "log_loss", "logloss", "brier", "brier_score", "cross_entropy",
+    # The names the suite's own calibration report emits (CalibrationReport fields and the regression block), which a
+    # direction-aware consumer (the flavour leaderboard, selection) otherwise dropped as unknown.
+    "brier_loss", "ll", "calibration_mae", "calibration_std", "brier_reliability", "maxerror",
     # Exponential proper scoring rule (per-object minimizer is the true probability).
     "exploss",
     # Multi-class / multi-label aggregation variants of the probabilistic
@@ -435,15 +444,20 @@ def _register_builtin_classification():
         y_bin = (yt == pos_label).astype(_np.int64)
         return _exploss_fn(y_bin, pos)
 
-    for _tt in (TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION):
-        register_metric(
-            _tt, "quadratic_weighted_kappa", _qwk, higher_is_better=True,
-            description="Quadratic-weighted Cohen kappa on ordinal integer labels (hard preds); higher is better.",
-        )
-        register_metric(
-            _tt, "weighted_kappa", _wk, higher_is_better=True,
-            description="Linear-weighted Cohen kappa on ordinal integer labels (hard preds); higher is better.",
-        )
+    # Weighted kappa is an ORDINAL-agreement metric and needs at least three classes for the weighting to mean
+    # anything: with two classes the only off-diagonal distance is 1, so quadratic and linear weighting collapse
+    # onto each other and onto plain Cohen's kappa. A production run duly printed
+    # ``quadratic_weighted_kappa=0.37`` and ``weighted_kappa=0.37`` for a binary target -- the same number twice,
+    # under two names implying an ordinal reading the target does not have. Neither is registered for binary: the
+    # unweighted statistic they both collapse to is already reported as ``Cohen_kappa`` in the per-class block.
+    register_metric(
+        TargetTypes.MULTICLASS_CLASSIFICATION, "quadratic_weighted_kappa", _qwk, higher_is_better=True,
+        description="Quadratic-weighted Cohen kappa on ordinal integer labels (hard preds); higher is better.",
+    )
+    register_metric(
+        TargetTypes.MULTICLASS_CLASSIFICATION, "weighted_kappa", _wk, higher_is_better=True,
+        description="Linear-weighted Cohen kappa on ordinal integer labels (hard preds); higher is better.",
+    )
     register_metric(
         TargetTypes.BINARY_CLASSIFICATION, "exploss", _exp, higher_is_better=False,
         description="Exponential proper scoring loss on the positive-class probability; lower is better.",

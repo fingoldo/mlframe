@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 19 | 0 | 11 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 14 | 0 | 8 | 0 | 0 |
-| `suite_integration.md` | 19 | 8 | 0 | 11 | 0 | 0 |
+| `discovery.md` | 30 | 24 | 0 | 6 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 18 | 0 | 4 | 0 | 0 |
+| `suite_integration.md` | 19 | 15 | 0 | 4 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 7 | 5 | 29 | 0 | 0 |
-| **Total** | **179** | **94** | **16** | **68** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 12 | 17 | 12 | 0 | 0 |
+| **Total** | **179** | **115** | **28** | **35** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -70,13 +70,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `DSC-09` | Gate exceptions keep the spec (fail-open), and an all-NaN tiny-CV score passes the raw-baseline gate | gate evaluation errors / unregistered transforms reject with WARNING + ledger; non-finite tiny-CV scores rejected before the threshold |
 | **RESOLVED** | P2 | `DSC-10` | The WAIC tie-break compares log predictive densities of different target scales | WAIC tie-break only within additive-in-T bands |
 | **RESOLVED** | P2 | `DSC-11` | WAIC and auto-chain CVs use shuffled KFold, ignoring groups and time | splitter factory; WAIC + auto-chain CVs take groups/time |
-| **TODO** | P2 | `DSC-12` | The discovery disk-cache key leaves out inputs that change the result | |
+| **RESOLVED** | P2 | `DSC-12` | The discovery disk-cache key leaves out inputs that change the result | cache key includes group ids, hint strengths, time order and the val frame |
 | **TODO** | P2 | `DSC-13` | The yscale gate's fallback path evaluates on rows the transform params were fit on | |
-| **TODO** | P2 | `DSC-14` | Stacked and stability-check fits drop `time_ordering`, `val_df` and `val_y` | |
-| **TODO** | P2 | `DSC-15` | The stability-check majority threshold is truncated, so n=3 keeps specs found once | |
+| **RESOLVED** | P2 | `DSC-14` | Stacked and stability-check fits drop `time_ordering`, `val_df` and `val_y` | variants forward time_ordering/val_df/val_y; phase passes them to stacked fits |
+| **RESOLVED** | P2 | `DSC-15` | The stability-check majority threshold is truncated, so n=3 keeps specs found once | majority threshold rounds up |
 | **RESOLVED** | P2 | `DSC-16` | Incremental drift detection cannot fire under default config | same-rows reference gain; appended rows only; default config now detects a destroyed base |
 | **RESOLVED** | P2 | `DSC-17` | The cross-target composite budget sorts three incompatible gain units together | budget ranks RMSE-gain tier before MI tier |
-| **TODO** | P2 | `DSC-18` | The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection | |
+| **RESOLVED** | P2 | `DSC-18` | The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection | composite-vs-raw verdict on test; val shown for reference; cross-split refuses a verdict |
 | **RESOLVED** | P2 | `DSC-19` | The group-disjoint honest-holdout carve can hold out most of the training rows | holdout within +/-25% or iid fallback |
 | **TODO** | P3 | `DSC-20` | Auto-chain proposals are not required to beat raw y, and duplicate the hard-coded default chains | |
 | **RESOLVED** | P3 | `DSC-21` | The raw-y baseline and the per-spec CV can use different splitters | one fold scheme per rerank |
@@ -85,7 +85,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `DSC-24` | FDR control is "on by default" but inert by default | inactive FDR control logged at INFO; default bootstrap measured +70% wall, kept opt-in |
 | **TODO** | P3 | `DSC-25` | Alpha-drift flags leak between fits of one instance; the reject flag's code fallback contradicts the config default | |
 | **TODO** | P3 | `DSC-26` | The corr-filter log recommends an escape hatch that does not work | |
-| **TODO** | P3 | `DSC-27` | Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids | |
+| **RESOLVED** | P3 | `DSC-27` | Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids | per-group delegates gated on their own val rows; rerank grouping inherited |
 | **RESOLVED** | P3 | `DSC-28` | Multi-base upgraded specs inherit unmeasured statistics from their seed | upgrade MI stats NaN + stats_measured_for |
 | **RESOLVED** | P3 | `DSC-29` | The knn cost guard runs after the most expensive knn work | guard moved before base resolution; estimate includes auto-base + null-perm sweeps |
 | **RESOLVED** | P3 | `DSC-30` | The stratified MI sampler gives non-finite-y rows a full stratum share | NaN-y rows not sampled |
@@ -100,13 +100,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `EST-04` | At predict time the recurrent inverses get `1.0` in place of an out-of-domain (NaN/inf) base, which corrupts the EWMA/rolling state of every later row in the batch | a recurrent inverse carry-forward-fills an out-of-domain base instead of substituting 1.0, matching what fit does for its own dropped rows (test_recurrent_predict_out_of_domain_base.py: at origin/master one blanked row moved 73 of 239 other rows by up to 75.9) |
 | **RESOLVED** | P2 | `EST-05` | The CT-ensemble "honest OOF gate" can never fire for the default `nnls_stack` (and in practice for `linear_stack`), because the stack weights are fit on the same OOF matrix the gate scores | gate compares a cross-fitted stack RMSE |
 | **RESOLVED** | P2 | `EST-06` | `cap_inference_components` trims non-convex stacks without refitting or renormalising, after the gate has already accepted the full stack | capped non-convex stack refit on kept columns |
-| **TODO** | P2 | `EST-07` | On the time-sorted OOF holdout path, the polars branch misaligns X and y rows, in both the refit-train slice and the holdout slice | |
+| **RESOLVED** | P2 | `EST-07` | On the time-sorted OOF holdout path, the polars branch misaligns X and y rows, in both the refit-train slice and the holdout slice | polars OOF and row slicers gather by position; carrier-parity tests |
 | **RESOLVED** | P2 | `EST-08` | The wrap-pass watchdog is off by default, cannot detect the failures it names, raises a false alarm on every `quantile_residual` run, and swallows its own errors at DEBUG | runs on a val sample by default; base-read oracle + raw-frame additive check; groups; WARNING on failures |
 | **RESOLVED** | P2 | `EST-09` | The default-ON `soft_base_shrink` guard is inert on every wrapper built by `from_fitted_inner`, which covers all suite-trained composites and every OOF refit | OOF refit wrappers now get their training base (5 of 6 lacked it); pinned no-op test split into no-base no-op + with-base shrink |
 | **RESOLVED** | P2 | `EST-10` | `predict_quantile` returns zero-width intervals on fallback rows and crossed quantiles for sign-flipping multiplicative inverses | per-alpha train-y quantile fallback; monotone rearrangement |
 | **RESOLVED** | P2 | `EST-11` | The dummy-floor gate and the `oof_weighted` baseline compare the dummy's VAL-split RMSE with components' train K-fold OOF RMSE | dummy floor/baseline on the same OOF rows |
-| **TODO** | P2 | `EST-12` | `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path | |
-| **TODO** | P2 | `EST-13` | The CT_ENSEMBLE val/test metrics and charts describe the pre-MoE predictor, not the model that ships | |
+| **RESOLVED** | P2 | `EST-12` | `sample_weight` is threaded into the OOF refits but dropped by the stack solvers, the OOF RMSEs, the gate and the output calibrator on the general CT path | OOF rows returned; stack solve, RMSEs, gate and calibrator weighted |
+| **RESOLVED** | P2 | `EST-13` | The CT_ENSEMBLE val/test metrics and charts describe the pre-MoE predictor, not the model that ships | shipped MoE wrapper re-scored; ensemble metrics overwritten |
 | **TODO** | P2 | `EST-14` | A streaming `update()` refit leaves the soft-shrink base range at the dead regime, and its T-clip refresh leaves out the widening to the observed range that `fit()` applies | |
 | **RESOLVED** | P3 | `EST-15` | In the default shuffled K-fold OOF, recurrent composite components run their EWMA/rolling state over gapped (train) and scattered (holdout) row sequences | contiguous OOF folds for recurrent components |
 | **RESOLVED** | P3 | `EST-16` | The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level | fold groups/weights via call_transform, forward with groups, WARNING fallback; grouped components no longer drop out of OOF |
@@ -115,7 +115,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `EST-19` | The `lag_predict` component that ships in CT_ENSEMBLE is never fit, so NaN lag rows at predict time are imputed with the median of the predict batch itself | fitted on train at injection; unfitted predict with a missing lag raises instead of using the batch median |
 | **RESOLVED** | P3 | `EST-20` | `predict` / `predict_quantile` change shared state without synchronisation | stats under a lock; soft_shrink_info_ per thread; 8x150 threaded test |
 | **TODO** | P3 | `EST-21` | `from_fitted_inner` cannot express grouped transforms or recurrence continuation | |
-| **TODO** | P3 | `EST-22` | Routers and vetoes chosen on the val split are then reported with val-split metrics as if those were held-out | |
+| **RESOLVED** | P3 | `EST-22` | Routers and vetoes chosen on the val split are then reported with val-split metrics as if those were held-out | val-selected ensembles flagged in metadata and tagged in the verdict |
 
 ### `suite_integration.md`
 
@@ -127,17 +127,17 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `INT-04` | Auto-enabled discovery is not propagated: post-processing still sees `enabled=False` and skips the cross-target ensemble and lag failsafe | the discovery phase publishes metadata['composite_discovery_effective_enabled'] and the three post-processing gates (value report, lag failsafe, cross-target ensemble) read config.enabled OR that flag, so an auto-enabled heavy-tail suite gets the same pipeline as an explicit opt-in; an explicit enabled=False still publishes nothing and stays off (test_auto_enabled_discovery_reaches_postprocessing.py, 4 tests) |
 | **RESOLVED** | P1 | `INT-05` | Auto-chain transforms exist only in the training process's registry, so a pickled composite model fails in a fresh process | the wrapper re-registers its own auto-chain transform on unpickle and the loaders re-register every transform named by the saved specs (dbe77db39; test_fresh_process_serves_every_composite_target) |
 | **RESOLVED** | P1 | `INT-06` | The documented precomputed `composite_target_specs` fast path never trains any composite target | caller-supplied specs are now replayed through the discovery phase exactly like a cache hit (same forward-applier, auto-chain re-registration, dedup and global cap) instead of only seeding metadata, and the replay runs even with enabled=False since reuse means skipping the search, not the training (test_precomputed_composite_specs_train.py, 4 tests; they fail at origin/master, where the phase has no such parameter) |
-| **TODO** | P2 | `INT-07` | `transforms=[...]` does not restrict auto-chain: chain specs are added outside the user's whitelist | |
-| **TODO** | P2 | `INT-08` | Suite logic identifies composite targets by a name heuristic that misses auto-chain names and matches dashed raw targets | |
-| **TODO** | P2 | `INT-09` | Listing any grouped transform in `transforms` makes discovery raise, which removes every composite for that target | |
+| **RESOLVED** | P2 | `INT-07` | `transforms=[...]` does not restrict auto-chain: chain specs are added outside the user's whitelist | auto-chain gated on a chain_* entry in the transforms whitelist |
+| **RESOLVED** | P2 | `INT-08` | Suite logic identifies composite targets by a name heuristic that misses auto-chain names and matches dashed raw targets | composite status from the spec-name set at every consumer; heuristic only for legacy pickles |
+| **RESOLVED** | P2 | `INT-09` | Listing any grouped transform in `transforms` makes discovery raise, which removes every composite for that target | grouped transforms rejected per candidate; any candidate error isolated |
 | **RESOLVED** | P2 | `INT-10` | The suite-end "TARGETS QUALITY" table reports composite rows on T-scale beside raw rows on y-scale, and is never persisted | scale column; composite rows from y-scale metrics; CSV written under data_dir |
-| **TODO** | P2 | `INT-11` | Specs dropped by the global `max_total_composite_targets` cap stay in `metadata["composite_target_specs"]` with no failure record | |
+| **RESOLVED** | P2 | `INT-11` | Specs dropped by the global `max_total_composite_targets` cap stay in `metadata["composite_target_specs"]` with no failure record | cap- and floor-dropped specs leave metadata, recorded as failures |
 | **TODO** | P2 | `INT-12` | On the supported pandas range, discovery materialises a full copy of the train frame for every regression target | |
-| **TODO** | P3 | `INT-13` | The default model cache reuses a composite inner model whose target definition has changed | |
-| **TODO** | P3 | `INT-14` | The discovery "winning-spec" charts plot y and T over all rows, including test rows and median-imputed T values | |
+| **RESOLVED** | P3 | `INT-13` | The default model cache reuses a composite inner model whose target definition has changed | fixed earlier (spec digest on dumps); regression tests added |
+| **RESOLVED** | P3 | `INT-14` | The discovery "winning-spec" charts plot y and T over all rows, including test rows and median-imputed T values | charts plot train rows with a real T; imputed fill kept out of charts and dedup |
 | **RESOLVED** | P3 | `INT-15` | Two config fields are accepted and documented as effective but do nothing, with no warning | non-default values warn; misleading config comment fixed; allowlist entries removed |
 | **TODO** | P3 | `INT-16` | Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on | |
-| **TODO** | P3 | `INT-17` | The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target | |
+| **RESOLVED** | P3 | `INT-17` | The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target | DISCOVERY_ALGO_VERSION in the cache key + source-hash bump gate; versions via importlib.metadata |
 | **TODO** | P3 | `INT-18` | A composite spec name that equals an existing target name silently overwrites that target's values | |
 | **TODO** | P3 | `INT-19` | The predict-time composite env-signature check warns on any patch or Python bump, contrary to its documented major/minor policy | |
 
@@ -197,43 +197,43 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | Status | Sev | ID | Finding | Evidence / what remains |
 |---|---|---|---|---|
 | **RESOLVED** | P1 | `PMT-01` | Registry-driven transform property matrix: max-error round trip across regimes, degenerate legs, and registry metadata completeness | legs (b)-(e) in test_transform_registry_properties.py; fixed constant-base vol floor, O(n) ECDF/spline params; additive_in_t/linear_in_base/n_bases fields drive soft-shrink + watchdog (quantile_residual false alarm); leg (f) scanner |
-| **TODO** | P2 | `PMT-02` | Call-budget harness: expensive primitives are invoked at most their ideal count per discovery fit and per post-phase | |
+| **PARTIAL** | P2 | `PMT-02` | Call-budget harness: expensive primitives are invoked at most their ideal count per discovery fit and per post-phase | call-budget harness over one discovery fit with a ratcheted excess baseline; post-phase budgets open |
 | **RESOLVED** | P1 | `PMT-03` | Fail-open and below-WARNING substitution handlers in gates (shared AST scanner) | py_ci_shared.fail_open_handlers wired; 3 more fail-open sites fixed, 11 fallbacks to WARNING; FS backlog baselined untriaged |
 | **RESOLVED** | P1 | `PMT-04` | Non-discriminating test-assertion shapes: literal wide ranges, median-of-error, isinstance-only biz tests, data-dependent skips | py_ci_shared.nondiscriminating_shapes + local biz-val rule wired; suite violators baselined, composite ones fixed under TST-10/11/13 |
 | **RESOLVED** | P1 | `PMT-05` | Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe | test_cte_row_purity: chunk invariance to 1e-14, threads, lag_predict fill; found EST-19/EST-20 |
 | **RESOLVED** | P1 | `PMT-06` | Splitter and sampler consistency: one splitter factory, time order and groups honoured everywhere, sampler returns usable rows | no ad-hoc shuffled KFold scan + splitter contract tests; fixed 6 findings |
 | **PARTIAL** | P1 | `PMT-07` | Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform | 7 findings fixed + invariance tests; typed Score/rank_specs + sort scan not built |
 | **RESOLVED** | P1 | `PMT-08` | Scale and shift metamorphic property over every registered transform | scale/shift property tests; fixed log_y +1.0 offset and raw-unit arcsinh |
-| **TODO** | P2 | `PMT-09` | Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery | |
-| **TODO** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | |
+| **PARTIAL** | P2 | `PMT-09` | Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery | AST layout/copy/GIL-loop rules over discovery (0 hits, canary-pinned); tracemalloc budgets open |
+| **PARTIAL** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | DSC-14 / DSC-27 / EST-12 fixed with tests; the shared scanner itself is open |
 | **PARTIAL** | P1 | `PMT-11` | Test-to-production reachability: no test certifies an uncalled production function, and every gate module has an importing test | ratchet on tested-but-uncalled (68 recorded) + gate modules imported by tests; triage of the 68 open |
 | **RESOLVED** | P1 | `PMT-12` | Out-of-range and perturbation leg: OOD bases stay sign-consistent, the inverse is Lipschitz in T_hat, and quantiles stay ordered | OOD-edge + one-row Lipschitz legs; quantile contract (fixed EST-10) |
 | **PARTIAL** | P1 | `PMT-13` | Ensemble combiner invariants for every stacking strategy, including "the gate can fire" | gate-can-fire + cap tests (fixed EST-05/06); registry parametrisation + (d) open |
-| **TODO** | P2 | `PMT-14` | Transform-call gateway: every registry-transform fit/forward/inverse call goes through one signature-gated helper, and weights are honoured | |
-| **TODO** | P2 | `PMT-15` | Cache-key completeness by input perturbation, plus a code-version gate on discovery sources | |
-| **TODO** | P2 | `PMT-16` | polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared) | |
+| **PARTIAL** | P2 | `PMT-14` | Transform-call gateway: every registry-transform fit/forward/inverse call goes through one signature-gated helper, and weights are honoured | zero weight = dropped row for every order-free weighted fit (10 transforms fixed); gateway scanner with ratcheted baseline |
+| **PARTIAL** | P2 | `PMT-15` | Cache-key completeness by input perturbation, plus a code-version gate on discovery sources | discovery key inputs perturbed, spec digest, algo-version gate; auto-derived input table open |
+| **PARTIAL** | P2 | `PMT-16` | polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared) | carrier parity for OOF + row slicers (EST-07 and 4 siblings fixed); shared scanner open |
 | **PARTIAL** | P1 | `PMT-17` | Absorption and consistency on each transform's canonical DGP | canonical-DGP absorption for all 40 base transforms; fixed quantile_residual small-n; smoother/grouped legs open |
 | **PARTIAL** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | self-influence canaries (causal bases, OOF encoding, all transforms <0.1); leg c spy pending DSC-13/EST-17 |
-| **TODO** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | |
-| **TODO** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | |
-| **TODO** | P1 | `PMT-21` | Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST) | |
-| **TODO** | P1 | `PMT-22` | One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts | |
+| **PARTIAL** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | null canaries; found + fixed noise specs shipping (constant-mean null in the honest gate); DSC-20 + meta-guard open |
+| **RESOLVED** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | liveness registry: every default-on knob mapped to its effect test; found dead MoE params + 3 inert defaults (fixed) |
+| **RESOLVED** | P1 | `PMT-21` | Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST) | AST persist-after-mutate over training/core; fires on the INT-02 shape |
+| **PARTIAL** | P1 | `PMT-22` | One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts | one-run suite contract fixture, 7 identity legs; d/h/i suite variants + TST-17 rewrite open |
 | **TODO** | P2 | `PMT-23` | State parity across alternate constructors: fit() vs from_fitted_inner() vs update() vs unpickle | |
-| **TODO** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | |
+| **PARTIAL** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | unseen-key fallbacks pinned to exact global answers; MoE vs pooled-best; recurrent seed leg open |
 | **TODO** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | |
 | **TODO** | P2 | `PMT-26` | Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test | |
 | **TODO** | P3 | `PMT-27` | Diagnostics truthfulness: report reasons come from the ledger, printed advice is executed, alert policy matches its docstring | |
 | **TODO** | P3 | `PMT-28` | Test timing and cost hygiene: relative timing races need real slack, and repeated heavy trainings share a fixture | |
-| **TODO** | P1 | `PMT-29` | Split-role ledger: selection rows and report rows never overlap, and verdicts read test | |
-| **TODO** | P1 | `PMT-30` | Config-restriction and per-candidate isolation contract: every registry transform is accepted, isolated and honoured | |
-| **TODO** | P1 | `PMT-31` | Stage-sentinel inner: wrappers and every predict entry point must feed the inner its own pipeline stage and the base its raw stage | |
-| **TODO** | P1 | `PMT-32` | Fresh-process persistence round trip for every registry transform and the whole auto-chain name space | |
-| **TODO** | P1 | `PMT-33` | Runtime registry mutation must have a load-time replay (shared scanner) | |
+| **PARTIAL** | P1 | `PMT-29` | Split-role ledger: selection rows and report rows never overlap, and verdicts read test | row-role ledger + contract test (holdout select/report disjoint, verdict=test, charts=train); xt fit/report leg open |
+| **RESOLVED** | P1 | `PMT-30` | Config-restriction and per-candidate isolation contract: every registry transform is accepted, isolated and honoured | registry-wide restriction contract; found + fixed discovery aborting on every grouped config (val frame lacked gcausal bases) |
+| **PARTIAL** | P1 | `PMT-31` | Stage-sentinel inner: wrappers and every predict entry point must feed the inner its own pipeline stage and the base its raw stage | stage sentinel: wrapper/composite_predict/shim/CT-ensemble routes pinned; MoE + suite-internal entry points open |
+| **PARTIAL** | P1 | `PMT-32` | Fresh-process persistence round trip for every registry transform and the whole auto-chain name space | 57 wrappers + CT ensemble loaded in one fresh subprocess; MoE wrapper open |
+| **RESOLVED** | P1 | `PMT-33` | Runtime registry mutation must have a load-time replay (shared scanner) | shared runtime-registry scanner; mlframe wired with 5 reasoned replay writers |
 | **TODO** | P2 | `PMT-34` | getattr default parity: `getattr(cfg, "field", literal)` must match the pydantic field default (shared scanner) | |
 | **TODO** | P3 | `PMT-35` | Unread constructor parameters in estimator classes (shared scanner) | |
 | **TODO** | P3 | `PMT-36` | Environment flags parsed through one shared parser (shared scanner) | |
 | **TODO** | P3 | `PMT-37` | Deferred-dead config fields must warn when set, and no allowlisted field may advertise how to enable it | |
-| **TODO** | P1 | `PMT-38` | A config rebuilt with `model_copy(update=...)` must reach its consumers (shared scanner) | |
+| **RESOLVED** | P1 | `PMT-38` | A config rebuilt with `model_copy(update=...)` must reach its consumers (shared scanner) | shared discarded-model_copy scanner wired with an empty allowlist |
 | **TODO** | P2 | `PMT-39` | Survivorship-scored metrics: a metric computed only on rows where the prediction is finite (shared scanner) | |
 | **TODO** | P2 | `PMT-40` | `source_text_claims` misses source text accumulated with `+=`: close the taint gap and drain the composite allowlist | |
 | **TODO** | P3 | `PMT-41` | Advisory scan for tests that pin a conceded defect | |

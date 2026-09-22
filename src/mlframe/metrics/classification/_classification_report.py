@@ -34,6 +34,7 @@ from ..calibration._calibration_plot import (
 from .._auc_per_group import (
     fast_aucs_per_group_optimized,
     compute_mean_aucs_per_group,
+    group_sizes_of,
 )
 from ..calibration._calibration_metrics import (
     calibration_metrics_from_freqs,
@@ -217,6 +218,17 @@ class CalibrationReport(NamedTuple):
     fig: Any
 
 
+def _report_log_loss(y_true, y_pred) -> float:
+    """Log loss with ONE eps for every model in a report, whatever dtype it emitted.
+
+    ``fast_log_loss``'s default eps follows ``y_pred``'s dtype, so a confidently wrong row cost 15.9 for a model
+    emitting float32 probabilities and 36.0 for a float64 one, and a report comparing the two ranked them partly on
+    dtype. The per-group AUC beside it is row-weighted for the same reason of comparability (see
+    ``compute_mean_aucs_per_group``): tiny groups scoring 1.0 by luck must not inflate it.
+    """
+    return fast_log_loss(y_true, np.asarray(y_pred, dtype=np.float64), eps=float(np.finfo(np.float64).eps))
+
+
 def fast_calibration_report(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -375,7 +387,7 @@ def fast_calibration_report(
         roc_auc, pr_auc, group_aucs, _auc_desc_order, _ks_fused = fast_aucs_per_group_optimized(
             y_true=y_true, y_score=y_pred, group_ids=group_ids, return_order=True, return_ks=True
         )
-    mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs) if group_aucs else (None, None)
+    mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs, group_sizes=group_sizes_of(group_ids)) if group_aucs else (None, None)
 
     ice = integral_calibration_error_from_metrics(
         calibration_mae=calibration_mae,
@@ -388,7 +400,7 @@ def fast_calibration_report(
     )
 
     # Use fast numba version (returns nan for single-class data)
-    ll: Optional[float] = fast_log_loss(y_true, y_pred)
+    ll: Optional[float] = _report_log_loss(y_true, y_pred)
     if ll is not None and np.isnan(ll):
         ll = None
 
@@ -521,21 +533,27 @@ def fast_ice_only(
     y_pred: np.ndarray,
     nbins: int = 10,
     use_weights: bool = True,
+    binning_strategy: str = "auto",
     **ice_kwargs,
 ) -> float:
     """Compute only the ICE scalar from y_true/y_pred, skipping the
     log_loss / precision-recall-f1 / title / plotting work that
     ``fast_calibration_report`` does for its reporting callers.
 
-    Bit-exact equivalent of ``fast_calibration_report(...)[6]``. Used by
-    the fairness fan-out hot path -- verified 1.1-1.7x faster per call
-    (bench_ice_only.py, 2026-04-19) with ICE drift < 1e-9.
+    Equivalent to ``fast_calibration_report(...).ice`` on the same ``binning_strategy``; used by the fairness fan-out hot
+    path -- verified 1.1-1.7x faster per call (bench_ice_only.py, 2026-04-19).
+
+    ``binning_strategy`` defaults to ``"auto"``, the report's own default, because it used to be pinned to ``"uniform"``
+    while the report resolved ``"auto"`` to quantile bins below a 10% base rate: the same predictions then scored -0.294
+    here and -0.313 in the report that called this "bit-exact", and two folds either side of 10% prevalence were scored
+    on different partitions. Pass ``"uniform"`` explicitly for the cheapest path when the caller does not need to match
+    a report.
     """
     from ..core import fast_brier_score_loss  # lazy: import-cycle, see module top
     if len(y_true) == 0:
         return 1.0
     brier_loss = fast_brier_score_loss(y_true=y_true, y_prob=y_pred)
-    freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    freqs_predicted, freqs_true, hits = calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins, strategy=binning_strategy)
     cal_mae, cal_std, cal_cov = calibration_metrics_from_freqs(
         freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights,
     )

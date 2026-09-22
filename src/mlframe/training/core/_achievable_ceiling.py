@@ -242,6 +242,67 @@ def _verdict(*, raw_rmse, lag_rmse, best_composite_rmse, best_base, floor_rmse, 
     }
 
 
+def _best_composite_over_bases(df, base_cands, rows_fit, rows_hold, *, y_fit, y_hold, x_fit, x_hold, model_factory, y_hold_std):
+    """``(best_rmse, best_base, n_evaluated, n_collapsed)`` of the linear-residual reconstruction over candidate bases.
+
+    Counts evaluated and collapsed (non-finite) bases separately: "none evaluated" is absence of evidence while "all
+    evaluated collapsed" is evidence, and ``_collapsed_ceiling_verdict_kwargs`` treats them differently.
+    """
+    best_rmse, best_base = float("inf"), None
+    n_evaluated = n_collapsed = 0
+    for bcol in base_cands:
+        try:
+            base_fit = _extract_column_array(df, bcol, rows=rows_fit).astype(np.float64, copy=False)
+            base_hold = _extract_column_array(df, bcol, rows=rows_hold).astype(np.float64, copy=False)
+        except Exception as e:
+            logger.debug("swallowed exception in _achievable_ceiling.py: %s", e)
+            continue
+        if base_fit.shape != y_fit.shape or base_hold.shape != y_hold.shape:
+            continue
+        comp = _composite_rmse_for_base(
+            base_fit=base_fit, base_hold=base_hold, y_fit=y_fit, y_hold=y_hold,
+            x_fit=x_fit, x_hold=x_hold, model_factory=model_factory, y_hold_std=y_hold_std,
+        )
+        n_evaluated += 1
+        n_collapsed += int(not np.isfinite(comp))
+        if np.isfinite(comp) and comp < best_rmse:
+            best_rmse, best_base = comp, bcol
+    return best_rmse, best_base, n_evaluated, n_collapsed
+
+
+def _collapsed_ceiling_verdict_kwargs(
+    *, n_offered: int, n_evaluated: int, n_collapsed: int, floor_rmse: float, y_hold_std: float, strong_floor_frac: float
+) -> dict:
+    """``headroom``/``decision``/``reason`` for a verdict where no candidate base produced a finite composite RMSE.
+
+    "No candidate was evaluated" and "every evaluated candidate collapsed" both leave the best composite RMSE at inf,
+    and used to reach the same "unmeasurable -> proceed" verdict with no way to tell them apart. The first is an
+    absence of evidence; the second IS evidence, honoured only where the strong-floor rule already trusts the ceiling
+    estimate -- on a weak floor the tiny model is not reliable enough to conclude anything either way.
+    """
+    if n_evaluated == 0:
+        return dict(
+            headroom=float("nan"), decision="proceed",
+            reason=f"optimistic composite ceiling unmeasured: {n_offered} candidate base(s) offered, 0 evaluable "
+                   f"(absent / shape-mismatched columns). Absence of measurement, not evidence against composites",
+        )
+    _reason = (
+        f"optimistic composite ceiling collapsed on ALL {n_collapsed}/{n_evaluated} evaluable base(s) "
+        f"(non-finite reconstruction on the holdout)"
+    )
+    if y_hold_std > 0 and floor_rmse <= strong_floor_frac * y_hold_std:
+        return dict(
+            headroom=float("nan"), decision="skip",
+            reason=f"{_reason}; the floor {floor_rmse:.4g} is already strong vs std(y)={y_hold_std:.4g} "
+                   f"(<= {strong_floor_frac:.0%}), so there is measured evidence against composites, lag_predict deployed instead",
+        )
+    return dict(
+        headroom=float("nan"), decision="proceed",
+        reason=f"{_reason}, but the floor {floor_rmse:.4g} is weak vs std(y)={y_hold_std:.4g} "
+               f"(> {strong_floor_frac:.0%}), so the tiny-model ceiling is low-confidence; discovery proceeds",
+    )
+
+
 def measure_achievable_ceiling(
     *,
     df: Any,
@@ -357,24 +418,9 @@ def measure_achievable_ceiling(
 
     # (c) OPTIMISTIC achievable-composite ceiling: best (min-RMSE) linear-residual reconstruction over candidate bases.
     base_cands = _pick_base_candidates(df, feature_cols, target_col, lag_col, y_sub, idx_all, max_base_candidates)
-    best_composite_rmse = float("inf")
-    best_base: Optional[str] = None
-    for bcol in base_cands:
-        try:
-            base_fit = _extract_column_array(df, bcol, rows=rows_fit).astype(np.float64, copy=False)
-            base_hold = _extract_column_array(df, bcol, rows=rows_hold).astype(np.float64, copy=False)
-        except Exception as e:
-            logger.debug("swallowed exception in _achievable_ceiling.py: %s", e)
-            continue
-        if base_fit.shape != y_fit.shape or base_hold.shape != y_hold.shape:
-            continue
-        comp = _composite_rmse_for_base(
-            base_fit=base_fit, base_hold=base_hold, y_fit=y_fit, y_hold=y_hold,
-            x_fit=x_fit, x_hold=x_hold, model_factory=_model_factory, y_hold_std=y_hold_std,
-        )
-        if np.isfinite(comp) and comp < best_composite_rmse:
-            best_composite_rmse = comp
-            best_base = bcol
+    best_composite_rmse, best_base, n_evaluated, n_collapsed = _best_composite_over_bases(
+        df, base_cands, rows_fit, rows_hold, y_fit=y_fit, y_hold=y_hold, x_fit=x_fit, x_hold=x_hold, model_factory=_model_factory, y_hold_std=y_hold_std,
+    )
 
     # Floor = the honest min over the raw model and the AR failsafe.
     floor_candidates = [v for v in (raw_rmse, lag_rmse) if np.isfinite(v)]
@@ -387,9 +433,8 @@ def measure_achievable_ceiling(
     if not np.isfinite(floor_rmse):
         return _verdict(headroom=float("nan"), decision="proceed", reason="no measurable floor (raw + lag both non-finite)", **common)
     if not np.isfinite(best_composite_rmse):
-        return _verdict(
-            headroom=float("nan"), decision="proceed", reason="optimistic composite ceiling unmeasurable (all candidate bases collapsed / absent)", **common
-        )
+        return _verdict(**_collapsed_ceiling_verdict_kwargs(n_offered=len(base_cands), n_evaluated=n_evaluated, n_collapsed=n_collapsed,
+                                                            floor_rmse=floor_rmse, y_hold_std=y_hold_std, strong_floor_frac=strong_floor_frac), **common)
 
     headroom = (floor_rmse - best_composite_rmse) / floor_rmse if floor_rmse > 0 else float("nan")
     if np.isfinite(headroom) and headroom >= margin:

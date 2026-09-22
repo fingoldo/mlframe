@@ -26,6 +26,7 @@ import polars as pl
 
 from pyutilz.system import get_own_memory_usage
 from mlframe.training.utils import maybe_clean_ram_adaptive
+from mlframe.training._polars_native_support import catboost_polars_fastpath_broken
 
 from .configs import (
     TargetTypes,
@@ -491,16 +492,14 @@ def process_model(
                 # prod log: ``cb_recency`` reload still hit the
                 # ``predict_proba RAISED TypeError`` polars-fastpath miss
                 # despite the original CB instance having had the flag set
-                # at fit time). Set it defensively for any reloaded CB --
-                # we know CB 1.2.x's polars fastpath has dispatch gaps on
-                # nullable Categorical / Enum columns, and a wasted retry
-                # on every VAL/TEST/ensemble call burns a WARN + ~1-2 s.
-                # No-op on non-CB models (the attribute is never read for
-                # them).
+                # at fit time). Re-derive it for any reloaded CB from the installed build's own probe: some CB 1.2.x builds
+                # have polars dispatch gaps on nullable Categorical / Enum columns and some do not, so asserting it
+                # unconditionally buys a pandas conversion on every VAL/TEST/ensemble call on a build that never needed one.
+                # No-op on non-CB models (the attribute is never read for them).
                 _model_cls_name = type(model_obj).__name__
                 if _model_cls_name.startswith("CatBoost") and not getattr(model_obj, "_mlframe_polars_fastpath_broken", False):
                     try:
-                        model_obj._mlframe_polars_fastpath_broken = True
+                        model_obj._mlframe_polars_fastpath_broken = catboost_polars_fastpath_broken()  # readers use getattr(..., False)
                     except Exception as _e_flag:  # nosec B110 - non-trivial body
                         # CB Python class is permissive about attributes,
                         # but slot-restricted forks could refuse -- degrade

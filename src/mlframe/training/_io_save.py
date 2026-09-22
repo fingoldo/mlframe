@@ -79,6 +79,31 @@ def _describe_unpicklable(payload, error) -> str:
     return "; ".join(parts) if parts else "no further detail available"
 
 
+def _warn_if_model_tripped_sensors(model: object, file: str) -> None:
+    """Say at SAVE time that this model tripped a regression sensor, naming each trip.
+
+    The collapse sensor and the envelope clip each warn where they fire, hundreds of log lines before the artefact
+    is written, so a reader arriving at "Model saved successfully" has no indication that the thing just persisted
+    was flagged four times. Repeating the verdict at the point of persistence puts it where the decision is made.
+    """
+    try:
+        from .reporting._reporting_regression._sensor_ledger import sensor_trips_for
+
+        name = getattr(model, "model_name", None) or type(model).__name__
+        trips = sensor_trips_for(name)
+        if not trips:
+            return
+        summary = ", ".join(f"{t.get('sensor')}:{t.get('branch')}" for t in trips)
+        logger.warning(
+            "[sensor-trips] the model just saved to %s tripped %d regression sensor(s) during evaluation: %s. "
+            "Its predictions were flagged as pathological and/or clipped back into the training envelope, so "
+            "treat the persisted artefact as suspect until those are explained.",
+            file, len(trips), summary,
+        )
+    except Exception as exc:  # a save must never fail because a diagnostic could not be read
+        logger.debug("sensor-trip lookup at save time failed (%s); artefact is unaffected", exc)
+
+
 def save_mlframe_model(
     model: object,
     file: str,
@@ -392,17 +417,13 @@ def save_mlframe_model(
         size_mb = os.path.getsize(file) / (1024 * 1024)
         if verbose > 0:
             logger.info("Model saved successfully to %s. Size: %.2f Mb", file, size_mb)
-        # 2026-05-21: suspicious-size sensor. Tabular ML model bundles
-        # (CB / XGB / LGB / MLP / Linear) post-zstd should typically
-        # land at <50 MB even on million-row training. Anything above
-        # the threshold below is almost always an unstripped DataLoader /
-        # trainer / optimizer state OR a forgotten OOF blob -- one
-        # observed prod MLP dump was 311 MB because
-        # ``LightningModule._trainer`` + ``prediction_datamodule`` held
-        # refs to the 4M-row training frame (the strip step now nullifies
-        # them during pickle).
-        # Emit a HARD WARNING so operators see oversized dumps in their
-        # run log instead of having to ``ls -lh`` the artefact dir.
+        _warn_if_model_tripped_sensors(model, file)
+        # 2026-05-21: suspicious-size sensor. Tabular ML model bundles (CB / XGB / LGB / MLP / Linear) post-zstd should typically
+        # land at <50 MB even on million-row training. Anything above the threshold below is almost always an unstripped DataLoader /
+        # trainer / optimizer state OR a forgotten OOF blob -- one observed prod MLP dump was 311 MB because
+        # ``LightningModule._trainer`` + ``prediction_datamodule`` held refs to the 4M-row training frame (the strip step now nullifies
+        # them during pickle). Emit a HARD WARNING so operators see oversized dumps in their run log instead of having to ``ls -lh``
+        # the artefact dir.
         _SIZE_SUSPICIOUS_MB = 50.0
         if size_mb > _SIZE_SUSPICIOUS_MB:
             logger.warning(

@@ -802,7 +802,10 @@ def fast_regression_metrics_block(
         )
     n = yt.shape[0]
     if n == 0:
-        return {"MAE": 0.0, "RMSE": 0.0, "MaxError": 0.0, "R2": 0.0}
+        # NaN, not 0.0: zero error is the best possible MAE/RMSE/MaxError, so an empty split would win any min()
+        # selection it entered. The per-metric fast_* helpers raise instead; this block feeds reporting, where one
+        # empty split must show up as missing rather than abort the whole report.
+        return {"MAE": np.nan, "RMSE": np.nan, "MaxError": np.nan, "R2": np.nan}
     use_par = n >= _PARALLEL_REDUCTION_THRESHOLD
     # bench-attempt-rejected (2026-06-14): folding pass2 into pass1 via Welford (_fused_regression_welford_*)
     # was slower e2e at N=10M -- separate-process A/B 25.8ms->29.2ms (min), 40.8ms->56.4ms (median). The 10M

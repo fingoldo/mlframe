@@ -194,6 +194,7 @@ def test_every_reference_bed_is_registered_with_a_prediction() -> None:
     """A bed nobody registered cannot be run, and one predicting nothing cannot be scored."""
     registered: List[str] = list(scenario_registry.names())
 
+    assert REFERENCE_BEDS
     for name in REFERENCE_BEDS:
         assert name in registered
         assert scenario_registry.get(name).expected_to_break, f"{name} declares no arms it expects to defeat"

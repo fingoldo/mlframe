@@ -180,6 +180,9 @@ SKEW_HIGH: float = 0.8  # tightened from 1.0 -> 0.8
 EXCESS_KURT_NEAR_GAUSSIAN: float = 0.5  # < 0.5 -> truly Normal-like
 EXCESS_KURT_HEAVY: float = 1.5  # 0.5-1.5 -> mild leptokurtosis; > 1.5 -> heavy tails (was 3.0!)
 EXCESS_KURT_EXTREME: float = 10.0  # > 10 -> outlier contamination
+# > 20 -> even a bounded-influence loss stops carrying gradient. Mirrors ``loss_recommendation._EXCESS_KURT_HUBER_FAILS``
+# so the advice printed here and the objective the suite actually sets are read off ONE ladder.
+EXCESS_KURT_HUBER_FAILS: float = 20.0
 HETERO_SPEARMAN_THRESHOLD: float = 0.30
 """|Spearman corr(|residuals|, y_hat)| above this -> heteroscedasticity
 is real, not noise. 0.30 is a moderate effect; 0.50+ is strong."""
@@ -279,6 +282,34 @@ def _spearman_corr(x: np.ndarray, y: np.ndarray) -> float:
     return float((rx * ry).sum() / denom)
 
 
+def _contaminated_beyond_huber_ceiling(excess_kurt: float, rationale: list) -> tuple:
+    """``_diagnose`` verdict for contaminated residuals whose kurtosis is past the bounded-influence ceiling.
+
+    Above the ceiling the suite's own loss recommender REFUSES Huber, because its gradient ``delta * sign(r)`` vanishes
+    when most rows sit near zero and the booster stops at iter 0-1. Advising it here anyway put the two components in
+    direct contradiction on the same statistic -- a production run printed "suggested: Huber" 25 times on targets
+    whose kurtosis the recommender was simultaneously using to reject it. One ladder, read the same way in both places.
+
+    The HYPOTHESIS is unchanged -- the residuals are still contaminated, which is a statement about the distribution.
+    Only the remedy differs, because at this kurtosis the bounded-influence loss that normally answers contamination
+    is itself the failure mode.
+    """
+    rationale.append(
+        f"excess kurt={excess_kurt:+.2f} is ALSO above the {EXCESS_KURT_HUBER_FAILS} ceiling where a "
+        f"bounded-influence loss stops carrying gradient (most rows ~ 0, so delta*sign(r) ~ 0 and the "
+        f"booster stops at iter 0-1): Huber is not the remedy here despite the contamination."
+    )
+    return (
+        "Contaminated / outliers",
+        (
+            "RMSE (beyond the bounded-influence ceiling: its 2*r gradient always carries signal, whereas "
+            "Huber collapses here; a non-trivial fit beats a constant-prediction collapse) or an explicit "
+            "quantile objective"
+        ),
+        rationale,
+    )
+
+
 def _diagnose(
     *,
     skew: float,
@@ -328,6 +359,8 @@ def _diagnose(
             f"(> {EXCESS_KURT_EXTREME}); {pct_outliers_3sigma*100:.1f}% of |resid|>3sigma "
             f"(Normal expects 0.27%)."
         )
+        if excess_kurt > EXCESS_KURT_HUBER_FAILS:
+            return _contaminated_beyond_huber_ceiling(excess_kurt, rationale)
         return "Contaminated / outliers", "Huber (robust to outliers; tune delta around 1-2 sigma_resid)", rationale
 
     if excess_kurt > EXCESS_KURT_HEAVY:

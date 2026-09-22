@@ -927,6 +927,7 @@ from ._pipeline_cache import (
     _content_fingerprint_for_cache,
     _full_x_content_hash,
     _full_target_content_hash,
+    target_label_changed,
     _pipeline_signature_for_cache,
     _pre_pipeline_cache_key,
     _pre_pipeline_cache_get,

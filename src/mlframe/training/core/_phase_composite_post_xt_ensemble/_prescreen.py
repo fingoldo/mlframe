@@ -10,7 +10,7 @@ worth refitting.
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -74,7 +74,7 @@ def leaky_rmse_keep_mask(components: Sequence[Any], component_names: Sequence[st
     return keep_mask, dropped
 
 
-def dummy_floor_from_metadata(metadata: dict, target_type: Any, target_name: Any) -> float | None:
+def dummy_floor_from_metadata(metadata: Mapping[str, Any], target_type: Any, target_name: Any) -> float | None:
     """The strongest dummy baseline's primary-metric value for this target, or ``None`` when it is unusable.
 
     Assumes an RMSE-family regression primary metric: the value is compared directly against component RMSEs.
@@ -93,7 +93,7 @@ def dummy_floor_from_metadata(metadata: dict, target_type: Any, target_name: Any
     return float(value)
 
 
-def same_split_dummy_rmse(metadata: dict, target_type: Any, target_name: Any, oof_names: Sequence[str], oof_rmses: Any, oof_y: Any) -> float | None:
+def same_split_dummy_rmse(metadata: Mapping[str, Any], target_type: Any, target_name: Any, oof_names: Sequence[str], oof_rmses: Any, oof_y: Any) -> float | None:
     """The strongest dummy's RMSE on the same OOF rows the components are scored on, or ``None`` when it cannot be had.
 
     The dummy baseline in metadata is a VAL-split number, and comparing it with the components' train K-fold OOF RMSEs let
@@ -130,3 +130,68 @@ def same_split_dummy_rmse(metadata: dict, target_type: Any, target_name: Any, oo
             "falls back to its val-split RMSE, which is not measured on the rows the components are scored on.", target_name, strongest,
         )
     return val_value
+
+
+def apply_dummy_floor_gate(
+    cfg: Any, metadata: Mapping[str, Any], target_type: Any, target_name: str,
+    components: list, names: list, rmses: np.ndarray, pred_matrix: np.ndarray | None, y_holdout: np.ndarray,
+) -> tuple[list, list, np.ndarray, np.ndarray | None]:
+    """Drop the components whose honest-OOF RMSE exceeds the strongest dummy's same-split RMSE (times 1 + tolerance).
+
+    A trained model that loses to a parameter-free dummy on the honest holdout cannot improve the ensemble; keeping it
+    dilutes the NNLS weights. When every component would be dropped all are kept (the honest gate then falls back to the
+    best single). Returns ``(components, names, rmses, pred_matrix)``, filtered or unchanged; ``ct_ensemble_dummy_floor_enabled``
+    (default True) turns it off.
+    """
+    # Dummy-floor gate: drop any component whose honest-OOF RMSE exceeds the raw target's strongest-dummy RMSE by more than the configured tolerance. A trained model that loses to a parameter-free dummy on the honest holdout cannot improve the ensemble; keeping it dilutes NNLS weights and harms test performance.
+    # The dummy's primary_metric value is compared directly against component OOF RMSEs, so the floor is unit-consistent only while the regression primary is RMSE (currently the only option).
+    _dummy_floor_enabled = bool(getattr(
+        cfg,
+        "ct_ensemble_dummy_floor_enabled", True,
+    ))
+    _dummy_floor_tol = float(getattr(
+        cfg,
+        "ct_ensemble_dummy_floor_tolerance", 0.0,
+    ))
+    if (_dummy_floor_enabled
+            and pred_matrix is not None
+            and pred_matrix.shape[1] > 0
+            and len(rmses) > 0):
+        # The floor is measured on the same OOF rows as the components it gates (see same_split_dummy_rmse).
+        _dummy_floor_rmse = same_split_dummy_rmse(metadata, target_type, target_name, names, rmses, y_holdout)
+        if _dummy_floor_rmse is not None:
+            _dummy_floor_rmse *= 1.0 + _dummy_floor_tol
+        if _dummy_floor_rmse is not None:
+            _keep_idx = [_i for _i in range(len(rmses)) if np.isfinite(rmses[_i]) and rmses[_i] <= _dummy_floor_rmse]
+            _dropped_idx = [_i for _i in range(len(rmses)) if _i not in set(_keep_idx)]
+            if _dropped_idx and len(_keep_idx) >= 1:
+                _dropped_names = [f"{names[_i]}(OOF={rmses[_i]:.4g})" for _i in _dropped_idx]
+                _floor_base = _dummy_floor_rmse / (1.0 + _dummy_floor_tol)
+                logger.warning(
+                    "[CompositeCrossTargetEnsemble] target='%s' "
+                    "dummy-floor gate fired: dropping %d/%d "
+                    "component(s) whose OOF RMSE > the strongest "
+                    "dummy's same-split OOF RMSE %.4g x (1+%.2f) = %.4g. "
+                    "Dropped: %s",
+                    target_name, len(_dropped_idx),
+                    len(rmses),
+                    _floor_base, _dummy_floor_tol,
+                    _dummy_floor_rmse, _dropped_names,
+                )
+                components = [components[_i] for _i in _keep_idx]
+                names = [names[_i] for _i in _keep_idx]
+                rmses = rmses[_keep_idx]
+                pred_matrix = pred_matrix[:, _keep_idx]
+            elif not _keep_idx:
+                logger.warning(
+                    "[CompositeCrossTargetEnsemble] target='%s' "
+                    "dummy-floor gate would drop ALL %d "
+                    "component(s) (every OOF RMSE > %.4g); "
+                    "keeping all to avoid empty pool. The "
+                    "honest-OOF gate below will fall back to "
+                    "best single.",
+                    target_name, len(rmses),
+                    _dummy_floor_rmse,
+                )
+
+    return components, names, rmses, pred_matrix

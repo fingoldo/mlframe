@@ -31,11 +31,14 @@ from __future__ import annotations
 
 from ..estimator._smearing import smeared_prediction
 from ._spec_shared import spec_base_columns, rmse
+from ._grouped_causal_bases import grouped_causal_bases_for_frame
 
 import logging
 from typing import Any, Sequence
 
 import numpy as np
+
+from mlframe.utils.log_throttle import log_throttle
 
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array, base_arg as _base_arg
@@ -233,6 +236,15 @@ def apply_structural_fragility_gate(
     return survivors
 
 
+def _warn_domain_check_failed(transform_name: str, exc: Exception) -> None:
+    """Warn that a transform's domain_check failed; once per transform, since every spec of that transform fails the same way."""
+    log_throttle(
+        logger, f"yscale_gate_domain_check_failed:{transform_name}", logging.WARNING,
+        "domain_check of %s failed (%s), treating all rows as valid for every spec using it", transform_name, exc,
+        max_count=1,
+    )
+
+
 def apply_yscale_holdout_gate(
     self,
     df: Any,
@@ -280,15 +292,15 @@ def apply_yscale_holdout_gate(
             return idx
         return np.sort(rng.choice(idx, size=n_cap, replace=False))
 
-    feats = list(usable_features)
-    val_y = None if val_y is None else np.asarray(val_y)
+    feats, val_y = list(usable_features), (None if val_y is None else np.asarray(val_y))
     _eval_df = df  # frame the eval rows are gathered from; df (train) for the fallback path
     if val_df is not None and val_y is not None and val_y.size >= 50:
         # Preferred path: fit on TRAIN (seen wells), evaluate on the VAL frame (unseen wells);
         # group-disjoint by construction under the group-aware split.
         fit_idx = _subsample(screen_idx, cap)
         eval_idx = _subsample(np.arange(val_y.size), cap)
-        _eval_df = val_df
+        # Engineered grouped causal features / bases exist only on the discovery frame; build them on val from val_y.
+        _eval_df = grouped_causal_bases_for_frame(self, val_df, val_y, target_col, [*feats, *(c for s in kept_specs for c in spec_base_columns(s))])
         y_fit = y_full[fit_idx].astype(np.float64)
         y_eval = val_y[eval_idx].astype(np.float64)
         _gate_mode = "val-split"
@@ -375,7 +387,7 @@ def apply_yscale_holdout_gate(
             if valid.shape != y_fit.shape:
                 valid = np.ones(y_fit.shape, dtype=bool)
         except Exception as e:
-            logger.warning("domain_check failed, treating all rows as valid: %s", e)
+            _warn_domain_check_failed(spec.transform_name, e)
             valid = np.ones(y_fit.shape, dtype=bool)
         if int(valid.sum()) < 50:
             survivors.append(spec)

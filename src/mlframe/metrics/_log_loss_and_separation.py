@@ -30,6 +30,9 @@ from ._numba_params import (
 )
 
 
+_REDUCTION_CHUNKS = 256  # fixed, data-independent partition for the parallel float reductions in this module
+
+
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_log_loss_binary_seq(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-15) -> float:
     """Sequential numba binary log loss. See ``fast_log_loss_binary``
@@ -91,23 +94,34 @@ def _fast_log_loss_binary_par(y_true: np.ndarray, y_pred: np.ndarray, eps: float
     if n == 0:
         return 0.0
 
+    # Fixed chunk partition instead of a bare float reduction: a bare one combines the per-thread partials in thread
+    # completion order, so the same input returned a different last ulp on every call (measured on a 300k-row report:
+    # three runs, three distinct log-loss values). ``bad`` and ``n_pos`` are integer counts and stay plain reductions.
+    n_chunks = _REDUCTION_CHUNKS if n >= _REDUCTION_CHUNKS else 1
+    chunk = (n + n_chunks - 1) // n_chunks
+    partials = np.zeros(n_chunks, dtype=np.float64)
     bad = 0
-    loss_sum = 0.0
     n_pos = 0
-    for i in numba.prange(n):
-        p = y_pred[i]
-        if p < 0.0 or p > 1.0:
-            bad += 1
-            continue
-        if p < eps:
-            p = eps
-        elif p > 1 - eps:
-            p = 1 - eps
-        if y_true[i] == 1:
-            loss_sum -= np.log(p)
-            n_pos += 1
-        else:
-            loss_sum -= np.log(1 - p)
+    for c in numba.prange(n_chunks):
+        acc = 0.0
+        for i in range(c * chunk, min(c * chunk + chunk, n)):
+            p = y_pred[i]
+            if p < 0.0 or p > 1.0:
+                bad += 1
+                continue
+            if p < eps:
+                p = eps
+            elif p > 1 - eps:
+                p = 1 - eps
+            if y_true[i] == 1:
+                acc -= np.log(p)
+                n_pos += 1
+            else:
+                acc -= np.log(1 - p)
+        partials[c] = acc
+    loss_sum = 0.0
+    for c in range(n_chunks):
+        loss_sum += partials[c]
 
     if bad > 0:
         return np.nan
@@ -220,23 +234,38 @@ def _probability_separation_score_par(y_true: np.ndarray, y_prob: np.ndarray, cl
     n = len(y_true)
     if n == 0:
         return np.nan
+    # Same fixed-partition reduction as the log-loss kernel above, for the same reason: reproducibility.
+    n_chunks = _REDUCTION_CHUNKS if n >= _REDUCTION_CHUNKS else 1
+    chunk = (n + n_chunks - 1) // n_chunks
+    sums = np.zeros(n_chunks, dtype=np.float64)
     n_in = 0
-    s = 0.0
-    for i in numba.prange(n):
-        if y_true[i] == class_label:
-            n_in += 1
-            s += y_prob[i]
+    for c in numba.prange(n_chunks):
+        acc = 0.0
+        for i in range(c * chunk, min(c * chunk + chunk, n)):
+            if y_true[i] == class_label:
+                n_in += 1
+                acc += y_prob[i]
+        sums[c] = acc
     if n_in == 0:
         return np.nan
+    s = 0.0
+    for c in range(n_chunks):
+        s += sums[c]
     mean = s / n_in
     if std_weight == 0.0:
         return mean
 
+    sses = np.zeros(n_chunks, dtype=np.float64)
+    for c in numba.prange(n_chunks):
+        acc = 0.0
+        for i in range(c * chunk, min(c * chunk + chunk, n)):
+            if y_true[i] == class_label:
+                d = y_prob[i] - mean
+                acc += d * d
+        sses[c] = acc
     sse = 0.0
-    for i in numba.prange(n):
-        if y_true[i] == class_label:
-            d = y_prob[i] - mean
-            sse += d * d
+    for c in range(n_chunks):
+        sse += sses[c]
     std = np.sqrt(sse / n_in)
     addend = std * std_weight
     if class_label == 1:

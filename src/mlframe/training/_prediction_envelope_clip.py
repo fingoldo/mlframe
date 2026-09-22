@@ -136,6 +136,14 @@ def clip_predictions_to_train_envelope(
         n_low, low, n_high, high,
         k_sigma, k_sigma, _ENV_DISABLE,
     )
+    # Recorded, not just logged: a clipped prediction means the model left the range its own training data covers,
+    # which the persisted artefact and the suite-end verdict both need to know about.
+    from .reporting._reporting_regression._sensor_ledger import record_sensor_trip
+
+    record_sensor_trip(
+        model_label, "envelope_clip", str(split_label),
+        n_below=n_low, n_above=n_high, envelope_low=float(low), envelope_high=float(high), k_sigma=float(k_sigma),
+    )
     return np.clip(arr, low, high)
 
 

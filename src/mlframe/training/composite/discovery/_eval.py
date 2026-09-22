@@ -246,7 +246,16 @@ def eval_one_transform(
     ``MI(T_unary, X)`` cost O(1 spec) rather than O(bases) even on the per-base
     fallback path (the normal sentinel routing already dedups via the work-list,
     but the memo also guards the fallback + any re-dispatch and pins the win).
+
+    A grouped (``requires_groups``) transform is rejected here with the reason: the per-(base, transform) screen carries no
+    group labels, so its fit raised and took down every composite of the target. Any other evaluation error likewise
+    becomes this candidate's rejection (logged at WARNING and in the ledger) instead of aborting the whole fit.
     """
+    _mi_y = base_contexts.get(base, {}).get("mi_y_for_base", float("nan"))
+    if getattr(transform, "requires_groups", False):
+        return [self._reject(base, transform_name, _mi_y, float("nan"), reason=(
+            "grouped transform: discovery screens without group labels, so it cannot fit one; "
+            "fit it directly with CompositeTargetEstimator(group_column=...)"))]
     if not transform.requires_base:
         _uctx = base_contexts[base]
         _memo = _uctx.get("_unary_result_memo")
@@ -270,11 +279,16 @@ def eval_one_transform(
                 # bit-identical result, so either entry is equivalent.
                 _memo.setdefault(transform_name, [dict(_c) for _c in _result])
             return _result
-    return _eval_one_transform_impl(
-        self, base, transform_name, transform,
-        base_contexts=base_contexts, y_train=y_train,
-        y_screen=y_screen, target_col=target_col,
-    )
+    try:
+        return _eval_one_transform_impl(
+            self, base, transform_name, transform,
+            base_contexts=base_contexts, y_train=y_train,
+            y_screen=y_screen, target_col=target_col,
+        )
+    except Exception as err:  # nosec B110 -- converted into this candidate's rejection, logged and ledgered, never silent
+        logger.warning("[CompositeTargetDiscovery] candidate (%s, %s) failed to evaluate (%s: %s); rejected, discovery continues.",
+                       base, transform_name, type(err).__name__, err)
+        return [self._reject(base, transform_name, _mi_y, float("nan"), reason=f"evaluation failed: {type(err).__name__}: {err}")]
 
 
 def _eval_one_transform_impl(

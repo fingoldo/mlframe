@@ -339,9 +339,9 @@ def _setup_per_target_mlframe_models(
     _audit = _all_target_audits.get(target_type, {}).get(cur_target_name)
     # A composite target is a residual / transform of a raw target whose own audit is already logged: its "mean rate"
     # per week and the advice to "train on the most recent stable segment" describe the residual, not anything to act on.
-    from ..composite.transforms import is_composite_target_name
+    from ..composite.transforms import composite_target_names, is_composite_target
 
-    if _audit is not None and is_composite_target_name(str(cur_target_name)):
+    if _audit is not None and is_composite_target(str(cur_target_name), composite_target_names(metadata)):
         _audit = None
     if _audit is not None:
         try:
@@ -519,7 +519,7 @@ def _setup_per_target_mlframe_models(
     # passed through so configure_training_params can skip a 3-min pandas memory_usage(deep=...) scan
     # on high-cardinality object columns; the OD-shrinkage approximation only feeds a GPU-RAM heuristic.
     common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
-        model_name=f"{target_name} {model_name} {cur_target_name}",
+        model_name=f"{target_name} {model_name} {cur_target_name}", composite_names=composite_target_names(metadata),
         target=cur_target_values,
         target_type=target_type,
         df=None,

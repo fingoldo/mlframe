@@ -82,10 +82,21 @@ def test_polars_native_handles_unseen_groups_with_global_mean_fallback():
     y = np.array([1.0, 3.0, 5.0, 7.0, 9.0], dtype=np.float64)
 
     _, val_pred, test_pred, diag = _per_group_predict(train_pl, val_pl, test_pl, y, "g", "regression")
-    g0_mean = (1.0 + 3.0) / 2
-    g1_mean = (5.0 + 7.0 + 9.0) / 3
     global_mean = float(np.mean(y))
-    np.testing.assert_allclose(val_pred, [g0_mean, global_mean, g1_mean, global_mean])
+    # Seen groups are size-shrunk toward the global mean (audit 2026-09-20 SEN-08: a raw group mean lets a one-row
+    # group emit an extreme prediction). The contract this test is named for -- UNSEEN groups fall back to exactly
+    # the global mean -- is unaffected, and is what the odd positions below pin.
+    from mlframe.training.baselines._dummy_baseline_compute import (
+        _empirical_bayes_pseudocounts,
+        _shrink_group_means,
+    )
+
+    sizes = np.array([2.0, 3.0])
+    raw_means = np.array([(1.0 + 3.0) / 2, (5.0 + 7.0 + 9.0) / 3])
+    m = _empirical_bayes_pseudocounts(y, sizes, raw_means, global_mean)
+    g0_pred, g1_pred = _shrink_group_means(raw_means, sizes, global_mean, m)
+    assert min(raw_means[0], global_mean) <= g0_pred <= max(raw_means[0], global_mean)
+    np.testing.assert_allclose(val_pred, [g0_pred, global_mean, g1_pred, global_mean])
     np.testing.assert_allclose(test_pred, [global_mean])
     assert diag["n_groups_train"] == 2
     assert diag["global_fallback"] == pytest.approx(global_mean)

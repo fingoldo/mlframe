@@ -18,6 +18,18 @@ from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 logger = logging.getLogger(__name__)
 
 
+# Binning contract shared by both batched kernels below and by the serial reference they must match
+# (``fast_ice_only`` -> ``calibration_binning``; pinned by ``tests/metrics/test_ice_kernel_parity.py``):
+#   - Equal-width grid: ``multiplier = nbins / span``. The ``(nbins - 1) / span`` it replaced made every bin
+#     ``span/(nbins-1)`` wide, so data filled nbins-1 bins and the last held only the exact maximum (one row whose
+#     observed frequency is 0 or 1, a near-1.0 gap in CMAEW); at nbins=2 every row landed in one bin. The maximum
+#     itself maps to exactly ``nbins`` and is clamped into the last bin.
+#   - A bin is scored at the MEAN prediction of its rows, not at its centre. The two differ whenever a bin's mass is
+#     not symmetric around the centre - the normal case on a skewed probability distribution - and the kernels'
+#     earlier "bit-exact equivalent of fast_ice_only" claim was false because of it: on a Beta(2,5) bed at nbins=10
+#     the centre form returned -0.0917 against the reference's -0.1477.
+
+
 @numba.njit(fastmath=False, cache=True, nogil=True, parallel=True)
 def _batch_per_class_ice_kernel(
     y_true_NK: np.ndarray,
@@ -49,9 +61,8 @@ def _batch_per_class_ice_kernel(
 
     Returns ice_per_class : (K,) float64.
 
-    Bit-exact equivalent of looping ``fast_ice_only`` per class
-    (verified against the legacy form in
-    ``bench_compute_multiclass_error.py``).
+    Equivalent to looping ``fast_ice_only`` per class: same binning grid, same per-bin MEAN prediction, same weighting
+    (pinned by ``tests/metrics/test_ice_kernel_parity.py``).
 
     ``desc_idx_NK`` is the per-class descending-score order (shape (N, K)), computed ONCE by the caller via numpy's
     C ``np.argsort(-y_pred_NK, axis=0)``. numba's own ``np.argsort`` is markedly slower than numpy's (measured 3.6x on
@@ -102,23 +113,24 @@ def _batch_per_class_ice_kernel(
         span = max_val - min_val
         pockets_pred = np.zeros(nbins, dtype=np.int64)
         pockets_true = np.zeros(nbins, dtype=np.int64)
+        pockets_pred_sum = np.zeros(nbins, dtype=np.float64)
         if span > 0:
-            multiplier = (nbins - 1) / span
+            multiplier = nbins / span  # equal-width grid; see "Binning contract" at the top of the module
             for i in range(N):
                 ind = int(np.floor((y_p[i] - min_val) * multiplier))
-                # FP-boundary clamp (same guard as the gold serial kernel): at y_p[i] == max_val this is
-                # exactly nbins-1 in exact arithmetic, but floating-point rounding can push it to nbins,
-                # which would write out of the pockets_pred/pockets_true bounds under @njit (bounds-checking off).
+                # Upper clamp: at y_p[i] == max_val this is exactly nbins (see "Binning contract"); unclamped it writes out of bounds.
                 if ind < 0:
                     ind = 0
                 elif ind >= nbins:
                     ind = nbins - 1
                 pockets_pred[ind] += 1
                 pockets_true[ind] += y_t[i]
+                pockets_pred_sum[ind] += y_p[i]
         else:
             for i in range(N):
                 pockets_pred[0] += 1
                 pockets_true[0] += y_t[i]
+                pockets_pred_sum[0] += y_p[i]
 
         # Collapse to non-empty bins
         n_nonempty = 0
@@ -131,7 +143,7 @@ def _batch_per_class_ice_kernel(
         ptr = 0
         for b in range(nbins):
             if pockets_pred[b] > 0:
-                freqs_pred[ptr] = min_val + (b + 0.5) * span / nbins
+                freqs_pred[ptr] = pockets_pred_sum[b] / pockets_pred[b]  # bin MEAN; see "Binning contract"
                 freqs_true[ptr] = pockets_true[b] / pockets_pred[b]
                 hits[ptr] = pockets_pred[b]
                 ptr += 1
@@ -258,6 +270,18 @@ def _batch_per_class_ice_kernel(
 # tested (any K), and stays faster up to N*K~=500k (ratio ~1.05-1.32x parallel/serial, i.e. parallel
 # still loses). Parallel only starts winning once N*K reaches ~4M (0.43-0.66x, i.e. 1.5-2.3x
 # speedup) -- see ``_ice_kernel_dispatch`` below for the threshold this calibrates.
+@numba.njit(fastmath=False, cache=True, nogil=True)
+def _brier_1d(y_t: np.ndarray, y_p: np.ndarray) -> float:
+    """Brier loss of one class column (mean squared error vs the 0/1 indicator); 1.0 on empty input. Same summation
+    order as the loop it was lifted from, so the serial kernel's result is unchanged."""
+    n = y_t.shape[0]
+    s = 0.0
+    for i in range(n):
+        d = float(y_t[i]) - y_p[i]
+        s += d * d
+    return s / n if n > 0 else 1.0
+
+
 @numba.njit(fastmath=False, cache=True, nogil=True, parallel=False)
 def _batch_per_class_ice_kernel_serial(
     y_true_NK: np.ndarray,
@@ -284,12 +308,7 @@ def _batch_per_class_ice_kernel_serial(
         y_t = y_true_NK[:, k]
         y_p = y_pred_NK[:, k]
 
-        # ---- Brier loss (mean squared error vs indicator) ----
-        s = 0.0
-        for i in range(N):
-            d = float(y_t[i]) - y_p[i]
-            s += d * d
-        brier = s / N if N > 0 else 1.0
+        brier = _brier_1d(y_t, y_p)  # mean squared error vs the indicator
 
         # ---- Calibration binning (uniform-strategy, fixed nbins) ----
         min_val = y_p[0]
@@ -303,8 +322,9 @@ def _batch_per_class_ice_kernel_serial(
         span = max_val - min_val
         pockets_pred = np.zeros(nbins, dtype=np.int64)
         pockets_true = np.zeros(nbins, dtype=np.int64)
+        pockets_pred_sum = np.zeros(nbins, dtype=np.float64)
         if span > 0:
-            multiplier = (nbins - 1) / span
+            multiplier = nbins / span  # equal-width grid; see "Binning contract" at the top of the module
             for i in range(N):
                 ind = int(np.floor((y_p[i] - min_val) * multiplier))
                 if ind < 0:
@@ -313,10 +333,12 @@ def _batch_per_class_ice_kernel_serial(
                     ind = nbins - 1
                 pockets_pred[ind] += 1
                 pockets_true[ind] += y_t[i]
+                pockets_pred_sum[ind] += y_p[i]
         else:
             for i in range(N):
                 pockets_pred[0] += 1
                 pockets_true[0] += y_t[i]
+                pockets_pred_sum[0] += y_p[i]
 
         n_nonempty = 0
         for b in range(nbins):
@@ -328,7 +350,7 @@ def _batch_per_class_ice_kernel_serial(
         ptr = 0
         for b in range(nbins):
             if pockets_pred[b] > 0:
-                freqs_pred[ptr] = min_val + (b + 0.5) * span / nbins
+                freqs_pred[ptr] = pockets_pred_sum[b] / pockets_pred[b]  # bin MEAN; see "Binning contract"
                 freqs_true[ptr] = pockets_true[b] / pockets_pred[b]
                 hits[ptr] = pockets_pred[b]
                 ptr += 1

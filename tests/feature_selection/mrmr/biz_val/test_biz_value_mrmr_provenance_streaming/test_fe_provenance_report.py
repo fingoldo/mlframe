@@ -470,7 +470,7 @@ class TestLayer54_C7_GetFEReport:
         assert "MRMR FE provenance:" in text, f"Report must include the canonical header marker; got:\n{text}"
         # Every feature_name in the provenance frame must appear in the
         # rendered table.
-        assert len(m.fe_provenance_['feature_name']) > 0
+        assert len(m.fe_provenance_["feature_name"]) > 0
         for name in m.fe_provenance_["feature_name"]:
             assert str(name) in text, f"feature_name {name!r} missing from rendered report:\n{text}"
 

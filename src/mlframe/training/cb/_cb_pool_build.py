@@ -213,11 +213,11 @@ def _maybe_get_or_build_cb_pool(
         # each iteration; an id() collision there would silently keep a stale
         # label on the reused Pool while training proceeds against fresh data).
         # Always mutate weight -- ``set_weight`` has no target-type restriction.
-        from mlframe.training.pipeline import _full_target_content_hash
+        from mlframe.training.pipeline import _full_target_content_hash, target_label_changed
         last_target_sig = getattr(cached, "_mlframe_last_target_sig", None)
         try:
             _target_sig = _full_target_content_hash(train_target)
-            if last_target_sig is None or _target_sig != last_target_sig:
+            if last_target_sig is None or target_label_changed(last_target_sig, _target_sig):
                 # Label swap. Cast to float32 -- the Pool was built with a
                 # float32 label (see build path below), and CB's C++
                 # ``SetNumericTarget`` rejects anything but Float/None. If

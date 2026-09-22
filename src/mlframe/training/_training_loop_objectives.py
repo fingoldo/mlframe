@@ -23,6 +23,7 @@ except ImportError:
 from ._training_loop_refit import (  # noqa: F401
     _maybe_refit_on_collapsed_predictions,
     _maybe_refit_on_degenerate_best_iter,
+    _maybe_refit_on_saturated_best_iter,
 )
 
 logger = logging.getLogger(__name__)

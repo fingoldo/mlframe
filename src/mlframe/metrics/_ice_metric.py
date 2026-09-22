@@ -20,6 +20,8 @@ import logging
 from typing import Callable, Optional, Sequence, Union
 
 import numpy as np
+
+from .calibration import ICE_UNCOMPUTABLE
 import pandas as pd
 import polars as pl
 
@@ -38,6 +40,31 @@ from .classification._classification_report import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _every_class_bins_uniform(probs, y_true, labels, multilabel: bool) -> bool:
+    """Whether the shared binning resolver picks UNIFORM bins for every class the metric scores.
+
+    The batched ICE kernel only bins uniformly. When the resolver asks for equal-population bins for any class (a rare
+    positive class), the caller takes the per-class loop instead, where ``fast_ice_only`` honours the strategy - so the
+    metric and the calibration report that prints it stay on one partition.
+    """
+    from .calibration import resolve_binning_strategy
+
+    for c in range(len(probs)):
+        if len(probs) == 2 and c == 0 and not multilabel:
+            continue
+        if multilabel:
+            yt = y_true[:, c]
+        elif labels is not None:
+            yt = y_true == labels[c]
+        else:
+            yt = y_true == c
+        if isinstance(yt, pl.Series):
+            yt = yt.to_numpy()
+        if resolve_binning_strategy(np.asarray(yt, dtype=np.int8), "auto") != "uniform":
+            return False
+    return True
 
 
 def compute_probabilistic_multiclass_error(
@@ -178,7 +205,7 @@ def compute_probabilistic_multiclass_error(
     # ~30 ms was Python glue for K=3 classes). Bit-exact equivalent
     # of the legacy fast_ice_only K-loop -- verified in
     # ``profiling/bench_compute_multiclass_error.py``.
-    if method == "multicrit" and not verbose:
+    if method == "multicrit" and not verbose and _every_class_bins_uniform(probs, y_true, labels, multilabel):
         # Build the set of class_ids to evaluate (binary case skips 0).
         _class_ids = [c for c in range(len(probs)) if not (len(probs) == 2 and c == 0 and not multilabel)]
         try:
@@ -384,6 +411,7 @@ class ICE:
         # on a 498k-row learn set one call cost 107.8 ms. ``skip_largest_set`` skips the largest set seen once more than
         # one size has appeared, i.e. only when an eval set exists, so a run without one keeps computing its only metric.
         self._seen_sizes: set = set()
+        self._sample_weights_checked: bool = False  # the weight vector is constant per fit; inspect it once
 
     def is_max_optimal(self):
         """CatBoost custom-metric protocol hook: whether a higher value is better."""
@@ -407,16 +435,37 @@ class ICE:
 
     def evaluate(self, approxes, target, weight):
         """CatBoost custom-metric protocol hook: convert raw logits to probabilities, compute the integral calibration error, and periodically log/plot the calibration report."""
-        output_weight = 1  # weight is not used
+        output_weight = 1  # every row of the returned value carries the same weight; see the sample-weight check below
+
+        # A weighted fit is scored by an unweighted metric here, which is a real divergence between the early-stopping
+        # surface and the objective. Refusing the fit outright was worse: weighted fits (fairness / inverse-frequency
+        # weighting) are a supported, common path, and the ICE kernels taking per-row weights is the actual fix. Until
+        # then the divergence is announced once per fit rather than being silently dropped.
+        if weight is not None and not self._sample_weights_checked:
+            self._sample_weights_checked = True
+            w = np.asarray(weight, dtype=np.float64)
+            if w.size and not np.allclose(w, w[0]):
+                logger.warning(
+                    "ICE is computed UNWEIGHTED while this fit carries per-row sample weights "
+                    "(min=%.6g, max=%.6g): no ICE kernel takes per-row weights, so the metric driving early stopping "
+                    "describes the unweighted sample while the loss being minimised is weighted. Rows with large "
+                    "weights count once here. Use a weight-aware eval_metric when that difference matters.",
+                    float(w.min()), float(w.max()),
+                )
 
         n_rows = len(approxes[0])
-        # to avoid expensive train set metric evaluation, we simply return 0 for any input larger than max_arr_size
+        # Skip sentinel for a set this metric deliberately does not score. It must be the WORST value in the metric's
+        # own direction, never 0: 0 is the best possible ICE (lower-is-better), so a skipped EVAL set used to score
+        # perfectly on every iteration and freeze early stopping at iteration 1. CatBoost rejects a non-finite custom
+        # metric value, hence a large finite one.
+        _skip_value = -ICE_UNCOMPUTABLE if self.higher_is_better else ICE_UNCOMPUTABLE
+        # to avoid expensive train set metric evaluation, we skip any input larger than max_arr_size
         if self.max_arr_size and n_rows > self.max_arr_size:
-            return 0, output_weight
+            return _skip_value, output_weight
         if getattr(self, "skip_largest_set", False):
             self._seen_sizes.add(n_rows)
             if len(self._seen_sizes) > 1 and n_rows == max(self._seen_sizes):
-                return 0, output_weight
+                return _skip_value, output_weight
 
         # Convert CatBoost logits to probabilities using numba-optimized functions
         from .core import cb_logits_to_probs_binary, cb_logits_to_probs_multiclass  # lazy: import-cycle, see module top

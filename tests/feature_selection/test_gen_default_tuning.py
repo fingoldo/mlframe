@@ -417,6 +417,6 @@ def test_committed_defaults_file_is_valid():
     _assert_canonical_on_disk(raw, doc)
     for name, entry in doc["kernels"].items():
         assert "axes" in entry and "regions" in entry and "code_version" in entry, name
-        assert len(entry['regions']) > 0
+        assert len(entry["regions"]) > 0
         for r in entry["regions"]:
             assert "device" in r, f"{name} region missing abstract device profile: {r}"

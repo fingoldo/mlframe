@@ -128,7 +128,7 @@ class ShapProxiedFitMixin:
     _resolve_booster_kind: Callable[[], str]
     _su_screen_enabled: Callable[[], bool]
     _su_screen_snr_z: Callable[[], float]
-    _resolve_optimizer: Callable[[int], str]
+    _resolve_optimizer: Callable[..., str]
     _resolve_revalidation_mmr_jaccard_threshold: Callable[[int], Optional[float]]
     _resolve_revalidation_ucb_stdev_multiplier: Callable[[int], float]
     _mmr_filter_by_jaccard: Callable[..., "list[int]"]
@@ -584,7 +584,7 @@ class ShapProxiedFitMixin:
                 if banzhaf_stderr_max is not None:
                     report["prescreen"]["banzhaf_stderr_max"] = banzhaf_stderr_max
 
-        optimizer = self._resolve_optimizer(phi.shape[1])
+        optimizer = self._resolve_optimizer(phi.shape[1], n_rows=phi.shape[0])
         # One clamp, reused by the search AND by every downstream stage that samples subsets of the
         # SAME phi (trust-guard anchors): min_features is an original-feature-space floor, phi is in
         # proxy space, and an unsatisfiable floor empties their candidate/anchor pools alike.

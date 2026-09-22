@@ -25,16 +25,20 @@ from mlframe.training.targets._target_distribution_analyzer import _NAN_FRACTION
 
 
 def _frames():
-    """Three aligned split frames with one NaN-heavy column and one low-variance column."""
+    """Three aligned split frames with one NaN-heavy column (90% null) and one low-variance column."""
     def make(n):
-        """A frame with one all-null column and one constant column, at whatever row count the case needs."""
-        return pd.DataFrame({"keep": range(n), "mostly_nan": [None] * n, "flat": [1] * n})
+        """A frame with one 90%-null column and one constant column, at whatever row count the case needs."""
+        return pd.DataFrame({"keep": range(n), "mostly_nan": [1.0 if i % 10 == 0 else None for i in range(n)], "flat": [1] * n})
     return make(50), make(10), make(10)
 
 
-def _report(nan_cols=("mostly_nan",), flat_cols=("flat",)):
-    """A stand-in analyzer report: drop candidates plus the per-column warnings that name the rule."""
-    warnings = {c: [f"nan_fraction=1.00 >= {_NAN_FRACTION_THRESHOLD}"] for c in nan_cols}
+def _report(nan_cols=("mostly_nan",), flat_cols=("flat",), nan_fraction: float = 0.90):
+    """A stand-in analyzer report: drop candidates plus the per-column warnings that name the rule.
+
+    ``nan_fraction`` defaults below the suite's pre-screen null bar (0.99): only a column that still carries values
+    beyond the present/absent bit is kept as signal on a NaN-native run.
+    """
+    warnings = {c: [f"nan_fraction={nan_fraction:.2f} >= {_NAN_FRACTION_THRESHOLD}"] for c in nan_cols}
     warnings.update({c: ["low_variance=0.0"] for c in flat_cols})
     return SimpleNamespace(drop_candidates=list(nan_cols) + list(flat_cols), feature_warnings=warnings)
 
@@ -84,6 +88,23 @@ class TestDropPolicy:
         assert "mostly_nan" in train.columns, "a NaN-native run must keep the NaN-heavy column"
         assert "mostly_nan" not in dropped
         assert any("consumes NaN natively" in r.getMessage() for r in caplog.records)
+
+    def test_column_above_the_pre_screen_null_bar_is_dropped_even_on_a_nan_native_run(self):
+        """Past the suite's own null bar the column holds only the present/absent bit and the later suite-wide pre-screen
+        drops it anyway, so keeping it here only made composite discovery screen it several times first."""
+        train, val, test = _frames()
+        train, val, test, dropped = _maybe_auto_drop_after_feature_analyzer(
+            fd_report=_report(nan_fraction=1.0),
+            train_df=train,
+            val_df=val,
+            test_df=test,
+            behavior_config=_behavior(),
+            metadata={},
+            verbose=False,
+            mlframe_models=["cb"],
+        )
+        assert "mostly_nan" not in train.columns
+        assert "mostly_nan" in dropped
 
     def test_other_drop_reasons_still_apply(self):
         """Only the NaN rule is about NaN; low variance is still worth dropping for any model."""

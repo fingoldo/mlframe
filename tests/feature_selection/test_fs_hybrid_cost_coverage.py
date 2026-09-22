@@ -54,6 +54,7 @@ def test_no_arm_reports_its_cost_as_unmeasured(arm_costs: Dict[str, Dict[str, An
 @pytest.mark.slow
 def test_every_arm_reports_a_non_negative_integer_fit_count(arm_costs: Dict[str, Dict[str, Any]]) -> None:
     """`None` means unmeasured and is caught above; anything else must be a usable count."""
+    assert arm_costs.items()
     for name, record in arm_costs.items():
         assert record["fits"] is not None, f"{name} reports no fit count at all"
         assert int(record["fits"]) >= 0, f"{name} reports a negative fit count: {record['fits']}"
@@ -83,5 +84,8 @@ def test_a_declared_count_that_disagrees_with_the_counted_one_is_still_recorded(
     """
     disagreements = {name: record for name, record in arm_costs.items() if record["declared"] is not None and record["counted"] is not None and record["declared"] != record["counted"]}
 
-    for name, record in disagreements.items():
+    assert arm_costs.items()
+    for name, record in arm_costs.items():
+        if name not in disagreements:
+            continue
         assert record["fits"] == record["counted"], f"{name} publishes {record['fits']} while counting {record['counted']}: the counted figure is the measured one and must win"

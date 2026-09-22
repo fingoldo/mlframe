@@ -112,6 +112,7 @@ def test_every_mechanism_hides_the_same_share_of_rows() -> None:
     frame = generate(missingness_trio_spec(seed=0, rate=0.3)).frame
     shares = [float(frame[column].isna().mean()) for column in ("s0", "s1", "s2")]
 
+    assert shares
     for share in shares:
         assert share == pytest.approx(0.3, abs=0.03), f"realised missingness shares are {shares}, so the mechanisms differ in amount as well as in kind"
 
@@ -213,6 +214,7 @@ def test_graded_cardinality_carries_every_level_count_among_probes_too() -> None
     """Otherwise "prefers many levels" and "prefers informative columns" could not be told apart."""
     frame = generate(scenario_registry.get("graded_cardinality").build(seed=0)).frame
 
+    assert CARDINALITIES
     for levels in CARDINALITIES:
         assert f"k{levels}" in frame.columns
         assert any(column.startswith(f"p{levels}_") for column in frame.columns), f"cardinality {levels} appears among the signals but not among the probes"

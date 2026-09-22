@@ -41,7 +41,11 @@ class PreprocessingConfig(BaseConfig):
     fillna_value: Optional[float] = None
     fix_infinities: bool = True
     ensure_float32_dtypes: bool = True
-    skip_infinity_checks: bool = True
+    # Kept only so existing calls that pass it still construct. Nothing at the preprocessing stage reads it: infinities
+    # here are governed by ``fix_infinities`` (and turned into NaN with an ERROR even when that is off), and the inf
+    # AUDIT that can actually be skipped is ``DataConfig.skip_infinity_checks`` at the trainer. The default used to be
+    # True - protection off - opposite to that identically named DataConfig field; setting it now warns.
+    skip_infinity_checks: bool = False
     drop_columns: Optional[List[str]] = None
     # Default True drops constant columns during preprocess_dataframe. Set False to keep constant columns - useful for downstream consumers that rely on a fixed column layout across train/val/test splits.
     remove_constant_columns: bool = True
@@ -59,6 +63,20 @@ class PreprocessingConfig(BaseConfig):
     category_encoder: Optional[Any] = None
     imputer: Optional[Any] = None
     scaler: Optional[Any] = None
+
+    @model_validator(mode="after")
+    def _warn_on_inert_skip_infinity_checks(self) -> "PreprocessingConfig":
+        """Tell a caller who sets ``skip_infinity_checks`` here that it does nothing, and where the real knob is."""
+        if "skip_infinity_checks" in self.model_fields_set:
+            import warnings
+
+            warnings.warn(
+                "PreprocessingConfig.skip_infinity_checks has no effect: infinities at the preprocessing stage are "
+                "handled by fix_infinities. To skip the trainer's inf audit use DataConfig.skip_infinity_checks.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return self
 
 
 class TrainingSplitConfig(BaseConfig):

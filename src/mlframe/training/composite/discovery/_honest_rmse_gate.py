@@ -51,11 +51,63 @@ from ..estimator._smearing import N_SMEAR_QUANTILES, SMEARED_TRANSFORMS, smeared
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array
 from ._rejection_ledger import RejectStage, ledger_append
+from .._row_roles import note_rows
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
 from ._rejection_ledger import spec_inverse
 from ._screening_tiny import _build_tiny_model
 
 logger = logging.getLogger(__name__)
+
+
+_GAIN_SIGNIFICANCE_Z: float = 2.0
+"""Standard errors a gain must clear to count as measured rather than as noise. Used for the gate's own reporting and
+exported on each spec so the ship/no-ship floor downstream can be noise-aware instead of a fixed constant."""
+
+
+def _paired_rmse_gain_se(
+    y_true: np.ndarray, y_hat_raw: np.ndarray, y_hat_spec: np.ndarray, raw_rmse: float, spec_rmse: float
+) -> float:
+    """Standard error of ``RMSE_raw - RMSE_spec`` from the PAIRED per-row squared errors; NaN when undefined.
+
+    Both predictions cover the same holdout rows from the same model class, so the difference of squared errors is
+    paired and its mean is ``MSE_raw - MSE_spec``. The delta method turns that into the RMSE scale::
+
+        RMSE_raw - RMSE_spec = (MSE_raw - MSE_spec) / (RMSE_raw + RMSE_spec)
+        se(dRMSE)            ~ se(mean of per-row squared-error differences) / (RMSE_raw + RMSE_spec)
+
+    O(n) on arrays the gate already holds, with no extra model fits. The raw prediction used to be discarded on the
+    line that computed its RMSE; pairing against it is the cheapest available evidence for whether a gain is real.
+    """
+    denom = raw_rmse + spec_rmse
+    if y_true.size < 30 or denom <= 0:
+        return float("nan")
+    d = (y_true - y_hat_raw) ** 2 - (y_true - y_hat_spec) ** 2
+    d = d[np.isfinite(d)]
+    if d.size < 30:
+        return float("nan")
+    return float(np.std(d, ddof=1) / np.sqrt(d.size) / denom)
+
+
+def _log_gate_summary(survivors: list, n_candidates: int, raw_rmse: float, tol: float) -> None:
+    """Log how the gate's survivors actually did against raw, split into beat-raw / beat-by-z-SE / merely-within-tol.
+
+    "Passed" means "not more than tol worse than raw", which includes being worse. Reporting only the count reads
+    as an endorsement: a production run logged "all 10 spec(s) passed" for specs that later scored y-scale R2 of
+    -0.024 and -0.026.
+    """
+    _better = [s for s in survivors if (getattr(s, "honest_holdout_rmse_gain", None) or 0.0) > 0]
+    _sig = [
+        s for s in _better
+        if (getattr(s, "honest_holdout_rmse_gain_se", None) or 0.0) > 0
+        and s.honest_holdout_rmse_gain >= _GAIN_SIGNIFICANCE_Z * s.honest_holdout_rmse_gain_se
+    ]
+    logger.info(
+        "[CompositeTargetDiscovery.honest_rmse_gate] %d/%d spec(s) survived the honest-holdout y-scale RMSE gate "
+        "(raw-y baseline RMSE=%.4g, tol=%.2f): %d beat raw, of which %d by at least %.1f paired standard errors; "
+        "the remaining %d are within tolerance but do NOT beat raw.",
+        len(survivors), n_candidates, raw_rmse, tol,
+        len(_better), len(_sig), _GAIN_SIGNIFICANCE_Z, len(survivors) - len(_better),
+    )
 
 
 def _base_arg(df: Any, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
@@ -120,17 +172,15 @@ def apply_honest_rmse_gate(
     disabled, there are no specs, the honest holdout is absent/too small, or the raw-y
     baseline itself cannot be fit (nothing sound to gate against).
     """
+    note_rows("honest_holdout", "select", "honest_rmse_gate", holdout_idx)
     cfg = self.config
     if not getattr(cfg, "honest_rmse_gate_enabled", True) or not kept_specs:
         return kept_specs
     if holdout_idx is None or np.asarray(holdout_idx).size < 50:
-        logger.info(
-            "[CompositeTargetDiscovery.honest_rmse_gate] no usable honest holdout " "(honest_holdout_frac disabled or too small) -- OOS RMSE gate skipped."
-        )
+        logger.info("[CompositeTargetDiscovery.honest_rmse_gate] no usable honest holdout (honest_holdout_frac disabled or too small) -- OOS RMSE gate skipped.")
         return kept_specs
 
-    screen_idx = np.asarray(screen_idx)
-    holdout_idx = np.asarray(holdout_idx)
+    screen_idx, holdout_idx = np.asarray(screen_idx), np.asarray(holdout_idx)
     cap = int(getattr(cfg, "honest_rmse_gate_sample_n", 20_000))
     rng = np.random.default_rng(int(getattr(cfg, "random_state", 0)))
 
@@ -175,9 +225,11 @@ def apply_honest_rmse_gate(
         return np.asarray(model.predict(x_eval), dtype=np.float64)
 
     try:
+        # Keep the raw PREDICTION VECTOR, not just its RMSE: specs' squared errors pair with it (see _paired_rmse_gain_se).
         _raw_pred = cached_honest_prediction(self, fit_idx, eval_idx)
         if _raw_pred is None:
             _raw_pred = _fit_predict(y_fit)
+        _raw_pred = np.asarray(_raw_pred, dtype=np.float64).reshape(-1)
         raw_rmse = rmse(y_eval, _raw_pred)
     except Exception as exc:  # -- no baseline, no sound gate
         logger.warning("[CompositeTargetDiscovery.honest_rmse_gate] raw-y baseline fit failed (%s); gate skipped.", exc)
@@ -187,6 +239,7 @@ def apply_honest_rmse_gate(
 
     tol = float(getattr(cfg, "honest_rmse_gate_tolerance", 1.05))
     threshold = raw_rmse * tol
+    const_rmse = rmse(y_eval, np.full(y_eval.shape, float(np.mean(y_fit))))  # the null (see _no_better_than_constant)
     survivors: list = []
     rejected: list[tuple[str, str]] = []
 
@@ -242,6 +295,8 @@ def apply_honest_rmse_gate(
             ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
                           numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "tol": float(tol)}, **_led_kw)
             continue
+        if _no_better_than_constant(self, spec, rejected, rmse_y, const_rmse, _led_kw):
+            continue
         # A reconstruction that duplicates the raw model ships a second model for nothing (see the helper).
         _corr = _correlation_if_duplicate_of_raw(y_hat[finite], np.asarray(_raw_pred, dtype=np.float64)[finite], rmse_y, raw_rmse)
         if _corr is not None:
@@ -253,21 +308,30 @@ def apply_honest_rmse_gate(
         object.__setattr__(spec, "honest_holdout_rmse", float(rmse_y))
         object.__setattr__(spec, "honest_holdout_raw_rmse", float(raw_rmse))
         object.__setattr__(spec, "honest_holdout_rmse_gain", float(raw_rmse - rmse_y))
+        object.__setattr__(spec, "honest_holdout_rmse_gain_se", _paired_rmse_gain_se(y_eval[finite], _raw_pred[finite], y_hat[finite], raw_rmse, float(rmse_y)))
         survivors.append(spec)
 
     if rejected:
-        logger.warning(
-            "[CompositeTargetDiscovery.honest_rmse_gate] dropped %d/%d spec(s) whose y-scale honest-holdout "
-            "RMSE loses to the raw-y tiny baseline (raw RMSE=%.4g, tol=%.2f): %s",
-            len(rejected), len(kept_specs), raw_rmse, tol,
-            ", ".join(f"{n}({why})" for n, why in rejected),
-        )
-    else:
-        logger.info(
-            "[CompositeTargetDiscovery.honest_rmse_gate] all %d spec(s) passed the honest-holdout "
-            "y-scale RMSE gate (raw-y baseline RMSE=%.4g).", len(kept_specs), raw_rmse,
-        )
+        logger.warning("[CompositeTargetDiscovery.honest_rmse_gate] dropped %d/%d spec(s) whose y-scale honest-holdout RMSE loses to the raw-y "
+                       "tiny baseline or the constant (raw RMSE=%.4g, tol=%.2f): %s", len(rejected), len(kept_specs), raw_rmse, tol,
+                       ", ".join(f"{n}({why})" for n, why in rejected))
+    _log_gate_summary(survivors, len(kept_specs), raw_rmse, tol)
     return survivors
+
+
+def _no_better_than_constant(self: Any, spec: Any, rejected: list, rmse_y: float, const_rmse: float, led_kw: dict) -> bool:
+    """Reject (and ledger) a spec whose honest y-RMSE does not beat the constant train-mean prediction; True when rejected.
+
+    The null is the constant, not the raw tiny model: on a signal-free target the raw model overfits noise and loses to the
+    constant, so a composite "beat raw" by 2-3 standard errors while predicting nothing (10 noise specs on one seed).
+    """
+    if not (np.isfinite(const_rmse) and rmse_y >= const_rmse):
+        return False
+    reason = f"honest y-RMSE={rmse_y:.4g} is no better than the constant train mean ({const_rmse:.4g})"
+    rejected.append((spec.name, reason))
+    ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=reason,
+                  numbers={"rmse_y": float(rmse_y), "constant_rmse": float(const_rmse)}, **led_kw)
+    return True
 
 
 def _fit_predict_masked(fit_predict: Any, t_fit_valid: np.ndarray, valid: np.ndarray) -> np.ndarray:

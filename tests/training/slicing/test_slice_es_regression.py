@@ -98,27 +98,27 @@ def test_lgb_slice_es_per_iter_overhead_under_ceiling() -> None:
     # Warm up LGB / numba JIT etc. with a throwaway fit so timing isn't polluted.
     lgb.LGBMRegressor(n_estimators=5, verbose=-1).fit(X_tr, y_tr)
 
-    # Baseline
-    fit_params_baseline: dict = {}
-    cb_baseline = LightGBMCallback(patience=None, min_delta=0.0, monitor_dataset="valid_0", monitor_metric="l2", mode="min", slice_k=0, verbose=0)
-    fit_params_baseline["callbacks"] = [cb_baseline]
-    _setup_eval_set("LGBMRegressor", fit_params_baseline, X_val, y_val, model_category="lgb")
-    t0 = time.perf_counter()
-    lgb.LGBMRegressor(n_estimators=30, learning_rate=0.1, verbose=-1, num_leaves=8, random_state=0).fit(X_tr, y_tr, **fit_params_baseline)
-    baseline_wall = time.perf_counter() - t0
-
-    # Slice K=5
     shards = build_slice_eval_sets(X_val, y_val, source="random", k=5, min_rows_per_shard=20, random_state=0)
     assert len(shards) == 5
-    fit_params_slice: dict = {}
-    cb_slice = LightGBMCallback(
-        patience=None, min_delta=0.0, monitor_dataset="valid_0", monitor_metric="l2", mode="min", slice_k=5, slice_persist_history=True, verbose=0
-    )
-    fit_params_slice["callbacks"] = [cb_slice]
-    _setup_eval_set("LGBMRegressor", fit_params_slice, X_val, y_val, model_category="lgb", extra_eval_sets=shards)
-    t1 = time.perf_counter()
-    lgb.LGBMRegressor(n_estimators=30, learning_rate=0.1, verbose=-1, num_leaves=8, random_state=0).fit(X_tr, y_tr, **fit_params_slice)
-    slice_wall = time.perf_counter() - t1
+
+    def _timed_fit(slice_k: int):
+        """Wall time of one fit with a fresh callback, and that callback."""
+        cb = LightGBMCallback(
+            patience=None, min_delta=0.0, monitor_dataset="valid_0", monitor_metric="l2", mode="min", slice_k=slice_k,
+            slice_persist_history=bool(slice_k), verbose=0,
+        )
+        fit_params: dict = {"callbacks": [cb]}
+        _setup_eval_set("LGBMRegressor", fit_params, X_val, y_val, model_category="lgb", extra_eval_sets=shards if slice_k else None)
+        t0 = time.perf_counter()
+        lgb.LGBMRegressor(n_estimators=30, learning_rate=0.1, verbose=-1, num_leaves=8, random_state=0).fit(X_tr, y_tr, **fit_params)
+        return time.perf_counter() - t0, cb
+
+    # Best of several runs each: one ~10ms fit is dominated by scheduler noise, and a single slow baseline or slow slice
+    # run swung the ratio between 3x and 10x on the same code.
+    baseline_wall = min(_timed_fit(0)[0] for _ in range(5))
+    _slice_runs = [_timed_fit(5) for _ in range(5)]
+    slice_wall = min(t for t, _ in _slice_runs)
+    cb_slice = _slice_runs[-1][1]
 
     ratio = slice_wall / max(baseline_wall, 1e-3)
     # Ensure the slice callback actually ran (didn't silently fall back to legacy path) -- correctness, always checked.

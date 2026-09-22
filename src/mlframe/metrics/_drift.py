@@ -88,9 +88,22 @@ def _safe_quantile_bins(
 
 
 def _bin_counts(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
-    """Counts per bin defined by ``edges`` (length nbins+1)."""
-    counts, _ = np.histogram(x, bins=edges)
-    return counts.astype(np.float64)
+    """Counts per bin defined by ``edges`` (length nbins+1), plus ONE trailing bin for the non-finite rows.
+
+    ``np.histogram`` silently drops NaN/inf, and every caller renormalises to 1 afterwards, so a target window in which
+    half the predictions had become NaN reported PSI 0.0 ("no significant change") - the most serious drift there is
+    looked like none. The non-finite mass is its own category here, so a change in that rate is a change in the
+    distribution. When neither side has non-finite rows the extra bin is empty on both sides and every divergence
+    below is unchanged (PSI clamps both to ``eps`` and gets a zero term, KL/JS skip a zero bin, the bias corrections
+    count only occupied bins).
+    """
+    xx = np.asarray(x)
+    finite = np.isfinite(xx) if xx.dtype.kind == "f" else np.ones(xx.shape, dtype=bool)
+    counts, _ = np.histogram(xx[finite], bins=edges)
+    out = np.empty(counts.shape[0] + 1, dtype=np.float64)
+    out[:-1] = counts
+    out[-1] = float(xx.size - int(finite.sum()))
+    return out
 
 
 # ----- PSI -----

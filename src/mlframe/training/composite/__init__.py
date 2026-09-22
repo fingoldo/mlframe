@@ -105,6 +105,8 @@ from .transforms import (
     TRANSFORM_NAME_SHORT,
     compose_target_name,
     get_transform,
+    composite_target_names,
+    is_composite_target,
     is_composite_target_name,
     list_transforms,
     # Shared helpers used by transforms (tests import some directly).
@@ -344,6 +346,7 @@ from .gated_regression_mixture import GatedRegressionMixture
 
 # Blend an entity-specific model with a metadata/global model by per-entity observation count.
 from .count_weighted_blend import CountWeightedBlendEnsemble
+from .hurdle import HurdleRegressor
 
 # Shared-trunk NN: primary regression head + weighted auxiliary classification/regression heads, jointly trained.
 from .multitask_auxiliary_loss import MultiTaskAuxiliaryLossRegressor
@@ -429,6 +432,7 @@ __all__ = [
     "SegmentedModelFactory",
     "GatedRegressionMixture",
     "CountWeightedBlendEnsemble",
+    "HurdleRegressor",
     "MultiTaskAuxiliaryLossRegressor",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
@@ -447,7 +451,7 @@ __all__ = [
     "DiscoveryCache",
     # transforms + registry
     "Transform", "get_transform", "list_transforms", "TRANSFORMS_REGISTRY",
-    "compose_target_name", "is_composite_target_name", "TRANSFORM_NAME_SHORT",
+    "compose_target_name", "composite_target_names", "is_composite_target", "is_composite_target_name", "TRANSFORM_NAME_SHORT",
     "TAG_CORE", "TAG_EXTENDED", "TAG_REGRESSION", "generate_interaction_bases",
     # uncertainty
     "conformal_quantile",

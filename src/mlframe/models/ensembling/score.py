@@ -36,6 +36,7 @@ from .score_gate import (
     catastrophic_drop_kn,
     realign_gate_preds,
     select_gate_source_split,
+    resolve_gate_target_arr,
 )
 from .score_flavours import (
     apply_diversity_drop,
@@ -384,7 +385,7 @@ def score_ensemble(
     _nnls_weights_for_blend = run_stacking_aware_gate(
         enable_stacking_aware_gate=enable_stacking_aware_gate,
         _gate_preds_for_check=_gate_preds_for_check,
-        target_arr=target_arr,
+        target_arr=resolve_gate_target_arr(_gate_source_split, train_target_arr, val_target_arr, test_target_arr, level_models_and_predictions),
         level_models_and_predictions=level_models_and_predictions,
         _ensemble_member_tags=_ensemble_member_tags,
         stacking_gate_min_weight=stacking_gate_min_weight,

@@ -34,13 +34,11 @@ from pyutilz.system import tqdmu_lazy_start
 
 from ._process_flag_scope import capture_process_flag_snapshot, restore_process_flags
 from ..extractors import FeaturesAndTargetsExtractor
-from ..feature_handling.fingerprint import reset_session as reset_fh_session
 from ..helpers import TrainMlframeSuitePrecomputed
-from ..phases import phase, reset_phase_registry
+from ..phases import phase
 from ..utils import log_phase
 
 from .utils import (
-    _ensure_logging_visible,
     _finalize_and_save_metadata,
     _get_pipeline_components,
     _initialize_training_defaults,
@@ -67,8 +65,9 @@ from ._main_train_suite_encoding import (
 from ._main_train_suite_polars_gate import any_pipeline_stage_requested, needs_polars_pre_clone
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df, mirror_split_outputs_to_ctx  # noqa: F401
 from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification  # noqa: F401
-from ._main_train_suite_phases import (
+from ._main_train_suite_phases import (  # noqa: F401  (apply_module_global_patches re-exported for callers of this facade)
     apply_module_global_patches,
+    begin_suite_process_state,
     apply_polars_cat_fixes_and_back_write_ctx,
     check_precomputed_fingerprint,
     compute_or_fetch_trainset_features_stats,
@@ -217,8 +216,7 @@ def train_mlframe_models_suite(
         quantile_regression_config: Quantile-regression alphas / crossing-fix / coverage. See ``QuantileRegressionConfig``.
         conformal_config: Conformal prediction intervals (regression) / sets (classification) plus
             achieved coverage into ``metadata["conformal"]``; default ON. See ``ConformalConfig``.
-        regression_calibration_config: Opt-in monotone point recalibration g(yhat)~=E[y|yhat] for
-            regression models (default OFF). See ``RegressionCalibrationConfig``.
+        regression_calibration_config: point recalibration, OFF by default; its apply_confidence_shrinkage is ON by default and always applies.
         composite_target_discovery_config: Composite-target (diff/ratio/linres) discovery. ``MLFRAME_DISABLE_COMPOSITE=1`` forces off. See ``CompositeTargetDiscoveryConfig``.
         feature_handling_config: Feature-handling / caching config bundle (advanced). See the feature_handling package.
         enable_target_distribution_analyzer: When True (default), run the mini-HPT target-distribution analyzer
@@ -268,23 +266,9 @@ def train_mlframe_models_suite(
         )
         ```
     """
-    # Map the 0/1/2 verbose contract to a logging level once at entry so
-    # ``verbose=2`` actually surfaces DEBUG output (the per-site ``if verbose:``
-    # gates only distinguish silent vs non-silent; the level does the 1-vs-2 work).
-    if verbose:
-        _ensure_logging_visible(level=logging.DEBUG if verbose >= 2 else logging.INFO)
-
     import sys as _sys
-    apply_module_global_patches(_sys.modules[__name__])
 
-    # Module-global registry; not safe to invoke concurrent training suites from the same process.
-    reset_phase_registry()
-    # Rotate the FH InMemoryKey session token alongside the phase registry. Without this, two
-    # consecutive suite calls within the same process keep the prior SessionToken and any
-    # ``id(train_df)`` reuse (Python may recycle ids after the first frame is GC'd) collides on a
-    # cached entry whose underlying state belongs to the prior suite. The session reset guarantees
-    # each suite starts from a fresh FH cache namespace.
-    reset_fh_session()
+    begin_suite_process_state(verbose, _sys.modules[__name__])  # logging level, module patches, per-suite process registries
 
     # Ergonomic happy path: when no extractor is supplied, build a
     # SimpleFeaturesAndTargetsExtractor from ``target_name`` alone, inferring the

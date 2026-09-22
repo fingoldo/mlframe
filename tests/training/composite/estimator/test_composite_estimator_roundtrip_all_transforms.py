@@ -54,7 +54,7 @@ def test_a_fitted_wrapper_predicts_identically_after_pickling(name):
     """Bit-identical predictions and the same fitted params after a pickle round trip, for every transform."""
     est, X, _ = _fitted(name)
     before = np.asarray(est.predict(X))
-    restored = pickle.loads(pickle.dumps(est))
+    restored = pickle.loads(pickle.dumps(est))  # nosec B301 -- round-trip of a locally-created, trusted object
     np.testing.assert_array_equal(np.asarray(restored.predict(X)), before)
     assert restored.fitted_params_.keys() == est.fitted_params_.keys()
 
@@ -71,7 +71,7 @@ def test_a_wrapper_built_from_a_fitted_inner_round_trips(name):
         base_train=np.asarray(X["base"], dtype=np.float64),
     )
     direct = np.asarray(built.predict(X))
-    restored = pickle.loads(pickle.dumps(built))
+    restored = pickle.loads(pickle.dumps(built))  # nosec B301 -- round-trip of a locally-created, trusted object
     np.testing.assert_array_equal(np.asarray(restored.predict(X)), direct)
     assert np.isfinite(direct).all()
 

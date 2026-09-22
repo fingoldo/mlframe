@@ -826,7 +826,7 @@ def test_audit_targets_equivalent_to_single_calls(synthetic_multi_target_df):
     )
     assert len(batch["drifty"].segments) == len(single.segments)
     assert batch["drifty"].granularity == single.granularity
-    assert list(zip(batch['drifty'].segments, single.segments))
+    assert list(zip(batch["drifty"].segments, single.segments))
     for s_batch, s_single in zip(batch["drifty"].segments, single.segments):
         assert s_batch["start_idx"] == s_single["start_idx"]
         assert s_batch["end_idx"] == s_single["end_idx"]

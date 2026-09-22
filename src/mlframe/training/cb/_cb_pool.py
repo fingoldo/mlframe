@@ -361,6 +361,16 @@ def _wrap_predict_result(result: Any, method: str = "predict", classes_: Any = N
     return np.asarray(result)
 
 
+def _fastpath_flag_provenance(model) -> str:
+    """Where a model's polars-fastpath-missing flag came from: an observed dispatch miss on THIS model, or the build pre-flag.
+
+    A production log asserted an earlier miss that never happened, on a build the same line reported as working.
+    """
+    if getattr(model, "_mlframe_polars_fastpath_miss_observed", False):
+        return "this model hit the polars-fastpath dispatch miss on an earlier call"
+    return "the installed build was pre-flagged as lacking the polars fastpath (no miss was observed on this model)"
+
+
 def _predict_with_fallback(
     model: Any,
     X: Any,
@@ -461,9 +471,9 @@ def _predict_with_fallback(
             _native = None
         log_throttle(
             logger, "cb_sticky_pandas_predict", logging.INFO,
-            "  [predict] this model is flagged as having missed the CatBoost polars fastpath earlier, so its "
-            "frames are converted to pandas from here on. The installed CatBoost %s accept a polars frame in "
-            "a probe, so this is a per-model condition (dtype mix on the failing call), not a library limit.",
+            "  [predict] CatBoost frames are converted to pandas from here on because %s. The installed CatBoost %s "
+            "accept a polars frame in a probe.",
+            _fastpath_flag_provenance(model),
             {True: "DOES", False: "does NOT", None: "could not be probed to"}.get(_native, "could not be probed to"),
         )
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
@@ -474,11 +484,12 @@ def _predict_with_fallback(
     try:
         with phase(method, model=_model_type, n_rows=n_rows):
             result = fn(X)
-        # Sample first 500 rows — non-finite values in output signal
-        # NaN input silently propagated by a NaN-tolerant model.
-        if hasattr(result, "dtype"):
-            _r_sample = result[:500] if hasattr(result, "__getitem__") else result
-            if not np.all(np.isfinite(_r_sample)):
+        # Non-finite values in the output signal NaN input silently propagated by a NaN-tolerant model. The WHOLE output
+        # is checked: it is one value (or one row of class scores) per input row, so the pass is cheap, and sampling
+        # the first 500 let a frame whose NaNs start further down (a lagged / rolling feature on a later entity) return
+        # NaN predictions into metrics and ensemble stacks with no warning at all.
+        if hasattr(result, "dtype") and np.issubdtype(np.asarray(result).dtype, np.number):
+            if not np.all(np.isfinite(result)):
                 logger.warning(
                     "[NaN-guard] %s.%s returned non-finite predictions "
                     "(likely NaN input silently propagated).  Applying "
@@ -501,6 +512,7 @@ def _predict_with_fallback(
         )
         try:
             model._mlframe_polars_fastpath_broken = True
+            model._mlframe_polars_fastpath_miss_observed = True
         except AttributeError:
             pass
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
@@ -758,11 +770,11 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             # address for a new allocation of matching size (same id-reuse bug class already
             # fixed for the cache KEY above); an id() collision here would silently keep a
             # stale val label on the reused Pool. See _full_target_content_hash's docstring.
-            from mlframe.training.pipeline import _full_target_content_hash
+            from mlframe.training.pipeline import _full_target_content_hash, target_label_changed
             last_target_sig = getattr(cached, "_mlframe_last_target_sig", None)
             try:
                 _target_sig = _full_target_content_hash(val_target)
-                _label_changed = last_target_sig != _target_sig
+                _label_changed = target_label_changed(last_target_sig, _target_sig)
                 if _label_changed:
                     try:
                         _lab = _coerce_label_for_cb_pool(val_target)

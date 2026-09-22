@@ -28,7 +28,7 @@ from .._composite_utils import is_polars_df as _is_polars_df
 
 from ..estimator import CompositeTargetEstimator
 from ..post_shim import PrePipelinePredictShim, subset_to_fit_columns
-from ..transforms import get_transform
+from ..transforms import UnknownTransformError, get_transform
 from ..transforms._call_gateway import call_transform
 from ._oof_split import (
     _align_fit_sw,
@@ -345,7 +345,7 @@ def _spec_is_recurrent(spec: Any) -> bool:
         return False
     try:
         return bool(getattr(get_transform(spec["transform_name"]), "recurrent", False))
-    except Exception:  # best-effort: an unresolvable transform is simply not treated as recurrent
+    except UnknownTransformError:  # an unregistered transform is simply not recurrent; anything else is a real bug
         return False
 
 
@@ -364,143 +364,10 @@ def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_trai
         group_column=group_column,
     )
 
-def _compute_oof_with_external_holdout(
-    *,
-    # Slice-stable ES (mlframe.training.SliceStableESConfig) is NOT propagated into the inner OOF refit loop: this function builds its own per-fold ``eval_set`` via ``_carve_eval_set_from_train_with_groups`` and a single (X_holdout, y_holdout) pair, incompatible with the multi-eval-set / per-shard registration path slice-ES needs. Callers wanting robust ES inside OOF refit should use full-K-fold CV with an outer selector (see ``_cv_aggregation.aggregate_fold_scores``).
-    component_models: list[Any],
-    component_names: list[str],
-    component_specs: list[dict[str, Any] | None],
-    train_X: Any,
-    y_train_full: np.ndarray,
-    base_train_full_per_spec: dict[str, np.ndarray],
-    external_holdout_X: Any,
-    external_holdout_y: np.ndarray,
-    sample_weight: np.ndarray | None,
-    full_key: tuple | None,
-    group_ids: np.ndarray | None = None,
-    random_state: int = 0,
-) -> tuple[np.ndarray, np.ndarray, list[str]]:
-    """Fit each component clone on full train, predict on caller-supplied external holdout (typically the suite's val split).
-
-    Mirrors the per-component branch in :func:`compute_oof_holdout_predictions` but skips the internal train/holdout slicing.
-
-    Holdout-side base columns are NOT taken as an argument: the ``CompositeTargetEstimator`` wrapper re-extracts its base column from ``external_holdout_X`` itself during ``predict``, so a parallel per-spec holdout-base dict would be dead weight (the train-side ``base_train_full_per_spec`` is still needed because it drives the transform.forward that produces the T values the inner is re-fit on).
-    """
-    y_train_full = y_train_full.astype(np.float64)
-    holdout_cols: list[np.ndarray] = []
-    surviving_names: list[str] = []
-    _pair_memo: dict = {}
-    for model, name, spec in zip(
-        component_models, component_names, component_specs,
-    ):
-        try:
-            inner, pp = _unwrap_shim(model)
-            X_stack_t, X_holdout_t = _transform_pair_cached(
-                _pair_memo, pp, train_X, external_holdout_X, y_train=y_train_full,
-            )
-            if isinstance(inner, CompositeTargetEstimator):
-                if spec is None:
-                    raise ValueError("composite component with no spec")
-                base_full = base_train_full_per_spec.get(
-                    str(spec.get("name") or spec.get("base_column")),
-                )
-                if base_full is None:
-                    raise ValueError(f"missing base column '{spec['base_column']}' " "for external-holdout OOF (train side)")
-                transform = get_transform(spec["transform_name"])
-                valid = transform.domain_check(y_train_full, base_full)
-                if valid.sum() < 10:
-                    raise ValueError("too few valid rows after domain filter")
-                t_train = transform.forward(
-                    y_train_full[valid], base_full[valid],
-                    spec["fitted_params"],
-                )
-                inner_clone = clone(inner.estimator_)
-                if isinstance(X_stack_t, pd.DataFrame):
-                    X_train_valid = X_stack_t.iloc[valid].reset_index(
-                        drop=True,
-                    )
-                elif _is_polars_df(X_stack_t):
-                    X_train_valid = X_stack_t.filter(pl.Series(valid))
-                else:
-                    X_train_valid = X_stack_t[valid]
-                _sw_train_valid = None if sample_weight is None else sample_weight[valid]
-                _group_for_valid = None
-                if group_ids is not None:
-                    try:
-                        _g_arr = np.asarray(group_ids)
-                        if _g_arr.shape[0] == valid.shape[0]:
-                            _group_for_valid = _g_arr[valid]
-                    except (TypeError, IndexError):
-                        _group_for_valid = None
-                _X_fit_c, _t_fit_c, _X_ev_c, _t_ev_c, _fm_c = (
-                    _carve_inner_eval_split(
-                        X_train_valid, t_train, random_state=int(random_state),
-                        group_ids=_group_for_valid, return_fit_mask=True,
-                    )
-                )
-                _eval_set_c = (_X_ev_c, _t_ev_c) if _X_ev_c is not None else None
-                _sw_fit_c = _align_fit_sw(_sw_train_valid, _fm_c, len(_t_fit_c))
-                _maybe_pass_sample_weight(
-                    inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
-                    eval_set=_eval_set_c, fitted_source=inner.estimator_,
-                )
-                wrapped = _wrap_fitted_inner(spec, inner_clone, spec["fitted_params"], y_train_full[valid], base_full[valid], getattr(inner, "group_column", None))
-                preds = wrapped.predict(external_holdout_X, inner_X=X_holdout_t)
-            else:
-                inner_clone = clone(inner)
-                _X_fit_r, _y_fit_r, _X_ev_r, _y_ev_r, _fm_r = (
-                    _carve_inner_eval_split(
-                        X_stack_t, y_train_full, random_state=int(random_state),
-                        group_ids=group_ids, return_fit_mask=True,
-                    )
-                )
-                _eval_set_r = (_X_ev_r, _y_ev_r) if _X_ev_r is not None else None
-                _sw_fit_r = _align_fit_sw(sample_weight, _fm_r, len(_y_fit_r))
-                _maybe_pass_sample_weight(
-                    inner_clone, _X_fit_r, _y_fit_r, _sw_fit_r,
-                    eval_set=_eval_set_r, fitted_source=inner,
-                )
-                preds = inner_clone.predict(X_holdout_t)
-            preds = np.asarray(preds).reshape(-1).astype(np.float64)
-            if preds.shape[0] != external_holdout_y.shape[0]:
-                raise ValueError(f"component '{name}' predicted " f"{preds.shape[0]} rows but external holdout has " f"{external_holdout_y.shape[0]}")
-            if not np.all(np.isfinite(preds)):
-                raise ValueError("non-finite holdout predictions")
-            holdout_cols.append(preds)
-            surviving_names.append(name)
-        except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-            log_throttle(
-                logger, "ensemble_external_holdout_oof_refit_failed", logging.WARNING,
-                "[CompositeCrossTargetEnsemble] external-holdout OOF " "refit failed for component '%s': %s. Excluded from " "ensemble weights.",
-                name,
-                exc,
-            )
-            continue
-    _surviving_n = len(surviving_names)
-    _total_n = len(component_names)
-    if _surviving_n < _total_n:
-        _dropped = [n for n in component_names if n not in set(surviving_names)]
-        logger.info(
-            "compute_oof_holdout_predictions (external-holdout): built "
-            "OOF matrix with %d of %d components (dropped %d: %s).",
-            _surviving_n, _total_n, _total_n - _surviving_n, _dropped,
-        )
-    if not holdout_cols:
-        _empty: tuple = (np.zeros((0, 0)), np.zeros(0), [])
-        if full_key is not None:
-            _oof_cache_put(full_key, _empty)
-        return _empty
-    _final = (
-        np.column_stack(holdout_cols),
-        external_holdout_y,
-        surviving_names,
-    )
-    if full_key is not None:
-        _oof_cache_put(full_key, _final)
-    return _final
+from ._oof_external import _compute_oof_with_external_holdout  # re-exported; carved to keep this module under 1000 lines
 
 
-def compute_oof_holdout_predictions(
+def _oof_holdout_predictions_with_rows(
     component_models: list[Any],
     component_names: list[str],
     component_specs: list[dict[str, Any] | None],
@@ -517,7 +384,7 @@ def compute_oof_holdout_predictions(
     external_holdout_y: np.ndarray | None = None,
     external_holdout_base_per_spec: dict[str, np.ndarray] | None = None,
     group_ids: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray, list[str]]:
+) -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray | None]:
     """Compute honest holdout predictions for each component.
 
     Approach: take a ``holdout_frac`` slice of train, re-fit a clone of each component's inner on the remaining (1-holdout_frac) rows, and predict on the held-out slice. For wrapped composite-target components re-apply the spec's transform on the same stack_train slice to get T values, train the inner clone on (X_stack_train, T_stack_train), then wrap via ``CompositeTargetEstimator.from_fitted_inner`` and predict in y-scale on stack_holdout. For raw-target components the inner clone is fit directly on (X_stack_train, y_stack_train).
@@ -544,7 +411,7 @@ def compute_oof_holdout_predictions(
     n_train = len(y_train_full)
     if n_train < 50 or holdout_frac <= 0 or holdout_frac >= 1:
         # Shape consistency across the three empty-return paths: ``surviving_names=[]`` means zero components survived; both axes are zero. Consumers probing ``.shape[1]`` against ``len(surviving_names)`` were correct; those probing against ``len(component_models)`` had been silently reading a non-empty K dimension with zero rows. Standardise to ``(0, 0)`` everywhere.
-        return np.zeros((0, 0)), np.zeros(0), []
+        return np.zeros((0, 0)), np.zeros(0), [], np.zeros(0, dtype=np.int64)
 
     # When the caller supplies a cache_key we look up the (key, kfold, rs) tuple. A hit is bit-identical with a previous call -- same components, X, y, fold strategy; caller semantics unchanged.
     _full_key = None
@@ -571,7 +438,7 @@ def compute_oof_holdout_predictions(
         _hit = _oof_cache_get(_full_key)
         if _hit is not None:
             logger.debug("compute_oof_holdout_predictions: cache HIT for key=%r", _full_key)
-            return cast(Tuple[np.ndarray, np.ndarray, List[str]], _hit)
+            return tuple(_hit) if len(_hit) == 4 else (*_hit, None)  # the external path caches 3-tuples
 
     # Forward-walking K-fold OOF. When kfold>1 AND time_ordering is
     # monotone (rows already in time order), use TimeSeriesSplit -- K expanding-
@@ -616,13 +483,10 @@ def compute_oof_holdout_predictions(
         for fold_train_idx, fold_holdout_idx in _kf_split:
             # Sub-frame views by index; fit/predict inlined per fold.
             if _is_polars_df(train_X):
-                fold_train_mask = np.zeros(n_train, dtype=bool)
-                fold_train_mask[fold_train_idx] = True
-                # Build the holdout from an EXPLICIT fold_holdout_idx mask, not ~train_mask: under TimeSeriesSplit ~train includes the FUTURE rows beyond this fold's holdout, so ~train_mask yields a frame longer than fold_holdout_idx -> length mismatch silently drops the component every fold (the pandas/ndarray branches already index by fold_holdout_idx).
-                fold_holdout_mask = np.zeros(n_train, dtype=bool)
-                fold_holdout_mask[fold_holdout_idx] = True
-                X_stack = train_X.filter(pl.Series(fold_train_mask))
-                X_holdout = train_X.filter(pl.Series(fold_holdout_mask))
+                # Gather by the EXPLICIT fold indices (as the pandas/ndarray branches do), never ~train: under TimeSeriesSplit ~train includes the
+                # FUTURE rows beyond this fold's holdout, and a boolean mask would also drop the index order the targets follow.
+                X_stack = train_X[np.asarray(fold_train_idx, dtype=np.int64)]
+                X_holdout = train_X[np.asarray(fold_holdout_idx, dtype=np.int64)]
             elif isinstance(train_X, pd.DataFrame):
                 X_stack = train_X.iloc[fold_train_idx].reset_index(drop=True)
                 X_holdout = train_X.iloc[fold_holdout_idx].reset_index(drop=True)
@@ -747,7 +611,7 @@ def compute_oof_holdout_predictions(
                 buf[fold_holdout_idx] = preds
         if not oof_preds_by_name or not survived_set:
             # Shape consistency -- match the (0, 0) tiny-data short-circuit. No components survived.
-            _empty: tuple = (np.zeros((0, 0)), np.zeros(0), [])
+            _empty: tuple = (np.zeros((0, 0)), np.zeros(0), [], np.zeros(0, dtype=np.int64))
             if _full_key is not None:
                 _oof_cache_put(_full_key, _empty)
             return _empty
@@ -760,6 +624,7 @@ def compute_oof_holdout_predictions(
             oof_matrix[finite_rows],
             y_train_full.astype(np.float64)[finite_rows],
             surviving_names,
+            np.flatnonzero(finite_rows),
         )
         if _full_key is not None:
             _oof_cache_put(_full_key, _result)
@@ -772,7 +637,7 @@ def compute_oof_holdout_predictions(
         # external_holdout_X at predict time, so a parallel holdout-base dict
         # is unused. The public param is retained for back-compat (callers may
         # still pass it) but has no effect.
-        return _compute_oof_with_external_holdout(
+        return (*_compute_oof_with_external_holdout(
             component_models=component_models,
             component_names=component_names,
             component_specs=component_specs,
@@ -785,7 +650,7 @@ def compute_oof_holdout_predictions(
             full_key=_full_key,
             group_ids=group_ids,
             random_state=random_state,
-        )
+        )[:3], None)
 
     # Decide whether to do a time-aware split. Only the EXPLICIT ``time_ordering`` signal (the suite threads ctx.timestamps here) flips to a trailing-slice holdout. The old behaviour also probed every base column and auto-switched if ANY was monotone -- a false positive on sorted-but-non-temporal bases (sorted ids, binned features) that silently turned a random holdout into a trailing slice and changed the OOF leakage profile. Random shuffle is the safe default when no explicit time signal is given.
     use_time_split = False
@@ -849,10 +714,10 @@ def compute_oof_holdout_predictions(
 
     # Subset X. Branch on type so we don't pull pandas APIs on polars frames.
     if _is_polars_df(train_X):
-        train_mask = np.zeros(n_train, dtype=bool)
-        train_mask[train_idx] = True
-        X_stack = train_X.filter(pl.Series(train_mask))
-        X_holdout = train_X.filter(pl.Series(~train_mask))
+        # Gather by position, not by a boolean mask: a mask keeps ROW order, while y_train_full[holdout_idx] follows the
+        # index order (time order on the sorted-holdout path), so every row would meet another row's target.
+        X_stack = train_X[np.asarray(train_idx, dtype=np.int64)]
+        X_holdout = train_X[np.asarray(holdout_idx, dtype=np.int64)]
     elif isinstance(train_X, pd.DataFrame):
         X_stack = train_X.iloc[train_idx].reset_index(drop=True)
         X_holdout = train_X.iloc[holdout_idx].reset_index(drop=True)
@@ -968,11 +833,11 @@ def compute_oof_holdout_predictions(
         )
     if not holdout_cols:
         # Shape consistency -- match the tiny-data + kfold short-circuits.
-        _empty = (np.zeros((0, 0)), np.zeros(0), [])
+        _empty = (np.zeros((0, 0)), np.zeros(0), [], np.zeros(0, dtype=np.int64))
         if _full_key is not None:
             _oof_cache_put(_full_key, _empty)
         return _empty
-    _final = (np.column_stack(holdout_cols), y_holdout, surviving_names)
+    _final = (np.column_stack(holdout_cols), y_holdout, surviving_names, np.asarray(holdout_idx))
     if _full_key is not None:
         _oof_cache_put(_full_key, _final)
     return _final
@@ -987,3 +852,26 @@ from ._stackers import (
     fit_lasso_meta_stacker,
     fit_ridge_meta_stacker,
 )
+
+
+def compute_oof_holdout_predictions(*args: Any, return_rows: bool = False, **kwargs: Any) -> tuple:
+    """Honest holdout predictions per component: ``(oof_matrix, y_holdout, surviving_names)``.
+
+    With ``return_rows=True`` a fourth element gives each holdout row's position among the train rows, so a caller can
+    align per-row data (sample weights) with the matrix; it is ``None`` on the external-holdout path, whose rows are the
+    caller's val frame. See :func:`_oof_holdout_predictions_with_rows` for the split strategy and parameters.
+    """
+    out = _oof_holdout_predictions_with_rows(*args, **kwargs)
+    return out if return_rows else out[:3]
+
+
+def _public_signature() -> Any:
+    """The implementation's parameters plus ``return_rows``, so introspection and IDEs see the real API."""
+    import inspect
+
+    sig = inspect.signature(_oof_holdout_predictions_with_rows)
+    extra = inspect.Parameter("return_rows", inspect.Parameter.KEYWORD_ONLY, default=False, annotation="bool")
+    return sig.replace(parameters=[*sig.parameters.values(), extra], return_annotation="tuple")
+
+
+compute_oof_holdout_predictions.__signature__ = _public_signature()  # type: ignore[attr-defined]

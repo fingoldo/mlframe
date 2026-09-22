@@ -200,16 +200,36 @@ def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.n
     return group_aucs
 
 
-def compute_mean_aucs_per_group(group_aucs: dict) -> tuple:
-    """NaN-safe mean of per-group (roc_auc, pr_auc) entries."""
-    # Compute mean per-group AUCs, ignoring NaN values
-    group_roc_aucs = np.array([aucs[0] for aucs in group_aucs.values()])
-    group_pr_aucs = np.array([aucs[1] for aucs in group_aucs.values()])
+def group_sizes_of(group_ids) -> Optional[dict]:
+    """``{group_id: n_rows}`` for ``compute_mean_aucs_per_group``'s row weighting; None when there are no group ids."""
+    if group_ids is None:
+        return None
+    ids, counts = np.unique(np.asarray(group_ids), return_counts=True)
+    return {(g.item() if hasattr(g, "item") else g): int(c) for g, c in zip(ids, counts)}
 
-    # Filter out NaN values for mean calculation
-    valid_roc = ~np.isnan(group_roc_aucs)
-    valid_pr = ~np.isnan(group_pr_aucs)
-    mean_roc_auc = np.mean(group_roc_aucs[valid_roc]) if np.any(valid_roc) else np.nan
-    mean_pr_auc = np.mean(group_pr_aucs[valid_pr]) if np.any(valid_pr) else np.nan
 
-    return mean_roc_auc, mean_pr_auc
+def compute_mean_aucs_per_group(group_aucs: dict, group_sizes: Optional[dict] = None) -> tuple:
+    """NaN-safe mean of per-group (roc_auc, pr_auc) entries.
+
+    With ``group_sizes`` (``{group_id: n_rows}``) the mean is weighted by each group's rows. Unweighted, a 4-row group
+    whose AUC is 1.0 by luck offsets a 10,000-row group at 0.60 one for one, and the number printed next to the pooled
+    AUC reads better than the model is. Groups missing from ``group_sizes`` get weight 0.
+    """
+    # items(), not keys() + getitem: ``group_aucs`` is often a numba typed dict with int32 keys, and re-indexing it
+    # with the Python ints its own keys() yields triggers an int64->int32 cast warning per group.
+    items = list(group_aucs.items())
+    keys = [k for k, _ in items]
+    group_roc_aucs = np.array([v[0] for _, v in items], dtype=np.float64)
+    group_pr_aucs = np.array([v[1] for _, v in items], dtype=np.float64)
+    weights = None if group_sizes is None else np.array([float(group_sizes.get(k, 0)) for k in keys], dtype=np.float64)
+
+    def _mean(values):
+        valid = ~np.isnan(values)
+        if not np.any(valid):
+            return np.nan
+        if weights is None:
+            return float(np.mean(values[valid]))
+        w = weights[valid]
+        return float(np.average(values[valid], weights=w)) if w.sum() > 0 else np.nan
+
+    return _mean(group_roc_aucs), _mean(group_pr_aucs)
