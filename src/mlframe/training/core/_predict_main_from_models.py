@@ -112,6 +112,8 @@ def predict_from_models(
                 return_probabilities=return_probabilities,
                 verbose=verbose,
                 predict_batch_rows=None,
+                # An events TABLE joined by entity/time, not row-aligned with ``df``: every batch needs all of it.
+                auxiliary_events_df=auxiliary_events_df,
             ),
             df, predict_batch_rows,
         )

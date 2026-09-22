@@ -121,6 +121,10 @@ def predict_mlframe_models_suite(
                 verbose=verbose,
                 trusted_root=trusted_root,
                 predict_batch_rows=None,
+                # An events TABLE joined by entity/time, not row-aligned with ``df``, so every batch gets all of it.
+                # Omitting it here silently skipped the latent_interaction_svd / nearest_past_join replay for batched
+                # calls only - a memory knob changed the prediction.
+                auxiliary_events_df=auxiliary_events_df,
             ),
             df, predict_batch_rows,
         )
