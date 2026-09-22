@@ -46,6 +46,39 @@ def _select_member_probs(member, split: str, use_calibrated: bool) -> Optional[n
     return getattr(member, f"{split}_probs", None)
 
 
+def _has_calibrated_probs(member, split: str) -> bool:
+    """Whether ``member`` carries a calibrated mirror of its ``split`` probabilities."""
+    cal_attr = f"calibrated_{split}_probs"
+    cal = getattr(member, cal_attr, None)
+    if cal is None:
+        inner = getattr(member, "model", None)
+        cal = getattr(inner, cal_attr, None) if inner is not None else None
+    return isinstance(cal, np.ndarray)
+
+
+def _select_split_probs(members, split: str, use_calibrated: bool) -> list:
+    """Every member's ``split`` probabilities on ONE scale: all calibrated when every member has them, else all raw.
+
+    Choosing member by member averaged isotonic-flattened probabilities from the members whose calibration was kept
+    with raw sigmoid probabilities from those whose calibration the policy declined - two scales in one arithmetic or
+    geometric mean, which calibrates the blend worse than either all-raw or all-calibrated. The predict-side sibling
+    already warns about exactly this mixture.
+    """
+    if use_calibrated:
+        with_probs = [m for m in members if getattr(m, f"{split}_probs", None) is not None or _has_calibrated_probs(m, split)]
+        n_cal = sum(1 for m in with_probs if _has_calibrated_probs(m, split))
+        if 0 < n_cal < len(with_probs):
+            from mlframe.utils.log_throttle import log_throttle
+
+            log_throttle(
+                logger, f"ensemble_mixed_calibration_{split}", logging.WARNING,
+                "[ensemble] %d of %d members have calibrated %s probabilities; blending on RAW probabilities for all of "
+                "them so the mean is taken on one scale.", n_cal, len(with_probs), split,
+            )
+            use_calibrated = False
+    return [_select_member_probs(el, split, use_calibrated) for el in members]
+
+
 def _process_single_ensemble_method(
     ensemble_method: str,
     level_models_and_predictions: Sequence,
@@ -119,7 +152,7 @@ def _process_single_ensemble_method(
     _use_cal = use_ap12_calibrated_probs and ensemble_method != "rrf"
 
     if not is_regression:
-        _val_probs_list = [_select_member_probs(el, "val", _use_cal) for el in level_models_and_predictions]
+        _val_probs_list = _select_split_probs(level_models_and_predictions, "val", _use_cal)
         _val_mask = [p is not None for p in _val_probs_list]
         _val_preds = [p for p in _val_probs_list if p is not None]
         predictions = iter(_val_preds)
@@ -156,7 +189,7 @@ def _process_single_ensemble_method(
 
     # 2026-05-13: same ``None``-guard for test_preds / test_probs.
     if not is_regression:
-        _test_probs_list = [_select_member_probs(el, "test", _use_cal) for el in level_models_and_predictions]
+        _test_probs_list = _select_split_probs(level_models_and_predictions, "test", _use_cal)
         _test_mask = [p is not None for p in _test_probs_list]
         _test_preds = [p for p in _test_probs_list if p is not None]
         predictions = iter(_test_preds)
