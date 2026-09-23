@@ -7,7 +7,7 @@ confidence on the day it stops being true as on the day it was measured.
 
 from __future__ import annotations
 
-import json
+import orjson
 import os
 import subprocess  # nosec B404 - builds a throwaway git repository for the test; fixed argument lists only
 from pathlib import Path
@@ -57,7 +57,7 @@ def _commit_to(root: Path, relative: str, count: int) -> None:
 def _manifest(root: Path, sha: str) -> str:
     """Write a manifest recording one commit and return its path."""
     path = root / "MANIFEST.json"
-    path.write_text(json.dumps({"git_sha": sha}), encoding="utf-8")
+    path.write_text(orjson.dumps({"git_sha": sha}).decode(), encoding="utf-8")
     return str(path)
 
 
@@ -109,7 +109,7 @@ def test_far_enough_behind_is_stale(repo: Path) -> None:
 def test_a_manifest_without_a_commit_is_unknown_rather_than_current(repo: Path) -> None:
     """Guessing is worse than saying so: an undatable result would otherwise read as a fresh one."""
     path = repo / "MANIFEST.json"
-    path.write_text(json.dumps({"scenarios": ["a"]}), encoding="utf-8")
+    path.write_text(orjson.dumps({"scenarios": ["a"]}).decode(), encoding="utf-8")
 
     verdict = assess(str(path), repo=str(repo))
 

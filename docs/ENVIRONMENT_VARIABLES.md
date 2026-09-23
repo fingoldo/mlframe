@@ -236,7 +236,9 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_ROBUST_AXIS` | `''` | [src/mlframe/feature_selection/filters/hermite_fe/_hermite_robust.py](../src/mlframe/feature_selection/filters/hermite_fe/_hermite_robust.py#L60) |
 | `MLFRAME_ROBUST_MEAN_PARALLEL_MIN_N` | `'50000'` | [src/mlframe/core/robust_location.py](../src/mlframe/core/robust_location.py#L40) |
 | `MLFRAME_ROBUST_WARP_FIT` | `''` | [src/mlframe/feature_selection/filters/hermite_fe/_hermite_robust.py](../src/mlframe/feature_selection/filters/hermite_fe/_hermite_robust.py#L278) |
+| `MLFRAME_ROW_ROLE_LEDGER` | — | [src/mlframe/training/composite/_row_roles.py](../src/mlframe/training/composite/_row_roles.py#L37) |
 | `MLFRAME_SETUP_TIMING` | `'1'` | [src/mlframe/training/core/_phase_config_setup.py](../src/mlframe/training/core/_phase_config_setup.py#L116) |
+| `MLFRAME_SHAP_BRUTE_FORCE_WORK_BUDGET` | — | [src/mlframe/feature_selection/shap_proxied_fs/_shap_proxied_resolvers.py](../src/mlframe/feature_selection/shap_proxied_fs/_shap_proxied_resolvers.py#L253) |
 | `MLFRAME_SHAP_SUBSETRANK_GPU_MIN_SUBSETS` | `''` | [src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_subsetrank.py](../src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_subsetrank.py#L155) |
 | `MLFRAME_SKIP_NUMBA_WARMUP` | — | [src/mlframe/feature_selection/filters/_numba_warmup.py](../src/mlframe/feature_selection/filters/_numba_warmup.py#L33) |
 | `MLFRAME_STABILITY_CLUSTER_MAX_FEATURES` | `'4000'` | [src/mlframe/feature_selection/filters/_stability_cluster.py](../src/mlframe/feature_selection/filters/_stability_cluster.py#L57) |

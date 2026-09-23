@@ -7,7 +7,7 @@ though they were the same unit; the schema version stops a resume from averaging
 
 from __future__ import annotations
 
-import json
+import orjson
 import sys
 import types
 from typing import Any, Dict, List
@@ -169,14 +169,14 @@ def test_store_stamps_the_schema_version_without_mutating_the_caller_dict(tmp_pa
     store.append(record)
 
     assert "schema_version" not in record
-    written = json.loads((tmp_path / "cells.jsonl").read_text(encoding="utf-8").strip())
+    written = orjson.loads((tmp_path / "cells.jsonl").read_text(encoding="utf-8").strip())
     assert written["schema_version"] == SCHEMA_VERSION
 
 
 def test_store_treats_an_unversioned_record_as_version_one(tmp_path: Any) -> None:
     """Records written before versioning existed carry version one's shape, so they must read as version one."""
     path = tmp_path / "cells.jsonl"
-    path.write_text(json.dumps({"cell_key": "old", "status": "ok"}) + "\n", encoding="utf-8")
+    path.write_text(orjson.dumps({"cell_key": "old", "status": "ok"}).decode() + "\n", encoding="utf-8")
 
     assert JsonlCellStore(path).schema_versions() == {1}
     assert JsonlCellStore(path).assert_single_schema_version() == 1
@@ -185,7 +185,7 @@ def test_store_treats_an_unversioned_record_as_version_one(tmp_path: Any) -> Non
 def test_store_refuses_a_file_that_mixes_schema_versions(tmp_path: Any) -> None:
     """Resume fails loudly on a mixed file: every aggregate over it would be a mixture of two quantities."""
     path = tmp_path / "cells.jsonl"
-    lines: List[str] = [json.dumps({"cell_key": "a", "schema_version": 1}), json.dumps({"cell_key": "b", "schema_version": 2})]
+    lines: List[str] = [orjson.dumps({"cell_key": "a", "schema_version": 1}).decode(), orjson.dumps({"cell_key": "b", "schema_version": 2}).decode()]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     with pytest.raises(SchemaVersionMismatchError, match="mixes record schema versions"):
@@ -195,7 +195,7 @@ def test_store_refuses_a_file_that_mixes_schema_versions(tmp_path: Any) -> None:
 def test_store_refuses_a_file_from_a_future_schema(tmp_path: Any) -> None:
     """A file written by newer code is not readable here, and guessing at it would be worse than failing."""
     path = tmp_path / "cells.jsonl"
-    path.write_text(json.dumps({"cell_key": "a", "schema_version": SCHEMA_VERSION + 7}) + "\n", encoding="utf-8")
+    path.write_text(orjson.dumps({"cell_key": "a", "schema_version": SCHEMA_VERSION + 7}).decode() + "\n", encoding="utf-8")
 
     with pytest.raises(SchemaVersionMismatchError, match="reads at most"):
         JsonlCellStore(path).assert_single_schema_version()

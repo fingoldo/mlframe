@@ -9,7 +9,7 @@ ideal fails.
 
 from __future__ import annotations
 
-import json
+import orjson
 import warnings
 from pathlib import Path
 
@@ -60,7 +60,7 @@ def counts():
 @pytest.mark.parametrize("primitive", sorted(_IDEAL))
 def test_a_primitive_stays_within_its_budget(counts, primitive: str):
     """At most the ideal count, or the recorded excess; a count below the record means the record must be lowered."""
-    recorded = json.loads(_BASELINE.read_text(encoding="utf-8")).get(primitive)
+    recorded = orjson.loads(_BASELINE.read_text(encoding="utf-8")).get(primitive)
     got, ideal = counts[primitive], _IDEAL[primitive]
     if recorded is None:
         assert got <= ideal, f"{primitive}: {got} calls per fit, over its ideal {ideal}"
@@ -72,6 +72,6 @@ def test_a_primitive_stays_within_its_budget(counts, primitive: str):
 
 def test_every_baseline_entry_is_a_budgeted_primitive():
     """The baseline only records known primitives, each with a note on why it exceeds the ideal."""
-    base = json.loads(_BASELINE.read_text(encoding="utf-8"))
+    base = orjson.loads(_BASELINE.read_text(encoding="utf-8"))
     assert set(base) <= set(_IDEAL)
     assert all(str(v.get("note", "")).strip() for v in base.values())

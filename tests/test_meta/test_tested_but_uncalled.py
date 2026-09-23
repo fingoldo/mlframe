@@ -8,7 +8,7 @@ rerank, filter or per-group module in discovery must have a test that imports it
 
 from __future__ import annotations
 
-import json
+import orjson
 import re
 from pathlib import Path
 
@@ -25,7 +25,7 @@ def _test_text() -> str:
 
 def _tested_but_uncalled(blob: str) -> set[str]:
     """Composite functions in the uncalled baseline whose name appears in a test."""
-    raw = json.loads(_UNCALLED.read_text(encoding="utf-8"))
+    raw = orjson.loads(_UNCALLED.read_text(encoding="utf-8"))
     keys = list(raw) if isinstance(raw, (dict, list)) else []
     names = set(re.findall(r"\b[A-Za-z_]\w*\b", blob))
     return {k for k in keys if "/training/composite/" in k and k.split("::")[-1] in names}
@@ -34,7 +34,7 @@ def _tested_but_uncalled(blob: str) -> set[str]:
 def test_no_new_test_certifies_an_uncalled_composite_function():
     """Tested-but-uncalled composite functions are exactly the recorded ones; a fixed or wired entry must leave the list."""
     found = _tested_but_uncalled(_test_text())
-    accepted = set(json.loads(_ACCEPTED.read_text(encoding="utf-8")))
+    accepted = set(orjson.loads(_ACCEPTED.read_text(encoding="utf-8")))
     new, stale = sorted(found - accepted), sorted(accepted - found)
     assert not new, f"tests certify composite functions no production code calls; wire them in or record why: {new}"
     assert not stale, f"these entries are called now (or untested); remove them from {_ACCEPTED.name}: {stale}"

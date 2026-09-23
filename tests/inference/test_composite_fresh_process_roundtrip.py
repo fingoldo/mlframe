@@ -8,7 +8,7 @@ Here every registry transform and every name the auto-chain proposer can generat
 
 from __future__ import annotations
 
-import json
+import orjson
 import os
 import subprocess
 import sys
@@ -84,15 +84,15 @@ def test_every_composite_loads_and_predicts_identically_in_a_fresh_process(tmp_p
     assert len(built) >= 0.9 * (len(list_transforms()) + len(_CHAIN_NAMES)), f"only {len(built)} wrappers could be built"
     assert all(c in built for c in _CHAIN_NAMES), sorted(set(_CHAIN_NAMES) - set(built))
     X_pred.to_pickle(tmp_path / "X_pred.pkl")
-    (tmp_path / "expected.json").write_text(json.dumps(expected), encoding="utf-8")
+    (tmp_path / "expected.json").write_text(orjson.dumps(expected).decode(), encoding="utf-8")
 
     script = textwrap.dedent(f"""
-        import json, sys
+        import orjson, sys
         import numpy as np, pandas as pd
         from mlframe.training.io import load_mlframe_model
         d = {str(tmp_path)!r}
         X = pd.read_pickle(d + "/X_pred.pkl")
-        expected = json.loads(open(d + "/expected.json", encoding="utf-8").read())
+        expected = orjson.loads(open(d + "/expected.json", encoding="utf-8").read())
         bad = []
         for name, want in expected.items():
             try:
@@ -102,12 +102,12 @@ def test_every_composite_loads_and_predicts_identically_in_a_fresh_process(tmp_p
                     bad.append((name, "predictions differ"))
             except Exception as err:
                 bad.append((name, type(err).__name__ + ": " + str(err)[:150]))
-        print(json.dumps(bad))
+        print(orjson.dumps(bad).decode())
     """)
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(_ROOT / "src"), str(_ROOT)]))
     out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env, timeout=600, check=False)
     assert out.returncode == 0, out.stderr[-3000:]
-    bad = json.loads(out.stdout.strip().splitlines()[-1])
+    bad = orjson.loads(out.stdout.strip().splitlines()[-1])
     assert not bad, f"{len(bad)} of {len(expected)} models failed the fresh-process round trip: {bad}"
 
 

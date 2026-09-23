@@ -60,7 +60,7 @@ _DEFAULT_BRUTE_FORCE_MAX_FEATURES = 28
 _DEFAULT_BRUTE_FORCE_N_SUB_GATE = 80_000_000
 # Work budget for an automatically dispatched exhaustive search, in SUBSET x ROW units. The subset-count gate above
 # was sized as "80M subsets at ~5M subsets/s = ~16 s", but the kernel's cost per subset is proportional to the rows it
-# scores, and the gate never saw the rows. Measured 2026-09-22 on the 8-core dev box (20 proxy columns, 2^20-1
+# scores, and the gate never saw the rows. RESULT (measured 2026-09-22, 8-core dev box, 20 proxy columns, 2^20-1
 # subsets): 0.32M subsets/s at 200 rows, 0.16M at 1300, 0.06M at 5000 - i.e. a stable ~0.2-0.3G subset-rows/s. A
 # HybridSelector fit on a 1300-row, 30-column interaction bed spent 207 s of its 245 s here. 4e9 subset-rows keeps an
 # auto-dispatched search near the ~16 s the gate always intended; above it the dispatcher uses beam over the same

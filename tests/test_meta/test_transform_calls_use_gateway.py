@@ -9,7 +9,7 @@ one is missing. Existing bare calls are recorded in ``_transform_gateway_baselin
 from __future__ import annotations
 
 import ast
-import json
+import orjson
 from collections import Counter
 from pathlib import Path
 
@@ -72,7 +72,7 @@ def _scan() -> Counter:
 def test_no_new_bare_transform_calls():
     """Every bare call is recorded; the record may only shrink (a converted call must leave it)."""
     got = _scan()
-    recorded = Counter(json.loads(_BASELINE.read_text(encoding="utf-8")))
+    recorded = Counter(orjson.loads(_BASELINE.read_text(encoding="utf-8")))
     new = {k: v - recorded.get(k, 0) for k, v in got.items() if v > recorded.get(k, 0)}
     gone = {k: v - got.get(k, 0) for k, v in recorded.items() if v > got.get(k, 0)}
     assert not new, f"route these transform calls through call_transform(transform, op, ..., groups=..., sample_weight=...): {new}"

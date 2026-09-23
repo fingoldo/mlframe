@@ -14,7 +14,7 @@ One module-scoped suite run (TVT fixture, linear strategy, ``linear_residual``) 
 from __future__ import annotations
 
 import glob
-import json
+import orjson
 import os
 import subprocess  # nosec B404 - the fresh-process contract needs a real second interpreter
 import sys
@@ -190,7 +190,7 @@ def test_fresh_process_serves_every_composite_target(composite_suite, tmp_path):
         f"""
         import sys
         sys.path.insert(0, r"{package_root}")
-        import json
+        import orjson
         import numpy as np
         import pandas as pd
         from mlframe.training.core.predict import predict_mlframe_models_suite
@@ -199,13 +199,13 @@ def test_fresh_process_serves_every_composite_target(composite_suite, tmp_path):
         res = predict_mlframe_models_suite(X, r"{models_path}", return_probabilities=False, verbose=0)
         out = {{k: [float(np.mean(v)), float(np.std(v))] for k, v in res["predictions"].items()}}
         with open(r"{out_path}", "w", encoding="utf-8") as f:
-            json.dump(out, f)
+            f.write(orjson.dumps(out).decode())
         """
     )
     env = dict(os.environ, OMP_NUM_THREADS="2", MKL_NUM_THREADS="2", OPENBLAS_NUM_THREADS="2", NUMBA_NUM_THREADS="2", LOKY_MAX_CPU_COUNT="1")
     proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env, timeout=900)  # nosec B603 - fixed interpreter and generated script
     assert proc.returncode == 0, f"fresh-process predict failed:\n{proc.stdout[-3000:]}\n{proc.stderr[-3000:]}"
-    fresh = json.loads(out_path.read_text(encoding="utf-8"))
+    fresh = orjson.loads(out_path.read_text(encoding="utf-8"))
     y = df[TARGET].to_numpy(dtype=np.float64)
     for name in _composite_names(metadata):
         keys = [k for k in fresh if name in k]

@@ -32,7 +32,7 @@ def median_filled_predictions(y_hat: np.ndarray, y_fit: np.ndarray) -> np.ndarra
     np.ndarray
         A finite float array of ``y_hat``'s shape (all-non-finite ``y_fit`` leaves the entries as they were).
     """
-    out = np.asarray(y_hat, dtype=np.float64).reshape(-1).copy()
+    out: np.ndarray = np.asarray(y_hat, dtype=np.float64).reshape(-1).copy()
     bad = ~np.isfinite(out)
     if not bad.any():
         return out

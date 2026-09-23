@@ -64,12 +64,30 @@ def _load_precommit_hooks() -> dict:
     return hooks
 
 
-def _hook_matches(hook: dict, path: str) -> bool:
-    """Whether pre-commit would run this hook against ``path``, per its files=/exclude= regexes.
+def _entry_scopes(hook: dict) -> list[str]:
+    """The repo-relative paths a ``pass_filenames: false`` hook scans, read off its ``entry`` command.
 
-    Mirrors pre-commit's own matching semantics: a file must match ``files`` (default match-all)
-    AND must NOT match ``exclude`` (default match-nothing).
+    Such a hook takes no file arguments, so ``files``/``exclude`` decide nothing; what it covers is whatever path its
+    command names. Returns an empty list for a hook that does take filenames, which keeps the regex path below in charge.
     """
+    if hook.get("pass_filenames") is not False:
+        return []
+    tokens = str(hook.get("entry", "")).split()
+    return [t for t in tokens if not t.startswith("-") and ("/" in t or t in {"src", "tests", "scripts"})]
+
+
+def _hook_matches(hook: dict, path: str) -> bool:
+    """Whether pre-commit would run this hook against ``path``.
+
+    Mirrors pre-commit's own matching semantics for a filename-taking hook: a file must match ``files`` (default
+    match-all) AND must NOT match ``exclude`` (default match-nothing). A ``pass_filenames: false`` hook is matched
+    instead against the paths its ``entry`` names, because that is what decides its scope: the two ruff gates moved to
+    that shape on 2026-09-23 so they would scan the whole tree like CI does, and a regex-only reading of them reports
+    both hooks as covering every file.
+    """
+    scopes = _entry_scopes(hook)
+    if scopes:
+        return any(path == s or path.startswith(s.rstrip("/") + "/") for s in scopes)
     files_pattern = hook.get("files", "")
     exclude_pattern = hook.get("exclude", "")
     if files_pattern and not re.search(files_pattern, path):

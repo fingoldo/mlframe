@@ -127,7 +127,7 @@ def matthews_corrcoef_from_counts(tp: int, fp: int, tn: int, fn: int) -> float:
 
 # The inline-ordered kernel (indexes through ``order``, no gather temporaries) wins in TWO regions, with a losing middle band:
 #   - n < _KS_FUSED_MAX_N: the double-indirect scan is cheap and skipping the two N-length gathers wins (small per-class report arrays).
-#     Re-measured 2026-09-20 (9 best-of blocks x 2000 iters per point, Ryzen/Windows): 128 -> 1.24x, 256 -> 1.19x, 384 -> 1.12x,
+#     RESULT (re-measured 2026-09-20, 9 best-of blocks x 2000 iters per point, Ryzen/Windows): 128 -> 1.24x, 256 -> 1.19x, 384 -> 1.12x,
 #     512 -> 1.03x, 768..2048 -> 0.95-1.01x. The win is gone by ~512, so the bound moved 2048 -> 512; at 1000 the old bound
 #     dispatched to the fused kernel for no gain (the perf sentinel measured a median 1.00x there).
 #   - n >= _KS_INLINE_ORDERED_MIN_N: the two N-length fancy-index gathers (int64 + float64) become memory-bandwidth-bound and the inline scan wins ~1.05x@200k / ~1.2x@500k bit-identically (bench_ks_desc_order_inline_gather_iter72).

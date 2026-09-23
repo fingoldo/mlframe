@@ -10,7 +10,7 @@ handle of, so it is not a frame copy and is not counted.
 from __future__ import annotations
 
 import ast
-import json
+import orjson
 from collections import Counter
 from pathlib import Path
 
@@ -78,7 +78,7 @@ def _scan() -> Counter:
 def test_no_new_frame_copies():
     """The recorded copies may only shrink; a removed one must leave the baseline with it."""
     got = _scan()
-    recorded = Counter(json.loads(_BASELINE.read_text(encoding="utf-8")))
+    recorded = Counter(orjson.loads(_BASELINE.read_text(encoding="utf-8")))
     new = {k: v - recorded.get(k, 0) for k, v in got.items() if v > recorded.get(k, 0)}
     gone = {k: v - got.get(k, 0) for k, v in recorded.items() if v > got.get(k, 0)}
     assert not new, f"drop the copy, or justify it inline with '{_MARKER} <reason>': {new}"

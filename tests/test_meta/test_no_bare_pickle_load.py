@@ -42,7 +42,9 @@ WHITELIST_FUNCTIONS: set[tuple[str, str]] = {
     # pkl.zst metadata loaders verify the on-disk sidecar via verify_sidecar(file, allow_unverified=True)
     # immediately above the loads() of the in-memory zstd-decompressed bytes.
     ("src/mlframe/training/core/predict.py", "load_mlframe_suite"),
-    ("src/mlframe/training/core/_predict_main_suite.py", "predict_mlframe_models_suite"),
+    # The metadata loader was carved out of ``predict_mlframe_models_suite`` into ``_load_suite_metadata``; the
+    # verify_sidecar call moved with it and still sits immediately above the loads().
+    ("src/mlframe/training/core/_predict_main_suite.py", "_load_suite_metadata"),
 }
 
 # TODO(next-PR): migrate to safe_pickle.safe_load + write_sidecar on writers; tracked by W7 scope-out.

@@ -200,7 +200,7 @@ def save_mlframe_model(
             write_content_size=True,
             threads=-1,
         )
-    # E2.2 (2026-05-22): pre-pickle size pre-check via ``pympler.asizeof``.
+    # Pre-pickle size pre-check via ``pympler.asizeof``.
     # Walking the in-memory object graph is ~300x faster than the fat save
     # itself (bench: asizeof=0.5ms vs save=160ms at N=5M). When the estimate
     # exceeds ``auto_lean_pre_check_mb`` AND the payload is a SimpleNamespace
@@ -418,7 +418,7 @@ def save_mlframe_model(
         if verbose > 0:
             logger.info("Model saved successfully to %s. Size: %.2f Mb", file, size_mb)
         _warn_if_model_tripped_sensors(model, file)
-        # 2026-05-21: suspicious-size sensor. Tabular ML model bundles (CB / XGB / LGB / MLP / Linear) post-zstd should typically
+        # Suspicious-size sensor. Tabular ML model bundles (CB / XGB / LGB / MLP / Linear) post-zstd should typically
         # land at <50 MB even on million-row training. Anything above the threshold below is almost always an unstripped DataLoader /
         # trainer / optimizer state OR a forgotten OOF blob -- one observed prod MLP dump was 311 MB because
         # ``LightningModule._trainer`` + ``prediction_datamodule`` held refs to the 4M-row training frame (the strip step now nullifies
@@ -439,7 +439,7 @@ def save_mlframe_model(
                 "purpose pass ``lean=False`` and ignore this warning.",
                 file, size_mb, _SIZE_SUSPICIOUS_MB,
             )
-            # E2.1 (2026-05-21): auto-retry with lean=True when the sensor fires on a
+            # Auto-retry with lean=True when the sensor fires on a
             # non-lean save. The default lean=False preserves forensic round-trip
             # parity but lets large per-split arrays leak (~16-32 MB each on 4M
             # rows). When auto_lean_retry=True (default) AND the payload is a
@@ -465,7 +465,7 @@ def save_mlframe_model(
                 )
         return True
     except Exception:
-        # Wave 41 (2026-05-20): caller sees only a False return; without the traceback,
+        # The caller sees only a False return; without the traceback,
         # production triage of "save returned False" is impossible (pickle / disk-full /
         # torch-compile errors all look identical).
         logger.exception("Could not save model to file %s", file)

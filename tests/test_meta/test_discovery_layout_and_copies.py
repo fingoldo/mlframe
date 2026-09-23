@@ -10,7 +10,7 @@ only shrink.
 from __future__ import annotations
 
 import ast
-import json
+import orjson
 from collections import Counter
 from pathlib import Path
 
@@ -110,7 +110,7 @@ def _scan() -> Counter:
 def test_no_new_layout_copy_or_gil_loop_hits():
     """Every hit is recorded; the record may only shrink (a fixed hit must leave it)."""
     got = _scan()
-    recorded = Counter(json.loads(_BASELINE.read_text(encoding="utf-8")))
+    recorded = Counter(orjson.loads(_BASELINE.read_text(encoding="utf-8")))
     new = {k: v - recorded.get(k, 0) for k, v in got.items() if v > recorded.get(k, 0)}
     fixed = {k: v - got.get(k, 0) for k, v in recorded.items() if v > got.get(k, 0)}
     assert not new, f"new hot-loop layout / copy / GIL-loop shapes in discovery: {new}"
