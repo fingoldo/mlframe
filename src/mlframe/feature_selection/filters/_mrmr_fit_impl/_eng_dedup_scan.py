@@ -7,6 +7,7 @@ and so compared the kernel against a policy production no longer runs.
 """
 from __future__ import annotations
 
+from functools import cmp_to_key, partial
 from typing import Callable
 
 import numpy as np
@@ -19,6 +20,87 @@ _RANK_BUF_MAX_BYTES = FE_EAGER_MATERIALIZE_MAX_BYTES
 # Raw-value near-constant test, relative to the column's own magnitude (an absolute std floor treats tiny-scale columns as constant).
 # Rank vectors keep their absolute floor: ranks are >= 1, so it cannot misfire there, and it matches the batched kernel.
 _REL_TOL = 32.0 * np.finfo(np.float64).eps
+
+
+# Near-duplicate at a 0.99 rank correlation is NOT transitive: A~B and B~C with A!~C is routine at that threshold. A single pass that
+# compares each candidate only against what is currently kept therefore returns a survivor SET that depends on the order candidates were
+# emitted in (A,B,C keeps {A, C}; B,A,C keeps {B} alone), and that order is whatever the upstream families happened to append, which
+# shifts whenever one of their top_k does. Processing strongest-first makes the survivor set a function of the values instead: the
+# preferred column of any colliding cluster is always already kept when the others arrive, so it is never evicted by a weaker one.
+# ``_eng_dedup_prefer`` reports False both ways when MI is unavailable, which sorts as equal and leaves those columns in emission order,
+# exactly the previous behaviour for an unscored cluster.
+def _strongest_first_cmp(_a: str, _b: str, _eng_dedup_prefer) -> int:
+    """Order two candidates strongest-first, treating an unscored pair as equal so the sort stays stable.
+
+    Args:
+        _a: the first candidate name.
+        _b: the second candidate name.
+        _eng_dedup_prefer: the two-argument predicate reporting whether the first candidate is preferred.
+
+    Returns:
+        -1, 0 or 1 in the ``cmp`` convention.
+    """
+    if _a == _b:
+        return 0
+    if _eng_dedup_prefer(_a, _b):
+        return -1
+    if _eng_dedup_prefer(_b, _a):
+        return 1
+    return 0
+
+
+class _RankRowBuffer:
+    """An append-only matrix of per-column rank rows, with each row's mean and centred sum-of-squares cached as it lands.
+
+    Carved out of ``scan_engineered_duplicates`` to keep it under its length ceiling. The buffer is append-only, so a row's moments are
+    constants of that row: caching them on append replaces two extra passes over every row on every later comparison. Growth is doubling,
+    bounded by a hard cap derived from the byte budget, and ``store`` reports exhaustion rather than raising so the caller can fall back
+    to the unbatched comparison for the rest of the scan.
+    """
+
+    def __init__(self, *, n_rows: int, hard_cap: int) -> None:
+        """Size the buffer's row length and its hard row cap.
+
+        Args:
+            n_rows: length of one rank row, i.e. the number of samples.
+            hard_cap: the most rows that may ever be stored, from the byte budget.
+        """
+        self._n_rows = int(n_rows)
+        self._hard_cap = int(hard_cap)
+        self.matrix: np.ndarray | None = None
+        self.means: list[float] = []
+        self.ss: list[float] = []
+        self.used = 0
+        self._cap = 0
+
+    def store(self, ranks: np.ndarray) -> int | None:
+        """Append ``ranks`` as the next row, growing within budget.
+
+        Args:
+            ranks: the rank row to store.
+
+        Returns:
+            The row index it landed on, or ``None`` when the row budget is exhausted.
+        """
+        if self.used >= self._hard_cap:
+            return None
+        buf = self.matrix
+        if buf is None or self.used == self._cap:
+            new_cap = min(self._hard_cap, max(4, self._cap * 2))
+            grown = np.empty((new_cap, self._n_rows), dtype=np.float64)
+            if buf is not None and self.used:
+                grown[: self.used] = buf[: self.used]
+            buf = grown
+            self.matrix, self._cap = grown, new_cap
+        row = self.used
+        buf[row] = ranks
+        from ._eng_dedup_batch_corr import row_mean_and_centred_ss
+
+        mean, ss = row_mean_and_centred_ss(buf[row])
+        self.means.append(float(mean))
+        self.ss.append(float(ss))
+        self.used += 1
+        return row
 
 
 def scan_engineered_duplicates(
@@ -57,33 +139,16 @@ def scan_engineered_duplicates(
     # written for fully-finite ADMITTED columns, so most of that allocation was never touched. A column that cannot
     # fit under the budget just gets no buffer row, and the per-pair path below already compares every kept column
     # without one -- so keep/drop is unchanged, only the batching coverage shrinks.
-    _eng_rank_buf: np.ndarray | None = None
-    _eng_rank_cap = 0
     _eng_row_of: dict[str, int] = {}
-    _eng_next_free_row = 0
     _n_rows = len(X)
-    _eng_rank_hard_cap = len(_eng_cols_appended) if _n_rows == 0 else min(len(_eng_cols_appended), int(_RANK_BUF_MAX_BYTES) // (8 * _n_rows))
-
-    def _store_rank_row(ranks: np.ndarray) -> int | None:
-        """Append ``ranks`` as the next buffer row, growing within budget; ``None`` when the budget is exhausted."""
-        nonlocal _eng_rank_buf, _eng_rank_cap, _eng_next_free_row
-        if _eng_next_free_row >= _eng_rank_hard_cap:
-            return None
-        _buf = _eng_rank_buf
-        if _buf is None or _eng_next_free_row == _eng_rank_cap:
-            _new_cap = min(_eng_rank_hard_cap, max(4, _eng_rank_cap * 2))
-            _grown = np.empty((_new_cap, _n_rows), dtype=np.float64)
-            if _buf is not None and _eng_next_free_row:
-                _grown[:_eng_next_free_row] = _buf[:_eng_next_free_row]
-            _buf = _grown
-            _eng_rank_buf, _eng_rank_cap = _grown, _new_cap
-        _row = _eng_next_free_row
-        _buf[_row] = ranks
-        _eng_next_free_row += 1
-        return _row
+    _rank_rows = _RankRowBuffer(
+        n_rows=_n_rows,
+        hard_cap=len(_eng_cols_appended) if _n_rows == 0 else min(len(_eng_cols_appended), int(_RANK_BUF_MAX_BYTES) // (8 * _n_rows)),
+    )
 
     _eng_fully_finite: dict[str, bool] = {}
-    for _c in _eng_cols_appended:
+    _scan_order = sorted(_eng_cols_appended, key=cmp_to_key(partial(_strongest_first_cmp, _eng_dedup_prefer=_eng_dedup_prefer)))
+    for _c in _scan_order:
         if _c in _eng_drop:
             continue
         if _c in _adaptive_fourier_keep:
@@ -130,9 +195,9 @@ def scan_engineered_duplicates(
         # call instead of one ``np.corrcoef`` call per kept column. Kept columns with any NaN (rare
         # per this loop's own comment) fall through to the unchanged per-pair path below, unaffected.
         _fast_kept_set: set = set()
-        if _eng_fully_finite[_c] and _arr_c.shape[0] >= 8 and _eng_next_free_row > 0 and _eng_rank_buf is not None:
+        if _eng_fully_finite[_c] and _arr_c.shape[0] >= 8 and _rank_rows.used > 0 and _rank_rows.matrix is not None:
             from ._eng_dedup_batch_corr import one_vs_many_abs_corr_masked
-            _active_mask = np.zeros(_eng_next_free_row, dtype=np.bool_)
+            _active_mask = np.zeros(_rank_rows.used, dtype=np.bool_)
             _row_to_kc: dict[int, str] = {}
             for _kc in _eng_keep:
                 _r = _eng_row_of.get(_kc)
@@ -140,7 +205,13 @@ def scan_engineered_duplicates(
                     _active_mask[_r] = True
                     _row_to_kc[_r] = _kc
             if _active_mask.any():
-                _fast_corrs = one_vs_many_abs_corr_masked(_ranks_c, _eng_rank_buf[:_eng_next_free_row], _active_mask)
+                _fast_corrs = one_vs_many_abs_corr_masked(
+                    _ranks_c,
+                    _rank_rows.matrix[: _rank_rows.used],
+                    _active_mask,
+                    np.asarray(_rank_rows.means[: _rank_rows.used], dtype=np.float64),
+                    np.asarray(_rank_rows.ss[: _rank_rows.used], dtype=np.float64),
+                )
                 for _r, _kc in _row_to_kc.items():
                     _fast_kept_set.add(_kc)
                     if _fast_corrs[_r] >= 0.99:
@@ -186,14 +257,14 @@ def scan_engineered_duplicates(
                 _eng_keep.append(_c)
                 _eng_arrs[_c] = _arr_c
                 if _eng_fully_finite[_c]:
-                    _row_c = _store_rank_row(_ranks_c)
+                    _row_c = _rank_rows.store(_ranks_c)
                     if _row_c is not None:
                         _eng_row_of[_c] = _row_c
         else:
             _eng_keep.append(_c)
             _eng_arrs[_c] = _arr_c
             if _eng_fully_finite[_c]:
-                _row_c = _store_rank_row(_ranks_c)
+                _row_c = _rank_rows.store(_ranks_c)
                 if _row_c is not None:
                     _eng_row_of[_c] = _row_c
     return _eng_keep, _eng_drop, _eng_arrs, _eng_ranks

@@ -27,7 +27,7 @@ from .._mrmr_fe_step_helpers import compute_pair_maxt_floor
 from .._joblib_safe import disable_cuda_in_worker
 from .._fe_family_timing import record_fe_family_wall
 
-# Measured floor (7-site joblib.Parallel audit, 2026-07-19) for the loky pool built below: at the realistic
+# Measured floor (7-site joblib.Parallel audit) for the loky pool built below: at the realistic
 # ``fe_npermutations=3`` production regime, the pool LOSES to serial at every pair count tested - n_pairs=190
 # -> 0.03x, n_pairs=4950 -> 0.22-0.38x, n_pairs=20000 -> 0.21x - with no crossover found across that range.
 # The pool's per-pair cost scales with ``fe_npermutations`` (each pair runs a full ``mi_direct`` permutation
@@ -116,7 +116,7 @@ def compute_pair_mis_and_floor(
     _eng_cap = int(getattr(self, "fe_max_engineered_operands", 8))
     _engineered_in_pool = [v for v in numeric_vars_to_consider if cols[v] not in _raw_name_set]
     # ESCALATION FEATURES ARE TERMINAL - never feed them forward as composite operands
-    # (2026-06-12, F2 rescue). An ``esc_*`` escalation feature (orth-poly / adaptive-Fourier
+    # (F2 rescue). An ``esc_*`` escalation feature (orth-poly / adaptive-Fourier
     # pair warp) already captures a genuine richer-basis interaction the library could not
     # express; nesting it INTO a further pair composite (the feed-forward built
     # ``div(log(esc_poly_legendre_mul(a,b)),exp(mul(prewarp(c),prewarp(d))))`` on F2) fuses
@@ -176,7 +176,7 @@ def compute_pair_mis_and_floor(
     # 10-30x speedup over the per-pair joblib loop; downstream MRMR FE pair selection is regression-validated by the
     # MRMR test suite. Disable by setting MLFRAME_MRMR_BATCH_PAIR_MI=0 (the env-var is the emergency rollback knob).
     #
-    # NO POOL-SIZE CAP (removed 2026-07-09): the legacy ~35s/pair per-pair joblib fallback was previously forced
+    # NO POOL-SIZE CAP (removed): the legacy ~35s/pair per-pair joblib fallback was previously forced
     # whenever the pool exceeded a flat 200-column ceiling (``_MRMR_BATCH_PRECOMPUTE_MAX_K``), which made a
     # realistic several-hundred-column production pool fall off a catastrophic-runtime cliff (observed: hours where
     # a few minutes was achievable). ``dispatch_batch_pair_mi_chunked`` enumerates the C(k,2) pair space in
@@ -256,7 +256,7 @@ def compute_pair_mis_and_floor(
     record_fe_family_wall("pairwise_mi_batch_precompute", perf_counter() - _batch_precompute_t0)
 
     # SKIP THE LOKY POOL when the batch precompute above already covers every pair. With
-    # the finding-#21 cap removed, the batch precompute now runs unconditionally at n_pairs>=8 and -
+    # With the old pair-count cap removed, the batch precompute now runs unconditionally at n_pairs>=8 and -
     # confirmed live (verbose repro, n=8000/p=249/n_pairs=31125): "batch-prefilled 31125/31125 pair MIs" -
     # routinely covers 100% of the pool, leaving NOTHING for the sweep below to compute. Spinning up a loky
     # PROCESS pool when there is zero real work is not just wasted overhead: it was the exact spot a
@@ -311,7 +311,7 @@ def compute_pair_mis_and_floor(
         )
     else:
         chunk_size = max(1, n_pairs // (n_jobs * prefetch_factor))
-        # BACKEND FIX (2026-07-06, wellbore diag): the per-chunk ``compute_pairs_mis``
+        # BACKEND FIX (wellbore diag): the per-chunk ``compute_pairs_mis``
         # body is GIL-bound CPU work - it calls ``mi_direct`` per pair (joint plug-in
         # MI + the analytic/permutation null over ``fe_npermutations`` shuffles), all in
         # Python/numpy/njit-with-the-GIL-held-at-the-dispatch-boundary. Under the wellbore's
@@ -425,11 +425,11 @@ def compute_pair_mis_and_floor(
                 type(_pool_exc).__name__, _pool_exc, n_pairs, n_jobs,
             )
             # Retry via the batched dispatcher FORCED to CPU njit-parallel, not the legacy per-pair sweep
-            # directly (2026-07-10 fix; reproduced live at n=3M/p=423, n_pairs=89,253: the loky pool
+            # directly (fix; reproduced live at n=3M/p=423, n_pairs=89,253: the loky pool
             # timing out and falling straight to ``compute_pairs_mis``'s serial per-pair ``mi_direct``
             # loop turned into a multi-hour, single-core slog - the exact "weak CPU/GPU utilization"
             # pathology the whole audit traces back to). The batched kernel is 10-30x faster per pair
-            # than the legacy permutation-test loop regardless of backend (see the finding-#21 fix
+            # than the legacy permutation-test loop regardless of backend (see the batch-precompute note
             # above); forcing ``njit_parallel`` here specifically avoids retrying on a GPU that may have
             # JUST failed (the loky pool failure and a GPU OOM earlier in the same fit are plausibly
             # correlated) while still using ALL CPU cores instead of one. Only pairs this ALSO can't
@@ -538,7 +538,7 @@ def compute_pair_mis_and_floor(
                     _auto_pa = np.fromiter((p[0] for p in _auto_chunk), dtype=np.int64, count=len(_auto_chunk))
                     _auto_pb = np.fromiter((p[1] for p in _auto_chunk), dtype=np.int64, count=len(_auto_chunk))
                     _auto_bias = pairwise_mm_joint_bias(data, _auto_pa, _auto_pb, nbins, _auto_ky)
-                    # UNDER-SAMPLE GUARD (bias-variance, 2026-06-13): the MM bias (k_joint-1)(k_y-1)/2n is
+                    # UNDER-SAMPLE GUARD (bias-variance): the MM bias (k_joint-1)(k_y-1)/2n is
                     # only a reliable correction when the joint table is adequately occupied. At tiny n the
                     # bias is large/noisy and over-tightening the prevalence gate feeds the synergy-rescue
                     # path, which can ADMIT worse features (measured: F2 n=2500 0.917 -> 1.079, but n=8000

@@ -13,6 +13,8 @@ reproduction of both, matching the real ``_fit_impl_core.py`` block line for lin
 
 from __future__ import annotations
 
+from functools import cmp_to_key
+
 import numpy as np
 import pandas as pd
 
@@ -76,9 +78,27 @@ def _eng_dedup_prefer(cand, kept, mig_set, eng_mi):
 
 
 def _old_dedup(X, eng_cols_appended, mig_set, eng_mi):
-    """Frozen copy of the pre-fix O(K^2) per-pair np.corrcoef dedup loop."""
+    """Frozen copy of the pre-fix O(K^2) per-pair np.corrcoef dedup loop, walked in the order production now walks.
+
+    What this reference exists to pin is the CORRELATION path: per-pair ``np.corrcoef`` against the batched masked kernel. It is not a
+    reference for the scan ORDER, which production deliberately changed: a 0.99 rank correlation is not transitive, so comparing each
+    candidate only against what is currently kept made the survivor set depend on the order the upstream families happened to append in.
+    Production now walks strongest-first so the survivor set is a function of the values instead. Holding this copy at the old emission
+    order would make the comparison below about that policy change rather than about the kernel.
+    """
     eng_keep, eng_drop, eng_arrs, eng_ranks = [], set(), {}, {}
-    for c in eng_cols_appended:
+
+    def _prefer_cmp(a, b):
+        """Strongest-first, with an unscored pair treated as equal so the sort stays stable."""
+        if a == b:
+            return 0
+        if _eng_dedup_prefer(a, b, mig_set, eng_mi):
+            return -1
+        if _eng_dedup_prefer(b, a, mig_set, eng_mi):
+            return 1
+        return 0
+
+    for c in sorted(eng_cols_appended, key=cmp_to_key(_prefer_cmp)):
         if c in eng_drop:
             continue
         arr_c = np.asarray(X[c].to_numpy(), dtype=np.float64)

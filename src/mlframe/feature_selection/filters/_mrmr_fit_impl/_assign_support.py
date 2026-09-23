@@ -682,8 +682,7 @@ def _assign_support(
             )
             self._artifacts_ = None
     # Populate ``mrmr_gains_``
-    # so the documented ``uaed_auto_size=True`` post-fit elbow trim at
-    # line 1020+ actually fires. Pre-fix the comment claimed
+    # so the documented ``uaed_auto_size=True`` post-fit elbow trim below actually fires. Pre-fix the comment claimed
     # "Wave-7 audit landed this trace" but no code ever assigned the
     # attribute - ``getattr(self, "mrmr_gains_", [])`` defaulted to
     # empty, ``gains.size >= 3`` was False, the UAED block was

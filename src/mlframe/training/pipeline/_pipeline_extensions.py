@@ -745,7 +745,7 @@ def apply_preprocessing_extensions(
     # sklearn>=1.3 exposes ``get_feature_names_out``; fall back to
     # ``ext_<step>_<i>`` derived from the last step's name otherwise.
     def _build_output_column_names(n_cols: int) -> list:
-        """Named-transformer output column names for the fitted extension pipeline, preferring sklearn's ``get_feature_names_out()`` and falling back to ``ext_<last_step>_<i>`` when unavailable/mismatched (keeps stage provenance instead of opaque ``ext_<i>`` indices)."""
+        """Named-transformer output column names for the fitted extension pipeline, preferring sklearn's ``get_feature_names_out()`` and falling back to ``ext_<last_step>_<i>`` when unavailable/mismatched (keeps stage provenance instead of opaque ``ext_<i>`` indices). The caller stamps the result on the pipeline as ``_mlframe_output_columns_``, so it is saved with the model: predict serves exactly these names and refuses an output of a different width rather than renaming positionally."""
         try:
             names = pipe.get_feature_names_out()
             if names is not None and len(names) == n_cols:
@@ -769,7 +769,7 @@ def apply_preprocessing_extensions(
             _is_sparse = _sp.issparse(arr)
         except ImportError:
             _is_sparse = False
-        col_names = _build_output_column_names(arr.shape[1])
+        col_names = pipe._mlframe_output_columns_ = _build_output_column_names(arr.shape[1])  # stamped: predict serves exactly these names
         if _is_sparse:
             if bool(getattr(config, "tfidf_keep_sparse", True)):
                 return sparse_df_from_spmatrix(

@@ -87,3 +87,54 @@ def test_postcalibration_compile_pattern_caches_and_compiles() -> None:
     assert compiled.match("foo123bar") is not None
     # lru_cache: an identical pattern string must return the SAME compiled object, not just an equal one.
     assert compile_pattern("foo.*bar") is compiled
+
+
+_PROCESS_MARKER_RE = re.compile(r"\b(FIX\d|BUG\d|ROOT CAUSE \d|OPT-[A-Z]\b|ND-\d|finding[- ]#?\d+|Wave \d|Layer-?\d|iter\d{2,}|\d{4}-\d{2}-\d{2})")
+# Modules whose comments have been cleaned. Kept as a list rather than applied repo-wide, per the no-unscoped-rewrite rule: widen it as other
+# packages are cleaned, do not swap it for a whole-tree glob in one go.
+_MARKER_FREE_FILES = (
+    "feature_selection/filters/_mrmr_fe_step",
+    "feature_selection/filters/_mrmr_validate_transform.py",
+    "feature_selection/filters/_mrmr_fingerprints.py",
+)
+
+
+def test_no_process_markers_in_cleaned_package_comments() -> None:
+    """Phase markers, finding IDs and bug numbers belong in git history, not in the code that outlived them.
+
+    ``OPT-A``, ``BUG2 FIX``, ``ROOT CAUSE 5`` and ``finding-#21`` say nothing to a reader who does not have the review thread, and two of them
+    referred to findings that no longer resolve to anything in-tree. The WHY prose beside them is what is worth keeping.
+    """
+    src = TESTS_DIR.parent / "src" / "mlframe"
+    offenders: list[str] = []
+    for entry in _MARKER_FREE_FILES:
+        target = src / entry
+        for path in [target] if target.is_file() else sorted(target.rglob("*.py")):
+            for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+                stripped = line.strip()
+                if not stripped.startswith("#"):
+                    continue
+                found = _PROCESS_MARKER_RE.search(stripped)
+                if found:
+                    offenders.append(f"{path.relative_to(src)}:{lineno}: {found.group(0)}")
+    assert not offenders, "process/audit markers in comments (keep the reasoning, drop the label): " + ", ".join(offenders)
+
+
+# A line number is a reference that rots: six comments in the fit-impl package cited lines from the pre-split 10056-line monolith, and one of
+# them built a load-bearing argument ("this read happens AFTER it, so the freshly repopulated attribute is authoritative") on a number the
+# reader could not check. Naming the function or section instead says the same thing and stays true.
+_LINE_CITATION_RE = re.compile(r"line\s*~?\s*\d{3,}")
+_CITATION_FREE_PACKAGES = ("feature_selection/filters/_mrmr_fit_impl",)
+
+
+def test_no_stale_line_number_citations_in_comments() -> None:
+    """Comments must refer to code by name, not by a line number that no longer points anywhere."""
+    src = TESTS_DIR.parent / "src" / "mlframe"
+    offenders: list[str] = []
+    for package in _CITATION_FREE_PACKAGES:
+        for path in sorted((src / package).rglob("*.py")):
+            for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+                stripped = line.strip()
+                if stripped.startswith("#") and _LINE_CITATION_RE.search(stripped):
+                    offenders.append(f"{path.relative_to(src)}:{lineno}")
+    assert not offenders, "comment(s) citing a line number instead of a name: " + ", ".join(offenders)

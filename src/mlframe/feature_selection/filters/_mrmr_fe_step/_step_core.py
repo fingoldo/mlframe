@@ -66,26 +66,40 @@ def _free_gpu_fe_mempool() -> bool:
     import os as _os
     if not (_os.environ.get("MLFRAME_FE_GPU_STRICT") or _os.environ.get("MLFRAME_CMI_GPU")):
         return False
-    # FIX3: drop the resident y/z device cache in _cmi_cuda FIRST so its device arrays carry no
+    # Drop the resident y/z device cache in _cmi_cuda FIRST so its device arrays carry no
     # live reference -> free_all_blocks below can actually reclaim them (a fit-scoped cache, never persisted).
     try:
         from ..info_theory._cmi_cuda import clear_cmi_resident_cache
         clear_cmi_resident_cache()
-    except Exception as exc:  # nosec B110 - optional dependency import guard
-        logger.debug("mrmr: clearing the CMI resident device cache at FE-step teardown failed (best-effort): %r", exc, exc_info=True)
+    except ImportError as exc:  # the CUDA CMI module is genuinely absent
+        logger.debug("mrmr: no CMI resident device cache to clear at FE-step teardown (%s)", exc)
+    except Exception as exc:
+        # NOT a missing dependency: the module imported and the clear itself failed, which is a device or driver fault worth seeing.
+        logger.warning("mrmr: clearing the CMI resident device cache at FE-step teardown failed (%s: %s); VRAM may not be reclaimed", type(exc).__name__, exc)
     # FE operand resident cache: drop the fit-constant operand device copies (y / z / base columns) so their
     # device arrays carry no live reference -> free_all_blocks below can reclaim them (a fit-scoped cache).
     try:
         from .._fe_resident_operands import clear_fe_resident_operands
         clear_fe_resident_operands()
-    except Exception as exc:  # nosec B110 - optional dependency import guard
-        logger.debug("mrmr: clearing FE resident operands at teardown failed (best-effort): %r", exc, exc_info=True)
+    except ImportError as exc:  # the resident-operand module is genuinely absent
+        logger.debug("mrmr: no FE resident operands to clear at teardown (%s)", exc)
+    except Exception as exc:
+        logger.warning("mrmr: clearing FE resident operands at teardown failed (%s: %s); VRAM may not be reclaimed", type(exc).__name__, exc)
     try:
         import cupy as _cp
         _cp.get_default_memory_pool().free_all_blocks()
         return True
+    except ImportError as exc:  # cupy not installed: this is the CPU-only path, not a failure
+        logger.debug("mrmr: cupy is not available, so there is no device pool to free at FE-step teardown (%s)", exc)
+        return False
     except Exception as exc:
-        logger.debug("mrmr: cupy default-pool free_all_blocks() at FE-step teardown failed (VRAM will not be reclaimed this step): %r", exc, exc_info=True)
+        # cupy imported and the free itself failed. Reported at warning because the documented consequence - the retained pool sitting at its
+        # high-water mark and the allocator thrashing, measured as 11.2s -> 31.8s -> 32.3s across consecutive fits - is otherwise invisible.
+        logger.warning(
+            "mrmr: cupy free_all_blocks() at FE-step teardown failed (%s: %s); VRAM will not be reclaimed this step and repeated fits will "
+            "degrade as the pool stays at its high-water mark",
+            type(exc).__name__, exc,
+        )
         return False
 
 
@@ -218,7 +232,7 @@ def _run_fe_step_impl(
             return run_fe_step_gpu_strict(self, **_fe_args)
         except NotImplementedError:
             pass  # Phase 0 scaffold / unported config -> existing per-family FE path below
-    # GUARDED-ADAPTIVE PREVALENCE (2026-06-13, hardcoded-threshold conversion). When
+    # GUARDED-ADAPTIVE PREVALENCE, replacing a hardcoded threshold. When
     # ``fe_min_pair_mi_prevalence == "auto"``, keep the proven 1.05 ratio bar but apply it to the
     # MILLER-MADOW-DEBIASED pair MI (the analytic finite-sample joint-MI bias subtracted, the value
     # the maxT floor already uses) rather than the raw ``pair_mi``. Debiasing can ONLY LOWER the
@@ -249,7 +263,7 @@ def _run_fe_step_impl(
     _prevalence_debias_auto = isinstance(fe_min_pair_mi_prevalence, str) and fe_min_pair_mi_prevalence.strip().lower() == "auto"
     if _prevalence_debias_auto:
         fe_min_pair_mi_prevalence = 1.05
-    # SYNERGY prevalence "auto" (conversion #3, 2026-06-13): the synergy-pair bar
+    # SYNERGY prevalence "auto": the synergy-pair bar
     # (``max(fe_min_pair_mi_prevalence, fe_synergy_min_prevalence)``, default 1.5) gates the
     # bootstrap-added synergy operands. "auto" activates the SAME MM-debias mechanism for the
     # prevalence comparison and resolves the bar to its 1.5 default float - so a synergy pair is
@@ -301,7 +315,7 @@ def _run_fe_step_impl(
                 "feature_names_in_, not on selected_vars).",
             )
             selected_vars = np.array([], dtype=np.int64)  # Match the ndarray type the fe_fallback_to_all branch (and the normal caller-provided path) use.
-            # 2026-06-03 (wave-9 follow-up, default_filtering.py:165): screening
+            # (see default_filtering.py:165): screening
             # selected nothing but we continue (interaction-only signal / cluster
             # aggregate). Flag this so the smart-polynom optimiser does NOT treat
             # the raw-seeded pool as "speculative synergy" to withhold (which
@@ -338,7 +352,7 @@ def _run_fe_step_impl(
     if verbose >= 2:
         logger.info("Computing prospective FE pairs...")
 
-    # FE operand-pool construction (carved 2026-06-22 to _step_pool.py): builds numeric_vars_to_consider
+    # FE operand-pool construction (carved to _step_pool.py): builds numeric_vars_to_consider
     # from selected_vars + runs the synergy / GBM / gradient seeders. Selection is byte-for-byte identical.
     from ._step_pool import build_fe_operand_pool
     numeric_vars_to_consider, _synergy_added_idx = build_fe_operand_pool(
@@ -353,7 +367,7 @@ def _run_fe_step_impl(
         verbose=verbose,
     )
     # Operand-pool feed-forward cap + batch/per-pair joint-MI computation + order-2 maxT floor (carved
-    # 2026-06-22 to _step_pairmi.py). Mutates cached_MIs in place and returns the re-bound pool + gate
+    # to _step_pairmi.py). Mutates cached_MIs in place and returns the re-bound pool + gate
     # state; selection is byte-for-byte identical.
     from ._step_pairmi import compute_pair_mis_and_floor
     (
@@ -375,7 +389,7 @@ def _run_fe_step_impl(
     # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must possess more special connection!
     # ---------------------------------------------------------------------------------------------------------------
 
-    # Per-pair joint-MI uplift + order-2 maxT scoring of the candidate pairs (carved 2026-06-22 to
+    # Per-pair joint-MI uplift + order-2 maxT scoring of the candidate pairs (carved to
     # _step_pairs_rank.py). Returns the prospective_pairs ranking dict + the prevalence-failed synergy
     # rescue ledger; selection is byte-for-byte identical.
     from ._step_pairs_rank import score_prospective_pairs
@@ -399,7 +413,7 @@ def _run_fe_step_impl(
         sort_dict_by_value=sort_dict_by_value,
     )
 
-    # SIGNED INTERACTION-INFORMATION ROUTING (2026-06-09, backlog idea #8). Among the
+    # SIGNED INTERACTION-INFORMATION ROUTING (backlog idea #8). Among the
     # pairs that PASSED the ratio gate + order-2 maxT floor above, separate genuine
     # synergy (II > null floor) from the ADDITIVE cross-mix (II <= floor: a feeds one
     # independent term of y, b a DIFFERENT one - the weak-F2 ``add(invqubed(a),
@@ -415,7 +429,7 @@ def _run_fe_step_impl(
     # pairs do not consume budget. SELF-GATING => byte-stable on narrow pools / when
     # disabled. See ``_interaction_information.py``.
     #
-    # bench-rejected (2026-06-09) as a DEFAULT (now ``fe_ii_routing_enable=False``): on the
+    # bench-rejected as a DEFAULT (now ``fe_ii_routing_enable=False``): on the
     # user's WEAK F2 the cross-mix pair (b,c) has HIGHER interaction information than the
     # genuine (a,b) a**2/b pair on every cross-mix seed (II +0.0132/+0.0135/+0.0139 vs
     # +0.0114/+0.0120/+0.0132 at n=20000, seeds 0/6/8), and the y-shuffle null floor sits at
@@ -533,7 +547,7 @@ def _run_fe_step_impl(
         # the pure-noise risk.
         if _synergy_added_idx and not _screening_returned_empty:
             _filtered_for_polynom = {k: v for k, v in prospective_pairs.items() if not (k[0][0] in _synergy_added_idx or k[0][1] in _synergy_added_idx)}
-            # 2026-06-03 (wave-9 follow-up, default_filtering.py:165): apply the
+            # (see default_filtering.py:165): apply the
             # speculative-synergy exclusion ONLY if it leaves a non-empty pool.
             # When the selected pool is too small to form any NON-synergy pair
             # (screening kept 0-1 features on an interaction-only target, so
@@ -560,7 +574,7 @@ def _run_fe_step_impl(
             _shared_fe_idx = None
         # Capture cols width before the polynom block so we can promote the
         # polynom-injected engineered column indices into ``selected_vars``
-        # below (same "ROOT CAUSE 5" promotion the unary/binary block does for
+        # below (the same promotion the unary/binary block does for
         # its own appended cols). Without this, a polynom-pair feature that
         # cleared every polynom-FE gate (pair-MI prevalence + engineered-MI
         # prevalence + uplift) was appended to ``data``/``cols`` and tracked in
@@ -707,7 +721,7 @@ def _run_fe_step_impl(
     # workers, each running the SERIAL (no-prange) FE kernels (a numba prange would
     # nest inside the threading layer and deadlock - see ``_fe_use_parallel_kernels``).
     #
-    # BACKEND BENCH (2026-06-19, n=8000 p=150 FE pair-search, 3-rep medians, peak RSS incl children):
+    # BACKEND BENCH (n=8000 p=150 FE pair-search, 3-rep medians, peak RSS incl children):
     #   joblib-threading 8.98s/1599MB  <  serial 10.75s/1321MB  <  cf-ThreadPool 10.22s/1898MB
     #   joblib-loky 39.1s/2948MB (3.9x slower, +1.7GB frame copies); multiprocessing/ProcessPool OOM-cascade.
     # => the current joblib backend="threading" is the MEASURED-FASTEST option (~16% over serial, the njit MI
@@ -806,7 +820,7 @@ def _run_fe_step_impl(
             fe_pair_usability_admission_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
             fe_pair_usability_admission_pairness_margin=float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05)),
             gate_med_specs_out=_gate_med_specs,
-            # OPT-A: THIS is the serial-main-thread branch - the whole FE
+            # THIS is the serial-main-thread branch - the whole FE
             # search runs here with NO joblib threads (the ``else`` below is the
             # ``len(X) >= 50000`` joblib ``backend="threading"`` path). On this branch a
             # numba prange does not nest inside Python threads, so the FE materialise /
@@ -821,10 +835,10 @@ def _run_fe_step_impl(
             # rather than the lossy bin codes.
             allow_engineered_operands=(_eng_cap != 0),
             engineered_operand_values=getattr(self, "_engineered_continuous_", None),
-            # MM-DEBIAS (2026-06-09, + #4): debias the joint-prevalence
+            # MILLER-MADOW DEBIAS: debias the joint-prevalence
             # ratio gate (see check_prospective_fe_pairs). Co-updated with the maxT
             # floor below (IRON RULE). Default-on; ``fe_mm_debias_prevalence=False``
-            # byte-reproduces pre-2026-06-09 fits.
+            # byte-reproduces pre- fits.
             fe_mm_debias_prevalence=bool(getattr(self, "fe_mm_debias_prevalence", False)),
         )
     else:
@@ -903,7 +917,7 @@ def _run_fe_step_impl(
                     # ENGINEERED-OPERAND FEED-FORWARD: see the serial branch above.
                     allow_engineered_operands=(_eng_cap != 0),
                     engineered_operand_values=getattr(self, "_engineered_continuous_", None),
-                    # MM-DEBIAS (2026-06-09, + #4): see the serial branch above.
+                    # MILLER-MADOW DEBIAS: see the serial branch above.
                     fe_mm_debias_prevalence=bool(getattr(self, "fe_mm_debias_prevalence", False)),
                     # LARGE-N PEAK-MEMORY FIX: joblib ``backend="threading"``
                     # runs up to ``n_jobs`` of these CONCURRENTLY in the shared address space,
@@ -911,7 +925,7 @@ def _run_fe_step_impl(
                     # per-call RAM budget by the worker count so N threads don't collectively
                     # blow past 0.4*available and OOM a worker.
                     concurrent_workers=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
-                    # OPT-A n_jobs=1 EXTENSION. This ``else`` branch is the joblib
+                    # The n_jobs=1 extension. This ``else`` branch is the joblib
                     # path, but joblib ``Parallel(n_jobs=1)`` runs every ``delayed`` chunk
                     # SEQUENTIALLY in the CALLING thread (joblib's SequentialBackend short-circuit
                     # - no worker thread is spawned, regardless of the requested backend), so
@@ -993,7 +1007,7 @@ def _run_fe_step_impl(
                 reason=_rr.get("reason", ""), step=int(num_fs_steps),
             )
 
-    # Per-candidate scoring / quantile-discretization materialise stage (carved 2026-06-22 to
+    # Per-candidate scoring / quantile-discretization materialise stage (carved to
     # _step_score.py to bring _step_core.py under the 1k-LOC ceiling). Threads the loop locals
     # explicitly and returns the re-bound values; engineered_features / checked_pairs /
     # engineered_recipes are mutated in place. Selection is byte-for-byte identical.
@@ -1022,7 +1036,7 @@ def _run_fe_step_impl(
         verbose=verbose,
         discretize_array=discretize_array,
         get_new_feature_name=get_new_feature_name,
-        # ND-1: the poly_<coef> hermite-coefficient subset so a poly-FE recipe can persist its coef for replay.
+        # The poly_<coef> hermite-coefficient subset, so a poly-FE recipe can persist its coef for replay.
         _poly_coefs={_k: _v for _k, _v in unary_transformations.items() if isinstance(_k, str) and _k.startswith("poly_")},
     )
 

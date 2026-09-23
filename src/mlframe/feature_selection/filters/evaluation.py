@@ -389,6 +389,48 @@ def evaluate_gain(
     return stopped_early, current_gain, k - 1, sink_reasons
 
 
+def _materialise_knob_columns(*, factors_data, X, y, factors_nbins, dtype, selected_vars, relax_y_col, relax_k_y, relax_sel_cols, relax_sel_nbins) -> dict:
+    """Materialise the candidate, target and selected-set columns the research knobs share.
+
+    Carved out of ``evaluate_candidate`` to keep it under its length ceiling. RelaxMRMR, PID, the CMI-permutation stop and CPT all want
+    the same three things, and each block used to materialise all of them for itself: with two knobs on, the same candidate was factorised
+    twice in one call, and the target and selected set, fixed for the whole greedy round, were rebuilt per candidate. The round's hoist is
+    used when the driver supplied it.
+
+    Args:
+        factors_data: the binned design the columns are materialised from.
+        X: the candidate variable.
+        y: the target variable.
+        factors_nbins: per-column bin counts.
+        dtype: the dtype the materialised columns are cast to.
+        selected_vars: the round's already-selected variables.
+        relax_y_col: the hoisted target column, or None.
+        relax_k_y: the hoisted target bin count, or None.
+        relax_sel_cols: the hoisted selected-set columns, or None.
+        relax_sel_nbins: the hoisted selected-set bin counts, or None.
+
+    Returns:
+        A mapping with ``"x"``, ``"y"``, ``"sel"`` and ``"hoisted"``; ``hoisted`` says whether the round-level hoist was used, which the
+        caller needs because the hoisted path has already range-checked the target and selected set for this round.
+    """
+    out: dict = {}
+    out["x"] = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
+    if relax_y_col is not None and relax_k_y is not None and relax_sel_cols is not None and relax_sel_nbins is not None:
+        out["y"] = (relax_y_col, relax_k_y)
+        out["sel"] = (relax_sel_cols, relax_sel_nbins)
+        out["hoisted"] = True
+        return out
+    out["y"] = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
+    cols, nbins = [], []
+    for sv in selected_vars:
+        svc, svk = _materialize_var(factors_data, sv, factors_nbins, dtype=dtype)
+        cols.append(svc)
+        nbins.append(svk)
+    out["sel"] = (cols, nbins)
+    out["hoisted"] = False
+    return out
+
+
 def evaluate_candidate(
     cand_idx: int,
     X: Sequence[int],
@@ -757,6 +799,20 @@ def evaluate_candidate(
             # than aborting the whole screen.
             logger.warning("BUR bonus computation failed silently: %r", _bur_exc)
 
+    # The research knobs below (RelaxMRMR, PID, CMI-permutation stop, CPT) all want the same three things: the candidate's codes, the
+    # target's, and the selected set's. Each block used to materialise all of them for itself, so with two knobs on, the same candidate was
+    # factorised twice in one call, and the target and the selected set, which are fixed for the whole greedy round, were rebuilt per
+    # candidate. This computes the candidate's once per call and takes the rest from the round's hoist when the driver supplied it.
+    _knob_cols_cache: dict = {}
+
+    def _knob_columns():
+        """``((x, k_x), (y, k_y), (sel_cols, sel_nbins))`` for the research knobs, materialised at most once per call."""
+        if not _knob_cols_cache:
+            _knob_cols_cache.update(_materialise_knob_columns(
+                factors_data=factors_data, X=X, y=y, factors_nbins=factors_nbins, dtype=dtype, selected_vars=selected_vars,
+                relax_y_col=_relax_y_col, relax_k_y=_relax_k_y, relax_sel_cols=_relax_sel_cols, relax_sel_nbins=_relax_sel_nbins))
+        return _knob_cols_cache["x"], _knob_cols_cache["y"], _knob_cols_cache["sel"]
+
     # RelaxMRMR 3-D-redundancy score (Vinh 2016). Default alpha=0.0 -> dispatch skipped, legacy Fleuret score untouched (byte-identical). When alpha>0 the candidate's
     # complex-mode score is REPLACED by ``relax_mrmr_score`` (relevance - mean pairwise redundancy + alpha-weighted 3-way interaction term), which down-weights redundancy
     # detected only at the 3-feature level. Only meaningful in fleuret complex mode with a non-empty selected set (the simple-mode / first-pick path keeps direct_gain).
@@ -764,7 +820,8 @@ def evaluate_candidate(
     if _relax_alpha > 0.0 and selected_vars and not use_simple_mode and str(mrmr_relevance_algo) == "fleuret":
         try:
             from ._relaxmrmr_3d import relax_mrmr_score
-            x_col, k_x = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
+
+            (x_col, k_x), (y_col, k_y), (sel_cols, sel_nbins) = _knob_columns()
             # y_col/k_y and every selected column's materialize_var result depend only on (y,
             # factors_data, factors_nbins, dtype, selected_vars) - NOT on the candidate X - and
             # selected_vars is stable across the caller's per-candidate workload loop within one
@@ -772,17 +829,9 @@ def evaluate_candidate(
             # once per iteration instead of every candidate rebuilding them from scratch. Falls back
             # to the identical inline computation when called standalone (e.g. unit tests / direct
             # callers) that don't pass the precomputed values.
-            if _relax_y_col is not None and _relax_k_y is not None and _relax_sel_cols is not None and _relax_sel_nbins is not None:
-                y_col, k_y = _relax_y_col, _relax_k_y
-                sel_cols, sel_nbins = _relax_sel_cols, _relax_sel_nbins
-            else:
-                y_col, k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
-                sel_cols, sel_nbins = [], []
-                for _z in selected_vars:
-                    _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
-                    sel_cols.append(_zc)
-                    sel_nbins.append(_zk)
-            current_gain = float(relax_mrmr_score(x_col, sel_cols, y_col, k_x, sel_nbins, k_y, alpha=_relax_alpha))
+            # The hoisted path has already range-checked y and the selected set for this round; the standalone fallback above has not.
+            _prechecked = bool(_knob_cols_cache.get("hoisted"))
+            current_gain = float(relax_mrmr_score(x_col, sel_cols, y_col, k_x, sel_nbins, k_y, alpha=_relax_alpha, selected_prechecked=_prechecked))
             if cand_idx in partial_gains:
                 _g, _k = partial_gains[cand_idx]
                 partial_gains[cand_idx] = (current_gain, _k)
@@ -797,11 +846,10 @@ def evaluate_candidate(
     if _pid_bonus > 0.0 and selected_vars:
         try:
             from ._pid_decomposition import pid_decomposition
-            x_col, k_x = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
-            y_col, k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
+
+            (x_col, k_x), (y_col, k_y), (_pid_sel_cols, _pid_sel_nbins) = _knob_columns()
             max_syn = 0.0
-            for _z in selected_vars:
-                _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
+            for _zc, _zk in zip(_pid_sel_cols, _pid_sel_nbins):
                 syn = float(pid_decomposition(x_col, _zc, y_col, k_x, _zk, k_y)["synergistic"])
                 if syn > max_syn:
                     max_syn = syn
@@ -831,13 +879,8 @@ def evaluate_candidate(
     if _cmi_active and selected_vars and current_gain > 0.0:
         try:
             from ._cmi_perm_stop import cmi_permutation_stop
-            x_col, k_x = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
-            y_col, k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
-            sel_cols, sel_nbins = [], []
-            for _z in selected_vars:
-                _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
-                sel_cols.append(_zc)
-                sel_nbins.append(_zk)
+
+            (x_col, k_x), (y_col, k_y), (sel_cols, sel_nbins) = _knob_columns()
             is_signif, _obs, _pval = cmi_permutation_stop(
                 x_col, y_col, sel_cols, k_x, k_y, sel_nbins,
                 n_permutations=_cmi_nperm, alpha=_cmi_alpha, seed=_cmi_cpt_seed,
@@ -860,14 +903,13 @@ def evaluate_candidate(
     if _cpt_active and selected_vars and current_gain > 0.0:
         try:
             from ._conditional_permutation import conditional_permutation_test
-            x_col, k_x = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
-            y_col, k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
+
+            (x_col, k_x), (y_col, k_y), (_cpt_sel_cols, _cpt_sel_nbins) = _knob_columns()
             n = x_col.shape[0]
             k_z = 1
             z_comp = np.zeros(n, dtype=np.int64)
-            for _z in selected_vars:
-                _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
-                z_comp = z_comp * int(_zk) + _zc.astype(np.int64)
+            for _zc, _zk in zip(_cpt_sel_cols, _cpt_sel_nbins):
+                z_comp = z_comp * int(_zk) + np.asarray(_zc, dtype=np.int64)
                 k_z = k_z * int(_zk)
                 if k_z > 1_000_000:
                     # Same overflow guard as cmi_permutation_stop: coarsen via modulo rather than let

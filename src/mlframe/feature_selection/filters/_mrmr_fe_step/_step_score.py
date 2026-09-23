@@ -21,6 +21,8 @@ import os
 
 import numpy as np
 
+from mlframe.feature_selection.filters._mrmr_fe_step._step_name_tokens import build_candidate_provenance
+
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -106,7 +108,7 @@ def materialise_and_finalise_fe_candidates(
             logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
             _gate_resident = False
 
-    # CONDITIONAL-MI REDUNDANCY GATE (strategy S5, 2026-06-08). The PRINCIPLED,
+    # CONDITIONAL-MI REDUNDANCY GATE (strategy S5). The PRINCIPLED,
     # constant-free replacement for the hardcoded ``fe_min_engineered_mi_prevalence``
     # joint-prevalence ratio. After the per-pair acceptance machinery has selected one
     # best engineered column per pair, run a greedy CMI-MRMR over the SURVIVING pool:
@@ -310,26 +312,18 @@ def materialise_and_finalise_fe_candidates(
     # pruned here. Byte-identical when no gate fired (empty ``_gate_col_src_vars_``).
     _gate_src_vars_map = dict(getattr(self, "_gate_col_src_vars_", None) or {})
     if _gate_src_vars_map and prospective_additions:
-        import re as _re_gate
-
-        def _bare_tokens(_nm: str) -> set:
-            """Extract bare single-token raw-variable references (``a`` / ``x12`` style) from an engineered feature name, excluding substrings inside function names."""
-            # Single-token raw variable references (a-z / x_NN style), NOT substrings of function names.
-            return set(_re_gate.findall(r"(?<![A-Za-z0-9_])([a-z](?:[a-z]?\d+)?)(?![A-Za-z0-9_])", _nm))
-
-        def _gate_cols_in(_nm: str) -> list:
-            """List the gate-composite source columns (from ``_gate_src_vars_map``) whose name appears as a substring of ``_nm``."""
-            return [_gc for _gc in _gate_src_vars_map if _gc in _nm]
-
         _all_names = []
         for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
             if _ncols:
                 _all_names.extend(_ncols)
-        # Clean coverage = bare-token vars of the SURVIVING non-gate engineered features only.
+        # Each candidate's raw coverage comes from the operand indices it was built from, resolved through any engineered parent's own
+        # src_names, rather than from its rendered name.
+        _raw_src_of, _gates_of = build_candidate_provenance(prospective_additions, cols, engineered_recipes, _gate_src_vars_map)
+        # Clean coverage = raw vars of the SURVIVING non-gate engineered features only.
         _clean_cov: set = set()
         for _nm in _all_names:
-            if not _gate_cols_in(_nm):
-                _clean_cov |= _bare_tokens(_nm)
+            if not _gates_of.get(_nm, ()):
+                _clean_cov |= _raw_src_of.get(_nm, frozenset())
 
         # Per clean (non-gate) survivor: (bare-var coverage, marginal MI). The marginals reuse the values
         # the CMI gate already binned for this exact pool, so no extra MI kernel is run.
@@ -348,7 +342,7 @@ def materialise_and_finalise_fe_candidates(
                         logger, "fe_step_marginal_mi_unreadable", logging.WARNING,
                         "fe step: marginal MI unreadable for candidate %r (%s: %s); it counts as 0.0 in gate-composite pruning", _nm0, type(e).__name__, e,
                     )
-        _clean_forms = [(_bare_tokens(_nm), _name_marg.get(_nm, 0.0)) for _nm in _all_names if not _gate_cols_in(_nm)]
+        _clean_forms = [(_raw_src_of.get(_nm, frozenset()), _name_marg.get(_nm, 0.0)) for _nm in _all_names if not _gates_of.get(_nm, ())]
 
         # A gate-operand COMPOSITE is over-materialization (DROP) when its whole raw coverage is already
         # provided by the clean survivors AND it is NOT the genuine carrier of an otherwise-uncaptured
@@ -364,7 +358,7 @@ def materialise_and_finalise_fe_candidates(
         #       final support), the gate composite is the genuine (c,d) carrier and is KEPT.
         _gate_composite_drop: set = set()
         for _nm in _all_names:
-            _gcs = _gate_cols_in(_nm)
+            _gcs = _gates_of.get(_nm, ())
             if not _gcs:
                 continue
             if _nm in _gate_src_vars_map:
@@ -372,7 +366,7 @@ def materialise_and_finalise_fe_candidates(
             _gate_src = set()
             for _gc in _gcs:
                 _gate_src |= set(_gate_src_vars_map.get(_gc, ()))
-            _cov = _bare_tokens(_nm) | _gate_src
+            _cov = set(_raw_src_of.get(_nm, frozenset())) | _gate_src
             _cov -= set(_gate_src_vars_map)  # drop any gate-col token mistakenly captured
             if not (_cov and _cov <= _clean_cov and _gate_src and _gate_src <= _clean_cov):
                 continue
@@ -386,7 +380,7 @@ def materialise_and_finalise_fe_candidates(
             #     re-mix, never a clean carrier of any single pair (the clean ``mul(log(c),sin(d))`` carries
             #     (c,d) and ``div(sqr(a),neg(b))`` carries a). Only fires under the outer ``_cov <= _clean_cov``
             #     guard, so a genuine carrier of an otherwise-uncaptured group (CASE2) is never reached here.
-            _extra_raw = _bare_tokens(_nm) - _gate_src
+            _extra_raw = set(_raw_src_of.get(_nm, frozenset())) - _gate_src
             _entangled_extra = bool(_extra_raw) and _within_one
             if _multi_gate or (not _within_one) or _stronger_clean_same_pair or _entangled_extra:
                 _gate_composite_drop.add(_nm)
@@ -438,7 +432,7 @@ def materialise_and_finalise_fe_candidates(
                     len(_gate_composite_drop), sorted(_gate_composite_drop),
                 )
 
-    # CROSS-GROUP CLEANLINESS PRUNE (2026-06-15; un-gated to BOTH paths 2026-06-22). Removes two junk
+    # CROSS-GROUP CLEANLINESS PRUNE (un-gated to BOTH paths). Removes two junk
     # classes the per-pair / CMI gates leave behind. Originally scoped to fe_fast_search ONLY, on the
     # assumption that the exhaustive path's extra passes (the step>=1 CMI re-screen at the raised relative
     # bar + the cross-fold stability vote + the fused-composite raw-redundancy cascade) would already
@@ -459,33 +453,24 @@ def materialise_and_finalise_fe_candidates(
     #       the {a,b} and {c,d} groups). Dropping it also removes the false anchor that was propping up
     #       the redundant raw a / raw c in the raw-redundancy KEEP decision.
     # Runs in BOTH paths now (the cross-group artefacts leak in the exhaustive path too). Operates on the
-    # post-CMI ``prospective_additions`` and the same ``_clean_forms`` / ``_bare_tokens`` already built
+    # post-CMI ``prospective_additions`` and the same ``_clean_forms`` / provenance sets already built
     # above; only fires when that gate-composite block ran (a gate fired) for (A), and unconditionally for
     # (B). No-op (byte-identical) when no cross-group over-materialisation is present.
     if prospective_additions:
-        import re as _re_fsc
-
-        def _bare_tokens_fsc(_nm: str) -> set:
-            """Cross-group variant of ``_bare_tokens``: extract bare single-token raw-variable references from an engineered feature name."""
-            return set(_re_fsc.findall(r"(?<![A-Za-z0-9_])([a-z](?:[a-z]?\d+)?)(?![A-Za-z0-9_])", _nm))
-
         _gmap_fsc = dict(getattr(self, "_gate_col_src_vars_", None) or {})
+        _raw_src_fsc, _gates_fsc = build_candidate_provenance(prospective_additions, cols, engineered_recipes, _gmap_fsc)
         _all_names_fsc = []
         for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
             if _ncols:
                 _all_names_fsc.extend(_ncols)
 
-        def _gate_cols_in_fsc(_nm: str) -> list:
-            """Cross-group variant of ``_gate_cols_in``: list gate-composite source columns whose name appears as a substring of ``_nm``."""
-            return [_gc for _gc in _gmap_fsc if _gc in _nm]
-
         # Clean (non-gate) survivor coverage as a per-survivor list of bare-token sets, so "within one
         # survivor" can be tested for a candidate operand pair (mirrors the composite block's _clean_forms).
-        _clean_token_sets_fsc = [_bare_tokens_fsc(_nm) for _nm in _all_names_fsc if not _gate_cols_in_fsc(_nm)]
+        _clean_token_sets_fsc = [_raw_src_fsc.get(_nm, frozenset()) for _nm in _all_names_fsc if not _gates_fsc.get(_nm, ())]
 
         _fsc_drop: set = set()
         for _nm in _all_names_fsc:
-            _gcs = _gate_cols_in_fsc(_nm)
+            _gcs = _gates_fsc.get(_nm, ())
             if _nm in _gmap_fsc:
                 # (A) STANDALONE bare gate column. Drop iff cross-group AND fully covered by clean survivors.
                 _gate_src = set(_gmap_fsc.get(_nm, ()))
@@ -500,7 +485,7 @@ def materialise_and_finalise_fe_candidates(
             if _gcs:
                 continue  # gate COMPOSITES already handled by the block above
             # (B) non-gate engineered binary node: cross-group cross-signal artefact.
-            _toks = _bare_tokens_fsc(_nm)
+            _toks = set(_raw_src_fsc.get(_nm, frozenset()))
             if len(_toks) < 2:
                 continue
             _others = [_ts for _ts in _clean_token_sets_fsc if _ts != _toks]
@@ -560,7 +545,7 @@ def materialise_and_finalise_fe_candidates(
                     len(_fsc_drop), sorted(_fsc_drop),
                 )
 
-    # ROOT CAUSE 5 fix: collect the cols-space indices of the
+    # Collect the cols-space indices of the
     # engineered columns appended below so they can be added DIRECTLY to
     # ``selected_vars`` for the default single-step (``fe_max_steps==1``)
     # path. The screening re-run that would normally promote appended cols
@@ -572,7 +557,7 @@ def materialise_and_finalise_fe_candidates(
     # screening pass re-evaluates them as usual and may drop weak ones.
     # Seed with the polynom-pair engineered indices captured above so they
     # are promoted into ``selected_vars`` together with the unary/binary
-    # ones below (ROOT CAUSE 5). They already cleared every polynom-FE gate.
+    # ones below. They already cleared every polynom-FE gate.
     _newly_engineered_indices: list[int] = list(_polynom_engineered_indices)
     # a fit() MUST NOT mutate the caller's input. The pandas
     # branch below appends engineered columns via ``X[col] = ...`` IN PLACE;
@@ -584,9 +569,12 @@ def materialise_and_finalise_fe_candidates(
     # ``_x_is_owned`` tracks whether ``X`` is already a private (copied) frame: the first pandas
     # materialise copies once; the later escalation / additive-fusion blocks then mutate that same
     # private frame in place instead of copying it again (three full-frame copies collapse to one).
+    # SHALLOW: every write below assigns a NEW engineered column name, never an existing one, so the private frame only needs its own column
+    # index. A deep copy duplicated the caller's whole frame, which on the 100GB frames this package is built for is the one thing it must not
+    # do; sharing the existing columns' buffers and adding to the copy leaves the caller's frame untouched just the same.
     _x_is_owned = False
     if not _is_polars_input and hasattr(X, "columns") and any(v[0] for v in prospective_additions.values()):
-        X = X.copy()
+        X = X.copy(deep=False)
         _x_is_owned = True
     # Accumulate the per-pair discretised code blocks and concatenate ONCE after the loop instead of
     # ``np.append``-ing the whole (n, K) code matrix per pair (each append reallocated + copied all of
@@ -752,7 +740,7 @@ def materialise_and_finalise_fe_candidates(
                         # closed-form ``(x > median)`` gate.
                         _gm_a = _gate_med_specs.get(var_a_idx) if unary_a_name == "gate_med" else None
                         _gm_b = _gate_med_specs.get(var_b_idx) if unary_b_name == "gate_med" else None
-                        # BUG2 FIX: freeze the fit-time ``smart_log`` shift
+                        # Freeze the fit-time ``smart_log`` shift
                         # anchor per ``log`` side. ``smart_log`` shifts non-positive
                         # inputs by ``(1e-5 - nanmin(operand))``; that anchor is
                         # data-dependent, so a transform row-slice recomputes a
@@ -772,7 +760,7 @@ def materialise_and_finalise_fe_candidates(
                             unary_a_name=unary_a_name,
                             unary_b_name=unary_b_name,
                             binary_name=bin_func_name,
-                            # ND-1: persist the hermite coef of a poly_<coef> unary so recipe replay can hermval it.
+                            # Persist the hermite coef of a poly_<coef> unary so recipe replay can hermval it.
                             poly_a_coef=(_poly_coefs.get(unary_a_name) if _poly_coefs is not None and unary_a_name.startswith("poly_") else None),
                             poly_b_coef=(_poly_coefs.get(unary_b_name) if _poly_coefs is not None and unary_b_name.startswith("poly_") else None),
                             unary_preset=fe_unary_preset,
@@ -809,7 +797,7 @@ def materialise_and_finalise_fe_candidates(
     if _data_chunks:
         data = np.concatenate([data, *_data_chunks], axis=1)
 
-    # AUTO-ESCALATION to the richer SHIPPED bases (2026-06-10, backlog idea B,
+    # AUTO-ESCALATION to the richer SHIPPED bases (backlog idea B,
     # default-ON). A pair that PASSED the pair-MI prescreen (ratio gate + order-2
     # maxT floor) but for which the unary/binary search above admitted NOTHING used
     # to end in the log_fe_summary WARNING below - detected signal, silently
@@ -833,7 +821,7 @@ def materialise_and_finalise_fe_candidates(
             _esc_done = self._fe_escalation_done_pairs_
             _esc_pairs_with_additions = {_rp for _rp, _v in prospective_additions.items() if _v[0]}
             _esc_failed = [(_k[0], float(_k[1])) for _k in prospective_pairs if _k[0] not in _esc_pairs_with_additions and _k[0] not in _esc_done]
-            # PREVALENCE-FAILED SYNERGY RESCUE (2026-06-12, F2 a**2/b miss): synergy
+            # PREVALENCE-FAILED SYNERGY RESCUE (F2 a**2/b miss): synergy
             # pairs that cleared the order-2 maxT floor but missed the stricter raw-MI
             # synergy prevalence ratio (the raw-MI ratio under-estimates a smooth ratio
             # interaction - the genuine a**2/b scores ~1.11 < 1.5). Feed them to the
@@ -938,7 +926,7 @@ def materialise_and_finalise_fe_candidates(
                     # lockstep, recipe registered, continuous values stashed for
                     # the engineered-operand feed-forward, index promoted below.
                     if not _is_polars_input and hasattr(X, "columns") and not _x_is_owned:
-                        X = X.copy()
+                        X = X.copy(deep=False)
                         _x_is_owned = True
                     # Pre-widen to _safe_code_dtype, not the raw (possibly too-narrow) quantization_dtype:
                     # discretize_array widens its OWN return value internally and assigning that widened
@@ -986,7 +974,7 @@ def materialise_and_finalise_fe_candidates(
                 exc_info=True,
             )
 
-    # ROOT CAUSE 5 fix: promote the freshly-appended engineered
+    # Promote the freshly-appended engineered
     # columns directly into ``selected_vars`` (cols-space). They already
     # cleared every FE gate (pair-MI prevalence, engineered-MI prevalence,
     # external validation) - the gates ARE the selection criterion for FE
@@ -1001,7 +989,7 @@ def materialise_and_finalise_fe_candidates(
         _sv_set = set(_sv)
         selected_vars = _sv + [i for i in _newly_engineered_indices if i not in _sv_set]
 
-    # C2 ADDITIVE-FUSION (2026-06-24, default-ON). MUST RUN BEFORE the cross-fold stability vote
+    # C2 ADDITIVE-FUSION (default-ON). MUST RUN BEFORE the cross-fold stability vote
     # below (ordering fix for the F2 DOMINANT-CAPTURE / weak-half class): the weak c/d half
     # ``mul(log(c),sin(d))`` alone FAILS the cross-fold vote (its uplift is carried by too few
     # rows to clear the per-fold quorum), so if the vote ran first it would DROP that half before
@@ -1048,7 +1036,7 @@ def materialise_and_finalise_fe_candidates(
             if _fused:
                 # Materialise each fused compound exactly like an escalation survivor.
                 if not _is_polars_input and hasattr(X, "columns") and not _x_is_owned:
-                    X = X.copy()
+                    X = X.copy(deep=False)
                     _x_is_owned = True
                 # Same narrow-preallocation bug/fix as the escalation-materialize block above:
                 # pre-widen to _safe_code_dtype so discretize_array's internally-widened return value
@@ -1200,7 +1188,7 @@ def materialise_and_finalise_fe_candidates(
                     selected_vars = [i for i in selected_vars if i not in _failed_idx]
                 for _fn in _failed_eng:
                     engineered_recipes.pop(_fn, None)
-                # BUG2: the vote pops the recipe + de-selects the column,
+                # The vote pops the recipe + de-selects the column,
                 # but the materialised bin-code column STAYS in ``cols``/``data`` and is
                 # therefore still visible to the downstream greedy screen (the step>1
                 # re-screen / final selection). That screen re-admits it on its marginal

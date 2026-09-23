@@ -13,6 +13,7 @@ import logging
 import numpy as np
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 
+from mlframe.feature_selection.filters._safe_scale import unit_vector
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
@@ -631,7 +632,6 @@ def _select_diverse_topm(history: list, top_m: int, min_l2_distance: float = 0.3
         return v
 
     kept = [sorted_h[0]]
-    from ._safe_scale import unit_vector
 
     kept_dirs = [unit_vector(_padded_vec(sorted_h[0][3], sorted_h[0][4]))]
     for entry in sorted_h[1:]:

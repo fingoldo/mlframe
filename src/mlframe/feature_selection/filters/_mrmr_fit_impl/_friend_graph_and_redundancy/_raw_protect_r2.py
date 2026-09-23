@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional, Sequence
+from typing import Callable, Sequence
 
 import numpy as np
 
@@ -19,13 +19,11 @@ def _well_conditioned(r: np.ndarray) -> bool:
     return bool(d.size) and bool(np.all(np.isfinite(d))) and float(d.min()) > _RCOND * float(d.max())
 
 
-def heldout_r2_scorer(
-    base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray, train_mask: np.ndarray, val_mask: np.ndarray
-) -> Callable[[Optional[np.ndarray]], float]:
+def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray, train_mask: np.ndarray, val_mask: np.ndarray) -> Callable[..., float]:
     """Return ``r2(extra=None)``: the held-out R^2 of a least-squares fit of ``y`` on ``[base | extra]``, trained on ``train_mask`` rows.
 
     ``base_mat`` is an ``(n, p)`` array or a sequence of ``p`` length-n columns; a sequence is sliced per column, so the full-height design
-    never exists (only its train and validation blocks). ``extra`` is one full-length candidate column, or ``None`` for the base design alone. The base is QR-factorised once and extended by one
+    never exists (only its train and validation blocks). ``extra`` is one full-length candidate column or an ``(n, m)`` block of columns that only mean something together (the sin/cos legs of one frequency), or ``None`` for the base design alone. The base is QR-factorised once and extended by one
     column per call, an O(n*p) update instead of a fresh solve. That is exact only while the factor is full rank: an unpivoted QR of a
     rank-deficient design (a raw column and its monotone twin, a count and its frequency encoding - both routinely selected together) has
     a near-zero diagonal, ``solve_triangular`` then returns huge coefficients without raising, and the R^2 becomes noise. So the fast path is
@@ -60,13 +58,15 @@ def heldout_r2_scorer(
         Q = R = None
 
     def r2(extra=None):
-        """Held-out R^2 of ``[base | extra]``."""
+        """Held-out R^2 of ``[base | extra]``, where ``extra`` is one column or an ``(n, m)`` block of columns added together."""
         if ss < 1e-24:
             return 0.0
         if extra is None:
             if coef_base is not None:
                 return 1.0 - float(np.sum((yv - base_va @ coef_base) ** 2)) / ss
             return _lstsq_r2(base_tr, base_va)
+        extra = np.asarray(extra, dtype=np.float64)
+        extra = extra.reshape(-1, 1) if extra.ndim == 1 else extra
         a_va = np.column_stack((base_va, extra[val_mask]))
         if Q is not None:
             try:

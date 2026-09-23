@@ -96,7 +96,7 @@ from ..screen import _preserve_global_numpy_rng_state
 # genuinely conditional on an optional dependency (a caller who never passes polars input
 # should never pay for - or require - a polars import).
 from .._param_accuracy_warnings import warn_accuracy_suboptimal_params
-from .._mrmr_degenerate import audit_degenerate_columns
+from .._mrmr_degenerate import record_degenerate_column_audit
 from .._meta_fe_recommender import recommend_fe_flags_by_rules
 from .._synergy_detector import detect_synergy
 from .._dynamic_cluster_discovery import set_dcd_active as _set_dcd_active
@@ -3601,11 +3601,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # alter the selection. It mirrors the sibling selectors' diagnostic attributes
         # so a downstream report / UI can SEE what the frame contained. Wrapped so a
         # diagnostic failure can never break a fit that would otherwise succeed.
-        try:
-            self.degenerate_columns_ = audit_degenerate_columns(X)
-        except Exception as exc:
-            logger.debug("mrmr: degenerate-column audit failed (diagnostic only): %r", exc, exc_info=True)
-            self.degenerate_columns_ = {}
+        record_degenerate_column_audit(self, X)
 
         # #2 cross-target identity cache.
         _identity_skip = bool(getattr(self, "mrmr_skip_when_prior_was_identity", False))

@@ -57,3 +57,41 @@ def test_biz_val_mrmr_redundancy_policy_drop_prunes_raw_operands():
     assert _covers_ratio(eng), f"no a**2/b engineered ratio recovered: {out}"
     subsumed = {nm for nm in out if nm in {"a", "b"}}
     assert subsumed == set(), f"drop must prune subsumed raw operands a,b: {out}"
+
+
+def test_the_unimplemented_pld_policies_say_so_instead_of_silently_aliasing(caplog):
+    """``pld_max`` and ``pld_mean`` are accepted values that no implementation distinguishes, and a fit must not pretend otherwise.
+
+    The differential test this file would otherwise want - ``pld_max`` rejecting a candidate that duplicates exactly one selected feature
+    while ``pld_mean`` admits it - cannot be written, because both route to the fleuret redundancy path: on a fixture with ``x_dup`` at
+    r~0.999 to one column and ~0 to the rest, all three settings return the identical support. Writing it against the current code would
+    either fail for a feature that does not exist or pass vacuously, so what is pinned instead is that the aliasing is announced.
+    """
+    import logging
+
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(0)
+    n = 900
+    a = rng.normal(size=n)
+    b = rng.normal(size=n)
+    X = pd.DataFrame({"a": a, "b": b, "x_dup": a + 0.05 * rng.normal(size=n), "n1": rng.normal(size=n)})
+    y = ((a + b) > 0).astype(np.int64)
+
+    supports = {}
+    for algo in ("pld_max", "pld_mean", "fleuret"):
+        MRMR._FIT_CACHE.clear()
+        with caplog.at_level(logging.WARNING):
+            caplog.clear()
+            est = MRMR(random_state=0, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2, mrmr_redundancy_algo=algo).fit(X, y)
+            warned = any("not implemented" in r.message for r in caplog.records)
+        supports[algo] = np.asarray(est.support_, dtype=np.int64).tolist()
+        if algo == "fleuret":
+            assert not warned, "the implemented policy must not warn"
+        else:
+            assert warned, f"{algo} silently produced fleuret behaviour with no warning"
+    assert supports["pld_max"] == supports["fleuret"], "fixture precondition: the policies currently alias"
+    assert supports["pld_mean"] == supports["fleuret"], "fixture precondition: the policies currently alias"

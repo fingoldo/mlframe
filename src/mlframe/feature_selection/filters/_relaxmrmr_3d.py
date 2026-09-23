@@ -34,102 +34,20 @@ selection?", *Pattern Recognition* 53:51-62.
 """
 from __future__ import annotations
 
-import math
-
 import numpy as np
-from numba import njit
-
+# The estimators moved to a sibling so the parallel pair loop shares them; re-exported here because callers and tests import them
+# from this module.
+from mlframe.feature_selection.filters._relaxmrmr_kernels import (  # noqa: F401
+    _cmi_mm_njit,
+    _composite_codes_njit,
+    _mi_mm_njit,
+)
+from mlframe.feature_selection.filters._relaxmrmr_pair_loop import pair_interaction_sum
 
 # Miller-Madow-corrected estimators for the interaction term. Plug-in MI is biased upward by roughly (occupied cells - 1) / 2n per entropy,
 # and the interaction term differences MIs estimated on tables of very different sizes (the composite pair's table is K_i*K_j times wider),
 # so without a correction the bias does not cancel and every candidate gets a spurious "synergy" reward. Each entropy gets its own
 # (m - 1) / 2n term, applied once, and the results are NOT clamped at zero: a clamp is non-linear and would reintroduce the bias.
-@njit(nogil=True, cache=True)
-def _mi_mm_njit(a: np.ndarray, b: np.ndarray, K_a: int, K_b: int) -> float:
-    """Miller-Madow-corrected plug-in I(A; B) on integer codes, unclamped."""
-    n = a.shape[0]
-    if n <= 0:
-        return 0.0
-    joint = np.zeros((K_a, K_b), dtype=np.float64)
-    for i in range(n):
-        joint[a[i], b[i]] += 1.0
-    Pa = joint.sum(axis=1)
-    Pb = joint.sum(axis=0)
-    n_f = float(n)
-    mi = 0.0
-    m_ab = 0
-    for i in range(K_a):
-        for j in range(K_b):
-            v = joint[i, j]
-            if v > 0.0:
-                m_ab += 1
-                mi += (v / n_f) * math.log(v * n_f / (Pa[i] * Pb[j]))
-    m_a = 0
-    for i in range(K_a):
-        if Pa[i] > 0.0:
-            m_a += 1
-    m_b = 0
-    for j in range(K_b):
-        if Pb[j] > 0.0:
-            m_b += 1
-    return mi - (m_ab - m_a - m_b + 1) / (2.0 * n_f)
-
-
-@njit(nogil=True, cache=True)
-def _cmi_mm_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray, K_x: int, K_y: int, K_z: int) -> float:
-    """Miller-Madow-corrected plug-in I(X; Y | Z) on integer codes, unclamped."""
-    n = x.shape[0]
-    if n <= 0:
-        return 0.0
-    joint = np.zeros((K_x, K_y, K_z), dtype=np.float64)
-    for i in range(n):
-        joint[x[i], y[i], z[i]] += 1.0
-    Pz = np.zeros(K_z, dtype=np.float64)
-    Pxz = np.zeros((K_x, K_z), dtype=np.float64)
-    Pyz = np.zeros((K_y, K_z), dtype=np.float64)
-    m_xyz = 0
-    for i in range(K_x):
-        for j in range(K_y):
-            for k in range(K_z):
-                v = joint[i, j, k]
-                if v > 0.0:
-                    m_xyz += 1
-                Pz[k] += v
-                Pxz[i, k] += v
-                Pyz[j, k] += v
-    n_f = float(n)
-    cmi = 0.0
-    for i in range(K_x):
-        for j in range(K_y):
-            for k in range(K_z):
-                v = joint[i, j, k]
-                if v > 0.0:
-                    cmi += (v / n_f) * math.log((v * Pz[k]) / (Pxz[i, k] * Pyz[j, k]))
-    m_z = 0
-    for k in range(K_z):
-        if Pz[k] > 0.0:
-            m_z += 1
-    m_xz = 0
-    for i in range(K_x):
-        for k in range(K_z):
-            if Pxz[i, k] > 0.0:
-                m_xz += 1
-    m_yz = 0
-    for j in range(K_y):
-        for k in range(K_z):
-            if Pyz[j, k] > 0.0:
-                m_yz += 1
-    return cmi - (m_xyz - m_xz - m_yz + m_z) / (2.0 * n_f)
-
-
-@njit(nogil=True, cache=True)
-def _composite_codes_njit(z1: np.ndarray, z2: np.ndarray, K_z2: int) -> np.ndarray:
-    """Integer code of the pair (Z_1, Z_2)."""
-    n = z1.shape[0]
-    out = np.empty(n, dtype=np.int64)
-    for i in range(n):
-        out[i] = int(z1[i]) * K_z2 + int(z2[i])
-    return out
 
 
 def relax_mrmr_score(
@@ -141,6 +59,7 @@ def relax_mrmr_score(
     nbins_y: int,
     alpha: float = 1.0,
     min_rows_per_cell: float = 5.0,
+    selected_prechecked: bool = False,
 ) -> float:
     """RelaxMRMR / FJMI 3-D-MI score for one candidate (Vinh 2016).
 
@@ -174,11 +93,16 @@ def relax_mrmr_score(
     from ._fe_batched_mi import _assert_codes_in_range
 
     _assert_codes_in_range(x_cand, int(nbins_x), "relax_mrmr_score x_cand")
-    _assert_codes_in_range(y, int(nbins_y), "relax_mrmr_score y")
-    for _j, _c in enumerate(selected_cols):
-        _assert_codes_in_range(_c, int(nbins_selected[_j]), "relax_mrmr_score selected_col")
-    x_int = x_cand.astype(np.int64)
-    y_int = y.astype(np.int64)
+    if not selected_prechecked:
+        # The target and the selected set are fixed for a whole greedy round, so scanning them per candidate re-reads the same |S|+1 columns
+        # for every candidate. A caller that hoists them (see ``assert_relax_inputs_in_range``) checks once and says so.
+        _assert_codes_in_range(y, int(nbins_y), "relax_mrmr_score y")
+        for _j, _c in enumerate(selected_cols):
+            _assert_codes_in_range(_c, int(nbins_selected[_j]), "relax_mrmr_score selected_col")
+    # asarray, not astype: the caller's hoist already materialises int64 codes, and astype copies unconditionally, so this was |S|+2
+    # full-length copies per candidate for no change of dtype.
+    x_int = np.asarray(x_cand, dtype=np.int64)
+    y_int = np.asarray(y, dtype=np.int64)
     K_x = int(nbins_x)
     K_y = int(nbins_y)
     n_S = len(selected_cols)
@@ -201,7 +125,7 @@ def relax_mrmr_score(
         return float(relevance)
     # Pairwise redundancy (1/|S|) sum_j I(X; X_j): marginal MI between the candidate and each already-selected feature.
     # A candidate that duplicates a selected feature gets a large penalty; an independent one gets ~0.
-    sel_int = [col.astype(np.int64) for col in selected_cols]
+    sel_int = [np.asarray(col, dtype=np.int64) for col in selected_cols]
     pair_red = 0.0
     for j in range(n_S):
         pair_red += _mi_pair_njit(x_int, sel_int[j], K_x, K_sel[j])
@@ -223,21 +147,23 @@ def relax_mrmr_score(
         for j in range(n_S):
             marg_mm[j] = _mi_mm_njit(x_int, sel_int[j], K_x, K_sel[j])
             cmi_y_mm[j] = _cmi_mm_njit(x_int, sel_int[j], y_int, K_x, K_sel[j], K_y)
-        n_rows = float(x_int.shape[0])
-        for i in range(n_S):
-            for j in range(i + 1, n_S):
-                K_i = K_sel[i]
-                K_j = K_sel[j]
-                if n_rows < float(min_rows_per_cell) * K_x * K_i * K_j * K_y:
-                    continue  # undersampled composite table: this pair's interaction term is not estimable
-                z_pair = _composite_codes_njit(sel_int[i], sel_int[j], K_j)
-                cmi_ij = _cmi_mm_njit(x_int, z_pair, y_int, K_x, K_i * K_j, K_y)
-                co_cond = cmi_y_mm[i] + cmi_y_mm[j] - cmi_ij
-                mi_x_zz = _mi_mm_njit(x_int, z_pair, K_x, K_i * K_j)
-                co_uncond = marg_mm[i] + marg_mm[j] - mi_x_zz
-                inter += co_cond - co_uncond
+        # The pairs are independent, so the whole O(|S|^2) loop is one parallel kernel: no per-pair interpreter round trip, and each thread
+        # rewrites one composite buffer instead of allocating an n-length array per pair.
+        inter = pair_interaction_sum(x_int, y_int, sel_int, K_sel, K_x, K_y, cmi_y_mm, marg_mm, min_rows_per_cell)
         inter *= float(alpha) / norm
     return float(relevance - pair_red + inter)
 
 
-__all__ = ["relax_mrmr_score"]
+def assert_relax_inputs_in_range(y, nbins_y, selected_cols, nbins_selected) -> None:
+    """Range-check the target and the selected set once, so the per-candidate score can skip re-reading columns that do not change.
+
+    The kernels index their joint tables directly, so a negative sentinel wraps to the last bin and an over-range code writes out of bounds.
+    The check is the same one the score runs; it is only moved to where the columns are materialised.
+    """
+    from ._fe_batched_mi import _assert_codes_in_range
+
+    _assert_codes_in_range(y, int(nbins_y), "relax_mrmr_score y")
+    for idx, col in enumerate(selected_cols):
+        _assert_codes_in_range(col, int(nbins_selected[idx]), "relax_mrmr_score selected_col")
+
+__all__ = ["assert_relax_inputs_in_range", "relax_mrmr_score"]

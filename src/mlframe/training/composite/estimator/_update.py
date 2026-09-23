@@ -167,7 +167,8 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
         # into the new regime was clipped back toward the DEAD regime by the
         # stale envelope -- defeating the correction.
         try:
-            from . import _y_train_clip_bounds
+            from . import _soft_shrink, _y_train_clip_bounds
+            from ..discovery._t_equivalence import t_train_envelope
             from ..transforms import get_transform
             _by = np.asarray(self._buffer_y_.contiguous(), dtype=np.float64)
             _bb = np.asarray(self._buffer_base_.contiguous(), dtype=np.float64)
@@ -177,19 +178,13 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
                 _lo, _hi = _y_train_clip_bounds(_by[_finy])
                 self.fitted_params_["y_clip_low"] = _lo
                 self.fitted_params_["y_clip_high"] = _hi
-                _t = get_transform(self.transform_name).forward(_by, _bb, self.fitted_params_)
-                _tf = _t[np.isfinite(_t)]
-                if _tf.size >= 10:
-                    _med_t = float(np.median(_tf))
-                    # RAW (unscaled) MAD, matching fit() / from_fitted_inner()'s identical envelope formula
-                    # in _estimator.py -- this site previously applied the extra normal-consistent *1.4826
-                    # scale factor those two don't, silently widening the post-drift-refit T-clip envelope
-                    # by ~48% for the same underlying spread purely as a side effect of ever calling
-                    # .update() with a firing drift correction.
-                    _mad_t = float(np.median(np.abs(_tf - _med_t)))
-                    if _mad_t > 0:
-                        self.fitted_params_["t_clip_low"] = _med_t - 10.0 * _mad_t
-                        self.fitted_params_["t_clip_high"] = _med_t + 10.0 * _mad_t
+                _tr = get_transform(self.transform_name)
+                # The base range too: otherwise live-regime bases outside the dead train range are soft-shrunk back or sent to the fallback.
+                _soft_shrink.capture_base_fit_range(self, _tr, _bb)
+                _t = _tr.forward(_by, _bb, self.fitted_params_)
+                _env = t_train_envelope(_t)  # the one envelope formula fit(), from_fitted_inner() and discovery share
+                if _env is not None:
+                    self.fitted_params_["t_clip_low"], self.fitted_params_["t_clip_high"] = _env
         except Exception as _env_err:
             logger.warning(
                 "[CompositeTargetEstimator.update] envelope refresh after drift " "refit failed (%s); kept the pre-drift clip bounds.",

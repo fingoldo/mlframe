@@ -80,7 +80,8 @@ def _fmt_margin_band(series: pd.Series) -> str:
         vals = _coerced.dropna()
     except Exception as e:
         logger.debug("_fmt_margin_band: margin-band coercion failed, rendering no band: %s", e)
-        return ""
+        # Name the failure in the returned text, as the sibling renderers do: an empty string reads as "there was no band".
+        return f"(margin band unavailable: {type(e).__name__})"
     if vals.empty:
         return ""
     lo = float(vals.min())

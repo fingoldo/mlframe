@@ -226,13 +226,13 @@ def _assign_support_tail(
                 _rr_raw_set = set(self.feature_names_in_)
                 # raw name -> surviving engineered recipe names that consume it as an operand.
                 # ``selected_vars`` is narrowed to RAW-ONLY indices just above (the ``selected_vars =
-                # original_indices`` rebind, ~line 8527) -- engineered survivors live ONLY in
+                # original_indices`` rebind above) -- engineered survivors live ONLY in
                 # ``self._engineered_recipes_`` / ``self._engineered_features_`` from that point on, so a
                 # ``cols[int(v)] not in _rr_raw_set`` scan of ``selected_vars`` here always finds nothing
                 # (every ``v`` now indexes a raw column) and this exclusion silently never fires -- the SAME
                 # staleness trap the sibling C2-fusion / usability-retention fixes closed for
                 # ``self._engineered_recipes_`` reads made BEFORE that rebind; this read happens AFTER it, so
-                # the freshly (re)populated attribute (set at ~line 8498-8514, above this block) is the
+                # the freshly (re)populated attribute (set just above this block) is the
                 # authoritative source here, not the now RAW-only ``selected_vars``.
                 _rr_consumers: dict = {}
                 _rr_sel_eng_names = {str(getattr(_r, "name", "")) for _r in (self._engineered_recipes_ or []) if getattr(_r, "name", None)}
@@ -343,7 +343,7 @@ def _assign_support_tail(
             logger.debug("MRMR usability-aware raw retention skipped (%s: %s).", type(_raw_retain_exc).__name__, _raw_retain_exc)
 
     # POST-RETENTION RAW-REDUNDANCY DROP (BUG1). The main raw-vs-engineered
-    # redundancy sweep (above, ~line 7915) runs on the screen-stage ``selected_vars`` BEFORE
+    # redundancy sweep (above) runs on the screen-stage ``selected_vars`` BEFORE
     # the usability-aware pure-form retention re-attaches an engineered survivor. When that
     # retention adds a MULTI-OPERAND composite (e.g. ``div(qubed(a),sin(b))``) AFTER the
     # sweep, the raw operands it subsumes (``a``, ``b``) are still in ``selected_vars`` and no

@@ -69,6 +69,109 @@ _ARTIFACT_SCHEMA = {
 ARTIFACT_SCHEMA_VERSION = 1
 
 
+def _fill_marginals_and_su(
+    *,
+    feature_names_in,
+    name_to_data_col: dict,
+    data: np.ndarray,
+    nbins: np.ndarray,
+    cached_MIs: dict,
+    hist_by_col: dict,
+    h_y: float,
+    mi_to_target: np.ndarray,
+    su_to_target: np.ndarray,
+    retain_bins: bool,
+    bins_dict: dict | None,
+    nbins_dict: dict | None,
+    dtype,
+) -> None:
+    """Fill ``mi_to_target`` and ``su_to_target`` in place, and the export dicts when ``retain_bins`` is set.
+
+    Carved out of ``compute_mrmr_artifacts`` to keep it under its length ceiling. Every value written here is the one the inline loop
+    wrote: the histogram counts come from the batched pass where it covered the column and from a per-column ``np.bincount`` otherwise,
+    and the entropy reduction stays in float so no reported number shifts in its last bits.
+
+    Args:
+        feature_names_in: the fit-time feature names, in their original column order.
+        name_to_data_col: feature name to its column index in the binned ``data`` matrix; a missing name is skipped.
+        data: the binned design matrix every column is read from.
+        nbins: per-column bin count, indexed by data column.
+        cached_MIs: the screen's MI cache, keyed by ``(col_idx,)``.
+        hist_by_col: per-column bin counts from the batched pass, keyed by data column.
+        h_y: the target's marginal entropy, in nats.
+        mi_to_target: output array, filled by original feature index.
+        su_to_target: output array, filled by original feature index.
+        retain_bins: whether the exported bins are being collected.
+        bins_dict: output mapping of feature name to its exported bin codes, or None when not retaining.
+        nbins_dict: output mapping of feature name to its bin count, or None when not retaining.
+        dtype: the dtype the exported bin codes are cast to.
+    """
+    for orig_idx, name in enumerate(feature_names_in):
+        data_col = name_to_data_col.get(name)
+        if data_col is None:
+            # Column dropped or renamed by categorize_dataset (rare; the
+            # original-frame name should be preserved for raw columns).
+            continue
+
+        # Direct MI from the cached screen output: keyed by (col_idx,) tuple.
+        mi = cached_MIs.get((data_col,))
+        if mi is None:
+            # The cardinality-bias pre-screen at _screen_predictors.py:375 can
+            # reject a column before computing MI; we leave NaN so consumers
+            # know the value is missing rather than zero.
+            mi_val = np.nan
+        else:
+            mi_val = float(mi)
+        mi_to_target[orig_idx] = mi_val
+
+        # Marginal H(X_j) from the binned column.
+        x_nb = int(nbins[data_col])
+        _row = hist_by_col.get(int(data_col))
+        if _row is None:  # the batched pass skipped this column; fall back to the per-column histogram
+            x_bins = data[:, data_col]
+            _assert_nonneg_codes(x_bins, f"feature column {name!r} x_bins")
+            x_counts = np.bincount(x_bins, minlength=x_nb).astype(np.float64)
+        else:
+            x_counts = np.asarray(_row[:x_nb] if x_nb <= _row.shape[0] else np.pad(_row, (0, x_nb - _row.shape[0])), dtype=np.float64)
+        x_total = float(x_counts.sum())
+        if x_total > 0:
+            x_p = x_counts / x_total
+            x_p_nz = x_p[x_p > 0]
+            h_x = float(-np.sum(x_p_nz * np.log(x_p_nz)))
+        else:
+            h_x = 0.0
+
+        # SU(X, y) = 2 * I(X, y) / (H(X) + H(y)). Use the cached MI when
+        # available; degrade to NaN when either MI is missing or both entropies
+        # are zero (constant column AND constant target).
+        denom = h_x + h_y
+        if (not np.isnan(mi_val)) and denom > 1e-12:
+            _su_raw = 2.0 * mi_val / denom
+            if not (-1e-9 <= _su_raw <= 1.0 + 1e-9):
+                # SU outside [0, 1] is impossible for consistent inputs: the cached MI and these marginal entropies disagree (different
+                # binning, a stale cache entry, or estimator bias). Keep the clamp, but do not let it pass as a real 0 or 1.
+                log_throttle(
+                    logger, "mrmr_artifacts_su_out_of_range", logging.WARNING,
+                    "compute_mrmr_artifacts: SU for %r is %.6g, outside [0, 1] (cached MI %.6g vs H(X)+H(y)=%.6g); clamped",
+                    name, _su_raw, mi_val, denom,
+                )
+            su_to_target[orig_idx] = max(0.0, min(1.0, _su_raw))
+        # else: leave NaN
+
+        if retain_bins:
+            # Read the column here rather than above: the batched histogram pass means the entropy no longer needs it, so gathering it
+            # for every feature would pay the strided read back for the common case that exports nothing.
+            # np.ascontiguousarray already allocates a fresh, unaliased buffer for a non-contiguous
+            # slice like this one (verified: ``.base is`` the slice is False) - copies the column out
+            # of the shared ``data`` matrix so a later in-place edit (e.g. DCD aggregate append)
+            # cannot corrupt the export. A trailing ``.copy()`` would only duplicate that same buffer.
+            assert bins_dict is not None and nbins_dict is not None  # retain_bins guarantees both were allocated above
+            _export_col = data[:, data_col]
+            _assert_nonneg_codes(_export_col, f"feature column {name!r} export bins")
+            bins_dict[name] = np.ascontiguousarray(_export_col, dtype=dtype)
+            nbins_dict[name] = x_nb
+
+
 def compute_mrmr_artifacts(
     *,
     data: np.ndarray,
@@ -151,62 +254,22 @@ def compute_mrmr_artifacts(
     bins_dict: dict[str, np.ndarray] | None = {} if retain_bins else None
     nbins_dict: dict[str, int] | None = {} if retain_bins else None
 
-    for orig_idx, name in enumerate(feature_names_in):
-        data_col = name_to_data_col.get(name)
-        if data_col is None:
-            # Column dropped or renamed by categorize_dataset (rare; the
-            # original-frame name should be preserved for raw columns).
-            continue
+    # One parallel pass for every retained column's bin counts, instead of a strided gather plus an np.bincount per feature from Python.
+    # Counts only: the entropy's float reduction stays below, so every reported H(X) and SU keeps its exact value.
+    _hist_cols = [name_to_data_col[nm] for nm in feature_names_in if name_to_data_col.get(nm) is not None]
+    _hist_by_col: dict = {}
+    if _hist_cols:
+        from ._mrmr_artifact_entropy import column_histograms
 
-        # Direct MI from the cached screen output: keyed by (col_idx,) tuple.
-        mi = cached_MIs.get((data_col,))
-        if mi is None:
-            # The cardinality-bias pre-screen at _screen_predictors.py:375 can
-            # reject a column before computing MI; we leave NaN so consumers
-            # know the value is missing rather than zero.
-            mi_val = np.nan
-        else:
-            mi_val = float(mi)
-        mi_to_target[orig_idx] = mi_val
+        _hist_width = int(max(int(nbins[c]) for c in _hist_cols))
+        _hist_rows = column_histograms(data, _hist_cols, _hist_width)
+        _hist_by_col = {int(c): _hist_rows[j] for j, c in enumerate(_hist_cols)}
 
-        # Marginal H(X_j) from the binned column.
-        x_bins = data[:, data_col]
-        x_nb = int(nbins[data_col])
-        _assert_nonneg_codes(x_bins, f"feature column {name!r} x_bins")
-        x_counts = np.bincount(x_bins, minlength=x_nb).astype(np.float64)
-        x_total = float(x_counts.sum())
-        if x_total > 0:
-            x_p = x_counts / x_total
-            x_p_nz = x_p[x_p > 0]
-            h_x = float(-np.sum(x_p_nz * np.log(x_p_nz)))
-        else:
-            h_x = 0.0
-
-        # SU(X, y) = 2 * I(X, y) / (H(X) + H(y)). Use the cached MI when
-        # available; degrade to NaN when either MI is missing or both entropies
-        # are zero (constant column AND constant target).
-        denom = h_x + h_y
-        if (not np.isnan(mi_val)) and denom > 1e-12:
-            _su_raw = 2.0 * mi_val / denom
-            if not (-1e-9 <= _su_raw <= 1.0 + 1e-9):
-                # SU outside [0, 1] is impossible for consistent inputs: the cached MI and these marginal entropies disagree (different
-                # binning, a stale cache entry, or estimator bias). Keep the clamp, but do not let it pass as a real 0 or 1.
-                log_throttle(
-                    logger, "mrmr_artifacts_su_out_of_range", logging.WARNING,
-                    "compute_mrmr_artifacts: SU for %r is %.6g, outside [0, 1] (cached MI %.6g vs H(X)+H(y)=%.6g); clamped",
-                    name, _su_raw, mi_val, denom,
-                )
-            su_to_target[orig_idx] = max(0.0, min(1.0, _su_raw))
-        # else: leave NaN
-
-        if retain_bins:
-            # np.ascontiguousarray already allocates a fresh, unaliased buffer for a non-contiguous
-            # slice like ``x_bins`` (verified: ``.base is x_bins`` is False) - copies the column out
-            # of the shared ``data`` matrix so a later in-place edit (e.g. DCD aggregate append)
-            # cannot corrupt the export. A trailing ``.copy()`` would only duplicate that same buffer.
-            assert bins_dict is not None and nbins_dict is not None  # retain_bins guarantees both were allocated above
-            bins_dict[name] = np.ascontiguousarray(x_bins, dtype=dtype)
-            nbins_dict[name] = x_nb
+    _fill_marginals_and_su(
+        feature_names_in=feature_names_in, name_to_data_col=name_to_data_col, data=data, nbins=nbins, cached_MIs=cached_MIs,
+        hist_by_col=_hist_by_col, h_y=h_y, mi_to_target=mi_to_target, su_to_target=su_to_target, retain_bins=retain_bins,
+        bins_dict=bins_dict, nbins_dict=nbins_dict, dtype=dtype,
+    )
 
     artifacts: dict[str, Any] = {
         "schema_version": ARTIFACT_SCHEMA_VERSION,

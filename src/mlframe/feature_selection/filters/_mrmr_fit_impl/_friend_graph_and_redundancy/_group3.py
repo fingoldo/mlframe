@@ -12,6 +12,8 @@ import logging
 import os
 
 import numpy as np
+
+from ._raw_protect_r2 import heldout_r2_scorer
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -93,22 +95,11 @@ def _friend_graph_and_redundancy_passes_group3(
                     if _cv.shape[0] == _cf_n and np.all(np.isfinite(_cv)):
                         _cf_base.append(_cv)
 
-                def _cf_r2(_design):
-                    """Fit an OLS design on the train stride and return held-out R^2 on the %3 validation stride (0.0 on degenerate variance, ``-inf`` on a failed lstsq); used by the categorical-FE protect/re-add gate."""
-                    _A = np.column_stack(_design)
-                    _yv = _cf_y[_cf_va]
-                    _ss = float(np.sum((_yv - _yv.mean()) ** 2))
-                    if _ss < 1e-24:
-                        return 0.0
-                    try:
-                        _coef, *_ = np.linalg.lstsq(_A[_cf_tr], _cf_y[_cf_tr], rcond=None)
-                    except Exception as e:
-                        logger.debug("Compound-feature OLS lstsq failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
-                        return -np.inf
-                    return 1.0 - float(np.sum((_yv - _A[_cf_va] @ _coef) ** 2)) / _ss
-
                 if int(_cf_tr.sum()) >= 32 and int(_cf_va.sum()) >= 16:
-                    _cf_r2_base = _cf_r2(_cf_base)
+                    # The base design is factorised once and each candidate costs one column insert, rather than a fresh column_stack of the
+                    # full design plus an SVD per candidate. Same helper the raw floor-drop protection uses; see ``heldout_r2_scorer``.
+                    _cf_r2 = heldout_r2_scorer(_cf_base, _cf_y, _cf_tr, _cf_va)
+                    _cf_r2_base = _cf_r2()
                     _readd_cf = []
                     for _cn in _cf_names:
                         _cidx = _cf_cols_index.get(_cn)
@@ -140,7 +131,7 @@ def _friend_graph_and_redundancy_passes_group3(
                                 continue
                         if _cvv.shape[0] != _cf_n or not np.all(np.isfinite(_cvv)):
                             continue
-                        if _cf_r2([*_cf_base, _cvv]) - _cf_r2_base < _CF_PROTECT_MIN_INCR_R2:
+                        if _cf_r2(_cvv) - _cf_r2_base < _CF_PROTECT_MIN_INCR_R2:
                             continue  # no held-out linear usability over the selected design -> stays out
                         _readd_cf.append(_cidx)
                         _cf_sv_set.add(_cidx)

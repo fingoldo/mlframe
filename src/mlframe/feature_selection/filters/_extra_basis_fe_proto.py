@@ -17,6 +17,8 @@ existing extra-basis families are evaluated).
 from __future__ import annotations
 
 import numpy as np
+
+from mlframe.feature_selection.filters._safe_scale import unit_interval
 from scipy.special import comb, eval_jacobi, gegenbauer
 
 __all__ = [
@@ -30,7 +32,6 @@ __all__ = [
 def _to_unit(x: np.ndarray) -> np.ndarray:
     """Affinely map ``x`` to [0, 1] using its own min/range; +1e-12 guards against a zero-range (constant) column."""
     c = np.asarray(x, dtype=np.float64)
-    from ._safe_scale import unit_interval
 
     return np.asarray(unit_interval(c))
 

@@ -399,7 +399,7 @@ def _finalise_fs_results(
         logger.debug("mrmr: final signature hash failed; using a unique sentinel (forces a cache miss / no replay for this fit): %r", exc, exc_info=True)
         signature = (*signature[:-1], object())  # unique token => next identical fit refits (conservative)
     self.signature = signature
-    # ran_out_of_time was set only by the outer FE-loop deadline (line ~6714). screen_predictors honours
+    # ran_out_of_time was set only by the outer FE-loop deadline. screen_predictors honours
     # self.max_runtime_mins on its OWN and can return a truncated selection without the FE loop ever tripping, so a
     # screen-level timeout was reported as ran_out_of_time_=False - misleading a caller inspecting why selection was
     # thin. OR-in a total-elapsed-vs-budget check so any stage that pushed the fit past its budget is reflected.

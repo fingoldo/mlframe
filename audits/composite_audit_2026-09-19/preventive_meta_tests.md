@@ -445,7 +445,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low for (a) and (b). (c) and the description rule may need a couple of allowlist entries.
 - **Runtime**: under 1 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL - (a) and (b) ship as tests/test_meta/test_composite_authoritative_sources.py: the name heuristic is allowed only in naming.py, and a double-subscript write into a target-slot dict only in _target_slots.py (the scan fails at HEAD on _phase_composite_discovery.py:859). (c) is not implemented: TRF-25 and TRF-17 are already fixed, and a rule against rebuilding registry adapter tuples has no second site left to anchor on, so it would be an allowlist with no subject
 
 ### PMT-26 [P2] Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test
 - **Asserts**:

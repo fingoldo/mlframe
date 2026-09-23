@@ -476,7 +476,7 @@ def _fe_stage_cascade_early_a(
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the
-    # ``_is_polars_input`` branch immediately below (line ~1326) ALREADY
+    # ``_is_polars_input`` branch immediately below ALREADY
     # handles polars via ``X.with_columns(target_series)``. The Wave 29
     # coercion was a false-positive fix that killed the zero-copy
     # polars promise (test_mrmr_fe_zero_copy_polars regressed -

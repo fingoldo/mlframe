@@ -279,8 +279,12 @@ def _flag_target_named_features(train_df: Any, target_by_type: Any, metadata: di
     """Warn about, and record in ``metadata``, feature columns carrying a target's naming prefix."""
     # Name-based post-outcome check: the analyzer's correlation gate cannot see a column that is merely
     # KNOWN after the outcome (see ``_leakage_by_name``).
+    # ``or []`` on the columns raised "The truth value of a Index is ambiguous" for every pandas frame, and the raise
+    # landed before the report was written: the name-based leakage flag AND metadata["feature_distribution_report"]
+    # were silently absent from every pandas run. Take the columns as a list and default only when there are none.
+    _columns = getattr(train_df, "columns", None)
     named = target_named_features(
-        getattr(train_df, "columns", []) or [],
+        [] if _columns is None else list(_columns),
         [str(name) for _tt_names in (target_by_type or {}).values() for name in _tt_names],
     )
     if named:

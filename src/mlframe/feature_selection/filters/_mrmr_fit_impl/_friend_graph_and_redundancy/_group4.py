@@ -244,7 +244,7 @@ def _friend_graph_and_redundancy_passes_group4(
             )
 
     # RAW-vs-RAW MONOTONE-TWIN DROP (F6). The cross-stage Spearman-0.99 dedup
-    # (above, ~line 5343) collapses monotone-equivalent ENGINEERED columns, and the
+    # (above) collapses monotone-equivalent ENGINEERED columns, and the
     # raw-vs-engineered redundancy sweep (above) drops a raw subsumed by an engineered
     # CHILD. Neither catches a RAW DECOY that is a pure MONOTONE re-encoding of ANOTHER
     # selected RAW column (``a_exp = exp(a)`` when raw ``a`` is selected): both bin

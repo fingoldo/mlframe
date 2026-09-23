@@ -299,3 +299,25 @@ def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_
                     break
 
     return degenerate
+
+
+def record_degenerate_column_audit(self, X) -> None:
+    """Record the degenerate-column diagnostic on ``self``, and whether the audit itself managed to run.
+
+    Lives here rather than on the class so ``_mrmr_class`` stays inside its LOC ceiling. The audit is diagnostic only: it removes no
+    column and changes no selection, so a failure inside it must never break a fit that would otherwise succeed. What the failure must
+    NOT do is look like a clean result, which is why the flag is recorded alongside the (empty) mapping.
+
+    Args:
+        self: the estimator the results are recorded on.
+        X: the input frame the audit scans.
+    """
+    try:
+        self.degenerate_columns_ = audit_degenerate_columns(X)
+        self.degenerate_audit_failed_ = False
+    except Exception as exc:
+        # WARNING, not DEBUG: an empty mapping alone cannot be told apart from "audited, found nothing", which is the answer a reader
+        # most wants, and the flag below is only useful to someone who already knows to look for it.
+        logger.warning("mrmr: degenerate-column audit failed, so degenerate_columns_ is empty for lack of a result: %r", exc, exc_info=True)
+        self.degenerate_columns_ = {}
+        self.degenerate_audit_failed_ = True

@@ -67,6 +67,12 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     # The registration flag is module-level state; the contract under test is that a TRANSIENT registration
     # failure leaves it unset so a later call retries, which cannot be seen from the cache's public getter.
     "test_transient_faults_do_not_latch_a_downgrade::mlframe.feature_selection.filters._kernel_tuning",
+    # The mrmr default-scorer whitelist and the setstate legacy-default table are themselves the contract each of
+    # these tests audits. The whitelist says which values the shipped default is allowed to take, and the table says
+    # which fitted attributes an older pickle may arrive without; neither is reachable through the estimator's public
+    # surface, and asserting on a copy of either would pass while the real one drifted.
+    "test_default_scorer_choice_is_deliberate::mlframe.feature_selection.filters.mrmr._mrmr_param_constants._VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS",
+    "test_every_fitted_attr_is_setstate_safe::mlframe.feature_selection.filters.mrmr._mrmr_setstate_defaults._SETSTATE_LEGACY_DEFAULTS",
     # The best-effort marker audit counts `# best-effort:` sites across the preprocessing-extension stages.
     # One of the three (the PySR symbolic-FE stage) was carved into its own private sibling, taking its marker
     # with it, so the audit has to read BOTH modules or it under-counts. The private modules are the surface

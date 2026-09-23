@@ -23,6 +23,7 @@ Run from the repository root. The script re-runs each meta-test in
 
 - `_annotation_baseline.json` - public-symbol annotation gaps allow-list
 - `_verbose_gated_except_baseline.json` - silent/verbose-gated `except Exception:` allow-list
+- `_fitted_attr_setstate_baseline.json` - fitted attributes not backfilled by `__setstate__`, whose every read passes a default
   (bare `except:`, non-ASCII print/log sites, mojibake, unclosed-resource sites, and un-attributed
   TODO markers moved to the shared `pyutilz.dev.code_audit` registry -- see
   `_code_audit_baseline.json` and `test_code_audit_baseline.py`)
