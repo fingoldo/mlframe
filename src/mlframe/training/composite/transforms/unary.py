@@ -319,7 +319,9 @@ def _clamp_to_fitted_t_range(arr: np.ndarray, params: Dict[str, Any]) -> np.ndar
     hi = params.get("t_hi")
     if lo is None or hi is None:
         return arr
-    return np.clip(arr, lo, hi)
+    # np.asarray, not a bare np.clip: numpy 2.4's stub types clip's return as Any, so the declared
+    # ndarray return tripped no-any-return in CI while the local env's numpy 2.3 typed it fine.
+    return np.asarray(np.clip(arr, lo, hi))
 
 
 def _yj_forward_numpy(y: np.ndarray, lam: float) -> np.ndarray:

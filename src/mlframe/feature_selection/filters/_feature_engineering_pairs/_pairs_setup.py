@@ -53,7 +53,8 @@ def winsorize_heavy_tailed_target(y: np.ndarray) -> np.ndarray:
     iqr_sd = (q75 - q25) / 1.349
     if not iqr_sd > 0.0 or float(np.std(finite)) <= _PREWARP_Y_TAIL_RATIO * iqr_sd:
         return y
-    return np.clip(y, q_lo, q_hi)
+    # Wrapped for the same reason as unary.py's clip: numpy 2.4's stub returns Any from clip.
+    return np.asarray(np.clip(y, q_lo, q_hi))
 
 
 def _prewarp_pair_synergy_gain(vals_a, vals_b, spec_a, spec_b, y, apply_operand_prewarp) -> float:
