@@ -39,6 +39,33 @@ from .._fe_family_timing import record_fe_family_wall
 _LOKY_POOL_MIN_FE_NPERMUTATIONS = 20
 
 
+# Two different bounds, and they must differ: joblib's ``timeout=`` is per DISPATCHED TASK, the outer watchdog below
+# bounds the whole call INCLUDING pool spawn. Giving both the same 300s meant the outer clock - which starts first -
+# always won, so joblib's task timeout never fired and a merely slow pool was abandoned wholesale with all of its
+# finished work discarded. The task bound now fires first and raises inside ``Parallel``, which shuts its own pool
+# down; the outer one only covers a hang during spawn, before any task exists.
+_LOKY_TASK_TIMEOUT = 300
+_LOKY_POOL_SPAWN_GRACE = 120
+_LOKY_POOL_WALL_CLOCK_TIMEOUT = _LOKY_TASK_TIMEOUT + _LOKY_POOL_SPAWN_GRACE
+
+
+def _kill_reusable_loky_workers() -> bool:
+    """Terminate the workers of joblib's reusable loky executor; True when the kill was issued.
+
+    joblib's loky backend reuses one process pool, so a pool abandoned by the watchdog keeps its workers running -
+    and computing - after the caller has moved on. Best-effort: an older joblib, or a loky that is not the active
+    backend, simply leaves nothing to kill.
+    """
+    try:
+        from joblib.externals.loky import get_reusable_executor
+
+        get_reusable_executor().shutdown(kill_workers=True)
+        return True
+    except Exception as exc:
+        logger.debug("could not terminate the reusable loky workers (%s: %s); they may linger.", type(exc).__name__, exc)
+        return False
+
+
 def _prefill_cached_pair_mis(
     pair_a: np.ndarray,
     pair_b: np.ndarray,
@@ -366,7 +393,6 @@ def compute_pair_mis_and_floor(
         # the exact serial path immediately. The abandoned thread (and any loky worker processes it spawned)
         # may linger as orphans - strictly better than blocking the whole fit indefinitely, which is the
         # exact "10h44m fit, weak CPU/GPU utilization" pathology the whole audit started from.
-        _LOKY_POOL_WALL_CLOCK_TIMEOUT = 300
 
         # Ship the fit-constant ``data`` matrix as a READ-ONLY memmap: joblib passes an existing
         # np.memmap to loky workers by FILENAME, skipping the per-Parallel-invocation re-dump of the
@@ -383,7 +409,7 @@ def compute_pair_mis_and_floor(
                     n_jobs=n_jobs,
                     backend=_loky_cpu_backend,
                     verbose=10 if verbose else 0,
-                    timeout=_LOKY_POOL_WALL_CLOCK_TIMEOUT,
+                    timeout=_LOKY_TASK_TIMEOUT,
                     **_extra_kwargs,
                 )(
                     delayed(compute_pairs_mis)(
@@ -419,6 +445,10 @@ def compute_pair_mis_and_floor(
             for next_dict in dicts:
                 cached_MIs.update(next_dict)
         except Exception as _pool_exc:
+            # The abandoned pool's workers keep computing pair MIs at full CPU. Without this the njit_parallel retry
+            # below starts on every core while they are still running - 2x oversubscription that makes the recovery
+            # slower than the pool it is recovering from.
+            _kill_reusable_loky_workers()
             logger.warning(
                 "MRMR FE: loky pair-MI pool failed or timed out (%s: %s); retrying via the batched "
                 "CPU dispatcher before falling back to the slow per-pair path [n_pairs=%d, n_jobs=%d].",

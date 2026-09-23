@@ -30,6 +30,7 @@ import hashlib
 import json
 import logging
 import os
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -257,10 +258,19 @@ def persist_budgets(budgets: dict[str, float], *, cache_key: str = "mlframe.fe_f
     _BUDGET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     file_key = _sanitize_budget_file_key(f"{cache_key}.{fingerprint}" if fingerprint else cache_key)
     path = _BUDGET_CACHE_DIR / f"{file_key}.json"
+    # Write-then-rename: a plain write_text is not atomic, so a concurrent fit on the same host and fingerprint could
+    # read a half-written file, fail to parse it and silently fall back to equal-split budgets, discarding the learned
+    # per-family ROI. ``os.replace`` is atomic on Windows and POSIX alike.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     try:
-        path.write_text(json.dumps(budgets, sort_keys=True), encoding="utf-8")
+        tmp.write_text(json.dumps(budgets, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
     except OSError as exc:
         logger.warning("persist_budgets: failed to write %s (%s); budget learning will restart next fit.", path, exc)
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
 
 
 def load_budgets(*, cache_key: str = "mlframe.fe_family_budget", fingerprint: Optional[str] = None) -> Optional[dict[str, float]]:

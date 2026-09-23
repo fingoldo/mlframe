@@ -86,18 +86,46 @@ def shutdown_prewarm_executor(wait: bool = False) -> None:
     this helper.
     """
     try:
-        _PREWARM_EXECUTOR.shutdown(wait=wait)
+        _PREWARM_EXECUTOR.shutdown(wait=wait, cancel_futures=True)
+    except TypeError:  # Python < 3.9 has no cancel_futures
+        try:
+            _PREWARM_EXECUTOR.shutdown(wait=wait)
+        except (RuntimeError, OSError):
+            pass
     except (RuntimeError, OSError):
         # Already shut down or interpreter mid-teardown; either way the threads
         # are or will be gone soon.
         pass
 
 
+def _shutdown_prewarm_executor_at_exit() -> None:
+    """Cancel queued prewarms and give a running one a bounded chance to finish before teardown.
+
+    A prewarm that is loading a provider onto the GPU when the interpreter starts tearing down keeps touching torch /
+    CUDA objects that are being finalised, which is the heap-corruption class this repo documents elsewhere. Waiting
+    without a bound would instead let a stuck provider load hang the exit, so the wait is capped and then abandoned.
+    """
+    shutdown_prewarm_executor(wait=False)
+    deadline = _time.monotonic() + _PREWARM_EXIT_GRACE_S
+    for sig, fut in list(_PREWARM_FUTURES.items()):
+        remaining = deadline - _time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            fut.exception(timeout=remaining)
+        except Exception as exc:  # TimeoutError, or the prewarm's own failure: neither is actionable at exit
+            logger.debug("prewarm %s did not settle before exit (%s: %s).", sig, type(exc).__name__, exc)
+
+
 # Register the shutdown so interpreter exit reliably reclaims the executor's
 # worker threads even if a hot-reload path didn't call shutdown_prewarm_executor
 # explicitly. ``wait=False`` so the exit isn't delayed by in-flight prewarms.
 import atexit as _atexit  # -- module-level state block
-_atexit.register(shutdown_prewarm_executor, wait=False)
+import time as _time  # -- module-level state block
+
+# How long interpreter exit may wait for an in-flight prewarm to settle before abandoning it.
+_PREWARM_EXIT_GRACE_S = 5.0
+_atexit.register(_shutdown_prewarm_executor_at_exit)
 
 
 # =====================================================================

@@ -28,6 +28,8 @@ from typing import Any, Dict, Optional, cast
 logger = logging.getLogger(__name__)
 
 DEFAULT_HEARTBEAT_S = 300.0
+# Interpreter exit waits at most this long for the heartbeat thread, then leaves it to the OS.
+_HEARTBEAT_EXIT_JOIN_S = 5.0
 
 _FAULT_FILE: Any = None  # kept referenced for the process lifetime: faulthandler holds only the fd
 _FAULT_PATH: Optional[str] = None
@@ -216,7 +218,10 @@ def _atexit_handler() -> None:
         logger.debug("atexit exit line failed: %s", e)
     try:
         if _HEARTBEAT is not None:
-            _HEARTBEAT.stop(join=False)
+            # Bounded join, not fire-and-forget: the thread logs, and an un-joined one can be mid-``logger.info`` when
+            # logging's own atexit closes the handlers ("I/O operation on closed file"), or leave its GPU-probe
+            # subprocess outliving the process it reports on.
+            _HEARTBEAT.stop(join=True, timeout=_HEARTBEAT_EXIT_JOIN_S)
     except Exception as e:
         logger.debug("atexit heartbeat stop failed: %s", e)
 

@@ -29,9 +29,9 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `ensembling_models.md` | 14 | 14 | 0 | 0 | 0 | 0 |
 | `evaluation_reporting.md` | 16 | 3 | 0 | 13 | 0 | 0 |
 | `performance.md` | 7 | 7 | 0 | 0 | 0 | 0 |
-| `concurrency_resources.md` | 12 | 1 | 0 | 11 | 0 | 0 |
+| `concurrency_resources.md` | 12 | 12 | 0 | 0 | 0 | 0 |
 | `config_contracts.md` | 32 | 4 | 0 | 27 | 0 | 1 |
-| **Total** | **165** | **68** | **1** | **92** | **2** | **2** |
+| **Total** | **165** | **79** | **1** | **81** | **2** | **2** |
 
 ## Per-report status
 
@@ -94,3 +94,6 @@ Test failures met while verifying this wave that are NOT caused by it: each was 
 | `tests/feature_selection/fe/gates/test_fe_stability_vote.py::test_bizvalue_noise_survivor_reduction` | fails (2 <= 1) | |
 | `tests/feature_selection/gpu/test_cmi_residency_traffic.py::test_pair_search_residency_no_nk_codes_bulk_d2h` | fails identically on `origin/master` | 17 bulk D2H transfers at (n,K) scale on the strict pair-search path; the codes/float buffer is not staying resident |
 | `tests/feature_selection/gpu/test_gpu_cpu_mi_selection_equivalence.py::test_mrmr_gpu_cpu_selection_identical[clf_binary]` | fails identically on `origin/master` | the GPU path selects `add(qubed(c),rint(e))` where the CPU path does not |
+| `tests/reporting/test_calibration_debiased_ece.py::test_biz_debiased_ece_bin_count_stable_on_perfectly_calibrated` | fails identically on `origin/master` | bin-count change 0.0123 against a 0.01 bound |
+| `tests/reporting/test_metric_over_time_direction.py::test_roc_auc_over_time_title_says_higher_is_better` | fails identically on `origin/master` | the line panel does not render, so the direction is never checked |
+| `tests/test_meta/test_no_source_text_claims.py`, `test_no_single_shot_timing_assertion.py`, `test_no_nondiscriminating_assert.py`, `test_no_audit_metadata_in_comments.py`, `test_shared_uncalled_functions.py` | master-side entries only | each lists findings in files this wave did not touch (`data/datasets/*`, the ruff-pin and roster tests, six single-shot timing tests); the entries this wave introduced are fixed |

@@ -155,7 +155,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     # encoder fits done for target 1 are reusable for target 2 when the cache_key matches (only
     # changes when the feature set / strategy / kind / pp_name changes).
     if ctx._pipeline_cache is None:
-        ctx._pipeline_cache = PipelineCache()
+        ctx._pipeline_cache = PipelineCache(ram_budget_fraction=getattr(getattr(ctx, "behavior_config", None), "pipeline_cache_ram_budget_fraction", None))
     pipeline_cache = ctx._pipeline_cache
 
     # Suite-scoped cache observability. ``finalize_suite`` aggregates these into

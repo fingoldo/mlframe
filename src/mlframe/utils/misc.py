@@ -17,6 +17,59 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def seed_numba_worker_threads(seed: int = 42, n_threads: "int | None" = None) -> int:
+    """Seed numba's thread-local RNG on its own worker threads; returns how many threads were seeded.
+
+    ``numba.np.random`` keeps one state per thread, entropy-seeded on first use, so seeding on the calling thread
+    leaves every njit kernel that draws inside a prange worker unseeded. This runs a trivial parallel loop with one
+    iteration per numba thread, each seeding its own state from ``seed + i``.
+
+    Each thread seeds from ``seed + numba.get_thread_id()``, not from the loop index: numba does not contract which
+    thread runs which iteration, and keying on the index gave a different stream per run. The loop runs several
+    iterations per thread so every thread is reached; a thread seeding twice writes the same value.
+
+    Without this a permutation test's p-values move from run to run with nothing reporting it.
+    """
+    try:
+        import numba
+        from numba import get_thread_id, njit, prange
+    except ImportError as e:
+        logger.debug("numba unavailable, worker-thread RNG left unseeded: %s", e)
+        return 0
+
+    n = int(n_threads if n_threads is not None else numba.get_num_threads())
+    if n <= 0:
+        return 0
+
+    @njit(parallel=True, cache=True)
+    def _seed_each_thread(base: np.int64, count: np.int64) -> None:  # pragma: no cover - trivial kernel body
+        """Seed every worker thread's own state, keyed on the thread's id rather than on the iteration index."""
+        for _i in prange(count):
+            np.random.seed(base + get_thread_id())
+
+    _seed_each_thread(np.int64(seed), np.int64(n * 8))
+    return n
+
+
+def seed_numba_in_this_thread(seed: int = 42) -> None:
+    """Seed numba's RNG for the CURRENT thread, for use as a joblib ``backend="threading"`` worker's first call.
+
+    A threading worker is an ordinary Python thread with its own numba RNG state, which nothing else seeds.
+    """
+    try:
+        from numba import njit
+    except ImportError as e:
+        logger.debug("numba unavailable, thread RNG left unseeded: %s", e)
+        return
+
+    @njit(cache=True)
+    def _seed(s: np.int64) -> None:  # pragma: no cover - trivial kernel body
+        """Seed this thread's numba RNG."""
+        np.random.seed(s)
+
+    _seed(np.int64(seed))
+
+
 def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed: bool = False):
     """Seed everything ml-related.
 
@@ -61,6 +114,11 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
         )
     try:
         set_numba_random_seed(seed)
+        seed_numba_in_this_thread(seed)  # the calling thread, through the same kernel the worker threads use
+        # numba's RNG state is THREAD-LOCAL and entropy-seeded per thread, so the call above seeds only the calling
+        # thread: an njit kernel drawing from it inside a numba prange worker, or inside a joblib backend="threading"
+        # worker, produced a different stream on every run while the main thread's draws were byte-identical.
+        seed_numba_worker_threads(seed)
     except (TypeError, ValueError, RuntimeError):
         pass
 

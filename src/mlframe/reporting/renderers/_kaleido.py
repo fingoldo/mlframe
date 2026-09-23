@@ -10,7 +10,9 @@ oneshot-retry / HTML-fallback recovery ladder. ``plotly.py`` re-exports the publ
 from __future__ import annotations
 
 import logging
+import os
 import threading
+import uuid
 from typing import Any, Tuple
 from mlframe._output_paths import ensure_parent_dir
 
@@ -84,12 +86,30 @@ def record_kaleido_oneshot_call(wall_s: float) -> None:
 # loop so we can't safely cancel it from outside). Normal cost after warmup: 0.13s/call; cold
 # persistent warmup: ~8s. 30s bounds a hung server to 30s instead of infinity.
 _KALEIDO_PERSISTENT_TIMEOUT_S = 30.0
+# Bounded wait for the shutdown call itself: a hung server can hang its own stop, and atexit has no timeout.
+_KALEIDO_STOP_TIMEOUT_S = 10.0
 
 
 def _is_kaleido_persistent_burned() -> bool:
     """True once the persistent-server path has been given up on for this process (fail threshold crossed or force-burned)."""
     with _KALEIDO_STATE_LOCK:
         return _KALEIDO_PERSISTENT_BURNED
+
+
+def _abandon_scratch_file(scratch: str) -> None:
+    """Drop a scratch render that lost its race, now or - if a hung writer still holds it - at interpreter exit."""
+    def _remove() -> None:
+        """Remove the scratch file, ignoring the case where it was never created or is still held open."""
+        try:
+            os.remove(scratch)
+        except OSError as exc:
+            logger.debug("scratch render %s could not be removed (%s); leaving it behind.", scratch, exc)
+
+    _remove()
+    if os.path.exists(scratch):
+        import atexit
+
+        atexit.register(_remove)
 
 
 def _record_kaleido_persistent_failure() -> bool:
@@ -166,11 +186,24 @@ def _ensure_kaleido_server_started() -> bool:
             # to unclean kill browser" warning at interpreter shutdown.
             import atexit
             def _stop():
-                """Stop the kaleido sync server at interpreter shutdown so the Chromium subprocess exits cleanly."""
-                try:
-                    kaleido.stop_sync_server(silence_warnings=True)
-                except Exception as e:  # nosec B110 - optional dependency import guard
-                    logger.debug("kaleido.stop_sync_server() at interpreter shutdown failed: %s", e)
+                """Stop the kaleido sync server at interpreter shutdown so the Chromium subprocess exits cleanly.
+
+                On its own thread with a bounded wait: the very server this stops may be hung, and
+                ``stop_sync_server`` can then block too - at ``atexit`` there is no timeout, so the process would hang
+                on exit instead of leaving an unclean-kill warning behind.
+                """
+                def _call() -> None:
+                    """Ask kaleido to stop; any failure here is a shutdown-path detail, not an error the caller can act on."""
+                    try:
+                        kaleido.stop_sync_server(silence_warnings=True)
+                    except Exception as e:  # nosec B110 - optional dependency import guard
+                        logger.debug("kaleido.stop_sync_server() at interpreter shutdown failed: %s", e)
+
+                _t = threading.Thread(target=_call, daemon=True)
+                _t.start()
+                _t.join(timeout=_KALEIDO_STOP_TIMEOUT_S)
+                if _t.is_alive():
+                    logger.debug("kaleido.stop_sync_server() did not return in %.0fs at exit; leaving the server to the OS.", _KALEIDO_STOP_TIMEOUT_S)
             atexit.register(_stop)
             return True
         except Exception as e:
@@ -231,11 +264,15 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
 
         _result: list = [None]
         _exc: list = [None]
+        # The write goes to a private scratch path, never to ``path``. A slow (not dead) write that passes the timeout
+        # used to finish afterwards, while the recovery below was already writing the SAME path: the saved chart was
+        # whichever writer lost the race, or a truncated image if the two writes interleaved.
+        _scratch = f"{path}.partial-{uuid.uuid4().hex}"
 
         def _do_persistent():
             """Run the persistent-server write on a worker thread so the caller can enforce a hard timeout on a hung kaleido server."""
             try:
-                _kal.write_fig_sync(fig, path, opts={"format": fmt})
+                _kal.write_fig_sync(fig, _scratch, opts={"format": fmt})
             except Exception as ee:
                 logger.debug("persistent-server write_fig_sync failed: %s", ee)
                 _exc[0] = ee
@@ -243,6 +280,15 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
         th = threading.Thread(target=_do_persistent, daemon=True)
         th.start()
         th.join(timeout=_KALEIDO_PERSISTENT_TIMEOUT_S)
+        if not th.is_alive() and _exc[0] is None:
+            # Publish the finished file under the caller's path in one step, so a reader never sees a partial chart.
+            try:
+                os.replace(_scratch, path)
+            except OSError as _mv_exc:
+                _exc[0] = _mv_exc
+                logger.debug("could not move the rendered chart into place: %s", _mv_exc)
+        else:
+            _abandon_scratch_file(_scratch)
         if th.is_alive():
             persistent_failed = True
             server_hung = True

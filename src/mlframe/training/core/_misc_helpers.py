@@ -18,44 +18,33 @@ logger = logging.getLogger(__name__)
 
 
 def _ensure_logging_visible(level: int = logging.INFO) -> None:
-    """Install or upgrade a timestamped root handler so mlframe progress logs are visible in Jupyter and plain scripts.
+    """Make mlframe's progress logs visible, without touching an embedding application's logging setup.
 
-    Replaces non-timestamped formatters in place; leaves handlers that already include ``%(asctime)s`` untouched.
+    Earlier versions rewrote the ROOT logger: every root handler's formatter was replaced with mlframe's asctime text
+    format and the root level was lowered. An application that had configured a structured/JSON root handler lost it
+    for the rest of the process, and its log ingestion broke in a way that pointed at the application rather than at
+    mlframe.
+
+    So: when the root already has handlers, the application owns output, and the only change made is to this package's
+    own logger level, so its records are not filtered out before reaching those handlers. When the root has no
+    handlers at all (a plain script, a bare notebook), a timestamped handler is installed on the ``mlframe`` logger -
+    not on the root - and that logger stops propagating, so a later ``basicConfig`` does not duplicate every line.
     """
-    root = logging.getLogger()
-    desired_fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
-    desired_datefmt = "%H:%M:%S"
+    package_logger = logging.getLogger("mlframe")
+    if package_logger.level == logging.NOTSET or package_logger.level > level:
+        package_logger.setLevel(level)
 
-    # Fast-path: if a previous call already installed an asctime-bearing handler AND the
-    # root level is already at or below the requested threshold, there is nothing to do.
-    # Mutating handlers on every suite invocation when nothing needs to change makes
-    # back-to-back ``train_mlframe_models_suite`` calls re-walk the handler list and
-    # re-assign formatters that already satisfy the contract.
-    if root.handlers and (root.level != logging.NOTSET and root.level <= level):
-        def _is_timestamped(h) -> bool:
-            """True if handler ``h``'s formatter already includes ``%(asctime)``."""
-            existing = getattr(h.formatter, "_fmt", None) if h.formatter else None
-            return bool(existing and "%(asctime)" in existing)
+    if logging.getLogger().handlers:
+        return
 
-        # ALL handlers must already be timestamped, not just the first one found -- a handler appended
-        # by another package (e.g. Jupyter) BETWEEN two calls would otherwise never get upgraded, since
-        # an earlier-installed, already-fixed handler iterated first would trigger this early return.
-        if all(_is_timestamped(h) for h in root.handlers):
-            return
+    if any(getattr(h, "_mlframe_progress_handler", False) for h in package_logger.handlers):
+        return
 
-    timestamped = logging.Formatter(desired_fmt, datefmt=desired_datefmt)
-
-    if not root.handlers:
-        handler = logging.StreamHandler(stream=sys.stdout)
-        handler.setFormatter(timestamped)
-        root.addHandler(handler)
-    else:
-        for h in root.handlers:
-            existing = getattr(h.formatter, "_fmt", None) if h.formatter else None
-            if not existing or "%(asctime)" not in existing:
-                h.setFormatter(timestamped)
-    if root.level > level or root.level == logging.NOTSET:
-        root.setLevel(level)
+    handler = logging.StreamHandler(stream=sys.stdout)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S"))
+    handler._mlframe_progress_handler = True  # type: ignore[attr-defined]  # marker so a second call recognises its own handler
+    package_logger.addHandler(handler)
+    package_logger.propagate = False
 
 
 def _entry_metric(entry, split: str, name: str) -> float:

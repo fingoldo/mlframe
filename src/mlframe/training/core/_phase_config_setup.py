@@ -80,6 +80,21 @@ def _heavy_libs_needed(mlframe_models, recurrent_models, reporting_config) -> bo
         return True
 
 
+def _restore_cuda_visibility_for_a_new_suite() -> None:
+    """Undo a previous suite's process-wide CUDA disable, so a new suite starts with the GPU available again.
+
+    The neural CPU-fallback hides CUDA from torch when a retry also fails CUDA-side. That verdict is about the moment,
+    not about the host, and nothing used to undo it: every later target, estimator and suite in the process ran on CPU.
+    A new suite is a fresh attempt - if the condition persists, the same fallback disables it again and says so.
+
+    Only touched when that module is already imported: importing it would pull torch into a run that may never need it.
+    """
+    module = sys.modules.get("mlframe.training.neural.base._cuda_fallback")
+    if module is None or not module.cuda_is_disabled_for_this_process():
+        return
+    module.restore_cuda_visibility()
+
+
 def _restore_process_flag_quietly(restore) -> None:
     """Put one process-wide override back, reporting rather than raising if it cannot be.
 
@@ -209,13 +224,12 @@ def setup_configuration(
     reporting_config = _ensure_config(reporting_config, ReportingConfig, {})
     _step_done("_ensure_config x7 (preprocessing..reporting)")
 
-    # Publish the PipelineCache RAM-budget fraction to the env the cache
-    # reads (both PipelineCache.__init__ and the eviction re-check resolve
-    # from it, so one source keeps them consistent). An explicit operator env
-    # wins over the config default.
-    _cache_frac = getattr(behavior_config, "pipeline_cache_ram_budget_fraction", None)
-    if _cache_frac is not None and not _os.environ.get("MLFRAME_PIPELINE_CACHE_RAM_FRACTION") and not _os.environ.get("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT"):
-        _os.environ["MLFRAME_PIPELINE_CACHE_RAM_FRACTION"] = str(float(_cache_frac))
+    _restore_cuda_visibility_for_a_new_suite()
+
+    # The PipelineCache RAM-budget fraction is handed to the cache instance (see ``_phase_train_one_target_body``),
+    # NOT exported to os.environ: publishing it process-globally, and only when unset, meant a second suite in the same
+    # process silently kept the first one's budget and two concurrent suites raced one variable. An operator's own
+    # MLFRAME_PIPELINE_CACHE_RAM_FRACTION / _BYTES_LIMIT still wins, inside ``_resolve_pipeline_cache_budget``.
 
     # Module-level overrides for residual_audit + inline_display.
     # Pre-fix the leading comment promised "restored after the suite finishes" but no restore

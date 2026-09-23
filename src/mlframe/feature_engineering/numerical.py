@@ -75,21 +75,25 @@ from sklearn.feature_selection import mutual_info_regression
 from mlframe.feature_engineering.hurst import compute_hurst_exponent
 from pyutilz.parallel import parallel_run
 
+from mlframe.utils.warning_filters import install_filter_once
+
 logger = logging.getLogger(__name__)
 
 
 @contextmanager
 def _suppress_numeric_warnings():
-    """Scoped replacement for the old module-level ``warnings.simplefilter`` calls.
+    """Silence this module's own known-noisy warnings, safely from a worker thread.
 
-    Previously this module registered global filters at import time, silently swallowing
-    FutureWarning / RuntimeWarning everywhere in the process (including in unrelated caller
-    code). Callers that really need suppression can use this context manager.
+    The previous version used ``warnings.catch_warnings()``, which snapshots and restores the process-global filter
+    list: these helpers run inside joblib ``backend="threading"`` workers, where two overlapping blocks restore each
+    other's snapshot - one thread's suppression vanishes mid-computation, or its "ignore" leaks out and hides a real
+    RuntimeWarning in unrelated code. The scipy ``nperseg`` message is filtered once, process-wide and by message;
+    the blanket FutureWarning / RuntimeWarning suppression is replaced by ``np.errstate``, which is thread-local and
+    covers what those RuntimeWarnings actually were (numpy divide / invalid on degenerate windows).
     """
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="nperseg =")
-        warnings.simplefilter(action="ignore", category=FutureWarning)
-        warnings.simplefilter(action="ignore", category=RuntimeWarning)
+    install_filter_once(message="nperseg =")
+    install_filter_once(category=FutureWarning, module=r".*mlframe\.feature_engineering\.numerical")
+    with np.errstate(all="ignore"):
         yield
 
 # ----------------------------------------------------------------------------------------------------------------------------
