@@ -207,3 +207,25 @@ class TestSklearnCloneSafety:
         assert cloned.online_refit_enabled is True
         assert cloned.online_refit_buffer_n == 777
         assert cloned.online_refit_z_threshold == 2.5
+
+
+def test_a_drift_refit_moves_the_base_range_and_t_clip_to_the_live_regime() -> None:
+    """After a refit on a regime whose bases lie far outside the train range, predictions there are neither shrunk nor sent to the fallback."""
+    rng = np.random.default_rng(0)
+    n = 500
+    base = rng.uniform(0.0, 10.0, size=n)
+    y = 0.95 * base + 1.0 + rng.normal(scale=0.3, size=n)
+    wrap = CompositeTargetEstimator(
+        base_estimator=lgb.LGBMRegressor(n_estimators=20, num_leaves=7, verbose=-1), transform_name="linear_residual", base_column="b1",
+        online_refit_enabled=True, online_refit_min_buffer_n=200, online_refit_buffer_n=400,
+    )
+    wrap.fit(pd.DataFrame({"b1": base, "x_other": rng.normal(size=n)}), y)
+    fired = False
+    for _ in range(30):
+        b = rng.uniform(50.0, 60.0, size=20)
+        fired |= bool(wrap.update(y_recent=2.0 * b + rng.normal(scale=0.3, size=20), base_recent=b)["refit"])
+    assert fired
+    b_new = rng.uniform(50.0, 60.0, size=200)
+    pred = wrap.predict(pd.DataFrame({"b1": b_new, "x_other": rng.normal(size=200)}))
+    rmse = float(np.sqrt(np.mean((pred - 2.0 * b_new) ** 2)))
+    assert rmse < 2.0, f"live-regime RMSE {rmse:.2f}: predictions were pulled back toward the dead train range"

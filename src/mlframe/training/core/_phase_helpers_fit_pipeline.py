@@ -87,6 +87,25 @@ def _row_wise_replay_config(preprocessing_extensions, fitted: dict) -> dict | No
     return config
 
 
+def _composite_fe_supervised_target(target_by_type, metadata) -> Any:
+    """The target whose labels supervise the suite-level composite-FE steps, recorded in ``metadata`` and logged.
+
+    These steps are fitted once per suite, so they see ONE target: the first one ``target_by_type`` yields. In a
+    multi-target suite the target-encoded / MI-grouped features every other target's model consumes are built from
+    that target's labels, so which one it was must be visible - it shifts with the extractor's target order.
+    """
+    names = [(str(t), str(n)) for t, d in target_by_type.items() for n in (d.keys() if hasattr(d, "keys") else [t])]
+    for _t, _v in target_by_type.items():
+        _name, _cand = next(iter(_v.items())) if hasattr(_v, "items") else (_t, _v)
+        if _cand is not None:
+            if isinstance(metadata, dict):
+                metadata["composite_fe_supervised_target"] = {"target_type": str(_t), "target_name": str(_name)}
+            if len(names) > 1:
+                logger.info("Composite-FE steps are supervised by target %s/%s for all %d targets of this suite.", _t, _name, len(names))
+            return _cand.to_numpy() if hasattr(_cand, "to_numpy") else np.asarray(_cand)
+    return None
+
+
 def _phase_fit_pipeline(
     *,
     train_df: pl.DataFrame | pd.DataFrame | None,
@@ -412,11 +431,7 @@ def _phase_fit_pipeline(
     _y_for_composite = None
     if target_by_type is not None and hasattr(target_by_type, "items"):
         try:
-            for _v in target_by_type.values():
-                _cand = next(iter(_v.values())) if hasattr(_v, "values") else _v
-                if _cand is not None:
-                    _y_for_composite = _cand.to_numpy() if hasattr(_cand, "to_numpy") else np.asarray(_cand)
-                    break
+            _y_for_composite = _composite_fe_supervised_target(target_by_type, metadata)
         except Exception as e:
             logger.debug("y_for_composite extraction failed: %s", e)
             _y_for_composite = None

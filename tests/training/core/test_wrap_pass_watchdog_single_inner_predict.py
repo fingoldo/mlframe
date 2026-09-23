@@ -39,12 +39,19 @@ def _run_suite(tmp_path, monkeypatch, *, memo: bool) -> collections.Counter:
 
     monkeypatch.setattr(Ridge, "predict", counting_predict)
     if not memo:
+        import mlframe.training.core._composite_wrap_watchdog as watchdog
         import mlframe.training.core._phase_composite_wrapping as wrapping
 
-        monkeypatch.setattr(wrapping, "memo_predict", lambda model, frame: np.asarray(model.predict(frame), dtype=np.float64).reshape(-1))
+        # Both call sites bind memo_predict at import: the wrap pass and the watchdog (its own module since the carve).
+        _direct = lambda model, frame: np.asarray(model.predict(frame), dtype=np.float64).reshape(-1)  # a one-line adapter, deliberately a lambda
+        for _mod in (wrapping, watchdog):
+            monkeypatch.setattr(_mod, "memo_predict", _direct)
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True, base_candidates=["TVT_prev"], transforms=["diff", "linear_residual"],
         mi_sample_n=200, top_k_after_mi=2, eps_mi_gain=-1.0, skip_wrap_pass_predict=False,
+        # Without this the honest-gain gate rejects every candidate on a fixture this small, nothing is wrapped, and the
+        # wrap pass never predicts at all - the measurement below would then compare two runs that do the same work.
+        min_honest_gain_z=0.0,
     )
     train_mlframe_models_suite(
         df=_tvt_dataset(n=400), target_name="target", model_name="m",
@@ -60,6 +67,7 @@ def test_the_watchdog_pair_costs_one_inner_predict(tmp_path, monkeypatch):
     with_memo = _run_suite(tmp_path / "a", monkeypatch, memo=True)
     monkeypatch.undo()
     without = _run_suite(tmp_path / "b", monkeypatch, memo=False)
+    assert with_memo, "the wrap pass must have predicted at all, or there is nothing to memoise"
     saved = {shape: without[shape] - with_memo.get(shape, 0) for shape in without}
     assert sum(saved.values()) > 0, f"the memo saved no inner predicts: {dict(with_memo)} vs {dict(without)}"
     assert all(v >= 0 for v in saved.values()), f"the memo must never add predicts: {saved}"

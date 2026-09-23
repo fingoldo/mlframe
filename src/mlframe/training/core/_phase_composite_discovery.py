@@ -37,6 +37,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
+from ._target_slots import insert_composite_targets
 from ._phase_composite_discovery_helpers import (
     _render_composite_discovery_diagnostics,
     _build_disc_df_for_target,
@@ -855,12 +856,7 @@ def run_composite_target_discovery(
     # quality score is comparable at once. Keep the best-scoring specs across the WHOLE run (not an equal
     # share per target) up to max_total_composite_targets; None keeps every discovered spec (old behaviour).
     _kept_composite = select_composites_to_train(_pending_composite, composite_target_discovery_config, metadata)
-    for _item in _kept_composite:
-        target_by_type[_item["tt"]][_item["name"]] = _item["values"]
-        logger.info(
-            "[CompositeTargetDiscovery] added composite target '%s' to target_by_type[%s] (honest gain %+.3f).",
-            _item["name"], _item["tt"], _item["gain"],
-        )
+    _kept_composite = insert_composite_targets(target_by_type, _kept_composite, metadata)
 
     n_specs_total = sum(len(v) for tt_specs in metadata["composite_target_specs"].values() for v in tt_specs.values())
     # Composite-feature-stacking stub: surface the discovered specs so the

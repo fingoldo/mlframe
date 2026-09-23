@@ -159,7 +159,7 @@ Overlap notes: DSC-12 (cache key contents), DSC-18 (verdict split), DSC-20 (auto
 - **Why it matters**: Silent loss of a user target and mixed-up models and metrics under one key.
 - **Suggested fix**: Before inserting, check `name in target_by_type[tt]`. On a collision, suffix the spec name (and update the exported spec) or skip the spec with a failure record.
 - **Test to add**: An FTE with targets `y` and `y-logY`, and discovery that keeps `log_y`. Both targets must survive with their own values.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - insert_composite_targets() (core/_target_slots.py) owns the slot write: a spec whose name is already a target keeps that target's values, the spec leaves composite_target_specs and is recorded in composite_target_failures (test_target_slot_insert.py; test_composite_authoritative_sources.py pins the single write site)
 
 ### INT-19 [P3] The predict-time composite env-signature check warns on any patch or Python bump, contrary to its documented major/minor policy
 - **Where**: `core/predict.py:96-116` (`if live_sig != saved_sig`), with `env_signature()` (`composite/ensemble/__init__.py:160-173`) recording full versions such as `numpy 2.1.3` and `python 3.11.9`. The docstring at `core/predict.py:54-58` says the WARN fires on "major/minor lib versions".

@@ -62,9 +62,7 @@ def _nan_signal_columns_to_keep(candidates: list, fd_report: Any, behavior_confi
     later, after composite discovery had screened them four times. Keep and drop now agree on one bar.
     """
     _warn_map_nan = getattr(fd_report, "feature_warnings", {}) or {}
-    nan_only = [
-        _c for _c in candidates if (_warn_map_nan.get(_c) or []) and all(str(_m).startswith("nan_fraction") for _m in _warn_map_nan.get(_c) or [])
-    ]
+    nan_only = [_c for _c in candidates if (_warn_map_nan.get(_c) or []) and all(str(_m).startswith("nan_fraction") for _m in _warn_map_nan.get(_c) or [])]
     _null_bar = float(getattr(getattr(behavior_config, "feature_selection_config", None), "pre_screen_null_fraction_threshold", 0.99))
     _too_empty = [_c for _c in nan_only if _nan_fraction_of(fd_report, _c) > _null_bar]
     if not _too_empty:
@@ -279,8 +277,12 @@ def _flag_target_named_features(train_df: Any, target_by_type: Any, metadata: di
     """Warn about, and record in ``metadata``, feature columns carrying a target's naming prefix."""
     # Name-based post-outcome check: the analyzer's correlation gate cannot see a column that is merely
     # KNOWN after the outcome (see ``_leakage_by_name``).
+    # ``or []`` on the columns raised "The truth value of a Index is ambiguous" for every pandas frame, and the raise
+    # landed before the report was written: the name-based leakage flag AND metadata["feature_distribution_report"]
+    # were silently absent from every pandas run. Take the columns as a list and default only when there are none.
+    _columns = getattr(train_df, "columns", None)
     named = target_named_features(
-        getattr(train_df, "columns", []) or [],
+        [] if _columns is None else list(_columns),
         [str(name) for _tt_names in (target_by_type or {}).values() for name in _tt_names],
     )
     if named:

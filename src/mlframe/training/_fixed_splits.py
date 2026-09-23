@@ -266,6 +266,36 @@ def _details(ts: Optional[pd.Series], idx: np.ndarray, tag: str) -> str:
     return f"{_d} [{tag}]" if tag else _d
 
 
+def _pool_relative_sizes(test_size: float, val_size: float, calib_size, *, n_rows: int, n_pool: int, n_pinned_test: int):
+    """Configured whole-frame split fractions, rescaled to the unpinned pool the splitter actually receives.
+
+    The splitter reads ``test_size`` / ``calib_size`` as fractions of the frame it is given and ``val_size`` as a fraction
+    of what is left after test. Handing it the configured values with only the unpinned pool made every carve a share of
+    that pool: with test pinned to 20% of the rows, ``val_size=0.2`` produced a 16% val, and nothing reported it. The
+    returned sizes reproduce the configured whole-frame counts. When the pool is too small for that they cannot, and the
+    pool-relative values are kept with a warning.
+    """
+    if n_pool <= 0 or n_pool == n_rows:
+        return test_size, val_size, calib_size
+    scale = n_rows / n_pool
+    t = test_size * scale
+    n_test_total = n_pinned_test + test_size * n_rows
+    left_after_test = n_pool * (1.0 - t)
+    v = val_size * (n_rows - n_test_total) / left_after_test if left_after_test > 0 else 1.0
+    c = None if calib_size is None else calib_size * scale
+    if t + (c or 0.0) >= 1.0 or v >= 1.0:
+        logger.warning(
+            "Pinned split: the %d unpinned rows cannot hold test_size=%s, val_size=%s, calib_size=%s of all %d rows; those "
+            "fractions are applied to the unpinned rows instead.", n_pool, test_size, val_size, calib_size, n_rows,
+        )
+        return test_size, val_size, calib_size
+    logger.info(
+        "Pinned split: configured test/val/calib fractions %s/%s/%s of all %d rows are %.4f/%.4f/%s of the %d unpinned rows.",
+        test_size, val_size, calib_size, n_rows, t, v, "None" if c is None else f"{c:.4f}", n_pool,
+    )
+    return t, v, c
+
+
 def pinned_train_val_test_split(
     *,
     n_rows: int,
@@ -365,7 +395,7 @@ def pinned_train_val_test_split(
     details = {"train": "", "val": "", "test": "", "calib": ""}
     if len(pool) and (_test_sz > 0 or _val_sz > 0 or (_calib_sz or 0) > 0):
         _kw = dict(splitter_kwargs)
-        _kw.update(test_size=_test_sz, val_size=_val_sz, calib_size=_calib_sz)
+        _kw.update(zip(("test_size", "val_size", "calib_size"), _pool_relative_sizes(_test_sz, _val_sz, _calib_sz, n_rows=n_rows, n_pool=len(pool), n_pinned_test=int((labels == SPLIT_CODES["test"]).sum()))))
         _sub = lambda a: None if a is None else np.asarray(a)[pool]  # noqa: E731
         _tr, _va, _te, details["train"], details["val"], details["test"], _ca, details["calib"] = splitter(
             df=pd.DataFrame(index=pd.RangeIndex(len(pool))),

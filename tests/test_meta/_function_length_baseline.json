@@ -290,7 +290,7 @@
   "src/mlframe/training/core/_phase_dummy_baselines.py::run_dummy_baselines": 340,
   "src/mlframe/training/core/_phase_finalize.py::finalize_suite": 236,
   "src/mlframe/training/core/_phase_helpers.py::_phase_pandas_conversion_and_cat_prep": 247,
-  "src/mlframe/training/core/_phase_helpers_fit_pipeline.py::_phase_fit_pipeline": 672,
+  "src/mlframe/training/core/_phase_helpers_fit_pipeline.py::_phase_fit_pipeline": 668,
   "src/mlframe/training/core/_phase_helpers_fit_split.py::_phase_auto_detect_feature_types": 244,
   "src/mlframe/training/core/_phase_helpers_fit_split.py::_phase_train_val_test_split": 397,
   "src/mlframe/training/core/_phase_polars_fixes.py::apply_polars_categorical_fixes": 300,
