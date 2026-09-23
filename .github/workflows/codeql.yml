@@ -6,9 +6,16 @@ name: CodeQL
 # already wired in as blocking gates), free for public repos, near-zero maintenance once wired.
 
 on:
-  # TEMPORARY (audits/ci_review_2026-09-08/_TRACKER.md, X5): push trigger disabled while iterating
-  # on the macOS libomp/LightGBM crash fix -- ci.yml itself is macos-only for the same reason.
-  # Restore the push block once macOS is confirmed stable across a few consecutive pushes.
+  # With no pull requests opened here, the weekly schedule was this scan's only live trigger, so a
+  # finding introduced on a Thursday sat unseen until the following Wednesday. Ubuntu, no tests: the
+  # macOS abort that disabled it (X5) cannot reach this workflow.
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "audits/**"
+      - "LICENSE"
   pull_request:
     branches: [master]
   workflow_dispatch:

@@ -5,9 +5,11 @@ name: docs
 # source for the deploy job to publish. Extracted to fingoldo/py-ci-shared (2026-07-09).
 
 on:
-  # TEMPORARY (audits/ci_review_2026-09-08/_TRACKER.md, X5): push trigger disabled while iterating
-  # on the macOS libomp/LightGBM crash fix -- ci.yml itself is macos-only for the same reason.
-  # Restore the push block once macOS is confirmed stable across a few consecutive pushes.
+  # The push block is what DEPLOYS the site (the reusable workflow's deploy job is gated on the default
+  # branch), so without it the published documentation silently stopped updating -- the pull_request leg
+  # only validates a build. Ubuntu, no tests: the macOS abort that disabled it (X5) cannot reach it.
+  push:
+    branches: [master]
   pull_request:
     branches: [master]
   workflow_dispatch:

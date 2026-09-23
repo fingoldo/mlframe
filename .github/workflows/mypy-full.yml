@@ -13,9 +13,18 @@ name: MyPy
 # per-repo choice, never a hardcoded default).
 
 on:
-  # TEMPORARY (audits/ci_review_2026-09-08/_TRACKER.md, X5): push trigger disabled while iterating
-  # on the macOS libomp/LightGBM crash fix -- ci.yml itself is macos-only for the same reason.
-  # Restore the push block once macOS is confirmed stable across a few consecutive pushes.
+  # This repository pushes straight to master and opens no pull requests, so a `pull_request` trigger
+  # fires never: without the push block below this blocking gate had NO automatic trigger at all, and
+  # twelve whole-project errors reached master between 2026-09-11 and 2026-09-22 with nothing to catch
+  # them. It runs on ubuntu and runs no tests, so the macOS pytest abort that disabled it (X5) cannot
+  # reach it -- it was collateral in a sweep, not a decision about this workflow.
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "audits/**"
+      - "LICENSE"
   pull_request:
     branches: [master]
   workflow_dispatch:
