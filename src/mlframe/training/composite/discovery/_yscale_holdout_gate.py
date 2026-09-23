@@ -44,6 +44,7 @@ from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array, base_arg as _base_arg
 from ._causal_lag import is_causal_base_name
 from ._screening_tiny import _build_tiny_model
+from ._yscale_scoring import median_filled_with_std
 from ._rejection_ledger import RejectStage, ledger_append
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
 from ._rejection_ledger import spec_inverse
@@ -421,14 +422,14 @@ def apply_yscale_holdout_gate(
             ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
                           numbers={"n_finite": n_finite, "n_total": int(y_hat.size)}, **_led_kw)
             continue
-        pred_std = float(np.std(y_hat[finite]))
+        y_hat, pred_std = median_filled_with_std(y_hat, y_fit[valid])  # score what predict() ships, on every eval row
         if y_eval_std > 0 and pred_std < 1e-4 * y_eval_std:
             _r = f"collapsed (pred_std={pred_std:.3g} vs y_std={y_eval_std:.3g})"
             rejected.append((spec.name, _r, float("inf")))
             ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
                           numbers={"pred_std": pred_std, "y_eval_std": y_eval_std}, **_led_kw)
             continue
-        rmse_y = rmse(y_eval[finite], y_hat[finite])
+        rmse_y = rmse(y_eval, y_hat)
         if not np.isfinite(rmse_y) or rmse_y > threshold:
             _r = f"y-RMSE={rmse_y:.4g} > raw {raw_rmse:.4g} x {tol:.2f}"
             rejected.append((spec.name, _r, float(rmse_y)))

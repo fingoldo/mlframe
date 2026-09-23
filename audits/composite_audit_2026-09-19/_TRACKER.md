@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 27 | 0 | 3 | 0 | 0 |
+| `discovery.md` | 30 | 28 | 0 | 2 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 21 | 0 | 1 | 0 | 0 |
 | `suite_integration.md` | 19 | 18 | 0 | 1 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 14 | 20 | 7 | 0 | 0 |
-| **Total** | **179** | **126** | **31** | **21** | **1** | **0** |
+| **Total** | **179** | **127** | **31** | **20** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -66,7 +66,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `DSC-05` | `time_ordering` sorts only the MI screen; the CVs that claim to be forward-walks run on row-position order | fit stores the caller's time key on the instance and the new _fit_temporal.order_rows_by_time re-applies it where a consumer draws its own rows: the tiny rerank orders its sample before the TimeSeriesSplit, and the alpha-drift gate orders train_idx (and the cached base pool with it) so its halves are the time halves (test_time_ordering_reaches_consumers.py: a 1.0 -> 5.0 slope break scores z=3.92 ordered vs z=0.89 in row order, the latter under the 3.0 threshold, and the probe fails at origin/master) |
 | **RESOLVED** | P2 | `DSC-06` | The bin-MI `mi_gain` compares a de-duplicated `MI(T,X)` with a non-de-duplicated `MI(y,X)` | mi_y over the dedup-surviving columns |
 | **RESOLVED** | P2 | `DSC-07` | The tiny rerank ranks and gates on a mix of honest-holdout RMSE and optimistic in-group CV RMSE | unmeasured specs rescaled to the honest scale |
-| **TODO** | P2 | `DSC-08` | The y-scale gates score a spec on its finite rows only, while raw-y is scored on every row | |
+| **RESOLVED** | P2 | `DSC-08` | The y-scale gates score a spec on its finite rows only, while raw-y is scored on every row | every eval row scored, collapsed rows median-filled as predict fills them |
 | **RESOLVED** | P2 | `DSC-09` | Gate exceptions keep the spec (fail-open), and an all-NaN tiny-CV score passes the raw-baseline gate | gate evaluation errors / unregistered transforms reject with WARNING + ledger; non-finite tiny-CV scores rejected before the threshold |
 | **RESOLVED** | P2 | `DSC-10` | The WAIC tie-break compares log predictive densities of different target scales | WAIC tie-break only within additive-in-T bands |
 | **RESOLVED** | P2 | `DSC-11` | WAIC and auto-chain CVs use shuffled KFold, ignoring groups and time | splitter factory; WAIC + auto-chain CVs take groups/time |

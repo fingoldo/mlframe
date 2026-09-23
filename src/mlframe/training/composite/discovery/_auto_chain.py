@@ -71,6 +71,7 @@ from ..transforms.unary import (
 from ._lgb_fold_cache import LgbFoldCache
 from ._splitter import discovery_splits
 from ._screening_tiny import _build_tiny_model
+from ._yscale_scoring import median_filled_predictions
 from .screening import _mi_to_target
 
 logger = logging.getLogger(__name__)
@@ -294,7 +295,8 @@ def _y_scale_cv_rmse(
         except Exception as exc:
             logger.debug("y-scale CV fold failed for %s: %s", getattr(transform, "name", "raw"), exc)
             return float("inf"), valid_frac
-        ok = np.isfinite(y_hat) & np.isfinite(y_va)
+        y_hat = median_filled_predictions(y_hat, y_tr)  # the off-domain val rows stay in the score, median-filled as predict() fills them
+        ok = np.isfinite(y_va)
         if not ok.any():
             return float("inf"), valid_frac
         sse += float(np.sum((y_hat[ok] - y_va[ok]) ** 2))

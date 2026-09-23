@@ -35,6 +35,7 @@ from ..transforms import UnknownTransformError, get_transform
 from ._causal_lag import causal_lag_predict_rmse, detect_causal_lag_column
 from .screening import _extract_column_array, base_arg as _base_arg
 from ._screening_tiny import _build_tiny_model
+from ._yscale_scoring import median_filled_with_std
 
 logger = logging.getLogger(__name__)
 
@@ -216,10 +217,10 @@ def honest_oof_reconstruction_rmse(
         finite = np.isfinite(y_hat)
         if int(finite.sum()) < max(50, int(0.5 * y_hat.size)):
             return spec.name, float("inf")  # non-finite inverse -> genuine collapse
-        pred_std = float(np.std(y_hat[finite]))
+        y_hat, pred_std = median_filled_with_std(y_hat, y_fit)  # score what predict() ships, on every eval row
         if y_eval_std > 0 and pred_std < 1e-4 * y_eval_std:
             return spec.name, float("inf")  # collapsed to ~constant -> genuine collapse
-        rmse_y = rmse(y_eval[finite], y_hat[finite])
+        rmse_y = rmse(y_eval, y_hat)
         if not np.isfinite(rmse_y):
             return spec.name, float("inf")
         return spec.name, float(rmse_y)

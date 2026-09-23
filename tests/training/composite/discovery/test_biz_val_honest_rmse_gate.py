@@ -169,3 +169,52 @@ def test_honest_rmse_gate_drops_harmful_spec_directly():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-x", "-q", "--no-cov"])
+
+
+class _PartlyCollapsingTransform:
+    """A stand-in transform whose forward is the identity and whose inverse is NaN on a fixed 40% of the eval rows.
+
+    That is the unseen-base tail shape the y-scale gates exist to catch: perfect where it inverts, no prediction at all
+    where it does not. The estimator fills such a row with the train median, so a gate that drops the row instead is
+    scoring a predictor nobody deploys (DSC-08).
+    """
+
+    name = "partly_collapsing"
+    requires_base = True
+    requires_groups = False
+
+    def domain_check(self, y, base):
+        """Every row is in domain."""
+        return np.ones(np.asarray(y).shape, dtype=bool)
+
+    def fit(self, y, base, **kwargs):
+        """No parameters to fit."""
+        return {}
+
+    def forward(self, y, base, params):
+        """T is y itself, so the tiny model has an easy target."""
+        return np.asarray(y, dtype=np.float64)
+
+    def inverse(self, t, base, params):
+        """y is T, except on the rows whose base falls in the top 40%, where the inverse has no value to give."""
+        t = np.asarray(t, dtype=np.float64).copy()
+        b = np.asarray(base, dtype=np.float64).reshape(-1)
+        if b.size == t.size and b.size:
+            t[b >= np.quantile(b, 0.6)] = np.nan
+        return t
+
+
+def test_the_gate_scores_the_rows_a_partly_collapsing_inverse_cannot_reconstruct(monkeypatch):
+    """A spec that inverts 60% of the holdout perfectly and not at all on the rest must not pass on that 60%."""
+    from mlframe.training.composite.discovery import _honest_rmse_gate as gate_mod
+
+    df, y = _additive_dominant_frame(n=1500)
+    monkeypatch.setattr(gate_mod, "get_transform", lambda name: _PartlyCollapsingTransform())
+    spec = _dummy_spec()
+    object.__setattr__(spec, "transform_name", "partly_collapsing")
+    disc = CompositeTargetDiscovery(_mi_config())
+
+    out = apply_honest_rmse_gate(disc, df, "y", [spec], ["base", "x0", "x1"], np.arange(1000), np.arange(1000, 1500), y)
+    assert out == [], "the spec was scored on the rows it could invert and passed"
+    stages = {row["stage"] for row in disc.rejection_ledger}
+    assert "honest_rmse" in stages

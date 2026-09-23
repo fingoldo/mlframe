@@ -283,7 +283,7 @@ the constant ``min_honest_gain_to_train`` floor. 0 disables the noise-aware half
 def _relative_gain_se(spec: Any, raw_rmse: Optional[float]) -> float | None:
     """The spec's paired standard error of its honest RMSE gain, on the same relative-to-raw scale as the gain itself."""
     _gain_se = getattr(spec, "honest_holdout_rmse_gain_se", None)
-    return float(_gain_se) / float(raw_rmse) if (_gain_se is not None and raw_rmse) else None
+    return float(_gain_se) / float(raw_rmse) if (_gain_se is not None and raw_rmse is not None and raw_rmse != 0) else None
 
 
 def _drop_below_honest_gain_floor(pending: list[dict], composite_target_discovery_config: Any) -> list[dict]:

@@ -50,6 +50,7 @@ import numpy as np
 from ..estimator._smearing import N_SMEAR_QUANTILES, SMEARED_TRANSFORMS, smeared_inverse
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array
+from ._yscale_scoring import median_filled_with_std
 from ._rejection_ledger import RejectStage, ledger_append
 from .._row_roles import note_rows
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
@@ -281,14 +282,14 @@ def apply_honest_rmse_gate(
             ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
                           numbers={"n_finite": n_finite, "n_total": int(y_hat.size)}, **_led_kw)
             continue
-        pred_std = float(np.std(y_hat[finite]))
+        y_hat, pred_std = median_filled_with_std(y_hat, y_fit)  # score what predict() ships, on every eval row
         if y_eval_std > 0 and pred_std < 1e-4 * y_eval_std:
             _r = f"collapsed inverse (pred_std={pred_std:.3g} vs y_std={y_eval_std:.3g})"
             rejected.append((spec.name, _r))
             ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
                           numbers={"pred_std": pred_std, "y_eval_std": y_eval_std}, **_led_kw)
             continue
-        rmse_y = rmse(y_eval[finite], y_hat[finite])
+        rmse_y = rmse(y_eval, y_hat)
         if not np.isfinite(rmse_y) or rmse_y > threshold:
             _r = f"honest y-RMSE={rmse_y:.4g} > raw {raw_rmse:.4g} x {tol:.2f}"
             rejected.append((spec.name, _r))
@@ -298,7 +299,7 @@ def apply_honest_rmse_gate(
         if _no_better_than_constant(self, spec, rejected, rmse_y, const_rmse, _led_kw):
             continue
         # A reconstruction that duplicates the raw model ships a second model for nothing (see the helper).
-        _corr = _correlation_if_duplicate_of_raw(y_hat[finite], np.asarray(_raw_pred, dtype=np.float64)[finite], rmse_y, raw_rmse)
+        _corr = _correlation_if_duplicate_of_raw(y_hat, np.asarray(_raw_pred, dtype=np.float64), rmse_y, raw_rmse)
         if _corr is not None:
             _r = f"reconstruction duplicates the raw model (corr={_corr:.6f}, y-RMSE={rmse_y:.6g} vs raw {raw_rmse:.6g})"
             rejected.append((spec.name, _r))
@@ -308,7 +309,7 @@ def apply_honest_rmse_gate(
         object.__setattr__(spec, "honest_holdout_rmse", float(rmse_y))
         object.__setattr__(spec, "honest_holdout_raw_rmse", float(raw_rmse))
         object.__setattr__(spec, "honest_holdout_rmse_gain", float(raw_rmse - rmse_y))
-        object.__setattr__(spec, "honest_holdout_rmse_gain_se", _paired_rmse_gain_se(y_eval[finite], _raw_pred[finite], y_hat[finite], raw_rmse, float(rmse_y)))
+        object.__setattr__(spec, "honest_holdout_rmse_gain_se", _paired_rmse_gain_se(y_eval, _raw_pred, y_hat, raw_rmse, float(rmse_y)))
         survivors.append(spec)
 
     if rejected:
