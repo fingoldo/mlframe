@@ -631,7 +631,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low (same semantics as the existing Assign taint).
 - **Runtime**: unchanged.
 - **Repo**: py-ci-shared (the detector fix); mlframe (allowlist drain).
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - py-ci-shared source_text_claims taints an AugAssign target like a plain assignment (commit 9ea5fb4, unit test on the accumulate-then-assert shape), which made five previously invisible claims visible; they are recorded in _source_text_baseline.json. Both composite files left _ALLOWLIST: the njit-kernel wiring check is now a monkeypatched kernel whose substitute output has to reach the caller, and the shallow-copy check keeps only its np.shares_memory assertion
 
 ### PMT-41 [P3] Advisory scan for tests that pin a conceded defect
 - **Asserts**: a test whose docstring or adjacent comment concedes the behaviour is wrong or degenerate (`does not perfectly|degenerates|is inert|no-op|lossy|by design|not renormal|known (bug|defect)`) while asserting exact equality to that behaviour is listed for review. The list is advisory, a reading list rather than a gate, like `mutation_teeth` survivors. The companion convention: a deliberately pinned known defect lives in a test named `test_known_defect_<id>_*`, which the scan accepts and which `disposition_test_references` ties to an OPEN finding.
