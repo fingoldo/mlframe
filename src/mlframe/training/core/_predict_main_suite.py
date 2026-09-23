@@ -48,6 +48,70 @@ def _resolve_float_ensemble_flavour(metadata: Any) -> str:
     return "mean"
 
 
+from ._predict_pre_pipeline import take_extensions_soft_fail_taint
+
+
+def _load_suite_metadata(models_path: str, trusted_root: str | None, verbose: int) -> dict:
+    """The bundle's metadata, verified and unpickled, with its auto-chain transforms registered.
+
+    Carved out so the batched runner loads it ONCE: the batching dispatch recursed into this function per slice,
+    and each slice re-verified the sidecar, re-decompressed and re-unpickled the whole bundle. At the ~2.2s a rich
+    pipeline costs, a 10M-row predict at 500k rows per batch paid about 44 seconds of pure re-loading.
+    """
+    from .predict import _validate_metadata_version_envelope  # local: predict.py imports this module back
+
+    # Prefer pickle-proto5 + zstd; fall back to legacy metadata.joblib for older saves.
+    metadata_file_new = join(models_path, "metadata.pkl.zst")
+    metadata_file_uncompressed = join(models_path, "metadata.pkl")
+    metadata_file_legacy = join(models_path, "metadata.joblib")
+    if exists(metadata_file_new):
+        metadata_file = metadata_file_new
+        loader_kind = "pkl.zst"
+    elif exists(metadata_file_uncompressed):
+        metadata_file = metadata_file_uncompressed
+        loader_kind = "pkl"
+    elif exists(metadata_file_legacy):
+        metadata_file = metadata_file_legacy
+        loader_kind = "joblib"
+    else:
+        raise FileNotFoundError(f"Metadata file not found in {models_path}; expected one of " f"metadata.pkl.zst, metadata.pkl, metadata.joblib")
+
+    if verbose:
+        logger.info("Loading metadata from %s...", metadata_file)
+    _root = trusted_root if trusted_root is not None else os.path.abspath(models_path)
+    _validate_trusted_path(metadata_file, _root)
+    if loader_kind == "pkl.zst":
+        # ``pickle.loads`` on a zstd-decompressed in-memory buffer; the file path was
+        # ``_validate_trusted_path``-checked above. We additionally verify the sha256 sidecar so a
+        # tampered .pkl.zst is rejected before the loads(); legacy bundles without sidecar still
+        # load through the trusted-path + version-envelope gates.
+        from mlframe.utils.safe_pickle import verify_sidecar as _vsidecar
+        import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
+        import zstandard as _zstd
+        if not _vsidecar(metadata_file, allow_unverified=True):
+            raise RuntimeError(f"predict_mlframe_models_suite: sha256 sidecar mismatch on {metadata_file!r}; refusing to load.")
+        _dctx = _zstd.ZstdDecompressor()
+        with open(metadata_file, "rb") as _f:
+            metadata = _pickle.loads(_dctx.decompress(_f.read()))  # nosec B301 - BARE_PICKLE_OK: in-memory buffer, sidecar already verified above
+    elif loader_kind == "pkl":
+        from mlframe.utils.safe_pickle import safe_load as _sload
+        metadata = _sload(metadata_file, allow_unverified=True)
+    else:
+        metadata = joblib.load(metadata_file)
+    # validate the schema_version + composite_target_env_signature
+    # fields that the WRITE side has populated since 2026-02 (see
+    # _phase_config_setup.py:312 + _phase_helpers.py:253). The READ side never
+    # checked them, so an artifact written by code path A could be silently
+    # consumed by code path B that interprets the same field-set differently.
+    # Validation is WARN-only on minor skew (lib versions, schema_version 1
+    # vs 2) and HARD-FAIL on missing schema_version when the bundle claims
+    # composite targets (those require schema_version >= 2 semantics).
+    _validate_metadata_version_envelope(metadata, models_path)
+    # Auto-chain transforms live only in the training process's registry; rebuild them before any model is unpickled.
+    register_spec_transforms(metadata)
+    return metadata
+
+
 def predict_mlframe_models_suite(
     df: pl.DataFrame | pd.DataFrame,
     models_path: str,
@@ -59,6 +123,7 @@ def predict_mlframe_models_suite(
     predict_batch_rows: Optional[int] = None,
     # Fresh auxiliary events table for latent_interaction_svd replay -- see predict_from_models.
     auxiliary_events_df: pl.DataFrame | pd.DataFrame | None = None,
+    _preloaded_metadata: dict | None = None,
 ) -> dict[str, Any]:
     """
     Generate predictions using a trained mlframe models suite.
@@ -111,6 +176,7 @@ def predict_mlframe_models_suite(
         raise ValueError(f"models_path must be a valid directory, got: {models_path}")
 
     if predict_batch_rows is not None and predict_batch_rows > 0 and len(df) > predict_batch_rows:
+        _shared_metadata = _preloaded_metadata if _preloaded_metadata is not None else _load_suite_metadata(models_path, trusted_root, verbose)
         # Dispatch to the batched-runner; the batched-runner calls this same function recursively per slice
         # with predict_batch_rows=None so the legacy single-pass code path runs unchanged for each batch.
         return _run_batched(
@@ -123,6 +189,7 @@ def predict_mlframe_models_suite(
                 trusted_root=trusted_root,
                 predict_batch_rows=None,
                 auxiliary_events_df=auxiliary_events_df,  # an events TABLE (entity/time join), so each batch needs all of it
+                _preloaded_metadata=_shared_metadata,  # read-only here, so every batch shares one load
             ),
             df, predict_batch_rows,
         )
@@ -136,55 +203,7 @@ def predict_mlframe_models_suite(
         "input_df": None,
     }
 
-    # Prefer pickle-proto5 + zstd; fall back to legacy metadata.joblib for older saves.
-    metadata_file_new = join(models_path, "metadata.pkl.zst")
-    metadata_file_uncompressed = join(models_path, "metadata.pkl")
-    metadata_file_legacy = join(models_path, "metadata.joblib")
-    if exists(metadata_file_new):
-        metadata_file = metadata_file_new
-        loader_kind = "pkl.zst"
-    elif exists(metadata_file_uncompressed):
-        metadata_file = metadata_file_uncompressed
-        loader_kind = "pkl"
-    elif exists(metadata_file_legacy):
-        metadata_file = metadata_file_legacy
-        loader_kind = "joblib"
-    else:
-        raise FileNotFoundError(f"Metadata file not found in {models_path}; expected one of " f"metadata.pkl.zst, metadata.pkl, metadata.joblib")
-
-    if verbose:
-        logger.info("Loading metadata from %s...", metadata_file)
-    _root = trusted_root if trusted_root is not None else os.path.abspath(models_path)
-    _validate_trusted_path(metadata_file, _root)
-    if loader_kind == "pkl.zst":
-        # ``pickle.loads`` on a zstd-decompressed in-memory buffer; the file path was
-        # ``_validate_trusted_path``-checked above. We additionally verify the sha256 sidecar so a
-        # tampered .pkl.zst is rejected before the loads(); legacy bundles without sidecar still
-        # load through the trusted-path + version-envelope gates.
-        from mlframe.utils.safe_pickle import verify_sidecar as _vsidecar
-        import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
-        import zstandard as _zstd
-        if not _vsidecar(metadata_file, allow_unverified=True):
-            raise RuntimeError(f"predict_mlframe_models_suite: sha256 sidecar mismatch on {metadata_file!r}; refusing to load.")
-        _dctx = _zstd.ZstdDecompressor()
-        with open(metadata_file, "rb") as _f:
-            metadata = _pickle.loads(_dctx.decompress(_f.read()))  # nosec B301 - BARE_PICKLE_OK: in-memory buffer, sidecar already verified above
-    elif loader_kind == "pkl":
-        from mlframe.utils.safe_pickle import safe_load as _sload
-        metadata = _sload(metadata_file, allow_unverified=True)
-    else:
-        metadata = joblib.load(metadata_file)
-    # validate the schema_version + composite_target_env_signature
-    # fields that the WRITE side has populated since 2026-02 (see
-    # _phase_config_setup.py:312 + _phase_helpers.py:253). The READ side never
-    # checked them, so an artifact written by code path A could be silently
-    # consumed by code path B that interprets the same field-set differently.
-    # Validation is WARN-only on minor skew (lib versions, schema_version 1
-    # vs 2) and HARD-FAIL on missing schema_version when the bundle claims
-    # composite targets (those require schema_version >= 2 semantics).
-    _validate_metadata_version_envelope(metadata, models_path)
-    # Auto-chain transforms live only in the training process's registry; rebuild them before any model is unpickled.
-    register_spec_transforms(metadata)
+    metadata = _preloaded_metadata if _preloaded_metadata is not None else _load_suite_metadata(models_path, trusted_root, verbose)
     results["metadata"] = metadata
 
     pipeline = metadata.get("pipeline")
@@ -626,6 +645,12 @@ def predict_mlframe_models_suite(
         logger.info("Generated predictions for %d models", len(results["predictions"]))
 
     _raise_if_every_model_failed(results, len(model_files), _predict_errors, models_path)
+
+    # A predict served on RAW columns under MLFRAME_EXTENSIONS_SOFT_FAIL leaves the taint in the result, so a consumer
+    # of these numbers can see it without reading the process log.
+    _soft_fail = take_extensions_soft_fail_taint()
+    if _soft_fail:
+        results["extensions_soft_fail"] = _soft_fail
 
     return results
 

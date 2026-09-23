@@ -236,6 +236,22 @@ def _frame_has_non_finite(X) -> bool:
         return False
 
 
+def _frame_is_all_numeric(X) -> bool:
+    """Whether every column of ``X`` is numeric, i.e. whether the imputer/scaler path can process it at all."""
+    try:
+        pl_df = _pl_DataFrame()  # before the pandas branch: a polars frame also has .dtypes / .columns
+        if pl_df is not None and isinstance(X, pl_df):
+            return all(_d.is_numeric() for _d in X.schema.values())
+        if hasattr(X, "dtypes") and hasattr(X, "columns"):  # pandas
+            import pandas as pd
+
+            return all(pd.api.types.is_numeric_dtype(_d) for _d in X.dtypes)
+        return bool(np.issubdtype(np.asarray(X).dtype, np.number))
+    except Exception as e:  # unknown container: leave the existing paths to decide
+        logger.debug("all-numeric probe failed: %s", e)
+        return True
+
+
 def _apply_nan_guard(
     model: Any, X: Any, fn: Callable, n_rows: int | None,
     *, fit_at_predict: bool = False,
@@ -302,6 +318,17 @@ def _apply_nan_guard(
 
     if not _has_nan:
         return np.asarray(fn(X))  # Let the real error surface
+
+    if not _frame_is_all_numeric(X):
+        # Nothing here can repair a frame with a non-numeric column: the imputer and scaler are numeric-only, and
+        # priming on it fails with "could not convert string to float". Say so once and let the model's own error
+        # surface, rather than reporting a missing-priming problem for a frame that could not be primed either.
+        logger.warning(
+            "[NaN-guard] %s: X has NaN and a non-numeric column, which the imputer/scaler cannot repair; passing the "
+            "frame through so the model's own error surfaces. Encode or drop the non-numeric columns before predict.",
+            type(model).__name__,
+        )
+        return np.asarray(fn(X))
 
     # Persisted imputer/scaler shortcut -- transform-only, no leakage.
     _persisted_imp = getattr(model, "_mlframe_nan_imputer", None)

@@ -25,13 +25,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `feature_selection.md` | 21 | 3 | 0 | 18 | 0 | 0 |
 | `feature_engineering.md` | 14 | 2 | 0 | 12 | 0 | 0 |
 | `metrics.md` | 18 | 15 | 1 | 0 | 2 | 0 |
-| `predict_persistence.md` | 18 | 13 | 0 | 5 | 0 | 0 |
+| `predict_persistence.md` | 18 | 18 | 0 | 0 | 0 | 0 |
 | `ensembling_models.md` | 14 | 14 | 0 | 0 | 0 | 0 |
 | `evaluation_reporting.md` | 16 | 3 | 0 | 13 | 0 | 0 |
 | `performance.md` | 7 | 3 | 0 | 4 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 1 | 0 | 11 | 0 | 0 |
 | `config_contracts.md` | 32 | 4 | 0 | 27 | 0 | 1 |
-| **Total** | **165** | **59** | **1** | **101** | **2** | **2** |
+| **Total** | **165** | **64** | **1** | **96** | **2** | **2** |
 
 ## Per-report status
 

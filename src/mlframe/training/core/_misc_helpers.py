@@ -304,6 +304,29 @@ def _detect_dataset_reuse_capabilities() -> dict[str, bool]:
     return caps
 
 
+def _raise_if_a_model_reads_a_missing_column(missing_cols, metadata: dict) -> None:
+    """Fail when a column absent from the serving frame appears in some model's own recorded input schema.
+
+    Such a column is read directly: on a model with no fitted feature names, which reaches a positional predict, its
+    absence shifts every later feature into the wrong slot and the run returns plausible numbers. A WARN was the only
+    signal. Columns the PIPELINE creates are post-pipeline names, absent from the serving frame by construction, and
+    never intersect the missing set.
+    """
+    needed_by = {
+        name: sorted(m for m, rec in (metadata.get("model_schemas") or {}).items()
+                     if any(e.get("name") == name for e in (rec.get("input_schema") or [])))
+        for name in sorted(missing_cols)
+    }
+    needed_by = {name: models for name, models in needed_by.items() if models}
+    if needed_by:
+        raise ValueError(
+            f"Input DataFrame is missing {len(needed_by)} column(s) that trained models read directly: "
+            + "; ".join(f"{name} (used by {', '.join(models)})" for name, models in needed_by.items())
+            + ". Predicting without them feeds every model that has no fitted feature names a shifted column layout. "
+            "Restore the upstream extraction that produced them, or retrain on the current feature set."
+        )
+
+
 def _validate_input_columns_against_metadata(
     df,
     metadata: dict[str, Any],
@@ -311,7 +334,7 @@ def _validate_input_columns_against_metadata(
 ):
     """Validate inference-time DataFrame columns against model metadata.
 
-    Missing cat/text/embedding features raise ValueError (cannot be safely dropped); other missing columns WARN + proceed;
+    Missing cat/text/embedding features raise ValueError (cannot be safely dropped), as does a column some model reads directly (see ``_raise_if_a_model_reads_a_missing_column``); other missing columns WARN + proceed;
     extra columns are dropped (logged when verbose). Returns the possibly-filtered df.
 
     Key resolution order (post-fix SKEW-COL-ORDER): prefers the explicit ``metadata["raw_input_columns"]``
@@ -371,10 +394,7 @@ def _validate_input_columns_against_metadata(
     extra_cols = set(df.columns) - set(columns)
 
     if missing_cols:
-        meta_cat = set(metadata.get("cat_features") or [])
-        meta_text = set(metadata.get("text_features") or [])
-        meta_emb = set(metadata.get("embedding_features") or [])
-        critical_missing = missing_cols & (meta_cat | meta_text | meta_emb)
+        critical_missing = missing_cols & {_c for _k in ("cat_features", "text_features", "embedding_features") for _c in (metadata.get(_k) or [])}
         if critical_missing:
             raise ValueError(
                 f"Input DataFrame is missing {len(critical_missing)} "
@@ -386,6 +406,7 @@ def _validate_input_columns_against_metadata(
                 f"produced these columns, or retrain the model on the "
                 f"current feature set."
             )
+        _raise_if_a_model_reads_a_missing_column(missing_cols, metadata)  # a column a model reads directly is not survivable
         logger.warning(
             "Missing columns in input: %s. The pipeline will attempt " "to proceed -- downstream errors about shape mismatches " "usually trace back here.",
             sorted(missing_cols),

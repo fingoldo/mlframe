@@ -24,6 +24,26 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.training.core.predict")
 
 
+EXTENSIONS_SOFT_FAIL_TAINT: list = []
+
+
+def record_extensions_soft_fail(reason: str) -> None:
+    """Record that a predict served the RAW frame under ``MLFRAME_EXTENSIONS_SOFT_FAIL``.
+
+    The variable is a debugging escape hatch, and one left set in a serving environment turns every extensions failure
+    into silently wrong predictions instead of an outage. Each occurrence is kept here so the predict result carries
+    the taint out with it (``results["extensions_soft_fail"]``), rather than the log line being the only evidence.
+    """
+    EXTENSIONS_SOFT_FAIL_TAINT.append(reason)
+
+
+def take_extensions_soft_fail_taint() -> list:
+    """The soft-fail reasons recorded since the last call, clearing them so the next predict starts clean."""
+    taint = list(EXTENSIONS_SOFT_FAIL_TAINT)
+    EXTENSIONS_SOFT_FAIL_TAINT.clear()
+    return taint
+
+
 def _extension_output_names(ext_pipeline, n_out: int) -> list:
     """The column names the fitted extension pipeline produced at fit time, for its ``n_out``-wide predict output.
 
@@ -146,6 +166,7 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
         # Hard-fail: returning the raw frame here would silently serve predictions on un-transformed columns (the model was trained on the post-extension feature space), producing wrong outputs with no error. Re-raise so the caller sees the failure instead of getting nonsense predictions. Soft-fail is gated behind the explicit MLFRAME_EXTENSIONS_SOFT_FAIL escape hatch, defaulting OFF.
         if os.environ.get("MLFRAME_EXTENSIONS_SOFT_FAIL", "").lower() in ("1", "true", "yes"):
             logger.error("[extensions_pipeline] transform failed: %s. MLFRAME_EXTENSIONS_SOFT_FAIL is set -> returning RAW frame; downstream model will see un-transformed columns and almost certainly produce nonsense.", _exc)
+            record_extensions_soft_fail(str(_exc))
             return df
         raise RuntimeError(
             f"[extensions_pipeline] transform failed at predict time: {_exc}. "

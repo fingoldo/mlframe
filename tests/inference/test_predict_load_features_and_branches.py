@@ -179,13 +179,19 @@ def test_read_feature_match_loads_catboost_model(tmp_path, X):
     assert list(Xo.columns) == ["a", "b"]
 
 
-def test_read_no_feature_names_attribute_warns_but_still_loads(tmp_path, X, caplog):
-    """Read no feature names attribute warns but still loads."""
+def test_read_no_feature_names_attribute_is_skipped_unless_allowed(tmp_path, X, caplog):
+    """A model exposing no fitted feature names cannot be checked against the contract, so it is skipped by default.
+
+    "Cannot validate" is not evidence of a match: such a model is fed positionally, and a reordered or renamed column
+    scores against the wrong slot with nothing to catch it. A caller who knowingly serves one opts in.
+    """
     infer = _make_featureset(tmp_path, "fscb3", ["a", "b"], "model.pkl", None, model_cls=DummyNoFeatureNamesModel)
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("ERROR"):
         models, Xo = read_trained_models("fscb3", X, inference_folder=infer)
-    assert list(models.keys()) == ["model"]
+    assert models == {}
     assert any("exposes neither" in r.message for r in caplog.records)
+    models, Xo = read_trained_models("fscb3", X, inference_folder=infer, allow_unvalidatable_models=True)
+    assert list(models.keys()) == ["model"]
     assert list(Xo.columns) == ["a", "b"]
 
 
@@ -209,11 +215,12 @@ def test_read_disallowed_extension_skipped_but_allowed_when_whitelisted(tmp_path
     assert list(models2.keys()) == ["model"]
 
 
-def test_read_features_file_absent_falls_back_to_X_columns(tmp_path, X):
-    """Read features file absent falls back to X columns."""
+def test_read_features_file_absent_raises_unless_the_caller_opts_in(tmp_path, X):
+    """Without a features sidecar the serving contract would be whatever frame the caller passed, so it must be asked for."""
     infer = _make_featureset(tmp_path, "fs4", None, "model.pkl", ["a", "b"])
-    models, Xo = read_trained_models("fs4", X, inference_folder=infer)
-    # No features sidecar -> features taken from X.columns; the matching model still loads.
+    with pytest.raises(ValueError, match="no features file"):
+        read_trained_models("fs4", X, inference_folder=infer)
+    models, Xo = read_trained_models("fs4", X, inference_folder=infer, allow_inferred_features=True)
     assert list(models.keys()) == ["model"]
     assert list(Xo.columns) == ["a", "b"]
 
@@ -246,7 +253,8 @@ class _Reg:
 
 def test_raw_predictions_binary_multiclass_and_regressor(X):
     """Raw predictions binary multiclass and regressor."""
-    preds = get_models_raw_predictions({"bin": _BinClf(), "multi": _MultiClf(), "reg": _Reg()}, X, None)
+    # These stubs expose no fitted feature names, which is exactly what the guard refuses by default.
+    preds = get_models_raw_predictions({"bin": _BinClf(), "multi": _MultiClf(), "reg": _Reg()}, X, None, allow_unvalidatable_models=True)
     # Binary -> positive-class column only.
     assert preds["bin"].shape == (3,)
     np.testing.assert_allclose(preds["bin"], 0.7)

@@ -168,5 +168,7 @@ def test_read_trained_models_uses_safe_joblib_load(tmp_path: Path, monkeypatch):
     _write_sidecar(model_path)
 
     X = pd.DataFrame({"a": [1.0], "b": [2.0]})
-    models, _ = read_trained_models(featureset, X, inference_folder=str(tmp_path / "infer"))
+    # This fixture writes no features sidecar, which the loader refuses by default (the contract would be whatever the
+    # caller passed); the payload allowlist is what is under test here, so take the caller's columns explicitly.
+    models, _ = read_trained_models(featureset, X, inference_folder=str(tmp_path / "infer"), allow_inferred_features=True)
     assert models == {}, "a model whose pickle payload is blocked by the allowlist must not appear in the loaded models dict"

@@ -27,6 +27,7 @@ def test_rotated_weights_keep_the_same_columns_and_magnitudes() -> None:
     per_class = rotate_weights({"a": 1.0, "b": 0.5, "c": 0.25}, n_classes=3)
 
     assert per_class[0] == {}, "the first class is the reference and must carry no weights of its own"
+    assert per_class[1:]
     for weights in per_class[1:]:
         assert set(weights) == {"a", "b", "c"}
         assert sorted(weights.values()) == [0.25, 0.5, 1.0]
