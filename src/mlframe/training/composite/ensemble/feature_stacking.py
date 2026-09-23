@@ -10,11 +10,12 @@ import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 
+from .._frame_ops import append_column
+
 logger = logging.getLogger(__name__)
 
-# Byte-size threshold above which a full pandas-frame copy is flagged as an
-# OOM risk (the polars path is zero-copy). 2 GB mirrors the suite-wide
-# eager-conversion gate documented in CLAUDE.md.
+# Kept for callers that still pass ``allow_large_frame_copy``: appending through ``append_column`` shares the existing
+# columns on every supported pandas, so there is no large-frame copy left to gate.
 _FEATURE_STACK_LARGE_FRAME_BYTES: int = 2 * 1024**3
 
 
@@ -50,7 +51,7 @@ def composite_predictions_as_feature(
     fallback_value
         When the wrapper's ``predict`` raises (e.g. missing base column), fill the new column with this value instead of propagating the exception. ``None`` (default) re-raises so callers see the failure.
     allow_large_frame_copy
-        Must be explicitly ``True`` to append onto a pandas frame larger than the large-frame threshold (pandas has no zero-copy column add, so appending doubles peak RAM). Default ``False`` raises ``RuntimeError`` above the threshold instead of silently copying; pass a polars frame for the zero-copy path, or set this flag once the caller has confirmed the host has headroom.
+        Accepted and ignored. The append shares the source frame's columns instead of copying them, so no frame size needs the caller's permission.
 
     Returns
     -------
@@ -76,42 +77,8 @@ def composite_predictions_as_feature(
         )
         n = len(df)
         preds = np.full(n, float(fallback_value), dtype=np.float64)
-    try:
-        import polars as pl
-        _is_polars = isinstance(df, pl.DataFrame)
-    except ImportError:
-        pl = None  # type: ignore[assignment]
-        _is_polars = False
-    if _is_polars:
-        return df.with_columns(pl.Series(name=column_name, values=preds))
-    if isinstance(df, pd.DataFrame):
-        # pandas has no zero-copy column append, so ``df.copy()`` doubles peak
-        # RAM. That is fine on the small frames this opt-in stacking helper
-        # typically sees, but on a multi-GB frame it is a silent OOM risk --
-        # warn so the caller can switch to the polars zero-copy path.
-        try:
-            _sz = int(df.memory_usage(index=False, deep=False).sum())
-        except Exception as e:  # best-effort: only a size warning is skipped
-            logger.debug("memory_usage() failed, skipping large-frame warning: %s", e)
-            _sz = 0
-        if _sz > _FEATURE_STACK_LARGE_FRAME_BYTES:
-            if not allow_large_frame_copy:
-                raise RuntimeError(
-                    f"composite_predictions_as_feature: appending '{column_name}' requires a full copy of a "
-                    f"{_sz / 1024 ** 3:.1f} GB pandas frame (pandas has no zero-copy column add), which would double "
-                    "peak RAM. Pass a polars frame for the zero-copy with_columns path, or set "
-                    "allow_large_frame_copy=True to accept the doubled RAM cost."
-                )
-            logger.warning(
-                "composite_predictions_as_feature: appending '%s' requires a "
-                "full copy of a %.1f GB pandas frame (pandas has no zero-copy "
-                "column add) -- this doubles peak RAM. Pass a polars frame for "
-                "the zero-copy with_columns path on large data.",
-                column_name, _sz / 1024 ** 3,
-            )
-        out = df.copy()
-        out[column_name] = preds
-        return out
+    if isinstance(df, (pd.DataFrame,)) or type(df).__module__.startswith("polars"):
+        return append_column(df, column_name, preds)
     raise TypeError(f"composite_predictions_as_feature: unsupported df type {type(df).__name__}; pass pandas / polars DataFrame.")
 
 

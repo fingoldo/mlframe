@@ -7,15 +7,11 @@ import logging
 from typing import Any, Dict, List
 
 import numpy as np
-import pandas as pd
-import polars as pl
 
+from ..composite._frame_ops import append_column
 from ..composite.cache import ConfigSignatureV1, compute_config_signature_v1
 
 logger = logging.getLogger(__name__)
-
-_CONCAT_NO_COPY: Dict[str, Any] = {} if int(pd.__version__.split(".")[0]) >= 3 else {"copy": False}
-"""``pd.concat`` keywords that avoid copying the frame: ``copy=False`` before pandas 3, nothing on 3+ (copy-on-write)."""
 
 
 def _render_composite_discovery_diagnostics(
@@ -103,33 +99,12 @@ def _render_composite_discovery_diagnostics(
 def _build_disc_df_for_target(filtered_train_df, target_name: str, y_train_aligned):
     """Build a per-target discovery frame that injects ``target_name`` WITHOUT mutating the caller's ``filtered_train_df``.
 
-    Pandas ``DataFrame.copy(deep=False)`` shares the underlying BlockManager with the source; a subsequent
-    ``out[target_name] = arr`` setitem can promote and mutate the SHARED block depending on the existing dtype layout,
-    causing the target column to intermittently appear on the caller's ``filtered_train_df`` post-loop. The per-target
-    discovery loop then accumulates leakage: target_A injected for the first iter shows up as a feature when target_B is
-    processed next. ``DataFrame.assign`` always builds a fresh BlockManager so the source is guaranteed untouched, at the
-    same memory cost as ``copy(deep=False)+setitem`` would have paid on the new column anyway.
-
-    Polars ``with_columns`` is naturally immutable and returns a fresh frame, so no special handling is needed there.
+    A shallow ``copy(deep=False)`` + setitem can promote and mutate the SHARED block depending on the dtype layout, so the
+    injected target intermittently appeared on the caller's frame and leaked into the next target's iteration as a feature.
+    ``append_column`` builds a new frame whose existing columns are the source's buffers: the caller is untouched and the
+    loop pays no per-target frame copy (this runs once per regression target).
     """
-    if isinstance(filtered_train_df, pd.DataFrame):
-        # concat(axis=1) builds a fresh BlockManager (so the caller's frame
-        # is NOT mutated -- same immutability guarantee as the prior
-        # ``.assign``) while attaching the target as a single consolidated
-        # block. On the wide, upstream-fragmented discovery frame this also
-        # silences pandas' "highly fragmented" PerformanceWarning that
-        # per-column ``.assign``/insert triggers.
-        target_series = pd.Series(
-            y_train_aligned, index=filtered_train_df.index, name=target_name,
-        )
-        # Under pandas 1.5-2.x (no copy-on-write) a list-column selection materialises the whole frame and concat's default
-        # copy=True copies it again: up to two transient train-frame copies per target just to attach y. Skip the selection
-        # when the target is not already a column (the usual case) and ask concat not to copy; the result is still a new
-        # frame, so the caller's is untouched, and discovery only reads it. pandas 3 is zero-copy here and deprecates the
-        # ``copy`` keyword, so it is passed only on older versions.
-        base = filtered_train_df.drop(columns=[target_name]) if target_name in filtered_train_df.columns else filtered_train_df
-        return pd.concat([base, target_series], axis=1, **_CONCAT_NO_COPY)
-    return filtered_train_df.with_columns(pl.Series(target_name, y_train_aligned))
+    return append_column(filtered_train_df, target_name, np.asarray(y_train_aligned))
 
 
 def _discovery_config_signature(config: Any) -> ConfigSignatureV1:
