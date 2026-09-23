@@ -20,9 +20,9 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `estimator_ensemble.md` | 22 | 21 | 0 | 1 | 0 | 0 |
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
+| `tests.md` | 17 | 8 | 2 | 7 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 19 | 20 | 2 | 0 | 0 |
-| **Total** | **179** | **135** | **31** | **12** | **1** | **0** |
+| **Total** | **179** | **136** | **32** | **10** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -189,8 +189,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `TST-13` | Data-dependent skips and conditional asserts let tests pass without checking anything | seeded skips pinned as preconditions; integration asserts measured; no_xdist tests now run on -n 1 CI shards |
 | **TODO** | P2 | `TST-14` | The selection-gate modules with the most leverage have no direct tests, and the cache-key tests check only the key function's own arguments | |
 | **TODO** | P2 | `TST-15` | Composite tests check the CTE-raw-X routing by inspecting source text, and the behavioural half fits the inner on raw features, so it cannot see EST-01 | |
-| **TODO** | P3 | `TST-16` | Timing-based asserts in the composite suite can flake on the shared host | |
-| **TODO** | P3 | `TST-17` | The composite integration tests run eight independent full-suite trainings for loose assertions, and the recorded durations are contaminated | |
+| **RESOLVED** | P3 | `TST-16` | Timing-based asserts in the composite suite can flake on the shared host | njit sentinel interleaved best-of-N; HPO ROI asserted in folds, not seconds |
+| **PARTIAL** | P3 | `TST-17` | The composite integration tests run eight independent full-suite trainings for loose assertions, and the recorded durations are contaminated | eight trainings down to three, 620 s to 45 s; .test_durations regeneration belongs to a quiet CI run |
 
 ### `preventive_meta_tests.md`
 

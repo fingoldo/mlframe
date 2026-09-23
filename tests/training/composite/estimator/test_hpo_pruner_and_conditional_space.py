@@ -232,14 +232,15 @@ def test_biz_val_pruning_stats_reports_positive_wallclock_saved():
     assert stats.n_trials_completed > 0
     assert stats.n_trials_completed + stats.n_trials_pruned == n_trials
     assert stats.median_completed_trial_seconds > 0.0
-    # 5% of a single completed trial's typical cost is a conservative floor -- this is a real, material saving,
-    # not floating-point noise in the timer.
-    assert stats.estimated_wallclock_saved_seconds > 0.05 * stats.median_completed_trial_seconds, (
-        f"expected a materially positive wallclock saving, got "
-        f"{stats.estimated_wallclock_saved_seconds:.4f}s vs. median completed trial "
-        f"{stats.median_completed_trial_seconds:.4f}s ({stats.n_trials_pruned} pruned)"
+    # The saving is asserted in FOLDS, not in seconds: these fits are sub-second, so a seconds ratio measures the host's
+    # load as much as the pruner's effect, and one stall on a shared box turned a real saving into a red.
+    assert stats.median_completed_trial_folds >= 2.0, stats
+    assert stats.estimated_fold_evaluations_saved >= 1.0, (
+        f"a pruned trial must skip at least one CV fold, got {stats.estimated_fold_evaluations_saved} "
+        f"against a median completed trial of {stats.median_completed_trial_folds} folds ({stats.n_trials_pruned} pruned)"
     )
     assert stats.total_pruned_elapsed_seconds >= 0.0
+    assert stats.estimated_wallclock_saved_seconds >= 0.0
 
 
 # ---------------------------------------------------------------------------
