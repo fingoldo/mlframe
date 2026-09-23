@@ -32,7 +32,7 @@ DEFAULT_ON_MECHANISMS: dict[str, str] = {
     "soft_base_shrink": "tests/training/composite/estimator/test_biz_val_soft_base_shrink.py::test_per_row_flag_is_exact",
     # Discovery config, discovery fit.
     "interaction_base_discovery_enabled": "tests/training/composite/discovery/test_biz_val_discovery_default_on_steps.py::test_biz_val_interaction_base_default_on_fires_on_pure_interaction",
-    "auto_chain_discovery_enabled": "tests/training/composite/discovery/test_biz_val_discovery_default_on_steps.py::test_biz_val_auto_chain_default_on_appends_chain_specs",
+    "auto_chain_discovery_enabled": "tests/training/composite/discovery/test_biz_val_discovery_default_on_steps.py::test_biz_val_auto_chain_default_on_ships_a_chain_spec",
     "multi_base_enabled": "tests/training/composite/transforms/test_composite_multi_base_integration.py::test_default_on_promotes_spec_on_two_base_dgp",
     "transform_waic_validation_enabled": "tests/training/composite/discovery/test_biz_val_discovery_waic_validation.py::test_waic_scores_populated_only_when_flag_enabled",
     "yscale_holdout_gate_enabled": "tests/training/composite/discovery/test_biz_val_discovery_yscale_holdout_gate.py::test_biz_val_yscale_gate_drops_collapsing_high_alpha_spec",

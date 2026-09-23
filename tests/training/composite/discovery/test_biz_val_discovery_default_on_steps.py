@@ -92,13 +92,14 @@ def test_biz_val_interaction_base_default_on_fires_on_pure_interaction():
         assert np.asarray(arr).ndim == 1
 
 
-def test_biz_val_auto_chain_default_on_appends_chain_specs():
-    """auto_chain default-ON -> >=1 chain on a heavy cube-residual AR base.
+def test_biz_val_auto_chain_default_on_ships_a_chain_spec():
+    """auto_chain default-ON -> a chain ships on a heavy cube-residual AR base, from the pool or from the search.
 
-    ``y = 0.9*base + z + 0.05*z**3`` leaves a heavy residual tail a
-    residual x tail-unary chain compresses, so the auto-chain step must surface
-    >=1 chain (auto_chains_ non-empty AND a chain_* spec appended to specs_).
-    Empty here = silent no-op (default off / gate too strict) -> FAIL.
+    ``y = 0.9*base + z + 0.05*z**3`` leaves a heavy residual tail that a residual x tail-unary chain compresses, so a
+    ``chain_*`` spec has to ship. Which half of the machinery produces it depends on the pool: the default ``transforms``
+    already carries ``chain_linres_cbrt`` and its three siblings, and the auto-chain search no longer re-proposes a
+    composition the screen is evaluating under its own name (that was one transform fitted twice under two names). What
+    must never happen is a target like this shipping no chain at all.
     """
     rng = np.random.default_rng(0)
     n = 2000
@@ -109,9 +110,10 @@ def test_biz_val_auto_chain_default_on_appends_chain_specs():
     y = 0.9 * base + z + 0.05 * z**3 + rng.normal(scale=0.3, size=n)
     df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
     disc = _fit(df, ["base", "x1", "x2"])
-    assert disc.auto_chains_, "auto-chain default-ON surfaced ZERO chains on a heavy cube-residual target (silent no-op)"
     chain_specs = [s for s in disc.specs_ if s.transform_name.startswith("chain_")]
-    assert chain_specs, "auto_chains_ populated but no chain_* spec appended to specs_"
+    assert chain_specs, "a heavy cube-residual target shipped no chain spec at all (the step silently no-oped)"
+    for c in disc.auto_chains_:
+        assert c.chain_name not in {"chain_linres_cbrt", "chain_linres_yj", "chain_monres_cbrt", "chain_monres_yj"}
     from mlframe.training.composite.transforms import get_transform
 
     for s in chain_specs:

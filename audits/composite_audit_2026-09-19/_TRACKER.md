@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 29 | 0 | 1 | 0 | 0 |
+| `discovery.md` | 30 | 30 | 0 | 0 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 21 | 0 | 1 | 0 | 0 |
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 19 | 20 | 2 | 0 | 0 |
-| **Total** | **179** | **134** | **31** | **13** | **1** | **0** |
+| **Total** | **179** | **135** | **31** | **12** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -78,7 +78,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `DSC-17` | The cross-target composite budget sorts three incompatible gain units together | budget ranks RMSE-gain tier before MI tier |
 | **RESOLVED** | P2 | `DSC-18` | The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection | composite-vs-raw verdict on test; val shown for reference; cross-split refuses a verdict |
 | **RESOLVED** | P2 | `DSC-19` | The group-disjoint honest-holdout carve can hold out most of the training rows | holdout within +/-25% or iid fallback |
-| **TODO** | P3 | `DSC-20` | Auto-chain proposals are not required to beat raw y, and duplicate the hard-coded default chains | |
+| **RESOLVED** | P3 | `DSC-20` | Auto-chain proposals are not required to beat raw y, and duplicate the hard-coded default chains | must beat raw by a relative margin; chain_stages dedups against the pool's own chains |
 | **RESOLVED** | P3 | `DSC-21` | The raw-y baseline and the per-spec CV can use different splitters | one fold scheme per rerank |
 | **RESOLVED** | P3 | `DSC-22` | `_group_ids_for_rerank` is read under two alignment conventions | frame-aligned contract; short array raises |
 | **RESOLVED** | P3 | `DSC-23` | Report reasons misattribute specs dropped by the late gates | the report reason is the spec's own ledger stage |

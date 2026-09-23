@@ -491,7 +491,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     # Chain transforms: bivariate residual + unary tail compression, composed by the chain factory above.
     "chain_linres_cbrt": _make_chain_transform(
-        name="chain_linres_cbrt", short_name="linres+cbrt",
+        name="chain_linres_cbrt", chain_stages=("linear_residual", "cbrt"), short_name="linres+cbrt",
         bivariate_fit=_linear_residual_fit,
         bivariate_forward=_linear_residual_forward,
         bivariate_inverse=_linear_residual_inverse,
@@ -508,7 +508,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         ),
     ),
     "chain_linres_yj": _make_chain_transform(
-        name="chain_linres_yj", short_name="linres+yj",
+        name="chain_linres_yj", chain_stages=("linear_residual", "yj"), short_name="linres+yj",
         scale_equivariant=False,
         bivariate_fit=_linear_residual_fit,
         bivariate_forward=_linear_residual_forward,
@@ -523,7 +523,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         ),
     ),
     "chain_monres_cbrt": _make_chain_transform(
-        name="chain_monres_cbrt", short_name="monres+cbrt",
+        name="chain_monres_cbrt", chain_stages=("monotonic_residual", "cbrt"), short_name="monres+cbrt",
         bivariate_fit=_monotonic_residual_fit,
         bivariate_forward=_monotonic_residual_forward,
         bivariate_inverse=_monotonic_residual_inverse,
@@ -536,7 +536,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         ),
     ),
     "chain_monres_yj": _make_chain_transform(
-        name="chain_monres_yj", short_name="monres+yj",
+        name="chain_monres_yj", chain_stages=("monotonic_residual", "yj"), short_name="monres+yj",
         scale_equivariant=False,
         bivariate_fit=_monotonic_residual_fit,
         bivariate_forward=_monotonic_residual_forward,

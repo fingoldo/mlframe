@@ -142,6 +142,23 @@ def _short(residual_name: str, unary_name: str) -> str:
     return f"{res_frag}+{unary_name}"
 
 
+_MIN_RELATIVE_MARGIN: float = 0.01
+"""How much better than the raw-y baseline and the better single stage a chain has to be to be worth a model-zoo fit."""
+
+
+def _registry_equivalent(residual_name: str, unary_name: str) -> Optional[str]:
+    """The registry transform that already composes these two stages, or None.
+
+    The default pool names its chains differently (``chain_linres_cbrt`` for ``linear_residual`` + ``cbrt``), so a
+    proposal for the same composition under the auto-generated name is a second, separately fitted copy of a transform the
+    screen already knows. ``Transform.chain_stages`` carries the composition, which is the identity the names lose.
+    """
+    wanted = (residual_name, unary_name)
+    for name, transform in TRANSFORMS_REGISTRY.items():
+        if getattr(transform, "chain_stages", None) == wanted and name != f"chain_{residual_name}_{unary_name}":
+            return name
+    return None
+
 def build_chain_transform(residual_name: str, unary_name: str) -> Transform:
     """Compose ``residual_name`` (registry bivariate) with ``unary_name`` (tail unary).
 
@@ -161,6 +178,7 @@ def build_chain_transform(residual_name: str, unary_name: str) -> Transform:
     return _make_chain_transform(
         name=f"chain_{residual_name}_{unary_name}",
         short_name=_short(residual_name, unary_name),
+        chain_stages=(residual_name, unary_name),
         bivariate_fit=biv.fit,
         bivariate_forward=biv.forward,
         bivariate_inverse=biv.inverse,
@@ -375,6 +393,7 @@ def _fitted_chain_candidate(chain_tf: Transform, res: str, un: str, *, y: np.nda
 
 def discover_chains(
     *,
+    already_screened: Sequence[str] = (),
     y: np.ndarray,
     base: np.ndarray,
     x_matrix: np.ndarray,
@@ -495,11 +514,23 @@ def discover_chains(
         rr = residual_rmse.get(res, float("inf"))
         for un in un_names:
             chain_tf = build_chain_transform(res, un)
+            existing = _registry_equivalent(res, un)
+            if existing is not None and existing in already_screened:
+                logger.info(
+                    "[auto_chain] %s + %s is the composition %s already carries; the screen has it, so it is not proposed again.",
+                    res, un, existing,
+                )
+                continue
             cr, vf = _y_scale_cv_rmse(chain_tf, **cv_kw)
             ur = unary_rmse.get(un, float("inf"))
             best_single = min(rr, ur)
             margin = best_single - cr
-            if not (np.isfinite(cr) and vf >= min_valid_domain_frac and margin > min_rmse_margin):
+            # Beating the two single stages is not enough: all three can lose to raw y, and the chain is appended after the
+            # rerank, past the raw-baseline and honest-OOF floors. It has to beat raw as well, and by a relative margin --
+            # with several chains picked on the same folds, a hair's difference is the winner's curse, not a result.
+            beats_singles = margin > min_rmse_margin and cr <= best_single * (1.0 - _MIN_RELATIVE_MARGIN)
+            beats_raw = np.isfinite(raw_rmse) and cr <= raw_rmse * (1.0 - _MIN_RELATIVE_MARGIN)
+            if not (np.isfinite(cr) and vf >= min_valid_domain_frac and beats_singles and beats_raw):
                 continue
             mg = float("nan")
             if compute_mi_gain and np.isfinite(mi_y):

@@ -159,6 +159,10 @@ class Transform:
     # Base-translation invariant: T is unchanged when every base column is shifted by a constant (the linear / polynomial
     # residual family absorbs it into the intercept). A normal-equations solve on an uncentred design breaks this.
     base_translation_invariant: bool = False
+    # The two stages a chain transform composes, ``(residual, unary)``, for the chains that have them. The auto-chain search
+    # proposes compositions under generated names (``chain_linear_residual_cbrt``), which is the same transform the default
+    # pool ships as ``chain_linres_cbrt``; the stage pair is what tells the two apart from the names.
+    chain_stages: tuple[str, str] | None = None
 
     def __post_init__(self) -> None:
         """A zero sample weight drops the row from an order-free fit (see ``_zero_weight``)."""

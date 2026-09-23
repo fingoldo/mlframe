@@ -222,6 +222,7 @@ def _run_auto_chain(
             chains = discover_chains(
                 y=y_screen, base=base_screen, x_matrix=x_matrix,
                 residual_names=res_names,
+                already_screened=list(getattr(self.config, "transforms", ()) or ()),
                 min_valid_domain_frac=float(self.config.min_valid_domain_frac),
                 cv_folds=int(self.config.tiny_model_cv_folds),
                 random_state=int(self.config.random_state),
