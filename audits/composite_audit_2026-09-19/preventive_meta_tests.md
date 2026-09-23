@@ -589,7 +589,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. Non-boolean env reads (paths, numbers) are not in boolean context.
 - **Runtime**: under 1 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - py-ci-shared env_flag_parsing (commit 56b7fe0, 6 unit tests, README section) reports every prefixed env read used as a boolean: truth test, not, comparison with a string literal, membership in a literal collection. Wired as test_composite_env_flags_go_through_one_parser over composite, core and reporting, with two allowlisted numeric-override presence checks; the wider tree still carries hand parses outside this audit's scope, and the scanner is there for them
 
 ### PMT-37 [P3] Deferred-dead config fields must warn when set, and no allowlisted field may advertise how to enable it
 - **Asserts**: for every entry in `_USER_DEFERRED_DEAD` (in `test_config_field_consumption.py`):

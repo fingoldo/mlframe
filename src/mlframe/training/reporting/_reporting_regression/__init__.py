@@ -38,6 +38,8 @@ from pyutilz.pythonlib import get_human_readable_set_size
 # _reporting imports us from its bottom (after constants + helpers are
 # bound at module top), so by the time Python resolves these names
 # ``_reporting`` is partially loaded and the symbols are already there.
+from mlframe.utils.env_flags import env_flag
+
 from .._reporting import (
     DEFAULT_FIGSIZE,
     DEFAULT_PLOT_SAMPLE_SIZE,
@@ -464,9 +466,7 @@ def report_regression_model_perf(
         # from the data this function sees).
         # Override via env MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=1
         # (kept for debugging the T-scale residual distribution).
-        if _is_t_scale_composite_chart and not os.environ.get(
-            "MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS",
-        ):
+        if _is_t_scale_composite_chart and not env_flag("MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS"):
             logger.info(
                 "%s %s: T-scale chart skipped here; y-scale chart for this " "model is emitted by [CompositeTargetEstimator] wrap-pass.",
                 report_title,

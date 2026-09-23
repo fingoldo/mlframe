@@ -55,4 +55,4 @@
 # _fail_open_handlers_baseline.json is added in the same commit.
 # Bumped 2026-09-21 from fdbed25 to d619ced: test_no_nondiscriminating_assert imports nondiscriminating_shapes (absent before d619ced).
 # Bumped 2026-09-22 from d619ced to b8aaa18: the runtime_registry_mutation and discarded_model_copy checks.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@39e9b496fb9fc84b4ccd6bb36084e457bd24c56b
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@56b7fe0ebda6cd0407073147f0137838031b56a5

@@ -509,6 +509,27 @@ def test_no_unread_constructor_parameters():
     assert_no_unread_init_params(files=files, repo_root=REPO_ROOT, allowlist=_UNREAD_INIT_PARAMS_ALLOWED, min_files=1000)
 
 
+# Env reads in the composite scope that are deliberately not boolean flags.
+_ENV_FLAG_ALLOWED = {
+    "MLFRAME_PIPELINE_CACHE_RAM_FRACTION": "a numeric override; the test is for presence, and the value is a fraction",
+    "MLFRAME_PIPELINE_CACHE_BYTES_LIMIT": "a numeric override; the test is for presence, and the value is a byte count",
+}
+
+
+def test_composite_env_flags_go_through_one_parser():
+    """Every boolean switch in the composite, core and reporting paths reads the same on/off vocabulary.
+
+    They were parsed three ways: ``not os.environ.get(NAME)`` (so ``NAME=0`` turned the switch on), an ad-hoc
+    ``in ("1", "true", "yes")`` that ignores ``on``, and ``== "1"`` that ignores everything else.
+    """
+    from py_ci_shared.env_flag_parsing import assert_env_flags_use_one_parser
+
+    scope = [REPO_ROOT / "src" / "mlframe" / "training" / part for part in ("composite", "core", "reporting")]
+    files = sorted(p for root in scope for p in root.rglob("*.py") if "_benchmarks" not in p.parts)
+    assert_env_flags_use_one_parser(files=files, repo_root=REPO_ROOT / "src", prefixes=("MLFRAME_",),
+                                    allowed=_ENV_FLAG_ALLOWED, min_files=200)
+
+
 def regenerate_fail_open_baseline() -> None:
     """Rewrite the fail-open baseline from the current tree, keeping every existing note. Called by `regen_baselines.py`."""
     import orjson

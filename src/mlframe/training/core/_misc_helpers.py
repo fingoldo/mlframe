@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from timeit import default_timer as timer
 from typing import Any
@@ -522,6 +521,7 @@ from ._misc_helpers_feature_types import (  # noqa: F401
     _filter_polars_cat_features_by_dtype,
     _validate_feature_type_exclusivity,
 )
+from mlframe.utils.env_flags import env_flag
 
 
 def _build_tier_dfs(
@@ -669,7 +669,7 @@ def _prep_polars_df(_df, strategy, cat_features, category_map):
     return strategy.prepare_polars_dataframe(_df, cat_features, category_map=category_map)
 
 
-_CTX_STRICT = os.environ.get("MLFRAME_CTX_STRICT", "").strip().lower() in ("1", "true", "yes", "on")
+_CTX_STRICT = env_flag("MLFRAME_CTX_STRICT")
 
 
 def _bulk_setattr_to_ctx(ctx, names: tuple[str, ...], values: dict) -> None:

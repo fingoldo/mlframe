@@ -164,7 +164,8 @@ def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None
             return
         arr = np.asarray(a)
         h.update(str((arr.shape, arr.dtype.str)).encode())
-        h.update(np.ascontiguousarray(arr.astype(str) if arr.dtype == object else arr).tobytes())
+        # The buffer, not a tobytes() copy of it: the digest is the same and a big array is not duplicated to be hashed.
+        h.update(np.ascontiguousarray(arr.astype(str) if arr.dtype == object else arr).view(np.uint8).data)
 
     _arr("groups", group_ids)
     _arr("hints", None if hint_strengths is None else np.asarray(list(hint_strengths), dtype=np.float64))
@@ -179,7 +180,7 @@ def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None
         h.update(str((tuple(getattr(val_df, "columns", ())), getattr(val_df, "shape", None))).encode())
         head = val_df.head(2000)
         _rows = head.hash_rows().to_numpy() if hasattr(head, "hash_rows") else pd.util.hash_pandas_object(head, index=False).to_numpy()
-        h.update(np.ascontiguousarray(_rows).tobytes())
+        h.update(np.ascontiguousarray(_rows).view(np.uint8).data)
     return h.hexdigest()
 
 

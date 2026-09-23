@@ -18,11 +18,11 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 29 | 0 | 1 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 21 | 0 | 1 | 0 | 0 |
-| `suite_integration.md` | 19 | 18 | 0 | 1 | 0 | 0 |
+| `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 14 | 20 | 7 | 0 | 0 |
-| **Total** | **179** | **128** | **31** | **19** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 15 | 20 | 6 | 0 | 0 |
+| **Total** | **179** | **130** | **31** | **17** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -136,7 +136,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `INT-13` | The default model cache reuses a composite inner model whose target definition has changed | fixed earlier (spec digest on dumps); regression tests added |
 | **RESOLVED** | P3 | `INT-14` | The discovery "winning-spec" charts plot y and T over all rows, including test rows and median-imputed T values | charts plot train rows with a real T; imputed fill kept out of charts and dedup |
 | **RESOLVED** | P3 | `INT-15` | Two config fields are accepted and documented as effective but do nothing, with no warning | non-default values warn; misleading config comment fixed; allowlist entries removed |
-| **TODO** | P3 | `INT-16` | Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on | |
+| **RESOLVED** | P3 | `INT-16` | Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on | one env_flag parser for every switch; the kill switch keeps the caller's other fields |
 | **RESOLVED** | P3 | `INT-17` | The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target | DISCOVERY_ALGO_VERSION in the cache key + source-hash bump gate; versions via importlib.metadata |
 | **RESOLVED** | P3 | `INT-18` | A composite spec name that equals an existing target name silently overwrites that target's values | insert_composite_targets() drops the colliding spec and records the failure instead of overwriting |
 | **RESOLVED** | P3 | `INT-19` | The predict-time composite env-signature check warns on any patch or Python bump, contrary to its documented major/minor policy | major.minor comparison; patch-only drift at DEBUG |
@@ -231,7 +231,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `PMT-33` | Runtime registry mutation must have a load-time replay (shared scanner) | shared runtime-registry scanner; mlframe wired with 5 reasoned replay writers |
 | **TODO** | P2 | `PMT-34` | getattr default parity: `getattr(cfg, "field", literal)` must match the pydantic field default (shared scanner) | |
 | **RESOLVED** | P3 | `PMT-35` | Unread constructor parameters in estimator classes (shared scanner) | shared scanner wired over all of src; one further dead parameter removed |
-| **TODO** | P3 | `PMT-36` | Environment flags parsed through one shared parser (shared scanner) | |
+| **RESOLVED** | P3 | `PMT-36` | Environment flags parsed through one shared parser (shared scanner) | shared scanner wired over the composite scope |
 | **TODO** | P3 | `PMT-37` | Deferred-dead config fields must warn when set, and no allowlisted field may advertise how to enable it | |
 | **RESOLVED** | P1 | `PMT-38` | A config rebuilt with `model_copy(update=...)` must reach its consumers (shared scanner) | shared discarded-model_copy scanner wired with an empty allowlist |
 | **TODO** | P2 | `PMT-39` | Survivorship-scored metrics: a metric computed only on rows where the prediction is finite (shared scanner) | |

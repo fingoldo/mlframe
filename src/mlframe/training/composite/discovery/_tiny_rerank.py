@@ -31,6 +31,8 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+from mlframe.utils.env_flags import env_flag
+
 from ._tiny_rerank_honest import (
     _tiny_rerank_ram_checkpoint,
     _honest_oof_prepass,
@@ -89,10 +91,7 @@ def _tiny_model_rerank(
     # MLFRAME_DISCOVERY_SKIP_TINY_RERANK=1 returns kept_specs unchanged so the
     # MI-survivor list ships without the y-scale CV rerank. Operators trade
     # spec-ranking accuracy for the ability to complete discovery at all.
-    import os as _os
-    if _os.environ.get("MLFRAME_DISCOVERY_SKIP_TINY_RERANK", "").strip().lower() in (
-        "1", "true", "yes", "on",
-    ):
+    if env_flag("MLFRAME_DISCOVERY_SKIP_TINY_RERANK"):
         logger.warning(
             "[CompositeTargetDiscovery.tiny_rerank] SKIPPED via MLFRAME_DISCOVERY_SKIP_TINY_RERANK=1; "
             "returning %d MI-ranked spec(s) without y-scale CV rerank. "

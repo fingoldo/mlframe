@@ -40,6 +40,7 @@ from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidat
 from ._fit_multibase import apply_multi_base_forward_stepwise
 from ._eval_stats import near_collinear_keep_mask
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.utils.env_flags import env_flag
 
 logger = logging.getLogger(__name__)
 
@@ -388,7 +389,7 @@ def fit(
     # MLFRAME_DISCOVERY_RAM_PROFILER=0 (the helper checks the env once at
     # entry so the rest of the fit() body never tests the flag again).
     _ram_state: dict = {}
-    _ram_profiler_on = os.environ.get("MLFRAME_DISCOVERY_RAM_PROFILER", "1").strip().lower() not in ("0", "false", "no", "off")
+    _ram_profiler_on = env_flag("MLFRAME_DISCOVERY_RAM_PROFILER", default=True)
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "entry")
 
@@ -546,12 +547,7 @@ def fit(
         _use_lazy_prebin = _lazy_eligible
     else:
         _use_lazy_prebin = _lazy_eligible and train_idx_screen.size >= _lazy_n_floor
-    _prebin_use_cache = os.environ.get("MLFRAME_PREBIN_CACHE", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
+    _prebin_use_cache = env_flag("MLFRAME_PREBIN_CACHE", default=True)
     if _use_lazy_prebin:
         # Defer column extraction: never materialise the (n, F) float plane.
         _full_x_matrix = None

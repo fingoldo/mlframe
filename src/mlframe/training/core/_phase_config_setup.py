@@ -27,6 +27,8 @@ from ..configs import (
 )
 from ..utils import log_phase
 from ._training_context import TrainingContext
+from mlframe.utils.env_flags import env_flag
+
 from .utils import (
     _apply_plot_style_overrides,
     _build_suite_common_params_dict,
@@ -90,6 +92,17 @@ def _restore_process_flag_quietly(restore) -> None:
         logger.warning("could not restore a process-wide override after setup_configuration failed: %r", exc)
 
 
+def apply_composite_kill_switch(config: Any) -> Any:
+    """``config`` with discovery forced off when ``MLFRAME_DISABLE_COMPOSITE`` is set, and unchanged otherwise.
+
+    Only ``enabled`` is forced: the switch used to rebuild the config from ``{"enabled": False}``, which threw away every
+    other composite field the caller had set. The value is read through ``env_flag``, so ``on`` disables and ``0`` does not.
+    """
+    if not env_flag("MLFRAME_DISABLE_COMPOSITE"):
+        return config
+    logger.info("[CompositeTargetDiscovery] disabled by MLFRAME_DISABLE_COMPOSITE env var.")
+    return config.model_copy(update={"enabled": False})
+
 def setup_configuration(
     *,
     preprocessing_config: Any,
@@ -150,9 +163,7 @@ def setup_configuration(
     # Opt-out: MLFRAME_SETUP_TIMING=0 (default ON; cost ~5 us per checkpoint
     # via time.perf_counter, fully amortised at the first slow step).
     import time as _time
-    _setup_timing_on = _os.environ.get("MLFRAME_SETUP_TIMING", "1").strip().lower() not in (
-        "0", "false", "no", "off",
-    )
+    _setup_timing_on = env_flag("MLFRAME_SETUP_TIMING", default=True)
     _setup_t_prev = _time.perf_counter()
     _setup_t_start = _setup_t_prev
 
@@ -340,9 +351,7 @@ def setup_configuration(
 
         composite_target_discovery_config = _ensure_config(composite_target_discovery_config, CompositeTargetDiscoveryConfig, {})
         _step_done("_ensure_config(CompositeTargetDiscoveryConfig)")
-        if _os.environ.get("MLFRAME_DISABLE_COMPOSITE", "").lower() in {"1", "true", "yes"}:
-            composite_target_discovery_config = _ensure_config({"enabled": False}, CompositeTargetDiscoveryConfig, {})
-            logger.info("[CompositeTargetDiscovery] disabled by MLFRAME_DISABLE_COMPOSITE env var.")
+        composite_target_discovery_config = apply_composite_kill_switch(composite_target_discovery_config)
 
         data_dir = output_config.data_dir
         models_dir = output_config.models_dir

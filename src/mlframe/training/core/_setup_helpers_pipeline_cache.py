@@ -15,6 +15,7 @@ import logging
 import os
 import sys
 from typing import TYPE_CHECKING
+from mlframe.utils.env_flags import env_flag
 
 if TYPE_CHECKING:
     from ._training_context import TrainingContext  # noqa: F401
@@ -155,7 +156,7 @@ def _load_pipeline_disk_cache_into_memory() -> None:
     flag as already True despite the test's monkeypatch setting it False moments earlier).
     """
     global _PIPELINE_JSON_DISK_CACHE_LOADED
-    if os.environ.get("MLFRAME_PIPELINE_CACHE_FORCE_RELOAD") == "1":
+    if env_flag("MLFRAME_PIPELINE_CACHE_FORCE_RELOAD"):
         _PIPELINE_JSON_DISK_CACHE_LOADED = False
     # Re-read the loaded flag from the parent facade in case a test reset it via monkeypatch.
     elif _parent_attr("_PIPELINE_JSON_DISK_CACHE_LOADED", _PIPELINE_JSON_DISK_CACHE_LOADED):
@@ -199,7 +200,7 @@ def _persist_pipeline_disk_cache() -> None:
     """
     try:
         path = _pipeline_disk_cache_path()
-        if os.environ.get("MLFRAME_PIPELINE_CACHE_DIAG") == "1":
+        if env_flag("MLFRAME_PIPELINE_CACHE_DIAG"):
             logger.warning(
                 "pipeline-cache persist: resolved path=%s parent_attr_override=%r sibling_global=%r parent_module_in_sys_modules=%s",
                 path,
