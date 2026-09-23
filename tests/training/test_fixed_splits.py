@@ -328,3 +328,22 @@ def test_e2e_id_column_also_listed_for_dropping(tmp_path, drop_via):
     result = predict_from_models(df=df.head(50), models=models, metadata=metadata, features_and_targets_extractor=fte, return_probabilities=False, verbose=0)
     preds = next(iter(result["predictions"].values()))
     assert np.asarray(preds).shape[0] == 50
+
+
+def test_unpinned_carves_keep_their_whole_frame_fractions():
+    """With val pinned to a window, test_size / calib_size are shares of ALL rows, as in an unpinned split, not of the pool."""
+    df = _frame(n=600)
+    cfg = TrainingSplitConfig(val_start="2024-01-21", val_end="2024-01-26", test_size=0.1, calib_size=0.05, shuffle_test=False, wholeday_splitting=False)
+    tr, va, te, _, _, _, ca, _, _info = _pinned(df, cfg)
+    assert len(va) == 120, "the pinned val window is exactly the last five days"
+    assert abs(len(te) - 60) <= 1, f"test_size=0.1 of 600 rows is 60, got {len(te)} (0.1 of the 480 unpinned rows would be 48)"
+    assert abs(len(ca) - 30) <= 1, f"calib_size=0.05 of 600 rows is 30, got {len(ca)}"
+
+
+def test_val_size_stays_a_share_of_the_rows_left_after_test():
+    """val_size is documented as a fraction of what remains after test; a pinned test must not change that meaning."""
+    df = _frame(n=600)
+    cfg = TrainingSplitConfig(test_start="2024-01-21", test_end="2024-01-26", val_size=0.2, wholeday_splitting=False)
+    tr, va, te, *_ = _pinned(df, cfg)
+    assert len(te) == 120
+    assert abs(len(va) - 96) <= 1, f"0.2 of the 480 rows left after test is 96, got {len(va)}"

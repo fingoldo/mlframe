@@ -581,10 +581,25 @@ def _pipeline_signature_for_cache(pipeline) -> str:
 # shape -- not impossible but vanishingly rare. The fall-through
 # computes the correct key anyway; the worst case is one extra
 # hash recompute, not a wrong key.
-_LAST_KEY_CACHE: dict = {"id_tup": None, "key": None}
+_LAST_KEY_CACHE: dict = {"id_tup": None, "key": None, "refs": None}
 # Guards BOTH the read and the write of the memo above. Dedicated rather than _PRE_PIPELINE_CACHE_LOCK so a caller already holding that
 # lock cannot deadlock here; re-entrant for the same reason on nested calls.
 _LAST_KEY_CACHE_LOCK = threading.RLock()
+
+
+def _weak_refs(objs) -> "tuple | None":
+    """Weak references to ``objs`` (``None`` stays ``None``); ``None`` overall when any object cannot be weakly referenced."""
+    try:
+        return tuple(None if o is None else weakref.ref(o) for o in objs)
+    except TypeError:
+        return None
+
+
+def _refs_still_point_at(refs, objs) -> bool:
+    """Whether ``refs`` (from ``_weak_refs``) still resolve to exactly ``objs``; False when identity cannot be checked."""
+    if refs is None or len(refs) != len(objs):
+        return False
+    return all((r is None and o is None) or (r is not None and r() is o) for r, o in zip(refs, objs))
 
 
 def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, target_name=None, sample_weight=None):
@@ -626,9 +641,13 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
         str(target_name) if target_name is not None else "",
         _id_shape(sample_weight),
     )
+    # id() alone is not identity: a freed pipeline (or frame) and a differently-configured one allocated at the same
+    # address produce an equal id_tup, and the memo then served target A's key - and A's cached transform - for B. The
+    # memo therefore also holds weak references and only hits while they still point at these very objects.
+    objs = (train_df, val_df, train_target, pipeline, sample_weight)
     # Compare and fetch under one lock; as two unlocked reads a concurrent writer could slip another input's key in between.
     with _LAST_KEY_CACHE_LOCK:
-        if _LAST_KEY_CACHE["id_tup"] == id_tup:
+        if _LAST_KEY_CACHE["id_tup"] == id_tup and _refs_still_point_at(_LAST_KEY_CACHE["refs"], objs):
             return _LAST_KEY_CACHE["key"]
 
     sig = _pipeline_signature_for_cache(pipeline)
@@ -662,6 +681,7 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
     with _LAST_KEY_CACHE_LOCK:
         _LAST_KEY_CACHE["key"] = key
         _LAST_KEY_CACHE["id_tup"] = id_tup
+        _LAST_KEY_CACHE["refs"] = _weak_refs(objs)
     return key
 
 

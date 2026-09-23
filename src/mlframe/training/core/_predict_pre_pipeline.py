@@ -24,6 +24,34 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.training.core.predict")
 
 
+def _extension_output_names(ext_pipeline, n_out: int) -> list:
+    """The column names the fitted extension pipeline produced at fit time, for its ``n_out``-wide predict output.
+
+    Renaming a width mismatch positionally was the old fallback, and it served misaligned columns: TF-IDF vocabulary
+    drift changes the output width, the frame was rebuilt as ``ext_0..ext_{N-1}``, and a name-agnostic model consumed
+    them as if they were the fitted features. It never even matched the train side, whose fallback is
+    ``ext_<last_step>_<i>``. The names are the ones stamped at fit time (``_mlframe_output_columns_``); for a pipeline
+    saved before that, they are rebuilt exactly as the train side built them. A different width raises.
+    """
+    names = getattr(ext_pipeline, "_mlframe_output_columns_", None)
+    if names is None:
+        try:
+            names = [str(n) for n in ext_pipeline.get_feature_names_out()]
+        except (AttributeError, ValueError, NotImplementedError):
+            names = None
+        if names is None or len(names) != n_out:
+            steps = getattr(ext_pipeline, "steps", None) or []
+            names = [f"ext_{steps[-1][0] if steps else 'ext'}_{i}" for i in range(n_out)]
+        return names
+    if len(names) != n_out:
+        raise RuntimeError(
+            f"[extensions_pipeline] the fitted extension pipeline produced {len(names)} columns at fit time but {n_out} "
+            "at predict time (for example TF-IDF vocabulary drift). Renaming them positionally would feed the model "
+            "misaligned features; retrain, or restore the pipeline that was saved with the model."
+        )
+    return list(names)
+
+
 def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
     """Apply the persisted ``extensions_pipeline`` to a predict frame.
 
@@ -124,17 +152,7 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
             "The model was trained on the post-extension feature space; serving raw columns would produce wrong predictions. "
             "Restore the saved pipeline / retrain, or set MLFRAME_EXTENSIONS_SOFT_FAIL=1 to (unsafely) fall back to the raw frame."
         ) from _exc
-    _n_out = _arr.shape[1]
-    try:
-        _names = list(ext_pipeline.get_feature_names_out())
-    except (AttributeError, ValueError, NotImplementedError):
-        _names = [f"ext_{i}" for i in range(_n_out)]
-    # ``get_feature_names_out`` can return a count that disagrees with the transformed array width (TF-IDF vocabulary
-    # drift between fit and predict, transformers whose name list and output columns diverge); a mismatch makes the
-    # DataFrame constructor raise the opaque "Shape of passed values is (N, M), indices imply (N, K)". Fall back to
-    # positional names so predict stays robust, mirroring the train-side guard in ``_build_output_column_names``.
-    if len(_names) != _n_out:
-        _names = [f"ext_{i}" for i in range(_n_out)]
+    _names = _extension_output_names(ext_pipeline, _arr.shape[1])
     try:
         import scipy.sparse as _sp
         _is_sparse = _sp.issparse(_arr)
