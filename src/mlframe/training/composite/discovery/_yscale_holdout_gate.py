@@ -44,10 +44,11 @@ from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array, base_arg as _base_arg
 from ._causal_lag import is_causal_base_name
 from ._screening_tiny import _build_tiny_model
+from ..transforms._call_gateway import call_transform
+from ._fold_refit import refit_transform_on_fold
 from ._yscale_scoring import median_filled_with_std
 from ._rejection_ledger import RejectStage, ledger_append
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
-from ._rejection_ledger import spec_inverse
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +247,67 @@ def _warn_domain_check_failed(transform_name: str, exc: Exception) -> None:
     )
 
 
+def _val_group_labels(self, val_df: Any, eval_idx: np.ndarray) -> np.ndarray | None:
+    """Group labels for the val-frame eval rows, read from the configured group column, or None when there is none.
+
+    A grouped transform cannot be forwarded or inverted without them; the alternative is what used to happen, a rejection
+    that reads like an inverse collapse.
+    """
+    col = getattr(self.config, "engineer_causal_group_column", None) or getattr(self.config, "group_column", None)
+    if not col or val_df is None:
+        return None
+    try:
+        return np.asarray(_extract_column_array(val_df, col))[np.asarray(eval_idx)]
+    except Exception as err:
+        logger.info("[CompositeTargetDiscovery.yscale_gate] no group labels for the val rows (%s); grouped specs cannot be scored here.", err)
+        return None
+
+def _reconstruct_on_eval(transform, transform_name: str, params: dict, valid: np.ndarray, y_fit: np.ndarray, base_fit: np.ndarray,
+                         base_eval: np.ndarray, x_fit: np.ndarray, x_eval: np.ndarray, build_model,
+                         groups_fit: np.ndarray | None = None, groups_eval: np.ndarray | None = None) -> np.ndarray:
+    """One spec's predicted y on the eval rows: forward on the valid fit rows, a tiny model on T, then the inverse.
+
+    This is the predict path in miniature, smearing included, so the gate judges the pipeline that ships rather than a
+    proxy for it. The calls go through ``call_transform``, so a grouped transform gets its group labels: called bare it
+    raised "groups kwarg is required" and every grouped spec was rejected as though its inverse had collapsed. Raises
+    whatever the transform or the model raises; the caller turns that into a rejection.
+    """
+    base_fit_v = base_fit[valid] if base_fit.ndim == 1 else base_fit[valid, :]
+    g_fit = None if groups_fit is None else np.asarray(groups_fit)[valid]
+    t_fit = np.asarray(call_transform(transform, "forward", y_fit[valid], base_fit_v, params, groups=g_fit), dtype=np.float64)
+    model = build_model()
+    model.fit(x_fit[valid], t_fit)
+    t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
+
+    def _inverse(t):
+        """Invert a T prediction on the eval rows with this spec's transform, base, params and group labels."""
+        return np.asarray(call_transform(transform, "inverse", t, base_eval, params, groups=groups_eval), dtype=np.float64)
+
+    # Smearing for curved unary inverses (see ``estimator._smearing``): judge the conditional mean of y.
+    return smeared_prediction(transform_name, model, x_fit[valid], t_fit, t_hat, _inverse)
+
+def _fold_local_params(transform, y_fit: np.ndarray, base_fit: np.ndarray, valid: np.ndarray,
+                       groups_fit: np.ndarray | None) -> tuple[dict, np.ndarray] | None:
+    """The spec's params refit on the fit rows alone with their domain mask, or None when there is nothing to refit.
+
+    On the fallback path the "unseen group" holdout is carved out of the very rows the spec's ``fitted_params`` were fit
+    on, so alpha/beta, spline knots and per-group residual levels had already seen the evaluation groups and the collapse
+    test came out optimistic - most of all for the grouped and level transforms it exists to catch. ``groups_fit`` is
+    None on the val-split path, where the params were fit on train and the eval rows come from another frame entirely.
+    """
+    if groups_fit is None:
+        return None
+    base_v = base_fit[valid] if base_fit.ndim == 1 else base_fit[valid, :]
+    refit = refit_transform_on_fold(transform, y_fit[valid], base_v, groups_fold=groups_fit[valid])
+    if refit is None:  # degenerate fold: the shipped params are the only measurement available
+        return None
+    fold_params, valid_fold = refit
+    full = np.zeros(valid.shape, dtype=bool)
+    full[np.flatnonzero(valid)[valid_fold]] = True
+    return (fold_params, full) if int(full.sum()) >= 50 else None
+
+
+
 def apply_yscale_holdout_gate(
     self,
     df: Any,
@@ -304,6 +366,8 @@ def apply_yscale_holdout_gate(
         _eval_df = grouped_causal_bases_for_frame(self, val_df, val_y, target_col, [*feats, *(c for s in kept_specs for c in spec_base_columns(s))])
         y_fit = y_full[fit_idx].astype(np.float64)
         y_eval = val_y[eval_idx].astype(np.float64)
+        _fit_groups = None  # the params were fit on train and the eval rows come from the val frame: no refit needed
+        _eval_groups = _val_group_labels(self, val_df, eval_idx)
         _gate_mode = "val-split"
     else:
         # Fallback: carve a group-disjoint holdout out of the training groups themselves.
@@ -332,6 +396,8 @@ def apply_yscale_holdout_gate(
         fit_idx, eval_idx = _carve_group_disjoint(sample_idx, groups_sample, float(getattr(cfg, "yscale_holdout_gate_holdout_group_frac", 0.3)), rng)
         y_fit = y_full[fit_idx].astype(np.float64)
         y_eval = y_full[eval_idx].astype(np.float64)
+        _fit_groups = group_ids[fit_idx]  # the spec's params saw the holdout groups; refit them on the fit groups alone
+        _eval_groups = group_ids[eval_idx]
         _gate_mode = "train-group-holdout"
     if fit_idx.size < 50 or eval_idx.size < 50:
         logger.info("[CompositeTargetDiscovery.yscale_gate] unseen-group eval set too small -- gate skipped.")
@@ -346,15 +412,15 @@ def apply_yscale_holdout_gate(
     learning_rate = float(getattr(cfg, "tiny_model_learning_rate", 0.1))
     rs = int(getattr(cfg, "random_state", 0))
 
+    def _tiny():
+        """A fresh tiny model with the gate's configured capacity."""
+        return _build_tiny_model("lgb", n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate, random_state=rs)
+
     def _fit_predict(y_target_fit: np.ndarray, valid_fit: np.ndarray | None = None) -> np.ndarray:
         """Fit a fresh tiny model on ``y_target_fit`` (optionally row-masked by ``valid_fit``, e.g. to drop out-of-domain rows for a transformed target) and predict on the shared unseen-group eval matrix ``x_eval``."""
-        xf = x_fit if valid_fit is None else x_fit[valid_fit]
-        yf = y_target_fit if valid_fit is None else y_target_fit[valid_fit]
-        model = _build_tiny_model(
-            "lgb", n_estimators=n_estimators, num_leaves=num_leaves,
-            learning_rate=learning_rate, random_state=rs,
-        )
-        model.fit(xf, yf)
+        model = _tiny()
+        model.fit(x_fit if valid_fit is None else x_fit[valid_fit],
+                  y_target_fit if valid_fit is None else y_target_fit[valid_fit])
         return np.asarray(model.predict(x_eval), dtype=np.float64)
 
     # Raw-y tiny baseline on the SAME group-disjoint split (apples-to-apples).
@@ -393,25 +459,20 @@ def apply_yscale_holdout_gate(
         if int(valid.sum()) < 50:
             survivors.append(spec)
             continue
-        base_fit_v = base_fit[valid] if base_fit.ndim == 1 else base_fit[valid, :]
+        # Two reconstructions, and the spec has to survive the worse of them: the one its shipped params give (what
+        # predict will actually do), and the one params refit on the fit groups alone give (leak-free, since on the
+        # fallback path the "unseen" holdout groups are carved out of the very rows the shipped params were fit on).
+        candidates = [(params, valid)]
+        fold = _fold_local_params(transform, y_fit, base_fit, valid, _fit_groups)
+        if fold is not None:
+            candidates.append(fold)
         try:
-            t_fit = np.asarray(transform.forward(y_fit[valid], base_fit_v, params), dtype=np.float64)
-        except Exception as exc:
-            _gate_error_reject(self, spec, rejected, RejectStage.YSCALE_HOLDOUT, f"forward raised {type(exc).__name__}: {exc}")
-            continue
-        # Fit the tiny model on the transformed target over the valid fit rows, predict on eval rows.
-        try:
-            model = _build_tiny_model(
-                "lgb", n_estimators=n_estimators, num_leaves=num_leaves,
-                learning_rate=learning_rate, random_state=rs,
-            )
-            model.fit(x_fit[valid], t_fit)
-            t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
-            # Smearing for curved unary inverses (see ``estimator._smearing``): judge the conditional mean of y.
-            y_hat = smeared_prediction(spec.transform_name, model, x_fit[valid], t_fit, t_hat, spec_inverse(transform, base_eval, params))
+            scored = [_reconstruct_on_eval(transform, spec.transform_name, p, v, y_fit, base_fit, base_eval,
+                                           x_fit, x_eval, _tiny, _fit_groups, _eval_groups) for p, v in candidates]
         except Exception as exc:
             _gate_error_reject(self, spec, rejected, RejectStage.YSCALE_HOLDOUT, f"fit/inverse raised {type(exc).__name__}: {exc}")
             continue
+        y_hat = max(scored, key=lambda h: rmse(y_eval, median_filled_with_std(h, y_fit)[0]))
 
         finite = np.isfinite(y_hat)
         n_finite = int(finite.sum())

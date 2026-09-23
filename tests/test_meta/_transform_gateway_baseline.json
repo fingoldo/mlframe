@@ -30,7 +30,6 @@
  "training/composite/discovery/_screening_tiny_perbin.py::_tiny_cv_rmse_y_scale::inverse": 1,
  "training/composite/discovery/_tiny_rerank_waic.py::_apply_waic_tiebreak::forward": 1,
  "training/composite/discovery/_tiny_rerank_waic.py::_waic_for::forward": 1,
- "training/composite/discovery/_yscale_holdout_gate.py::apply_yscale_holdout_gate::forward": 1,
  "training/composite/ensemble/_oof_external.py::_compute_oof_with_external_holdout::forward": 1,
  "training/composite/estimator/_estimator.py::fit::fit": 1,
  "training/composite/estimator/_estimator.py::fit::forward": 2,
