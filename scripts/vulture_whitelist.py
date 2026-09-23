@@ -180,3 +180,9 @@ seed_workers_pool  # feature_selection/filters/_screen_predictors.py -- already 
 # imported purely for re-export (each module already carries a `# noqa: F401` for ruff) so callers
 # can import it from any of the three modules; vulture cannot see that intent from a plain import. ---
 _sha256_of_file
+
+# --- training/composite/ensemble/feature_stacking.py composite_predictions_as_feature: the parameter is a kept
+# no-op. The frame copy it used to guard is gone (the column is appended through ``append_column``, which shares
+# the existing blocks), but callers still pass it and a test pins that they may; the module comment says so at its
+# own definition. ---
+allow_large_frame_copy

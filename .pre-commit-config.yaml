@@ -94,7 +94,10 @@ repos:
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
-        exclude: '\.secrets\.baseline$'
+        # ``_discovery_algo_version_baseline.json`` stores a blake2b digest of the tracked discovery sources, so an
+        # entropy detector flags it by construction, and the value changes whenever those sources do -- baselining it
+        # would mean re-baselining on every such edit. JSON takes no inline pragma, so it is excluded by path.
+        exclude: '(\.secrets\.baseline|tests/test_meta/_discovery_algo_version_baseline\.json)$'
 
   # The ruff version exists in four places: CI's (py-ci-shared's tool_versions.RUFF_VERSION, read by the
   # ruff-blocking.yml this repo calls), the ruff== pin in pyproject.toml, the ruff-pre-commit revs below,
