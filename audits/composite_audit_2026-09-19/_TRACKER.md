@@ -18,11 +18,11 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 24 | 0 | 6 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 20 | 0 | 2 | 0 | 0 |
-| `suite_integration.md` | 19 | 15 | 0 | 4 | 0 | 0 |
+| `suite_integration.md` | 19 | 16 | 0 | 3 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 12 | 18 | 11 | 0 | 0 |
-| **Total** | **179** | **117** | **29** | **32** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 12 | 19 | 10 | 0 | 0 |
+| **Total** | **179** | **118** | **30** | **30** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -138,7 +138,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `INT-15` | Two config fields are accepted and documented as effective but do nothing, with no warning | non-default values warn; misleading config comment fixed; allowlist entries removed |
 | **TODO** | P3 | `INT-16` | Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on | |
 | **RESOLVED** | P3 | `INT-17` | The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target | DISCOVERY_ALGO_VERSION in the cache key + source-hash bump gate; versions via importlib.metadata |
-| **TODO** | P3 | `INT-18` | A composite spec name that equals an existing target name silently overwrites that target's values | |
+| **RESOLVED** | P3 | `INT-18` | A composite spec name that equals an existing target name silently overwrites that target's values | insert_composite_targets() drops the colliding spec and records the failure instead of overwriting |
 | **TODO** | P3 | `INT-19` | The predict-time composite env-signature check warns on any patch or Python bump, contrary to its documented major/minor policy | |
 
 ### `performance.md`
@@ -220,7 +220,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P1 | `PMT-22` | One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts | one-run suite contract fixture, 7 identity legs; d/h/i suite variants + TST-17 rewrite open |
 | **PARTIAL** | P2 | `PMT-23` | State parity across alternate constructors: fit() vs from_fitted_inner() vs update() vs unpickle | fit vs from_fitted_inner parity over the registry; found + fixed the T-clip envelope for 42 transforms; update() leg open |
 | **PARTIAL** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | unseen-key fallbacks pinned to exact global answers; MoE vs pooled-best; recurrent seed leg open |
-| **TODO** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | |
+| **PARTIAL** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | (a) and (b) ship as test_composite_authoritative_sources.py; (c) has no second construction site left after TRF-25 |
 | **TODO** | P2 | `PMT-26` | Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test | |
 | **TODO** | P3 | `PMT-27` | Diagnostics truthfulness: report reasons come from the ledger, printed advice is executed, alert policy matches its docstring | |
 | **TODO** | P3 | `PMT-28` | Test timing and cost hygiene: relative timing races need real slack, and repeated heavy trainings share a fixture | |
