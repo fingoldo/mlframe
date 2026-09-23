@@ -87,20 +87,26 @@ def test_polars_input_without_nans_short_circuits_guard():
     assert cap["X"] is X_pl
 
 
-def test_polars_mixed_dtype_does_not_take_polars_native_branch():
-    """Mixed-dtype polars input (numeric + string columns): the polars-native branch's all-numeric gate must reject the frame so it can NEVER attempt
-    ``pl.col(str_col).mean()`` (which would crash). With mixed dtypes the np.isfinite NaN-detection probe at the top of the guard also fails silently, so the
-    guard short-circuits and passes the original X through to ``fn`` unchanged - the same legacy behaviour. The test pins both: (a) X reaches fn as-is, (b)
-    the polars-native impute path is NOT exercised on the string column."""
+def test_polars_mixed_dtype_does_not_take_polars_native_branch(caplog):
+    """Mixed-dtype polars input (numeric + string columns): the frame reaches ``fn`` unchanged and the polars-native
+    impute path is never attempted on the string column (``pl.col(str_col).mean()`` would crash).
+
+    The pass-through is now a stated decision rather than a silent one. The NaN in the numeric columns IS detected -
+    the old probe read its own failure on mixed dtypes as "no NaN" - and the guard then says it cannot repair a frame
+    holding a non-numeric column and lets the model's own error surface. It must not raise the not-primed error here:
+    priming on this frame fails too ("could not convert string to float"), so that message would describe a remedy
+    that does not exist.
+    """
     from mlframe.training._predict_guards import _apply_nan_guard
 
     arr = _synth_with_nans(200, 2, nan_rate=0.10, seed=1)
     X_pl = pl.DataFrame({"c0": arr[:, 0], "c1": arr[:, 1], "label": ["a"] * 200})
 
     fn, cap = _capturing_fn()
-    _apply_nan_guard(_FakeRidge(), X_pl, fn, n_rows=len(X_pl))
-    # Short-circuit: NaN-detection probe fails on mixed dtype -> _has_nan=False -> fn(X) called directly with original frame, no impute attempted.
+    with caplog.at_level("WARNING", logger="mlframe.training._predict_guards"):
+        _apply_nan_guard(_FakeRidge(), X_pl, fn, n_rows=len(X_pl))
     assert cap["X"] is X_pl
+    assert any("non-numeric column" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.slow

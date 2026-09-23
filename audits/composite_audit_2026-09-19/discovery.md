@@ -150,7 +150,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The headline "did the composite help" verdict uses the selection-biased split. Per the project's val/test convention, the verdict should use test.
 - **Suggested fix**: Compute the verdict from test metrics for both sides, with val shown for reference. Refuse to emit a verdict (show `CROSS_SPLIT`) when the two sides come from different splits.
 - **Test to add**: Construct metadata where the composite wins on val and loses on test. The verdict must be RAW_BEATS_COMPOSITE. Construct a raw test-fallback and assert the verdict is not a bare val-vs-test comparison.
-- **Disposition**: COMPLETED. The COMPOSITE vs RAW verdict is decided on TEST for both sides. `_best_metrics` now also stores the chosen raw model's test metric (`test_<metric>`); the raw pick moved into `_best_entry_on`. The composite side uses its best-on-val model's y-scale test metric. The val lift stays in the table as a reference column, and new `raw_test` and `test_lift` columns show what decided the verdict. When either side lacks a test metric the verdict is `NO_TEST_METRIC_TO_COMPARE`, never a val (or val-vs-test-fallback) comparison. Regression test `test_the_composite_vs_raw_verdict_is_decided_on_test`: a composite that wins on val and loses on test is RAW_BEATS_COMPOSITE (COMPOSITE_BEATS_RAW before the fix), and a raw test-fallback gives NO_TEST_METRIC_TO_COMPARE. The composite-verdict fixture gained the raw test metric, and the grep-for-`_entry_metric` source check was reframed as a behavioural test of the test-fallback tag. `_run_suite_end_dummy_baselines_summary` shrank from 156 to 137 lines.
+- **Disposition**: COMPLETED. The COMPOSITE vs RAW verdict is decided on TEST for both sides. `_best_metrics` now also stores the chosen raw model's test metric (`test_<metric>`); the raw pick moved into `_best_entry_on`. The composite side uses its best-on-val model's y-scale test metric. The val lift stays in the table as a reference column, and new `raw_test` and test-lift columns show what decided the verdict. When either side lacks a test metric the verdict is `NO_TEST_METRIC_TO_COMPARE`, never a val (or val-vs-test-fallback) comparison. Regression test `test_the_composite_vs_raw_verdict_is_decided_on_test`: a composite that wins on val and loses on test is RAW_BEATS_COMPOSITE (COMPOSITE_BEATS_RAW before the fix), and a raw test-fallback gives NO_TEST_METRIC_TO_COMPARE. The composite-verdict fixture gained the raw test metric, and the grep-for-`_entry_metric` source check was reframed as a behavioural test of the test-fallback tag. `_run_suite_end_dummy_baselines_summary` shrank from 156 to 137 lines.
 
 ### DSC-19 [P2] The group-disjoint honest-holdout carve can hold out most of the training rows
 - **Where**: `_honest_holdout.py:100-113`.
@@ -190,7 +190,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The diagnostic the report exists for gives a misleading reason.
 - **Suggested fix**: Look up each dropped spec's latest ledger row and copy its stage and reason into `entry["reason"]`.
 - **Test to add**: Force a yscale-gate rejection and assert that `report()` for that spec names the yscale stage.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - _reason_from_ledger() copies the stage and reason of the spec's last rejection-ledger row into entry['reason'], so report() and the cached failures name the gate that actually dropped it; the fallback sentence is now limited to the two filters that record no per-spec verdict (test_report_reasons_from_ledger.py, parametrised over every RejectStage label)
 
 ### DSC-24 [P3] FDR control is "on by default" but inert by default
 - **Where**: `_filter_and_gate.py:35-39`, `_eval_stats.py:53-55`, config `mi_gain_fdr_control=True`, `mi_gain_bootstrap_n=0` (`_composite_target_discovery_config_base.py:781`, `:797`).
@@ -206,7 +206,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: Stale warnings, and an inconsistent default for non-pydantic configs.
 - **Suggested fix**: Reset `_alpha_drift_flags = {}` at the top of `fit`, and change the fallback to `True`.
 - **Test to add**: Fit twice on one instance, the second time without any `linear_residual`. Assert `_alpha_drift_flags == {}`.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - fit() clears _alpha_drift_flags next to the rejection ledger, so a re-fit that keeps no linear_residual cannot warn about the previous fit's specs, and the reject_on_alpha_drift fallback is True, matching the config default for duck-typed configs (test_alpha_drift_flags_are_per_fit.py)
 
 ### DSC-26 [P3] The corr-filter log recommends an escape hatch that does not work
 - **Where**: `_filter.py:251-262` (it advises "pass it via base_candidates=[...] explicitly") and `discovery/__init__.py:410-418` (the explicit list keeps only `c in usable_features`, the output of the same filter).
@@ -214,7 +214,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The operator guidance points to a dead end.
 - **Suggested fix**: Either let an explicitly listed base bypass the corr filter only (it still has to pass the numeric and constant checks), or change the message to name only the threshold knob.
 - **Test to add**: A base with |corr| above the threshold passed explicitly: assert the behaviour matches the log text.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - the corr filter records the names it took, and an explicit base_candidates entry is readmitted past that filter only, with an INFO line naming the correlation; a constant, non-numeric or unknown base is still dropped and the drop message no longer claims leak-corr (test_explicit_base_overrules_corr_filter.py)
 
 ### DSC-27 [P3] Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids
 - **Where**: `_per_group.py:84-96`.

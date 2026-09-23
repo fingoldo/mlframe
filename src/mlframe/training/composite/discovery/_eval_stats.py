@@ -360,7 +360,7 @@ def apply_alpha_drift_gate(
         return kept_specs
     self._alpha_drift_flags = {}
     drift_threshold = float(getattr(self.config, "alpha_drift_z_threshold", 3.0))
-    reject_on_drift = bool(getattr(self.config, "reject_on_alpha_drift", False))
+    reject_on_drift = bool(getattr(self.config, "reject_on_alpha_drift", True))  # the config default, for duck-typed configs too
     # "First half vs second half" must mean EARLIER vs LATER rows. The caller's frame need not be in time order, and the
     # MI screen's sort never reached this gate, so without re-applying the time key the two halves are arbitrary
     # partitions and the drift z-score tests nothing temporal.

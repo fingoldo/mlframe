@@ -101,10 +101,9 @@ def test_persist_ct_ensemble_entries_roundtrips(tmp_path):
     with open(os.path.join(models_path, "metadata.pkl.zst"), "wb") as f:
         f.write(zstandard.ZstdCompressor(level=3, threads=0).compress(pickle.dumps(meta_payload, protocol=5)))
 
-    # ``load_mlframe_suite`` is the loader this round trip has to satisfy: it globs ``**/*.dump`` and keys each file by
-    # its first two path segments, so a ``_CT_ENSEMBLE__<target>`` directory rehydrates under its own literal name with
-    # no special casing. The dedicated CT helper this used to call had no caller in production and is gone.
-    ct_entries, _ = load_mlframe_suite(models_path)
+    # Through the loader predict actually uses: its generic ``**/*.dump`` scan picks the CT entries up, which is why
+    # the CT-only scanner beside it was dead code.
+    ct_entries, _loaded_meta = load_mlframe_suite(models_path)
     assert ct_entries, f"load_mlframe_suite returned empty; layout under {models_path}: {os.listdir(models_path)}"
     assert "regression" in ct_entries, f"missing target_type key; got {list(ct_entries.keys())}"
     _by = ct_entries["regression"]

@@ -76,7 +76,7 @@ def cache_off():
 def cache_on(tmp_path):
     """Cache on."""
     cfg = CacheConfig(persistence="auto", dir=str(tmp_path / "cache"))
-    return FeatureCache(cfg, content_fingerprint=None)
+    return FeatureCache(cfg)
 
 
 def _build_in_mem_key(df, column: str, params: Optional[dict] = None) -> InMemoryKey:

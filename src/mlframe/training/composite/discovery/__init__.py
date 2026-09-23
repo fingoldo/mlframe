@@ -429,11 +429,21 @@ class CompositeTargetDiscovery:
             return self._auto_base(df, usable_features, y_train, train_idx)
         # Explicit list. Keep only entries that survived feature filters.
         explicit = list(config.base_candidates)
-        kept = [c for c in explicit if c in usable_features]
+        usable = set(usable_features)
+        # Naming a base explicitly overrules the corr filter (and only that filter), which is what its own log promises.
+        corr_filtered = getattr(self, "_corr_filtered_bases_", {}) or {}
+        readmitted = [c for c in explicit if c not in usable and c in corr_filtered]
+        kept = [c for c in explicit if c in usable or c in corr_filtered]
+        if readmitted:
+            logger.info(
+                "[CompositeTargetDiscovery] explicit base_candidates readmitted past the corr filter: %s. They were dropped "
+                "by forbidden_base_corr_threshold=%.6f; naming a base explicitly is the documented way to overrule it.",
+                {c: round(float(corr_filtered[c]), 6) for c in readmitted}, config.forbidden_base_corr_threshold,
+            )
         if len(kept) != len(explicit):
             dropped = sorted(set(explicit) - set(kept))
             logger.warning(
-                "[CompositeTargetDiscovery] explicit base_candidates dropped " "by filters (forbidden/constant/non-numeric/leak-corr): %s",
+                "[CompositeTargetDiscovery] explicit base_candidates dropped " "by filters (forbidden/constant/non-numeric): %s",
                 dropped,
             )
         # Early pruning of an over-long EXPLICIT base grid (``max_base_candidates``). Each extra base

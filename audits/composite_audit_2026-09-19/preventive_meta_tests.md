@@ -470,7 +470,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium for (b): the regex will match some informational text, handled through an allowlist.
 - **Runtime**: about 3 s.
 - **Repo**: (a) and (c) mlframe; (b) py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL - (a) ships as tests/training/composite/discovery/test_report_reasons_from_ledger.py, parametrised over the RejectStage vocabulary so a new gate is covered as soon as it writes a ledger row, and (c) as tests/training/core/test_env_signature_drift.py. (b), the printed-advice scanner, belongs in py-ci-shared and is still owed; the two advice strings this audit named (DSC-26, INT-19) are fixed, so it has no failing subject left here
 
 ### PMT-28 [P3] Test timing and cost hygiene: relative timing races need real slack, and repeated heavy trainings share a fixture
 - **Asserts**:
@@ -579,7 +579,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low after the refinements (measured 0 false positives).
 - **Runtime**: under 2 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - py-ci-shared unread_init_params (commit 39e9b49, 6 unit tests, README section) reports every __init__ parameter that is only stored on the instance, following renamed stores (self._p = p) and counting a read through any receiver, getattr or a string literal. Wired in mlframe as test_no_unread_constructor_parameters over all of src; the two allowlist entries are a vendored upstream model's signature, and the one live hit outside the audit, FeatureCache.content_fingerprint, was removed rather than allowlisted
 
 ### PMT-36 [P3] Environment flags parsed through one shared parser (shared scanner)
 - **Asserts**: an `os.environ.get("<PREFIX>_...")` used as a boolean (truthiness, `not`, `== "1"`, membership in an ad-hoc tuple) is flagged. Boolean env flags must go through `env_flag(name, default)`, which accepts `{"1","true","yes","on"}` and rejects `{"0","false","no","off",""}`, taking the project's own prefix, never mlframe's.
@@ -611,7 +611,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low to medium. A copy intentionally scoped to one call is allowlisted with a reason.
 - **Runtime**: under 1 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: COMPLETED. New py-ci-shared module `discarded_model_copy` (py-ci-shared b8aaa18, 10 unit tests, README section). It flags a function-scope `name = <expr>.model_copy(update=...)` whose `name`, or a plain alias of it, is never returned or yielded, stored into an attribute or subscript, passed to a call, or used as its own method's receiver. `assert_no_discarded_model_copy` takes reasoned allowlist entries and fails on stale ones. Wired in mlframe as `test_no_discarded_model_copy` over all of src with an empty allowlist (pin bumped to b8aaa18). The one initial hit, `_disc_cfg_base` in `run_composite_target_discovery`, was a false positive: the copy reaches its consumers through the alias `_disc_cfg = _disc_cfg_base`, so the scanner learned to follow aliases. The INT-04 shape (a copy only read locally) is pinned by the scanner's `test_a_copy_used_only_for_a_local_read_is_found`.
+- **Disposition**: COMPLETED. New py-ci-shared module `discarded_model_copy` (py-ci-shared b8aaa18, 10 unit tests, README section). It flags a function-scope `name = <expr>.model_copy(update=...)` whose `name`, or a plain alias of it, is never returned or yielded, stored into an attribute or subscript, passed to a call, or used as its own method's receiver. `assert_no_discarded_model_copy` takes reasoned allowlist entries and fails on stale ones. Wired in mlframe as `test_no_discarded_model_copy` over all of src with an empty allowlist (pin bumped to b8aaa18). The one initial hit, `_disc_cfg_base` in `run_composite_target_discovery`, was a false positive: the copy reaches its consumers through the alias `_disc_cfg = _disc_cfg_base`, so the scanner learned to follow aliases. The INT-04 shape (a copy only read locally) is pinned by the scanner's own unit test for a copy used only in a local read (py-ci-shared).
 
 ### PMT-39 [P2] Survivorship-scored metrics: a metric computed only on rows where the prediction is finite (shared scanner)
 - **Asserts**: a call to a metric function (`rmse|mae|mse|r2|mean_squared_error|...`) whose y_true and y_pred arguments are both indexed by the same mask, where that mask is derived from `np.isfinite(<prediction>)`, is flagged, unless the enclosing function also scores the non-finite rows (fills and rescores) or records the dropped fraction in the returned verdict.

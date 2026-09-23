@@ -10,7 +10,7 @@ import os
 from os.path import exists, join
 
 from scipy import stats
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import joblib
 import numpy as np
@@ -48,93 +48,17 @@ def _resolve_float_ensemble_flavour(metadata: Any) -> str:
     return "mean"
 
 
-def predict_mlframe_models_suite(
-    df: pl.DataFrame | pd.DataFrame,
-    models_path: str,
-    features_and_targets_extractor: FeaturesAndTargetsExtractor | None = None,
-    model_names: list[str] | None = None,
-    return_probabilities: bool = True,
-    verbose: int = 1,
-    trusted_root: str | None = None,
-    predict_batch_rows: Optional[int] = None,
-    # Fresh auxiliary events table for latent_interaction_svd replay -- see predict_from_models.
-    auxiliary_events_df: pl.DataFrame | pd.DataFrame | None = None,
-) -> dict[str, Any]:
+from ._predict_pre_pipeline import take_extensions_soft_fail_taint
+
+
+def _load_suite_metadata(models_path: str, trusted_root: str | None, verbose: int) -> dict:
+    """The bundle's metadata, verified and unpickled, with its auto-chain transforms registered.
+
+    Carved out so the batched runner loads it ONCE: the batching dispatch recursed into this function per slice,
+    and each slice re-verified the sidecar, re-decompressed and re-unpickled the whole bundle. At the ~2.2s a rich
+    pipeline costs, a 10M-row predict at 500k rows per batch paid about 44 seconds of pure re-loading.
     """
-    Generate predictions using a trained mlframe models suite.
-
-    Loads the trained suite from disk and applies all required transformations
-    to raw input data before generating predictions.
-
-    Args:
-        df: Input DataFrame (raw data, same format as training input)
-        models_path: Path to the models directory (e.g., "data/models/target_name/model_name")
-        features_and_targets_extractor: Optional extractor to preprocess input (same as training)
-        model_names: Optional list of specific model names to use (None = all models)
-        return_probabilities: If True, return probabilities; if False, return class predictions
-        verbose: Verbosity level
-        trusted_root: Directory the loaded metadata file must resolve within (path-traversal
-            guard), forwarded to ``load_mlframe_suite``. Defaults to ``models_path``'s own
-            absolute path when omitted.
-        predict_batch_rows: When set and ``df`` exceeds this many rows, predicts in row-chunks of
-            this size instead of one pass (bounds peak memory on very large predict frames).
-        auxiliary_events_df: Fresh auxiliary events table for ``latent_interaction_svd`` replay --
-            see :func:`predict_from_models`.
-
-    Returns:
-        Dict with:
-            - "predictions": Dict[model_name, predictions array]
-            - "probabilities": Dict[model_name, probabilities array] (if return_probabilities)
-            - "ensemble_predictions": Combined ensemble predictions (if multiple models)
-            - "metadata": Loaded metadata dict
-    """
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, suite_binary_threshold, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
-    from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
-    from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
-    from ..pipeline._cross_sectional_composite_fe import replay_cross_sectional_composite_fe
-    from ..pipeline._target_encoding_composite_fe import replay_target_encoding_composite_fe
-    from ..pipeline._ma_crossover_composite_fe import replay_ma_crossover_composite_fe
-    from ..pipeline._latent_interaction_svd_composite_fe import replay_latent_interaction_svd_composite_fe
-    from ..pipeline._nearest_past_join_composite_fe import replay_nearest_past_join_composite_fe
-    from ..pipeline._event_proximity_decay_composite_fe import replay_event_proximity_decay_composite_fe
-    # Validate inputs
-    if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
-        raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
-    if len(df) == 0:
-        raise ValueError("df cannot be empty")
-    if not isinstance(models_path, str):
-        raise TypeError(f"models_path must be a str, got {type(models_path).__name__}")
-    if not os.path.isdir(models_path):
-        raise ValueError(f"models_path must be a valid directory, got: {models_path}")
-
-    if predict_batch_rows is not None and predict_batch_rows > 0 and len(df) > predict_batch_rows:
-        # Dispatch to the batched-runner; the batched-runner calls this same function recursively per slice
-        # with predict_batch_rows=None so the legacy single-pass code path runs unchanged for each batch.
-        return _run_batched(
-            lambda _d: predict_mlframe_models_suite(
-                _d, models_path,
-                features_and_targets_extractor=features_and_targets_extractor,
-                model_names=model_names,
-                return_probabilities=return_probabilities,
-                verbose=verbose,
-                trusted_root=trusted_root,
-                predict_batch_rows=None,
-                auxiliary_events_df=auxiliary_events_df,  # an events TABLE (entity/time join), so each batch needs all of it
-            ),
-            df, predict_batch_rows,
-        )
-
-    results: dict[str, Any] = {
-        "predictions": {},
-        "probabilities": {},
-        "ensemble_predictions": None,
-        "ensemble_probabilities": None,
-        "metadata": None,
-        "input_df": None,
-    }
+    from .predict import _validate_metadata_version_envelope  # local: predict.py imports this module back
 
     # Prefer pickle-proto5 + zstd; fall back to legacy metadata.joblib for older saves.
     metadata_file_new = join(models_path, "metadata.pkl.zst")
@@ -185,6 +109,102 @@ def predict_mlframe_models_suite(
     _validate_metadata_version_envelope(metadata, models_path)
     # Auto-chain transforms live only in the training process's registry; rebuild them before any model is unpickled.
     register_spec_transforms(metadata)
+    # Every loader branch above returns Any (pickle / joblib), and the signature promises a mapping.
+    return cast(dict, metadata)
+
+
+def predict_mlframe_models_suite(
+    df: pl.DataFrame | pd.DataFrame,
+    models_path: str,
+    features_and_targets_extractor: FeaturesAndTargetsExtractor | None = None,
+    model_names: list[str] | None = None,
+    return_probabilities: bool = True,
+    verbose: int = 1,
+    trusted_root: str | None = None,
+    predict_batch_rows: Optional[int] = None,
+    # Fresh auxiliary events table for latent_interaction_svd replay -- see predict_from_models.
+    auxiliary_events_df: pl.DataFrame | pd.DataFrame | None = None,
+    _preloaded_metadata: dict | None = None,
+) -> dict[str, Any]:
+    """
+    Generate predictions using a trained mlframe models suite.
+
+    Loads the trained suite from disk and applies all required transformations
+    to raw input data before generating predictions.
+
+    Args:
+        df: Input DataFrame (raw data, same format as training input)
+        models_path: Path to the models directory (e.g., "data/models/target_name/model_name")
+        features_and_targets_extractor: Optional extractor to preprocess input (same as training)
+        model_names: Optional list of specific model names to use (None = all models)
+        return_probabilities: If True, return probabilities; if False, return class predictions
+        verbose: Verbosity level
+        trusted_root: Directory the loaded metadata file must resolve within (path-traversal
+            guard), forwarded to ``load_mlframe_suite``. Defaults to ``models_path``'s own
+            absolute path when omitted.
+        predict_batch_rows: When set and ``df`` exceeds this many rows, predicts in row-chunks of
+            this size instead of one pass (bounds peak memory on very large predict frames).
+        auxiliary_events_df: Fresh auxiliary events table for ``latent_interaction_svd`` replay --
+            see :func:`predict_from_models`.
+
+    Returns:
+        Dict with:
+            - "predictions": Dict[model_name, predictions array]
+            - "probabilities": Dict[model_name, probabilities array] (if return_probabilities)
+            - "ensemble_predictions": Combined ensemble predictions (if multiple models)
+            - "metadata": Loaded metadata dict
+    """
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports
+    # this sibling at its bottom, so a top-level ``from .predict
+    # import ...`` would create a hard cycle the meta-test flags.
+    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, suite_binary_threshold, _resolve_quantile_alphas, _run_batched
+    from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
+    from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
+    from ..pipeline._cross_sectional_composite_fe import replay_cross_sectional_composite_fe
+    from ..pipeline._target_encoding_composite_fe import replay_target_encoding_composite_fe
+    from ..pipeline._ma_crossover_composite_fe import replay_ma_crossover_composite_fe
+    from ..pipeline._latent_interaction_svd_composite_fe import replay_latent_interaction_svd_composite_fe
+    from ..pipeline._nearest_past_join_composite_fe import replay_nearest_past_join_composite_fe
+    from ..pipeline._event_proximity_decay_composite_fe import replay_event_proximity_decay_composite_fe
+    # Validate inputs
+    if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
+        raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
+    if len(df) == 0:
+        raise ValueError("df cannot be empty")
+    if not isinstance(models_path, str):
+        raise TypeError(f"models_path must be a str, got {type(models_path).__name__}")
+    if not os.path.isdir(models_path):
+        raise ValueError(f"models_path must be a valid directory, got: {models_path}")
+
+    if predict_batch_rows is not None and predict_batch_rows > 0 and len(df) > predict_batch_rows:
+        _shared_metadata = _preloaded_metadata if _preloaded_metadata is not None else _load_suite_metadata(models_path, trusted_root, verbose)
+        # Dispatch to the batched-runner; the batched-runner calls this same function recursively per slice
+        # with predict_batch_rows=None so the legacy single-pass code path runs unchanged for each batch.
+        return _run_batched(
+            lambda _d: predict_mlframe_models_suite(
+                _d, models_path,
+                features_and_targets_extractor=features_and_targets_extractor,
+                model_names=model_names,
+                return_probabilities=return_probabilities,
+                verbose=verbose,
+                trusted_root=trusted_root,
+                predict_batch_rows=None,
+                auxiliary_events_df=auxiliary_events_df,  # an events TABLE (entity/time join), so each batch needs all of it
+                _preloaded_metadata=_shared_metadata,  # read-only here, so every batch shares one load
+            ),
+            df, predict_batch_rows,
+        )
+
+    results: dict[str, Any] = {
+        "predictions": {},
+        "probabilities": {},
+        "ensemble_predictions": None,
+        "ensemble_probabilities": None,
+        "metadata": None,
+        "input_df": None,
+    }
+
+    metadata = _preloaded_metadata if _preloaded_metadata is not None else _load_suite_metadata(models_path, trusted_root, verbose)
     results["metadata"] = metadata
 
     pipeline = metadata.get("pipeline")
@@ -626,6 +646,12 @@ def predict_mlframe_models_suite(
         logger.info("Generated predictions for %d models", len(results["predictions"]))
 
     _raise_if_every_model_failed(results, len(model_files), _predict_errors, models_path)
+
+    # A predict served on RAW columns under MLFRAME_EXTENSIONS_SOFT_FAIL leaves the taint in the result, so a consumer
+    # of these numbers can see it without reading the process log.
+    _soft_fail = take_extensions_soft_fail_taint()
+    if _soft_fail:
+        results["extensions_soft_fail"] = _soft_fail
 
     return results
 

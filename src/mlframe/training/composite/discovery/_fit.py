@@ -252,6 +252,22 @@ def _point_mass_skips_logged(y_train) -> set:
     return set(_skip_curved)
 
 
+def _reason_from_ledger(self, spec_name: Any) -> str:
+    """The rejecting stage and reason the ledger recorded last for ``spec_name``, or the list of gates when it recorded none.
+
+    Every gate downstream of the MI gate appends its verdict to the rejection ledger, so the spec's own stage is known;
+    the report used to print one fixed list of gate names for all of them, which named neither the y-scale holdout gate,
+    the honest RMSE gate, the honest-OOF floor nor the structural-fragility gate that drop the most specs today.
+    """
+    rows = [r for r in (getattr(self, "rejection_ledger_", None) or []) if r.get("spec_name") == str(spec_name)]
+    if rows:
+        last = rows[-1]
+        reason = str(last.get("reason") or "").strip()
+        return f"rejected at the {last.get('stage')} stage" + (f": {reason}" if reason else "")
+    return ("dropped after the MI gate by a filter that records no per-spec verdict "
+            "(top_k_after_mi trim / multi-base dedup)")
+
+
 def fit(
     self: "CompositeTargetDiscovery",
     df: Any,
@@ -339,6 +355,10 @@ def fit(
     # "why was MY spec rejected?" is queryable from ``rejection_ledger`` instead of only the logs.
     from ._rejection_ledger import ledger_init
     ledger_init(self)
+    # Per-fit too: the drift gate clears these only when a linear_residual survived, so a re-fit of one instance
+    # (stability replicates, the stacked second pass, per-group reuse) that keeps none would warn about the previous
+    # fit's specs at the end of this one.
+    self._alpha_drift_flags = {}
 
     # Post-selection-inference holdout (winner's-curse de-bias, SA27): carve a never-touched
     # holdout BEFORE screening, then REBIND ``train_idx`` to the screening pool so every
@@ -879,12 +899,7 @@ def fit(
             if _espec.transform_name == "linear_residual" and _espec.base_column in _multi_seed_primaries:
                 _entry["reason"] = "upgraded into a linear_residual_multi spec " "(multi-base forward-stepwise)"
             else:
-                _entry["reason"] = (
-                    "dropped after the MI gate by a downstream filter "
-                    "(top_k_after_mi trim / alpha-drift / "
-                    "linear_residual->diff collapse / tiny-model rerank / "
-                    "multi-base dedup)"
-                )
+                _entry["reason"] = _reason_from_ledger(self, _ename)
             _entry["kept"] = False
 
     # The data signature the specs were fit on is read only by ``discover_incremental``, but it cost 84-308 ms at 200k x 50

@@ -36,6 +36,8 @@ def test_in_memory_batches_receive_the_events_table(monkeypatch):
 
 
 def test_disk_batches_receive_the_events_table(monkeypatch, tmp_path):
+    # The bundle is loaded once, before the batches are dispatched, so a run over an empty directory needs it stubbed.
+    monkeypatch.setattr(pms, "_load_suite_metadata", lambda *a, **kw: {"pipeline": None})
     spy, seen = _record_kwargs(monkeypatch, pms, "predict_mlframe_models_suite")
     events = pd.DataFrame({"entity": [1], "t": [0.0]})
     spy(pd.DataFrame({"x": np.arange(25.0)}), str(tmp_path), predict_batch_rows=10, auxiliary_events_df=events, verbose=0)

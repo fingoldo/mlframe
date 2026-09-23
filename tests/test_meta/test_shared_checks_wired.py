@@ -490,6 +490,25 @@ def test_no_discarded_model_copy():
     assert_no_discarded_model_copy(files=files, repo_root=REPO_ROOT, allowed={}, min_files=1000)
 
 
+# Constructor parameters accepted although nothing reads them, with why that is acceptable here.
+_UNREAD_INIT_PARAMS_ALLOWED = {
+    "max_batch": "vendored infonet model (feature_selection/filters/_vendored); upstream's signature is kept verbatim",
+    "num_filters": "vendored infonet model; upstream's signature is kept verbatim",
+}
+
+
+def test_no_unread_constructor_parameters():
+    """A parameter that is stored and never read still shows up in get_params, a repr and a grid search, and ignores the value.
+
+    Five ``moe_*`` parameters of CompositeTargetEstimator were advertised as a default-ON gate while the gate read its
+    settings from the discovery config, so setting them on the estimator did nothing and said nothing.
+    """
+    from py_ci_shared.unread_init_params import assert_no_unread_init_params
+
+    files = sorted(p for p in (REPO_ROOT / "src").rglob("*.py") if "_benchmarks" not in p.parts)
+    assert_no_unread_init_params(files=files, repo_root=REPO_ROOT, allowlist=_UNREAD_INIT_PARAMS_ALLOWED, min_files=1000)
+
+
 def regenerate_fail_open_baseline() -> None:
     """Rewrite the fail-open baseline from the current tree, keeping every existing note. Called by `regen_baselines.py`."""
     import orjson

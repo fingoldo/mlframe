@@ -630,7 +630,7 @@ jobs:
   # be redundant, not safer.
   ruff-blocking:
     name: Ruff (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@b8aaa186b9149d6a440e249b981cdd2bc42b96a1  # v1 (reads RUFF_VERSION from tool_versions.py)
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@39e9b496fb9fc84b4ccd6bb36084e457bd24c56b  # v1 (reads RUFF_VERSION from tool_versions.py)
     with:
       ignore: "C901"
 
@@ -687,7 +687,7 @@ jobs:
   # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
   tests-ruff-blocking:
     name: Ruff tests/ (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@b8aaa186b9149d6a440e249b981cdd2bc42b96a1  # v1 (reads RUFF_VERSION from tool_versions.py)
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@39e9b496fb9fc84b4ccd6bb36084e457bd24c56b  # v1 (reads RUFF_VERSION from tool_versions.py)
     with:
       check-path: tests
       ignore: "C901"

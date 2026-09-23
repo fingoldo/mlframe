@@ -23,6 +23,7 @@ def test_the_discovery_frame_shares_the_feature_columns_with_the_train_frame():
     """Every feature column of the discovery frame is the train frame's buffer, on any supported pandas."""
     df = _train_frame()
     out = _build_disc_df_for_target(df, "target", np.ones(len(df)))
+    assert list(df.columns), "the fixture frame has no columns to compare"
     for col in df.columns:
         assert np.shares_memory(out[col].to_numpy(), df[col].to_numpy()), f"column '{col}' was copied (pandas {pd.__version__})"
 

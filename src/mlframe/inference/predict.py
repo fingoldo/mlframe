@@ -57,20 +57,24 @@ def _model_feature_names(model) -> Optional[list]:
     return list(names)
 
 
-def _check_model_feature_order(model, expected_features: list, context: str) -> bool:
-    """Validate that ``model``'s own fitted feature-name attribute matches ``expected_features`` (order and
-    names). Returns False (with an ERROR log) on a genuine mismatch, True when it matches or the model
-    exposes no name attribute at all (logged as a WARN so an escaped model type is at least visible, per
-    the "no name attribute => WARN, not silent pass" fix direction)."""
+def _check_model_feature_order(model, expected_features: list, context: str, *, allow_unvalidatable: bool = False) -> bool:
+    """Validate that ``model``'s own fitted feature-name attribute matches ``expected_features`` (order and names).
+
+    False on a genuine mismatch, and also when the model exposes no name attribute at all - such a model is fed
+    positionally and nothing checks the columns it gets. ``allow_unvalidatable=True`` accepts that model anyway
+    (logged as a WARN), for a caller that knowingly serves a raw booster or a custom wrapper."""
     names = _model_feature_names(model)
     if names is None:
-        logger.warning(
+        # "Cannot validate" is not evidence of a match: such a model is fed positionally, so a reordered or renamed
+        # column silently scores against the wrong slot. Refuse unless the caller opted into the unvalidated feed.
+        logger.log(
+            logging.WARNING if allow_unvalidatable else logging.ERROR,
             "model %s of type %s exposes neither feature_names_in_ nor feature_names_; " "column-order/name mismatch cannot be validated (%s)",
             model,
             type(model).__name__,
             context,
         )
-        return True
+        return bool(allow_unvalidatable)
     if names != expected_features:
         logger.error(
             "model %s was trained on different features %s than expected: %s (%s)",
@@ -139,6 +143,8 @@ def read_trained_models(
     inference_folder: str = "infer",
     trusted_root: Optional[str] = None,
     allowed_extensions: Optional[Iterable[str]] = None,
+    allow_inferred_features: bool = False,
+    allow_unvalidatable_models: bool = False,
 ):
     """Read trained models from a folder, along with required features names.
     Ensure that the models conform passed dataset.
@@ -151,6 +157,11 @@ def read_trained_models(
     ``<model>.sha256`` sidecar, if present, matches. A features sidecar JSON
     (``features.dump.json`` or ``features.json``) is preferred over the joblib
     dump when available.
+
+    Two escape hatches, both default-OFF because each turns the serving column contract into an unchecked positional
+    feed. ``allow_inferred_features`` takes the caller's own frame as the feature list when no features sidecar is
+    found - the contract is then whatever the caller passed. ``allow_unvalidatable_models`` keeps a model that exposes
+    no fitted feature names; it cannot be checked against the contract at all.
     """
 
     models: dict = {}
@@ -181,6 +192,15 @@ def read_trained_models(
         logger.warning("Did not find features file for %s", featureset)
 
     if features is None:
+        if not allow_inferred_features:
+            raise ValueError(
+                f"read_trained_models: no features file for '{featureset}' in {fpath}. Without it the serving column "
+                "contract would be whatever frame the caller passed, and a model exposing no fitted feature names is "
+                "then fed positionally with nothing to check it against. Restore the features sidecar, or pass "
+                "allow_inferred_features=True to take the caller's columns as the contract."
+            )
+        logger.warning("Taking the caller's %d columns as the feature contract for '%s': no features file was found "
+                       "and allow_inferred_features is set.", len(X.columns), featureset)
         features = X.columns.to_list()
     else:
         # audit5: a features file listing a column absent from X otherwise raised a cryptic KeyError. Surface a
@@ -231,7 +251,7 @@ def read_trained_models(
             log_throttle(logger, "predict_model_read_failed", logging.WARNING, "Could not read model file %s of featureset %s: %s", model_file, featureset, e)
             continue
 
-        if not _check_model_feature_order(model, features, f"featureset {featureset}, file {model_file}"):
+        if not _check_model_feature_order(model, features, f"featureset {featureset}, file {model_file}", allow_unvalidatable=allow_unvalidatable_models):
             continue
 
         models[splitext(model_name)[0]] = model
@@ -244,7 +264,7 @@ def read_trained_models(
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def get_models_raw_predictions(trained_models: dict, X, Y=None):
+def get_models_raw_predictions(trained_models: dict, X, Y=None, *, allow_unvalidatable_models: bool = False):
     """X should already contain only right features in right order.
 
     ``Y`` is DEPRECATED and unused: nothing here is scored or aligned against ground truth, so a caller passing a
@@ -274,8 +294,13 @@ def get_models_raw_predictions(trained_models: dict, X, Y=None):
     expected_features = list(X.columns) if hasattr(X, "columns") else None
     for model_name, model in tqdmu(trained_models.items(), desc="Getting raw predictions"):
         if expected_features is not None:
-            if not _check_model_feature_order(model, expected_features, f"model {model_name!r} in get_models_raw_predictions"):
-                raise ValueError(f"get_models_raw_predictions: model {model_name!r} was trained on different features than X provides; refusing to predict")
+            if not _check_model_feature_order(model, expected_features, f"model {model_name!r} in get_models_raw_predictions",
+                                              allow_unvalidatable=allow_unvalidatable_models):
+                raise ValueError(
+                    f"get_models_raw_predictions: model {model_name!r} was trained on different features than X provides, or exposes no "
+                    "fitted feature names to check against X at all; refusing to predict. Pass allow_unvalidatable_models=True to serve "
+                    "a model that cannot be validated."
+                )
         if hasattr(model, "predict_proba"):
             proba = np.asarray(model.predict_proba(X))
             # Binary -> positive-class column; multiclass -> full matrix. Shape guard so a degenerate
