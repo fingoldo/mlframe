@@ -190,7 +190,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The diagnostic the report exists for gives a misleading reason.
 - **Suggested fix**: Look up each dropped spec's latest ledger row and copy its stage and reason into `entry["reason"]`.
 - **Test to add**: Force a yscale-gate rejection and assert that `report()` for that spec names the yscale stage.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - _reason_from_ledger() copies the stage and reason of the spec's last rejection-ledger row into entry['reason'], so report() and the cached failures name the gate that actually dropped it; the fallback sentence is now limited to the two filters that record no per-spec verdict (test_report_reasons_from_ledger.py, parametrised over every RejectStage label)
 
 ### DSC-24 [P3] FDR control is "on by default" but inert by default
 - **Where**: `_filter_and_gate.py:35-39`, `_eval_stats.py:53-55`, config `mi_gain_fdr_control=True`, `mi_gain_bootstrap_n=0` (`_composite_target_discovery_config_base.py:781`, `:797`).
@@ -214,7 +214,7 @@ I checked prior audits first so this report does not repeat decided items. `full
 - **Why it matters**: The operator guidance points to a dead end.
 - **Suggested fix**: Either let an explicitly listed base bypass the corr filter only (it still has to pass the numeric and constant checks), or change the message to name only the threshold knob.
 - **Test to add**: A base with |corr| above the threshold passed explicitly: assert the behaviour matches the log text.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - the corr filter records the names it took, and an explicit base_candidates entry is readmitted past that filter only, with an INFO line naming the correlation; a constant, non-numeric or unknown base is still dropped and the drop message no longer claims leak-corr (test_explicit_base_overrules_corr_filter.py)
 
 ### DSC-27 [P3] Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids
 - **Where**: `_per_group.py:84-96`.

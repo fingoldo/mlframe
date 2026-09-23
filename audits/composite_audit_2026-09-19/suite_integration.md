@@ -167,4 +167,4 @@ Overlap notes: DSC-12 (cache key contents), DSC-18 (verdict split), DSC-20 (auto
 - **Why it matters**: Alert fatigue hides the real major/minor drift the check exists for.
 - **Suggested fix**: Compare major.minor per library (matching `_discovery_config_signature`), and report patch-only differences at DEBUG.
 - **Test to add**: A saved signature that differs only in patch level produces no WARNING. A minor-version difference does.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - env_signature_drift() compares major.minor per library, so a patch or Python security bump logs at DEBUG and only a major/minor difference warns, naming the libraries and both versions (test_env_signature_drift.py)

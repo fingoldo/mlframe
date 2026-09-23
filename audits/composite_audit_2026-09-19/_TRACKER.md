@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 24 | 0 | 6 | 0 | 0 |
+| `discovery.md` | 30 | 26 | 0 | 4 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 20 | 0 | 2 | 0 | 0 |
-| `suite_integration.md` | 19 | 17 | 0 | 2 | 0 | 0 |
+| `suite_integration.md` | 19 | 18 | 0 | 1 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 13 | 19 | 9 | 0 | 0 |
-| **Total** | **179** | **120** | **30** | **28** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 13 | 20 | 8 | 0 | 0 |
+| **Total** | **179** | **123** | **31** | **24** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -81,10 +81,10 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P3 | `DSC-20` | Auto-chain proposals are not required to beat raw y, and duplicate the hard-coded default chains | |
 | **RESOLVED** | P3 | `DSC-21` | The raw-y baseline and the per-spec CV can use different splitters | one fold scheme per rerank |
 | **RESOLVED** | P3 | `DSC-22` | `_group_ids_for_rerank` is read under two alignment conventions | frame-aligned contract; short array raises |
-| **TODO** | P3 | `DSC-23` | Report reasons misattribute specs dropped by the late gates | |
+| **RESOLVED** | P3 | `DSC-23` | Report reasons misattribute specs dropped by the late gates | the report reason is the spec's own ledger stage |
 | **RESOLVED** | P3 | `DSC-24` | FDR control is "on by default" but inert by default | inactive FDR control logged at INFO; default bootstrap measured +70% wall, kept opt-in |
 | **TODO** | P3 | `DSC-25` | Alpha-drift flags leak between fits of one instance; the reject flag's code fallback contradicts the config default | |
-| **TODO** | P3 | `DSC-26` | The corr-filter log recommends an escape hatch that does not work | |
+| **RESOLVED** | P3 | `DSC-26` | The corr-filter log recommends an escape hatch that does not work | explicit base_candidates now overrules the corr filter, as its log said |
 | **RESOLVED** | P3 | `DSC-27` | Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids | per-group delegates gated on their own val rows; rerank grouping inherited |
 | **RESOLVED** | P3 | `DSC-28` | Multi-base upgraded specs inherit unmeasured statistics from their seed | upgrade MI stats NaN + stats_measured_for |
 | **RESOLVED** | P3 | `DSC-29` | The knn cost guard runs after the most expensive knn work | guard moved before base resolution; estimate includes auto-base + null-perm sweeps |
@@ -139,7 +139,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P3 | `INT-16` | Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on | |
 | **RESOLVED** | P3 | `INT-17` | The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target | DISCOVERY_ALGO_VERSION in the cache key + source-hash bump gate; versions via importlib.metadata |
 | **RESOLVED** | P3 | `INT-18` | A composite spec name that equals an existing target name silently overwrites that target's values | insert_composite_targets() drops the colliding spec and records the failure instead of overwriting |
-| **TODO** | P3 | `INT-19` | The predict-time composite env-signature check warns on any patch or Python bump, contrary to its documented major/minor policy | |
+| **RESOLVED** | P3 | `INT-19` | The predict-time composite env-signature check warns on any patch or Python bump, contrary to its documented major/minor policy | major.minor comparison; patch-only drift at DEBUG |
 
 ### `performance.md`
 
@@ -222,7 +222,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | unseen-key fallbacks pinned to exact global answers; MoE vs pooled-best; recurrent seed leg open |
 | **PARTIAL** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | (a) and (b) ship as test_composite_authoritative_sources.py; (c) has no second construction site left after TRF-25 |
 | **RESOLVED** | P2 | `PMT-26` | Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test | empty _frame_copy_baseline.json plus the shares_memory test; no pandas-2.x-only leg needed |
-| **TODO** | P3 | `PMT-27` | Diagnostics truthfulness: report reasons come from the ledger, printed advice is executed, alert policy matches its docstring | |
+| **PARTIAL** | P3 | `PMT-27` | Diagnostics truthfulness: report reasons come from the ledger, printed advice is executed, alert policy matches its docstring | (a) and (c) shipped; (b) printed-advice scanner still owed to py-ci-shared |
 | **TODO** | P3 | `PMT-28` | Test timing and cost hygiene: relative timing races need real slack, and repeated heavy trainings share a fixture | |
 | **PARTIAL** | P1 | `PMT-29` | Split-role ledger: selection rows and report rows never overlap, and verdicts read test | row-role ledger + contract test (holdout select/report disjoint, verdict=test, charts=train); xt fit/report leg open |
 | **RESOLVED** | P1 | `PMT-30` | Config-restriction and per-candidate isolation contract: every registry transform is accepted, isolated and honoured | registry-wide restriction contract; found + fixed discovery aborting on every grouped config (val frame lacked gcausal bases) |

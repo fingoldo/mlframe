@@ -278,6 +278,10 @@ def _filter_features(
 
     kept = _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, corr_drops)
     self._filter_drops = drops
+    # The corr filter is the one an operator may legitimately want to overrule for a named base, so the names it took
+    # are kept: an explicit ``base_candidates=[...]`` entry is let back in through them (the numeric, finite-row and
+    # constancy checks above are not overrulable - a base that fails those cannot be fitted at all).
+    self._corr_filtered_bases_ = {name: corr for name, corr in corr_drops}
     # Loud warning for corr-threshold drops: this is the filter most likely to
     # misfire on legitimate strong predictors (autoregressive lags,
     # near-deterministic features). Make it visible at INFO so users can spot a false positive.

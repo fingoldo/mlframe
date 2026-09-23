@@ -105,15 +105,40 @@ def _validate_metadata_version_envelope(metadata: dict, models_path: str) -> Non
                 _e_env,
             )
             return
-        if live_sig != saved_sig:
+        drift = env_signature_drift(saved_sig, live_sig)
+        if drift:
             logger.warning(
                 "mlframe predict: composite-target env signature drift "
-                "between train and predict. Saved: %r. Live: %r. Booster "
-                "libraries are typically forward-compatible for minor "
-                "versions; if you see unexplained metric drift, retrain "
-                "on the live environment.", saved_sig, live_sig,
+                "between train and predict: %s. Booster libraries are "
+                "typically forward-compatible for minor versions; if you "
+                "see unexplained metric drift, retrain on the live "
+                "environment.", "; ".join(f"{lib} {a} -> {b}" for lib, a, b in drift),
+            )
+        elif live_sig != saved_sig:
+            logger.debug(
+                "mlframe predict: composite-target env signature differs only in patch levels "
+                "(saved %r, live %r); the major/minor policy treats that as the same environment.",
+                saved_sig, live_sig,
             )
 
+
+def _major_minor(version: Any) -> tuple[str, ...]:
+    """``major.minor`` of a version string, as a tuple; a missing library stays distinguishable from any version."""
+    if version is None:
+        return ()
+    return tuple(str(version).split(".")[:2])
+
+
+def env_signature_drift(saved: dict, live: dict) -> list[tuple[str, Any, Any]]:
+    """``(library, saved version, live version)`` for every library whose major.minor differs between the two signatures.
+
+    The check exists to catch a library the models were not built against. A patch bump (``pandas 2.2.2 -> 2.2.3``, a
+    Python security release) changes no model semantics, and warning on it on every predict call is how an alert stops
+    being read - so only major/minor differences count, which is what this function's caller documents.
+    """
+    libs = sorted(set(saved or {}) | set(live or {}))
+    return [(lib, (saved or {}).get(lib), (live or {}).get(lib)) for lib in libs
+            if _major_minor((saved or {}).get(lib)) != _major_minor((live or {}).get(lib))]
 
 def _polars_native_class_names() -> tuple[str, ...]:
     """Bare class-name allowlist for the polars fastpath: CatBoost and XGBoost sklearn-API estimators (and the

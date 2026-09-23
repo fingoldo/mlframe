@@ -470,7 +470,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium for (b): the regex will match some informational text, handled through an allowlist.
 - **Runtime**: about 3 s.
 - **Repo**: (a) and (c) mlframe; (b) py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: PARTIAL - (a) ships as tests/training/composite/discovery/test_report_reasons_from_ledger.py, parametrised over the RejectStage vocabulary so a new gate is covered as soon as it writes a ledger row, and (c) as tests/training/core/test_env_signature_drift.py. (b), the printed-advice scanner, belongs in py-ci-shared and is still owed; the two advice strings this audit named (DSC-26, INT-19) are fixed, so it has no failing subject left here
 
 ### PMT-28 [P3] Test timing and cost hygiene: relative timing races need real slack, and repeated heavy trainings share a fixture
 - **Asserts**:
