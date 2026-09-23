@@ -20,9 +20,9 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `estimator_ensemble.md` | 22 | 21 | 0 | 1 | 0 | 0 |
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 8 | 2 | 7 | 0 | 0 |
+| `tests.md` | 17 | 10 | 2 | 5 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 19 | 20 | 2 | 0 | 0 |
-| **Total** | **179** | **136** | **32** | **10** | **1** | **0** |
+| **Total** | **179** | **138** | **32** | **8** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -179,7 +179,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P1 | `TST-03` | The per-transform registry contract test cannot detect the transform defects: one benign fixture, median error, exact-T round trip on train bases only, and a tolerance table up to 1e9x looser than the measured error | max-error round trip at one tolerance over a scale/offset/size grid, 2-D base for multi-base, out-of-range and disjoint-batch legs; Lipschitz leg and discrete/null-group fixtures not done |
 | **RESOLVED** | P1 | `TST-04` | Seven tests pin behaviour that the sibling reports show is wrong, so fixing those defects turns the suite red | all 7 pinned tests now assert the corrected behaviour (4 with earlier fixes, 3 in this change) |
 | **RESOLVED** | P1 | `TST-05` | No test checks that predict is independent of how rows are batched, and the recurrent-transform tests invert over the full series, which hides every batch-state defect | batching-invariance property tests over all transforms: pointwise chunk equality, recurrent exact with warm-up prefix, known limits pinned (frac_diff memory, centred window), NaN base contained; recurrent biz test scores per test segment |
-| **TODO** | P2 | `TST-06` | The discovery time-awareness tests shuffle rows correctly but assert only the `_screen_time_ordered_` flag, which is the one thing the sort changes | |
+| **RESOLVED** | P2 | `TST-06` | The discovery time-awareness tests shuffle rows correctly but assert only the `_screen_time_ordered_` flag, which is the one thing the sort changes | folds and sample order asserted against the time key; mutation-checked against the pre-DSC-05 behaviour |
 | **TODO** | P2 | `TST-07` | The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04 | |
 | **TODO** | P2 | `TST-08` | Group handling is tested only with clean string/int labels on row-random splits, and the unseen-group tests assert only finiteness | |
 | **TODO** | P2 | `TST-09` | Polars coverage is limited to four pointwise transforms and a monotone-time OOF case, which hides the polars row-misalignment bug | |
@@ -188,7 +188,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **TODO** | P2 | `TST-12` | Targeted transform and ensemble tests use the one parameter region where the filed defect is silent | |
 | **RESOLVED** | P2 | `TST-13` | Data-dependent skips and conditional asserts let tests pass without checking anything | seeded skips pinned as preconditions; integration asserts measured; no_xdist tests now run on -n 1 CI shards |
 | **TODO** | P2 | `TST-14` | The selection-gate modules with the most leverage have no direct tests, and the cache-key tests check only the key function's own arguments | |
-| **TODO** | P2 | `TST-15` | Composite tests check the CTE-raw-X routing by inspecting source text, and the behavioural half fits the inner on raw features, so it cannot see EST-01 | |
+| **RESOLVED** | P2 | `TST-15` | Composite tests check the CTE-raw-X routing by inspecting source text, and the behavioural half fits the inner on raw features, so it cannot see EST-01 | every source-text assertion replaced by the behaviour it stood for |
 | **RESOLVED** | P3 | `TST-16` | Timing-based asserts in the composite suite can flake on the shared host | njit sentinel interleaved best-of-N; HPO ROI asserted in folds, not seconds |
 | **PARTIAL** | P3 | `TST-17` | The composite integration tests run eight independent full-suite trainings for loose assertions, and the recorded durations are contaminated | eight trainings down to three, 620 s to 45 s; .test_durations regeneration belongs to a quiet CI run |
 

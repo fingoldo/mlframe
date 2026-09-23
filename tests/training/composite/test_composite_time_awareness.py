@@ -48,7 +48,7 @@ class TestM6TimeOrdering:
         return df
 
     def test_time_ordering_sets_screen_flag_and_sorts(self) -> None:
-        """Time ordering sets screen flag and sorts."""
+        """The flag is set, and the key it was set from is kept for the consumers that draw their own samples."""
         df = self._temporal_frame()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -59,6 +59,86 @@ class TestM6TimeOrdering:
         train_idx = np.arange(len(df))
         disc.fit(df, "y", ["lag", "feat"], train_idx, time_ordering=df["ts"].to_numpy())
         assert getattr(disc, "_screen_time_ordered_", False) is True
+        np.testing.assert_array_equal(np.asarray(disc._time_ordering_), df["ts"].to_numpy())
+
+    def test_every_rerank_fold_trains_on_the_past_of_its_validation_rows(self) -> None:
+        """The tiny-rerank CV is the forward walk it claims to be, in time rather than in row position.
+
+        The frame is shuffled, so a split over row positions puts future rows in a fold's train half. This spies on the
+        rows each rerank call scores and checks every fold against their timestamps; asserting the
+        ``_screen_time_ordered_`` flag certified nothing, because the flag was the only thing the sort set.
+        """
+        from sklearn.model_selection import TimeSeriesSplit
+
+        from mlframe.training.composite.discovery import _screening_tiny as tiny_mod
+
+        df = self._temporal_frame(n=900)
+        ts = df["ts"].to_numpy()
+        folds: list[tuple[np.ndarray, np.ndarray]] = []
+
+        class _SpySplit(TimeSeriesSplit):
+            """A TimeSeriesSplit that records the folds it hands out."""
+
+            def split(self, X, y=None, groups=None):
+                """Yield the parent's folds, keeping each one for the assertions below."""
+                for tr, va in super().split(X, y, groups):
+                    folds.append((np.asarray(tr), np.asarray(va)))
+                    yield tr, va
+
+        seen_rows: list[np.ndarray] = []
+        original = tiny_mod._tiny_cv_rmse_y_scale
+
+        def _spy(*args, **kwargs):
+            """Record the time key of the sample this call scores, then run the real thing."""
+            y_arg = args[0] if args else kwargs.get("y_train")
+            seen_rows.append(np.asarray(y_arg))
+            return original(*args, **kwargs)
+
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True, mi_sample_n=600, base_candidates=["lag"], transforms=["linear_residual", "diff"],
+            tiny_model_n_estimators=25, tiny_model_cv_folds=3,
+        )
+        disc = CompositeTargetDiscovery(cfg)
+        import unittest.mock as _mock
+
+        # The splitter is imported inside the scoring function, so the name to replace is sklearn's own.
+        import sklearn.model_selection as _sk_ms
+
+        with _mock.patch.object(_sk_ms, "TimeSeriesSplit", _SpySplit), _mock.patch.object(
+            tiny_mod, "_tiny_cv_rmse_y_scale", _spy
+        ):
+            disc.fit(df, "y", ["lag", "feat"], np.arange(len(df)), time_ordering=ts)
+
+        assert seen_rows, "the tiny rerank never ran, so nothing was checked"
+        assert folds, "no TimeSeriesSplit fold was taken, so the forward-walk claim went unchecked"
+        # The rerank sample is handed over already ordered by the caller's time key, which is what makes a
+        # position-based forward split a time-based one.
+        sample_ts = np.asarray(disc._rerank_sample_time_)
+        assert sample_ts.size, "the rerank recorded no time key for its sample"
+        assert np.all(np.diff(sample_ts) >= 0), "the rerank sample is not in time order, so its forward split walks row positions"
+        for tr, va in folds:
+            assert tr.max() < va.min(), "a fold's train rows do not all precede its validation rows"
+
+    def test_the_drift_halves_are_the_time_halves(self) -> None:
+        """The alpha-drift gate compares an earlier half against a later one, not the first half of the row order.
+
+        On a shuffled frame the two halves of the row order are random samples of the whole period, so the Chow-style
+        z-score tests nothing temporal. With the time key applied, every timestamp in the first half precedes every
+        timestamp in the second.
+        """
+        from mlframe.training.composite.discovery._fit_temporal import order_rows_by_time
+
+        df = self._temporal_frame(n=800)
+        ts = df["ts"].to_numpy()
+        train_idx = np.arange(len(df))
+
+        raw_first, raw_second = ts[train_idx[: len(df) // 2]], ts[train_idx[len(df) // 2 :]]
+        assert raw_first.max() > raw_second.min(), "the fixture is not shuffled, so this asserts nothing"
+
+        order = order_rows_by_time(train_idx, ts)
+        ordered = train_idx[order]
+        first, second = ts[ordered[: len(df) // 2]], ts[ordered[len(df) // 2 :]]
+        assert first.max() < second.min(), "the drift halves still mix the periods"
 
     def test_no_time_ordering_leaves_flag_false(self) -> None:
         """No time ordering leaves flag false."""

@@ -24,6 +24,8 @@ Covers:
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pytest
 
@@ -187,32 +189,73 @@ class TestCbHuberEvalMatchesLoss:
         # (semantically equivalent to od_wait, no collision).
         assert cb_extras["early_stopping_rounds"] == 100
 
-    def test_eval_metric_for_cb_huber_returns_huber(self) -> None:
-        """The matcher returns the SAME Huber-with-delta string for the
-        eval_metric, not 'MAE' (the pre-fix value)."""
-        from pathlib import Path
+    def test_eval_metric_for_cb_huber_matches_the_loss(self) -> None:
+        """CatBoost's early stopping tracks the surface it descends: a Huber loss gets the same Huber eval_metric.
 
-        src = Path(__import__("mlframe.training.core._phase_train_one_target", fromlist=["_apply_loss_recommendation_in_place"]).__file__).read_text(
-            encoding="utf-8"
+        The pre-fix mapping paired ``Huber:delta=X`` with ``MAE``, so ES watched a different surface from the optimiser and
+        stopped almost immediately. Asserted through what reaches ``set_params``, not through the source of the matcher.
+        """
+        from mlframe.training.core._phase_train_one_target import _apply_loss_recommendation_in_place
+
+        model = _RecordingModel()
+        models_params = {"cb": {"model": model}}
+        _apply_loss_recommendation_in_place(
+            models_params=models_params, target_values=_heavy_tailed_target(), composite_name="t",
+            logger_=logging.getLogger(__name__), verbose=False,
         )
-        # The Huber branch in CB must now return the value unchanged
-        # (Huber:delta=X is a valid CB eval_metric), not MAE.
-        assert 'return ("eval_metric", _value)' in src
-        assert "stops ES at iter=1" in src
+        assert model.params, "the auto-loss pass set nothing on the CatBoost model"
+        loss = str(model.params.get("loss_function", ""))
+        if loss.startswith("Huber"):
+            assert model.params.get("eval_metric") == loss
+        else:
+            assert model.params.get("eval_metric") == loss or loss in {"", "RMSE", "MAE"}
+
+
+
+class _RecordingModel:
+    """A stand-in estimator that records what ``set_params`` was called with."""
+
+    def __init__(self) -> None:
+        self.params: dict = {}
+
+    def set_params(self, **kwargs):
+        """Record the keyword arguments and return self, as a scikit-learn estimator does."""
+        self.params.update(kwargs)
+        return self
+
+
+def _heavy_tailed_target(n: int = 2000, seed: int = 0) -> np.ndarray:
+    """A Laplace-like target: the regime the robust-loss recommendation exists for."""
+    rng = np.random.default_rng(seed)
+    return rng.laplace(0.0, 5.0, n)
 
 
 class TestApplyLossRecommendationWiresExtras:
     """Groups tests covering apply loss recommendation wires extras."""
-    def test_xgb_extra_params_threaded_into_set_params(self) -> None:
-        """Sensor: the apply path must propagate ``xgb_extra_params`` /
-        ``cb_extra_params`` into the model's set_params() call."""
-        from pathlib import Path
+    def test_xgb_extra_params_reach_set_params(self, monkeypatch) -> None:
+        """A backend's extra params from the recommendation reach the estimator.
 
-        src = Path(__import__("mlframe.training.core._phase_train_one_target", fromlist=["_apply_loss_recommendation_in_place"]).__file__).read_text(
-            encoding="utf-8"
+        Without them XGB's ``huber_slope`` stays at 1.0, which on a T-scale target with std ~13 makes the loss effectively
+        MSE on the tails and blows the prediction range out by 30x.
+        """
+        from mlframe.training.core import _phase_train_one_target as mod
+
+        monkeypatch.setattr(
+            mod, "recommend_boosting_regression_loss",
+            lambda *_a, **_k: {"xgb": "reg:pseudohubererror", "xgb_extra_params": {"huber_slope": 17.5}},
+            raising=False,
         )
-        assert 'rec.get(f"{_backend}_extra_params")' in src
-        assert "_set_kwargs.update(_extra_params)" in src
+        monkeypatch.setattr(
+            "mlframe.training.loss_recommendation.recommend_boosting_regression_loss",
+            lambda *_a, **_k: {"xgb": "reg:pseudohubererror", "xgb_extra_params": {"huber_slope": 17.5}},
+        )
+        model = _RecordingModel()
+        mod._apply_loss_recommendation_in_place(
+            models_params={"xgb": {"model": model}}, target_values=_heavy_tailed_target(), composite_name="t",
+            logger_=logging.getLogger(__name__), verbose=False,
+        )
+        assert model.params.get("objective") == "reg:pseudohubererror"
+        assert model.params.get("huber_slope") == 17.5
 
 
 class TestCompositeTargetEstimatorTClip:

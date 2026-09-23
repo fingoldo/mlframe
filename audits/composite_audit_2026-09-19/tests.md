@@ -127,7 +127,7 @@ Findings are ordered by severity. A cross-reference like "(EST-01)" means the de
 - **What**: both fixtures shuffle an AR(1) frame and pass `time_ordering`, which is the right setup. The only assertion is that the flag is True. DSC-05 shows that the flag is the only effect of the sort: the tiny-rerank `TimeSeriesSplit`, multi-base stepwise and the alpha-drift halves all run in row-position order. The test named "..._and_sorts" never checks any sort. The second test also runs the recurrent TS transforms on shuffled rows and accepts any spec list, including specs chosen by EWMA/frac-diff over a scrambled sequence.
 - **Why it matters**: the tests certify leakage protection that does not exist (DSC-05, P1).
 - **Suggested fix**: spy on the CV splitter (monkeypatch `_tiny_cv_rmse_y_scale`, or the `cv_splitter` argument) and assert that every fold's train rows precede its validation rows in `ts`. Assert that the alpha-drift halves are the time halves. Assert that recurrent specs are fitted on time-sorted `y` (compare `fitted_params_["tail_anchor"]` with the value fitted on the sorted frame).
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - the rerank records the time key of the sample the folds actually see (_rerank_sample_time_), and the test asserts it is non-decreasing while spying on sklearn's TimeSeriesSplit for the folds themselves; a second test pins that the alpha-drift halves are the time halves and that the fixture is genuinely shuffled, so the assertion is not vacuous. Mutation-checked: restoring the pre-DSC-05 behaviour (dropping the sample-level ordering) fails the rerank test, which the flag-only assertion did not
 
 ### TST-07 [P2] The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04
 - **Where**:
@@ -264,7 +264,7 @@ Findings are ordered by severity. A cross-reference like "(EST-01)" means the de
   - **The other source checks lock in implementation details.** `for i in range(window, n):` must not appear; `X.copy(deep=False)` must appear. They do not test behaviour.
 - **Why it matters**: the repo rule is behavioural tests over `getsource`. The CTE-raw-X test gives false assurance on a P0 path.
 - **Suggested fix**: delete the source-inspection asserts. Replace the CTE test with the EST-01 oracle: a Ridge inner fit on `StandardScaler(X)`, `linear_residual` on the raw base, then assert that `predict_from_models` and the CT-ensemble component prediction are within 1.5x of the "inner on pp(X) + raw base" oracle. For the other three, assert the behaviour the string stood for (kernel output equals a pandas rolling reference; `np.shares_memory` already covers the shallow copy; the CatBoost `eval_metric` passed to `set_params`).
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - all four source-text sites are behavioural now. test_predict_cte_raw_x.py compares every predict entry point against the 'inner on pre_pipeline(X), base read raw' oracle (dbe77db39/a8d1f9b06), the njit-kernel wiring check substitutes the kernel and requires the substitute's output to reach the caller, the shallow-copy check keeps its np.shares_memory assertion, and the two loss-recommendation checks assert what reaches set_params: a Huber loss gets the matching Huber eval_metric, and a backend's extra params (xgb huber_slope) arrive with it
 
 ### TST-16 [P3] Timing-based asserts in the composite suite can flake on the shared host
 - **Where**:
