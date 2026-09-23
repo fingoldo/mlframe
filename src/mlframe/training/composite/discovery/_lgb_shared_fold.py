@@ -28,6 +28,21 @@ _MAX_ENTRIES = 64
 _CACHE: "OrderedDict[tuple, tuple[Any, Any]]" = OrderedDict()
 _LOCK = threading.Lock()
 
+_CONSTRUCT_LOCK = threading.Lock()
+"""Serialises ``Dataset.construct()`` across every thread in the process.
+
+LightGBM's binning runs in its own C++ layer and is not safe to enter from several threads at once, while training
+boosters in parallel is. A production run died with an access violation and a heap corruption (0xc0000374) with 16
+rerank threads inside ``Booster.update`` and 3 more inside a dataset construction at the same moment. The cache's
+own lock only guards the dict, so before this the constructions ran concurrently.
+
+Construction is a small share of the work it protects (about 328 ms against a 0.9 s fit at the tiny-model defaults)
+and each thread builds its fold once, so the lock costs nothing measurable: 16 threads over the production fold shape
+took 55.4 s with it against 58.9 s without (``_benchmarks/bench_lgb_shared_fold_locking.py``). Serialising
+``lgb.train`` as well was measured and rejected -- 117.5 s, 1.99x, since training is where the rerank's time goes and
+it is the part LightGBM runs in parallel safely.
+"""
+
 
 def lgb_params(*, num_leaves: int, learning_rate: float, random_state: int, deterministic: bool, num_threads: int) -> Dict[str, Any]:
     """The booster parameters ``_build_tiny_model('lgb', ...)`` hands to LightGBM through the sklearn wrapper."""
@@ -61,7 +76,9 @@ def _fold_dataset(x: np.ndarray, rows: np.ndarray, params: Dict[str, Any]) -> An
             _CACHE.move_to_end(key)
             return hit[1]
     # Only the binned rows are reused -- no subset, no re-construction -- so the raw feature copy is released once built.
-    ds = lgb.Dataset(x[rows], label=np.zeros(rows.shape[0]), params=params, free_raw_data=True).construct()
+    _raw = x[rows]  # materialised outside the lock: the copy is plain numpy and needs no serialisation
+    with _CONSTRUCT_LOCK:
+        ds = lgb.Dataset(_raw, label=np.zeros(rows.shape[0]), params=params, free_raw_data=True).construct()
     with _LOCK:
         _CACHE[key] = (weakref.ref(x), ds)
         while len(_CACHE) > _MAX_ENTRIES:

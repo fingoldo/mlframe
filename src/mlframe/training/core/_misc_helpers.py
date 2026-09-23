@@ -187,9 +187,16 @@ def _build_full_column_from_splits(
     """Reassemble a single column at the FULL n_total row index space from per-split frames.
 
     Returns a float64 ndarray of length ``n_total``; rows not covered by any split keep NaN.
+
+    An empty ``col_name`` is the base-free sentinel a unary spec carries (``discovery._fit._UNARY_BASE_SENTINEL``),
+    not a missing column: those transforms ignore the base argument entirely. It returns the same all-NaN placeholder
+    their ``forward`` / ``domain_check`` accept, without scanning three frames for a column that was never meant to
+    exist and without the "cannot be trained" warning, which is true of a base a spec needs and does not have.
     """
     import numpy as _np
     out = _np.full(n_total, _np.nan, dtype=_np.float64)
+    if not col_name:
+        return out
     _seen_anywhere = False
     for _split_df, _split_idx in (
         (train_df, train_idx), (val_df, val_idx), (test_df, test_idx),

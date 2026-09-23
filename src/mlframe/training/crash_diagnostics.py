@@ -374,6 +374,11 @@ def install_crash_diagnostics(crash_dir: Optional[str] = None, all_threads: bool
     """Install everything above; returns what got enabled. Never raises."""
     info: Dict[str, Any] = {}
     try:
+        # Before anything else: a crash dump names the library it died in but never its version, and the run may use a
+        # different interpreter than the checkout being read afterwards.
+        from ._environment_report import log_environment_versions
+
+        info["environment"] = log_environment_versions()
         info["faulthandler_file"] = open_faulthandler_file(crash_dir, all_threads=all_threads)
         install_exception_hooks()
         register_atexit()
