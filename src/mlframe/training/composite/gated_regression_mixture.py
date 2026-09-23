@@ -30,10 +30,11 @@ import logging
 from typing import Any, Dict, Optional
 
 import numpy as np
-import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from mlframe.utils.log_throttle import log_throttle
+
+from ._frame_ops import append_column
 
 logger = logging.getLogger(__name__)
 
@@ -62,17 +63,7 @@ def _subset_rows(X: Any, mask: np.ndarray) -> Any:
 
 def _concat_feature(X: Any, col_name: str, values: np.ndarray) -> Any:
     """Append ``values`` as a new column named ``col_name`` to ``X``, matching its frame type."""
-    if isinstance(X, pd.DataFrame):
-        out = X.copy()
-        out[col_name] = values
-        return out
-    try:
-        import polars as pl
-        if isinstance(X, pl.DataFrame):
-            return X.with_columns(pl.Series(col_name, values))
-    except ImportError:
-        pass
-    return np.concatenate([np.asarray(X, dtype=np.float64), values.reshape(-1, 1)], axis=1)
+    return append_column(X, col_name, values)
 
 
 class GatedRegressionMixture(RegressorMixin, BaseEstimator):

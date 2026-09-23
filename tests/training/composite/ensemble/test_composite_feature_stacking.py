@@ -112,25 +112,22 @@ class TestPredictionsAsFeature:
             composite_predictions_as_feature(wrapper, df_bad, column_name="pred", fallback_value=0.0)
         assert any("predict failed" in rec.message for rec in caplog.records), "wrapper.predict failure must be logged at WARNING, not silently swallowed"
 
-    def test_large_frame_copy_raises_without_opt_in(self, monkeypatch) -> None:
-        """A pandas frame above the large-frame threshold must raise instead of silently doubling RAM via ``df.copy()``."""
+    def test_no_frame_size_needs_permission_because_the_append_shares_the_columns(self, monkeypatch) -> None:
+        """Appending the prediction column borrows the source frame's columns, so a frame of any size goes through.
+
+        The helper used to ``df.copy()`` and therefore refused a frame above ``_FEATURE_STACK_LARGE_FRAME_BYTES`` unless the
+        caller passed ``allow_large_frame_copy``. It now appends through ``append_column``, which shares the existing blocks:
+        there is no doubled peak RAM left to ask permission for, and the flag is accepted only so old callers keep working.
+        """
         from mlframe.training.composite.ensemble import feature_stacking as fs_mod
 
         df, y = _make_dataset()
         wrapper = _fit_wrapper(df, y)
-        monkeypatch.setattr(fs_mod, "_FEATURE_STACK_LARGE_FRAME_BYTES", 1)  # force every frame to look "large"
-        with pytest.raises(RuntimeError, match="allow_large_frame_copy"):
-            composite_predictions_as_feature(wrapper, df)
-
-    def test_large_frame_copy_allowed_with_opt_in(self, monkeypatch) -> None:
-        """Large frame copy allowed with opt in."""
-        from mlframe.training.composite.ensemble import feature_stacking as fs_mod
-
-        df, y = _make_dataset()
-        wrapper = _fit_wrapper(df, y)
-        monkeypatch.setattr(fs_mod, "_FEATURE_STACK_LARGE_FRAME_BYTES", 1)
-        out = composite_predictions_as_feature(wrapper, df, allow_large_frame_copy=True)
-        assert len(out) == len(df)
+        monkeypatch.setattr(fs_mod, "_FEATURE_STACK_LARGE_FRAME_BYTES", 1)  # every frame looks "large"
+        out = composite_predictions_as_feature(wrapper, df)
+        assert len(out) == len(df) and "base" in out.columns
+        assert np.shares_memory(out["base"].to_numpy(), df["base"].to_numpy()), "the source frame's columns were copied"
+        assert len(composite_predictions_as_feature(wrapper, df, allow_large_frame_copy=True)) == len(df)
 
 
 # ===========================================================================

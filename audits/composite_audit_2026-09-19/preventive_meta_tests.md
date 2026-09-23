@@ -457,7 +457,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium. Legitimate small-frame copies exist, handled by the marker and the baseline.
 - **Runtime**: (a) under 1 s; (b) about 1 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - (a) is tests/test_meta/test_no_frame_copy_in_target_loops.py with _frame_copy_baseline.json, which is empty: composite and core hold no frame copy at all now, since feature_stacking and gated_regression_mixture were moved onto append_column too (a shallow copy(deep=False) is not counted, and a deliberate copy opts out with '# frame-copy: <reason>'). (b) is test_discovery_frame_zero_copy.py, unmarked because the assertion holds on every supported pandas, not only the 2.x leg
 
 ### PMT-27 [P3] Diagnostics truthfulness: report reasons come from the ledger, printed advice is executed, alert policy matches its docstring
 - **Asserts**:

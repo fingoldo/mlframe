@@ -111,7 +111,7 @@ Overlap notes: DSC-12 (cache key contents), DSC-18 (verdict split), DSC-20 (auto
 - **Why it matters**: This breaks the project's "never copy a frame" rule on 100+ GB frames. With K regression targets the peak is roughly one extra train frame each time.
 - **Suggested fix**: Do not build a combined frame. Pass `y_train_aligned` to `CompositeTargetDiscovery.fit` separately (the fit already extracts columns individually), or insert the target column and remove it in a try/finally on the caller's frame.
 - **Test to add**: With pandas 2.x, assert `np.shares_memory` between a feature column of the discovery frame and `filtered_train_df`, or assert that peak RSS does not grow by the frame size per target.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - the per-target discovery frame is built by append_column(), which concats the target onto the train frame without copying its blocks (copy=False before pandas 3, zero-copy on 3+). The frame is still a new object, so the caller's is untouched; test_discovery_frame_zero_copy.py asserts np.shares_memory for every feature column on whatever pandas is installed
 
 ### INT-13 [P3] The default model cache reuses a composite inner model whose target definition has changed
 - **Where**: `training/train_eval.py:400-470` (`use_cache` default True in `_training_runtime_configs.py:369`; staleness check `_validate_cached_model_schema` compares features only).

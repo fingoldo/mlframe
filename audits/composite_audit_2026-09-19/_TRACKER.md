@@ -18,11 +18,11 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 24 | 0 | 6 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 20 | 0 | 2 | 0 | 0 |
-| `suite_integration.md` | 19 | 16 | 0 | 3 | 0 | 0 |
+| `suite_integration.md` | 19 | 17 | 0 | 2 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 12 | 19 | 10 | 0 | 0 |
-| **Total** | **179** | **118** | **30** | **30** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 13 | 19 | 9 | 0 | 0 |
+| **Total** | **179** | **120** | **30** | **28** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -132,7 +132,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `INT-09` | Listing any grouped transform in `transforms` makes discovery raise, which removes every composite for that target | grouped transforms rejected per candidate; any candidate error isolated |
 | **RESOLVED** | P2 | `INT-10` | The suite-end "TARGETS QUALITY" table reports composite rows on T-scale beside raw rows on y-scale, and is never persisted | scale column; composite rows from y-scale metrics; CSV written under data_dir |
 | **RESOLVED** | P2 | `INT-11` | Specs dropped by the global `max_total_composite_targets` cap stay in `metadata["composite_target_specs"]` with no failure record | cap- and floor-dropped specs leave metadata, recorded as failures |
-| **TODO** | P2 | `INT-12` | On the supported pandas range, discovery materialises a full copy of the train frame for every regression target | |
+| **RESOLVED** | P2 | `INT-12` | On the supported pandas range, discovery materialises a full copy of the train frame for every regression target | append_column() shares the train frame's columns; shares_memory asserted per column |
 | **RESOLVED** | P3 | `INT-13` | The default model cache reuses a composite inner model whose target definition has changed | fixed earlier (spec digest on dumps); regression tests added |
 | **RESOLVED** | P3 | `INT-14` | The discovery "winning-spec" charts plot y and T over all rows, including test rows and median-imputed T values | charts plot train rows with a real T; imputed fill kept out of charts and dedup |
 | **RESOLVED** | P3 | `INT-15` | Two config fields are accepted and documented as effective but do nothing, with no warning | non-default values warn; misleading config comment fixed; allowlist entries removed |
@@ -221,7 +221,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P2 | `PMT-23` | State parity across alternate constructors: fit() vs from_fitted_inner() vs update() vs unpickle | fit vs from_fitted_inner parity over the registry; found + fixed the T-clip envelope for 42 transforms; update() leg open |
 | **PARTIAL** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | unseen-key fallbacks pinned to exact global answers; MoE vs pooled-best; recurrent seed leg open |
 | **PARTIAL** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | (a) and (b) ship as test_composite_authoritative_sources.py; (c) has no second construction site left after TRF-25 |
-| **TODO** | P2 | `PMT-26` | Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test | |
+| **RESOLVED** | P2 | `PMT-26` | Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test | empty _frame_copy_baseline.json plus the shares_memory test; no pandas-2.x-only leg needed |
 | **TODO** | P3 | `PMT-27` | Diagnostics truthfulness: report reasons come from the ledger, printed advice is executed, alert policy matches its docstring | |
 | **TODO** | P3 | `PMT-28` | Test timing and cost hygiene: relative timing races need real slack, and repeated heavy trainings share a fixture | |
 | **PARTIAL** | P1 | `PMT-29` | Split-role ledger: selection rows and report rows never overlap, and verdicts read test | row-role ledger + contract test (holdout select/report disjoint, verdict=test, charts=train); xt fit/report leg open |
