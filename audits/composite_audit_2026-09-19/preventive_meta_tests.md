@@ -621,7 +621,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium. Diagnostic helpers that intentionally score finite rows only must return the dropped fraction to pass.
 - **Runtime**: under 1 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - py-ci-shared survivorship_scoring (commit 41cbadc, 8 unit tests, README section) reports every metric call whose two arguments are indexed by the same isfinite(prediction) mask, accepting a function that fills the dropped rows or reports the dropped fraction in its verdict; counting finite rows for a floor does not count, which is what the four gates did. Verified against the pre-DSC-08 sources: it names all four sites (_yscale_holdout_gate, _honest_rmse_gate, _honest_oof_select and its inner scorer). Wired over all of src with an empty allowlist, where it is now silent
 
 ### PMT-40 [P2] `source_text_claims` misses source text accumulated with `+=`: close the taint gap and drain the composite allowlist
 - **Asserts**: the shared detector's assertion mode propagates taint through `AugAssign` (`src += path.read_text()`), so an assert on `src` counts as a claim. The composite files currently allowlisted as a whole (`training/composite/discovery/test_training_composite_discovery_fixes.py`, `training/composite/test_training_composite_loose_a_fixes.py`) are converted to behavioural tests and removed from `_ALLOWLIST` in `test_no_source_text_claims.py`.

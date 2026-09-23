@@ -554,6 +554,18 @@ def test_getattr_defaults_match_the_discovery_config():
     )
 
 
+def test_no_metric_is_scored_on_survivors_only():
+    """A metric taken over ``isfinite(prediction)`` rows alone scores the model where it happened to work.
+
+    Four y-scale gates did exactly that: a spec whose inverse collapsed on 40% of the holdout was judged on the other
+    60% and shipped, while the estimator would have paid the median-fill error on every dropped row.
+    """
+    from py_ci_shared.survivorship_scoring import assert_no_survivorship_scoring
+
+    files = sorted(p for p in (REPO_ROOT / "src").rglob("*.py") if "_benchmarks" not in p.parts)
+    assert_no_survivorship_scoring(files=files, repo_root=REPO_ROOT, allowed={}, min_files=1000)
+
+
 def regenerate_fail_open_baseline() -> None:
     """Rewrite the fail-open baseline from the current tree, keeping every existing note. Called by `regen_baselines.py`."""
     import orjson

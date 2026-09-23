@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 17 | 20 | 4 | 0 | 0 |
-| **Total** | **179** | **132** | **31** | **15** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 18 | 20 | 3 | 0 | 0 |
+| **Total** | **179** | **133** | **31** | **14** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -234,6 +234,6 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `PMT-36` | Environment flags parsed through one shared parser (shared scanner) | shared scanner wired over the composite scope |
 | **TODO** | P3 | `PMT-37` | Deferred-dead config fields must warn when set, and no allowlisted field may advertise how to enable it | |
 | **RESOLVED** | P1 | `PMT-38` | A config rebuilt with `model_copy(update=...)` must reach its consumers (shared scanner) | shared discarded-model_copy scanner wired with an empty allowlist |
-| **TODO** | P2 | `PMT-39` | Survivorship-scored metrics: a metric computed only on rows where the prediction is finite (shared scanner) | |
+| **RESOLVED** | P2 | `PMT-39` | Survivorship-scored metrics: a metric computed only on rows where the prediction is finite (shared scanner) | shared scanner wired over src with an empty allowlist; fires on all four pre-fix sites |
 | **RESOLVED** | P2 | `PMT-40` | `source_text_claims` misses source text accumulated with `+=`: close the taint gap and drain the composite allowlist | AugAssign taint closed; both composite files drained from the allowlist |
 | **TODO** | P3 | `PMT-41` | Advisory scan for tests that pin a conceded defect | |
