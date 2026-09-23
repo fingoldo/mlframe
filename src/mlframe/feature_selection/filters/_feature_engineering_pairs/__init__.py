@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from ._pairs_common import _TIMES_SPENT_LOCK, _module_logger
 from ._pairs_dispatch import (
-    _BATCH_MI_NOISE_GATE_CODE_VERSION,
+    batch_mi_noise_gate_code_version,
     _batch_mi_with_noise_gate_gpu,
     _dispatch_batch_mi_with_noise_gate,
 )
@@ -64,7 +64,7 @@ __all__ = [
     "_NegNameKey",
     "_dispatch_batch_mi_with_noise_gate",
     "_batch_mi_with_noise_gate_gpu",
-    "_BATCH_MI_NOISE_GATE_CODE_VERSION",
+    "batch_mi_noise_gate_code_version",
     "_materialise_chunk_njit",
     "_materialise_chunk_njit_parallel",
     "_materialise_extval_njit",

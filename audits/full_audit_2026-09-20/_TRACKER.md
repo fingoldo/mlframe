@@ -28,10 +28,10 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `predict_persistence.md` | 18 | 18 | 0 | 0 | 0 | 0 |
 | `ensembling_models.md` | 14 | 14 | 0 | 0 | 0 | 0 |
 | `evaluation_reporting.md` | 16 | 3 | 0 | 13 | 0 | 0 |
-| `performance.md` | 7 | 3 | 0 | 4 | 0 | 0 |
+| `performance.md` | 7 | 7 | 0 | 0 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 1 | 0 | 11 | 0 | 0 |
 | `config_contracts.md` | 32 | 4 | 0 | 27 | 0 | 1 |
-| **Total** | **165** | **64** | **1** | **96** | **2** | **2** |
+| **Total** | **165** | **68** | **1** | **92** | **2** | **2** |
 
 ## Per-report status
 
@@ -92,3 +92,5 @@ Test failures met while verifying this wave that are NOT caused by it: each was 
 | `tests/feature_selection/shap_proxied/test_shap_proxy_treeshap_interactions_gpu.py::test_biz_val_gpu_interaction_faster_than_numba` | 0.42x on a loaded host | a wall-clock ratio; re-measure on a quiet host before judging |
 | `tests/feature_selection/biz_val/test_biz_val_wrappers_rfecv_stability.py::test_biz_val_rfecv_stability_beats_importance_on_many_steady` | fails, 0.8214 vs 0.8104 (+0.04 required) | identical numbers with and without FS-01 |
 | `tests/feature_selection/fe/gates/test_fe_stability_vote.py::test_bizvalue_noise_survivor_reduction` | fails (2 <= 1) | |
+| `tests/feature_selection/gpu/test_cmi_residency_traffic.py::test_pair_search_residency_no_nk_codes_bulk_d2h` | fails identically on `origin/master` | 17 bulk D2H transfers at (n,K) scale on the strict pair-search path; the codes/float buffer is not staying resident |
+| `tests/feature_selection/gpu/test_gpu_cpu_mi_selection_equivalence.py::test_mrmr_gpu_cpu_selection_identical[clf_binary]` | fails identically on `origin/master` | the GPU path selects `add(qubed(c),rint(e))` where the CPU path does not |

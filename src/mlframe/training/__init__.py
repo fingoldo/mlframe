@@ -467,4 +467,10 @@ __all__ += [
 ]
 
 
+# Public home for the dataset-cache fingerprint: ``reporting`` keys its PSI / adversarial caches on it, and importing
+# ``training._dataset_cache_fingerprint`` from there reaches into this package's private module.
+from ._dataset_cache_fingerprint import compute_signature
+
+__all__ += ["compute_signature"]
+
 __version__ = "2.0.0"  # Major refactoring version

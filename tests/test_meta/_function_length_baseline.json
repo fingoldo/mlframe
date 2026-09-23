@@ -260,7 +260,7 @@
   "src/mlframe/training/composite/discovery/_stacked.py::fit_stacked": 156,
   "src/mlframe/training/composite/discovery/_stacked.py::fit_stacked_on_residual": 190,
   "src/mlframe/training/composite/discovery/_tiny_rerank.py::_tiny_model_rerank": 870,
-  "src/mlframe/training/composite/discovery/_yscale_holdout_gate.py::apply_yscale_holdout_gate": 207,
+  "src/mlframe/training/composite/discovery/_yscale_holdout_gate.py::apply_yscale_holdout_gate": 206,
   "src/mlframe/training/composite/discovery/bayesian.py::bayesian_alpha_fit": 177,
   "src/mlframe/training/composite/discovery/forward_stepwise.py::forward_stepwise_multi_base": 264,
   "src/mlframe/training/composite/ensemble/__init__.py::_oof_holdout_predictions_with_rows": 474,

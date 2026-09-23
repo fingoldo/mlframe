@@ -180,11 +180,16 @@ class TestATransientFaultDoesNotLatchAPermanentDowngrade:
             "feature_selection/filters/_batch_pair_mi_cuda_kernels.py",
         ],
     )
-    def test_the_import_time_cuda_probe_separates_import_error_from_a_fault(self, rel):
-        """`_CUDA_AVAIL` is resolved ONCE at module import, so one hiccup disables the module for the process."""
+    def test_the_cuda_probe_separates_import_error_from_a_fault(self, rel):
+        """The probe verdict is cached for the process, so one transient hiccup disables the module until restart.
+
+        The wording no longer says "at import": the noise-gate module resolves its verdict on first USE (an
+        import-time probe compiled and launched a kernel in every process). What the message must still say is that
+        the verdict is latched process-wide, which is what makes mistaking a fault for an absent dependency costly.
+        """
         assert "ImportError" in _caught_types(rel), "the narrow ImportError catch is gone, so a real fault is treated as an absent dependency"
         s = _emitted(rel)
-        assert "resolved ONCE at import" in s
+        assert "resolved ONCE at import" in s or "cached for the whole process" in s
         assert "warning" in _called(rel), "the import failure is no longer announced above debug level"
 
     def test_the_shap_proxy_gpu_probe_does_not_latch_a_transient_failure(self):

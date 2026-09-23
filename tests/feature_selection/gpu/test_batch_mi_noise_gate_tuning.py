@@ -57,23 +57,23 @@ def test_fallback_choice_cpu_when_rows_large_but_cols_small():
 def test_fallback_choice_prefers_cupy_over_cuda(monkeypatch):
     """When both backends are large enough to route to GPU and both cupy/cuda are available, cupy is
     preferred (single batched bincount per shuffle vs per-column block launch)."""
-    monkeypatch.setattr(tuning, "_CUPY_AVAIL", True)
-    monkeypatch.setattr(tuning, "_CUDA_AVAIL", True)
+    monkeypatch.setattr(tuning, "cupy_available", lambda: True)
+    monkeypatch.setattr(tuning, "cuda_available", lambda: True)
     assert tuning._batch_mi_noise_gate_fallback_choice(n_rows=tuning.GPU_MIN_ROWS, n_cols=tuning.GPU_MIN_COLS) == "cupy"
 
 
 def test_fallback_choice_falls_back_to_cuda_without_cupy(monkeypatch):
     """When cupy is unavailable but cuda (numba) is, and the size thresholds are met, cuda is chosen."""
-    monkeypatch.setattr(tuning, "_CUPY_AVAIL", False)
-    monkeypatch.setattr(tuning, "_CUDA_AVAIL", True)
+    monkeypatch.setattr(tuning, "cupy_available", lambda: False)
+    monkeypatch.setattr(tuning, "cuda_available", lambda: True)
     assert tuning._batch_mi_noise_gate_fallback_choice(n_rows=tuning.GPU_MIN_ROWS, n_cols=tuning.GPU_MIN_COLS) == "cuda"
 
 
 def test_fallback_choice_cpu_when_no_gpu_backend_available(monkeypatch):
     """Even when the size thresholds are met, with neither cupy nor cuda available the fallback must be
     CPU (no GPU backend to route to)."""
-    monkeypatch.setattr(tuning, "_CUPY_AVAIL", False)
-    monkeypatch.setattr(tuning, "_CUDA_AVAIL", False)
+    monkeypatch.setattr(tuning, "cupy_available", lambda: False)
+    monkeypatch.setattr(tuning, "cuda_available", lambda: False)
     assert tuning._batch_mi_noise_gate_fallback_choice(n_rows=tuning.GPU_MIN_ROWS, n_cols=tuning.GPU_MIN_COLS) == "cpu"
 
 
@@ -109,8 +109,8 @@ def test_backend_choice_resolves_legacy_gpu_region(monkeypatch):
     """A stale pre-cupy/cuda-split 'gpu' region must resolve to whichever concrete GPU backend is
     actually available on this host, not be returned verbatim (it isn't one of the 3 valid dispatch
     values)."""
-    monkeypatch.setattr(tuning, "_CUPY_AVAIL", True)
-    monkeypatch.setattr(tuning, "_CUDA_AVAIL", False)
+    monkeypatch.setattr(tuning, "cupy_available", lambda: True)
+    monkeypatch.setattr(tuning, "cuda_available", lambda: False)
     monkeypatch.setattr(
         "pyutilz.performance.kernel_tuning.cache.KernelTuningCache.load_or_create",
         classmethod(lambda cls: _FakeCache({"backend_choice": "gpu"})),
@@ -130,8 +130,8 @@ def test_backend_choice_falls_back_on_cache_exception(monkeypatch):
         "pyutilz.performance.kernel_tuning.cache.KernelTuningCache.load_or_create",
         classmethod(_raise_import),
     )
-    monkeypatch.setattr(tuning, "_CUPY_AVAIL", False)
-    monkeypatch.setattr(tuning, "_CUDA_AVAIL", False)
+    monkeypatch.setattr(tuning, "cupy_available", lambda: False)
+    monkeypatch.setattr(tuning, "cuda_available", lambda: False)
     assert tuning._batch_mi_noise_gate_backend_choice(10, 10) == "cpu"
 
 

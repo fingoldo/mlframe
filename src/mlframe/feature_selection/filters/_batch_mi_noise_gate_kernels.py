@@ -25,41 +25,79 @@ except ImportError:
 
 from ._internals import numba_cuda_can_compile as _numba_cuda_can_compile
 
-try:
-    from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
-    _CUDA_AVAIL = _pyutilz_is_cuda_available()
-except ImportError as e:
-    # pyutilz genuinely absent: expected on a lean install, permanent, quiet.
-    logger.debug("pyutilz.core.pythonlib unavailable (%s); falling back to numba.cuda.is_available().", e)
-except Exception as e:
-    # This is the `_select_mi_backend` mechanism exactly, and it is worth a WARNING rather than a debug line:
-    # the probe module imports code that touches CUDA at import time, so a TRANSIENT device fault raised here
-    # is indistinguishable from "no CUDA" -- and because `_CUDA_AVAIL` is resolved once at MODULE IMPORT, that
-    # one hiccup disables this module's CUDA kernels for the entire process, invisibly.
-    logger.warning(
-        "is_cuda_available() probe raised %s (%s) during module import, which is NOT 'pyutilz absent'. "
-        "_CUDA_AVAIL is resolved ONCE at import, so if this was a transient device fault this module's CUDA "
-        "kernels are disabled for the whole process. Falling back to numba.cuda.is_available().",
-        type(e).__name__,
-        e,
-    )
+_CUDA_AVAIL_CACHED: "bool | None" = None
+_CUPY_CACHED: "tuple | None" = None
+
+
+def cuda_available() -> bool:
+    """Whether numba.cuda can actually compile and launch a kernel here, probed once per process ON FIRST USE.
+
+    Resolved lazily: the probe compiles and launches a kernel, so doing it at import time built a CUDA context (and
+    emitted a NumbaPerformanceWarning) in every process that merely imported this package, GPU-bound or not.
+    """
+    global _CUDA_AVAIL_CACHED
+    if _CUDA_AVAIL_CACHED is not None:
+        return _CUDA_AVAIL_CACHED
+    avail = False
     try:
-        _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
-    except Exception as e2:
-        logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
-        _CUDA_AVAIL = False
+        from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
 
-# Device-presence alone is not enough: a GPU with a cudatoolkit/numba NVVM mismatch passes the
-# probe above but raises NvvmSupportError on the first kernel launch. Require actual compilability
-# so the dispatcher falls back to cupy/CPU instead of crashing.
-_CUDA_AVAIL = _CUDA_AVAIL and _numba_cuda_can_compile()
+        avail = _pyutilz_is_cuda_available()
+    except ImportError as e:
+        # pyutilz genuinely absent: expected on a lean install, permanent, quiet.
+        logger.debug("pyutilz.core.pythonlib unavailable (%s); falling back to numba.cuda.is_available().", e)
+    except Exception as e:
+        # This is the `_select_mi_backend` mechanism exactly, and it is worth a WARNING rather than a debug line: the
+        # probe touches CUDA, so a TRANSIENT device fault raised here is indistinguishable from "no CUDA" -- and the
+        # verdict is cached for the process, so that one hiccup disables this module's CUDA kernels invisibly.
+        logger.warning(
+            "is_cuda_available() probe raised %s (%s), which is NOT 'pyutilz absent'. The verdict is cached for the "
+            "whole process, so if this was a transient device fault this module's CUDA kernels stay disabled until "
+            "restart. Falling back to numba.cuda.is_available().",
+            type(e).__name__,
+            e,
+        )
+        try:
+            avail = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
+        except Exception as e2:
+            logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
+            avail = False
 
-try:
-    import cupy as _cp
-    _CUPY_AVAIL = True
-except ImportError:
-    _cp = None
-    _CUPY_AVAIL = False
+    # Device-presence alone is not enough: a GPU with a cudatoolkit/numba NVVM mismatch passes the probe above but
+    # raises NvvmSupportError on the first kernel launch. Require actual compilability so the dispatcher falls back
+    # to cupy/CPU instead of crashing.
+    _CUDA_AVAIL_CACHED = bool(avail and _numba_cuda_can_compile())
+    return _CUDA_AVAIL_CACHED
+
+
+def cupy():
+    """The imported ``cupy`` module, or None; imported on first use (it costs ~1.7s and a CUDA context)."""
+    global _CUPY_CACHED
+    if _CUPY_CACHED is None:
+        try:
+            import cupy as _cp_mod
+
+            _CUPY_CACHED = (_cp_mod,)
+        except ImportError:
+            _CUPY_CACHED = (None,)
+    return _CUPY_CACHED[0]
+
+
+def cupy_available() -> bool:
+    """Whether cupy could be imported, resolved on first use."""
+    return cupy() is not None
+
+
+def __getattr__(name: str):
+    """Back-compat for readers of the former module-level flags; each resolves through the lazy accessors (PEP 562)."""
+    if name == "_CUDA_AVAIL":
+        return cuda_available()
+    if name == "_CUPY_AVAIL":
+        return cupy_available()
+    if name == "_cp":
+        return cupy()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # OPT-D: cupy's public ``cupy.bincount`` runs TWO host-blocking
 # synchronizations on EVERY call - ``(x < 0).any()`` (non-negativity validation)
@@ -86,7 +124,7 @@ def _cupy_bincount_known_size(d_flat, size):
     ``(x<0).any()`` + ``cupy.max(x)`` host-sync barriers. BYTE-IDENTICAL output (same
     underlying ElementwiseKernel). Falls back to public ``cupy.bincount`` if the private
     kernel symbol is unavailable on this cupy build."""
-    cp = _cp
+    cp = cupy()
     if _cupy_bincount_kernel is not None:
         import numpy as _np
         b = cp.zeros((size,), dtype=_np.intp)
@@ -224,7 +262,7 @@ def _cuda_mi_from_counts_kernel_factory():
     iter7 note flagged live in the HIST kernel, NOT here, and are ALREADY coalesced: ``y_all`` is (P, n)
     C-order so ``y_all[p, r]`` over consecutive r=tid is consecutive memory (the disc load was the strided
     one, fixed by ``_kernel_bs_cm``). Do not re-audit."""
-    if not _CUDA_AVAIL:
+    if not cuda_available():
         return None
 
     @_nb_cuda.jit
@@ -350,7 +388,7 @@ def _cuda_hist_kernel_factory():
     stride over rows and atomically populate a per-column joint histogram in
     GLOBAL memory (no shared-mem cap on nbins -> works for any column cardinality).
     """
-    if not _CUDA_AVAIL:
+    if not cuda_available():
         return None
 
     @_nb_cuda.jit
@@ -384,7 +422,7 @@ def _cuda_hist_kernel_batched_factory():
     block (k, p) bins column k against y_all[p] into counts_flat[p*total_size + off_k ...]. Lets the whole
     noise gate run from resident counts (paired with the GPU MI kernel) so only the (P, K) MI matrix
     leaves the device. Counts are integer + commutative -> identical to the per-perm kernel."""
-    if not _CUDA_AVAIL:
+    if not cuda_available():
         return None
 
     @_nb_cuda.jit
@@ -422,7 +460,7 @@ def _cuda_hist_kernel_batched_shared_factory():
     (loss) even with the transpose amortised over all P perms - post-privatization the kernel is
     SHARED-ATOMIC-bound (n counts/block), not disc-load-bound (despite gld_efficiency ~13.8%), so fixing
     the load layout doesn't help and the transpose pass only adds work. Kept row-major (n, K)."""
-    if not _CUDA_AVAIL:
+    if not cuda_available():
         return None
 
     from numba import int32 as _i32
@@ -474,7 +512,7 @@ def _cuda_hist_kernel_batched_shared_cm_factory():
     column values regardless of layout -> BIT-IDENTICAL (verified maxdiff 0 vs ``_kernel_bs``). The
     transpose is paid ONCE per gate launch (all P y-vectors share the one (K, n) disc); the original
     ``_kernel_bs`` stays the fallback (compile/transpose failure) so CPU / no-CUDA is byte-unchanged."""
-    if not _CUDA_AVAIL:
+    if not cuda_available():
         return None
 
     from numba import int32 as _i32

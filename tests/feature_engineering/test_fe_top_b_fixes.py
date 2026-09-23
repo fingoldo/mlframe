@@ -233,3 +233,33 @@ def test_f12_per_group_nadaraya_watson_smooth_sample_weight_changes_output():
     # Uniform weight of 1.0 must reproduce the unweighted result exactly (backward compat).
     uniform_w = per_group_nadaraya_watson_smooth(values, group_ids, order=order, bandwidth=2.0, sample_weight=np.ones(n))
     assert np.allclose(unweighted, uniform_w)
+
+
+def test_relational_features_concat_once_and_match_the_incremental_result():
+    """Building the frame once must give exactly what per-spec concatenation gave, columns and values alike.
+
+    The loop rebuilt the whole result per child spec, which is quadratic in the parent's width; the cost only shows on
+    a wide parent with many child tables, and the output must not move at all.
+    """
+    import pandas as pd
+
+    from mlframe.feature_engineering.relational_dfs import ChildTableSpec, compute_relational_features
+
+    parent = pd.DataFrame({"eid": [1, 2, 3], "cutoff": pd.to_datetime(["2024-01-05"] * 3), "w": [7.0, 8.0, 9.0]})
+    specs = []
+    for i in range(3):
+        child = pd.DataFrame({
+            "fk": [1, 1, 2, 3],
+            "ts": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"]),
+            f"v{i}": [1.0, 2.0, 3.0, 4.0],
+        })
+        specs.append(ChildTableSpec(child_df=child, foreign_key_col="fk", time_col="ts", value_cols={f"v{i}": ["mean", "max"]}, prefix=f"c{i}"))
+
+    out = compute_relational_features(parent, "eid", "cutoff", specs)
+
+    expected = parent
+    for spec in specs:
+        one = compute_relational_features(parent, "eid", "cutoff", [spec])
+        expected = pd.concat([expected, one.drop(columns=parent.columns)], axis=1)
+    pd.testing.assert_frame_equal(out, expected)
+    assert list(out.columns)[: len(parent.columns)] == list(parent.columns)

@@ -68,7 +68,7 @@ _ADVERSARIAL_LOCK = threading.Lock()
 def _adversarial_cache_key(train_frame: Any, test_frame: Any, val_frame: Any, names: Any, seed: int) -> Optional[tuple]:
     """Content key for an adversarial-validation figure: frame signatures (columns, shape, row-sample hash) + features."""
     try:
-        from mlframe.training._dataset_cache_fingerprint import compute_signature
+        from mlframe.training import compute_signature
 
         sig = tuple(compute_signature(f)[:4] if f is not None else None for f in (train_frame, test_frame, val_frame))
         return (*sig, tuple(str(n) for n in names) if names is not None else None, int(seed))

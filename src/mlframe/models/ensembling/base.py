@@ -196,11 +196,24 @@ except ImportError:  # pragma: no cover
     _rrf_aggregate_probs_njit = None
 
 
-from mlframe.system import try_import_cupy
-
 from ._combine_fallback import _finite_member_mean
 
-_, _HAS_CUPY = try_import_cupy()  # pragma: no cover -- env-dependent
+_HAS_CUPY_CACHED: "bool | None" = None
+
+
+def _has_cupy() -> bool:
+    """Whether cupy is importable, probed on FIRST USE rather than at import.
+
+    Probing at import made ``import mlframe.models`` - and everything that reaches it, which on this tree includes
+    ``import mlframe.feature_selection`` - pay cupy's ~1.7s import and a CUDA context, for a dispatcher branch that
+    only fires on wide or very long stacks.
+    """
+    global _HAS_CUPY_CACHED
+    if _HAS_CUPY_CACHED is None:
+        from mlframe.system import try_import_cupy
+
+        _HAS_CUPY_CACHED = bool(try_import_cupy()[1])
+    return _HAS_CUPY_CACHED
 
 
 def _stacked_corrcoef(M: np.ndarray) -> np.ndarray:
@@ -212,7 +225,7 @@ def _stacked_corrcoef(M: np.ndarray) -> np.ndarray:
     """
     K = M.shape[0]
     N = M.shape[1] if M.ndim > 1 else 1
-    use_cupy = _HAS_CUPY and (K > 50 or N > 1_000_000)
+    use_cupy = (K > 50 or N > 1_000_000) and _has_cupy()  # order matters: the cheap size test gates the probe
     if use_cupy:
         try:
             import cupy as _cp

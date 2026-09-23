@@ -166,3 +166,8 @@ def __getattr__(name):
         )
         return _legacy_const
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# Public home for ``boruta_shap``, which scales shadow statistics with it; importing
+# ``filters._safe_scale`` from another package reaches into this one's private module.
+from ._safe_scale import guarded_scale
