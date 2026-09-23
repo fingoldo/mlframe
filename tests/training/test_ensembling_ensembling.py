@@ -778,6 +778,10 @@ def test_stacking_aware_gate_runs_when_enabled():
         members,
         ensemble_name="[m+m+m]",
         target=pd.Series(target),
+        # These members advertise ``oof_preds``, so the gate picks the OOF source, and OOF rows align with TRAIN.
+        # Without ``train_target`` the weight fit is handed None, returns before it starts, and the assertion below
+        # fails for a fixture reason rather than a behavioural one.
+        train_target=pd.Series(target),
         ensembling_methods=["arithm"],
         enable_stacking_aware_gate=True,
         build_votenrank_leaderboard=False,

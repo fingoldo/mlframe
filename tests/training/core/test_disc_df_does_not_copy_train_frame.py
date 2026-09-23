@@ -1,8 +1,10 @@
 """Attaching the target for discovery must not copy the train frame, nor touch the caller's frame.
 
 Under pandas 1.5-2.x a list-column selection plus ``concat``'s default ``copy=True`` materialised up to two transient
-copies of the whole train frame per regression target just to attach y. The frame is now concatenated without the
-selection and without copying; pandas 3 is zero-copy here already, and the same assertions hold there.
+copies of the whole train frame per regression target just to attach y. Passing ``copy=False`` did not fix it: on 2.x
+with copy-on-write off, which is the default and what this project runs, ``concat`` copies the block regardless. The
+new frame is built from the caller's own Series instead, which shares them; pandas 3 is zero-copy either way and the
+same assertions hold there.
 """
 
 from __future__ import annotations

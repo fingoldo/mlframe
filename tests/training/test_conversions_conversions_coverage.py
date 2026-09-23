@@ -194,8 +194,18 @@ def test_pl_enum_different_vocab_orderings_produce_different_codes():
 
 
 def test_predict_native_probe_loads_each_model_once(monkeypatch, tmp_path):
-    """The cross-target ensemble scanner must call ``load_mlframe_model`` exactly once per .dump file.
-    ``load_mlframe_model`` is monkeypatched to count invocations over two real dump paths."""
+    """Loading a suite must call ``load_mlframe_model`` exactly once per .dump file, cross-target ensembles included.
+
+    This used to drive ``_load_ct_ensemble_entries``, a dedicated CT scanner that no production path ever called and that
+    the 2026-09-22 length refactor removed. ``load_mlframe_suite`` is what actually reads these files: it globs
+    ``**/*.dump`` and keys each by its first two path segments, so a ``_CT_ENSEMBLE__<target>`` directory lands under its
+    own literal name with no special casing. Pointing the test there keeps the no-duplicate-load contract on the function
+    that has to honour it.
+    """
+    import pickle
+
+    import zstandard
+
     from mlframe.training.core import predict as predict_mod
 
     call_counts = {}
@@ -206,15 +216,18 @@ def test_predict_native_probe_loads_each_model_once(monkeypatch, tmp_path):
         return {"path": path}
 
     monkeypatch.setattr(predict_mod, "load_mlframe_model", _counting_loader)
-    # Two cross-target ensemble dumps under the layout the scanner expects: each must be loaded exactly once.
+    # Two cross-target ensemble dumps under the on-disk layout the loader walks: each must be read exactly once.
     for tname in ("_CT_ENSEMBLE__a", "_CT_ENSEMBLE__b"):
         d = tmp_path / "regression" / tname
         d.mkdir(parents=True)
         (d / "CT_ENSEMBLE.dump").write_bytes(b"x")
-    out = predict_mod._load_ct_ensemble_entries(str(tmp_path), {}, {})
+    meta = {"slug_to_original_target_type": {"regression": "regression"}, "slug_to_original_target_name": {}}
+    (tmp_path / "metadata.pkl.zst").write_bytes(zstandard.ZstdCompressor(level=3, threads=0).compress(pickle.dumps(meta, protocol=5)))
+
+    models, _md = predict_mod.load_mlframe_suite(str(tmp_path))
     loaded_paths = sorted(call_counts)
     # Exactly the two dump files written above, each loaded exactly once.
     assert len(loaded_paths) == 2, call_counts
     for path in loaded_paths:
         assert call_counts[path] == 1, f"load_mlframe_model invoked {call_counts[path]}x on {path}"
-    assert sorted(out["regression"]) == ["_CT_ENSEMBLE__a", "_CT_ENSEMBLE__b"]
+    assert sorted(models["regression"]) == ["_CT_ENSEMBLE__a", "_CT_ENSEMBLE__b"]

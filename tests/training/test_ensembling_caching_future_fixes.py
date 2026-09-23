@@ -15,20 +15,26 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from unittest import mock
-
 # ---------------------------------------------------------------------------
 # ENS-P1-7: composite_feature_stacking - set(train_idx) hoisted, np.isin used
 # ---------------------------------------------------------------------------
 
 
 class TestENS_P1_7_FilterMaskHoist:
-    """`composite_oof_predictions` rebuilds the per-fold polars mask via np.isin
-    once per fold (not n times). Pre-fix had set(train_idx.tolist()) inside
-    the list-comp, called per row."""
+    """`composite_oof_predictions` subsets each fold in one vectorised step, and hands the wrapper the fold's rows IN ORDER.
 
-    def test_polars_mask_construction_count(self) -> None:
-        """Polars mask construction count."""
+    The original defect was ``set(train_idx.tolist())`` inside a list comprehension, evaluated per row. The fix was a
+    single ``np.isin`` mask per fold; the current code goes further and gathers by position, because a boolean mask
+    returns rows in FRAME order while the pandas branch it has to match returns them in TRAIN_IDX order."""
+
+    def test_each_fold_receives_its_rows_in_index_order(self) -> None:
+        """The frame handed to each fold's fit is exactly ``X[train_idx]``, in that order, once per split.
+
+        This used to count ``np.isin`` calls, which stopped meaning anything when the implementation moved to a
+        positional gather and started reporting zero. Asserting the rows themselves survives that change and is
+        strictly stronger: a boolean-mask implementation passes the count check but fails this one whenever the
+        splitter yields unsorted training indices.
+        """
         pl = pytest.importorskip("polars")
         from mlframe.training.composite.ensemble.feature_stacking import (
             composite_oof_predictions,
@@ -46,33 +52,31 @@ class TestENS_P1_7_FilterMaskHoist:
         )
         y = rng.normal(size=n)
 
+        seen_x: list = []
+
         class FakeWrapper:
-            """Groups tests covering fake wrapper."""
+            """A wrapper that records the exact rows each fold handed it."""
+
             def fit(self, X, y, **kw):
-                """Fit."""
-                self._n = len(X)
+                """Record the fold's x column, in the order it arrived."""
+                seen_x.append(list(X["x"]))
                 return self
 
             def predict(self, X):
-                """Predict."""
+                """Predict a constant, so the fold loop completes without a real model."""
                 return np.full(len(X), 0.5)
 
-        # Spy on np.isin to confirm vectorised filter path runs (one isin
-        # call per fold per train/val pair == 2*n_splits total).
-        with mock.patch(
-            "mlframe.training.composite.ensemble.feature_stacking.np.isin",
-            wraps=np.isin,
-        ) as spy:
-            out = composite_oof_predictions(
-                lambda: FakeWrapper(),
-                df,
-                y,
-                n_splits=5,
-                random_state=0,
-            )
+        out = composite_oof_predictions(lambda: FakeWrapper(), df, y, n_splits=5, random_state=0)
         assert out.shape == (n,)
-        # 5 folds * 2 masks (train+val) = 10 calls to np.isin.
-        assert spy.call_count == 10, f"expected exactly 10 np.isin calls (5 folds * 2 masks); got {spy.call_count}"
+
+        # Reproduce the very splitter the production path builds, so the expected rows are the real fold rows.
+        from mlframe.training.composite.discovery._splitter import make_discovery_splitter
+
+        kf = make_discovery_splitter(5, random_state=0)[0]
+        x_col = list(df["x"])
+        expected = [[x_col[i] for i in train_idx] for train_idx, _val in kf.split(np.arange(n), y, None)]
+        assert len(seen_x) == 5, f"one fit per split expected, got {len(seen_x)}"
+        assert seen_x == expected, "a fold received rows the splitter did not select, or received them out of index order"
 
     def test_polars_mask_selects_same_indices_as_pre_fix(self) -> None:
         """Vectorised mask must produce the same row subset as the original
