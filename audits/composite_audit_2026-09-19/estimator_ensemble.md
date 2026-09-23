@@ -177,7 +177,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: The streaming correction is partly cancelled by the default-ON guard.
 - **Suggested fix**: Call `_soft_shrink.capture_base_fit_range(self, transform, buffer_base)` when a refit fires, and reuse `t_train_envelope` (from `discovery/_t_equivalence.py`) so that `fit`, `from_fitted_inner`, discovery and `update` share one envelope formula.
 - **Test to add**: Fit on base ~ U(0, 10), stream a regime at base ~ U(50, 60) with a new alpha until a refit fires, and assert that predictions on the new regime are neither shrunk nor sent to the fallback.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - a drift refit re-captures the base fit range from the buffer (capture_base_fit_range) and derives the T-clip through t_train_envelope, the one formula fit(), from_fitted_inner() and discovery share (test_composite_streaming_update.py::test_a_drift_refit_moves_the_base_range_and_t_clip_to_the_live_regime, which fails at HEAD with a live-regime RMSE of 5.75)
 
 ### EST-15 [P3] In the default shuffled K-fold OOF, recurrent composite components run their EWMA/rolling state over gapped (train) and scattered (holdout) row sequences
 
