@@ -226,3 +226,10 @@ __all__ = [
     "compose_pdp_2d_figure",
     "interaction_residual",
 ]
+
+# Public home for the two names ``reporting.diagnostics_dispatch`` needs: a cross-package import of
+# ``charts._calendar_features`` / ``charts._drift_shared`` reaches into this package's private modules.
+from ._calendar_features import calendar_feature_names  # noqa: E402
+from ._drift_shared import _frame_columns as frame_columns  # noqa: E402
+
+__all__ += ["calendar_feature_names", "frame_columns"]

@@ -377,7 +377,7 @@ def render_target_drift_diagnostics(
     _calendar: list = []
     if has_time and test_frame is not None:
         try:
-            from mlframe.reporting.charts._calendar_features import calendar_feature_names
+            from mlframe.reporting.charts import calendar_feature_names
 
             _calendar = calendar_feature_names(test_frame, np.asarray(timestamps)[: _row_count(test_frame)], feature_names)
         except Exception:
@@ -385,7 +385,7 @@ def render_target_drift_diagnostics(
     _all_names: Optional[List[Any]] = list(feature_names) if feature_names is not None else None
     if _calendar:
         if _all_names is None:
-            from mlframe.reporting.charts._drift_shared import _frame_columns
+            from mlframe.reporting.charts import frame_columns as _frame_columns
 
             _all_names = [str(n) for n in _frame_columns(test_frame, None)[1]]
         _non_calendar: Optional[List[Any]] = [n for n in _all_names if str(n) not in set(_calendar)]
@@ -498,7 +498,7 @@ def _psi_cache_key(test_frame: Any, timestamps: Any, names: Any) -> Optional[tup
     reading the same rows.
     """
     try:
-        from mlframe.training._dataset_cache_fingerprint import compute_signature
+        from mlframe.training import compute_signature
 
         ts = np.asarray(timestamps)
         ts_key = (int(ts.size), str(ts[0]), str(ts[-1])) if ts.size else (0,)

@@ -62,39 +62,10 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# DORMANT PATH: ``score_pair_mi``/``_score_plug_in`` are not called anywhere in
-# the per-pair MRMR loop (grep confirms no caller besides this module and its own docstring) - the "next sprint"
-# deep integration this module's docstring describes was never wired in. ``np.unique(y)``+``searchsorted`` below
-# is still cheap to cache keyed on ``id(y)`` (mirrors ``_mah._get_y_binning``'s pattern) since a future caller
-# that DOES loop this over many columns with the same y benefits for free; not worth heavier test/bench
-# investment given the current dead-path status.
-_UNIQ_Y_CACHE: "OrderedDict[int, tuple[weakref.ReferenceType, np.ndarray]]" = OrderedDict()
-_UNIQ_Y_CACHE_MAX_ENTRIES = 8
-_UNIQ_Y_LOCK = threading.Lock()
-
-
-def _get_unique_y(y_arr: np.ndarray) -> np.ndarray:
-    """Return ``np.unique(y_arr)``, memoized (by identity, with an LRU + weakref eviction) across calls."""
-    key = id(y_arr)
-    with _UNIQ_Y_LOCK:
-        ent = _UNIQ_Y_CACHE.get(key)
-        if ent is not None and ent[0]() is y_arr:
-            _UNIQ_Y_CACHE.move_to_end(key)
-            return ent[1]
-        dead = [k for k, v in _UNIQ_Y_CACHE.items() if v[0]() is None]
-        for k in dead:
-            del _UNIQ_Y_CACHE[k]
-        uniq = np.unique(y_arr)
-        try:
-            ref = weakref.ref(y_arr)
-        except TypeError:
-            return uniq
-        _UNIQ_Y_CACHE[key] = (ref, uniq)
-        if len(_UNIQ_Y_CACHE) > _UNIQ_Y_CACHE_MAX_ENTRIES:
-            _UNIQ_Y_CACHE.popitem(last=False)
-        return uniq
-
-
+# DORMANT PATH: ``score_pair_mi`` / ``_score_plug_in`` have no caller in the per-pair MRMR loop; the deep integration
+# this module's docstring describes was never wired in. An id(y)-keyed LRU around ``np.unique(y)`` used to sit here
+# "for a future caller"; with no caller it could never hit, so it only cost a lock, a weakref and up to eight retained
+# arrays. bench-attempt-rejected (2026-09-23): reinstating it needs a real caller that loops one y over many columns.
 _PLUG_IN_DEFAULTS = {
     "nbins_strategy": "freedman_diaconis",
     "miller_madow": False,
@@ -177,7 +148,7 @@ def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *, nbins_strategy: Optional
     # (verified by smoke 2026-05-29). Detecting low cardinality up-front
     # avoids the trap.
     if y_arr.dtype.kind not in "iub":
-        uniq = _get_unique_y(y_arr)
+        uniq = np.unique(y_arr)
         if uniq.size <= 32:
             y_int = np.searchsorted(uniq, y_arr).astype(np.int64)
             return _plug_in_mi(xb, y_int, miller_madow=miller_madow)

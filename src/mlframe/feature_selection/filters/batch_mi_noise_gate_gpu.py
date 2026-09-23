@@ -50,9 +50,9 @@ from .info_theory import batch_mi_with_noise_gate as _cpu_batch_mi_with_noise_ga
 # this module under the 1k-LOC ceiling. Re-exported below so every import path resolves.
 from ._batch_mi_noise_gate_kernels import (
     _nb_cuda,
-    _CUDA_AVAIL,
-    _cp,
-    _CUPY_AVAIL,
+    cuda_available,
+    cupy,
+    cupy_available,
     _cupy_bincount_known_size,
     _mi_columns_from_counts_cpu,
     _fisher_yates_shuffle,
@@ -107,9 +107,9 @@ def batch_mi_with_noise_gate_cupy_v1(
     MI is reduced from those INTEGER counts on the CPU via ``_mi_from_counts_cpu``
     (bit-exact). Raises ``RuntimeError`` if cupy is unavailable.
     """
-    if not _CUPY_AVAIL:
+    if not cupy_available():
         raise RuntimeError("cupy is not available on this host")
-    cp = _cp
+    cp = cupy()
 
     n = int(disc_2d.shape[0])
     K = int(disc_2d.shape[1])
@@ -206,9 +206,9 @@ def batch_mi_with_noise_gate_cupy(
     (``_mi_from_counts_cpu``), so the result is identical to v1 AND to the CPU njit
     kernel. Raises ``RuntimeError`` if cupy is unavailable.
     """
-    if not _CUPY_AVAIL:
+    if not cupy_available():
         raise RuntimeError("cupy is not available on this host")
-    cp = _cp
+    cp = cupy()
 
     n = int(disc_2d.shape[0])
     K = int(disc_2d.shape[1])
@@ -373,7 +373,7 @@ def _histgate_upload(host_arr: np.ndarray, role: str, dtype: Any) -> Any:
     the per-column ``offsets`` / ``nbins``) re-uploaded under a different role elsewhere (the cupy
     backend, other resident-operand FE consumers). Falls back to a plain ``_nb_cuda.to_device`` when
     cupy is absent (a numba.cuda-only host) so that combination is never regressed."""
-    if _CUPY_AVAIL:
+    if cupy_available():
         from ._fe_resident_operands import resident_operand
 
         return resident_operand(host_arr, role, dtype=dtype)
@@ -427,7 +427,7 @@ def _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, 
     """CUPY-native fallback for ``_resident_y_all_device_for_cupy`` on a cupy-only host (no numba.cuda):
     same (id+weakref(classes_y), base_seed, nperm, n, P) keying and LRU eviction, built via ``cp.asarray``."""
     import weakref
-    cp = _cp
+    cp = cupy()
     c = _DY_DEVICE_CACHE_CUPY
     key = (id(classes_y), int(base_seed), int(nperm), int(n), int(P))
     with _DY_DEVICE_CACHE_CUPY_LOCK:
@@ -469,8 +469,8 @@ def _resident_y_all_device_for_cupy(classes_y, classes_y_safe, base_seed, nperm,
     vice versa) shares the identical device buffer - true cross-backend dedup, not just a same-backend
     cache. Falls back to the cupy-native ``_resident_y_all_device_cupy`` when numba.cuda is unavailable
     (a cupy-only host), so that combination still gets the per-fit reuse win."""
-    if _CUDA_AVAIL:
-        return _cp.asarray(_resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P))
+    if cuda_available():
+        return cupy().asarray(_resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P))
     return _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, P)
 
 
@@ -514,7 +514,7 @@ def batch_mi_with_noise_gate_cuda_resident(
         _n_su = int(disc_2d.shape[0])
         _nperm_su = int(npermutations) if npermutations and npermutations > 0 else 0
         _d_y_all_su = None
-        if _CUDA_AVAIL and _n_su > 0:
+        if cuda_available() and _n_su > 0:
             try:
                 _d_y_all_su = _resident_y_all_device(classes_y, classes_y_safe, base_seed, _nperm_su, _n_su, _nperm_su + 1)
             except Exception as e:
@@ -527,7 +527,7 @@ def batch_mi_with_noise_gate_cuda_resident(
             d_y_all_resident=_d_y_all_su,
         )
     global _CUDA_HIST_KERNEL_BATCHED, _CUDA_HIST_KERNEL_BATCHED_SHARED, _CUDA_HIST_KERNEL_BATCHED_SHARED_CM, _CUDA_MI_KERNEL
-    if not _CUDA_AVAIL:
+    if not cuda_available():
         raise RuntimeError("numba.cuda is not available on this host")
     if _CUDA_HIST_KERNEL_BATCHED is None:
         _CUDA_HIST_KERNEL_BATCHED = _cuda_hist_kernel_batched_factory()
@@ -724,7 +724,7 @@ def batch_mi_with_noise_gate_cuda(
     (the default) keeps the original per-call CPU-shuffle + H2D path unchanged.
     """
     global _CUDA_HIST_KERNEL
-    if not _CUDA_AVAIL:
+    if not cuda_available():
         raise RuntimeError("numba.cuda is not available on this host")
     if _CUDA_HIST_KERNEL is None:
         _CUDA_HIST_KERNEL = _cuda_hist_kernel_factory()
@@ -863,12 +863,12 @@ def dispatch_batch_mi_with_noise_gate_gpu(
 
     if force_backend is not None:
         fb = force_backend.lower()
-        if fb == "cupy" and _CUPY_AVAIL:
+        if fb == "cupy" and cupy_available():
             return batch_mi_with_noise_gate_cupy(
                 disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
                 npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
             ), "cupy"
-        if fb == "cuda" and _CUDA_AVAIL:
+        if fb == "cuda" and cuda_available():
             return batch_mi_with_noise_gate_cuda(
                 disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
                 npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
@@ -877,7 +877,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
 
     choice = _batch_mi_noise_gate_backend_choice(n, K)
 
-    if choice == "cupy" and _CUPY_AVAIL:
+    if choice == "cupy" and cupy_available():
         try:
             return batch_mi_with_noise_gate_cupy(
                 disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
@@ -886,7 +886,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             pass
-    if choice == "cuda" and _CUDA_AVAIL:
+    if choice == "cuda" and cuda_available():
         try:
             return batch_mi_with_noise_gate_cuda(
                 disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
@@ -920,6 +920,15 @@ try:
 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
     logging.getLogger(__name__).debug("suppressed: %s", e)
     pass
+
+
+def __getattr__(name: str):
+    """Keep the former ``_CUDA_AVAIL`` / ``_CUPY_AVAIL`` re-exports working, resolved through the lazy accessors."""
+    if name == "_CUDA_AVAIL":
+        return cuda_available()
+    if name == "_CUPY_AVAIL":
+        return cupy_available()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

@@ -12,7 +12,7 @@ import os
 
 import numpy as np
 
-from mlframe.feature_selection.filters._safe_scale import guarded_scale
+from mlframe.feature_selection.filters import guarded_scale
 import pandas as pd
 from numpy.random import choice
 from scipy.stats import ks_2samp

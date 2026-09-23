@@ -57,12 +57,33 @@ def resolve_fe_dispatch_env_gate() -> _FeDispatchEnvGate:
 # ``compute_code_version`` so a kernel-numerics edit invalidates stale per-host cache
 # entries automatically; falls back to a static string when the GPU module / pyutilz
 # code-versioning is unavailable.
-try:  # GPU twin owns the canonical code_version (covers CPU + cupy + cuda bodies).
-    from ..batch_mi_noise_gate_gpu import _batch_mi_noise_gate_code_version as _bming_code_version
-    _BATCH_MI_NOISE_GATE_CODE_VERSION = _bming_code_version() or "batch_mi_noise_gate-v2"
-except Exception as e:
-    _module_logger.debug("batch_mi_noise_gate_gpu code-version resolution failed, using the static fallback string: %s", e)
-    _BATCH_MI_NOISE_GATE_CODE_VERSION = "batch_mi_noise_gate-v2"
+_BATCH_MI_NOISE_GATE_CODE_VERSION_CACHED: "str | None" = None
+
+
+def batch_mi_noise_gate_code_version() -> str:
+    """The canonical code_version for this kernel family, computed once on FIRST USE.
+
+    The GPU twin owns it (it covers the CPU, cupy and cuda bodies), and computing it asks which GPU backends exist -
+    which compiles and launches a probe kernel. Resolving it at import built a CUDA context in every process that
+    imported this package. Falls back to a static string when the GPU module / pyutilz code-versioning is unavailable.
+    """
+    global _BATCH_MI_NOISE_GATE_CODE_VERSION_CACHED
+    if _BATCH_MI_NOISE_GATE_CODE_VERSION_CACHED is None:
+        try:
+            from ..batch_mi_noise_gate_gpu import _batch_mi_noise_gate_code_version as _bming_code_version
+
+            _BATCH_MI_NOISE_GATE_CODE_VERSION_CACHED = _bming_code_version() or "batch_mi_noise_gate-v2"
+        except Exception as e:
+            _module_logger.debug("batch_mi_noise_gate_gpu code-version resolution failed, using the static fallback string: %s", e)
+            _BATCH_MI_NOISE_GATE_CODE_VERSION_CACHED = "batch_mi_noise_gate-v2"
+    return _BATCH_MI_NOISE_GATE_CODE_VERSION_CACHED
+
+
+def __getattr__(name: str):
+    """``_BATCH_MI_NOISE_GATE_CODE_VERSION`` stays readable as a module attribute, resolved lazily (PEP 562)."""
+    if name == "_BATCH_MI_NOISE_GATE_CODE_VERSION":
+        return batch_mi_noise_gate_code_version()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _dispatch_batch_mi_with_noise_gate(
@@ -299,7 +320,7 @@ def _dispatch_batch_mi_with_noise_gate_impl(
                 tuner=_run_batch_mi_noise_gate_sweep,  # real CPU-vs-GPU sweep (bit-identical GPU)
                 axes=["n_rows", "n_cols"],
                 fallback={"backend_choice": _batch_mi_noise_gate_fallback_choice(int(n), int(K))},
-                code_version=_BATCH_MI_NOISE_GATE_CODE_VERSION,
+                code_version=batch_mi_noise_gate_code_version(),
                 async_sweep=True,  # FIT-TIME: never block the FE pair-search on the sweep; measure in the background
             )
             if isinstance(_res, str):

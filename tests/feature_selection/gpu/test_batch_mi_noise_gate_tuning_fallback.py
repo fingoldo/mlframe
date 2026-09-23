@@ -13,43 +13,43 @@ class TestFallbackChoiceSizeGating:
 
     def test_below_both_thresholds_is_cpu(self, monkeypatch):
         """Below both thresholds is cpu."""
-        monkeypatch.setattr(tuning_mod, "_CUPY_AVAIL", True)
-        monkeypatch.setattr(tuning_mod, "_CUDA_AVAIL", True)
+        monkeypatch.setattr(tuning_mod, "cupy_available", lambda: True)
+        monkeypatch.setattr(tuning_mod, "cuda_available", lambda: True)
         choice = tuning_mod._batch_mi_noise_gate_fallback_choice(n_rows=100, n_cols=10)
         assert choice == "cpu"
 
     def test_rows_clear_but_cols_below_is_cpu(self, monkeypatch):
         """Rows clear but cols below is cpu."""
-        monkeypatch.setattr(tuning_mod, "_CUPY_AVAIL", True)
-        monkeypatch.setattr(tuning_mod, "_CUDA_AVAIL", True)
+        monkeypatch.setattr(tuning_mod, "cupy_available", lambda: True)
+        monkeypatch.setattr(tuning_mod, "cuda_available", lambda: True)
         choice = tuning_mod._batch_mi_noise_gate_fallback_choice(n_rows=tuning_mod.GPU_MIN_ROWS, n_cols=tuning_mod.GPU_MIN_COLS - 1)
         assert choice == "cpu"
 
     def test_cols_clear_but_rows_below_is_cpu(self, monkeypatch):
         """Cols clear but rows below is cpu."""
-        monkeypatch.setattr(tuning_mod, "_CUPY_AVAIL", True)
-        monkeypatch.setattr(tuning_mod, "_CUDA_AVAIL", True)
+        monkeypatch.setattr(tuning_mod, "cupy_available", lambda: True)
+        monkeypatch.setattr(tuning_mod, "cuda_available", lambda: True)
         choice = tuning_mod._batch_mi_noise_gate_fallback_choice(n_rows=tuning_mod.GPU_MIN_ROWS - 1, n_cols=tuning_mod.GPU_MIN_COLS)
         assert choice == "cpu"
 
     def test_both_clear_and_cupy_available_prefers_cupy(self, monkeypatch):
         """Both clear and cupy available prefers cupy."""
-        monkeypatch.setattr(tuning_mod, "_CUPY_AVAIL", True)
-        monkeypatch.setattr(tuning_mod, "_CUDA_AVAIL", True)
+        monkeypatch.setattr(tuning_mod, "cupy_available", lambda: True)
+        monkeypatch.setattr(tuning_mod, "cuda_available", lambda: True)
         choice = tuning_mod._batch_mi_noise_gate_fallback_choice(n_rows=tuning_mod.GPU_MIN_ROWS, n_cols=tuning_mod.GPU_MIN_COLS)
         assert choice == "cupy", "cupy must be preferred over cuda when both are available"
 
     def test_both_clear_no_cupy_but_cuda_available_uses_cuda(self, monkeypatch):
         """Both clear no cupy but cuda available uses cuda."""
-        monkeypatch.setattr(tuning_mod, "_CUPY_AVAIL", False)
-        monkeypatch.setattr(tuning_mod, "_CUDA_AVAIL", True)
+        monkeypatch.setattr(tuning_mod, "cupy_available", lambda: False)
+        monkeypatch.setattr(tuning_mod, "cuda_available", lambda: True)
         choice = tuning_mod._batch_mi_noise_gate_fallback_choice(n_rows=tuning_mod.GPU_MIN_ROWS, n_cols=tuning_mod.GPU_MIN_COLS)
         assert choice == "cuda"
 
     def test_both_clear_but_no_gpu_backend_available_is_cpu(self, monkeypatch):
         """Both clear but no gpu backend available is cpu."""
-        monkeypatch.setattr(tuning_mod, "_CUPY_AVAIL", False)
-        monkeypatch.setattr(tuning_mod, "_CUDA_AVAIL", False)
+        monkeypatch.setattr(tuning_mod, "cupy_available", lambda: False)
+        monkeypatch.setattr(tuning_mod, "cuda_available", lambda: False)
         choice = tuning_mod._batch_mi_noise_gate_fallback_choice(n_rows=tuning_mod.GPU_MIN_ROWS, n_cols=tuning_mod.GPU_MIN_COLS)
         assert choice == "cpu"
 
@@ -71,8 +71,8 @@ class TestBackendChoiceFallsBackOnKtcFailure:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", _poisoned_import)
-        monkeypatch.setattr(tuning_mod, "_CUPY_AVAIL", False)
-        monkeypatch.setattr(tuning_mod, "_CUDA_AVAIL", False)
+        monkeypatch.setattr(tuning_mod, "cupy_available", lambda: False)
+        monkeypatch.setattr(tuning_mod, "cuda_available", lambda: False)
 
         # Below-threshold shape -> heuristic says "cpu" regardless of the KTC failure.
         choice = tuning_mod._batch_mi_noise_gate_backend_choice(n_rows=10, n_cols=10)

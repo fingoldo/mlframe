@@ -20,8 +20,8 @@ from typing import cast
 logger = logging.getLogger(__name__)
 
 from ._batch_mi_noise_gate_kernels import (
-    _CUDA_AVAIL,
-    _CUPY_AVAIL,
+    cuda_available,
+    cupy_available,
     _mi_from_counts_cpu,
     _gate_from_mi,
     _build_shuffle_matrix,
@@ -108,9 +108,9 @@ def _run_batch_mi_noise_gate_sweep() -> list:
     variants = {
         "cpu": lambda *a: _cpu_batch_mi_with_noise_gate(*a),
     }
-    if _CUDA_AVAIL:
+    if cuda_available():
         variants["cuda"] = lambda *a: batch_mi_with_noise_gate_cuda(*a)
-    if _CUPY_AVAIL:
+    if cupy_available():
         variants["cupy"] = lambda *a: batch_mi_with_noise_gate_cupy(*a)
     # MEMORY-AWARE grid filter. The CPU reference kernel allocates ~int64 (n, K) intermediates, so the
     # top cell (100k x 4096 ~ 3 GiB) OOMs the HOST on RAM-tight boxes and - because the per-cell guard
@@ -149,9 +149,9 @@ def _batch_mi_noise_gate_code_version():
         from .batch_mi_noise_gate_gpu import batch_mi_with_noise_gate_cuda, batch_mi_with_noise_gate_cupy
 
         fns = [_cpu_batch_mi_with_noise_gate, _mi_from_counts_cpu, _gate_from_mi]
-        if _CUDA_AVAIL:
+        if cuda_available():
             fns.append(batch_mi_with_noise_gate_cuda)
-        if _CUPY_AVAIL:
+        if cupy_available():
             fns.append(batch_mi_with_noise_gate_cupy)
             fns.append(_build_shuffle_matrix)
         return compute_code_version(*fns, salt=_BMING_SALT)
@@ -207,9 +207,9 @@ def _batch_mi_noise_gate_fallback_choice(n_rows: int, n_cols: int) -> str:
     Prefers cupy over cuda (single batched bincount per shuffle vs per-column
     block launch)."""
     if n_rows >= GPU_MIN_ROWS and n_cols >= GPU_MIN_COLS:
-        if _CUPY_AVAIL:
+        if cupy_available():
             return "cupy"
-        if _CUDA_AVAIL:
+        if cuda_available():
             return "cuda"
     return "cpu"
 
@@ -231,7 +231,7 @@ def _batch_mi_noise_gate_backend_choice(n_rows: int, n_cols: int) -> str:
         bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
         # Legacy "gpu" region (pre-cupy/cuda split) -> resolve to the available GPU backend.
         if bc == "gpu":
-            bc = "cupy" if _CUPY_AVAIL else ("cuda" if _CUDA_AVAIL else "cpu")
+            bc = "cupy" if cupy_available() else ("cuda" if cuda_available() else "cpu")
         if bc in ("cpu", "cuda", "cupy"):
             return bc
     except Exception as e:
