@@ -243,7 +243,7 @@ jobs:
         run: brew install libomp
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
@@ -256,7 +256,7 @@ jobs:
       # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install`. Extracted 2026-07-18
       # to py-ci-shared's install-pyutilz composite action -- this exact clone+uv-install pair was
       # duplicated near-verbatim across 6 workflows in this repo.
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@b8aaa186b9149d6a440e249b981cdd2bc42b96a1  # v1.4.0
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -413,7 +413,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload coverage to Codecov
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@f50288e5a6f5b7f972efb60f948ce6184c8e9e70  # v1.3.4
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@797f0455956840dfc704399360f58100f4a75b73  # v1.16.1
         # (success() || failure()): a test failure in this shard (even one unrelated to coverage, e.g. a
         # meta-test) otherwise skips this step by GitHub Actions' default "only if prior steps succeeded"
         # rule, so codecov never sees that shard's coverage.xml and the merged report stays incomplete --
@@ -494,12 +494,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@b8aaa186b9149d6a440e249b981cdd2bc42b96a1  # v1.4.0
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -630,13 +630,13 @@ jobs:
   # be redundant, not safer.
   ruff-blocking:
     name: Ruff (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@797f0455956840dfc704399360f58100f4a75b73  # v1
     with:
       ignore: "C901"
 
   lint-blocking:
     name: lint + security (blocking, triaged clean)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@64e2b6bab64414b8508dc05100a9421849a74a64  # v1 (adds per-tool version-pin inputs)
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@b8aaa186b9149d6a440e249b981cdd2bc42b96a1  # v1 (adds per-tool version-pin inputs)
     with:
       source-path: src/mlframe
       codespell-paths: src/mlframe
@@ -670,7 +670,7 @@ jobs:
 
   lint-advisory:
     name: lint (advisory)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@797f0455956840dfc704399360f58100f4a75b73  # v1
     with:
       source-path: src/mlframe
       # import-linter's two contracts are now real blocking meta-tests
@@ -687,20 +687,20 @@ jobs:
   # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
   tests-ruff-blocking:
     name: Ruff tests/ (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@797f0455956840dfc704399360f58100f4a75b73  # v1
     with:
       check-path: tests
       ignore: "C901"
 
   tests-black-filtered:
     name: Black tests/ (filtered, blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@797f0455956840dfc704399360f58100f4a75b73  # v1
     with:
       check-path: tests
 
   tests-lint-blocking:
     name: lint + security tests/ (blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@64e2b6bab64414b8508dc05100a9421849a74a64  # v1 (adds per-tool version-pin inputs)
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@b8aaa186b9149d6a440e249b981cdd2bc42b96a1  # v1 (adds per-tool version-pin inputs)
     with:
       source-path: tests
       codespell-paths: tests
@@ -738,7 +738,7 @@ jobs:
           python-version: ${{ env.REPRESENTATIVE_PYTHON }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         with:
           enable-cache: true
 
@@ -951,7 +951,7 @@ jobs:
           python-version: ${{ env.REPRESENTATIVE_PYTHON }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
