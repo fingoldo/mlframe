@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
+from typing import ClassVar
 from pydantic import Field, model_validator
+from ._inert_fields import InertFieldsWarningMixin
 
 from ._configs_base import (
     DEFAULT_CALIBRATION_BINS,
@@ -459,7 +461,7 @@ class TrainingBehaviorConfig(BaseConfig):
     mlp_extreme_ar_weight_decay_base: float = 1e-4
 
 
-class MultilabelDispatchConfig(BaseConfig):
+class MultilabelDispatchConfig(InertFieldsWarningMixin, BaseConfig):
     """Configuration for multilabel-classification dispatch.
 
     Bundles every multilabel-only knob so per-strategy code only sees one
@@ -483,6 +485,11 @@ class MultilabelDispatchConfig(BaseConfig):
                 For users who explicitly want CB MultiLogloss and want to
                 fail loud if mis-configured.
     """
+
+    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
+    INERT_FIELDS: ClassVar[dict[str, str]] = {
+        "cv": "the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised",
+    }
 
     strategy: str = "auto"  # Literal["auto","wrapper","chain","native"]
     # n_chains>=1: 0 builds an empty _ChainEnsemble that averages nothing.
@@ -614,7 +621,7 @@ class LearningToRankConfig(BaseConfig):
     mismatched format -- caller takes responsibility)."""
 
 
-class QuantileRegressionConfig(BaseConfig):
+class QuantileRegressionConfig(InertFieldsWarningMixin, BaseConfig):
     """Configuration for ``QUANTILE_REGRESSION`` target dispatch.
 
     Holds quantile-regression-specific knobs: which alphas to predict,
@@ -638,6 +645,12 @@ class QuantileRegressionConfig(BaseConfig):
     - **MLP / Recurrent** K-output head + summed pinball loss; single
       fit, returns (N, K).
     """
+
+    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
+    INERT_FIELDS: ClassVar[dict[str, str]] = {
+        "point_estimate_alpha": "the point estimate is the median inside the quantile dispatch",
+        "coverage_pairs": "the reporting path builds its pairs from alphas directly",
+    }
 
     alphas: tuple = (0.1, 0.5, 0.9)
     """Quantile levels to predict. Must be sorted ascending and all

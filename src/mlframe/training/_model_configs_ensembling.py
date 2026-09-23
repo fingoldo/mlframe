@@ -4,10 +4,12 @@ Behaviour preserved bit-for-bit; the parent re-exports ``EnsemblingConfig`` from
 """
 from __future__ import annotations
 
+from typing import ClassVar
 from ._configs_base import BaseConfig
+from ._inert_fields import InertFieldsWarningMixin
 
 
-class EnsemblingConfig(BaseConfig):
+class EnsemblingConfig(InertFieldsWarningMixin, BaseConfig):
     """Configuration for ensembling behaviour, including streaming-vs-legacy
     aggregation choice and quantile-fallback budget.
 
@@ -20,6 +22,11 @@ class EnsemblingConfig(BaseConfig):
     axis a guaranteed no-op that reported coverage of a path it never exercised. ``BaseConfig`` allows extras,
     so a caller still passing it gets a warning rather than a failure.
     """
+
+    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
+    INERT_FIELDS: ClassVar[dict[str, str]] = {
+        "accumulator": "the current build has one accumulator strategy, chosen in code",
+    }
 
     quantile_budget_bytes: int = 500 * 1024 * 1024
     """Skip quantile-bucket aggregation with warn when ``M*N*K*8 > budget``.

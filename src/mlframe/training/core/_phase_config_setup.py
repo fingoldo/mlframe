@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os as _os
 import sys
 from typing import Any
 

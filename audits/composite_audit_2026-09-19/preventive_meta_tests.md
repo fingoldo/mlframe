@@ -601,7 +601,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low.
 - **Runtime**: under 1 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - (a) and (b) ship as two parametrised tests over _USER_DEFERRED_DEAD in test_config_field_consumption.py. To make (a) pass, every deferred-dead field now warns: InertFieldsWarningMixin (training/_inert_fields.py) carries the composite config's mechanism to the other ten config classes, which declare their dead fields in INERT_FIELDS next to the class rather than only in a test's ledger. The probe walks candidate values of the field's own shape, with a full constructor call for the two fields whose validation reads the rest of the config. The scan also found that _all_config_classes() skipped _model_configs_ensembling and _model_configs_behavior, so EnsemblingConfig, MultilabelDispatchConfig and QuantileRegressionConfig were audited by nothing; both modules are in the set now
 
 ### PMT-38 [P1] A config rebuilt with `model_copy(update=...)` must reach its consumers (shared scanner)
 - **Asserts**: a function that binds `<cfg>.model_copy(update=...)` to a local must return it, store it on `ctx`/`self`/metadata, or pass it to a callee. Otherwise, when the caller keeps using the original object, the effective config is local-only and is flagged.

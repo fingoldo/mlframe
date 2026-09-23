@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
+from typing import ClassVar
 from pydantic import Field, field_validator, model_validator
 
 from ._configs_base import BaseConfig, DEFAULT_CALIBRATION_BINS, VALID_MODEL_TYPES
@@ -29,13 +30,14 @@ from ._model_configs import (
     ModelHyperparamsConfig,
     TrainingBehaviorConfig,
 )
+from ._inert_fields import InertFieldsWarningMixin
 # ``ReportingConfig`` / ``PredictionsContainer`` are referenced only in
 # docstrings here and would create a circular import (_reporting_configs imports
 # FeatureImportanceConfig from this module). Do NOT add a top-level import for
 # them.
 
 
-class SliceStableESConfig(BaseConfig):
+class SliceStableESConfig(InertFieldsWarningMixin, BaseConfig):
     """Slice-stable early-stopping settings (opt-in; default disabled after empirical study).
 
     Replaces the classic "single val, single metric, stop when worse" rule with an aggregate
@@ -67,6 +69,11 @@ class SliceStableESConfig(BaseConfig):
     Strict bit-identical legacy behaviour is the default (``enabled=False``,
     ``diagnostic_only=False``).
     """
+
+    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
+    INERT_FIELDS: ClassVar[dict[str, str]] = {
+        "pareto_risk_quantile": "the Pareto-aware best-iteration selector it belongs to is not built yet",
+    }
 
     enabled: bool = False
     diagnostic_only: bool = False

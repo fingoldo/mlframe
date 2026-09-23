@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, FrozenSet, List, Literal, Optional, Tuple, Union
 
+from typing import ClassVar
 from pydantic import Field, field_validator, model_validator
 
 from ._configs_base import BaseConfig
@@ -26,6 +27,7 @@ from ._training_runtime_configs import FeatureImportanceConfig
 # ``training.diagnostics`` is leaf (does not import configs), so importing the
 # opt-in learning-curve config here introduces no cycle.
 from .diagnostics import LearningCurveConfig
+from ._inert_fields import InertFieldsWarningMixin
 
 # Title-metrics token grammar - mirrors metrics.TITLE_METRIC_TOKENS but kept
 # duplicated here to avoid importing from metrics.py at config-class
@@ -619,7 +621,7 @@ class PredictionsContainer(BaseConfig):
     test_probs: Optional[Any] = None  # np.ndarray
 
 
-class FairnessConfig(BaseConfig):
+class FairnessConfig(InertFieldsWarningMixin, BaseConfig):
     """Fairness analysis configuration.
 
     Controls fairness metric computation across demographic subgroups.
@@ -633,6 +635,12 @@ class FairnessConfig(BaseConfig):
     fairness_metrics : list of str, optional
         Fairness metrics to compute (e.g., "demographic_parity", "equalized_odds").
     """
+
+    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
+    INERT_FIELDS: ClassVar[dict[str, str]] = {
+        "protected_attributes": "the suite reads behavior_config.fairness_features instead",
+        "fairness_metrics": "the name collides with the compute_fairness_metrics function; nothing reads the field",
+    }
 
     enabled: bool = False
     protected_attributes: Optional[List[str]] = None

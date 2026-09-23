@@ -17,9 +17,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
+from typing import ClassVar
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from ._configs_base import BaseConfig, DEFAULT_RANDOM_SEED
+from ._inert_fields import InertFieldsWarningMixin
 
 
 class PreprocessingConfig(BaseConfig):
@@ -348,7 +350,7 @@ class TrainingSplitConfig(BaseConfig):
         return self
 
 
-class PreprocessingBackendConfig(BaseConfig):
+class PreprocessingBackendConfig(InertFieldsWarningMixin, BaseConfig):
     """Selects the engine and parameters for *basic* preprocessing - scaling,
     imputation, categorical encoding - and is consumed both by the
     legacy ``train_mlframe_models_suite`` path and by the
@@ -390,6 +392,11 @@ class PreprocessingBackendConfig(BaseConfig):
     robust_q_high : float
         Upper quantile for robust scaling (default: 0.99).
     """
+
+    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
+    INERT_FIELDS: ClassVar[dict[str, str]] = {
+        "fallback_to_sklearn": "the polars path falls back on its own; the flag is never read",
+    }
 
     prefer_polarsds: bool = True
     fallback_to_sklearn: bool = True
