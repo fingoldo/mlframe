@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.wrappers.rfecv._stability_select import _fit_stability_selection
 
@@ -28,7 +27,10 @@ def test_importance_is_measured_on_the_held_out_complement(monkeypatch):
     scored_rows: list[set] = []
 
     class _RecordingTree(DecisionTreeRegressor):
-        def fit(self, X, y, **kw):  # noqa: D102 - recording is the point
+        """A tree that records which rows each fit saw."""
+
+        def fit(self, X, y, **kw):
+            """Record the fitted rows, then fit normally."""
             fitted_rows.append(set(getattr(X, "index", range(len(X)))))
             return super().fit(X, y, **kw)
 
@@ -37,6 +39,7 @@ def test_importance_is_measured_on_the_held_out_complement(monkeypatch):
     original = ss.get_feature_importances
 
     def recording_importances(*args, **kwargs):
+        """Record the rows the importance call scored, then delegate."""
         data = kwargs.get("data")
         scored_rows.append(set(getattr(data, "index", range(len(data)))))
         return original(*args, **kwargs)

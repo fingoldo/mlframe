@@ -21,11 +21,13 @@ from mlframe.training.core._predict_pre_pipeline import _apply_row_wise_extensio
 
 
 def _frame(n: int = 20) -> pd.DataFrame:
+    """Three columns, one of which (``late``) stands in for a column that did not exist at fit time."""
     rng = np.random.default_rng(0)
     return pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n), "late": rng.normal(size=n)})
 
 
 def _config(columns=None) -> dict:
+    """The row-wise extension config, optionally pinning the column list recorded at fit time."""
     cfg = {"summary_stats_enabled": True, "extreme_columns_enabled": False}
     if columns is not None:
         cfg["columns"] = columns
@@ -33,6 +35,7 @@ def _config(columns=None) -> dict:
 
 
 def test_a_column_absent_at_fit_time_does_not_enter_the_row_wise_features():
+    """The pinned list decides what the summary spans, so a column added later cannot change a served feature's meaning."""
     df = _frame()
     pinned = _apply_row_wise_extensions(df.copy(), _config(["a", "b"]), None)
     rederived = _apply_row_wise_extensions(df.copy(), _config(), None)
@@ -43,6 +46,7 @@ def test_a_column_absent_at_fit_time_does_not_enter_the_row_wise_features():
 
 
 def test_a_pinned_column_missing_at_predict_time_is_reported(caplog):
+    """A pinned column that does not arrive changes the feature silently, so it has to be said out loud."""
     df = _frame().drop(columns=["b"])
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core._predict_pre_pipeline"):
         _apply_row_wise_extensions(df, _config(["a", "b"]), None)
@@ -70,6 +74,6 @@ def test_the_in_memory_predict_path_reorders_to_the_fit_schema():
     expected_list = [str(c) for c in model.feature_name_]
     aligned = permuted.loc[:, expected_list]
     np.testing.assert_allclose(model.predict_proba(aligned), expected)
-    assert not np.allclose(model.predict_proba(permuted.to_numpy()), expected), (
-        "this bed only means something while the permuted order actually changes the prediction"
-    )
+    assert not np.allclose(
+        model.predict_proba(permuted.to_numpy()), expected
+    ), "this bed only means something while the permuted order actually changes the prediction"

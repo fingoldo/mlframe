@@ -66,7 +66,7 @@ def test_oof_rows_align_the_suite_weights_with_the_matrix():
     y = X @ np.array([1.0, -1.0]) + rng.normal(0.0, 0.1, n)
     comps = [LinearRegression().fit(X, y), LinearRegression().fit(X[:, :1], y)]
     comps[1].predict = lambda Z, m=comps[1]: LinearRegression.predict(m, np.asarray(Z)[:, :1])
-    P, y_h, names, rows = compute_oof_holdout_predictions(
+    _P, y_h, names, rows = compute_oof_holdout_predictions(
         component_models=comps, component_names=["a", "b"], component_specs=[None, None], train_X=X, y_train_full=y,
         base_train_full_per_spec={}, holdout_frac=0.3, random_state=0, kfold=3, return_rows=True,
     )

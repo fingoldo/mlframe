@@ -18,6 +18,7 @@ from mlframe.metrics.calibration._calibration_metrics import (
 
 @pytest.mark.parametrize("n, nbins, seed", [(300, 20, 0), (5000, 10, 1), (120, 50, 2)])
 def test_the_identity_holds_and_matches_the_plugin_brier(n, nbins, seed):
+    """REL - RES + UNC must equal the Brier printed beside it, on the well-calibrated data where bins clamp."""
     rng = np.random.default_rng(seed)
     p = rng.random(n)
     y = (rng.random(n) < p).astype(np.float64)  # well calibrated: the regime where bins clamp
@@ -34,7 +35,7 @@ def test_without_a_clamp_resolution_is_the_textbook_debiased_value():
     n, nbins = 50_000, 5
     p = rng.random(n)
     y = (rng.random(n) < np.clip(p * 0.5, 0, 1)).astype(np.float64)
-    rel, res, unc, bb = compute_brier_decomposition_debiased(y, p, nbins)
+    _rel, res, _unc, _bb = compute_brier_decomposition_debiased(y, p, nbins)
     idx = np.minimum((p * nbins).astype(int), nbins - 1)
     base = y.mean()
     res_expected = 0.0

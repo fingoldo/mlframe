@@ -12,22 +12,24 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_engineering.row_wise_extremality_reference import fit_extremality_reference
 from mlframe.training.core._predict_pre_pipeline import _apply_row_wise_extensions
 
 
 def _train_frame(n: int = 500) -> pd.DataFrame:
+    """Two columns with clearly different locations and spreads, so the fitted reference is distinguishable."""
     rng = np.random.default_rng(0)
     return pd.DataFrame({"a": rng.normal(0, 1, n), "b": rng.normal(10, 3, n)})
 
 
 def _extreme_row() -> pd.DataFrame:
+    """One row far outside both training ranges, which must score near 1 on every extremality column."""
     return pd.DataFrame({"a": [7.5], "b": [-40.0]})
 
 
 def _config(reference=None) -> dict:
+    """The row-wise extension config, optionally carrying a persisted extremality reference."""
     cfg = {"extreme_columns_enabled": True, "extreme_columns_k": 2, "summary_stats_enabled": False}
     if reference is not None:
         cfg["extreme_columns_reference"] = {c: np.asarray(v, dtype=np.float64).tolist() for c, v in reference.items()}
@@ -44,6 +46,7 @@ def test_a_single_extreme_row_scores_zero_without_the_reference(caplog):
 
 
 def test_the_persisted_reference_scores_the_same_row_as_extreme():
+    """Serving through the saved reference must reproduce the fit-time verdict, not score every column 0.0."""
     reference = fit_extremality_reference(_train_frame(), ["a", "b"])
     out = _apply_row_wise_extensions(_extreme_row(), _config(reference), ["a", "b"])
     scores = out[[c for c in out.columns if c.startswith("row_extreme_top")]].to_numpy()
@@ -67,6 +70,7 @@ def test_replay_matches_the_fit_time_scores_row_for_row():
 
 
 def test_a_column_missing_from_the_reference_is_reported(caplog):
+    """A column the reference never saw scores nothing, and the operator is told rather than left with a silent zero."""
     reference = fit_extremality_reference(_train_frame(), ["a"])
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core._predict_pre_pipeline"):
         _apply_row_wise_extensions(_extreme_row(), _config(reference), ["a", "b"])

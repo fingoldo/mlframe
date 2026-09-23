@@ -33,15 +33,15 @@ def _leaky_bed(scale: float, n: int = 4000, n_cats: int = 30, seed: int = 0):
 
 @pytest.mark.parametrize("scale", [1.0, 1000.0])
 def test_the_same_leak_is_detected_at_any_target_scale(scale):
+    """The same leaky feature must trip the detector whether the target is measured in units or in thousands."""
     df, y, freq = _leaky_bed(scale)
-    res = detect_expanding_window_feature_leakage(
-        df, "t", y, freq, lambda: LinearRegression(), n_splits=5, scoring="neg_mean_squared_error"
-    )
+    res = detect_expanding_window_feature_leakage(df, "t", y, freq, lambda: LinearRegression(), n_splits=5, scoring="neg_mean_squared_error")
     assert res["leak_detected"], f"scale={scale}: inflation={res['inflation']} tolerance={res['leak_tolerance']}"
 
 
 @pytest.mark.parametrize("scale", [1.0, 0.001])
 def test_a_clean_feature_is_not_flagged_at_any_target_scale(scale):
+    """The negative control: a scale-free tolerance must not turn into a hair trigger on a large-scale target."""
     rng = np.random.default_rng(1)
     n = 1000
     df = pd.DataFrame({"t": np.arange(n, dtype=float), "cat": rng.integers(0, 10, n)})
@@ -51,26 +51,24 @@ def test_a_clean_feature_is_not_flagged_at_any_target_scale(scale):
         """A feature carrying no information about the target, honest or not."""
         return np.random.default_rng(len(fit_df)).normal(size=len(transform_df))
 
-    res = detect_expanding_window_feature_leakage(
-        df, "t", y, noise, lambda: LinearRegression(), n_splits=5, scoring="neg_mean_squared_error"
-    )
+    res = detect_expanding_window_feature_leakage(df, "t", y, noise, lambda: LinearRegression(), n_splits=5, scoring="neg_mean_squared_error")
     assert not res["leak_detected"], f"scale={scale}: inflation={res['inflation']} tolerance={res['leak_tolerance']}"
 
 
 def test_the_band_scales_with_the_metric():
+    """A thousandfold larger target gives squared-error scores a millionfold larger, and the tolerance has to follow."""
+
     def _run(scale):
+        """Run the detector on a leaky bed built at ``scale``."""
         df, y, freq = _leaky_bed(scale)
-        return detect_expanding_window_feature_leakage(
-            df, "t", y, freq, lambda: LinearRegression(), n_splits=5, scoring="neg_mean_squared_error"
-        )
+        return detect_expanding_window_feature_leakage(df, "t", y, freq, lambda: LinearRegression(), n_splits=5, scoring="neg_mean_squared_error")
 
     assert _run(1000.0)["leak_tolerance"] > _run(1.0)["leak_tolerance"] * 100
 
 
 def test_an_explicit_tolerance_still_overrides():
+    """Deriving the band from the metric must not take the absolute override away from a caller who wants one."""
     df, y, freq = _leaky_bed(1.0)
-    res = detect_expanding_window_feature_leakage(
-        df, "t", y, freq, lambda: LinearRegression(), n_splits=5, scoring="r2", leak_tolerance=10.0
-    )
+    res = detect_expanding_window_feature_leakage(df, "t", y, freq, lambda: LinearRegression(), n_splits=5, scoring="r2", leak_tolerance=10.0)
     assert res["leak_tolerance"] == 10.0
     assert not res["leak_detected"], "an absolute gate the caller set must be honoured"

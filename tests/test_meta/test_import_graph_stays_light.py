@@ -9,27 +9,28 @@ typed-dict warm-up - on every import: measured `import mlframe.reporting` 22.2 s
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 
 import pytest
 
-_PROBE = (
-    "import sys; import {mod}; "
-    "leaked = sorted(m for m in sys.modules if m.startswith('mlframe.feature_selection.filters')); "
-    "print('LEAKED', leaked)"
-)
+_PROBE = "import sys; import {mod}; " "leaked = sorted(m for m in sys.modules if m.startswith('mlframe.feature_selection.filters')); " "print('LEAKED', leaked)"
 
 
 def _leaked_modules(mod: str) -> list[str]:
+    """Import ``mod`` in a fresh interpreter and return the filters-stack modules it dragged in."""
     out = subprocess.run([sys.executable, "-c", _PROBE.format(mod=mod)], capture_output=True, text=True, timeout=900)
     assert out.returncode == 0, out.stderr[-2000:]
     line = next(ln for ln in out.stdout.splitlines() if ln.startswith("LEAKED"))
-    return eval(line[len("LEAKED ") :])  # noqa: S307 - our own literal list, printed two lines above
+    # ``ast.literal_eval`` rather than ``eval``: the probe prints a plain list of module-name strings, so nothing here needs the
+    # full evaluator, and a literal parser cannot execute whatever a future probe change might print.
+    return ast.literal_eval(line[len("LEAKED ") :])
 
 
 @pytest.mark.parametrize("mod", ["mlframe.reporting", "mlframe.preprocessing"])
 def test_the_filters_stack_is_not_imported(mod):
+    """Importing a light subpackage must not pull in the feature-selection filters and their numba warm-up."""
     leaked = _leaked_modules(mod)
     assert not leaked, f"{mod} pulled in {leaked}; import those lazily inside the functions that need them"
 

@@ -9,18 +9,19 @@ the serve-time value (history only) differed, and the value also changed when th
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.feature_engineering.entity_inter_event import entity_inter_event_features
 
 
 def _bed():
+    """One entity with four one-second gaps and a final 100-second gap, so a leak from the future is unmistakable."""
     ids = np.array(["u", "u", "u", "u", "u"])
     ts = np.array([0.0, 1.0, 2.0, 3.0, 103.0])
     return ids, ts
 
 
 def test_an_early_row_cannot_see_a_late_gap():
+    """Rows before the 100-second gap must average 1.0; seeing 25.75 would mean the statistic read the future."""
     ids, ts = _bed()
     out = entity_inter_event_features(ids, ts)
     mean = out["group_mean_time_delta"]
@@ -30,6 +31,7 @@ def test_an_early_row_cannot_see_a_late_gap():
 
 
 def test_the_value_triple_is_causal_too():
+    """The value statistics take the same causal path as the time ones, not just the gaps."""
     ids, ts = _bed()
     values = np.array([10.0, 10.0, 10.0, 10.0, 1000.0])
     out = entity_inter_event_features(ids, ts, value_col=values)
@@ -48,6 +50,7 @@ def test_splitting_the_batch_does_not_change_a_row_s_features():
 
 
 def test_entities_do_not_bleed_into_each_other():
+    """Interleaved entities each see only their own history, so the running window is keyed per entity."""
     ids = np.array(["a", "b", "a", "b"])
     ts = np.array([0.0, 0.0, 5.0, 50.0])
     out = entity_inter_event_features(ids, ts)
@@ -56,18 +59,21 @@ def test_entities_do_not_bleed_into_each_other():
 
 
 def test_the_whole_segment_behaviour_is_still_reachable():
+    """``causal=False`` restores the old whole-segment statistic for callers doing offline analysis rather than modelling."""
     ids, ts = _bed()
     out = entity_inter_event_features(ids, ts, causal=False)
     np.testing.assert_allclose(out["group_mean_time_delta"], np.full(5, 25.75))
 
 
 def test_a_single_event_entity_has_no_gap_statistics():
+    """One event means no gap to describe: NaN, not a zero that reads as a measured interval."""
     out = entity_inter_event_features(np.array(["solo"]), np.array([7.0]))
     assert np.isnan(out["group_mean_time_delta"][0])
     assert np.isnan(out["group_median_time_delta"][0])
 
 
 def test_the_causal_median_tracks_the_running_middle():
+    """The median is recomputed over the gaps seen so far, which a running-window implementation can easily get wrong."""
     ids = np.array(["u"] * 6)
     ts = np.cumsum([0.0, 1.0, 5.0, 2.0, 100.0, 3.0])
     out = entity_inter_event_features(ids, ts)

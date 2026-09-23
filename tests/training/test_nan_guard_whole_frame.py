@@ -10,18 +10,19 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 from sklearn.linear_model import LinearRegression
 
 from mlframe.training._predict_guards import _apply_nan_guard, _frame_has_non_finite, prime_nan_guard_stats
 
 
 def _frame(n=2000, seed=0):
+    """A clean two-column frame long enough that row 1500 sits past any first-N sample."""
     rng = np.random.default_rng(seed)
     return pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n)})
 
 
 def test_non_finite_values_past_the_first_500_rows_are_seen():
+    """The guard scans the whole frame: a NaN at row 1500 and an inf at row 1800 both have to register."""
     X = _frame()
     assert not _frame_has_non_finite(X)
     X.loc[1500, "a"] = np.nan
@@ -32,6 +33,7 @@ def test_non_finite_values_past_the_first_500_rows_are_seen():
 
 
 def test_the_guard_imputes_a_late_nan_instead_of_passing_it_through():
+    """Detecting the value is half of it; the row must also come back with a real prediction."""
     X = _frame()
     y = X["a"] * 2 + 1
     model = LinearRegression().fit(X, y)
@@ -43,6 +45,7 @@ def test_the_guard_imputes_a_late_nan_instead_of_passing_it_through():
 
 
 def test_an_infinite_input_is_imputed_like_a_nan():
+    """An infinity is as unusable to a model as a NaN, so it takes the same imputation path."""
     X = _frame()
     y = X["a"] * 2 + 1
     model = LinearRegression().fit(X, y)
@@ -54,6 +57,7 @@ def test_an_infinite_input_is_imputed_like_a_nan():
 
 
 def test_the_training_stats_ignore_an_infinite_training_value():
+    """An inf in the priming frame must not poison the imputer's own statistics into inf."""
     X = _frame()
     X.loc[3, "a"] = np.inf
     model = LinearRegression().fit(_frame(), _frame()["a"])

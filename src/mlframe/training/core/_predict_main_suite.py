@@ -91,7 +91,7 @@ def predict_mlframe_models_suite(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, suite_binary_threshold, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
+    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, suite_binary_threshold, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
     from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
     from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
     from ..pipeline._cross_sectional_composite_fe import replay_cross_sectional_composite_fe

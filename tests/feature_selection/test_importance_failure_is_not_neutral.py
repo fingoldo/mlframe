@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 from sklearn.linear_model import LinearRegression
 
 from mlframe.feature_selection.wrappers._helpers_importance import get_feature_importances
 
 
 def _bed(n: int = 200):
+    """One informative column, one pure-noise column and one constant column that cannot be conditioned on."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame({"good": rng.normal(size=n), "noise": rng.normal(size=n), "constant": np.zeros(n)})
     y = X["good"] * 3.0 + rng.normal(0, 0.1, n)
@@ -23,11 +23,14 @@ def _bed(n: int = 200):
 
 
 def test_a_failed_drop_column_evaluation_records_nan():
+    """A drop-column refit that raises must score NaN, not a rank-competitive 0.0."""
     X, y = _bed()
-    model = LinearRegression().fit(X, y)
 
     class _FailsOnOneColumn(LinearRegression):
-        def fit(self, X, y, **kw):  # noqa: D102 - the failure injection is the point
+        """A regressor that refuses to fit one particular drop-column design."""
+
+        def fit(self, X, y, **kw):
+            """Raise on the injected design, otherwise fit normally."""
             if getattr(X, "shape", (0, 0))[1] == X.shape[1] and "noise" not in getattr(X, "columns", []):
                 raise ValueError("singular design after the drop")
             return super().fit(X, y, **kw)

@@ -27,7 +27,6 @@ from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
 from ..calibration._calibration_plot import (
     DEFAULT_TITLE_METRICS_TOKENS,
     calibration_binning,
-    fast_calibration_binning,
     render_title_metric_token,
     show_calibration_plot,
 )

@@ -100,6 +100,10 @@ repos:
   # ruff-blocking.yml this repo calls), the ruff== pin in pyproject.toml, the ruff-pre-commit revs below,
   # and the interpreter's own ruff. They drifted: the pin and the revs said 0.16.1 while CI still ran
   # 0.15.22, with a comment claiming otherwise. This fails when any of them disagree, naming both versions.
+  # The blind spot it could not see (2026-09-23): this hook reads the LOCAL py-ci-shared checkout, while CI
+  # runs whatever the SHA pinned in ci.yml carries. That pin was older than tool_versions.py itself, so CI
+  # kept running 0.15.22 with every local signal green. The pin now points at the revision that resolves
+  # RUFF_VERSION from tool_versions.py at run time, so the workflow follows this file instead of a literal.
   - repo: local
     hooks:
       - id: pinned-tool-versions
@@ -137,18 +141,15 @@ repos:
         # ``ignore`` list too (RUF001/002/003/022, ISC001, etc. would all reappear) and breaking
         # RUF100's "is this noqa still needed" determination (see CLAUDE.md's 2026-07-09 RUF100
         # incident). ``--ignore`` only ADDS to the configured ignore list, so it is safe.
-        entry: python -m ruff check --ignore C901
+        # WHOLE TREE, not the changed files. pre-commit hands a hook only what the commit touches, so a finding in an untouched file was
+        # invisible locally and surfaced only in CI -- which is how 26 of them accumulated on master while every local commit passed
+        # (2026-09-23). CI runs `ruff check src/mlframe --ignore C901`; this now runs the identical command, and at 0.23 s it costs
+        # nothing to do so. Passing the directory rather than file arguments also restores ruff's own pyproject `exclude` walk, which
+        # explicit file arguments bypass -- so the hand-mirrored exclude regex this hook used to carry is no longer needed.
+        entry: python -m ruff check src/mlframe --ignore C901
         language: system
-        types: [python]
-        # pre-commit passes matching files as explicit CLI args, which BYPASSES ruff's own
-        # top-level `exclude` list in pyproject.toml (explicit paths override `exclude`; only
-        # `force-exclude = true`, which this repo does not set, would apply it to explicit args
-        # too). Mirror that exclude list here at the pre-commit level so tests/scripts/legacy/
-        # benchmarks/profiling stay out of this hook exactly as pyproject.toml intends -- found
-        # 2026-07-09 while verifying the blocking-gate expansion locally (tests/ was silently
-        # never covered, ~4600 findings under the current full select/ignore, wholly unrelated
-        # to this repo's src/mlframe cleanup).
-        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
+        pass_filenames: false
+        always_run: true
         stages: [pre-commit, pre-merge-commit]
 
   # Prose-typo gate: codespell. Blocking since 2026-07-09, mirroring the CI lint-blocking job
@@ -462,12 +463,13 @@ repos:
       - id: ruff
         name: "ruff tests/ (real bugs block)"
         # tests/ruff.toml (nested under tests/, `extend`s py-ci-shared's ruff-tests.toml) is
-        # auto-discovered by ruff walking up from each file -- no --config override needed here,
-        # matching CI's tests-ruff-blocking job (`ruff check tests --ignore C901`).
-        entry: python -m ruff check --ignore C901
+        # auto-discovered by ruff walking up from the path -- no --config override needed here.
+        # WHOLE TREE for the same reason as the src hook above: CI's tests-ruff-blocking job runs `ruff check tests --ignore C901` over
+        # everything, so scoping this to the changed files let findings in untouched test modules reach master unseen. 0.32 s.
+        entry: python -m ruff check tests --ignore C901
         language: system
-        types: [python]
-        files: '^tests/'
+        pass_filenames: false
+        always_run: true
         stages: [pre-commit, pre-merge-commit]
 
   - repo: local

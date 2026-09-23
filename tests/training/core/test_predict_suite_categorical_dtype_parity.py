@@ -19,6 +19,7 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 
 def _frame(n: int, seed: int) -> pd.DataFrame:
+    """A binary-target frame with three numeric columns and one low-cardinality categorical."""
     rng = np.random.RandomState(seed)
     x = rng.randn(n, 3)
     cat = rng.choice(["a", "b", "c"], size=n, p=[0.5, 0.3, 0.2])
@@ -31,6 +32,7 @@ def _frame(n: int, seed: int) -> pd.DataFrame:
 
 
 def test_the_two_entry_points_agree_on_a_categorical_frame(tmp_path):
+    """Both predict entry points must produce the same output for a frame carrying a categorical column."""
     pytest.importorskip("lightgbm")
     train_df = _frame(400, seed=0)
     test_df = _frame(120, seed=1)
@@ -67,5 +69,4 @@ def test_the_two_entry_points_agree_on_a_categorical_frame(tmp_path):
     mem = np.asarray(next(iter(mem_probs.values())))
     disk = np.asarray(next(iter(disk_probs.values())))
     assert disk.shape == mem.shape
-    np.testing.assert_allclose(disk, mem, rtol=1e-10, atol=1e-12,
-                               err_msg="the disk-served suite must reproduce the in-memory prediction")
+    np.testing.assert_allclose(disk, mem, rtol=1e-10, atol=1e-12, err_msg="the disk-served suite must reproduce the in-memory prediction")

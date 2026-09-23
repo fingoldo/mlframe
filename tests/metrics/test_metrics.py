@@ -1422,7 +1422,7 @@ class TestICEPenaltyRamp:
         np.testing.assert_allclose(val, 0.2, rtol=1e-10)
 
 
-from mlframe.metrics.calibration import ICE_UNCOMPUTABLE  # noqa: E402 - used by the NaN-guard expectations below
+from mlframe.metrics.calibration import ICE_UNCOMPUTABLE  # imported here, after the guards above, and used by the NaN-guard expectations below
 
 
 class TestICENaNGuards:

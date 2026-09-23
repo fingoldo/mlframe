@@ -70,3 +70,20 @@ def test_installed_tool_versions_match_their_exact_pins():
     assert not mismatched, "installed tool versions differ from their exact pins (reinstall the dev extra): " + ", ".join(
         f"{n}: pinned {p}, installed {i}" for n, (p, i) in sorted(mismatched.items())
     )
+
+
+def test_the_pins_match_the_version_ci_actually_resolves():
+    """The pins must equal ``py_ci_shared.tool_versions.RUFF_VERSION``, which is the value CI's ruff-blocking job reads at run time.
+
+    The two tests above close the loop between this repo's own files and the binary on this machine. Neither can see what CI runs, and on
+    2026-09-23 that gap cost 26 findings: every local signal was green on 0.16.1 while CI kept running 0.15.22, because ci.yml pinned a
+    py-ci-shared revision older than tool_versions.py itself. That workflow now resolves the version from this same constant, so asserting
+    on it here means a future divergence fails a test instead of only showing up as a surprise CI failure on a pushed branch.
+    """
+    from py_ci_shared.tool_versions import RUFF_VERSION
+
+    pyproject_pins = set(re.findall(r'"ruff==([\d.]+)"', _read("pyproject.toml")))
+    assert pyproject_pins == {RUFF_VERSION}, (
+        f"this repo pins ruff {sorted(pyproject_pins)} but py-ci-shared's tool_versions.RUFF_VERSION, which CI resolves at run time, "
+        f"is {RUFF_VERSION} -- bump whichever is behind"
+    )

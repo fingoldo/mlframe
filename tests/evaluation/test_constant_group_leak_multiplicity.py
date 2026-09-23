@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.evaluation.constant_group_leak_scan import constant_group_target_scan
 
 
 def test_a_random_partition_with_many_groups_is_not_flagged():
+    """The minimum variance ratio over thousands of random groups is small by construction, and must not read as a leak."""
     rng = np.random.default_rng(3)
     n_groups, size = 4000, 5
     df = pd.DataFrame({"g": np.repeat(np.arange(n_groups), size)})
@@ -27,6 +27,7 @@ def test_a_random_partition_with_many_groups_is_not_flagged():
 
 
 def test_a_real_constant_group_leak_is_still_flagged():
+    """The correction must not cost the detection it exists to qualify: a target that IS the group still trips the scan."""
     rng = np.random.default_rng(0)
     n = 16_000
     groups = rng.integers(0, 20, n)
@@ -37,6 +38,7 @@ def test_a_real_constant_group_leak_is_still_flagged():
 
 
 def test_the_number_of_groups_searched_is_reported():
+    """The eligible-group count is what the multiplicity correction is applied over, so the report has to carry it."""
     rng = np.random.default_rng(1)
     n = 2000
     df = pd.DataFrame({"g": rng.integers(0, 50, n)})
@@ -46,6 +48,7 @@ def test_the_number_of_groups_searched_is_reported():
 
 
 def test_a_column_with_no_eligible_group_reports_no_verdict():
+    """Nothing large enough to test means NaN and unflagged, not a verdict of clean."""
     df = pd.DataFrame({"g": np.arange(50)})  # every group has one row
     row = constant_group_target_scan(df, np.random.default_rng(0).normal(size=50), ["g"]).iloc[0]
     assert row["n_eligible_groups"] == 0

@@ -9,28 +9,31 @@ from __future__ import annotations
 
 import types
 
-import pytest
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_methods import ShapProxiedMethodsMixin
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _resolve_brute_force_work_budget
 
 
 def _resolver():
+    """The optimizer-choice function under test, unbound from the mixin."""
     return ShapProxiedMethodsMixin._resolve_optimizer
 
 
 def _cfg(**kw):
+    """A config namespace with the gate's defaults, overridden by keyword."""
     base = dict(optimizer="auto", brute_force_max_features=28, min_features=1, max_features=None, use_gpu=False)
     base.update(kw)
     return types.SimpleNamespace(**base)
 
 
 def test_many_rows_route_a_large_search_to_beam():
+    """Above the work budget the exhaustive search is abandoned for beam search."""
     resolve = _resolver()
     assert resolve(_cfg(), 26, n_rows=1300) == "beam", "2^26 subsets x 1300 rows is minutes of work"
 
 
 def test_few_rows_keep_the_exhaustive_search():
+    """Under the budget the exact search is kept, because it is affordable and better."""
     resolve = _resolver()
     assert resolve(_cfg(), 18, n_rows=1300) == "bruteforce"
 
@@ -43,11 +46,13 @@ def test_the_subset_count_gate_still_applies_without_rows():
 
 
 def test_an_explicit_optimizer_is_never_overridden():
+    """A caller who names an optimizer gets it, whatever the work estimate says."""
     resolve = _resolver()
     assert resolve(_cfg(optimizer="bruteforce"), 26, n_rows=100_000) == "bruteforce"
 
 
 def test_the_budget_can_be_raised_per_host(monkeypatch):
+    """A host with more compute can raise the budget and get the exact search back."""
     monkeypatch.setenv("MLFRAME_SHAP_BRUTE_FORCE_WORK_BUDGET", "1e12")
     assert _resolve_brute_force_work_budget() == 10**12
     resolve = _resolver()

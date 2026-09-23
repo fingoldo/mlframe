@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 from timeit import default_timer as timer
 
-import numpy as np
 import pandas as pd
 import polars as pl
 from typing import Dict, Optional

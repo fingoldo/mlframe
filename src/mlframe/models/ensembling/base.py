@@ -26,7 +26,6 @@ from __future__ import annotations
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import logging
-import warnings
 
 logger = logging.getLogger("mlframe.models.ensembling")
 

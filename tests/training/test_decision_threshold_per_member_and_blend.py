@@ -12,7 +12,6 @@ import tempfile
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training import OutputConfig
 from mlframe.training.core import train_mlframe_models_suite
@@ -21,6 +20,7 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 
 def _imbalanced(n: int = 1500, seed: int = 0) -> pd.DataFrame:
+    """A binary frame with roughly 5% positives, where the default 0.5 threshold is clearly the wrong cut."""
     rng = np.random.RandomState(seed)
     x = rng.randn(n, 4)
     df = pd.DataFrame(x, columns=[f"f_{i}" for i in range(4)])
@@ -29,6 +29,7 @@ def _imbalanced(n: int = 1500, seed: int = 0) -> pd.DataFrame:
 
 
 def _train(models, ensembles):
+    """Train the suite on the imbalanced bed and return its metadata."""
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     _, metadata = train_mlframe_models_suite(
         df=_imbalanced(), target_name="t", model_name="m", features_and_targets_extractor=fte,
@@ -40,6 +41,7 @@ def _train(models, ensembles):
 
 
 def test_a_single_model_on_an_imbalanced_target_is_tuned():
+    """Every target-level threshold is recorded as tuned, not left at a default the imbalance makes wrong."""
     md = _train(["lgb"], ensembles=False)
     paths = md.get("decision_threshold_paths", {})
     target_keys = [k for k in paths if k.count("|") == 1]
@@ -47,6 +49,7 @@ def test_a_single_model_on_an_imbalanced_target_is_tuned():
 
 
 def test_members_and_the_blend_get_their_own_thresholds():
+    """A threshold tuned on one member's probabilities does not transfer to another's, so each needs its own."""
     md = _train(["linear", "lgb"], ensembles=True)
     thresholds = md.get("decision_thresholds", {})
     target_keys = [k for k in thresholds if k.count("|") == 1]

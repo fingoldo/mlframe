@@ -267,8 +267,12 @@ neural = [
     # process -> hard native crashes (heap corruption / cublas INVALID_VALUE) even on CPU inference. On
     # Python 3.14 only nightly wheels exist; install from the cu128 index, NOT the default cu130 nightly:
     #   pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128
-    "torch>=2.0",
-    "lightning>=2.0",
+    # 2.6 is the floor, not 2.0: CVE-2025-32434 is remote code execution through ``torch.load`` that fires even with
+    # ``weights_only=True``, i.e. exactly the call a model-loading path makes. 2.6.0 still supports Python 3.9, so unlike the pillow /
+    # pyarrow / mlflow advisories below this one closes on every interpreter this project supports.
+    "torch>=2.6",
+    # 2.4 is the floor for pytorch-lightning's path traversal (CVE-2024-8019), which ``lightning`` pulls in; also 3.9-compatible.
+    "lightning>=2.4",
     "captum>=0.7",
     # Not imported directly; floors torch's own transitive setuptools resolution above the
     # patched version for PYSEC-2025-49 (torch itself caps setuptools<82).
@@ -348,7 +352,14 @@ viz = [
 
 # Experiment tracking.
 mlflow = [
-    "mlflow>=2.5",
+    # 3.15 on 3.10+: eight CRITICAL advisories sit below it, all in the mlflow SERVER (AI Gateway secret exfiltration, the
+    # ``--serve-artifacts`` multipart endpoints, ``enable_mlserver`` command injection, webhook SSRF, default-password auth bypass).
+    # This package only ever calls the CLIENT (``start_run``/``log_metric``/``search_runs``), so none of them is reachable from mlframe
+    # itself -- but anyone who installs this extra and points it at a tracking server they run is exposed, and the floor is free.
+    # 3.15 requires Python >=3.10, so 3.9 keeps the old floor and those advisories stay OPEN there, the same tradeoff as pillow in
+    # [project.dependencies]. CVE-2026-0545 (unauthenticated /ajax-api/3.0/jobs/*) has no patched release at all as of 2026-09-23.
+    "mlflow>=3.15.0; python_version >= '3.10'",
+    "mlflow>=2.5; python_version < '3.10'",
     # Not imported directly; float mlflow's own transitive pins above patched versions:
     # aiohttp (PYSEC-2026-237 + CVE-2026-54273/74/76/77/78/79/80), cryptography (GHSA-537c-gmf6-5ccf),
     # starlette, pulled via mlflow-skinny (PYSEC-2026-248/249).
@@ -831,7 +842,7 @@ DEP001 = [
     "pynvml",  # _gpu_state_probe imports it inside try/except and falls back to nvidia-smi
     # pytorch_lightning (2026-07-18, moved here from a stale DEP002 entry -- found via the new
     # test_deptry_ignores_not_stale meta-test): this is genuinely a missing-declared-dep case, not
-    # unused-declared -- the package is deliberately NOT depended on (see the `lightning>=2.0`
+    # unused-declared -- the package is deliberately NOT depended on (see the `lightning>=2.4`
     # comment above; installing both invites version-skew), but 3 call sites still import it
     # defensively as a legacy-name fallback, each guarded by `importlib.util.find_spec(...) is
     # not None` + try/except.
