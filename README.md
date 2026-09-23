@@ -126,7 +126,7 @@ pip install -e "./mlframe[mlflow]"               # mlflow experiment tracking + 
 pip install -e "./mlframe[db]"                   # sqlalchemy + psycopg2 + duckdb + pymongo + zstandard
 pip install -e "./mlframe[signal]"               # astropy + entropy-estimators + pywavelets + ruptures
 pip install -e "./mlframe[unsupervised]"         # hdbscan + umap-learn
-pip install -e "./mlframe[stats]"                # statsmodels
+pip install -e "./mlframe[stats]"                # statsmodels, dit
 pip install -e "./mlframe[gpu]"                  # cupy-cuda12x + nvidia-cuda-nvcc-cu12 + gpu-info for the GPU stages (CUDA 12; alias: [gpu-cuda12])
 pip install -e "./mlframe[gpu-cuda11]"           # cupy-cuda11x + nvidia-cuda-nvcc-cu11 + gpu-info (CUDA 11 hosts)
 pip install -e "./mlframe[transformer]"          # transformer-style FE: nothing extra, the CPU path is numba-only

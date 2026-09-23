@@ -169,6 +169,7 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
         try:
             from . import _soft_shrink, _y_train_clip_bounds
             from ..discovery._t_equivalence import t_train_envelope
+            from ..transforms._call_gateway import call_transform
             from ..transforms import get_transform
             _by = np.asarray(self._buffer_y_.contiguous(), dtype=np.float64)
             _bb = np.asarray(self._buffer_base_.contiguous(), dtype=np.float64)
@@ -181,7 +182,7 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
                 _tr = get_transform(self.transform_name)
                 # The base range too: otherwise live-regime bases outside the dead train range are soft-shrunk back or sent to the fallback.
                 _soft_shrink.capture_base_fit_range(self, _tr, _bb)
-                _t = _tr.forward(_by, _bb, self.fitted_params_)
+                _t = call_transform(_tr, "forward", _by, _bb, self.fitted_params_)
                 _env = t_train_envelope(_t)  # the one envelope formula fit(), from_fitted_inner() and discovery share
                 if _env is not None:
                     self.fitted_params_["t_clip_low"], self.fitted_params_["t_clip_high"] = _env

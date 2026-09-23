@@ -355,6 +355,10 @@ def fit(
     # "why was MY spec rejected?" is queryable from ``rejection_ledger`` instead of only the logs.
     from ._rejection_ledger import ledger_init
     ledger_init(self)
+    # Per-fit too: the drift gate clears these only when a linear_residual survived, so a re-fit of one instance
+    # (stability replicates, the stacked second pass, per-group reuse) that keeps none would warn about the previous
+    # fit's specs at the end of this one.
+    self._alpha_drift_flags = {}
 
     # Post-selection-inference holdout (winner's-curse de-bias, SA27): carve a never-touched
     # holdout BEFORE screening, then REBIND ``train_idx`` to the screening pool so every

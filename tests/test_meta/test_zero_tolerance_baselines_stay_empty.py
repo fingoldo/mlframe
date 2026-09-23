@@ -30,8 +30,10 @@ _MIN_BASELINES = 15
 # Measured empty on 2026-09-08. Each is a gate whose violation class the codebase has fully drained; the
 # point of the list is that draining is the only acceptable way for one to leave it.
 ZERO_TOLERANCE_BASELINES: tuple[str, ...] = (
+    "_discovery_layout_baseline.json",
     "_docstring_baseline.json",
     "_fe_noop_copy_baseline.json",
+    "_frame_copy_baseline.json",
     "_logger_lazy_baseline.json",
     "_module_level_logging_disable_baseline.json",
     "_numba_config_env_mutation_baseline.json",

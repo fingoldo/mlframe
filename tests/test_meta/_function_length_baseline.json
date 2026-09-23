@@ -250,7 +250,7 @@
   "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base": 815,
   "src/mlframe/training/composite/discovery/_eval.py::_eval_one_transform_impl": 366,
   "src/mlframe/training/composite/discovery/_eval_stats.py::apply_alpha_drift_gate": 113,
-  "src/mlframe/training/composite/discovery/_fit.py::fit": 670,
+  "src/mlframe/training/composite/discovery/_fit.py::fit": 669,
   "src/mlframe/training/composite/discovery/_fit_multibase.py::apply_multi_base_forward_stepwise": 173,
   "src/mlframe/training/composite/discovery/_honest_rmse_gate.py::apply_honest_rmse_gate": 162,
   "src/mlframe/training/composite/discovery/_screening_tiny.py::_tiny_cv_rmse_raw_y": 241,

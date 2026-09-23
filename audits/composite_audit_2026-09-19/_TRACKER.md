@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 26 | 0 | 4 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 20 | 0 | 2 | 0 | 0 |
+| `discovery.md` | 30 | 27 | 0 | 3 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 21 | 0 | 1 | 0 | 0 |
 | `suite_integration.md` | 19 | 18 | 0 | 1 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 13 | 20 | 8 | 0 | 0 |
-| **Total** | **179** | **123** | **31** | **24** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 14 | 20 | 7 | 0 | 0 |
+| **Total** | **179** | **126** | **31** | **21** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -83,7 +83,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `DSC-22` | `_group_ids_for_rerank` is read under two alignment conventions | frame-aligned contract; short array raises |
 | **RESOLVED** | P3 | `DSC-23` | Report reasons misattribute specs dropped by the late gates | the report reason is the spec's own ledger stage |
 | **RESOLVED** | P3 | `DSC-24` | FDR control is "on by default" but inert by default | inactive FDR control logged at INFO; default bootstrap measured +70% wall, kept opt-in |
-| **TODO** | P3 | `DSC-25` | Alpha-drift flags leak between fits of one instance; the reject flag's code fallback contradicts the config default | |
+| **RESOLVED** | P3 | `DSC-25` | Alpha-drift flags leak between fits of one instance; the reject flag's code fallback contradicts the config default | flags cleared per fit; the code fallback matches the config default |
 | **RESOLVED** | P3 | `DSC-26` | The corr-filter log recommends an escape hatch that does not work | explicit base_candidates now overrules the corr filter, as its log said |
 | **RESOLVED** | P3 | `DSC-27` | Per-group discovery gates each group's specs on the whole val frame and loses the rerank group ids | per-group delegates gated on their own val rows; rerank grouping inherited |
 | **RESOLVED** | P3 | `DSC-28` | Multi-base upgraded specs inherit unmeasured statistics from their seed | upgrade MI stats NaN + stats_measured_for |
@@ -111,7 +111,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `EST-15` | In the default shuffled K-fold OOF, recurrent composite components run their EWMA/rolling state over gapped (train) and scattered (holdout) row sequences | contiguous OOF folds for recurrent components |
 | **RESOLVED** | P3 | `EST-16` | The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level | fold groups/weights via call_transform, forward with groups, WARNING fallback; grouped components no longer drop out of OOF |
 | **TODO** | P3 | `EST-17` | OOF refits reuse the entry's pre_pipeline, fitted on the full train (including supervised MRMR/RFECV selection that saw each fold's holdout y) | |
-| **TODO** | P3 | `EST-18` | The five `moe_*` constructor parameters of `CompositeTargetEstimator` are never read | |
+| **RESOLVED** | P3 | `EST-18` | The five `moe_*` constructor parameters of `CompositeTargetEstimator` are never read | parameters removed; the unread-parameter scanner keeps them out |
 | **RESOLVED** | P3 | `EST-19` | The `lag_predict` component that ships in CT_ENSEMBLE is never fit, so NaN lag rows at predict time are imputed with the median of the predict batch itself | fitted on train at injection; unfitted predict with a missing lag raises instead of using the batch median |
 | **RESOLVED** | P3 | `EST-20` | `predict` / `predict_quantile` change shared state without synchronisation | stats under a lock; soft_shrink_info_ per thread; 8x150 threaded test |
 | **RESOLVED** | P3 | `EST-21` | `from_fitted_inner` cannot express grouped transforms or recurrence continuation | grouped specs expressible; groups_train for their exact envelope; parity-tested |
@@ -230,7 +230,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P1 | `PMT-32` | Fresh-process persistence round trip for every registry transform and the whole auto-chain name space | 57 wrappers + CT ensemble loaded in one fresh subprocess; MoE wrapper open |
 | **RESOLVED** | P1 | `PMT-33` | Runtime registry mutation must have a load-time replay (shared scanner) | shared runtime-registry scanner; mlframe wired with 5 reasoned replay writers |
 | **TODO** | P2 | `PMT-34` | getattr default parity: `getattr(cfg, "field", literal)` must match the pydantic field default (shared scanner) | |
-| **TODO** | P3 | `PMT-35` | Unread constructor parameters in estimator classes (shared scanner) | |
+| **RESOLVED** | P3 | `PMT-35` | Unread constructor parameters in estimator classes (shared scanner) | shared scanner wired over all of src; one further dead parameter removed |
 | **TODO** | P3 | `PMT-36` | Environment flags parsed through one shared parser (shared scanner) | |
 | **TODO** | P3 | `PMT-37` | Deferred-dead config fields must warn when set, and no allowlisted field may advertise how to enable it | |
 | **RESOLVED** | P1 | `PMT-38` | A config rebuilt with `model_copy(update=...)` must reach its consumers (shared scanner) | shared discarded-model_copy scanner wired with an empty allowlist |

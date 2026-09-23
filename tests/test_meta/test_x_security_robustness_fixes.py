@@ -98,7 +98,7 @@ def test_sec3_feature_cache_survives_pickle_round_trip():
 
     from mlframe.training.feature_handling.cache import FeatureCache
 
-    fc = FeatureCache(cache_cfg=None, content_fingerprint=None)
+    fc = FeatureCache(cache_cfg=None)
     restored = pickle.loads(pickle.dumps(fc))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert isinstance(restored._lock, type(threading.Lock()))
     assert restored._mem == {}
@@ -108,7 +108,7 @@ def test_sec3_feature_cache_getstate_drops_lock():
     """FeatureCache.__getstate__ must not include the live threading.Lock object."""
     from mlframe.training.feature_handling.cache import FeatureCache
 
-    fc = FeatureCache(cache_cfg=None, content_fingerprint=None)
+    fc = FeatureCache(cache_cfg=None)
     state = fc.__getstate__()
     assert state["_lock"] is None
 

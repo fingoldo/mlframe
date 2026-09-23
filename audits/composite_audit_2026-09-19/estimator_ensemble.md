@@ -168,7 +168,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: The verdict can report a win over the dummy for a model that is no longer the one deployed.
 - **Suggested fix**: Re-score the ensemble slot after the MoE wrap (val/test predict on the final `entries[0].model`) and overwrite `cross_target_ensemble_metrics`. Alternatively, run the MoE step inside the builder before scoring.
 - **Test to add**: With MoE enabled, assert that `cross_target_ensemble_metrics[...]["test_RMSE"]` equals the RMSE of `models[..]["_CT_ENSEMBLE__t"][0].model.predict(test)`.
-- **Disposition**: COMPLETED. After the MoE gate wraps `entries[0].model`, `_restamp_shipped_metrics` re-scores that shipped wrapper on val and test and overwrites `cross_target_ensemble_metrics[...]['val_RMSE'/'val_MAE'/'test_RMSE'/'test_MAE']`. The `model_name` gets a `+MoE` suffix. A split whose predict fails has its numbers removed instead of left describing the pre-MoE stack. `run_composite_moe_and_value_report` takes `test_df` / `test_idx`, and `run_composite_post_processing` passes them. Regression test `test_the_ensemble_metrics_describe_the_model_that_ships`: the recorded test RMSE equals the RMSE of `models[...]['_CT_ENSEMBLE__t'][0].model.predict(test)` and replaces the stale stack number. It fails before the fix.
+- **Disposition**: COMPLETED. After the MoE gate wraps `entries[0].model`, `_restamp_shipped_metrics` re-scores that shipped wrapper on val and test and overwrites `cross_target_ensemble_metrics[...]['val_RMSE'/'val_MAE'/'test_RMSE'/'test_MAE']`. The `model_name` gets a `+MoE` suffix. A split whose predict fails has its numbers removed instead of left describing the pre-MoE stack. `run_composite_moe_and_value_report` takes the test frame and its row indices, and `run_composite_post_processing` passes them. Regression test `test_the_ensemble_metrics_describe_the_model_that_ships`: the recorded test RMSE equals the RMSE of `models[...]['_CT_ENSEMBLE__t'][0].model.predict(test)` and replaces the stale stack number. It fails before the fix.
 
 ### EST-14 [P2] A streaming `update()` refit leaves the soft-shrink base range at the dead regime, and its T-clip refresh leaves out the widening to the observed range that `fit()` applies
 
@@ -213,7 +213,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: Users tuning or disabling these on the estimator get no effect and no error.
 - **Suggested fix**: Either remove them (and point the docs to the discovery config), or implement an estimator-level gate. Do not keep dead public parameters.
 - **Test to add**: A meta-test asserting that every `__init__` parameter of `CompositeTargetEstimator` is read by at least one method.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - the five moe_* parameters were removed from CompositeTargetEstimator in ea55262e4, and PMT-35's scanner now keeps them out: test_no_unread_constructor_parameters (py-ci-shared unread_init_params) fails on any __init__ parameter that is stored and never read
 
 ### EST-19 [P3] The `lag_predict` component that ships in CT_ENSEMBLE is never fit, so NaN lag rows at predict time are imputed with the median of the predict batch itself
 

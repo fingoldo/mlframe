@@ -65,7 +65,6 @@ import numpy as np
 import psutil
 
 from mlframe.training.feature_handling.fingerprint import (
-    ContentFingerprint,
     DiskKey,
     InMemoryKey,
 )
@@ -116,13 +115,10 @@ class FeatureCache:
       * :meth:`clear()` -- wipe in-memory state (disk untouched).
     """
 
-    def __init__(
-        self,
-        cache_cfg,
-        content_fingerprint: Optional[ContentFingerprint] = None,
-    ):
+    def __init__(self, cache_cfg):
+        # No content fingerprint here: the disk key is built by the caller (the phase E concat layer) from the suite
+        # fingerprint and handed to get_or_compute(), so a fingerprint stored on the cache was never read.
         self._cfg = cache_cfg
-        self._content = content_fingerprint  # required only for disk tier
         self._mem: OrderedDict[InMemoryKey, _CacheEntry] = OrderedDict()
         # Map InMemoryKey -> matching DiskKey so we know where to look
         # / write on the disk tier without re-materialising the full
