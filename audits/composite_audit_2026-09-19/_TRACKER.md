@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 15 | 20 | 6 | 0 | 0 |
-| **Total** | **179** | **130** | **31** | **17** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 16 | 20 | 5 | 0 | 0 |
+| **Total** | **179** | **131** | **31** | **16** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -229,7 +229,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P1 | `PMT-31` | Stage-sentinel inner: wrappers and every predict entry point must feed the inner its own pipeline stage and the base its raw stage | stage sentinel: wrapper/composite_predict/shim/CT-ensemble routes pinned; MoE + suite-internal entry points open |
 | **PARTIAL** | P1 | `PMT-32` | Fresh-process persistence round trip for every registry transform and the whole auto-chain name space | 57 wrappers + CT ensemble loaded in one fresh subprocess; MoE wrapper open |
 | **RESOLVED** | P1 | `PMT-33` | Runtime registry mutation must have a load-time replay (shared scanner) | shared runtime-registry scanner; mlframe wired with 5 reasoned replay writers |
-| **TODO** | P2 | `PMT-34` | getattr default parity: `getattr(cfg, "field", literal)` must match the pydantic field default (shared scanner) | |
+| **RESOLVED** | P2 | `PMT-34` | getattr default parity: `getattr(cfg, "field", literal)` must match the pydantic field default (shared scanner) | shared scanner wired with an empty allowlist; all 49 drifted sites aligned |
 | **RESOLVED** | P3 | `PMT-35` | Unread constructor parameters in estimator classes (shared scanner) | shared scanner wired over all of src; one further dead parameter removed |
 | **RESOLVED** | P3 | `PMT-36` | Environment flags parsed through one shared parser (shared scanner) | shared scanner wired over the composite scope |
 | **TODO** | P3 | `PMT-37` | Deferred-dead config fields must warn when set, and no allowlisted field may advertise how to enable it | |

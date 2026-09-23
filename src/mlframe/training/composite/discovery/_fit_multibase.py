@@ -45,7 +45,7 @@ def apply_multi_base_forward_stepwise(
     # base-shift amplification of the inverse on unseen groups. (On the prod TVT pool every base was
     # >=0.999 correlated -- a multi-base upgrade there would have made the collapse strictly worse.)
     _multibase_pool_corr_skip = False
-    if kept_specs and getattr(self.config, "multi_base_enabled", False) and getattr(self, "_auto_base_pool", None):
+    if kept_specs and getattr(self.config, "multi_base_enabled", True) and getattr(self, "_auto_base_pool", None):
         _pool_corr_thresh = float(getattr(self.config, "multi_base_skip_when_pool_corr_above", 0.98))
         if _pool_corr_thresh < 1.0:
             try:
@@ -70,11 +70,11 @@ def apply_multi_base_forward_stepwise(
             except Exception as e:  # -- the corr guard is a heuristic; never abort discovery on it
                 logger.warning("multibase pool-corr heuristic guard failed: %s", e)
                 _multibase_pool_corr_skip = False
-    if not (kept_specs and getattr(self.config, "multi_base_enabled", False) and getattr(self, "_auto_base_pool", None) and not _multibase_pool_corr_skip):
+    if not (kept_specs and getattr(self.config, "multi_base_enabled", True) and getattr(self, "_auto_base_pool", None) and not _multibase_pool_corr_skip):
         return kept_specs
 
     _multi_max_k = int(getattr(self.config, "multi_base_max_k", 3))
-    _multi_min_gain = float(getattr(self.config, "multi_base_min_marginal_rmse_gain", 0.02))
+    _multi_min_gain = float(getattr(self.config, "multi_base_min_marginal_rmse_gain", 0.005))
     _cv_sel_mode = str(getattr(self.config, "cv_selector_mode", "mean"))
     _cv_sel_alpha = float(getattr(self.config, "cv_selector_alpha", 1.0))
     _cv_sel_conf = float(getattr(self.config, "cv_selector_confidence", 0.9))

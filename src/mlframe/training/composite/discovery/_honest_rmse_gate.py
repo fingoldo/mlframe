@@ -183,7 +183,7 @@ def apply_honest_rmse_gate(
 
     screen_idx, holdout_idx = np.asarray(screen_idx), np.asarray(holdout_idx)
     cap = int(getattr(cfg, "honest_rmse_gate_sample_n", 20_000))
-    rng = np.random.default_rng(int(getattr(cfg, "random_state", 0)))
+    rng = np.random.default_rng(int(getattr(cfg, "random_state", 42)))
 
     def _subsample(idx: np.ndarray) -> np.ndarray:
         """Cap ``idx`` to the gate budget via a sorted seeded draw; unchanged when already within budget."""
@@ -206,7 +206,7 @@ def apply_honest_rmse_gate(
     n_estimators = int(getattr(cfg, "tiny_model_n_estimators", 60))
     num_leaves = int(getattr(cfg, "tiny_model_num_leaves", 15))
     learning_rate = float(getattr(cfg, "tiny_model_learning_rate", 0.1))
-    rs = int(getattr(cfg, "random_state", 0))
+    rs = int(getattr(cfg, "random_state", 42))
 
     # Residual quantiles of the last tiny-model fit on its own fit rows, for the smearing correction (``_smearing``).
     _last_residual_q: dict = {"q": None}

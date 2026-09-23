@@ -117,7 +117,7 @@ def _tiny_model_rerank(
     y_train_for_strat = y_full[train_idx]
     sample_idx = _sample_indices(
         train_idx.size, sample_n, self.config.random_state,
-        strategy=getattr(self.config, "mi_sample_strategy", "random"),
+        strategy=getattr(self.config, "mi_sample_strategy", 'stratified_quantile'),
         y=y_train_for_strat,
         n_strata=getattr(self.config, "mi_n_strata", 10),
     )
@@ -165,7 +165,7 @@ def _tiny_model_rerank(
     # per-bin breakdowns; with this change the K-fold LGBM fit count is
     # halved when the regime-aware gate is on.
     per_bin_n_bins_pre = int(getattr(self.config, "per_bin_n_bins", 0) or 0)
-    per_bin_enabled_pre = per_bin_n_bins_pre > 0 and getattr(self.config, "require_beats_raw_baseline", True)
+    per_bin_enabled_pre = per_bin_n_bins_pre > 0 and getattr(self.config, "require_beats_raw_baseline", False)
 
     # Per-spec CV-RMSE per family. When K specs share a base
     # (the typical case: auto-base picks one lag-style
@@ -223,7 +223,7 @@ def _tiny_model_rerank(
     _tiny_rerank_ram_checkpoint(f"per_base_cache_built(n_unique_bases={len(_per_base_cache)})")
 
     n_seed_repeats = max(1, int(getattr(
-        self.config, "tiny_model_n_seed_repeats", 1,
+        self.config, "tiny_model_n_seed_repeats", 3,
     )))
     use_wilcoxon = bool(getattr(
         self.config, "use_wilcoxon_gate", False,
@@ -241,7 +241,7 @@ def _tiny_model_rerank(
     # skips its remaining seeds. This raw-y computation REPLACES (not duplicates) the raw-baseline
     # computation that used to run after the candidate loop -- the later block below reuses these
     # values instead of recomputing them, so total raw-y compute cost is unchanged.
-    _require_raw_baseline = bool(getattr(self.config, "require_beats_raw_baseline", True))
+    _require_raw_baseline = bool(getattr(self.config, "require_beats_raw_baseline", False))
     raw_rmse_per_family: dict[str, float] = {}
     raw_per_bin_per_base: dict[str, np.ndarray] = {}
     raw_baseline: float = float("nan")
@@ -256,7 +256,7 @@ def _tiny_model_rerank(
     if _require_raw_baseline:
         x_full = _x_full
         n_seed_repeats_raw = max(1, int(getattr(
-            self.config, "tiny_model_n_seed_repeats", 1,
+            self.config, "tiny_model_n_seed_repeats", 3,
         )))
         for family in families:
             if use_wilcoxon:
@@ -491,7 +491,7 @@ def _tiny_model_rerank(
     # collapsed 0->1 BEFORE the sentinel check ran, making the auto-pick
     # branch unreachable. ``None`` (Pydantic-default-unset) still folds to
     # 1 (the historical default).
-    _rerank_raw = getattr(self.config, "tiny_rerank_n_jobs", 1)
+    _rerank_raw = getattr(self.config, "tiny_rerank_n_jobs", 0)
     _rerank_n_jobs_cfg = int(1 if _rerank_raw is None else _rerank_raw)
     if _rerank_n_jobs_cfg == 0:
         # Auto: cap at len(kept_specs) and at the PHYSICAL core count to avoid
@@ -595,7 +595,7 @@ def _tiny_model_rerank(
             1.10,
         )
     )
-    per_bin_enabled = per_bin_n_bins > 0 and getattr(self.config, "require_beats_raw_baseline", True)
+    per_bin_enabled = per_bin_n_bins > 0 and getattr(self.config, "require_beats_raw_baseline", False)
     # Per-spec per-bin RMSE: spec_name -> ndarray(n_bins,)
     spec_per_bin_rmse: dict[str, np.ndarray] = {}
     if per_bin_enabled:
@@ -652,7 +652,7 @@ def _tiny_model_rerank(
     # bit-identical to the pre-existing post-loop computation.
     gate_rejected_names: list[tuple[str, float, float]] = []
     per_bin_rejected_names: list[tuple[str, str, float, float]] = []
-    if getattr(self.config, "require_beats_raw_baseline", True):
+    if getattr(self.config, "require_beats_raw_baseline", False):
         _any_base_monotone = _early_any_base_monotone
         tol = float(getattr(self.config, "raw_baseline_tolerance", 1.02))
         # When honest-OOF selection is active and produced a finite raw-y honest-OOF baseline, gate against the SAME
@@ -902,7 +902,7 @@ def _tiny_model_rerank(
     # across-fold instability; higher = better) so the overfit candidate sinks below the generalising one. Only a band
     # in which EVERY tied spec has a valid WAIC is re-ordered -- specs without a score keep their RMSE+name position, so
     # the tie-break never penalises an unscored candidate, and bands wider than the tolerance keep the raw RMSE order.
-    if bool(getattr(self.config, "transform_waic_validation_enabled", False)) and len(order) > 1:
+    if bool(getattr(self.config, "transform_waic_validation_enabled", True)) and len(order) > 1:
         order = _apply_waic_tiebreak(
             self, order, kept_specs, agg_scores, _names,
             y_screen=y_screen, per_base_cache=_per_base_cache, groups=_groups_screen, time_aware=_early_any_base_monotone,

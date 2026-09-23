@@ -359,7 +359,7 @@ def _build_cross_target_ensemble_for_target(
     # wasted full-train predict per component on the default honest-OOF path.
     # Defer it; compute only as the fallback when the OOF produces no matrix.
     _oof_frac = float(getattr(
-        composite_target_discovery_config, "oof_holdout_frac", 0.0,
+        composite_target_discovery_config, "oof_holdout_frac", 0.2,
     ))
     _defer_train_proxy = _oof_frac > 0.0 and _y_full_for_rmse is not None
     _oof_components = _components
@@ -584,7 +584,7 @@ def _build_cross_target_ensemble_for_target(
         _oof_base_per_spec = _base_full_per_spec
         _oof_groups_arg = _group_ids_for_oof
         _oof_rs = int(getattr(composite_target_discovery_config, "oof_random_state", _DEFAULT_OOF_RANDOM_STATE))
-        _oof_cap = int(getattr(composite_target_discovery_config, "oof_max_train_rows", 0) or 0)
+        _oof_cap = int(getattr(composite_target_discovery_config, "oof_max_train_rows", 200000) or 0)
         _n_oof_rows = len(_oof_y_arr)
         _sub_pos = _oof_subsample_positions(_n_oof_rows, _oof_groups_arg, _oof_cap, _oof_rs)
         if _sub_pos is not None and _sub_pos.size < _n_oof_rows:

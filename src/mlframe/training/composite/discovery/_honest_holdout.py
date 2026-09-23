@@ -175,12 +175,12 @@ def carve_screening_holdout(self, train_idx: np.ndarray) -> tuple[np.ndarray, np
     screen_idx, holdout_idx = split_screening_holdout(
         train_idx,
         getattr(self.config, "honest_holdout_frac", 0.2),
-        int(getattr(self.config, "random_state", 0)),
+        int(getattr(self.config, "random_state", 42)),
         group_ids=getattr(self, "_group_ids_for_rerank", None),
     )
     self.honest_holdout_idx_ = holdout_idx
     self.honest_holdout_select_idx_, self.honest_holdout_report_idx_ = split_holdout_select_report(
-        holdout_idx, int(getattr(self.config, "random_state", 0)),
+        holdout_idx, int(getattr(self.config, "random_state", 42)),
     )
     self.train_idx_ = screen_idx
     return screen_idx, holdout_idx
@@ -386,10 +386,10 @@ def rescore_specs_on_holdout(
     # its own, so on a multi-million-row frame every spec pulled the full feature block for all holdout rows, twice, in
     # parallel threads. The honest gain is an MI difference, which saturates at the same sample size the screen uses;
     # above the cap a seeded draw is taken, below it every row is kept and the stamped numbers are unchanged.
-    _mi_cap = getattr(cfg, "mi_sample_n", None)
+    _mi_cap = getattr(cfg, "mi_sample_n", 100000)
     holdout_idx = np.asarray(holdout_idx)
     if _mi_cap is not None and int(_mi_cap) > 0 and holdout_idx.size > int(_mi_cap):
-        _draw = np.random.default_rng(int(getattr(cfg, "random_state", 0))).choice(holdout_idx.size, size=int(_mi_cap), replace=False)
+        _draw = np.random.default_rng(int(getattr(cfg, "random_state", 42))).choice(holdout_idx.size, size=int(_mi_cap), replace=False)
         logger.info(
             "[CompositeTargetDiscovery.honest_holdout] re-scoring on a seeded %d-row draw of the %d-row holdout "
             "(mi_sample_n cap); the honest gain is an MI difference and saturates well below this size.",
@@ -400,7 +400,7 @@ def rescore_specs_on_holdout(
     nbins = int(getattr(cfg, "mi_nbins", 16))
     aggregation = getattr(cfg, "mi_aggregation", "mean")
     n_neighbors = int(getattr(cfg, "mi_n_neighbors", 3))
-    random_state = int(getattr(cfg, "random_state", 0))
+    random_state = int(getattr(cfg, "random_state", 42))
     y_holdout = y_full[holdout_idx]
     # ``mi_y = MI(y_holdout, X_remaining)`` depends only on (the spec's base-column set, the valid
     # row mask) -- specs sharing both would recompute the identical scalar. Memoise across specs;

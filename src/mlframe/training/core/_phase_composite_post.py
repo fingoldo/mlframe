@@ -188,7 +188,7 @@ def run_composite_post_processing(
     _train_pred_cache: dict[tuple, np.ndarray] = {}
     if composite_specs_by_target_type:
         _skip_predict = bool(getattr(
-            composite_target_discovery_config, "skip_wrap_pass_predict", False,
+            composite_target_discovery_config, "skip_wrap_pass_predict", True,
         ))
         _enable_watchdog = bool(getattr(
             composite_target_discovery_config, "enable_wrap_pass_watchdog", True,
@@ -217,7 +217,7 @@ def run_composite_post_processing(
     _discovery_enabled = bool(composite_target_discovery_config.enabled or metadata.get("composite_discovery_effective_enabled"))
     # Cross-target ensemble (opt-in). Stored as a SimpleNamespace under models[type][f"_CT_ENSEMBLE__{original_target}"].
     _ce_strategy = getattr(
-        composite_target_discovery_config, "cross_target_ensemble_strategy", "off",
+        composite_target_discovery_config, "cross_target_ensemble_strategy", "nnls_stack",
     )
     # Unconditional banner when discovery is enabled so "no log lines" remains a debuggable signal.
     if _discovery_enabled:

@@ -295,7 +295,7 @@ def _drop_below_honest_gain_floor(pending: list[dict], composite_target_discover
     ``min_honest_gain_z`` of its own noise" -- a production run shipped 9 specs at gains of +0.002..+0.011 and warned
     about GPU non-determinism of the same order in the very next log line. No-op when the constant floor is unset.
     """
-    _min_gain = getattr(composite_target_discovery_config, "min_honest_gain_to_train", None)
+    _min_gain = getattr(composite_target_discovery_config, "min_honest_gain_to_train", 0.001)
     if _min_gain is None:
         return pending
     _min_gain_z = float(getattr(composite_target_discovery_config, "min_honest_gain_z", _DEFAULT_MIN_HONEST_GAIN_Z))
@@ -327,7 +327,7 @@ def select_composites_to_train(pending: list[dict], cfg: Any, metadata: dict) ->
     whole run, keep the best ``max_total_composite_targets`` (None keeps all). Every dropped spec leaves
     ``metadata['composite_target_specs']`` and is recorded in ``composite_target_failures`` with the reason.
     """
-    max_total = getattr(cfg, "max_total_composite_targets", None)
+    max_total = getattr(cfg, "max_total_composite_targets", 25)
     from ._phase_composite_discovery_dedup import forget_untrained_specs
 
     before_floor = pending

@@ -156,7 +156,7 @@ def _auto_base(
 
     sample_idx = _sample_indices(
         train_idx.size, self.config.mi_sample_n, self.config.random_state,
-        strategy=getattr(self.config, "mi_sample_strategy", "random"),
+        strategy=getattr(self.config, "mi_sample_strategy", 'stratified_quantile'),
         y=y_train,
         n_strata=getattr(self.config, "mi_n_strata", 10),
     )
@@ -439,7 +439,7 @@ def _auto_base(
     # structural information about y. Computes MI(y, shuffle(x))
     # with block shuffles to preserve marginal autocorrelation,
     # then requires MI(y, x) > mean_null + n_sigma * std_null.
-    n_perms = int(getattr(self.config, "auto_base_null_perms", 0) or 0)
+    n_perms = int(getattr(self.config, "auto_base_null_perms", 20) or 0)
     if n_perms > 0:
         n_sigma = float(getattr(
             self.config, "auto_base_null_z_threshold", 3.0,
@@ -730,7 +730,7 @@ def _auto_base(
         # Bin-MI has a positive finite-sample bias (~(nbins-1)^2/(2N)) that makes a pure-noise residual look
         # faintly informative, so compare against a PERMUTATION null: max_j MI(x_j, resid) minus the same over a
         # shuffled residual removes the bias floor. A genuine learnable residual clears the null by a wide margin.
-        _pc_perm = np.random.default_rng(int(getattr(self.config, "random_state", 0) or 0)).permutation(_pc_rows.size)
+        _pc_perm = np.random.default_rng(int(getattr(self.config, "random_state", 42) or 0)).permutation(_pc_rows.size)
 
         def _near_copy_residual_is_learnable(_c: str) -> bool:
             """True when the linear residual of y on candidate base _c still carries signal from some

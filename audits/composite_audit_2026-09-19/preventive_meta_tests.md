@@ -569,7 +569,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium. `random_state` and similar names shared across config classes can resolve to the wrong class; the scanner restricts receivers to discovery-config call sites and baselines the rest.
 - **Runtime**: under 2 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - py-ci-shared config_getattr_default_parity (commit b68ed93, 7 unit tests, README section) compares each getattr fallback with the field's declared default, skipping required, default_factory and cross-schema-conflicting fields, and takes the receiver names of the config being checked so a shared field name is not read off another config. Wired as test_getattr_defaults_match_the_discovery_config over composite and the composite core phases with an EMPTY allowlist: all 49 sites it found were aligned to the config's own defaults, the listed drifts included (require_beats_raw_baseline x4, auto_chain/interaction/multi_base enabled, transform_waic_validation_enabled, tiny_model_n_seed_repeats x2, mi_sample_strategy x4, max_total_composite_targets, min_honest_gain_to_train, cross_target_ensemble_strategy, skip_wrap_pass_predict, oof_holdout_frac, oof_max_train_rows, random_state x17 and the rest). The two ``enabled`` hits the probe reported were calibration and conformal configs, not this one
 
 ### PMT-35 [P3] Unread constructor parameters in estimator classes (shared scanner)
 - **Asserts**: every `__init__` parameter of a class is either used in the `__init__` body beyond `self.p = p`, or read as `self.p` / `getattr(self, "p")` (or via an `est`/`estimator`/`wrapper` receiver) somewhere in the class's package.

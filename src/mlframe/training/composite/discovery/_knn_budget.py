@@ -49,7 +49,7 @@ def _planned_bases_and_auto_sweeps(cfg: Any) -> tuple[int, int]:
         cap = getattr(cfg, "max_base_candidates", None)
         if cap is not None and int(cap) > 0:
             n_bases = min(n_bases, int(cap))
-        return n_bases, 1 + int(getattr(cfg, "auto_base_null_perms", 0) or 0)
+        return n_bases, 1 + int(getattr(cfg, "auto_base_null_perms", 20) or 0)
     return len(list(cands or [])), 0
 
 
@@ -79,8 +79,8 @@ def maybe_downgrade_knn_estimator(
     feats = list(usable_features)
     if not feats or train_idx.size < 50:
         return
-    rng = np.random.default_rng(int(getattr(cfg, "random_state", 0)))
-    pos = np.sort(rng.choice(train_idx.size, size=min(train_idx.size, int(getattr(cfg, "mi_sample_n", 50_000))), replace=False))
+    rng = np.random.default_rng(int(getattr(cfg, "random_state", 42)))
+    pos = np.sort(rng.choice(train_idx.size, size=min(train_idx.size, int(getattr(cfg, "mi_sample_n", 100000))), replace=False))
     train_idx_screen = train_idx[pos]
     try:
         from sklearn.feature_selection import mutual_info_regression
@@ -98,7 +98,7 @@ def maybe_downgrade_knn_estimator(
             mutual_info_regression(
                 x[pair].reshape(-1, 1), y[pair],
                 n_neighbors=int(getattr(cfg, "mi_n_neighbors", 3)),
-                random_state=int(getattr(cfg, "random_state", 0)),
+                random_state=int(getattr(cfg, "random_state", 42)),
             )
             times.append(timer() - t0)
         if not times:

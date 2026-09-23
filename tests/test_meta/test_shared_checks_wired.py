@@ -530,6 +530,30 @@ def test_composite_env_flags_go_through_one_parser():
                                     allowed=_ENV_FLAG_ALLOWED, min_files=200)
 
 
+# The receivers that hold a CompositeTargetDiscoveryConfig; a bare ``cfg`` elsewhere is a calibration or conformal config.
+_DISCOVERY_CONFIG_RECEIVERS = frozenset({"config", "cfg", "self.config", "self.cfg", "_cfg", "disc_cfg", "_disc_cfg"})
+
+
+def test_getattr_defaults_match_the_discovery_config():
+    """A ``getattr(cfg, "field", <literal>)`` fallback must be the field's own default, or a duck-typed config behaves differently.
+
+    The drift gate read ``reject_on_alpha_drift`` as False while the config declared True; the same scan found 48 more,
+    from ``require_beats_raw_baseline`` to ``max_total_composite_targets``.
+    """
+    from py_ci_shared.config_getattr_default_parity import assert_getattr_defaults_match_schema
+
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    composite = REPO_ROOT / "src" / "mlframe" / "training" / "composite"
+    core = REPO_ROOT / "src" / "mlframe" / "training" / "core"
+    files = sorted(p for p in composite.rglob("*.py") if "_benchmarks" not in p.parts)
+    files += sorted(p for p in core.rglob("*.py") if "composite" in p.name or "composite" in str(p.parent))
+    assert_getattr_defaults_match_schema(
+        files=files, repo_root=REPO_ROOT / "src", schema_classes=[CompositeTargetDiscoveryConfig], allowed={},
+        min_files=150, receiver_names=_DISCOVERY_CONFIG_RECEIVERS, receiver_suffixes=("_discovery_config",),
+    )
+
+
 def regenerate_fail_open_baseline() -> None:
     """Rewrite the fail-open baseline from the current tree, keeping every existing note. Called by `regen_baselines.py`."""
     import orjson

@@ -309,7 +309,7 @@ def run_composite_target_discovery(
             # or hint is enabled and cache the result so the per-target loop reuses it.
             _use_hint = bool(getattr(
                 composite_target_discovery_config,
-                "use_baseline_diagnostics_hint", False,
+                "use_baseline_diagnostics_hint", True,
             ))
             _diag = None
             if _auto_skip or _use_hint:

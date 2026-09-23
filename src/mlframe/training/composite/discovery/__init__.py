@@ -492,7 +492,7 @@ class CompositeTargetDiscovery:
         cfg = self.config
         sample_idx = _sample_indices(
             train_idx.size, cfg.mi_sample_n, cfg.random_state,
-            strategy=getattr(cfg, "mi_sample_strategy", "random"), y=y_train,
+            strategy=getattr(cfg, "mi_sample_strategy", 'stratified_quantile'), y=y_train,
             n_strata=getattr(cfg, "mi_n_strata", 10),
         )
         train_idx_screen = train_idx[sample_idx]
