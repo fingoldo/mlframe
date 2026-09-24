@@ -78,8 +78,7 @@ def _gate(df, y, groups, *, tolerance: float):
     disc._group_ids_for_rerank = groups
     # ``group`` is a feature, so the raw-y baseline can learn the per-group level: the comparison is not "both sides
     # fail on an unseen group", it is "the composite side had the answer in its own parameters".
-    return apply_yscale_holdout_gate(disc, df, "y", [_grouped_spec(df, y, groups)], ["base", "x1", "group"],
-                                     np.arange(len(df)), y), disc
+    return apply_yscale_holdout_gate(disc, df, "y", [_grouped_spec(df, y, groups)], ["base", "x1", "group"], np.arange(len(df)), y), disc
 
 
 def test_the_recorded_rmse_is_the_worse_of_the_shipped_and_the_leak_free_reconstruction(monkeypatch):

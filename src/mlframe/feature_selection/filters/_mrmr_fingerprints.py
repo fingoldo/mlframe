@@ -277,11 +277,11 @@ def _hashable_params_signature(params: dict) -> tuple:
             try:
                 items.append((k, repr(v)))
             except Exception as e:
-                logger.debug("_hashable_params_signature: repr(%r) failed, falling back to id(): %s", k, e)
-                # A never-matching token, not id(v): an address is reused after the object is freed, so two different values could produce
-            # the same signature component. Here that could only cause a spurious miss, but the sibling signature helpers refuse id()
-            # for exactly this reason and there is no cost to being consistent.
-            items.append((k, uuid4().hex))
+                logger.debug("_hashable_params_signature: repr(%r) failed, falling back to a never-matching token: %s", k, e)
+                # A never-matching token, not id(v): an address is reused after the object is freed, so two different values could
+                # produce the same signature component. Only the repr-failure path gets it; appended unconditionally it made every
+                # signature with an unhashable parameter unique, so the fit cache never hit.
+                items.append((k, uuid4().hex))
     return tuple(items)
 
 

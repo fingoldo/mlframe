@@ -39,15 +39,11 @@ def append_column(frame: Any, name: str, values: np.ndarray) -> Any:
     values = np.asarray(values).reshape(-1)
     if isinstance(frame, pd.DataFrame):
         new_col = pd.Series(values, index=frame.index, name=name)
-        # Build the frame from the caller's own Series rather than concatenating: ``pd.concat(copy=False)`` does NOT
-        # avoid the copy on pandas 2.x with copy-on-write off, which is the default there and what this project runs.
-        # Measured on 2.3.3: concat copies the whole block either way, while the mapping constructor below shares it
-        # (``np.shares_memory`` on a feature column is True). Duplicate labels cannot round-trip through a mapping, so
-        # those fall back to the concat form, which is no worse than it was.
-        if frame.columns.is_unique:
-            cols = {c: frame[c] for c in frame.columns if c != name}
-            cols[name] = new_col
-            return pd.DataFrame(cols, copy=False)
+        # On pandas 2.x with copy-on-write off (the default there, and what this project runs) ``concat`` copies the
+        # existing block whatever ``copy=`` says - measured on 2.3.3. That copy is the price of the contract in the
+        # docstring: a frame that SHARES the caller's buffers without CoW lets a write to the result land in the
+        # caller's frame (a mapping-constructor variant was tried and did exactly that). Isolation wins; pandas 3,
+        # where CoW is always on, shares lazily and stays isolated.
         base = frame.drop(columns=[name]) if name in frame.columns else frame
         return pd.concat([base, new_col], axis=1, **_CONCAT_NO_COPY)
     try:

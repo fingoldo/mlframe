@@ -13,6 +13,7 @@ _SRC = str(Path(mlframe.__file__).resolve().parents[1])
 
 
 def _run(code: str) -> str:
+    """Run ``code`` in a fresh interpreter against this source tree and return its stripped stdout."""
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([_SRC, os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep))
     return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, env=env).stdout.strip()
 
@@ -28,17 +29,18 @@ def test_importing_the_package_does_not_import_sqlalchemy():
 
 
 def test_the_log_throttle_name_is_the_function_not_its_module():
+    """``log_throttle`` resolves to the callable, not to the submodule that shares its name."""
     out = _run("from mlframe.utils import log_throttle; print(callable(log_throttle))")
     assert out == "True"
 
 
 def test_every_advertised_name_still_resolves():
-    out = _run(
-        "import mlframe.utils as u; missing = [n for n in u.__all__ if not hasattr(u, n)]; print(missing)"
-    )
+    """Making the package lazy must not leave a name in ``__all__`` that no longer resolves."""
+    out = _run("import mlframe.utils as u; missing = [n for n in u.__all__ if not hasattr(u, n)]; print(missing)")
     assert out == "[]", f"names in __all__ that no longer resolve: {out}"
 
 
 def test_an_experiments_name_still_works_and_is_what_pulls_the_stack():
+    """The negative control: asking for an experiments name still works, and is what imports the heavy stack."""
     out = _run("import sys; from mlframe.utils import create_experiment; print(callable(create_experiment), 'sqlalchemy' in sys.modules)")
     assert out == "True True"

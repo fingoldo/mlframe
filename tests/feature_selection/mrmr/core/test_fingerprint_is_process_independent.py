@@ -16,7 +16,11 @@ import textwrap
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_selection.filters._mrmr_fingerprints import _mrmr_compute_x_fingerprint, _mrmr_compute_y_fingerprint_sample
+from mlframe.feature_selection.filters._mrmr_fingerprints import (
+    _hashable_params_signature,
+    _mrmr_compute_x_fingerprint,
+    _mrmr_compute_y_fingerprint_sample,
+)
 
 
 def _frame():
@@ -90,3 +94,25 @@ def test_the_y_sample_fingerprint_is_stable_and_discriminating():
     assert _mrmr_compute_y_fingerprint_sample(y) == _mrmr_compute_y_fingerprint_sample(np.arange(50) % 3)
     other = np.arange(50) % 4
     assert _mrmr_compute_y_fingerprint_sample(y) != _mrmr_compute_y_fingerprint_sample(other)
+
+class _Unhashable:
+    """A mutable config object, like the dataclass configs MRMR takes, whose repr is stable but which cannot be hashed."""
+
+    __hash__ = None
+
+    def __init__(self, value: int) -> None:
+        """Hold one value."""
+        self.value = value
+
+    def __repr__(self) -> str:
+        """A value-derived repr, so equal configs print equally."""
+        return f"_Unhashable({self.value})"
+
+
+def test_equal_unhashable_params_give_equal_signatures():
+    """Two equal configs must key the fit cache identically; a per-call random token here makes every fit a miss."""
+    first = _hashable_params_signature({"cfg": _Unhashable(1), "n": 3})
+    second = _hashable_params_signature({"cfg": _Unhashable(1), "n": 3})
+    assert first == second, f"equal parameters produced different signatures: {first} vs {second}"
+    assert first != _hashable_params_signature({"cfg": _Unhashable(2), "n": 3}), "a different config must change the signature"
+    assert len(first) == 2, f"each parameter must contribute exactly one component, got {first}"

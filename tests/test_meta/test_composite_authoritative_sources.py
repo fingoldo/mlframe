@@ -25,8 +25,7 @@ _SLOT_NAMES = frozenset({"target_by_type", "new_target_by_type", "_target_by_typ
 
 def heuristic_calls(tree: ast.Module) -> list[int]:
     """Lines calling ``is_composite_target_name(...)``."""
-    return [n.lineno for n in ast.walk(tree)
-            if isinstance(n, ast.Call) and getattr(n.func, "id", getattr(n.func, "attr", None)) == "is_composite_target_name"]
+    return [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "id", getattr(n.func, "attr", None)) == "is_composite_target_name"]
 
 
 def slot_writes(tree: ast.Module) -> list[int]:
@@ -34,8 +33,7 @@ def slot_writes(tree: ast.Module) -> list[int]:
     out = []
     for node in ast.walk(tree):
         for target in getattr(node, "targets", []) if isinstance(node, ast.Assign) else []:
-            if (isinstance(target, ast.Subscript) and isinstance(target.value, ast.Subscript)
-                    and getattr(target.value.value, "id", None) in _SLOT_NAMES):
+            if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Subscript) and getattr(target.value.value, "id", None) in _SLOT_NAMES:
                 out.append(node.lineno)
     return out
 
