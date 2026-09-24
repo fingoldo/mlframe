@@ -266,6 +266,15 @@ def run_composite_moe_and_value_report(
             if not _moe_enabled or _lag_model is None or _groups_sel is None or _group_column is None:
                 continue
             if _extract_group_array(filtered_val_df, _group_column) is None:
+                # The deployed gate routes by this column at predict time, so without it there is nothing to deploy. Said once:
+                # a group column kept only as bookkeeping (an extractor's group_field is dropped from the features) left the
+                # enabled gate a silent no-op.
+                log_throttle(
+                    logger, "composite_moe_no_group_column", logging.INFO,
+                    "[CompositeMoE] target='%s': group column %r is not in the feature frame, so the MoE gate cannot route at "
+                    "predict time and the ensemble ships unchanged. Keep the column among the features to enable the gate.",
+                    _orig_tname, _group_column,
+                )
                 continue
             try:
                 _gate = MoESelectionGate(

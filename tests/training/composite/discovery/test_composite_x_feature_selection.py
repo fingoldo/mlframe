@@ -261,6 +261,7 @@ class TestCompositeXMRMRNoFE:
     selected features.
     """
 
+    @pytest.mark.slow  # 117 s recorded: a full MRMR fit per test; runs in deep-nightly, not on every push
     def test_mrmr_no_fe_then_composite_regression(self) -> None:
         """Mrmr no fe then composite regression."""
         from mlframe.feature_selection.filters import MRMR
@@ -343,6 +344,7 @@ class TestCompositeXMRMRNoFE:
 class TestCompositeXMRMRWithFE:
     """MRMR with feature engineering, then composite discovery."""
 
+    @pytest.mark.slow  # 186 s recorded: a full MRMR fit per test; runs in deep-nightly, not on every push
     def test_mrmr_with_fe_regression(self) -> None:
         """Mrmr with fe regression."""
         from mlframe.feature_selection.filters import MRMR
@@ -400,6 +402,7 @@ class TestCompositeXMRMRWithFE:
         # subset; the contract is it doesn't crash.
         assert isinstance(disc.specs_, list)
 
+    @pytest.mark.slow  # 73 s recorded: a full MRMR fit per test; runs in deep-nightly, not on every push
     def test_mrmr_with_fe_binary(self) -> None:
         """Mrmr with fe binary."""
         from mlframe.feature_selection.filters import MRMR

@@ -20,9 +20,9 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `estimator_ensemble.md` | 22 | 22 | 0 | 0 | 0 | 0 |
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 15 | 2 | 0 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 24 | 17 | 0 | 0 | 0 |
-| **Total** | **179** | **149** | **29** | **0** | **1** | **0** |
+| `tests.md` | 17 | 16 | 1 | 0 | 0 | 0 |
+| `preventive_meta_tests.md` | 41 | 31 | 10 | 0 | 0 | 0 |
+| **Total** | **179** | **157** | **21** | **0** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -190,7 +190,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `TST-14` | The selection-gate modules with the most leverage have no direct tests, and the cache-key tests check only the key function's own arguments | gate functions unit-tested; found and fixed a NaN-gain spec passing the MI gate |
 | **RESOLVED** | P2 | `TST-15` | Composite tests check the CTE-raw-X routing by inspecting source text, and the behavioural half fits the inner on raw features, so it cannot see EST-01 | every source-text assertion replaced by the behaviour it stood for |
 | **RESOLVED** | P3 | `TST-16` | Timing-based asserts in the composite suite can flake on the shared host | njit sentinel interleaved best-of-N; HPO ROI asserted in folds, not seconds |
-| **PARTIAL** | P3 | `TST-17` | The composite integration tests run eight independent full-suite trainings for loose assertions, and the recorded durations are contaminated | eight trainings down to three, 620 s to 45 s; .test_durations regeneration belongs to a quiet CI run |
+| **RESOLVED** | P3 | `TST-17` | The composite integration tests run eight independent full-suite trainings for loose assertions, and the recorded durations are contaminated | slow markers on the three MRMR fits; .test_durations re-measured for the integration and suite-contract files |
 
 ### `preventive_meta_tests.md`
 
@@ -217,7 +217,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | null canaries for every selector plus a registration meta-guard; found + fixed the MoE gate choosing by noise (new z-test defaults) |
 | **RESOLVED** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | liveness registry: every default-on knob mapped to its effect test; found dead MoE params + 3 inert defaults (fixed) |
 | **RESOLVED** | P1 | `PMT-21` | Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST) | AST persist-after-mutate over training/core; fires on the INT-02 shape |
-| **PARTIAL** | P1 | `PMT-22` | One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts | one-run suite contract fixture, 7 identity legs; d/h/i suite variants + TST-17 rewrite open |
+| **RESOLVED** | P1 | `PMT-22` | One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts | legs d, f (additive identity modulo soft-shrink), h, i (grouped MoE variant) built; silent MoE no-op now logged |
 | **RESOLVED** | P2 | `PMT-23` | State parity across alternate constructors: fit() vs from_fitted_inner() vs update() vs unpickle | fit / from_fitted_inner / update / unpickle parity over the registry; found + fixed the robust refit serving OLS |
 | **RESOLVED** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | leg b built (recurrent seed == ungrouped continuation seed); fixed rolling_quantile_ratio_grouped cold-starting unseen groups |
 | **RESOLVED** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | (c) one-construction-site rule for registry adapters, with canary |

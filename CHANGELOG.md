@@ -127,6 +127,7 @@ history.
 
 ### Changed
 
+- The composite MoE gate says once, at INFO, when it cannot deploy because the configured `group_column` is not among the features. An extractor's `group_field` is dropped from the features as bookkeeping, and the enabled gate was then a silent no-op; keep the column among the features to enable it.
 - Composite discovery's leak-correlation filter recomputes in float64 every column whose float32 |corr| lands within 1e-4 of `forbidden_base_corr_threshold`, and caps |corr| at 1. In float32 a near-copy of y (true |corr| 1 - 1.3e-9) scored 1.00000018, above any threshold, so the filter's own advice to raise the threshold could not keep a legitimate lag base; the default 0.99999 sat inside float32 rounding error.
 - `rolling_quantile_ratio_grouped` under recurrence continuation seeds a group it never saw with the ungrouped series' tail, as `rolling_quantile_ratio` does. It used an empty window, so the first k-1 rows of an unseen group were scaled by the median of a truncated window (up to 1.8 off in the test's reconstruction).
 - `score_interaction_pairs` / `discover_interaction_bases` take their MI scores on the `train_mask` rows only, and a mask of the wrong length raises. The mask used to reach only the divide-by-zero floor, so a caller passing train and test rows together got interaction pairs chosen by MI that read the test targets. Discovery itself passes train rows only and is unaffected.
