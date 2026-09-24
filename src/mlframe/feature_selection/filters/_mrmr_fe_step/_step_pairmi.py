@@ -53,7 +53,8 @@ def _kill_reusable_loky_workers() -> bool:
     """Terminate the workers of joblib's reusable loky executor; True when the kill was issued.
 
     joblib's loky backend reuses one process pool, so a pool abandoned by the watchdog keeps its workers running -
-    and computing - after the caller has moved on. Best-effort: an older joblib, or a loky that is not the active
+    and computing - after the caller has moved on; the njit_parallel retry would then start on every core while they
+    still hold them, a 2x oversubscription that makes the recovery slower than the pool it recovers from. Best-effort: an older joblib, or a loky that is not the active
     backend, simply leaves nothing to kill.
     """
     try:
@@ -445,10 +446,7 @@ def compute_pair_mis_and_floor(
             for next_dict in dicts:
                 cached_MIs.update(next_dict)
         except Exception as _pool_exc:
-            # The abandoned pool's workers keep computing pair MIs at full CPU. Without this the njit_parallel retry
-            # below starts on every core while they are still running - 2x oversubscription that makes the recovery
-            # slower than the pool it is recovering from.
-            _kill_reusable_loky_workers()
+            _kill_reusable_loky_workers()  # else the retry below runs at 2x oversubscription beside the abandoned pool
             logger.warning(
                 "MRMR FE: loky pair-MI pool failed or timed out (%s: %s); retrying via the batched "
                 "CPU dispatcher before falling back to the slow per-pair path [n_pairs=%d, n_jobs=%d].",

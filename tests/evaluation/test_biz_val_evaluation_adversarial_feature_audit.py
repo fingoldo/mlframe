@@ -182,6 +182,25 @@ def test_biz_val_adversarial_feature_audit_stability_folds_distinguishes_robust_
     robust_distance_from_unanimous = min(robust["keep_frac"], 1.0 - robust["keep_frac"])
     borderline_distance_from_unanimous = min(borderline["keep_frac"], 1.0 - borderline["keep_frac"])
     assert robust_distance_from_unanimous == 0.0
-    assert (
-        borderline_distance_from_unanimous >= 0.25
-    ), f"borderline feature's verdict should flip on a substantial share of folds, not just a fluke: {borderline}"
+    assert borderline["stable"] is False, f"a near-zero effect must not get a unanimous call: {borderline}"
+    # A near-zero effect either lands inside the inconclusive band (the honest answer since that band exists) or,
+    # where it clears it, flips sign between reshuffles. Either way it is not a confident keep/drop.
+    not_confident = borderline["inconclusive_frac"] + borderline_distance_from_unanimous
+    assert not_confident >= 0.5, f"borderline feature was called with confidence on most folds: {borderline}"
+
+
+def test_a_tiny_auc_change_is_inconclusive_not_a_ban():
+    """The sign of a +2e-5 AUC difference between two fits is noise; it used to come out as "drop"."""
+    X_train, y_train, X_test = _make_stability_data(seed=0)
+    result = adversarial_validation_feature_audit(
+        X_train, y_train, X_test, top_k_features=5, seed=0, lgbm_params={"n_estimators": 50, "verbosity": -1}, min_auc_delta=1.0,
+    )
+    assert result["audited_features"]
+    assert {a["recommendation"] for a in result["audited_features"]} == {"inconclusive"}
+
+
+def test_the_correlation_is_nan_when_it_cannot_be_measured():
+    """0.0 reads as confirming the finding, so it must not stand in for "no measurement"."""
+    X_train, y_train, X_test = _make_stability_data(seed=0)
+    result = adversarial_validation_feature_audit(X_train, y_train, X_test, top_k_features=1, seed=0, lgbm_params={"n_estimators": 20, "verbosity": -1})
+    assert np.isnan(result["importance_vs_generalization_correlation"])

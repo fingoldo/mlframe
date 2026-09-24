@@ -79,7 +79,7 @@ def prepare_df_for_catboost(
             # avoids the noise.
             df = df.drop(columns=[c for c in columns_to_drop if c in df.columns])
 
-    cols = set(df.columns)
+    cols_ordered, cols = list(df.columns), set(df.columns)  # iterate the ordered list: a set's order is per-process
 
     if is_polars:
         # Text features: fill nulls
@@ -99,7 +99,7 @@ def prepare_df_for_catboost(
         _INT_BOOL_TO_F32 = (pl.Int8, pl.Int16, pl.Int32, pl.UInt8, pl.UInt16, pl.UInt32, pl.Boolean)
         _INT_TO_F64 = (pl.Int64, pl.UInt64)
         numeric_exprs = []
-        for var in cols:
+        for var in cols_ordered:
             if var not in cat_features and var not in text_features:
                 dtype = df[var].dtype
                 # Gate on the (free) dtype-membership lookup BEFORE the full-column is_null().any() scan: a Float32/Float64 column (the
@@ -119,7 +119,7 @@ def prepare_df_for_catboost(
         # operator notices the global-string-cache widening and threads enum domains via the suite
         # train path instead (see _phase_polars_fixes.apply_polars_categorical_fixes).
         cat_exprs = []
-        for var in tqdmu(cols, desc="Processing categorical features for CatBoost...", leave=False):
+        for var in tqdmu(cols_ordered, desc="Processing categorical features for CatBoost...", leave=False):
             dtype = df[var].dtype
             is_cat = dtype == pl.Categorical or isinstance(dtype, pl.Enum)
             if is_cat:
@@ -175,7 +175,7 @@ def prepare_df_for_catboost(
         # takes minutes per column and was the root of a hang observed
         # 2026-04-19 in the CB pandas fallback path.
         text_feature_set = set(text_features or [])
-        for var in tqdmu(cols, desc="Processing categorical features for CatBoost...", leave=False):
+        for var in tqdmu(cols_ordered, desc="Processing categorical features for CatBoost...", leave=False):
             if var in text_feature_set:
                 continue
             if isinstance(df[var].dtype, pd.CategoricalDtype):
@@ -255,6 +255,8 @@ def prepare_df_for_xgboost(
     cat_features: Optional[Sequence] = None,
     ensure_categorical: bool = True,
     inplace: bool = False,
+    category_domains: Optional[dict] = None,
+    out_category_domains: Optional[dict] = None,
 ) -> pd.DataFrame:
     """Ensure categorical columns are pd.CategoricalDtype for XGBoost.
 
@@ -278,6 +280,13 @@ def prepare_df_for_xgboost(
             ``inplace=False``, to the caller's list when ``inplace=True``).
         ensure_categorical: If True, cast any column in cat_features that
             isn't yet pd.CategoricalDtype to ``category`` dtype.
+        category_domains: ``{column: [categories, ...]}`` fixed at fit time. XGBoost splits on the category CODES,
+            and a bare ``astype("category")`` derives them from each frame's own value set: ``['a','b','c']`` codes
+            ``c`` as 2 while ``['a','c']`` codes it as 1, so a model fitted on the first frame read the second one's
+            ``c`` as its ``b``. Pass the training frame's domains here for every later frame; a value outside the
+            domain becomes missing rather than silently taking another category's code.
+        out_category_domains: When given (a dict), receives the domain actually used for each categorical column,
+            so the training call can hand exactly these to every later call.
         inplace: When True, mutate the caller's ``df`` / ``cat_features`` in
             place (legacy). Default False = leave the caller's objects alone.
 
@@ -303,19 +312,36 @@ def prepare_df_for_xgboost(
         cat_features_l = list(cat_features)
     else:
         cat_features_l = cat_features  # type: ignore[assignment]  # inplace=True: legacy contract mutates the caller's own list
-    cols = set(df.columns)
     casts: dict = {}
-    for var in tqdmu(cols, desc="Processing categorical features for XGBoost...", leave=False):
-        if isinstance(df[var].dtype, pd.CategoricalDtype):
-            if var not in cat_features_l:
-                logger.info("%s appended to cat_features", var)
-                cat_features_l.append(var)
-        else:
-            if var in cat_features_l and ensure_categorical:
-                if inplace:
-                    df[var] = df[var].astype("category")
-                else:
-                    casts[var] = df[var].astype("category")
+    for var in tqdmu(list(df.columns), desc="Processing categorical features for XGBoost...", leave=False):
+        domain = (category_domains or {}).get(var)
+        is_categorical = isinstance(df[var].dtype, pd.CategoricalDtype)
+        if is_categorical and var not in cat_features_l:
+            logger.info("%s appended to cat_features", var)
+            cat_features_l.append(var)
+        if var not in cat_features_l:
+            continue
+        new_col = None
+        if domain is not None:
+            # Re-code against the fit-time domain, even when the column already is categorical: its own categories
+            # may be ordered or populated differently, which is exactly what moves the codes. ``set_categories`` for an
+            # existing categorical: pandas treats two UNORDERED dtypes with the same category set as equal, so an
+            # ``astype`` to the domain's dtype is a silent no-op that keeps the old codes.
+            if is_categorical:
+                new_col = df[var].cat.set_categories(list(domain))
+            else:
+                new_col = df[var].astype(pd.CategoricalDtype(categories=list(domain)))
+        elif not is_categorical and ensure_categorical:
+            new_col = df[var].astype("category")
+        if new_col is not None:
+            if inplace:
+                df[var] = new_col
+            else:
+                casts[var] = new_col
+        if out_category_domains is not None:
+            final = new_col if new_col is not None else df[var]
+            if isinstance(final.dtype, pd.CategoricalDtype):
+                out_category_domains[var] = list(final.cat.categories)
     if not inplace and casts:
         # ``assign`` returns a new frame sharing the untouched columns; only the recast columns are new arrays,
         # so the caller's ``df`` keeps its original dtypes and peak RAM stays at O(recast columns), not O(full frame).

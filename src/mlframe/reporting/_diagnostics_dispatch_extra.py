@@ -720,18 +720,31 @@ def render_category_discriminability_diagnostic(
     min_support: int = 30,
     max_columns: int = 40,
     seed: int = 0,
+    feature_importances: Optional[Sequence[float]] = None,
 ) -> bool:
     """Per-category-level Weight-of-Evidence bar (case_sdsj discriminability) for a BINARY target.
 
     Default-ON for binary classification with at least one categorical column; skips cheaply otherwise. RAM-safe: the
     builder pulls one categorical column at a time as codes and bounds the count pass to a 200k row subsample; the
-    number of columns scanned is capped at ``max_columns`` (importance order, since ``feature_names`` arrives ranked).
+    number of columns scanned is capped at ``max_columns``, most important first when ``feature_importances`` is given.
+
+    ``feature_names`` arrives in FRAME order - the ranking lives in the separate importances - so truncating the names
+    as given kept the first 40 columns of the frame, and a panel titled "most discriminative" was built from whichever
+    categoricals happened to come first. Without importances the cut is still in frame order, and it says so.
     """
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
     if df is None or y_true is None or not plot_outputs or not base_path:
         return False
     names = list(feature_names) if feature_names else _column_names(df)
     if names and max_columns and len(names) > max_columns:
+        if feature_importances is not None and len(feature_importances) == len(names):
+            order = np.argsort(-np.asarray(feature_importances, dtype=np.float64), kind="stable")
+            names = [names[int(i)] for i in order]
+        else:
+            logger.info(
+                "category_discriminability: %d columns and no importances, so the %d scanned are the first in frame "
+                "order, not the most important.", len(names), max_columns,
+            )
         names = names[:max_columns]
     try:
         from mlframe.reporting.charts.category_discriminability import compose_category_discriminability_figure

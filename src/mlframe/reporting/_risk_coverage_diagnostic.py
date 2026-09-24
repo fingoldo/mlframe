@@ -24,11 +24,18 @@ def render_risk_coverage_diagnostic(
     base_path: str,
     metrics_dict: Optional[dict] = None,
     model_label: str = "model",
+    confidence_source: str = "model",
 ) -> bool:
     """Risk-coverage curve: accuracy/error as you abstain on the least-confident cases vs random-rejection.
 
     Binary / multiclass need only y_true + score/proba; regression needs an explicit ``confidence`` array. Records the
     AURC + accuracy@80% selective gain into ``metrics_dict``. Default-ON; a no-op when scores are absent or n==0.
+
+    ``confidence_source`` names where the confidence came from. Anything but ``"model"`` is a PROXY, and its metrics are
+    stored as ``risk_coverage_proxy_aurc`` / ``risk_coverage_proxy_selective_gain`` with the source recorded beside
+    them: the regression path ranks by distance from the prediction mean, which shows a "selective gain" for nearly any
+    model because central predictions tend to have smaller errors, and under the generic keys that read as evidence the
+    model has usable uncertainty.
     """
     from mlframe.reporting.diagnostics_dispatch import _record, _record_path, _save_spec
 
@@ -50,8 +57,10 @@ def render_risk_coverage_diagnostic(
         if ok:
             _record_path(charts, base_path + "_risk_coverage")
         if isinstance(metrics_dict, dict):
-            metrics_dict["risk_coverage_aurc"] = float(res.aurc)
-            metrics_dict["risk_coverage_selective_gain"] = float(res.selective_gain)
+            prefix = "risk_coverage_" if confidence_source == "model" else "risk_coverage_proxy_"
+            metrics_dict[f"{prefix}aurc"] = float(res.aurc)
+            metrics_dict[f"{prefix}selective_gain"] = float(res.selective_gain)
+            metrics_dict["risk_coverage_confidence_source"] = confidence_source
         return ok
     except Exception:
         logger.exception("risk_coverage diagnostic failed; continuing.")

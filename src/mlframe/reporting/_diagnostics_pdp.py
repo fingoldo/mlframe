@@ -184,7 +184,7 @@ def render_interaction_strength_diagnostic(
     per-predict TIME probe projects the full cost and skips (logged) when it exceeds ``max_seconds`` -- so a fast/small
     model runs it and a slow one self-skips. Best-effort: any failure is logged and swallowed so the report never aborts.
     """
-    from .diagnostics_dispatch import _column_names, _record, _record_path, _save_spec
+    from .diagnostics_dispatch import _column_names, _record, _record_path, _record_skipped, _save_spec
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
     if model is None or df is None or not plot_outputs or not base_path:
         return False
@@ -205,6 +205,7 @@ def render_interaction_strength_diagnostic(
             "%.0fs cap) -- skipping; raise ReportingConfig.interaction_strength_max_seconds to force.",
             len(top), grid, float(max_seconds),
         )
+        _record_skipped(charts, "interaction_strength", f"projected 2-D PDP cost over the {float(max_seconds):.0f}s cap ({len(top)} features, grid={grid})")
         return False
     try:
         from mlframe.reporting.charts.interaction_strength import compose_interaction_strength_figure

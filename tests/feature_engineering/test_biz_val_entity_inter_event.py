@@ -40,7 +40,8 @@ def _make_entity_tempo_data(n_entities: int, events_per_entity: int, seed: int):
 def test_entity_inter_event_features_returns_expected_keys_and_shapes():
     """Entity inter event features returns expected keys and shapes."""
     entity_ids, timestamps, _ = _make_entity_tempo_data(5, 4, seed=0)
-    out = entity_inter_event_features(entity_ids, timestamps)
+    # time_to_next_event is forward-looking and only emitted on request, so the full key set is asked for here.
+    out = entity_inter_event_features(entity_ids, timestamps, include_forward_looking=True)
     for key in ("time_since_prev_event", "time_to_next_event", "group_mean_time_delta", "group_std_time_delta", "group_median_time_delta"):
         assert key in out
         assert out[key].shape == entity_ids.shape
@@ -50,7 +51,7 @@ def test_entity_inter_event_features_first_and_last_row_of_group_are_nan():
     """Entity inter event features first and last row of group are nan."""
     entity_ids = np.array([1, 1, 1, 2, 2])
     timestamps = np.array([0.0, 5.0, 12.0, 100.0, 108.0])
-    out = entity_inter_event_features(entity_ids, timestamps)
+    out = entity_inter_event_features(entity_ids, timestamps, include_forward_looking=True)
     assert np.isnan(out["time_since_prev_event"][0])  # first row of entity 1
     assert np.isnan(out["time_since_prev_event"][3])  # first row of entity 2
     assert np.isnan(out["time_to_next_event"][2])  # last row of entity 1

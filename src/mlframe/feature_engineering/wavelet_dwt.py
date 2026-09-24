@@ -69,6 +69,10 @@ def get_wavelet_filters(name: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, 
     dec_hi = np.asarray(w.dec_hi, dtype=np.float64)
     rec_lo = np.asarray(w.rec_lo, dtype=np.float64)
     rec_hi = np.asarray(w.rec_hi, dtype=np.float64)
+    # Read-only: every caller shares these arrays, so one in-place edit would silently change every later
+    # decomposition in the process.
+    for arr in (dec_lo, dec_hi, rec_lo, rec_hi):
+        arr.flags.writeable = False
     _FILTER_CACHE[name] = (dec_lo, dec_hi, rec_lo, rec_hi)
     return _FILTER_CACHE[name]
 

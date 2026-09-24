@@ -127,3 +127,18 @@ def test_render_split_comparison_from_suite_skips_with_one_split(tmp_path, binar
     base = str(tmp_path / "m")
     md = {}
     assert render_split_comparison_from_suite(entry=entry, target_type="binary_classification", plot_outputs=PNG, base_path=base, metrics_dict=md) is False
+
+
+def test_a_proxy_confidence_is_keyed_as_a_proxy(tmp_path):
+    """The regression path ranks by distance from the prediction mean; its metrics must not read as model uncertainty."""
+    rng = np.random.default_rng(0)
+    y = rng.normal(size=300)
+    pred = y + rng.normal(scale=0.3, size=300)
+    md = {}
+    ok = render_risk_coverage_diagnostic(
+        y_true=y, y_score=pred, task="regression", confidence=-np.abs(pred - pred.mean()), plot_outputs=PNG,
+        base_path=str(tmp_path / "r"), metrics_dict=md, confidence_source="proxy_distance_from_prediction_mean",
+    )
+    assert ok
+    assert "risk_coverage_aurc" not in md and "risk_coverage_proxy_aurc" in md
+    assert md["risk_coverage_confidence_source"] == "proxy_distance_from_prediction_mean"

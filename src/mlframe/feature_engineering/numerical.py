@@ -400,11 +400,16 @@ def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = _EMPTY_F
     return float(mi[0])
 
 
+# Below this many finite samples the entropies are not estimates of anything and are reported as 0.0.
+_ENTROPY_MIN_FINITE = 10
+
+
 def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spectral_method: str = "welch") -> tuple:
     """Apply every function in ``entropy_funcs`` to ``arr`` and return their outputs as a tuple.
 
-    Non-finite values are stripped first; if fewer than 2 finite samples remain, returns zeros.
-    Inf/NaN outputs are collapsed to 0 via ``np.nan_to_num``.
+    Non-finite INPUTS (NaN and +/-inf alike) are dropped; with fewer than ``_ENTROPY_MIN_FINITE`` finite samples left,
+    every entropy is returned as 0.0, since sample / permutation entropies on a handful of points are not estimates of
+    anything. Non-finite OUTPUTS are collapsed to 0 via ``np.nan_to_num``.
     """
     # hjorth_mobility, hjorth_complexity = hjorth_params(arr)
     # hjorth_mobility,
@@ -413,12 +418,13 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
     # num_zerocross(arr),
 
     _entropy_funcs = _get_entropy_funcs()
-    n_finite = (~np.isnan(arr)).sum()
-    if n_finite < 10:
+    # np.isfinite, not ~np.isnan: an inf is not a sample either. Counting it as one let [1.0, inf] * 6 through the gate,
+    # and the old nan_to_num then turned every inf into a real 0.0 that the entropy computation read as data.
+    finite = np.asarray(arr, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    if finite.size < _ENTROPY_MIN_FINITE:
         return (0.0,) * len(_entropy_funcs)
-    else:
-        safe_arr = np.nan_to_num(arr[~np.isnan(arr)], posinf=0, neginf=0)
-        return tuple(np.nan_to_num([f(safe_arr) for f in _entropy_funcs], posinf=0, neginf=0))
+    return tuple(np.nan_to_num([f(finite) for f in _entropy_funcs], posinf=0, neginf=0))
 
 
 def fit_distribution(dist: rv_continuous, data: np.ndarray, method: str = "mle"):
@@ -744,6 +750,18 @@ def rolling_moving_average(arr: np.ndarray, n: int = 2, compensated: bool = True
     return cast(np.ndarray, _rolling_moving_average_fast(arr, n))
 
 
+def _defined_relative_changes(numer: np.ndarray, denom: np.ndarray) -> np.ndarray:
+    """``numer / denom - 1`` for the steps where that ratio exists; steps from a zero base are left out.
+
+    ``nan_to_num`` used to turn x/0 and 0/0 into 0.0 - a flat step - so the row ``[0, 5, 5]`` produced the same diff
+    series as the genuinely flat ``[5, 5, 5]``, and the invented zeros entered every variance / entropy statistic as
+    data. A relative change from zero does not exist; dropping it keeps the statistics about the steps that do.
+    """
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratios = numer / denom - 1
+    return ratios[np.isfinite(ratios)]
+
+
 def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: int = 0, use_diffs: bool = False, dtype=np.float32) -> np.ndarray:
     """Compute numaggs over rows of a 2D matrix and stack into a (n_rows, n_features) array."""
 
@@ -759,12 +777,12 @@ def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: 
 
         if rolling_ma:
             if use_diffs:
-                vals_to_compute = np.nan_to_num(vals_to_compute[rolling_ma - 1 :] / rolling_moving_average(vals_to_compute, rolling_ma) - 1, posinf=0, neginf=0)
+                vals_to_compute = _defined_relative_changes(vals_to_compute[rolling_ma - 1 :], rolling_moving_average(vals_to_compute, rolling_ma))
             else:
                 vals_to_compute = vals_to_compute[rolling_ma - 1 :] - rolling_moving_average(vals_to_compute, rolling_ma)
         else:
             if use_diffs:
-                vals_to_compute = np.nan_to_num((vals_to_compute[1:] / vals_to_compute[:-1] - 1), posinf=0, neginf=0)
+                vals_to_compute = _defined_relative_changes(vals_to_compute[1:], vals_to_compute[:-1])
 
         res[i, :] = compute_numaggs(vals_to_compute, **numagg_params)
     return res
