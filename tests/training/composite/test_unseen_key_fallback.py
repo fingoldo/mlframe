@@ -109,6 +109,7 @@ def test_the_moe_gate_serves_unseen_groups_the_pooled_best_expert():
     rng = np.random.default_rng(0)
 
     def draw(groups):
+        """Draw a target and three experts of fixed quality: composite best, raw next, lag worst."""
         y = rng.normal(0.0, 5.0, groups.size)
         return y, {"composite": y + rng.normal(0.0, 1.0, y.size), "raw": y + rng.normal(0.0, 2.0, y.size), "lag": y + rng.normal(0.0, 8.0, y.size)}
 
