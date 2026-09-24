@@ -24,6 +24,40 @@ from mlframe.training.composite.transforms._call_gateway import call_transform
 logger = logging.getLogger(__name__)
 
 
+def context_matrices(ctx: dict) -> tuple:
+    """``(x_remaining_matrix, x_prebinned)`` of a base context, gathered from the full matrices on first use.
+
+    A per-base context carries its dropped base column(s) and dedup keep mask (``_cols``) and the shared full matrices; the
+    copies are rebuilt exactly as the context build made them (delete, then keep), once, under the context's lock, by
+    whichever transform of the base runs first. On the bin estimator only the codes are
+    gathered: the float matrix is read by nothing but the knn path, so it is a zero-row proxy of the right width there.
+    """
+    if "_cols" not in ctx:
+        return ctx["x_remaining_matrix"], ctx["_x_prebinned"]
+    with ctx["_matrices_lock"]:
+        if ctx["x_remaining_matrix"] is None:
+            (drop_idx, keep), full = ctx["_cols"], ctx["_full_views"]
+
+            def gather(m):
+                """Drop this base's columns from ``m`` and keep the selected ones."""
+                out = np.delete(m, drop_idx, axis=1)
+                return out if keep is None else out[:, keep]
+
+            pb = gather(full["pb"]) if full["pb"] is not None else None
+            ctx["_x_prebinned"] = pb
+            ctx["x_remaining_matrix"] = gather(full["x"]) if pb is None else np.empty((0, pb.shape[1]), dtype=np.float32)
+        return ctx["x_remaining_matrix"], ctx["_x_prebinned"]
+
+
+def release_context_matrices(ctx: dict) -> None:
+    """Drop a base context's gathered copies and bootstrap blocks once its last transform is scored."""
+    if "_cols" not in ctx:
+        return
+    with ctx["_matrices_lock"]:
+        ctx["x_remaining_matrix"] = ctx["_x_prebinned"] = None
+        ctx.pop("_bootstrap_memo", None)
+
+
 def build_unary_base_context(
     *,
     full_x_matrix: np.ndarray,
@@ -306,8 +340,7 @@ def _eval_one_transform_impl(
     _ctx = base_contexts[base]
     base_train = _ctx["base_train"]
     base_screen = _ctx["base_screen"]
-    x_remaining_matrix = _ctx["x_remaining_matrix"]
-    _x_prebinned = _ctx["_x_prebinned"]
+    x_remaining_matrix, _x_prebinned = context_matrices(_ctx)
     mi_y_for_base = _ctx["mi_y_for_base"]
     _mi_kwargs = _ctx["_mi_kwargs"]
     _local: list[dict[str, Any]] = []
