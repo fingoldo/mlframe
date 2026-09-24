@@ -61,7 +61,7 @@ def test_a_kfold_oof_never_fits_the_selector_on_a_folds_holdout_targets():
     X, y = _data()
     comp = _component(X, y, [("scale", StandardScaler()), ("select", _RecordingSelector())])
     _FITS.clear()
-    _P, y_h, _names, rows = compute_oof_holdout_predictions(
+    _P, _y_h, _names, rows = compute_oof_holdout_predictions(
         component_models=[comp], component_names=["fs"], component_specs=[None], train_X=X, y_train_full=y,
         base_train_full_per_spec={}, holdout_frac=0.3, random_state=0, kfold=3, return_rows=True,
     )
