@@ -22,7 +22,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `training_core.md` | 13 | 12 | 0 | 0 | 0 | 1 |
-| `feature_selection.md` | 21 | 19 | 1 | 0 | 1 | 0 |
+| `feature_selection.md` | 21 | 19 | 0 | 0 | 2 | 0 |
 | `feature_engineering.md` | 14 | 14 | 0 | 0 | 0 | 0 |
 | `metrics.md` | 18 | 16 | 0 | 0 | 2 | 0 |
 | `predict_persistence.md` | 18 | 18 | 0 | 0 | 0 | 0 |
@@ -31,7 +31,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `performance.md` | 7 | 7 | 0 | 0 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 12 | 0 | 0 | 0 | 0 |
 | `config_contracts.md` | 32 | 30 | 0 | 0 | 0 | 2 |
-| **Total** | **165** | **158** | **1** | **0** | **3** | **3** |
+| **Total** | **165** | **158** | **0** | **0** | **4** | **3** |
 
 Queued after every finding above is implemented: [complexity_refactor.md](complexity_refactor.md) - 193 production
 functions over a McCabe complexity of 25 (threshold confirmed by the project owner) plus the blocking ratchet gate

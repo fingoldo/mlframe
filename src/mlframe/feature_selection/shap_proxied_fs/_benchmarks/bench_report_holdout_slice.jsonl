@@ -1,0 +1,16 @@
+{"seed": 0, "fraction": 0.0, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.05628205052353969, "winner_honest_loss": 0.056973805610992245, "report_holdout_loss": null}
+{"seed": 0, "fraction": 0.25, "recall": 1.0, "noise_kept": 1, "n_selected": 6, "test_brier": 0.05691349778948459, "winner_honest_loss": 0.054312123957046696, "report_holdout_loss": 0.05684859633996581}
+{"seed": 1, "fraction": 0.0, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.061647898937709125, "winner_honest_loss": 0.06326458916577175, "report_holdout_loss": null}
+{"seed": 1, "fraction": 0.25, "recall": 1.0, "noise_kept": 0, "n_selected": 6, "test_brier": 0.061366973004297276, "winner_honest_loss": 0.06172716559886287, "report_holdout_loss": 0.06914307362967642}
+{"seed": 2, "fraction": 0.0, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.05663206293588861, "winner_honest_loss": 0.05856409110116539, "report_holdout_loss": null}
+{"seed": 2, "fraction": 0.25, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.05663206293588861, "winner_honest_loss": 0.05486121527981228, "report_holdout_loss": 0.06963332626925324}
+{"seed": 3, "fraction": 0.0, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.05356941740765865, "winner_honest_loss": 0.05847354097650346, "report_holdout_loss": null}
+{"seed": 3, "fraction": 0.25, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.05356941740765865, "winner_honest_loss": 0.05778461399938611, "report_holdout_loss": 0.060532992897460794}
+{"seed": 4, "fraction": 0.0, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.05477869565791109, "winner_honest_loss": 0.05094400295897415, "report_holdout_loss": null}
+{"seed": 4, "fraction": 0.25, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.05477869565791109, "winner_honest_loss": 0.04673967550428825, "report_holdout_loss": 0.0635122584352163}
+{"seed": 5, "fraction": 0.0, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.055390862678144664, "winner_honest_loss": 0.055236659868850325, "report_holdout_loss": null}
+{"seed": 5, "fraction": 0.25, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.055390862678144664, "winner_honest_loss": 0.05700909709149625, "report_holdout_loss": 0.04993820391604727}
+{"seed": 6, "fraction": 0.0, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.05770915116795094, "winner_honest_loss": 0.06496630238780027, "report_holdout_loss": null}
+{"seed": 6, "fraction": 0.25, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.05770915116795094, "winner_honest_loss": 0.060467913750044566, "report_holdout_loss": 0.07841361310279349}
+{"seed": 7, "fraction": 0.0, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.05540898725517602, "winner_honest_loss": 0.059792377775657296, "report_holdout_loss": null}
+{"seed": 7, "fraction": 0.25, "recall": 1.0, "noise_kept": 0, "n_selected": 5, "test_brier": 0.05540898725517602, "winner_honest_loss": 0.05876500599072609, "report_holdout_loss": 0.06286356364337763}

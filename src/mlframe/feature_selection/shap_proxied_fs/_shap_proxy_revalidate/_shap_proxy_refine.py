@@ -25,8 +25,10 @@ def _mark_selection_optimistic(ranked: list, best_idx) -> None:
 
     Every candidate is scored on the same holdout and the winner is the minimum over them, so the winner's number is
     the most favourable draw of a noisy estimate - the winner's curse the disjoint holdout was meant to avoid. The value
-    is still the right thing to RANK by; it is not an unbiased estimate of the subset's loss, and the report says so
-    rather than presenting it as one. An unbiased figure needs a reporting slice the selection never saw.
+    is still the right thing to RANK by; it is not an unbiased estimate of the subset's loss. The flag marks that
+    selection component, not the net sign: the model behind it trains on the search rows only, which pulls the other way,
+    and on the biz_val bed the net was slightly pessimistic (+0.0021 Brier vs a large test set). For a figure no candidate
+    was ranked on, see ``ShapProxiedFS.report_holdout_fraction``.
     """
     for d in ranked:
         if d.get("features") == best_idx:

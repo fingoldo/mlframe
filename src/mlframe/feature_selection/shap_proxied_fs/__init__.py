@@ -67,6 +67,14 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMix
         max_features: Optional[int] = None,
         top_n: int = 30,
         holdout_size: float = 0.25,
+        # Share of the holdout set aside, unseen by selection, to score the chosen subset once without the winner's curse
+        # (``shap_proxy_report_["report_holdout"]``). bench-attempt-rejected as the default (2026-09-25,
+        # _benchmarks/bench_report_holdout_slice.py, 8 seeds of the biz_val bed): at 0.25 selection was unchanged (test
+        # Brier +0.00004, 6 ties / 1 better / 1 worse; 0.12 more noise columns kept), but the slice's figure was ~3x less
+        # accurate than the winner's honest_loss (mean |error| vs a 5000-row test set 0.0088 vs 0.0031, bias +0.0074 vs
+        # +0.0021): with ~190 rows it is noisy, and the winner's honest_loss came out slightly PESSIMISTIC, not optimistic,
+        # because its model trains on the search rows only. Opt in for a figure no candidate was ranked on.
+        report_holdout_fraction: float = 0.0,
         revalidate: bool = True,
         n_revalidation_models: int = 3,
         lambda_stab: float = 0.5,
@@ -309,6 +317,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMix
         # when redundancy exists, so the static top_n is rarely the binding cost driver.
         self.top_n = top_n
         self.holdout_size = holdout_size
+        self.report_holdout_fraction = report_holdout_fraction
         self.revalidate = revalidate
         self.n_revalidation_models = n_revalidation_models
         self.lambda_stab = lambda_stab

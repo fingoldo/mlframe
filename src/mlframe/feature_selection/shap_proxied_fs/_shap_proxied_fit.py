@@ -20,6 +20,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
     _apply_min_selected_ratio, _resolve_adaptive_prescreen_width, _resolve_adaptive_n_anchors, _resolve_knee_prescreen_cap,
     ShapProxiedNoCandidatesError, resolve_effective_min_features, unit_importance_to_feature_map)
 from mlframe.utils.misc import rng_hygienic_fit
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_report_slice import score_on_report_slice, split_report_slice
 
 logger = logging.getLogger(__name__)
 
@@ -230,8 +231,8 @@ class ShapProxiedFitMixin:
         stratify = y if self.classification else None
         idx_all = np.arange(len(X))
         idx_search, idx_hold = train_test_split(idx_all, test_size=self.holdout_size, random_state=int(self.random_state), shuffle=True, stratify=stratify)
-        # Wide-frame split with deferred holdout materialisation. At C4 (width=20000, n_rows=10000)
-        # the original frame is 1.49 GiB, the search slice (75% rows) is 1.12 GiB, and the holdout
+        idx_hold, _report_slice = split_report_slice(idx_hold, X, y, getattr(self, "report_holdout_fraction", 0.0), self.classification, int(self.random_state))
+        # Wide-frame split with deferred holdout materialisation. At C4 (width=20000, n_rows=10000) the original frame is 1.49 GiB, the search slice (75% rows) is 1.12 GiB, and the holdout
         # slice (25% rows) is 381 MiB; the legacy back-to-back
         # `X.iloc[idx_search].reset_index(drop=True)` + `X.iloc[idx_hold].reset_index(drop=True)`
         # held all three simultaneously plus reset_index transient buffers and OOM'd on a
@@ -992,6 +993,7 @@ class ShapProxiedFitMixin:
         best_set = {int(working_cols[i]) for i in member_cols}
         self.selected_features_ = [c for i, c in enumerate(self.feature_names_in_) if i in best_set]
         self.support_ = np.array([i in best_set for i in range(n_features)], dtype=bool)
+        score_on_report_slice(self, report, X_search, y_search, _report_slice, working_cols, member_cols, model_template)  # unbiased figure, if carved
         self.shap_proxy_report_ = report
         if self.verbose:
             logger.info("ShapProxiedFS: optimizer=%s selected %d/%d features: %s", optimizer, len(self.selected_features_), n_features, self.selected_features_)
