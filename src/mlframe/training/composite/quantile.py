@@ -62,6 +62,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from .estimator import CompositeTargetEstimator
 from .transforms import get_transform
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +164,8 @@ def _transform_inverse_decreasing(transform_name: str) -> bool:
     t_probe = np.array([-1e-3, 0.0, 1e-3], dtype=np.float64)
     base_probe = np.full(3, 2.0, dtype=np.float64)
     try:
-        params = transform.fit(np.array([1.0, 2.0, 3.0]), base_probe)
-        y_probe = np.asarray(transform.inverse(t_probe, base_probe, params), dtype=np.float64).reshape(-1)
+        params = call_transform(transform, "fit", np.array([1.0, 2.0, 3.0]), base_probe)
+        y_probe = np.asarray(call_transform(transform, "inverse", t_probe, base_probe, params), dtype=np.float64).reshape(-1)
     except Exception as exc:  # pragma: no cover - probe failure -> assume increasing
         logger.debug("_transform_flips_quantile_order: monotonicity probe failed for %r: %s", transform_name, exc)
         return False

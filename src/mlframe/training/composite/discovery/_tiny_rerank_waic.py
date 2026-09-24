@@ -11,6 +11,7 @@ import numpy as np
 
 from ..transforms import UnknownTransformError, get_transform
 from ._rejection_ledger import RejectStage, ledger_append
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,8 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
         if int(valid.sum()) < 2 * n_folds:
             return None
         try:
-            target = np.asarray(transform.forward(yb[valid], bb[valid], spec.fitted_params), dtype=np.float64).ravel()
+            target = np.asarray(call_transform(transform, "forward", yb[valid], bb[valid], spec.fitted_params,
+                                               groups=None if groups is None else np.asarray(groups)[valid]), dtype=np.float64).ravel()
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             return None

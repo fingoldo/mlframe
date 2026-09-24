@@ -44,6 +44,7 @@ from ._screening_tiny import (
 from ._fold_refit import refit_transform_on_fold
 from ._lgb_shared_fold import fit_on_rows, fit_on_shared_fold, lgb_params
 from ._ridge_shared_fold import fit_ridge_on_shared_fold
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 
 def _per_bin_rmse(
@@ -134,7 +135,8 @@ def _fold_fit_inputs(transform, fitted_params, y_clean, base_clean, t_clean, gro
         _p_fold, _valid_fold = _refit
         _rows_fold = fit_rows[_valid_fold]
         if _rows_fold.shape[0] >= 2:
-            _t_try = np.asarray(transform.forward(y_clean[_rows_fold], base_clean[_rows_fold], _p_fold), dtype=np.float64)
+            _t_try = np.asarray(call_transform(transform, "forward", y_clean[_rows_fold], base_clean[_rows_fold], _p_fold,
+                                               groups=groups_clean[_rows_fold] if groups_clean is not None else None), dtype=np.float64)
             if np.all(np.isfinite(_t_try)):
                 fold_params, fit_rows, t_fit = _p_fold, _rows_fold, _t_try
     return fold_params, fit_rows, t_fit
@@ -281,6 +283,9 @@ def _tiny_cv_rmse_y_scale(
     # The _all_valid short-circuit keeps this bit-identical to the legacy path when the transform's domain covers every row (the common case) and preserves the no-copy fast path; ``finite_y`` mirrors raw-y's isfinite(y) mask and ``valid`` is a subset of it, so the split population (finite_y) is a superset of the trainable (valid) rows.
     _all_valid = bool(valid.all())
     finite_y = np.isfinite(np.asarray(y_train, dtype=np.float64))
+    # The rows' groups for the transform itself (a grouped transform's forward / inverse / refit needs them), kept even when
+    # the split below falls back from GroupKFold for too few groups.
+    _g_in = np.asarray(groups) if groups is not None and np.asarray(groups).shape[0] == len(y_train) else None
     _emulate_fallback = (not _all_valid) and bool((finite_y & ~valid).any())
     _split_valid_mask: np.ndarray | None = None
     _group_mask: np.ndarray | None = None
@@ -295,7 +300,9 @@ def _tiny_cv_rmse_y_scale(
             return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
         # T computed only on the trainable rows; off-domain rows never enter forward(). A non-finite T on a domain-valid row still nukes the spec (legacy semantics), so keep the whole-spec finite guard.
         t_pop = np.full(y_pop.shape[0], np.nan, dtype=np.float64)
-        t_pop[valid_pop] = transform.forward(y_pop[valid_pop], base_pop[valid_pop], fitted_params)
+        _transform_groups = _g_in[pop_mask] if _g_in is not None else None
+        t_pop[valid_pop] = call_transform(transform, "forward", y_pop[valid_pop], base_pop[valid_pop], fitted_params,
+                                          groups=_transform_groups[valid_pop] if _transform_groups is not None else None)
         if not np.all(np.isfinite(t_pop[valid_pop])):
             return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
         y_clean = y_pop
@@ -312,7 +319,8 @@ def _tiny_cv_rmse_y_scale(
         y_clean = y_train.astype(np.float64) if _all_valid else y_train[valid].astype(np.float64)
         base_clean = base_train.astype(np.float64) if _all_valid else base_train[valid].astype(np.float64)
         x_clean = x_train_matrix if _all_valid else x_train_matrix[valid]
-        t_clean = transform.forward(y_clean, base_clean, fitted_params)
+        _transform_groups = _g_in if (_g_in is None or _all_valid) else _g_in[valid]
+        t_clean = call_transform(transform, "forward", y_clean, base_clean, fitted_params, groups=_transform_groups)
         if not np.all(np.isfinite(t_clean)):
             return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
         _split_valid_mask = None  # every split row is trainable
@@ -383,7 +391,7 @@ def _tiny_cv_rmse_y_scale(
             else:
                 _fit_rows = train_fold
             _fold_params, _fit_rows, _t_fit = _fold_fit_inputs(
-                transform, fitted_params, y_clean, base_clean, t_clean, groups_clean, _fit_rows,
+                transform, fitted_params, y_clean, base_clean, t_clean, _transform_groups, _fit_rows,
             )
             with _silence_tiny_model_output(family):
                 model = _fit_fold_model(
@@ -401,7 +409,8 @@ def _tiny_cv_rmse_y_scale(
             # Smearing for curved unary inverses (see ``estimator._smearing``), as the trained composite predicts.
             y_hat = smeared_prediction(
                 getattr(transform, "name", ""), model, x_clean[_fit_rows], _t_fit, t_hat,
-                lambda t: transform.inverse(t, _base_for_inverse, _fold_params),
+                lambda t: call_transform(transform, "inverse", t, _base_for_inverse, _fold_params,
+                                         groups=_transform_groups[val_fold] if _transform_groups is not None else None),
             )
             # Wrapper-aware clipping. The
             # production CompositeTargetEstimator.predict applies

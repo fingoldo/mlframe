@@ -19,6 +19,7 @@ from ._estimator_helpers import _carry_forward_fill
 from ._routing import inner_input as _inner_input
 from ._routing import resolve_transform as get_transform
 from ._inner_frame import frame_for_inner
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ def _inverse_with_fallback(
         # returns the conditional MEAN of y, not the inverse of the mean of T. Absent quantiles -> the plain inverse.
         from ._smearing import smeared_inverse
 
-        y_hat = smeared_inverse(lambda t: transform.inverse(t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles")).reshape(-1)
+        y_hat = smeared_inverse(lambda t: call_transform(transform, "inverse", t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles")).reshape(-1)
     else:
         y_hat = np.full_like(t_hat, fill_value=np.nan, dtype=np.float64)
         # Inverse on valid rows only; placeholder base for invalid rows is
@@ -132,7 +133,7 @@ def _inverse_with_fallback(
         else:
             base_safe = np.where(mask, base_arr, 1.0)
         y_hat_valid = np.asarray(
-            transform.inverse(t_hat, base_safe, params, **inverse_kwargs),
+            call_transform(transform, "inverse", t_hat, base_safe, params, **inverse_kwargs),
             dtype=np.float64,
         ).reshape(-1)
         y_hat[domain_ok] = y_hat_valid[domain_ok]

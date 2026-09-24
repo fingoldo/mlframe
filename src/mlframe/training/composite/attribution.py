@@ -49,6 +49,7 @@ from sklearn.exceptions import NotFittedError
 
 from .transforms import get_transform
 from . import _extract_groups
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 # Transforms whose inverse is a PRODUCT ``y = base_factor * residual_factor``.
 # Value is the NEUTRAL residual T whose inverse yields the pure base factor
@@ -101,7 +102,7 @@ def _base_level(estimator: Any, transform, base_arr: np.ndarray, params: dict[st
     n = base_arr.shape[0]
     t_neutral = np.full(n, neutral, dtype=np.float64)
     base_level = np.asarray(
-        transform.inverse(t_neutral, base_arr, params, **inverse_kwargs),
+        call_transform(transform, "inverse", t_neutral, base_arr, params, **inverse_kwargs),
         dtype=np.float64,
     ).reshape(-1)
     return base_level

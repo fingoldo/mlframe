@@ -38,6 +38,7 @@ from .screening import (
     _mi_to_target_prebinned,
     _prebin_feature_columns,
 )
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -280,7 +281,7 @@ def _rescore_one_spec(spec, *, df, holdout_idx, y_holdout, x_remaining_for, preb
         return
     base_valid = base_arg[valid] if base_arg.ndim == 1 else base_arg[valid, :]
     try:
-        t_holdout = transform.forward(y_h[valid], base_valid, params)
+        t_holdout = call_transform(transform, "forward", y_h[valid], base_valid, params)
     except Exception as exc:  # -- transform raised on holdout rows
         logger.debug("honest-holdout forward failed for %s: %s", spec.name, exc)
         return

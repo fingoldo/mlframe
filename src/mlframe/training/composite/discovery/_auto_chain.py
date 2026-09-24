@@ -73,6 +73,7 @@ from ._splitter import discovery_splits
 from ._screening_tiny import _build_tiny_model
 from ._yscale_scoring import median_filled_predictions
 from .screening import _mi_to_target
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -301,6 +302,8 @@ def _y_scale_cv_rmse(
             x_tr, x_va = x_matrix[tr_idx], x_matrix[va_idx]
         y_tr, y_va = y[tr_idx], y[va_idx]
         b_tr, b_va = base[tr_idx], base[va_idx]
+        g_tr = None if groups is None else np.asarray(groups)[tr_idx]
+        g_va = None if groups is None else np.asarray(groups)[va_idx]
         try:
             if transform is None:
                 target_tr = y_tr
@@ -309,8 +312,8 @@ def _y_scale_cv_rmse(
                 dom_tr = np.asarray(transform.domain_check(y_tr, b_tr), dtype=bool)
                 if dom_tr.sum() < cv_folds * 5:
                     return float("inf"), valid_frac
-                params = transform.fit(y_tr[dom_tr], b_tr[dom_tr])
-                t_tr = np.asarray(transform.forward(y_tr, b_tr, params), dtype=np.float64)
+                params = call_transform(transform, "fit", y_tr[dom_tr], b_tr[dom_tr], groups=None if g_tr is None else g_tr[dom_tr])
+                t_tr = np.asarray(call_transform(transform, "forward", y_tr, b_tr, params, groups=g_tr), dtype=np.float64)
                 target_tr = t_tr
                 fit_mask = dom_tr & np.isfinite(t_tr)
             if fit_mask.sum() < cv_folds * 5:
@@ -330,7 +333,7 @@ def _y_scale_cv_rmse(
             if transform is None:
                 y_hat = pred
             else:
-                y_hat = np.asarray(transform.inverse(pred, b_va, params), dtype=np.float64)
+                y_hat = np.asarray(call_transform(transform, "inverse", pred, b_va, params, groups=g_va), dtype=np.float64)
         except Exception as exc:
             logger.debug("y-scale CV fold failed for %s: %s", getattr(transform, "name", "raw"), exc)
             return float("inf"), valid_frac
@@ -362,8 +365,8 @@ def _mi_gain_of(
     if dom.sum() < 8:
         return float("nan")
     try:
-        params = transform.fit(y[dom], base[dom])
-        t = np.asarray(transform.forward(y, base, params), dtype=np.float64)
+        params = call_transform(transform, "fit", y[dom], base[dom])
+        t = np.asarray(call_transform(transform, "forward", y, base, params), dtype=np.float64)
     except Exception as exc:
         logger.debug("transform gain estimate: fit/forward failed for %r: %s", getattr(transform, "name", transform), exc)
         return float("nan")
@@ -402,7 +405,7 @@ def _fitted_chain_candidate(chain_tf: Transform, res: str, un: str, *, y: np.nda
     """
     dom = np.asarray(chain_tf.domain_check(y, base), dtype=bool)
     try:
-        params = chain_tf.fit(y[dom], base[dom])
+        params = call_transform(chain_tf, "fit", y[dom], base[dom])
     except Exception as e:
         logger.warning("[auto_chain] dropping chain %s: its fit on the in-domain rows failed (%s: %s).", chain_tf.name, type(e).__name__, e)
         return None

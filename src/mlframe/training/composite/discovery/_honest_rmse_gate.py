@@ -56,6 +56,7 @@ from .._row_roles import note_rows
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
 from ._rejection_ledger import spec_inverse
 from ._screening_tiny import _build_tiny_model
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +297,7 @@ def apply_honest_rmse_gate(
         try:
             y_hat = cached_honest_prediction(self, fit_idx, eval_idx, spec.name, valid)
             if y_hat is None:
-                t_fit = np.asarray(transform.forward(y_fit[valid], base_fit_v, params), dtype=np.float64)
+                t_fit = np.asarray(call_transform(transform, "forward", y_fit[valid], base_fit_v, params), dtype=np.float64)
                 t_hat = _fit_predict_masked(_fit_predict, t_fit, valid)
                 # Score the spec the way the trained composite will predict: with smearing for the curved unary inverses,
                 # so a log/cbrt target is judged on the conditional mean of y, not on the (lower) geometric mean.

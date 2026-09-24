@@ -258,9 +258,7 @@ class CompositeTargetDiscovery:
                 # Unary specs have ``base_full is None`` (the transform ignores
                 # base); pass None straight through rather than slicing.
                 _base_valid = None if base_full is None else base_full[valid]
-                t[valid] = transform.forward(
-                    y_full[valid], _base_valid, spec.fitted_params,
-                )
+                t[valid] = call_transform(transform, "forward", y_full[valid], _base_valid, spec.fitted_params)
             yield spec.name, t
 
     # Per-cluster composite (REOPENED, was a REJECTED design decision -- see ``discovery/_per_group.py``
@@ -682,3 +680,4 @@ def discover_incremental(
 # nothing references, so they are withdrawn until the arm that needs them lands; they remain public on
 # `_eval_stats` and cost one line to re-export when there is something to re-export them for.
 from ._eval_stats import bootstrap_gain_p_value
+from mlframe.training.composite.transforms._call_gateway import call_transform

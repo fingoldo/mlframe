@@ -36,6 +36,7 @@ from ._causal_lag import causal_lag_predict_rmse, detect_causal_lag_column
 from .screening import _extract_column_array, base_arg as _base_arg
 from ._screening_tiny import _build_tiny_model
 from ._yscale_scoring import median_filled_with_std
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +200,7 @@ def honest_oof_reconstruction_rmse(
             return spec.name, None
         base_fit_v = base_fit[valid] if base_fit.ndim == 1 else base_fit[valid, :]
         try:
-            t_fit = np.asarray(transform.forward(y_fit[valid], base_fit_v, params), dtype=np.float64)
+            t_fit = np.asarray(call_transform(transform, "forward", y_fit[valid], base_fit_v, params), dtype=np.float64)
         except Exception as exc:  # -- cannot transform -> fall back
             logger.debug("[honest_oof_select] forward failed for %s: %s", spec.name, exc)
             return spec.name, None
@@ -208,7 +209,7 @@ def honest_oof_reconstruction_rmse(
             model.fit(x_fit[valid], t_fit)
             t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
             # Smearing for curved unary inverses: score the conditional mean of y, as the trained composite predicts.
-            y_hat = smeared_prediction(spec.transform_name, model, x_fit[valid], t_fit, t_hat, lambda t: transform.inverse(t, base_eval, params))
+            y_hat = smeared_prediction(spec.transform_name, model, x_fit[valid], t_fit, t_hat, lambda t: call_transform(transform, "inverse", t, base_eval, params))
             with _pred_lock:
                 _spec_preds[spec.name] = (prediction_key(valid), y_hat)
         except Exception as exc:  # -- fit/inverse blew up -> fall back

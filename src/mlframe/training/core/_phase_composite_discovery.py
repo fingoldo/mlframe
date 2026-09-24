@@ -58,6 +58,7 @@ from ._phase_composite_discovery_gates import (  # noqa: F401  (re-exported)
     rank_pending_composites,
     select_composites_to_train,
 )
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 
 def run_composite_target_discovery(
@@ -793,9 +794,7 @@ def run_composite_target_discovery(
                     # For multi-base, _base_full is 2-D — pass the
                     # row-filtered 2-D slice; for single-base it stays 1-D.
                     _base_for_forward = _base_full[_valid, :] if _base_full.ndim == 2 else _base_full[_valid]
-                    _ct_t_full[_valid] = _transform.forward(
-                        _y_arr[_valid], _base_for_forward, _spec.fitted_params,
-                    )
+                    _ct_t_full[_valid] = call_transform(_transform, "forward", _y_arr[_valid], _base_for_forward, _spec.fitted_params)
                 _t_by_spec_for_charts[_spec.name] = _ct_t_full.copy()  # un-imputed: charts and the dedup must not see the fill value
                 if not np.all(np.isfinite(_ct_t_full)):
                     _t_train_for_median = _ct_t_full[filtered_train_idx]

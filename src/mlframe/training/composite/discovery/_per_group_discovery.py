@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from . import CompositeTargetDiscovery
 
 from ._grouped_causal_bases import _extract_raw
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,6 @@ def route_spec_column_by_group(
         t_rows = np.full(y_rows.shape[0], np.nan, dtype=np.float64)
         if valid.any():
             _base_valid = None if base_rows is None else base_rows[valid]
-            t_rows[valid] = transform.forward(y_rows[valid], _base_valid, spec.fitted_params)
+            t_rows[valid] = call_transform(transform, "forward", y_rows[valid], _base_valid, spec.fitted_params)
         out[row_mask] = t_rows
     return out
