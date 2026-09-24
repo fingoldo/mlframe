@@ -72,21 +72,34 @@ def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
         "mad_train": mad_train,
         "mad_eff": mad_eff,
         "soft_cap_k": _MAD_SOFT_CAP_K,
+        # The cap guards against predictions beyond anything seen; it must not cut into T values the training rows had.
+        "t_train_min": float(np.min(t_train)) if t_train.size else median_t,
+        "t_train_max": float(np.max(t_train)) if t_train.size else median_t,
     }
 def _logratio_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     """Compute ``log(y) - log(base)`` (``params`` unused; forward is stateless given the domain filter)."""
     return np.asarray(np.log(y) - np.log(base))
+def logratio_t_band(params: dict[str, Any]) -> tuple[float, float]:
+    """The ``T_hat`` band the logratio inverse clips to: ``median_t +/- soft_cap_k * mad_eff``, widened to the training T envelope.
+
+    Rows with y near zero have log-ratios far below the median, and a band of k MADs alone reconstructed even those training
+    rows wrong (0.025 off on a target crossing zero). Params from before the envelope was stored keep the MAD band.
+    """
+    median_t = float(params["median_t"])
+    cap = float(params["soft_cap_k"]) * float(params["mad_eff"])
+    lo = min(median_t - cap, float(params.get("t_train_min", median_t - cap)))
+    hi = max(median_t + cap, float(params.get("t_train_max", median_t + cap)))
+    return lo, hi
+
+
 def _logratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     """Invert the log-ratio transform, soft-capping ``t_hat`` to ``median_t +/- soft_cap_k*mad_eff`` before exponentiating."""
-    median_t = float(params["median_t"])
-    mad = float(params["mad_eff"])
-    k = float(params["soft_cap_k"])
     # Soft-cap is centred on median(T_train), NOT on zero -- otherwise
     # any T distribution offset from zero (the typical case for
     # logratio when y and base have similar scale) gets clobbered by
     # the cap and inverse predictions collapse to ``base``.
-    cap = k * mad
-    t_capped = np.clip(t_hat, median_t - cap, median_t + cap)
+    lo, hi = logratio_t_band(params)
+    t_capped = np.clip(t_hat, lo, hi)
     return np.asarray(base * np.exp(t_capped))
 def _logratio_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
     """Return the boolean row mask where ``base`` (and ``y``, if given) are finite and strictly positive (loggable)."""

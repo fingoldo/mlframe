@@ -150,9 +150,15 @@ def _f_logratio(t: str, b: str, p: dict) -> tuple[str, str]:
     median_t = float(p.get("median_t", 0.0))
     mad_eff = float(p.get("mad_eff", 0.0))
     k = float(p.get("soft_cap_k", 10.0))
+    band = f"{median_t:.4g} +/- {k:.4g}*{mad_eff:.4g}"
+    if "t_train_min" in p:
+        from .transforms.linear import logratio_t_band
+
+        lo, hi = logratio_t_band({"median_t": median_t, "mad_eff": mad_eff, "soft_cap_k": k, **p})
+        band = f"[{lo:.4g}, {hi:.4g}]"
     return (
         f"T = log({t}) - log({b})  (requires {t}, {b} > 0)",
-        f"y_hat = {b} * exp(clip(T_hat, {median_t:.4g} +/- {k:.4g}*{mad_eff:.4g}))",
+        f"y_hat = {b} * exp(clip(T_hat, {band}))",
     )
 
 
