@@ -124,7 +124,7 @@ def honest_oof_reconstruction_rmse(
 
     cfg = self.config
     cap = int(getattr(cfg, "yscale_holdout_gate_sample_n", 30_000))
-    rng = np.random.default_rng(int(getattr(cfg, "random_state", 0)))
+    rng = np.random.default_rng(int(getattr(cfg, "random_state", 42)))
 
     def _subsample(idx: np.ndarray, n_cap: int) -> np.ndarray:
         """Cap ``idx`` to ``n_cap`` rows via a sorted random draw (sorted so downstream gathers stay cache-friendly), leaving it unchanged when already within budget."""
@@ -144,7 +144,7 @@ def honest_oof_reconstruction_rmse(
     n_estimators = int(getattr(cfg, "tiny_model_n_estimators", 60))
     num_leaves = int(getattr(cfg, "tiny_model_num_leaves", 15))
     learning_rate = float(getattr(cfg, "tiny_model_learning_rate", 0.1))
-    rs = int(getattr(cfg, "random_state", 0))
+    rs = int(getattr(cfg, "random_state", 42))
     # Per-spec scoring below fits one tiny LightGBM model per outer joblib thread; LightGBM's own OpenMP thread
     # pool defaults to all physical cores per fit, so outer_threads x inner_OpenMP_threads oversubscribes when
     # more than one spec is scored concurrently. Cap LightGBM to a single thread whenever the outer parallel

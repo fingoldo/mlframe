@@ -3,7 +3,6 @@ and (c) the empirical / algorithmic basis. Magic numbers without docstrings are 
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Sequence
 
 import numpy as np
@@ -18,6 +17,8 @@ from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 # the process-global filter for every importer.
 from contextlib import contextmanager as _contextmanager
 
+from mlframe.utils.warning_filters import install_filter_once
+
 
 @_contextmanager
 def suppress_numba_warnings():
@@ -29,11 +30,14 @@ def suppress_numba_warnings():
         with suppress_numba_warnings():
             _njit_kernel(...)
     """
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", module=".*_discretization")
-        warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
-        warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
-        yield
+    # Installed once, not snapshot-and-restored: this runs inside joblib ``backend="threading"`` workers, and
+    # ``catch_warnings`` manipulates the process-global filter list, so two overlapping blocks undo each other. Each
+    # filter below is narrow (one module, or numba's own deprecation categories), which is what makes a permanent
+    # install acceptable.
+    install_filter_once(module=".*_discretization")
+    install_filter_once(category=NumbaDeprecationWarning)
+    install_filter_once(category=NumbaPendingDeprecationWarning)
+    yield
 
 
 _NUMBA_CUDA_CAN_COMPILE: bool | None = None

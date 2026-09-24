@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import inspect
 import re
+import warnings
 from functools import lru_cache
 from pathlib import Path
 
@@ -96,6 +97,10 @@ def _all_config_classes() -> list[type[BaseModel]]:
             f"{configs_module.__package__}._reporting_configs",
             f"{configs_module.__package__}._configs_base",
             f"{configs_module.__package__}._feature_selection_config",
+            # Carved out of _model_configs.py when it crossed the 1k-LOC line; without these two the classes they hold
+            # (EnsemblingConfig, MultilabelDispatchConfig, QuantileRegressionConfig, ...) were audited by nothing.
+            f"{configs_module.__package__}._model_configs_ensembling",
+            f"{configs_module.__package__}._model_configs_behavior",
         }:
             continue
         if not issubclass(obj, BaseModel):
@@ -263,3 +268,85 @@ def test_every_config_field_has_a_consumer():
             f"deferred) add to _USER_DEFERRED_DEAD with reasoning:\n  " + "\n  ".join(unused)
         )
         pytest.fail(msg)
+
+
+# ---------------------------------------------------------------------------
+# A deferred-dead field is still a public knob: setting it must say it does nothing (PMT-37, INT-15).
+# ---------------------------------------------------------------------------
+
+
+# Fields whose validation reads the rest of the config: the full constructor call that sets them legally.
+_DEFERRED_DEAD_PROBES: dict[str, dict] = {
+    # The key set is validated against RFECV's signature, and kwargs without models are refused outright.
+    "FeatureSelectionConfig.rfecv_kwargs": {"rfecv_kwargs": {"cv": 3}, "rfecv_models": ["lgb"]},
+    # Each pair has to be drawn from the configured alphas.
+    "QuantileRegressionConfig.coverage_pairs": {"coverage_pairs": ((0.1, 0.5),)},
+}
+
+
+def _probe_values(field, qualified: str = "") -> list[object]:
+    """Candidate values of the field's own shape that differ from its default, best guess first.
+
+    Several of these fields validate their contents (a list of column names, a kwargs dict per model), so one generic
+    guess is not enough: the test walks the candidates until the config accepts one, and only then looks for the warning.
+    """
+    default = field.default
+    guesses: list[object] = []
+    if isinstance(default, bool):
+        guesses.append(not default)
+    elif isinstance(default, (int, float)):
+        guesses.append(type(default)(default + 1))
+    elif isinstance(default, str):
+        guesses.append(default + "_probe")
+    elif isinstance(default, (list, tuple)):
+        guesses += [type(default)(["probe"]), type(default)([0.5]), type(default)([(0.1, 0.9)])]
+    elif isinstance(default, dict):
+        guesses += [{"lgb": {"n_estimators": 7}}, {"probe": 1}, {"probe": "x"}]
+    guesses += [{"probe": 1}, ["probe"], 0.5, 7, True, "probe", (0.1, 0.9)]
+    return [g for g in guesses if g != default]
+
+
+@pytest.mark.parametrize("qualified", sorted(_USER_DEFERRED_DEAD))
+def test_a_deferred_dead_field_warns_when_it_is_set(qualified: str):
+    """Accepting a value for a knob nothing reads, in silence, is how a user ends up debugging a setting that never applied."""
+    cls_name, field_name = qualified.split(".", 1)
+    cls = next((c for c in _all_config_classes() if c.__name__ == cls_name), None)
+    assert cls is not None, f"{cls_name} is no longer a config class; drop the entry"
+    field = cls.model_fields.get(field_name)
+    assert field is not None, f"{qualified} no longer exists; drop the entry"
+
+    if qualified in _DEFERRED_DEAD_PROBES:
+        kwargs = _DEFERRED_DEAD_PROBES[qualified]
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            cls(**kwargs)
+        messages = [str(w.message) for w in caught if issubclass(w.category, (UserWarning, DeprecationWarning))]
+        assert any(field_name in m for m in messages), f"{qualified} accepted {kwargs!r} without warning; messages: {messages}"
+        return
+
+    rejected = []
+    for probe in _probe_values(field, qualified):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            try:
+                cls(**{field_name: probe})
+            except Exception as exc:  # this probe does not fit the field's own validation; try the next shape
+                rejected.append(f"{probe!r}: {type(exc).__name__}")
+                continue
+        messages = [str(w.message) for w in caught if issubclass(w.category, (UserWarning, DeprecationWarning))]
+        assert any(field_name in m for m in messages), f"{qualified} accepted {probe!r} without warning; messages: {messages}"
+        return
+    pytest.fail(f"{qualified}: no probe value the field accepts, so the warning could not be checked: {rejected}")
+
+
+@pytest.mark.parametrize("qualified", sorted(_USER_DEFERRED_DEAD))
+def test_a_deferred_dead_field_does_not_advertise_how_to_enable_it(qualified: str):
+    """A field that does nothing must not carry instructions for turning it on: that is what made INT-15 believable."""
+    cls_name, field_name = qualified.split(".", 1)
+    cls = next((c for c in _all_config_classes() if c.__name__ == cls_name), None)
+    assert cls is not None, f"{cls_name} is no longer a config class; drop the entry"
+    field = cls.model_fields.get(field_name)
+    assert field is not None, f"{qualified} no longer exists; drop the entry"
+    description = str(field.description or "")
+    advertising = re.search(r"enable by|set (it )?to .{0,20}to enable|turn (it )?on by", description, re.I)
+    assert not advertising, f"{qualified}'s description tells the user how to enable a field nothing reads: {description!r}"

@@ -319,10 +319,9 @@ def _coerce_input(
     raise TypeError(f"X must be polars.DataFrame or np.ndarray; got {type(X).__name__}.")
 
 
-# Module-level GPU threshold cache, keyed by (log2_n_bucket, log2_d_bucket, log2_n_features_bucket).
-# Populated by first-call micro-bench when ``gpu_threshold=None`` and ``use_gpu='auto'``. Buckets are log2-rounded so we don't re-bench for every minor shape
-# variation; a 100k-row call uses the same bucket as 120k.
-_GPU_AUTO_CACHE: dict[tuple[int, int, int], bool] = {}
+# A module-level `_GPU_AUTO_CACHE` was declared here for the auto-GPU decision and never read or written: the probe
+# ran per call while readers of this file assumed it was memoised. Reinstating it means shared mutable state on a
+# threaded path, so it needs a lock around the whole get-or-probe sequence, like the caches in feature_selection.
 
 
 def _resolve_use_gpu(

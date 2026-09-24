@@ -85,3 +85,7 @@ class CompositeSpec:
     # identical holdout rows. Lets the ship/no-ship floor ask whether a gain is larger than its own measurement
     # noise instead of comparing it against a fixed constant. ``None`` when the gate did not run.
     honest_holdout_rmse_gain_se: float | None = None
+    # The gain the honest RMSE gate decided on, measured on the selection half of the holdout. It is conditioned on the
+    # spec having passed that gate, so it is kept for diagnostics only; the honest_holdout_rmse* fields above are re-scored
+    # on the report half, which no decision reads. ``None`` when the holdout was too small to split.
+    selection_holdout_rmse_gain: float | None = None

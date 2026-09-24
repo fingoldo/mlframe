@@ -10,11 +10,12 @@ production pays one boolean check per annotated call.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
+
+from mlframe.utils.env_flags import env_flag
 
 ROLES = frozenset({"fit", "select", "report", "verdict", "plot"})
 
@@ -35,7 +36,7 @@ _FORCED = False
 
 def ledger_enabled() -> bool:
     """True when a test forced it on or ``MLFRAME_ROW_ROLE_LEDGER=1``."""
-    return _FORCED or os.environ.get("MLFRAME_ROW_ROLE_LEDGER") == "1"
+    return _FORCED or env_flag("MLFRAME_ROW_ROLE_LEDGER")
 
 
 def note_rows(row_set: str, role: str, consumer: str, rows: Any = None) -> None:

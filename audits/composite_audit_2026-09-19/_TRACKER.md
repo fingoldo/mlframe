@@ -16,13 +16,13 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
-| `discovery.md` | 30 | 29 | 0 | 1 | 0 | 0 |
+| `discovery.md` | 30 | 30 | 0 | 0 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 21 | 0 | 1 | 0 | 0 |
-| `suite_integration.md` | 19 | 18 | 0 | 1 | 0 | 0 |
+| `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 7 | 1 | 9 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 14 | 20 | 7 | 0 | 0 |
-| **Total** | **179** | **128** | **31** | **19** | **1** | **0** |
+| `tests.md` | 17 | 13 | 2 | 2 | 0 | 0 |
+| `preventive_meta_tests.md` | 41 | 19 | 20 | 2 | 0 | 0 |
+| **Total** | **179** | **141** | **32** | **5** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -78,7 +78,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `DSC-17` | The cross-target composite budget sorts three incompatible gain units together | budget ranks RMSE-gain tier before MI tier |
 | **RESOLVED** | P2 | `DSC-18` | The suite-end COMPOSITE_BEATS_RAW verdict is decided on the val split that discovery used for selection | composite-vs-raw verdict on test; val shown for reference; cross-split refuses a verdict |
 | **RESOLVED** | P2 | `DSC-19` | The group-disjoint honest-holdout carve can hold out most of the training rows | holdout within +/-25% or iid fallback |
-| **TODO** | P3 | `DSC-20` | Auto-chain proposals are not required to beat raw y, and duplicate the hard-coded default chains | |
+| **RESOLVED** | P3 | `DSC-20` | Auto-chain proposals are not required to beat raw y, and duplicate the hard-coded default chains | must beat raw by a relative margin; chain_stages dedups against the pool's own chains |
 | **RESOLVED** | P3 | `DSC-21` | The raw-y baseline and the per-spec CV can use different splitters | one fold scheme per rerank |
 | **RESOLVED** | P3 | `DSC-22` | `_group_ids_for_rerank` is read under two alignment conventions | frame-aligned contract; short array raises |
 | **RESOLVED** | P3 | `DSC-23` | Report reasons misattribute specs dropped by the late gates | the report reason is the spec's own ledger stage |
@@ -136,7 +136,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P3 | `INT-13` | The default model cache reuses a composite inner model whose target definition has changed | fixed earlier (spec digest on dumps); regression tests added |
 | **RESOLVED** | P3 | `INT-14` | The discovery "winning-spec" charts plot y and T over all rows, including test rows and median-imputed T values | charts plot train rows with a real T; imputed fill kept out of charts and dedup |
 | **RESOLVED** | P3 | `INT-15` | Two config fields are accepted and documented as effective but do nothing, with no warning | non-default values warn; misleading config comment fixed; allowlist entries removed |
-| **TODO** | P3 | `INT-16` | Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on | |
+| **RESOLVED** | P3 | `INT-16` | Composite env-var switches parse inconsistently; `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=0` turns the switch on | one env_flag parser for every switch; the kill switch keeps the caller's other fields |
 | **RESOLVED** | P3 | `INT-17` | The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target | DISCOVERY_ALGO_VERSION in the cache key + source-hash bump gate; versions via importlib.metadata |
 | **RESOLVED** | P3 | `INT-18` | A composite spec name that equals an existing target name silently overwrites that target's values | insert_composite_targets() drops the colliding spec and records the failure instead of overwriting |
 | **RESOLVED** | P3 | `INT-19` | The predict-time composite env-signature check warns on any patch or Python bump, contrary to its documented major/minor policy | major.minor comparison; patch-only drift at DEBUG |
@@ -179,18 +179,18 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P1 | `TST-03` | The per-transform registry contract test cannot detect the transform defects: one benign fixture, median error, exact-T round trip on train bases only, and a tolerance table up to 1e9x looser than the measured error | max-error round trip at one tolerance over a scale/offset/size grid, 2-D base for multi-base, out-of-range and disjoint-batch legs; Lipschitz leg and discrete/null-group fixtures not done |
 | **RESOLVED** | P1 | `TST-04` | Seven tests pin behaviour that the sibling reports show is wrong, so fixing those defects turns the suite red | all 7 pinned tests now assert the corrected behaviour (4 with earlier fixes, 3 in this change) |
 | **RESOLVED** | P1 | `TST-05` | No test checks that predict is independent of how rows are batched, and the recurrent-transform tests invert over the full series, which hides every batch-state defect | batching-invariance property tests over all transforms: pointwise chunk equality, recurrent exact with warm-up prefix, known limits pinned (frac_diff memory, centred window), NaN base contained; recurrent biz test scores per test segment |
-| **TODO** | P2 | `TST-06` | The discovery time-awareness tests shuffle rows correctly but assert only the `_screen_time_ordered_` flag, which is the one thing the sort changes | |
-| **TODO** | P2 | `TST-07` | The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04 | |
+| **RESOLVED** | P2 | `TST-06` | The discovery time-awareness tests shuffle rows correctly but assert only the `_screen_time_ordered_` flag, which is the one thing the sort changes | folds and sample order asserted against the time key; mutation-checked against the pre-DSC-05 behaviour |
+| **RESOLVED** | P2 | `TST-07` | The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04 | harness scoped, dead asserts removed; the fresh-row check found and fixed a DSC-03 residual |
 | **TODO** | P2 | `TST-08` | Group handling is tested only with clean string/int labels on row-random splits, and the unseen-group tests assert only finiteness | |
 | **TODO** | P2 | `TST-09` | Polars coverage is limited to four pointwise transforms and a monotone-time OOF case, which hides the polars row-misalignment bug | |
 | **RESOLVED** | P2 | `TST-10` | The CTE fuzz suite asserts only finiteness and a y-envelope that the post-inverse clip guarantees, on small-scale data, and states "found NO production bug" | oracle inner reproduces train y over nine decades of scale; found + fixed box_cox_y constant-T collapse (normalised form) |
 | **RESOLVED** | P2 | `TST-11` | Several biz_val tests have no honest baseline, compare against a baseline starved of the base column, or assert only "not worse" | honest baselines measured (grouped EWMA fixture moved to its real regime), OOF NNLS strict win via predict, noise asserts no spec, var(T) -> held-out RMSE |
-| **TODO** | P2 | `TST-12` | Targeted transform and ensemble tests use the one parameter region where the filed defect is silent | |
+| **RESOLVED** | P2 | `TST-12` | Targeted transform and ensemble tests use the one parameter region where the filed defect is silent | gaps filled for EST-05/EST-06; the rest was covered by the fixes' tests |
 | **RESOLVED** | P2 | `TST-13` | Data-dependent skips and conditional asserts let tests pass without checking anything | seeded skips pinned as preconditions; integration asserts measured; no_xdist tests now run on -n 1 CI shards |
-| **TODO** | P2 | `TST-14` | The selection-gate modules with the most leverage have no direct tests, and the cache-key tests check only the key function's own arguments | |
-| **TODO** | P2 | `TST-15` | Composite tests check the CTE-raw-X routing by inspecting source text, and the behavioural half fits the inner on raw features, so it cannot see EST-01 | |
-| **TODO** | P3 | `TST-16` | Timing-based asserts in the composite suite can flake on the shared host | |
-| **TODO** | P3 | `TST-17` | The composite integration tests run eight independent full-suite trainings for loose assertions, and the recorded durations are contaminated | |
+| **RESOLVED** | P2 | `TST-14` | The selection-gate modules with the most leverage have no direct tests, and the cache-key tests check only the key function's own arguments | gate functions unit-tested; found and fixed a NaN-gain spec passing the MI gate |
+| **RESOLVED** | P2 | `TST-15` | Composite tests check the CTE-raw-X routing by inspecting source text, and the behavioural half fits the inner on raw features, so it cannot see EST-01 | every source-text assertion replaced by the behaviour it stood for |
+| **RESOLVED** | P3 | `TST-16` | Timing-based asserts in the composite suite can flake on the shared host | njit sentinel interleaved best-of-N; HPO ROI asserted in folds, not seconds |
+| **PARTIAL** | P3 | `TST-17` | The composite integration tests run eight independent full-suite trainings for loose assertions, and the recorded durations are contaminated | eight trainings down to three, 620 s to 45 s; .test_durations regeneration belongs to a quiet CI run |
 
 ### `preventive_meta_tests.md`
 
@@ -229,11 +229,11 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P1 | `PMT-31` | Stage-sentinel inner: wrappers and every predict entry point must feed the inner its own pipeline stage and the base its raw stage | stage sentinel: wrapper/composite_predict/shim/CT-ensemble routes pinned; MoE + suite-internal entry points open |
 | **PARTIAL** | P1 | `PMT-32` | Fresh-process persistence round trip for every registry transform and the whole auto-chain name space | 57 wrappers + CT ensemble loaded in one fresh subprocess; MoE wrapper open |
 | **RESOLVED** | P1 | `PMT-33` | Runtime registry mutation must have a load-time replay (shared scanner) | shared runtime-registry scanner; mlframe wired with 5 reasoned replay writers |
-| **TODO** | P2 | `PMT-34` | getattr default parity: `getattr(cfg, "field", literal)` must match the pydantic field default (shared scanner) | |
+| **RESOLVED** | P2 | `PMT-34` | getattr default parity: `getattr(cfg, "field", literal)` must match the pydantic field default (shared scanner) | shared scanner wired with an empty allowlist; all 49 drifted sites aligned |
 | **RESOLVED** | P3 | `PMT-35` | Unread constructor parameters in estimator classes (shared scanner) | shared scanner wired over all of src; one further dead parameter removed |
-| **TODO** | P3 | `PMT-36` | Environment flags parsed through one shared parser (shared scanner) | |
-| **TODO** | P3 | `PMT-37` | Deferred-dead config fields must warn when set, and no allowlisted field may advertise how to enable it | |
+| **RESOLVED** | P3 | `PMT-36` | Environment flags parsed through one shared parser (shared scanner) | shared scanner wired over the composite scope |
+| **RESOLVED** | P3 | `PMT-37` | Deferred-dead config fields must warn when set, and no allowlisted field may advertise how to enable it | every deferred-dead field warns when set; two config modules were outside the audit and are in it now |
 | **RESOLVED** | P1 | `PMT-38` | A config rebuilt with `model_copy(update=...)` must reach its consumers (shared scanner) | shared discarded-model_copy scanner wired with an empty allowlist |
-| **TODO** | P2 | `PMT-39` | Survivorship-scored metrics: a metric computed only on rows where the prediction is finite (shared scanner) | |
-| **TODO** | P2 | `PMT-40` | `source_text_claims` misses source text accumulated with `+=`: close the taint gap and drain the composite allowlist | |
+| **RESOLVED** | P2 | `PMT-39` | Survivorship-scored metrics: a metric computed only on rows where the prediction is finite (shared scanner) | shared scanner wired over src with an empty allowlist; fires on all four pre-fix sites |
+| **RESOLVED** | P2 | `PMT-40` | `source_text_claims` misses source text accumulated with `+=`: close the taint gap and drain the composite allowlist | AugAssign taint closed; both composite files drained from the allowlist |
 | **TODO** | P3 | `PMT-41` | Advisory scan for tests that pin a conceded defect | |

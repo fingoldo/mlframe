@@ -317,6 +317,8 @@ class CompositeTargetDiscovery:
                 # by that floor showed a positive gain and no reason in the metadata -- the decision was made on a
                 # number nobody could see.
                 "honest_holdout_rmse_gain_se": getattr(s, "honest_holdout_rmse_gain_se", None),
+                # What the gate decided on (selection half), kept apart from the honest number so it cannot be mistaken for it.
+                "selection_holdout_rmse_gain": getattr(s, "selection_holdout_rmse_gain", None),
             }
             for s in getattr(self, "specs_", [])
         ]
@@ -492,7 +494,7 @@ class CompositeTargetDiscovery:
         cfg = self.config
         sample_idx = _sample_indices(
             train_idx.size, cfg.mi_sample_n, cfg.random_state,
-            strategy=getattr(cfg, "mi_sample_strategy", "random"), y=y_train,
+            strategy=getattr(cfg, "mi_sample_strategy", 'stratified_quantile'), y=y_train,
             n_strata=getattr(cfg, "mi_n_strata", 10),
         )
         train_idx_screen = train_idx[sample_idx]

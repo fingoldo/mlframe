@@ -20,6 +20,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from mlframe.utils.env_flags import env_flag
 from mlframe.utils.safe_pickle import (
     safe_load as _safe_pickle_load,
     write_sidecar as _safe_pickle_write_sidecar,
@@ -369,9 +370,7 @@ class DiscoveryCache:
         # stale data. allow_unverified=True keeps the migration story: legacy entries written before
         # the sidecar landed remain readable (cache miss is the safe fallback if they're broken).
         # Operators who want strict-only behaviour set MLFRAME_DISCOVERY_CACHE_STRICT=1.
-        _strict = os.environ.get("MLFRAME_DISCOVERY_CACHE_STRICT", "").strip().lower() in (
-            "1", "true", "yes", "on",
-        )
+        _strict = env_flag("MLFRAME_DISCOVERY_CACHE_STRICT")
         try:
             if _strict:
                 value = _safe_pickle_load(path)

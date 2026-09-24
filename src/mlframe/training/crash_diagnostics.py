@@ -28,6 +28,8 @@ from typing import Any, Dict, Optional, cast
 logger = logging.getLogger(__name__)
 
 DEFAULT_HEARTBEAT_S = 300.0
+# Interpreter exit waits at most this long for the heartbeat thread, then leaves it to the OS.
+_HEARTBEAT_EXIT_JOIN_S = 5.0
 
 _FAULT_FILE: Any = None  # kept referenced for the process lifetime: faulthandler holds only the fd
 _FAULT_PATH: Optional[str] = None
@@ -216,7 +218,10 @@ def _atexit_handler() -> None:
         logger.debug("atexit exit line failed: %s", e)
     try:
         if _HEARTBEAT is not None:
-            _HEARTBEAT.stop(join=False)
+            # Bounded join, not fire-and-forget: the thread logs, and an un-joined one can be mid-``logger.info`` when
+            # logging's own atexit closes the handlers ("I/O operation on closed file"), or leave its GPU-probe
+            # subprocess outliving the process it reports on.
+            _HEARTBEAT.stop(join=True, timeout=_HEARTBEAT_EXIT_JOIN_S)
     except Exception as e:
         logger.debug("atexit heartbeat stop failed: %s", e)
 
@@ -374,6 +379,11 @@ def install_crash_diagnostics(crash_dir: Optional[str] = None, all_threads: bool
     """Install everything above; returns what got enabled. Never raises."""
     info: Dict[str, Any] = {}
     try:
+        # Before anything else: a crash dump names the library it died in but never its version, and the run may use a
+        # different interpreter than the checkout being read afterwards.
+        from ._environment_report import log_environment_versions
+
+        info["environment"] = log_environment_versions()
         info["faulthandler_file"] = open_faulthandler_file(crash_dir, all_threads=all_threads)
         install_exception_hooks()
         register_atexit()

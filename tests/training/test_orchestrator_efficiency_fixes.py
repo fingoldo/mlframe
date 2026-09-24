@@ -271,15 +271,14 @@ def test_ensure_logging_visible_is_idempotent():
     sys.path.insert(0, str(CORE.parents[3]))  # repo/src
     from mlframe.training.core._misc_helpers import _ensure_logging_visible
 
-    root = logging.getLogger()
+    # The handler lives on mlframe's own logger now, and the root is left to the embedding application.
+    root, pkg = logging.getLogger(), logging.getLogger("mlframe")
     _ensure_logging_visible()
-    before = list(root.handlers)
-    before_fmts = [getattr(h.formatter, "_fmt", None) for h in before]
+    before_root = [getattr(h.formatter, "_fmt", None) for h in root.handlers]
+    before_pkg = list(pkg.handlers)
     _ensure_logging_visible()
-    after = list(root.handlers)
-    after_fmts = [getattr(h.formatter, "_fmt", None) for h in after]
-    assert len(after) == len(before), f"second call added handlers ({len(before)} -> {len(after)})"
-    assert after_fmts == before_fmts, "second call mutated handler formatters"
+    assert list(pkg.handlers) == before_pkg, "second call added or replaced a handler on the mlframe logger"
+    assert [getattr(h.formatter, "_fmt", None) for h in root.handlers] == before_root, "second call mutated root handlers"
 
 
 # Fix 13: finalize_suite combines fairness + selected-features walks into one pass.

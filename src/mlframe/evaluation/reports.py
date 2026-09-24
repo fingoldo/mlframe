@@ -13,6 +13,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from contextlib import nullcontext
+
+from mlframe.utils.warning_filters import install_filter_once
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -181,9 +185,13 @@ def evaluate_estimators(
     classification_report_dict: Optional[dict] = None
     cm: Any = None
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
-        warnings.filterwarnings("ignore", category=FutureWarning)
+    # Installed once instead of snapshot-and-restored around this block: report rendering is reachable from a joblib
+    # ``backend="threading"`` worker (the bootstrap path fans out that way), and ``catch_warnings`` mutates the
+    # process-global filter list, so two overlapping blocks restore each other's snapshot - one loses its suppression
+    # mid-run, or leaks an "ignore" into unrelated caller code. Both filters are scoped to this module.
+    install_filter_once(category=UndefinedMetricWarning, module=r".*mlframe\.evaluation\.reports")
+    install_filter_once(category=FutureWarning, module=r".*mlframe\.evaluation\.reports")
+    with nullcontext():  # keeps this long body's indentation; the suppression above is process-wide and permanent
 
         if caption:
             display(Markdown(f"**{caption.upper()}:**"))

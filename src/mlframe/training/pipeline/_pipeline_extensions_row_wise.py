@@ -122,7 +122,11 @@ def apply_row_wise_steps(train, val, test, config, verbose: int, out_row_wise_re
                 is identical regardless of how many of ``_rw_cols`` that split actually had.
                 """
                 _out = row_wise_top_k_extreme_columns(_df, columns=_cols, k=_rw_k, reference=_rw_reference)
-                assert isinstance(_out, pd.DataFrame)  # return_column_summary not passed -> always the plain-DataFrame overload
+                if not isinstance(_out, pd.DataFrame):  # an assert here would vanish under python -O
+                    raise TypeError(
+                        f"row_wise_top_k_extreme_columns returned {type(_out).__name__}; without return_column_summary "
+                        "it must be the plain-DataFrame overload, and the column selection below assumes that."
+                    )
                 _score_cols = [c for c in _out.columns if c.endswith("_score")]
                 _result = _out[_score_cols].add_prefix("row_extreme_")
                 for _i in range(1, _rw_k + 1):

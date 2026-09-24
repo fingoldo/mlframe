@@ -143,7 +143,7 @@ Overlap notes: DSC-12 (cache key contents), DSC-18 (verdict split), DSC-20 (auto
 - **Why it matters**: Kill switches and debug switches behave differently from how they read.
 - **Suggested fix**: Use one shared truthy parser (`{"1","true","yes","on"}`) for all composite env vars. For the kill switch, use `model_copy(update={"enabled": False})` on the caller's config.
 - **Test to add**: A parametrised env-var test where `"0"`/`"false"` mean off and `"on"` means on, for each of the three switches.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - mlframe/utils/env_flags.py::env_flag is the one parser (1/true/yes/on/y/t against 0/false/no/off/n/f and the empty string, case- and whitespace-insensitive, with a declared default), and the ten boolean switches in composite, core and reporting read through it. The kill switch moved into apply_composite_kill_switch(), which sets enabled=False on the caller's own config instead of rebuilding it from a bare dict and discarding every other field (test_composite_env_switches.py)
 
 ### INT-17 [P3] The discovery-cache version signal cannot see code changes within a release, and it cold-imports the boosters on every target
 - **Where**: `core/_phase_composite_discovery_helpers.py:137-169` (`mlframe.__version__` from the static `mlframe/version.py`; `__import__` of sklearn/lightgbm/catboost/xgboost/... per call). It is called once per regression target at `core/_phase_composite_discovery.py:537`.

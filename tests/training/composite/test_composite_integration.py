@@ -99,6 +99,72 @@ def _build_minimal_fte(target_col: str = "target"):
 # ----------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def opted_in_suite(tmp_path_factory):
+    """One suite trained with discovery on, shared by every test below that only reads what that run produced.
+
+    Six tests used to fit nearly the same 400-row frame with nearly the same config and then inspect one metadata slot
+    each; the file took ten minutes of the composite directory's wall time for assertions that never needed a run of
+    their own. This config is the union of what they asked for: both transforms, the y-scale metric block on, and the
+    cross-target ensemble on. Returns ``(models, metadata, df, records)``.
+    """
+    import logging
+
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+    from mlframe.training.core import train_mlframe_models_suite
+
+    df = _tvt_dataset(n=400)
+    cfg = CompositeTargetDiscoveryConfig(
+        # A trained composite is the subject of these tests, so the fixture has to produce one: on a 400-row frame a spec
+        # beats raw but cannot clear the default 2-SE significance floor, which is the right production call and would
+        # leave every assertion vacuous.
+        min_honest_gain_z=0.0,
+        enabled=True,
+        min_honest_gain_to_train=None,
+        base_candidates=["TVT_prev"],
+        transforms=["diff", "linear_residual"],
+        mi_sample_n=200,
+        top_k_after_mi=2,
+        eps_mi_gain=-1.0,
+        skip_wrap_pass_predict=False,  # the y-scale metric block is one of the units under test
+        cross_target_ensemble_strategy="oof_weighted",
+    )
+    records: list[logging.LogRecord] = []
+
+    class _Collect(logging.Handler):
+        """Keeps every record the run emits, for the tests that assert on a log line."""
+
+        def emit(self, record):
+            """Keep the record for the assertions."""
+            records.append(record)
+
+    handler = _Collect(level=logging.INFO)
+    root = logging.getLogger("mlframe")
+    root.addHandler(handler)
+    previous_level = root.level
+    root.setLevel(logging.INFO)
+    try:
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="target",
+            model_name="composite_shared",
+            features_and_targets_extractor=_build_minimal_fte(),
+            mlframe_models=["linear"],
+            output_config={
+                "data_dir": str(tmp_path_factory.mktemp("composite_shared")),
+                "models_dir": "models",
+                **_LEAN_OUTPUT_CONFIG_KWARGS,
+            },
+            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
+            verbose=0,
+            composite_target_discovery_config=cfg,
+        )
+    finally:
+        root.removeHandler(handler)
+        root.setLevel(previous_level)
+    return models, metadata, df, records
+
+
 class TestCompositeIntegration:
     """Groups tests covering composite integration."""
     def test_default_off_does_not_add_composite_targets(self, tmp_path) -> None:
@@ -123,98 +189,36 @@ class TestCompositeIntegration:
         assert metadata.get("composite_target_specs") == {}
         assert metadata.get("composite_target_failures") == {}
 
-    def test_opt_in_populates_composite_target_specs(self, tmp_path) -> None:
-        """Enable discovery; ``metadata['composite_target_specs']``
-        carries at least one entry under ``regression / TVT`` and the
-        composite target lands in ``models_dict``."""
-        from mlframe.training.configs import CompositeTargetDiscoveryConfig
-        from mlframe.training.core import train_mlframe_models_suite
+    def test_opt_in_populates_composite_target_specs(self, opted_in_suite) -> None:
+        """Enabling discovery puts at least one spec under ``regression / target`` and the composite target in the model dict."""
         from mlframe.training.configs import TargetTypes
 
-        df = _tvt_dataset(n=400)
-        cfg = CompositeTargetDiscoveryConfig(
-            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
-            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
-            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
-            min_honest_gain_z=0.0,
-            enabled=True,
-            min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
-            base_candidates=["TVT_prev"],
-            transforms=["diff", "linear_residual"],
-            mi_sample_n=200,
-            top_k_after_mi=2,
-            eps_mi_gain=-1.0,  # take whatever shows up
-        )
-        _models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="composite_on",
-            features_and_targets_extractor=_build_minimal_fte(),
-            mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
-            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
-            verbose=0,
-            composite_target_discovery_config=cfg,
-        )
+        _models, metadata, _df, _records = opted_in_suite
         assert metadata.get("schema_version") == 2
         specs = metadata.get("composite_target_specs", {})
-        # Specs nested under {target_type: {target_name: [list of specs]}}.
         assert "regression" in specs or TargetTypes.REGRESSION in specs
         regression_specs = specs.get("regression") or specs.get(TargetTypes.REGRESSION) or {}
         assert "target" in regression_specs, f"expected composite specs under regression/target, got {regression_specs}"
         spec_list = regression_specs["target"]
         assert len(spec_list) >= 1
-        # Each spec carries the canonical fields.
         for s in spec_list:
             assert {"name", "target_col", "transform_name", "base_column", "fitted_params"}.issubset(s)
             assert s["target_col"] == "target"
             assert s["base_column"] == "TVT_prev"
 
-    def test_composite_models_predict_in_y_scale_after_wrap(self, tmp_path) -> None:
-        """After PR5 wrapping, ``models[type][composite_name][i].model.predict(X)``
-        (or ``[i].predict(X)`` for entries that are plain estimators)
-        must return y-scale predictions, NOT T-scale. Verified by
-        comparing the wrapped predict output against the actual y
-        range -- T-scale predictions on a residual transform would
-        cluster near zero, far below the y range."""
-        from mlframe.training.configs import CompositeTargetDiscoveryConfig
-        from mlframe.training.core import train_mlframe_models_suite
+    def test_composite_models_predict_in_y_scale_after_wrap(self, opted_in_suite) -> None:
+        """A wrapped composite predicts on the y scale, not the T scale: T-scale residual predictions sit near zero."""
         from mlframe.training.composite import CompositeTargetEstimator
 
-        df = _tvt_dataset(n=400)
-        cfg = CompositeTargetDiscoveryConfig(
-            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
-            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
-            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
-            min_honest_gain_z=0.0,
-            enabled=True,
-            min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
-            base_candidates=["TVT_prev"],
-            transforms=["linear_residual"],
-            mi_sample_n=200,
-            top_k_after_mi=1,
-            eps_mi_gain=-1.0,
-        )
-        models, _metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="composite_yscale",
-            features_and_targets_extractor=_build_minimal_fte(),
-            mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
-            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
-            verbose=0,
-            composite_target_discovery_config=cfg,
-        )
+        models, _metadata, df, _records = opted_in_suite
         # Find the composite target entry.
         regression_models = (
             models.get("regression") or models.get(__import__("mlframe.training.configs", fromlist=["TargetTypes"]).TargetTypes.REGRESSION) or {}
         )
-        # 2026-05-16: composite-target naming switched to short aliases per
-        # composite_transforms.py:1380 ('linear_residual' -> 'linres' etc.),
-        # so the public key is e.g. 'target-linres-TVT_prev'. Match both
-        # the legacy long form and the new short alias for compatibility.
-        composite_keys = [k for k in regression_models if "__linear_residual__TVT_prev" in k or "-linres-TVT_prev" in k]
+        # Whichever spec the gates ship is the subject here: the test is about the wrap, not about which transform won.
+        # The spec names in the metadata are the authority, so a key is composite when the run recorded it as a spec.
+        spec_names = {spec["name"] for by_target in _metadata.get("composite_target_specs", {}).values() for specs in by_target.values() for spec in specs}
+        composite_keys = [k for k in regression_models if k in spec_names]
         assert composite_keys, f"expected at least one composite-target key in models[regression], got {list(regression_models.keys())}"
         composite_entries = regression_models[composite_keys[0]]
         assert composite_entries, "composite target should have at least one entry"
@@ -313,43 +317,9 @@ class TestCompositeIntegration:
         composite_keys = [k for k in regression if "linear_residual" in k or "diff" in k]
         assert len(composite_keys + ensemble_keys) > 0
 
-    def test_y_scale_metrics_populated_after_wrap(self, tmp_path) -> None:
-        """The per-target loop reports T-scale RMSE for composite
-        targets; PR8 adds parallel y-scale RMSE/MAE under
-        ``metadata['composite_target_y_scale_metrics']`` so callers
-        can compare composite to raw on the same scale."""
-        from mlframe.training.configs import CompositeTargetDiscoveryConfig
-        from mlframe.training.core import train_mlframe_models_suite
-
-        df = _tvt_dataset(n=400)
-        cfg = CompositeTargetDiscoveryConfig(
-            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
-            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
-            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
-            min_honest_gain_z=0.0,
-            enabled=True,
-            min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
-            base_candidates=["TVT_prev"],
-            transforms=["linear_residual"],
-            mi_sample_n=200,
-            top_k_after_mi=1,
-            eps_mi_gain=-1.0,
-            # Force the y-scale metric block to run (default is to skip it
-            # because Pack G's additive-transform watchdog covers correctness
-            # at lower cost). The metric block itself is the unit under test.
-            skip_wrap_pass_predict=False,
-        )
-        _models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="composite_yscale_metrics",
-            features_and_targets_extractor=_build_minimal_fte(),
-            mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
-            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
-            verbose=0,
-            composite_target_discovery_config=cfg,
-        )
+    def test_y_scale_metrics_populated_after_wrap(self, opted_in_suite) -> None:
+        """The per-target loop reports composite metrics on the y scale beside the T-scale ones."""
+        _models, metadata, df, _records = opted_in_suite
         y_metrics = metadata.get("composite_target_y_scale_metrics", {})
         assert y_metrics, "expected y-scale metrics to be populated"
         regression_metrics = y_metrics.get("regression") or y_metrics.get(
@@ -357,60 +327,27 @@ class TestCompositeIntegration:
         )
         assert regression_metrics
         # At least one composite entry, and it has train metrics.
-        # Accept both legacy long-form 'linear_residual' and the short
-        # alias 'linres' (composite_transforms.py:1380, 2026-05-16).
-        composite_keys = [k for k in regression_metrics if "linear_residual" in k or "linres" in k]
-        assert composite_keys
+        spec_names = {spec["name"] for by_target in metadata.get("composite_target_specs", {}).values() for specs in by_target.values() for spec in specs}
+        composite_keys = [k for k in regression_metrics if k in spec_names]
+        assert composite_keys, f"no y-scale metrics for any shipped spec; metrics keys {list(regression_metrics)}, specs {spec_names}"
         per_entry_metrics = regression_metrics[composite_keys[0]]
         assert per_entry_metrics  # at least one entry
         # First entry has at least train RMSE.
         train_metrics = per_entry_metrics[0].get("metrics", {}).get("train", {})
         assert "RMSE" in train_metrics
-        # Measured against the target's own spread: the linear residual on TVT_prev reaches y-RMSE 0.29 with std(y) 2.95
+        # Measured against the target's own spread: an additive residual on TVT_prev reaches y-RMSE 0.29 with std(y) 2.95
         # (ratio 0.10). An inverse that returned T, or added the base twice, lands near the base level (~10), far above.
         y_std = float(np.std(np.asarray(df["target"], dtype=np.float64)))
         assert 0 < train_metrics["RMSE"] < 0.25 * y_std, f"train y-RMSE {train_metrics['RMSE']:.4g} vs std(y) {y_std:.4g}"
 
-    def test_cross_target_ensemble_creates_aggregate_entry(self, tmp_path) -> None:
-        """When ``cross_target_ensemble_strategy != 'off'`` is set, the
-        suite produces a ``_CT_ENSEMBLE__{target}`` entry under
-        ``models[regression]`` after wrapping. Its ``.predict()`` must
-        return finite y-scale predictions and match the weighted-
-        mean of the wrapped components on a sample input.
-        """
-        from mlframe.training.configs import CompositeTargetDiscoveryConfig
-        from mlframe.training.core import train_mlframe_models_suite
+    def test_cross_target_ensemble_creates_aggregate_entry(self, opted_in_suite) -> None:
+        """With a cross-target strategy on, the suite produces a ``_CT_ENSEMBLE__{target}`` entry that predicts on the y scale."""
         from mlframe.training.composite import (
             CompositeCrossTargetEnsemble,
             CompositeTargetEstimator,
         )
 
-        df = _tvt_dataset(n=400)
-        cfg = CompositeTargetDiscoveryConfig(
-            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
-            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
-            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
-            min_honest_gain_z=0.0,
-            enabled=True,
-            min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
-            base_candidates=["TVT_prev"],
-            transforms=["diff", "linear_residual"],
-            mi_sample_n=200,
-            top_k_after_mi=2,
-            eps_mi_gain=-1.0,
-            cross_target_ensemble_strategy="oof_weighted",
-        )
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="composite_ensemble",
-            features_and_targets_extractor=_build_minimal_fte(),
-            mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
-            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
-            verbose=0,
-            composite_target_discovery_config=cfg,
-        )
+        models, metadata, df, _records = opted_in_suite
         # Strict: ensemble must be reachable via the enum key that
         # downstream consumers (predict_mlframe_models) iterate. A
         # fallback-string-OR-enum chain would mask the regression
@@ -516,52 +453,17 @@ class TestCompositeIntegration:
             f"got keys={list(ens_meta)}"
         )
 
-    def test_cross_target_ensemble_entry_banner_logged(self, tmp_path, caplog) -> None:
-        """User reported "CompositeCrossTargetEnsemble line absent from
-        output" — the root cause is hard to diagnose without an entry
-        banner that always fires when discovery is enabled. This test
-        locks the banner contract: whenever ``enabled=True`` the suite
-        emits at least one ``[CompositeCrossTargetEnsemble] entry: ...``
-        log line, regardless of whether the gate ultimately opens (eg.
-        strategy='off' should still log the banner so users see the
-        config state in their script output).
-        """
-        import logging
-        from mlframe.training.configs import CompositeTargetDiscoveryConfig
-        from mlframe.training.core import train_mlframe_models_suite
+    def test_cross_target_ensemble_entry_banner_logged(self, opted_in_suite) -> None:
+        """Whenever discovery is enabled the suite emits the ``[CompositeCrossTargetEnsemble] entry:`` banner.
 
-        df = _tvt_dataset(n=400)
-        cfg = CompositeTargetDiscoveryConfig(
-            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
-            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
-            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
-            min_honest_gain_z=0.0,
-            enabled=True,
-            min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
-            base_candidates=["TVT_prev"],
-            transforms=["diff"],
-            mi_sample_n=200,
-            top_k_after_mi=1,
-            eps_mi_gain=-1.0,
-            cross_target_ensemble_strategy="off",
-        )
-        with caplog.at_level(logging.INFO, logger="mlframe.training.core"):
-            train_mlframe_models_suite(
-                df=df,
-                target_name="target",
-                model_name="composite_banner",
-                features_and_targets_extractor=_build_minimal_fte(),
-                mlframe_models=["linear"],
-                output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
-                reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
-                verbose=0,
-                composite_target_discovery_config=cfg,
-            )
-        banners = [r for r in caplog.records if "[CompositeCrossTargetEnsemble] entry:" in r.getMessage()]
+        "The CompositeCrossTargetEnsemble line is absent from my output" is hard to diagnose without a line that always
+        fires, so the banner is logged whether or not the gate then opens.
+        """
+        _models, _metadata, _df, records = opted_in_suite
+        banners = [r for r in records if "[CompositeCrossTargetEnsemble] entry:" in r.getMessage()]
         assert banners, (
-            "expected at least one entry banner from cross-target "
-            "ensemble gate so users can diagnose missing-ensemble case; "
-            f"got log records: {[r.getMessage() for r in caplog.records[-20:]]}"
+            "expected at least one entry banner from the cross-target ensemble gate so a missing ensemble is "
+            f"diagnosable; got {[r.getMessage() for r in records[-20:]]}"
         )
 
     def test_composite_dummy_baseline_inverted_to_y_scale(self, tmp_path) -> None:

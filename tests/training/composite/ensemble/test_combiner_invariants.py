@@ -94,3 +94,50 @@ def test_the_stack_and_its_rmses_follow_the_sample_weights():
     assert weighted.weights[1] > plain.weights[1] + 0.1, (plain.weights, weighted.weights)
     r_plain, r_w = column_rmses(P, y), column_rmses(P, y, w)
     assert r_w[1] < r_plain[1] and r_w[0] > r_plain[0]
+
+
+def _blend(ens, P_cols: np.ndarray) -> np.ndarray:
+    """What a stack serves on the given component columns: its weights, plus the intercept for a linear stack."""
+    w = np.asarray(ens.weights, dtype=np.float64)
+    return P_cols @ w + float(getattr(ens, "_linear_stack_intercept", 0.0) or 0.0)
+
+
+@pytest.mark.parametrize("strategy", ["nnls_stack", "linear_stack"])
+@pytest.mark.parametrize("seed", [1, 2])
+def test_the_gate_value_itself_falls_back_on_a_noise_padded_pool(strategy: str, seed: int):
+    """``gate_stack_rmse`` - the number the fallback compares - loses to the best single on 1 good + 20 noise components.
+
+    The in-sample stack beats the good component by construction; the gate has to read the cross-fitted value, or the
+    fallback it exists for can never fire.
+    """
+    from mlframe.training.core._phase_composite_post_xt_ensemble._crossfit import gate_stack_rmse
+
+    y, P, comps, names = _pool(seed)
+    best_single = float(np.sqrt(np.mean((P[:, 0] - y) ** 2)))
+    build = Ens.from_linear_stack if strategy == "linear_stack" else Ens.from_nnls_stack
+    ens = build(component_models=comps, component_names=names, component_predictions=P, y_train=y)
+    in_sample = _blend(ens, P)
+    assert float(np.sqrt(np.mean((in_sample - y) ** 2))) < best_single
+    assert gate_stack_rmse(Ens, strategy, comps, names, P, y, in_sample) > best_single
+
+
+@pytest.mark.parametrize("strategy", ["nnls_stack", "linear_stack"])
+def test_a_capped_stack_serves_predictions_on_the_uncapped_level(strategy: str):
+    """After capping and refitting, the served blend's mean stays within 2% of the full stack's on the same rows.
+
+    Checking only which component names survive the cap said nothing about what the capped ensemble predicts.
+    """
+    rng = np.random.default_rng(3)
+    n = 400
+    y = rng.normal(100.0, 10.0, n)
+    P = np.column_stack([y + rng.normal(0.0, s, n) for s in (3.0, 4.0, 5.0, 6.0, 7.0)])
+    comps = [types.SimpleNamespace() for _ in range(P.shape[1])]
+    names = [f"c{i}" for i in range(P.shape[1])]
+    build = Ens.from_linear_stack if strategy == "linear_stack" else Ens.from_nnls_stack
+    full = build(component_models=comps, component_names=names, component_predictions=P, y_train=y)
+    capped = refit_capped_stack(Ens, strategy, full.cap_inference_components(2), names, P, y)
+    kept = [names.index(nm) for nm in capped.component_names]
+    assert len(kept) == 2
+    full_mean = float(np.mean(_blend(full, P)))
+    capped_mean = float(np.mean(_blend(capped, P[:, kept])))
+    assert abs(capped_mean - full_mean) / abs(full_mean) < 0.02, (strategy, capped_mean, full_mean)

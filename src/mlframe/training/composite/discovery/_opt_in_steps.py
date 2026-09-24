@@ -189,7 +189,7 @@ def _run_auto_chain(
     # The chain search is tiny-model CV, the same work the tiny rerank does, so it gets the same row budget
     # (``tiny_model_sample_n``) instead of the larger MI screen sample: 12 transforms x cv_folds fits per base scale
     # linearly with rows, and the MI sample is sized for MI, not for 100+ GBM fits.
-    tiny_n = int(getattr(self.config, "tiny_model_sample_n", 0) or 0)
+    tiny_n = int(getattr(self.config, "tiny_model_sample_n", 20000) or 0)
     if 0 < tiny_n < screen_idx.size:
         keep = np.sort(np.random.default_rng(int(self.config.random_state)).choice(screen_idx.size, size=tiny_n, replace=False))
         screen_idx, y_screen = screen_idx[keep], y_screen[keep]
@@ -222,6 +222,7 @@ def _run_auto_chain(
             chains = discover_chains(
                 y=y_screen, base=base_screen, x_matrix=x_matrix,
                 residual_names=res_names,
+                already_screened=list(getattr(self.config, "transforms", ()) or ()),
                 min_valid_domain_frac=float(self.config.min_valid_domain_frac),
                 cv_folds=int(self.config.tiny_model_cv_folds),
                 random_state=int(self.config.random_state),
@@ -316,8 +317,8 @@ def run_optional_discovery_steps(
     self.auto_chains_ = []
 
     ra_on = bool(getattr(config, "region_adaptive_enabled", False))
-    ib_on = bool(getattr(config, "interaction_base_discovery_enabled", False))
-    ac_on = bool(getattr(config, "auto_chain_discovery_enabled", False))
+    ib_on = bool(getattr(config, "interaction_base_discovery_enabled", True))
+    ac_on = bool(getattr(config, "auto_chain_discovery_enabled", True))
     # ``transforms`` is the caller's whitelist: chains are a transform family, so they are built only when it lists one
     # (the default list does). ``transforms=["linear_residual"]`` used to train an extra chain model regardless.
     if ac_on and not any(str(t).startswith("chain_") for t in (getattr(config, "transforms", None) or [])):
@@ -333,7 +334,7 @@ def run_optional_discovery_steps(
     # interaction step can index ``_auto_base_pool`` (already train-restricted).
     sample_idx = _sample_indices(
         train_idx.size, config.mi_sample_n, config.random_state,
-        strategy=getattr(config, "mi_sample_strategy", "random"),
+        strategy=getattr(config, "mi_sample_strategy", 'stratified_quantile'),
         y=y_train,
         n_strata=getattr(config, "mi_n_strata", 10),
     )

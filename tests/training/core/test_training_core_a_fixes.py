@@ -143,53 +143,40 @@ def test_f2_positive_legacy_mb_still_works(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_f3_fast_path_still_fixes_a_second_bare_handler():
-    """F3: fast path still fixes a second bare handler."""
+def test_f3_a_second_call_adds_nothing_and_leaves_foreign_handlers_alone():
+    """mlframe installs its progress handler on its OWN logger, once, and never rewrites anybody else's.
+
+    The earlier contract was the opposite: every root handler's formatter was replaced with mlframe's, including one
+    appended by another package, which is how an embedding application lost its structured logging for the rest of the
+    process. What must still hold is that repeated suite calls do not stack handlers.
+    """
     from mlframe.training.core._misc_helpers import _ensure_logging_visible
 
-    root = logging.getLogger()
-    saved_handlers = list(root.handlers)
-    saved_level = root.level
+    root, pkg = logging.getLogger(), logging.getLogger("mlframe")
+    saved = (list(root.handlers), root.level, list(pkg.handlers), pkg.level, pkg.propagate)
     try:
         root.handlers = []
         root.setLevel(logging.INFO)
-        _ensure_logging_visible(logging.INFO)  # installs the first, timestamped handler
-        assert len(root.handlers) == 1
+        pkg.handlers, pkg.level, pkg.propagate = [], logging.NOTSET, True
 
-        # Simulate another package (e.g. Jupyter) appending a bare, non-timestamped handler afterward.
+        _ensure_logging_visible(logging.INFO)
+        assert len(pkg.handlers) == 1 and root.handlers == []
+        installed = pkg.handlers[0]
+        original_formatter = installed.formatter
+
+        # Another package (Jupyter, say) appends a bare handler of its own afterwards.
         bare = logging.StreamHandler()
-        bare.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+        bare_format = logging.Formatter("%(levelname)s %(message)s")
+        bare.setFormatter(bare_format)
         root.addHandler(bare)
 
-        _ensure_logging_visible(logging.INFO)  # second call: must NOT early-return via the first handler
-        for h in root.handlers:
-            fmt = getattr(h.formatter, "_fmt", None)
-            assert fmt is not None and "%(asctime)" in fmt
-    finally:
-        root.handlers = saved_handlers
-        root.setLevel(saved_level)
-
-
-def test_f3_fast_path_still_short_circuits_when_all_handlers_are_fixed():
-    """Regression against a naive fix that removes the fast-path entirely -- it must still no-op
-    (not reassign formatters) when every handler is already timestamped."""
-    from mlframe.training.core._misc_helpers import _ensure_logging_visible
-
-    root = logging.getLogger()
-    saved_handlers = list(root.handlers)
-    saved_level = root.level
-    try:
-        root.handlers = []
-        root.setLevel(logging.INFO)
         _ensure_logging_visible(logging.INFO)
-        assert len(root.handlers) == 1
-        original_formatter = root.handlers[0].formatter
-
-        _ensure_logging_visible(logging.INFO)  # nothing new appended -- fast path should apply
-        assert root.handlers[0].formatter is original_formatter  # untouched, not reassigned
+        assert pkg.handlers == [installed], "a second call must not stack another handler"
+        assert installed.formatter is original_formatter, "nor reassign its own"
+        assert bare.formatter is bare_format, "nor rewrite a handler mlframe does not own"
     finally:
-        root.handlers = saved_handlers
-        root.setLevel(saved_level)
+        root.handlers, root.level = saved[0], saved[1]
+        pkg.handlers, pkg.level, pkg.propagate = saved[2], saved[3], saved[4]
 
 
 # ---------------------------------------------------------------------------

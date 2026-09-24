@@ -155,14 +155,8 @@ def test_f3_additive_decomposition_batch_size_changes_training():
 
 
 def test_f4_concat_meta_uses_shallow_copy_not_full_copy():
-    """_concat_meta's pandas branch calls X.copy(deep=False), sharing buffers with the caller's frame."""
-    import inspect
-
+    """_concat_meta's pandas branch shares the caller's column buffers instead of duplicating the frame."""
     from mlframe.training.composite.stacking_multi_stage import MultiStageMetaFeatureStacker
-
-    src = inspect.getsource(MultiStageMetaFeatureStacker._concat_meta)
-    assert "X.copy(deep=False)" in src
-    assert "X.copy()" not in src
 
     X = pd.DataFrame({"a": np.arange(100, dtype=np.float64)})
     meta_cols = {"meta_1": np.arange(100, dtype=np.float64)}

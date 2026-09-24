@@ -509,6 +509,62 @@ def test_no_unread_constructor_parameters():
     assert_no_unread_init_params(files=files, repo_root=REPO_ROOT, allowlist=_UNREAD_INIT_PARAMS_ALLOWED, min_files=1000)
 
 
+# Env reads in the composite scope that are deliberately not boolean flags.
+_ENV_FLAG_ALLOWED = {
+    "MLFRAME_PIPELINE_CACHE_RAM_FRACTION": "a numeric override; the test is for presence, and the value is a fraction",
+    "MLFRAME_PIPELINE_CACHE_BYTES_LIMIT": "a numeric override; the test is for presence, and the value is a byte count",
+}
+
+
+def test_composite_env_flags_go_through_one_parser():
+    """Every boolean switch in the composite, core and reporting paths reads the same on/off vocabulary.
+
+    They were parsed three ways: ``not os.environ.get(NAME)`` (so ``NAME=0`` turned the switch on), an ad-hoc
+    ``in ("1", "true", "yes")`` that ignores ``on``, and ``== "1"`` that ignores everything else.
+    """
+    from py_ci_shared.env_flag_parsing import assert_env_flags_use_one_parser
+
+    scope = [REPO_ROOT / "src" / "mlframe" / "training" / part for part in ("composite", "core", "reporting")]
+    files = sorted(p for root in scope for p in root.rglob("*.py") if "_benchmarks" not in p.parts)
+    assert_env_flags_use_one_parser(files=files, repo_root=REPO_ROOT / "src", prefixes=("MLFRAME_",), allowed=_ENV_FLAG_ALLOWED, min_files=200)
+
+
+# The receivers that hold a CompositeTargetDiscoveryConfig; a bare ``cfg`` elsewhere is a calibration or conformal config.
+_DISCOVERY_CONFIG_RECEIVERS = frozenset({"config", "cfg", "self.config", "self.cfg", "_cfg", "disc_cfg", "_disc_cfg"})
+
+
+def test_getattr_defaults_match_the_discovery_config():
+    """A ``getattr(cfg, "field", <literal>)`` fallback must be the field's own default, or a duck-typed config behaves differently.
+
+    The drift gate read ``reject_on_alpha_drift`` as False while the config declared True; the same scan found 48 more,
+    from ``require_beats_raw_baseline`` to ``max_total_composite_targets``.
+    """
+    from py_ci_shared.config_getattr_default_parity import assert_getattr_defaults_match_schema
+
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    composite = REPO_ROOT / "src" / "mlframe" / "training" / "composite"
+    core = REPO_ROOT / "src" / "mlframe" / "training" / "core"
+    files = sorted(p for p in composite.rglob("*.py") if "_benchmarks" not in p.parts)
+    files += sorted(p for p in core.rglob("*.py") if "composite" in p.name or "composite" in str(p.parent))
+    assert_getattr_defaults_match_schema(
+        files=files, repo_root=REPO_ROOT / "src", schema_classes=[CompositeTargetDiscoveryConfig], allowed={},
+        min_files=150, receiver_names=_DISCOVERY_CONFIG_RECEIVERS, receiver_suffixes=("_discovery_config",),
+    )
+
+
+def test_no_metric_is_scored_on_survivors_only():
+    """A metric taken over ``isfinite(prediction)`` rows alone scores the model where it happened to work.
+
+    Four y-scale gates did exactly that: a spec whose inverse collapsed on 40% of the holdout was judged on the other
+    60% and shipped, while the estimator would have paid the median-fill error on every dropped row.
+    """
+    from py_ci_shared.survivorship_scoring import assert_no_survivorship_scoring
+
+    files = sorted(p for p in (REPO_ROOT / "src").rglob("*.py") if "_benchmarks" not in p.parts)
+    assert_no_survivorship_scoring(files=files, repo_root=REPO_ROOT, allowed={}, min_files=1000)
+
+
 def regenerate_fail_open_baseline() -> None:
     """Rewrite the fail-open baseline from the current tree, keeping every existing note. Called by `regen_baselines.py`."""
     import orjson

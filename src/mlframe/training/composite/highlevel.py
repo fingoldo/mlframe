@@ -285,7 +285,7 @@ def discover_and_wrap(
 
     specs: list[CompositeSpec] = list(getattr(discovery, "specs_", []) or [])
     failures = list(getattr(discovery, "report_", []) or [])
-    cfg_seed = getattr(config, "random_state", None)
+    cfg_seed = getattr(config, "random_state", 42)
 
     # ---- 6 (early): report renders even on the no-spec path ----------------
     report_markdown = report_to_markdown(

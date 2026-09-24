@@ -40,6 +40,7 @@ from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidat
 from ._fit_multibase import apply_multi_base_forward_stepwise
 from ._eval_stats import near_collinear_keep_mask
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.utils.env_flags import env_flag
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +69,12 @@ def _apply_honest_holdout_stages(self, df, target_col, kept_specs, usable_featur
         from ._honest_rmse_gate import apply_honest_rmse_gate
 
         # The SELECTION half: this gate drops specs, so it must not read the rows the reported honest number comes from.
-        kept_specs = apply_honest_rmse_gate(
-            self, df, target_col, kept_specs, usable_features,
-            train_idx, getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx), y_full,
-        )
+        _select_idx = getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx)
+        kept_specs = apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _select_idx, y_full)
+        # The exported RMSE gain comes from the report half: the one above is conditioned on having passed the gate.
+        _report_idx = getattr(self, "honest_holdout_report_idx_", None)
+        if kept_specs and _report_idx is not None and _select_idx is not None and not np.array_equal(_report_idx, _select_idx):
+            apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _report_idx, y_full, record_only=True)
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "honest_rmse_gate_done")
 
@@ -137,7 +140,7 @@ def _evaluate_work_items(self, base_candidates, _base_contexts, _skip_right_tail
     # / bootstrap MI loop) is numpy / numba which releases the GIL,
     # so threading scales close to linearly up to cpu_count.
     # 0 = auto: cap at the number of work items and cpu_count. 1 = serial.
-    _n_jobs_raw = getattr(self.config, "discovery_n_jobs", 1)
+    _n_jobs_raw = getattr(self.config, "discovery_n_jobs", 0)
     _n_jobs_raw = 1 if _n_jobs_raw is None else int(_n_jobs_raw)
     if _n_jobs_raw == 0:
         _n_jobs_disc = max(1, min(len(_work_items), os.cpu_count() or 1))
@@ -264,8 +267,7 @@ def _reason_from_ledger(self, spec_name: Any) -> str:
         last = rows[-1]
         reason = str(last.get("reason") or "").strip()
         return f"rejected at the {last.get('stage')} stage" + (f": {reason}" if reason else "")
-    return ("dropped after the MI gate by a filter that records no per-spec verdict "
-            "(top_k_after_mi trim / multi-base dedup)")
+    return "dropped after the MI gate by a filter that records no per-spec verdict " "(top_k_after_mi trim / multi-base dedup)"
 
 
 def fit(
@@ -388,7 +390,7 @@ def fit(
     # MLFRAME_DISCOVERY_RAM_PROFILER=0 (the helper checks the env once at
     # entry so the rest of the fit() body never tests the flag again).
     _ram_state: dict = {}
-    _ram_profiler_on = os.environ.get("MLFRAME_DISCOVERY_RAM_PROFILER", "1").strip().lower() not in ("0", "false", "no", "off")
+    _ram_profiler_on = env_flag("MLFRAME_DISCOVERY_RAM_PROFILER", default=True)
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "entry")
 
@@ -455,7 +457,7 @@ def fit(
         train_idx.size,
         self.config.mi_sample_n,
         self.config.random_state,
-        strategy=getattr(self.config, "mi_sample_strategy", "random"),
+        strategy=getattr(self.config, "mi_sample_strategy", "stratified_quantile"),
         y=y_train,
         n_strata=getattr(self.config, "mi_n_strata", 10),
     )
@@ -546,12 +548,7 @@ def fit(
         _use_lazy_prebin = _lazy_eligible
     else:
         _use_lazy_prebin = _lazy_eligible and train_idx_screen.size >= _lazy_n_floor
-    _prebin_use_cache = os.environ.get("MLFRAME_PREBIN_CACHE", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
+    _prebin_use_cache = env_flag("MLFRAME_PREBIN_CACHE", default=True)
     if _use_lazy_prebin:
         # Defer column extraction: never materialise the (n, F) float plane.
         _full_x_matrix = None
@@ -791,8 +788,8 @@ def fit(
     # Opt-in discovery steps (region-adaptive / interaction-base / auto-chain). Gated by config flags defaulting True (each has test-confirmed value); set all False for a no-op leaving kept_specs byte-identical to the pre-hook flow. Heavy logic lives in the ``_opt_in_steps`` sibling (LOC threshold); it returns extra appendable specs (auto-chain) + stashes per-step artefacts on the instance. The cheap gate check + no-op artefact init both live in the sibling.
     if kept_specs and (
         getattr(self.config, "region_adaptive_enabled", False)
-        or getattr(self.config, "interaction_base_discovery_enabled", False)
-        or getattr(self.config, "auto_chain_discovery_enabled", False)
+        or getattr(self.config, "interaction_base_discovery_enabled", True)
+        or getattr(self.config, "auto_chain_discovery_enabled", True)
     ):
         from ._opt_in_steps import run_optional_discovery_steps
 

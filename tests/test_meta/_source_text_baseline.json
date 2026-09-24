@@ -14,6 +14,7 @@
   "test_meta/test_broad_except_logging_benchmarks_harness.py::test_profile_wellbore_mrmr_only_100k_prints_on_failure::via helper _read()",
   "test_meta/test_broad_except_logging_benchmarks_harness.py::test_round4_su_seeded_interactions_bench_logs_on_failure::via helper _read()",
   "test_meta/test_broad_except_logging_benchmarks_harness.py::test_round4_synergy_combine_bench_logs_on_failure::via helper _read()",
+  "test_meta/test_every_roster_is_pruned_by_every_drop_pass.py::test_the_drop_passes_iterate_the_shared_tuple::text held in `core`",
   "test_meta/test_mrmr_research_doc_consistency.py::test_fleuret_module_confirms_jmim_synergy_mitigation_shipped::text held in `src`",
   "test_meta/test_pre_commit_hooks.py::test_pre_commit_config_has_black_hook::text held in `cfg`",
   "test_meta/test_pre_commit_hooks.py::test_pre_commit_config_has_mypy_scoped_to_calibration::text held in `cfg`",
@@ -21,6 +22,7 @@
   "test_meta/test_pre_commit_hooks.py::test_pyproject_black_line_length_160::text held in `black_section`",
   "test_meta/test_pre_commit_hooks.py::test_pyproject_black_line_length_160::text held in `pp`",
   "test_meta/test_pre_test_gate_worker_count_policy.py::test_full_suite_worker_count_uses_quarter_cores_divisor::text held in `match`",
+  "test_meta/test_ruff_pin_consistency.py::test_the_pins_match_the_version_ci_actually_resolves::text held in `pyproject_pins`",
   "test_meta/test_swallowed_failures_are_audible.py::test_it_is_throttled::via helper _literals()",
   "test_meta/test_swallowed_failures_are_audible.py::test_the_except_is_narrowed::text held in `names`",
   "test_meta/test_swallowed_failures_are_audible.py::test_the_outer_handler_warns::text held in `literals`",
@@ -44,6 +46,7 @@
   "training/cb/test_cb_pool_cache_clear.py::test_phase_config_setup_imports_from_cb_pool::text held in `src`",
   "training/composite/estimator/test_composite_ct_get_best_iter_and_loss.py::test_eval_metric_for_cb_huber_returns_huber::text held in `src`",
   "training/composite/estimator/test_composite_ct_get_best_iter_and_loss.py::test_xgb_extra_params_threaded_into_set_params::text held in `src`",
+  "training/composite/test_default_on_liveness.py::test_the_liveness_test_exists_and_keeps_the_knob_on::text held in `off`",
   "training/neural/test_mlp_dump_size_no_datamodule.py::test_source_grep_drop_dm_present::text held in `src`",
   "training/neural/test_mlp_ttr_regression_no_collapse.py::test_mlp_suite_default_use_layernorm_is_false::text held in `block`",
   "training/neural/test_mlp_ttr_regression_no_collapse.py::test_mlp_suite_default_use_layernorm_is_false::text held in `src`",
@@ -184,6 +187,7 @@
   "training/test_default_via_or_trap.py::test_recurrent_rerun_empty_rebuild_not_silently_swapped::text held in `src`",
   "training/test_default_via_or_trap.py::test_tiny_rerank_n_jobs_zero_sentinel_reaches_branch::text held in `src`",
   "training/test_deferred_followups_rff_cache.py::test_ensembling_p2_quantile_design_decision_documented::text held in `src`",
+  "training/test_deferred_followups_rff_cache.py::test_hermite_fe_separate_eval_documented_as_implemented::text held in `src`",
   "training/test_deferred_followups_rff_cache.py::test_mrmr_factors_to_use_documented_already_threaded::text held in `src`",
   "training/test_deferred_followups_rff_cache.py::test_no_remaining_open_todo_markers_in_closed_files::text held in `src`",
   "training/test_deferred_followups_rff_cache.py::test_phase_helpers_strategy_list_documented::text held in `src`",
@@ -258,5 +262,6 @@
   "training/test_tvt_mlp_skip_and_ct_ensemble_raw_only.py::test_phase_composite_post_synthesises_raw_specs::text held in `src`",
   "training/test_tvt_mlp_skip_and_ct_ensemble_raw_only.py::test_skip_logic_reads_from_behavior_config::text held in `src`",
   "training/test_tvt_mlp_skip_and_ct_ensemble_raw_only.py::test_target_types_import_path_is_correct::text held in `src`",
-  "training/test_tvt_run_audit_followups.py::test_residual_std_check_in_fit_source::text held in `src`"
+  "training/test_tvt_run_audit_followups.py::test_residual_std_check_in_fit_source::text held in `src`",
+  "training/test_xgb_cat_dtype_i101.py::test_predict_py_xgb_cat_cast_block_lives_in_predict_module::text held in `raw_src`"
 ]

@@ -569,7 +569,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium. `random_state` and similar names shared across config classes can resolve to the wrong class; the scanner restricts receivers to discovery-config call sites and baselines the rest.
 - **Runtime**: under 2 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - py-ci-shared config_getattr_default_parity (commit b68ed93, 7 unit tests, README section) compares each getattr fallback with the field's declared default, skipping required, default_factory and cross-schema-conflicting fields, and takes the receiver names of the config being checked so a shared field name is not read off another config. Wired as test_getattr_defaults_match_the_discovery_config over composite and the composite core phases with an EMPTY allowlist: all 49 sites it found were aligned to the config's own defaults, the listed drifts included (require_beats_raw_baseline x4, auto_chain/interaction/multi_base enabled, transform_waic_validation_enabled, tiny_model_n_seed_repeats x2, mi_sample_strategy x4, max_total_composite_targets, min_honest_gain_to_train, cross_target_ensemble_strategy, skip_wrap_pass_predict, oof_holdout_frac, oof_max_train_rows, random_state x17 and the rest). The two ``enabled`` hits the probe reported were calibration and conformal configs, not this one
 
 ### PMT-35 [P3] Unread constructor parameters in estimator classes (shared scanner)
 - **Asserts**: every `__init__` parameter of a class is either used in the `__init__` body beyond `self.p = p`, or read as `self.p` / `getattr(self, "p")` (or via an `est`/`estimator`/`wrapper` receiver) somewhere in the class's package.
@@ -589,7 +589,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low. Non-boolean env reads (paths, numbers) are not in boolean context.
 - **Runtime**: under 1 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - py-ci-shared env_flag_parsing (commit 56b7fe0, 6 unit tests, README section) reports every prefixed env read used as a boolean: truth test, not, comparison with a string literal, membership in a literal collection. Wired as test_composite_env_flags_go_through_one_parser over composite, core and reporting, with two allowlisted numeric-override presence checks; the wider tree still carries hand parses outside this audit's scope, and the scanner is there for them
 
 ### PMT-37 [P3] Deferred-dead config fields must warn when set, and no allowlisted field may advertise how to enable it
 - **Asserts**: for every entry in `_USER_DEFERRED_DEAD` (in `test_config_field_consumption.py`):
@@ -601,7 +601,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low.
 - **Runtime**: under 1 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - (a) and (b) ship as two parametrised tests over _USER_DEFERRED_DEAD in test_config_field_consumption.py. To make (a) pass, every deferred-dead field now warns: InertFieldsWarningMixin (training/_inert_fields.py) carries the composite config's mechanism to the other ten config classes, which declare their dead fields in INERT_FIELDS next to the class rather than only in a test's ledger. The probe walks candidate values of the field's own shape, with a full constructor call for the two fields whose validation reads the rest of the config. The scan also found that _all_config_classes() skipped _model_configs_ensembling and _model_configs_behavior, so EnsemblingConfig, MultilabelDispatchConfig and QuantileRegressionConfig were audited by nothing; both modules are in the set now
 
 ### PMT-38 [P1] A config rebuilt with `model_copy(update=...)` must reach its consumers (shared scanner)
 - **Asserts**: a function that binds `<cfg>.model_copy(update=...)` to a local must return it, store it on `ctx`/`self`/metadata, or pass it to a callee. Otherwise, when the caller keeps using the original object, the effective config is local-only and is flagged.
@@ -621,7 +621,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: medium. Diagnostic helpers that intentionally score finite rows only must return the dropped fraction to pass.
 - **Runtime**: under 1 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - py-ci-shared survivorship_scoring (commit 41cbadc, 8 unit tests, README section) reports every metric call whose two arguments are indexed by the same isfinite(prediction) mask, accepting a function that fills the dropped rows or reports the dropped fraction in its verdict; counting finite rows for a floor does not count, which is what the four gates did. Verified against the pre-DSC-08 sources: it names all four sites (_yscale_holdout_gate, _honest_rmse_gate, _honest_oof_select and its inner scorer). Wired over all of src with an empty allowlist, where it is now silent
 
 ### PMT-40 [P2] `source_text_claims` misses source text accumulated with `+=`: close the taint gap and drain the composite allowlist
 - **Asserts**: the shared detector's assertion mode propagates taint through `AugAssign` (`src += path.read_text()`), so an assert on `src` counts as a claim. The composite files currently allowlisted as a whole (`training/composite/discovery/test_training_composite_discovery_fixes.py`, `training/composite/test_training_composite_loose_a_fixes.py`) are converted to behavioural tests and removed from `_ALLOWLIST` in `test_no_source_text_claims.py`.
@@ -631,7 +631,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low (same semantics as the existing Assign taint).
 - **Runtime**: unchanged.
 - **Repo**: py-ci-shared (the detector fix); mlframe (allowlist drain).
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - py-ci-shared source_text_claims taints an AugAssign target like a plain assignment (commit 9ea5fb4, unit test on the accumulate-then-assert shape), which made five previously invisible claims visible; they are recorded in _source_text_baseline.json. Both composite files left _ALLOWLIST: the njit-kernel wiring check is now a monkeypatched kernel whose substitute output has to reach the caller, and the shallow-copy check keeps only its np.shares_memory assertion
 
 ### PMT-41 [P3] Advisory scan for tests that pin a conceded defect
 - **Asserts**: a test whose docstring or adjacent comment concedes the behaviour is wrong or degenerate (`does not perfectly|degenerates|is inert|no-op|lossy|by design|not renormal|known (bug|defect)`) while asserting exact equality to that behaviour is listed for review. The list is advisory, a reading list rather than a gate, like `mutation_teeth` survivors. The companion convention: a deliberately pinned known defect lives in a test named `test_known_defect_<id>_*`, which the scan accepts and which `disposition_test_references` ties to an OPEN finding.

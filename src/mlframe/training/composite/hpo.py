@@ -153,6 +153,10 @@ class PruningStats:
     median_completed_trial_seconds: float
     total_pruned_elapsed_seconds: float
     estimated_wallclock_saved_seconds: float
+    # The same ROI counted in work rather than in seconds: CV folds a pruned trial did not have to fit. On sub-second
+    # fits the seconds are mostly the host's load, while the fold count is exact and reproducible.
+    median_completed_trial_folds: float = 0.0
+    estimated_fold_evaluations_saved: float = 0.0
 
 
 @dataclass
@@ -316,6 +320,12 @@ def _cv_score_candidate(
     """
     fold_scores: List[float] = []
     oof: Optional[np.ndarray] = np.full(y.shape[0], np.nan, dtype=np.float64) if collect_oof else None
+
+    def _note_folds() -> None:
+        """Record how many folds this trial actually fitted, so its ROI can be read in work as well as in seconds."""
+        if trial is not None:
+            trial.set_user_attr("_folds_evaluated", len(fold_scores))
+
     for fold_idx, (train_idx, test_idx) in enumerate(splits):
         if train_idx.size == 0 or test_idx.size == 0:
             fold_scores.append(float("inf"))
@@ -338,7 +348,9 @@ def _cv_score_candidate(
             if trial.should_prune():
                 import optuna  # lazy: trial is only non-None on the Optuna backend, so this import always succeeds
 
+                _note_folds()
                 raise optuna.TrialPruned(f"optimize_composite: pruned {transform_name!r}/{inner_params!r} after fold {fold_idx} (running score {running_score:.6g}).")
+    _note_folds()
     score = float(np.mean(fold_scores)) if fold_scores else float("inf")
     if collect_oof:
         return score, oof
@@ -677,12 +689,18 @@ def _pruning_stats_from_study(optuna: Any, study: Any) -> Optional[PruningStats]
     pruned_durations = [float(t.user_attrs.get("_elapsed_seconds", 0.0)) for t in pruned]
     median_completed = float(np.median(completed_durations)) if completed_durations else 0.0
     saved = sum(max(0.0, median_completed - d) for d in pruned_durations)
+    completed_folds = [float(t.user_attrs.get("_folds_evaluated", 0.0)) for t in completed]
+    pruned_folds = [float(t.user_attrs.get("_folds_evaluated", 0.0)) for t in pruned]
+    median_folds = float(np.median(completed_folds)) if completed_folds else 0.0
+    folds_saved = sum(max(0.0, median_folds - f) for f in pruned_folds)
     return PruningStats(
         n_trials_completed=len(completed),
         n_trials_pruned=len(pruned),
         median_completed_trial_seconds=median_completed,
         total_pruned_elapsed_seconds=float(sum(pruned_durations)),
         estimated_wallclock_saved_seconds=float(saved),
+        median_completed_trial_folds=median_folds,
+        estimated_fold_evaluations_saved=float(folds_saved),
     )
 
 

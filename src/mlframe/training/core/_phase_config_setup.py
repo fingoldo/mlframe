@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os as _os
 import sys
 from typing import Any
 
@@ -27,6 +26,8 @@ from ..configs import (
 )
 from ..utils import log_phase
 from ._training_context import TrainingContext
+from mlframe.utils.env_flags import env_flag
+
 from .utils import (
     _apply_plot_style_overrides,
     _build_suite_common_params_dict,
@@ -78,6 +79,21 @@ def _heavy_libs_needed(mlframe_models, recurrent_models, reporting_config) -> bo
         return True
 
 
+def _restore_cuda_visibility_for_a_new_suite() -> None:
+    """Undo a previous suite's process-wide CUDA disable, so a new suite starts with the GPU available again.
+
+    The neural CPU-fallback hides CUDA from torch when a retry also fails CUDA-side. That verdict is about the moment,
+    not about the host, and nothing used to undo it: every later target, estimator and suite in the process ran on CPU.
+    A new suite is a fresh attempt - if the condition persists, the same fallback disables it again and says so.
+
+    Only touched when that module is already imported: importing it would pull torch into a run that may never need it.
+    """
+    module = sys.modules.get("mlframe.training.neural.base._cuda_fallback")
+    if module is None or not module.cuda_is_disabled_for_this_process():
+        return
+    module.restore_cuda_visibility()
+
+
 def _restore_process_flag_quietly(restore) -> None:
     """Put one process-wide override back, reporting rather than raising if it cannot be.
 
@@ -89,6 +105,17 @@ def _restore_process_flag_quietly(restore) -> None:
     except Exception as exc:
         logger.warning("could not restore a process-wide override after setup_configuration failed: %r", exc)
 
+
+def apply_composite_kill_switch(config: Any) -> Any:
+    """``config`` with discovery forced off when ``MLFRAME_DISABLE_COMPOSITE`` is set, and unchanged otherwise.
+
+    Only ``enabled`` is forced: the switch used to rebuild the config from ``{"enabled": False}``, which threw away every
+    other composite field the caller had set. The value is read through ``env_flag``, so ``on`` disables and ``0`` does not.
+    """
+    if not env_flag("MLFRAME_DISABLE_COMPOSITE"):
+        return config
+    logger.info("[CompositeTargetDiscovery] disabled by MLFRAME_DISABLE_COMPOSITE env var.")
+    return config.model_copy(update={"enabled": False})
 
 def setup_configuration(
     *,
@@ -150,9 +177,7 @@ def setup_configuration(
     # Opt-out: MLFRAME_SETUP_TIMING=0 (default ON; cost ~5 us per checkpoint
     # via time.perf_counter, fully amortised at the first slow step).
     import time as _time
-    _setup_timing_on = _os.environ.get("MLFRAME_SETUP_TIMING", "1").strip().lower() not in (
-        "0", "false", "no", "off",
-    )
+    _setup_timing_on = env_flag("MLFRAME_SETUP_TIMING", default=True)
     _setup_t_prev = _time.perf_counter()
     _setup_t_start = _setup_t_prev
 
@@ -198,13 +223,12 @@ def setup_configuration(
     reporting_config = _ensure_config(reporting_config, ReportingConfig, {})
     _step_done("_ensure_config x7 (preprocessing..reporting)")
 
-    # Publish the PipelineCache RAM-budget fraction to the env the cache
-    # reads (both PipelineCache.__init__ and the eviction re-check resolve
-    # from it, so one source keeps them consistent). An explicit operator env
-    # wins over the config default.
-    _cache_frac = getattr(behavior_config, "pipeline_cache_ram_budget_fraction", None)
-    if _cache_frac is not None and not _os.environ.get("MLFRAME_PIPELINE_CACHE_RAM_FRACTION") and not _os.environ.get("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT"):
-        _os.environ["MLFRAME_PIPELINE_CACHE_RAM_FRACTION"] = str(float(_cache_frac))
+    _restore_cuda_visibility_for_a_new_suite()
+
+    # The PipelineCache RAM-budget fraction is handed to the cache instance (see ``_phase_train_one_target_body``),
+    # NOT exported to os.environ: publishing it process-globally, and only when unset, meant a second suite in the same
+    # process silently kept the first one's budget and two concurrent suites raced one variable. An operator's own
+    # MLFRAME_PIPELINE_CACHE_RAM_FRACTION / _BYTES_LIMIT still wins, inside ``_resolve_pipeline_cache_budget``.
 
     # Module-level overrides for residual_audit + inline_display.
     # Pre-fix the leading comment promised "restored after the suite finishes" but no restore
@@ -340,9 +364,7 @@ def setup_configuration(
 
         composite_target_discovery_config = _ensure_config(composite_target_discovery_config, CompositeTargetDiscoveryConfig, {})
         _step_done("_ensure_config(CompositeTargetDiscoveryConfig)")
-        if _os.environ.get("MLFRAME_DISABLE_COMPOSITE", "").lower() in {"1", "true", "yes"}:
-            composite_target_discovery_config = _ensure_config({"enabled": False}, CompositeTargetDiscoveryConfig, {})
-            logger.info("[CompositeTargetDiscovery] disabled by MLFRAME_DISABLE_COMPOSITE env var.")
+        composite_target_discovery_config = apply_composite_kill_switch(composite_target_discovery_config)
 
         data_dir = output_config.data_dir
         models_dir = output_config.models_dir

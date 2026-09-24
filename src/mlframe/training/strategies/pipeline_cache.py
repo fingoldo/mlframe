@@ -21,8 +21,8 @@ def _resolve_pipeline_cache_budget(fraction: Optional[float] = None) -> int:
 
     Priority:
       1. ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` env var (absolute override).
-      2. A FRACTION of TOTAL host RAM (``fraction`` arg >
-         ``MLFRAME_PIPELINE_CACHE_RAM_FRACTION`` env > 0.15 default), then
+      2. A FRACTION of TOTAL host RAM (``MLFRAME_PIPELINE_CACHE_RAM_FRACTION`` env >
+         ``fraction`` arg > 0.15 default), then
          clamped to currently-available RAM minus a 16 GB floor so the cache
          never grabs more than is actually free RIGHT NOW. Default 0.15 (was
          0.4): on hosts where training itself takes 60-80% of RAM, the prior
@@ -41,13 +41,14 @@ def _resolve_pipeline_cache_budget(fraction: Optional[float] = None) -> int:
             return int(env_raw)
         except (TypeError, ValueError):
             pass
-    if fraction is None:
-        _frac_env = os.environ.get("MLFRAME_PIPELINE_CACHE_RAM_FRACTION")
-        if _frac_env:
-            try:
-                fraction = float(_frac_env)
-            except (TypeError, ValueError):
-                fraction = None
+    # The operator's env wins over the caller's fraction: it is the explicit override, and the caller's value is the
+    # suite config's default.
+    _frac_env = os.environ.get("MLFRAME_PIPELINE_CACHE_RAM_FRACTION")
+    if _frac_env:
+        try:
+            fraction = float(_frac_env)
+        except (TypeError, ValueError):
+            pass
     if fraction is None:
         fraction = _DEFAULT_PIPELINE_CACHE_RAM_FRACTION
     # Clamp the fraction to a sane band (0 disables caching effectively; >0.9
@@ -126,12 +127,17 @@ class PipelineCache:
     Not thread-safe; designed for sequential use within a single training run.
     """
 
-    def __init__(self, verbose: bool = True, bytes_limit: Optional[int] = None):
+    def __init__(self, verbose: bool = True, bytes_limit: Optional[int] = None, ram_budget_fraction: Optional[float] = None):
         """Construct a pre-pipeline cache.
 
         ``verbose=True`` is the new default: HIT/MISS lines are emitted at ``logger.info`` and routinely needed when triaging "why-did-this-suite-re-fit" tickets. The lines are throttled by the per-call HIT vs MISS branch (one log per get) and add no measurable overhead vs the dict lookup itself, so the cost of leaving them on by default is negligible against the diagnostic value of having them already on when the operator wants them. Pass ``verbose=False`` to silence in tight unit-test loops.
 
         ``bytes_limit=None`` (default) reads ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` from env, falling back to 2_000_000_000 (2 GB). Pass an explicit int to override per-instance (useful in tests).
+
+        ``ram_budget_fraction`` is this cache's share of host RAM, carried on the instance rather than published into
+        ``os.environ``: the suite used to export it process-globally and only when unset, so a second suite in the same
+        process silently kept the first one's budget and two concurrent suites raced the same variable. An operator's
+        own ``MLFRAME_PIPELINE_CACHE_RAM_FRACTION`` / ``_BYTES_LIMIT`` still wins over it.
         """
         # OrderedDict so ``move_to_end`` (LRU promotion on get) and ``popitem(last=False)`` (LRU eviction on overflow) are explicit. Plain dict happens to preserve insertion order in CPython 3.7+ but the LRU contract demands the explicit type.
         self._cache: "OrderedDict[str, Tuple[Any, Any, Any]]" = OrderedDict()
@@ -144,8 +150,9 @@ class PipelineCache:
         self.n_misses: int = 0
         self.n_evicted: int = 0
         self.verbose: bool = bool(verbose)
+        self._ram_budget_fraction: Optional[float] = None if ram_budget_fraction is None else float(ram_budget_fraction)
         if bytes_limit is None:
-            bytes_limit = _resolve_pipeline_cache_budget()
+            bytes_limit = _resolve_pipeline_cache_budget(self._ram_budget_fraction)
         self._bytes_limit: int = int(bytes_limit)
 
     def get(self, cache_key: str) -> Optional[Tuple[Any, Any, Any]]:
@@ -191,7 +198,7 @@ class PipelineCache:
         respected as an upper bound.
         """
         try:
-            self._bytes_limit = min(self._bytes_limit, _resolve_pipeline_cache_budget())
+            self._bytes_limit = min(self._bytes_limit, _resolve_pipeline_cache_budget(self._ram_budget_fraction))
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             pass

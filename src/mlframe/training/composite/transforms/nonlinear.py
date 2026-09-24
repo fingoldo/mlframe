@@ -575,6 +575,7 @@ def _make_chain_transform(
     unary_fit, unary_forward, unary_inverse,
     description: str,
     scale_equivariant: bool = True,
+    chain_stages: "tuple[str, str] | None" = None,
 ) -> "Transform":
     """Create a registry Transform for ``chain(bivariate, unary)``.
 
@@ -621,6 +622,7 @@ def _make_chain_transform(
         description=description,
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         scale_equivariant=scale_equivariant,
+        chain_stages=chain_stages,
     )
 def _make_multi_chain_transform(
     *, name: str, short_name: str,

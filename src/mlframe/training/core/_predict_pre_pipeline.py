@@ -8,7 +8,6 @@ resolves transparently.
 from __future__ import annotations
 
 import logging
-import os
 
 from typing import Any, Optional
 
@@ -20,6 +19,7 @@ from ..cb import _predict_with_fallback
 from ..utils import get_pandas_view_of_polars_df
 from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.utils.env_flags import env_flag
 
 logger = logging.getLogger("mlframe.training.core.predict")
 
@@ -164,7 +164,7 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
         _arr = ext_pipeline.transform(df)
     except Exception as _exc:
         # Hard-fail: returning the raw frame here would silently serve predictions on un-transformed columns (the model was trained on the post-extension feature space), producing wrong outputs with no error. Re-raise so the caller sees the failure instead of getting nonsense predictions. Soft-fail is gated behind the explicit MLFRAME_EXTENSIONS_SOFT_FAIL escape hatch, defaulting OFF.
-        if os.environ.get("MLFRAME_EXTENSIONS_SOFT_FAIL", "").lower() in ("1", "true", "yes"):
+        if env_flag("MLFRAME_EXTENSIONS_SOFT_FAIL"):
             logger.error("[extensions_pipeline] transform failed: %s. MLFRAME_EXTENSIONS_SOFT_FAIL is set -> returning RAW frame; downstream model will see un-transformed columns and almost certainly produce nonsense.", _exc)
             record_extensions_soft_fail(str(_exc))
             return df

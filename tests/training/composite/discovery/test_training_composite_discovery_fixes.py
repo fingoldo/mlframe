@@ -178,13 +178,17 @@ def test_f6_causal_rolling_kernel_bit_identical_to_naive(n, window, median):
     assert np.allclose(naive[~both_nan], fast[~both_nan], rtol=0, atol=1e-9)
 
 
-def test_f6_causal_rolling_uses_njit_kernel_not_python_loop():
-    """Confirms the kernels are actually wired in (not just defined but unused)."""
-    import inspect
+@pytest.mark.parametrize("median", [False, True])
+def test_f6_causal_rolling_runs_through_the_compiled_kernel(monkeypatch, median):
+    """The kernels are wired in, not merely defined: replacing one changes what ``_causal_rolling`` returns.
 
+    A per-row Python loop left in place would ignore the substitute and keep returning the real trailing statistic, which
+    is how "the kernel exists but nothing calls it" used to slip through.
+    """
     from mlframe.training.composite.discovery import _base_engineering as be_mod
 
-    src = inspect.getsource(be_mod._causal_rolling)
-    assert "_causal_rolling_mean_kernel" in src
-    assert "_causal_rolling_median_kernel" in src
-    assert "for i in range(window, n):" not in src
+    name = "_causal_rolling_median_kernel" if median else "_causal_rolling_mean_kernel"
+    sentinel = np.arange(64, dtype=np.float64) * -1.0
+    monkeypatch.setattr(be_mod, name, lambda y_sorted, window: sentinel.copy())
+    out = be_mod._causal_rolling(np.linspace(0.0, 1.0, 64), 4, median=median)
+    np.testing.assert_allclose(out, sentinel)

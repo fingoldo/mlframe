@@ -159,7 +159,7 @@ def apply_structural_fragility_gate(
 
     n = train_idx.size
     cap = min(int(getattr(cfg, "yscale_holdout_gate_sample_n", 30_000)), n)
-    rng = np.random.default_rng(int(getattr(cfg, "random_state", 0)))
+    rng = np.random.default_rng(int(getattr(cfg, "random_state", 42)))
     sub = np.arange(n) if cap >= n else np.sort(rng.choice(n, size=cap, replace=False))
     rows = train_idx[sub]
     g_sub = g_tr[sub]
@@ -346,7 +346,7 @@ def apply_yscale_holdout_gate(
 
     screen_idx = np.asarray(screen_idx)
     cap = int(getattr(cfg, "yscale_holdout_gate_sample_n", 30_000))
-    rng = np.random.default_rng(int(getattr(cfg, "random_state", 0)))
+    rng = np.random.default_rng(int(getattr(cfg, "random_state", 42)))
 
     def _subsample(idx: np.ndarray, n_cap: int) -> np.ndarray:
         """Cap ``idx`` to ``n_cap`` rows via a sorted random draw, leaving it unchanged when already within budget."""
@@ -410,7 +410,7 @@ def apply_yscale_holdout_gate(
     n_estimators = int(getattr(cfg, "tiny_model_n_estimators", 60))
     num_leaves = int(getattr(cfg, "tiny_model_num_leaves", 15))
     learning_rate = float(getattr(cfg, "tiny_model_learning_rate", 0.1))
-    rs = int(getattr(cfg, "random_state", 0))
+    rs = int(getattr(cfg, "random_state", 42))
 
     def _tiny():
         """A fresh tiny model with the gate's configured capacity."""

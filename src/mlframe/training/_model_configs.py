@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any, ClassVar, Dict, FrozenSet, List, Optional
 
 from pydantic import Field, field_validator, model_validator
+from ._inert_fields import InertFieldsWarningMixin
 
 from ._configs_base import (
     DEFAULT_RANDOM_SEED,
@@ -147,7 +148,7 @@ class LinearModelConfig(ModelConfig):
         return v_lower
 
 
-class TreeModelConfig(ModelConfig):
+class TreeModelConfig(InertFieldsWarningMixin, ModelConfig):
     """Configuration for tree-based models (CatBoost, LightGBM, XGBoost, etc.).
 
     Controls hyperparameters for gradient boosting models including
@@ -177,6 +178,13 @@ class TreeModelConfig(ModelConfig):
     hgb_kwargs : dict, optional
         HistGradientBoosting-specific parameters.
     """
+
+    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
+    INERT_FIELDS: ClassVar[dict[str, str]] = {
+        "hgb_kwargs": "ModelHyperparamsConfig.hgb_kwargs is the one that reaches the model",
+        "lgb_kwargs": "ModelHyperparamsConfig.lgb_kwargs is the one that reaches the model",
+        "xgb_kwargs": "ModelHyperparamsConfig.xgb_kwargs is the one that reaches the model",
+    }
 
     # Range guards mirror ModelHyperparamsConfig: iterations=0 trains zero trees
     # (LightGBM/XGB silently predict the init constant -- a degenerate, no-error
@@ -256,7 +264,7 @@ class MLPConfig(ModelConfig):
         return v_lower
 
 
-class NGBConfig(ModelConfig):
+class NGBConfig(InertFieldsWarningMixin, ModelConfig):
     """Configuration for NGBoost probabilistic regression/classification.
 
     NGBoost outputs full probability distributions rather than point predictions.
@@ -275,6 +283,12 @@ class NGBConfig(ModelConfig):
         NGBoost scoring rule class (e.g., ngboost.scores.LogScore, CRPS).
     """
 
+    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
+    INERT_FIELDS: ClassVar[dict[str, str]] = {
+        "minibatch_frac": "NGB is configured through the ngb_kwargs dict; this class is never instantiated",
+        "Dist": "NGB is configured through the ngb_kwargs dict; this class is never instantiated",
+    }
+
     # Range guards: n_estimators=0 yields a no-stage NGBoost (degenerate);
     # minibatch_frac must be a (0,1] fraction (NGBoost subsamples that share
     # of rows per stage -- 0 / >1 / negative all misbehave silently).
@@ -285,7 +299,7 @@ class NGBConfig(ModelConfig):
     Score: Optional[Any] = None  # ngboost.scores scoring rule (LogScore, CRPS, etc.)
 
 
-class AutoMLConfig(BaseConfig):
+class AutoMLConfig(InertFieldsWarningMixin, BaseConfig):
     """Configuration for AutoML frameworks (AutoGluon, LAMA).
 
     Supports automatic model selection and hyperparameter tuning.
@@ -313,6 +327,11 @@ class AutoMLConfig(BaseConfig):
     time_limit : int, optional
         Maximum training time in seconds.
     """
+
+    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
+    INERT_FIELDS: ClassVar[dict[str, str]] = {
+        "automl_show_fi": "the AutoML branch reads FeatureSelectionConfig.show_fi",
+    }
 
     # AutoGluon settings
     use_autogluon: bool = False

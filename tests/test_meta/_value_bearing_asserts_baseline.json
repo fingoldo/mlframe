@@ -152,7 +152,6 @@
   "training/neural/_muon_optimizer.py::G.ndim == 2",
   "training/neural/_muon_triton_kernel.py::G.ndim == 2 and G.is_cuda",
   "training/neural/_recurrent_torch_model.py::total_channels % 2 == 0",
-  "training/pipeline/_pipeline_extensions.py::isinstance(_out, pd.DataFrame)",
   "training/preprocessing.py::isinstance(_df, pl.DataFrame)",
   "training/targets/_train_eval_select_target.py::isinstance(vlcnts, pd.Series)",
   "training/targets/_train_eval_select_target.py::isinstance(vlcnts, pl.DataFrame)",

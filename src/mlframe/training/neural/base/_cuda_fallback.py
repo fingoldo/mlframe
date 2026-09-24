@@ -106,13 +106,55 @@ def is_cuda_runtime_error(exc: BaseException, accelerator: str) -> bool:
     return any(fp in msg for fp in CUDA_ERROR_FINGERPRINTS)
 
 
+# What ``_disable_cuda_globally`` replaced, so the process can be put back the way it was found.
+_CUDA_DISABLED_STATE: "dict | None" = None
+
+
+def cuda_is_disabled_for_this_process() -> bool:
+    """Whether this module has hidden CUDA from torch process-wide."""
+    return _CUDA_DISABLED_STATE is not None
+
+
 def _disable_cuda_globally() -> None:
-    """Hide CUDA from torch for the rest of this process so subsequent estimators skip straight to CPU."""
+    """Hide CUDA from torch for the rest of this process so subsequent estimators skip straight to CPU.
+
+    The prior ``CUDA_VISIBLE_DEVICES`` and ``torch.cuda.is_available`` are recorded so
+    ``restore_cuda_visibility()`` can undo this. Without that, one invalidated context downgraded every later target,
+    every later estimator and every loky child spawned afterwards for the rest of the process, with no way back.
+    """
+    global _CUDA_DISABLED_STATE
     try:
+        if _CUDA_DISABLED_STATE is None:
+            _CUDA_DISABLED_STATE = {"env": os.environ.get("CUDA_VISIBLE_DEVICES"), "is_available": torch.cuda.is_available}
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
         torch.cuda.is_available = lambda: False
     except Exception as _e_disable:  # nosec B110 - best-effort path
         logger.debug("Failed to hard-disable CUDA globally: %s", _e_disable)
+
+
+def restore_cuda_visibility() -> bool:
+    """Undo ``_disable_cuda_globally``; True when something was restored.
+
+    The disable is deliberately not automatic to undo - it is taken only after a CPU retry ALSO failed CUDA-side, so
+    the context is invalidated - but a caller that has cleared the condition (a new process pool, a freed device)
+    should be able to give the GPU back rather than restart.
+    """
+    global _CUDA_DISABLED_STATE
+    if _CUDA_DISABLED_STATE is None:
+        return False
+    prior = _CUDA_DISABLED_STATE
+    _CUDA_DISABLED_STATE = None
+    try:
+        if prior["env"] is None:
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        else:
+            os.environ["CUDA_VISIBLE_DEVICES"] = prior["env"]
+        torch.cuda.is_available = prior["is_available"]
+    except Exception as _e_restore:
+        logger.error("Failed to restore CUDA visibility (%s); this process stays CPU-only.", _e_restore)
+        return False
+    logger.warning("CUDA visibility restored; estimators may use the GPU again. Note the context was invalidated earlier.")
+    return True
 
 
 def _best_effort_move_to_cpu(model: Any) -> None:
@@ -179,6 +221,15 @@ def run_with_cuda_cpu_fallback(
         global _trainer_call_depth
         _trainer_call_depth += 1
         try:
+            if cuda_is_disabled_for_this_process() and accelerator in ("cuda", "gpu", "auto"):
+                # An earlier estimator already found the context invalidated and hid CUDA process-wide. Going through
+                # the GPU trainer now only re-raises on the way to the same CPU retry; go there directly, and say why.
+                logger.info(
+                    "%s: CUDA is hidden for this process after an earlier invalidated context, so this runs on CPU. "
+                    "Call restore_cuda_visibility() once the condition has cleared to use the GPU again.", action,
+                )
+                cpu_trainer_direct = build_cpu_trainer()
+                return run_fn(cpu_trainer_direct), cpu_trainer_direct
             result = run_fn(primary_trainer)
             return result, primary_trainer
         except RuntimeError as e:
@@ -207,9 +258,10 @@ def run_with_cuda_cpu_fallback(
                     raise
                 logger.error(
                     "CPU fallback after CUDA %s failure ALSO failed with a CUDA-side error: %s. The CUDA "
-                    "context is permanently invalidated for this process. Disabling CUDA at the torch "
-                    "module level so subsequent estimators skip GPU and run on CPU; GPU acceleration will "
-                    "resume on the next process restart. Original CUDA error: %s",
+                    "context is invalidated. Disabling CUDA at the torch module level so subsequent estimators skip "
+                    "GPU and run on CPU. This lasts for the whole process: call "
+                    "mlframe.training.neural.base._cuda_fallback.restore_cuda_visibility() once the condition has "
+                    "cleared, or restart. Original CUDA error: %s",
                     action, e_cpu, e,
                 )
                 _disable_cuda_globally()

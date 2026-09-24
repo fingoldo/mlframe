@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from typing import ClassVar
 from pydantic import Field, field_validator, model_validator
+from ._inert_fields import InertFieldsWarningMixin
 
 from ._configs_base import BaseConfig
 
@@ -30,7 +32,7 @@ from ._configs_base import BaseConfig
 _REGISTRY_CLUSTER_REDUCE_KEYS = frozenset({"cluster_reduce", "cluster_corr_threshold", "cluster_min_reduction", "cluster_corr_method"})
 
 
-class FeatureSelectionConfig(BaseConfig):
+class FeatureSelectionConfig(InertFieldsWarningMixin, BaseConfig):
     """Configuration for feature selection methods.
 
     Controls mRMR (minimum Redundancy Maximum Relevance) and RFECV
@@ -47,6 +49,11 @@ class FeatureSelectionConfig(BaseConfig):
     rfecv_kwargs : dict, optional
         Arguments for RFECV. Expected keys: step, min_features_to_select, cv, scoring.
     """
+
+    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
+    INERT_FIELDS: ClassVar[dict[str, str]] = {
+        "rfecv_kwargs": "RFECV kwargs reach the wrapper through rfecv_models_params",
+    }
 
     # Default FS is UNSUPERVISED-ONLY: only the variance==0 / nulls>99% pre-screen (pre_screen_unsupervised)
     # runs by default; no supervised filter is applied unless the operator opts into MRMR / RFECV / BorutaShap.
