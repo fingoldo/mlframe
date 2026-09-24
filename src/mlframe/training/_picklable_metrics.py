@@ -20,7 +20,7 @@ signature of its ``__call__`` and is accepted.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -91,11 +91,11 @@ class IntegralCalibrationError:
             "nbins": self.nbins,
         }
 
-    def __call__(self, y_true: np.ndarray, y_score: np.ndarray, verbose: bool = False) -> float:
-        """Integral calibration error for probabilistic predictions; lower is better."""
+    def __call__(self, y_true: np.ndarray, y_score: np.ndarray, verbose: bool = False, sample_weight: Optional[np.ndarray] = None) -> float:
+        """Integral calibration error for probabilistic predictions; lower is better. ``sample_weight`` weights every row."""
         from mlframe.metrics.core import compute_probabilistic_multiclass_error
 
-        err = compute_probabilistic_multiclass_error(y_true=y_true, y_score=y_score, verbose=verbose, **self._kwargs())
+        err = compute_probabilistic_multiclass_error(y_true=y_true, y_score=y_score, verbose=verbose, sample_weight=sample_weight, **self._kwargs())
         if verbose:
             logger.debug("integral_calibration_error=%s (n=%d)", err, len(y_true))
         return float(err)
@@ -226,6 +226,9 @@ class RobustTimeSplitMetric:
             end_idx = (i + 1) * split_size if i < actual_splits - 1 else n
             y_true_split = y_true[start_idx:end_idx]
             y_score_split = y_score[start_idx:end_idx]
+            split_kwargs = dict(kwargs)
+            if split_kwargs.get("sample_weight") is not None:  # per-row weights follow their rows into the split
+                split_kwargs["sample_weight"] = np.asarray(split_kwargs["sample_weight"])[start_idx:end_idx]
             if len(y_true_split) < self.min_samples_per_split:
                 if self.verbose:
                     logger.info("RobustTimeSplitMetric: split %s skipped, len=%d < %d", i, len(y_true_split), self.min_samples_per_split)
@@ -234,7 +237,7 @@ class RobustTimeSplitMetric:
                 if self.verbose:
                     logger.info("RobustTimeSplitMetric: split %s skipped, single class in y_true", i)
                 continue
-            val = self.metric_fn(y_true_split, y_score_split, *args, **kwargs)
+            val = self.metric_fn(y_true_split, y_score_split, *args, **split_kwargs)
             if not np.isnan(val):
                 values.append(val)
 

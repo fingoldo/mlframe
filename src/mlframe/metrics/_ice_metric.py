@@ -67,6 +67,116 @@ def _every_class_bins_uniform(probs, y_true, labels, multilabel: bool) -> bool:
     return True
 
 
+def _nonuniform_weights(sample_weight) -> Optional[np.ndarray]:
+    """``sample_weight`` as float64 when it actually weights rows differently; None for no weights or equal weights,
+    which leave every ICE component unchanged, so those calls keep the unweighted kernels bit for bit."""
+    if sample_weight is None:
+        return None
+    w = np.ascontiguousarray(np.asarray(sample_weight, dtype=np.float64).reshape(-1))
+    if w.size == 0 or np.all(w == w[0]):
+        return None
+    if not np.all(np.isfinite(w)) or np.any(w < 0):
+        raise ValueError("sample_weight must be finite and non-negative")
+    return w
+
+
+def _weighted_multiclass_error(probs, y_true, labels, multilabel, w, *, method, nbins, use_weighted_calibration, mae_weight, std_weight,
+                               brier_loss_weight, roc_auc_weight, pr_auc_weight, min_roc_auc, roc_auc_penalty, coverage_weight,
+                               weight_by_class_npositives, return_per_class):
+    """ICE under per-row weights: every component weighted (see ``_ice_kernel_weighted``), bins chosen per class like the
+    unweighted metric (equal-mass bins for a rare positive class, equal-width otherwise)."""
+    from .calibration import resolve_binning_strategy
+    from .classification._ice_kernel_weighted import batch_per_class_ice_weighted, bin_index
+
+    if method != "multicrit":
+        raise ValueError(f"sample_weight is supported for method='multicrit' only, got {method!r}")
+    _class_ids = [c for c in range(len(probs)) if not (len(probs) == 2 and c == 0 and not multilabel)]
+    _y_pred_NK, _y_true_NK = _stack_class_columns(probs, y_true, labels, multilabel, _class_ids)
+    if w.shape[0] != _y_pred_NK.shape[0]:
+        raise ValueError(f"sample_weight has {w.shape[0]} rows, predictions have {_y_pred_NK.shape[0]}")
+    _desc_idx_NK = np.ascontiguousarray(np.argsort(-_y_pred_NK, axis=0).astype(np.int64))
+    _bin_idx_NK = np.ascontiguousarray(np.column_stack([
+        bin_index(_y_true_NK[:, k], _y_pred_NK[:, k], w, nbins, resolve_binning_strategy(_y_true_NK[:, k], "auto"))
+        for k in range(_y_pred_NK.shape[1])
+    ]))
+    ice_per_class = batch_per_class_ice_weighted(
+        _y_true_NK, _y_pred_NK, _desc_idx_NK, _bin_idx_NK, w, nbins, bool(use_weighted_calibration), float(mae_weight), float(std_weight),
+        float(brier_loss_weight), float(roc_auc_weight), float(pr_auc_weight), float(min_roc_auc), float(roc_auc_penalty), float(coverage_weight),
+    )
+    return _reduce_per_class(ice_per_class, _class_ids, _y_true_NK, weight_by_class_npositives, return_per_class)
+
+
+def _stack_class_columns(probs, y_true, labels, multilabel: bool, _class_ids):
+    """``(y_pred_NK float64, y_true_NK int8)`` for the scored classes, as the batched kernels take them."""
+    # Stack y_pred_NK. column_stack on a single-element list still
+    # allocates a fresh (N, 1) array; cheaper to ``.reshape(-1, 1)``
+    # on the already-contiguous column. Binary classification
+    # (the iter#5 hot path) hits this K=1 case on every LGB eval
+    # callback, so the saving is real (~5s on 400K-row 200-iter LGB).
+    _y_pred_cols = []
+    for _c in _class_ids:
+        _yp = probs[_c]
+        if isinstance(_yp, pl.Series):
+            _yp = _yp.to_numpy()
+        elif isinstance(_yp, (pd.Series,)):
+            # ``.to_numpy()`` materialises nullable Int/Float dtypes as object-free ndarrays; ``.values`` returns an ExtensionArray that
+            # silently breaks downstream ``np.ascontiguousarray(_, dtype=np.float64)`` for pandas nullable columns.
+            _yp = _yp.to_numpy()
+        _y_pred_cols.append(np.ascontiguousarray(_yp, dtype=np.float64))
+    if len(_y_pred_cols) == 1:
+        _y_pred_NK = _y_pred_cols[0].reshape(-1, 1)
+    else:
+        _y_pred_NK = np.column_stack(_y_pred_cols)
+    # Stack y_true_NK (indicator matrix)
+    _y_true_cols = []
+    for _c in _class_ids:
+        if multilabel:
+            _yt = y_true[:, _c]
+        elif labels is not None:
+            _yt = y_true == labels[_c]
+        else:
+            _yt = y_true == _c
+        if isinstance(_yt, pl.Series):
+            _yt = _yt.cast(pl.Int8).to_numpy()
+        elif isinstance(_yt, (pd.Series,)):
+            # ``.to_numpy()`` round-trips pandas nullable BooleanArray to a real bool ndarray; ``.values.astype(np.int8)`` on a nullable
+            # boolean returns object-dtype and silently mis-casts None entries to 1 -- the bug the audit caught at metric line 189.
+            _yt = _yt.to_numpy().astype(np.int8)
+        else:
+            _yt = np.ascontiguousarray(_yt, dtype=np.int8)
+        _y_true_cols.append(_yt)
+    if len(_y_true_cols) == 1:
+        _y_true_NK = _y_true_cols[0].reshape(-1, 1)
+    else:
+        _y_true_NK = np.column_stack(_y_true_cols)
+    return _y_pred_NK, _y_true_NK
+
+
+def _reduce_per_class(ice_per_class, _class_ids, _y_true_NK, weight_by_class_npositives: bool, return_per_class: bool):
+    """Combine per-class ICE into the metric (optionally positive-count weighted) and return it the way the caller asked."""
+    total_error = 0.0
+    weights_sum = 0
+    # Reduce with per-class weights
+    _ice_by_class = {}
+    for _k, _cid in enumerate(_class_ids):
+        _ice_val = float(ice_per_class[_k])
+        _ice_by_class[_cid] = _ice_val
+        if weight_by_class_npositives:
+            weight = int(_y_true_NK[:, _k].sum())
+        else:
+            weight = 1
+        total_error += _ice_val * weight
+        weights_sum += weight
+    if weights_sum > 0:
+        total_error /= weights_sum
+    else:
+        logger.warning("compute_probabilistic_multiclass_error: sum of per-class weights is 0; returning NaN.")
+        total_error = float("nan")
+    if return_per_class:
+        return total_error, _ice_by_class
+    return total_error
+
+
 def compute_probabilistic_multiclass_error(
     y_true: Union[pd.Series, pd.DataFrame, np.ndarray],
     y_score: Union[pd.Series, pd.DataFrame, np.ndarray, Sequence],
@@ -87,6 +197,7 @@ def compute_probabilistic_multiclass_error(
     ndigits: int = 4,
     multilabel: bool = False,
     return_per_class: bool = False,
+    sample_weight: Optional[np.ndarray] = None,
     **kwargs,  # scorer can pass kwargs like {'needs_proba': True, 'needs_threshold': False}
 ):
     """Given a sequence of per-class probabilities (predicted by some model), and ground truth targets,
@@ -196,6 +307,15 @@ def compute_probabilistic_multiclass_error(
     total_error = 0.0
     weights_sum = 0
 
+    _w = _nonuniform_weights(sample_weight)
+    if _w is not None:
+        return _weighted_multiclass_error(
+            probs, y_true, labels, multilabel, _w, method=method, nbins=nbins, use_weighted_calibration=use_weighted_calibration,
+            mae_weight=mae_weight, std_weight=std_weight, brier_loss_weight=brier_loss_weight, roc_auc_weight=roc_auc_weight,
+            pr_auc_weight=pr_auc_weight, min_roc_auc=min_roc_auc, roc_auc_penalty=roc_auc_penalty, coverage_weight=coverage_weight,
+            weight_by_class_npositives=weight_by_class_npositives, return_per_class=return_per_class,
+        )
+
     # Batched-numba fastpath. When the hot path applies (method='multicrit'
     # AND not verbose AND probs convert to a clean (N, K) float64 stack),
     # process all K classes in one numba dispatch via
@@ -209,47 +329,7 @@ def compute_probabilistic_multiclass_error(
         # Build the set of class_ids to evaluate (binary case skips 0).
         _class_ids = [c for c in range(len(probs)) if not (len(probs) == 2 and c == 0 and not multilabel)]
         try:
-            # Stack y_pred_NK. column_stack on a single-element list still
-            # allocates a fresh (N, 1) array; cheaper to ``.reshape(-1, 1)``
-            # on the already-contiguous column. Binary classification
-            # (the iter#5 hot path) hits this K=1 case on every LGB eval
-            # callback, so the saving is real (~5s on 400K-row 200-iter LGB).
-            _y_pred_cols = []
-            for _c in _class_ids:
-                _yp = probs[_c]
-                if isinstance(_yp, pl.Series):
-                    _yp = _yp.to_numpy()
-                elif isinstance(_yp, (pd.Series,)):
-                    # ``.to_numpy()`` materialises nullable Int/Float dtypes as object-free ndarrays; ``.values`` returns an ExtensionArray that
-                    # silently breaks downstream ``np.ascontiguousarray(_, dtype=np.float64)`` for pandas nullable columns.
-                    _yp = _yp.to_numpy()
-                _y_pred_cols.append(np.ascontiguousarray(_yp, dtype=np.float64))
-            if len(_y_pred_cols) == 1:
-                _y_pred_NK = _y_pred_cols[0].reshape(-1, 1)
-            else:
-                _y_pred_NK = np.column_stack(_y_pred_cols)
-            # Stack y_true_NK (indicator matrix)
-            _y_true_cols = []
-            for _c in _class_ids:
-                if multilabel:
-                    _yt = y_true[:, _c]
-                elif labels is not None:
-                    _yt = y_true == labels[_c]
-                else:
-                    _yt = y_true == _c
-                if isinstance(_yt, pl.Series):
-                    _yt = _yt.cast(pl.Int8).to_numpy()
-                elif isinstance(_yt, (pd.Series,)):
-                    # ``.to_numpy()`` round-trips pandas nullable BooleanArray to a real bool ndarray; ``.values.astype(np.int8)`` on a nullable
-                    # boolean returns object-dtype and silently mis-casts None entries to 1 -- the bug the audit caught at metric line 189.
-                    _yt = _yt.to_numpy().astype(np.int8)
-                else:
-                    _yt = np.ascontiguousarray(_yt, dtype=np.int8)
-                _y_true_cols.append(_yt)
-            if len(_y_true_cols) == 1:
-                _y_true_NK = _y_true_cols[0].reshape(-1, 1)
-            else:
-                _y_true_NK = np.column_stack(_y_true_cols)
+            _y_pred_NK, _y_true_NK = _stack_class_columns(probs, y_true, labels, multilabel, _class_ids)
             # Descending per-class score order via numpy's C argsort (vectorised over K); hoisted out of the njit
             # kernel because numba's own argsort is ~3.6x slower. The AUC/PR walk is tie-order invariant, so this is
             # bit-identical.
@@ -263,25 +343,7 @@ def compute_probabilistic_multiclass_error(
                 float(min_roc_auc), float(roc_auc_penalty),
                 float(coverage_weight),
             )
-            # Reduce with per-class weights
-            _ice_by_class = {}
-            for _k, _cid in enumerate(_class_ids):
-                _ice_val = float(ice_per_class[_k])
-                _ice_by_class[_cid] = _ice_val
-                if weight_by_class_npositives:
-                    weight = int(_y_true_NK[:, _k].sum())
-                else:
-                    weight = 1
-                total_error += _ice_val * weight
-                weights_sum += weight
-            if weights_sum > 0:
-                total_error /= weights_sum
-            else:
-                logger.warning("compute_probabilistic_multiclass_error: sum of per-class weights is 0; returning NaN.")
-                total_error = float("nan")
-            if return_per_class:
-                return total_error, _ice_by_class
-            return total_error
+            return _reduce_per_class(ice_per_class, _class_ids, _y_true_NK, weight_by_class_npositives, return_per_class)
         except (ValueError, TypeError) as _exc:
             # Only shape/dtype mismatches fall back to the legacy per-class loop; a genuine numeric/logic bug
             # (any other exception type) must propagate rather than be silently masked. Log at WARNING so the
@@ -378,6 +440,23 @@ def compute_probabilistic_multiclass_error(
     return total_error
 
 
+def _accepts_sample_weight(metric: Callable) -> bool:
+    """Whether ``metric`` takes a ``sample_weight`` keyword (explicitly, or via ``**kwargs`` on a mlframe wrapper)."""
+    import inspect
+
+    target = metric if inspect.isfunction(metric) or inspect.ismethod(metric) else getattr(metric, "__call__", metric)
+    try:
+        params = inspect.signature(target).parameters
+    except (TypeError, ValueError):
+        return False
+    if "sample_weight" in params:
+        return True
+    # The wrappers forward **kwargs to an inner metric; they accept the weights when that inner metric does.
+    inner = getattr(metric, "metric", None) or getattr(metric, "metric_fn", None)
+    has_var_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+    return bool(has_var_kw and inner is not None and _accepts_sample_weight(inner))
+
+
 class ICE:
     """Custom probabilistic prediction error metric balancing predictive power with calibration.
     Can regularly create a calibration plot.
@@ -435,23 +514,23 @@ class ICE:
 
     def evaluate(self, approxes, target, weight):
         """CatBoost custom-metric protocol hook: convert raw logits to probabilities, compute the integral calibration error, and periodically log/plot the calibration report."""
-        output_weight = 1  # every row of the returned value carries the same weight; see the sample-weight check below
+        output_weight = 1  # the returned value is already a weighted aggregate; CatBoost must not re-weight it
 
-        # A weighted fit is scored by an unweighted metric here, which is a real divergence between the early-stopping
-        # surface and the objective. Refusing the fit outright was worse: weighted fits (fairness / inverse-frequency
-        # weighting) are a supported, common path, and the ICE kernels taking per-row weights is the actual fix. Until
-        # then the divergence is announced once per fit rather than being silently dropped.
-        if weight is not None and not self._sample_weights_checked:
-            self._sample_weights_checked = True
+        # A weighted fit (fairness / inverse-frequency / recency weights) is scored with the same per-row weights, so the
+        # metric driving early stopping describes the sample the loss minimises. Equal weights change nothing and are
+        # not passed. A custom ``metric`` that takes no ``sample_weight`` is scored unweighted, said once per fit.
+        metric_kwargs = {}
+        if weight is not None:
             w = np.asarray(weight, dtype=np.float64)
-            if w.size and not np.allclose(w, w[0]):
-                logger.warning(
-                    "ICE is computed UNWEIGHTED while this fit carries per-row sample weights "
-                    "(min=%.6g, max=%.6g): no ICE kernel takes per-row weights, so the metric driving early stopping "
-                    "describes the unweighted sample while the loss being minimised is weighted. Rows with large "
-                    "weights count once here. Use a weight-aware eval_metric when that difference matters.",
-                    float(w.min()), float(w.max()),
-                )
+            if w.size and not np.all(w == w[0]):
+                if _accepts_sample_weight(self.metric):
+                    metric_kwargs["sample_weight"] = w
+                elif not self._sample_weights_checked:
+                    self._sample_weights_checked = True
+                    logger.warning(
+                        "ICE: this fit carries per-row sample weights but the metric %r takes no sample_weight, so the value "
+                        "driving early stopping is unweighted.", self.metric,
+                    )
 
         n_rows = len(approxes[0])
         # Skip sentinel for a set this metric deliberately does not score. It must be the WORST value in the metric's
@@ -483,7 +562,7 @@ class ICE:
             class_id = len(approxes) - 1
             y_pred = probs_2d[:, class_id]  # For plotting
 
-        total_error = self.metric(y_true=target, y_score=probs)
+        total_error = self.metric(y_true=target, y_score=probs, **metric_kwargs)
 
         self.nruns += 1
 

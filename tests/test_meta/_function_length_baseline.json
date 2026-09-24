@@ -189,7 +189,7 @@
   "src/mlframe/inference/explainability.py::compute_shap_on_cv": 187,
   "src/mlframe/metrics/_core_numba_warmup.py::_prewarm_numba_cache_body": 551,
   "src/mlframe/metrics/_fairness_metrics.py::compute_fairness_metrics": 157,
-  "src/mlframe/metrics/_ice_metric.py::compute_probabilistic_multiclass_error": 309,
+  "src/mlframe/metrics/_ice_metric.py::compute_probabilistic_multiclass_error": 261,
   "src/mlframe/metrics/calibration/_calibration_plot.py::show_calibration_plot": 355,
   "src/mlframe/metrics/classification/_classification_report.py::fast_calibration_report": 282,
   "src/mlframe/metrics/classification/_ice_kernel.py::_batch_per_class_ice_kernel": 227,
