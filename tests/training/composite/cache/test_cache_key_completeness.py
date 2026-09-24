@@ -35,6 +35,7 @@ NOT_RESULT_INPUTS = {
     "train_idx": "the phase always passes every row of the discovery frame (np.arange), so it is the frame",
     "val_idx": "the phase never passes it; the y-scale gate reads val_df / val_y",
     "test_idx": "the phase never passes it, and discovery never reads test rows",
+    "_fit_data_signature_seed": "the phase's content signature of df, reused so fit does not rehash it; df is keyed",
 }
 
 

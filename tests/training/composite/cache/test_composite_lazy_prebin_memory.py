@@ -3,8 +3,8 @@
 Covers ``_prebin_feature_columns_lazy`` (screening.py) and its size-gated wiring
 into discovery ``fit`` (_fit.py). The lazy path pulls + bins one polars column at
 a time so the float32 (n, F) plane is never materialised -- bit-identical codes,
-lower peak RAM. The eager path stays the default for ndarray / small / dedup-on /
-knn inputs.
+lower peak RAM. The eager path stays the default for ndarray / small / knn inputs;
+with dedup on, the lazy path dedups from a streamed row-block Gram.
 """
 
 from __future__ import annotations
@@ -153,7 +153,6 @@ def _run_fit(force_lazy: str, monkeypatch):
         screening="mi",
         mi_sample_n=None,
         base_candidates=["base"],
-        dedup_x_remaining_for_mi_baseline=False,  # lazy gate requires dedup off.
         random_state=0,
     )
     disc = CompositeTargetDiscovery(config=cfg)
@@ -173,3 +172,64 @@ def test_lazy_gated_fit_matches_eager_fit(monkeypatch):
     assert eager_names == lazy_names, "lazy and eager fit must discover the same specs"
     assert eager_gains == lazy_gains, "lazy and eager mi_gain must be bit-identical"
     assert eager_names, "fixture should discover at least one spec"
+
+
+# ---------------------------------------------------------------------------
+# Dedup on the lazy path: the streamed Gram walk equals the float-plane walk
+# ---------------------------------------------------------------------------
+
+
+def _collinear_frame(n=3000, seed=3):
+    """Twelve columns with near-duplicate groups, a borderline pair, a constant column and NaNs in a duplicate."""
+    rng = np.random.default_rng(seed)
+    base = rng.standard_normal(n)
+    data = {f"c{j}": rng.standard_normal(n) for j in range(12)}
+    data["c1"] = base
+    data["c2"] = base + 1e-3 * rng.standard_normal(n)  # a duplicate of c1
+    data["c5"] = base + 0.1425 * rng.standard_normal(n)  # |corr| with c1 close to 0.99
+    data["c7"] = data["c2"] + 1e-3 * rng.standard_normal(n)
+    data["c7"][rng.integers(0, n, 60)] = np.nan
+    data["c9"] = np.full(n, 2.5)
+    data["c10"] = 1e4 + data["c3"] * 1e-2  # a large offset: a one-pass sum would lose the correlation
+    return pl.DataFrame({k: v.astype(np.float32) for k, v in data.items()}), list(data)
+
+
+@pytest.mark.parametrize("thr", [0.99, 0.95, 0.999999])
+def test_the_streamed_dedup_mask_equals_the_float_plane_mask_for_every_dropped_base(thr):
+    """Each base-dropped keep mask from the row-block Gram equals ``near_collinear_keep_mask`` on the float matrix."""
+    from mlframe.training.composite.discovery._eval_stats import near_collinear_keep_mask
+    from mlframe.training.composite.discovery._lazy_dedup import StreamedCollinearity
+    from mlframe.training.composite.discovery.screening import _extract_column_array
+
+    df, cols = _collinear_frame()
+    rows = np.random.default_rng(0).permutation(df.height)[:2500]
+    full = np.column_stack([_extract_column_array(df, c, rows=rows) for c in cols])
+    streamed = StreamedCollinearity(df, cols, rows, corr_threshold=thr)
+    for drop in [*range(len(cols)), [1, 2]]:
+        expected = near_collinear_keep_mask(np.delete(full, drop, axis=1), corr_threshold=thr)
+        np.testing.assert_array_equal(streamed.keep_mask(drop), expected, err_msg=f"drop={drop}")
+
+
+def test_the_lazy_path_runs_with_dedup_on_and_matches_the_eager_fit(monkeypatch):
+    """Dedup is on by default; the lazy path now serves it, with the eager fit's specs and gains."""
+    import mlframe.training.composite.discovery._fit as fit_mod
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    df, cols = _collinear_frame(n=4000)
+    df = df.with_columns((0.8 * pl.col("c1") + 0.3 * pl.col("c4") + 0.1 * pl.col("c6")).alias("y"))
+    calls = []
+    real = fit_mod._prebin_feature_columns_lazy
+    monkeypatch.setattr(fit_mod, "_prebin_feature_columns_lazy", lambda *a, **k: calls.append(1) or real(*a, **k))
+
+    def run(force):
+        monkeypatch.setenv("MLFRAME_DISCOVERY_LAZY_PREBIN", force)
+        cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_estimator="bin", mi_sample_n=None, base_candidates=["c1", "c3"], random_state=0)
+        assert cfg.dedup_x_remaining_for_mi_baseline
+        d = CompositeTargetDiscovery(config=cfg).fit(df, "y", [c for c in cols if c != "c9"], train_idx=np.arange(df.height))
+        return repr([(s.name, round(float(s.mi_gain), 10)) for s in d.specs_])
+
+    eager = run("0")
+    assert not calls
+    lazy = run("1")
+    assert calls, "the lazy prebin path did not run with dedup on"
+    assert eager != "[]" and lazy == eager

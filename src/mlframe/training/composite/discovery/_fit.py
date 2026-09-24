@@ -35,7 +35,7 @@ from .screening import (
 from ..transforms import UnknownTransformError, get_transform
 from ._skew_gate import left_skewed_right_tail_skips
 from ._fit_ram import _phase_ram_report, _process_mem_mb  # noqa: F401 -- _process_mem_mb re-exported for back-compat
-from ._eval import build_unary_base_context, eval_one_transform
+from ._eval import build_unary_base_context, eval_one_transform, release_context_matrices
 from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidates_report_entry, take_screen_matrix
 from ._fit_multibase import apply_multi_base_forward_stepwise
 from ._eval_stats import near_collinear_keep_mask
@@ -135,6 +135,23 @@ def _evaluate_work_items(self, base_candidates, _base_contexts, _skip_right_tail
                 continue
             _work_items.append((base, transform_name, transform))
 
+    # A base's gathered matrices live from its first scored transform to its last: the work list is in base order, so
+    # only the bases in flight hold copies.
+    _pending: dict = {}
+    for _b, _tn, _t in _work_items:
+        _pending[_b] = _pending.get(_b, 0) + 1
+    _pending_lock = threading.Lock()
+
+    def _eval_and_release(_b, _tn, _t):
+        try:
+            return eval_one_transform(self, _b, _tn, _t, base_contexts=_base_contexts, y_train=y_train, y_screen=y_screen, target_col=target_col)
+        finally:
+            with _pending_lock:
+                _pending[_b] -= 1
+                _last = _pending[_b] == 0
+            if _last:
+                release_context_matrices(_base_contexts[_b])
+
     # Single parallel dispatch over the flat
     # ``_work_items`` list. Joblib preserves input order so
     # ``candidates`` ends up in (base, transform) iteration order
@@ -160,30 +177,12 @@ def _evaluate_work_items(self, base_candidates, _base_contexts, _skip_right_tail
             backend="threading",
             prefer="threads",
         )(
-            _delayed(eval_one_transform)(
-                self,
-                _b,
-                _tn,
-                _t,
-                base_contexts=_base_contexts,
-                y_train=y_train,
-                y_screen=y_screen,
-                target_col=target_col,
-            )
+            _delayed(_eval_and_release)(_b, _tn, _t)
             for _b, _tn, _t in _work_items
         )
     else:
         _results = [
-            eval_one_transform(
-                self,
-                _b,
-                _tn,
-                _t,
-                base_contexts=_base_contexts,
-                y_train=y_train,
-                y_screen=y_screen,
-                target_col=target_col,
-            )
+            _eval_and_release(_b, _tn, _t)
             for _b, _tn, _t in _work_items
         ]
     return [c for _r in _results if _r for c in _r]
@@ -275,6 +274,67 @@ def _reason_from_ledger(self, spec_name: Any) -> str:
         return f"rejected at the {last.get('stage')} stage" + (f": {reason}" if reason else "")
     return "dropped after the MI gate by a filter that records no per-spec verdict " "(top_k_after_mi trim / multi-base dedup)"
 
+
+def _screen_matrices(self, df, _usable_features_list, train_idx_screen, *, _bin_estimator, _dedup_x_remaining, _ram_state):
+    """``(use_lazy_prebin, full_x_matrix, full_x_prebinned, streamed_dedup)`` for the screen sample.
+
+    The lazy path (see the gate comment in ``fit``) returns no float matrix and, with dedup on, the streamed collinearity
+    the per-base dedup reads instead; the eager path returns the float matrix and its (cached) prebinned codes.
+    """
+    _streamed_dedup = None
+    _lazy_force = os.environ.get("MLFRAME_DISCOVERY_LAZY_PREBIN", "").strip().lower()
+    _lazy_n_floor = int(os.environ.get("MLFRAME_DISCOVERY_LAZY_PREBIN_MIN_N", "50000"))
+    _lazy_eligible = _bin_estimator and _is_polars_df(df) and len(_usable_features_list) > 0
+    if _lazy_force in ("0", "false", "no", "off"):
+        _use_lazy_prebin = False
+    elif _lazy_force in ("1", "true", "yes", "on"):
+        _use_lazy_prebin = _lazy_eligible
+    else:
+        _use_lazy_prebin = _lazy_eligible and train_idx_screen.size >= _lazy_n_floor
+    _prebin_use_cache = env_flag("MLFRAME_PREBIN_CACHE", default=True)
+    if _use_lazy_prebin:
+        # Defer column extraction: never materialise the (n, F) float plane.
+        _full_x_matrix = None
+        _full_x_prebinned: np.ndarray | None = _prebin_feature_columns_lazy(
+            df,
+            _usable_features_list,
+            train_idx_screen,
+            nbins=int(self.config.mi_nbins),
+        )
+        _streamed_dedup = None
+        if _dedup_x_remaining:
+            from ._lazy_dedup import StreamedCollinearity
+
+            _streamed_dedup = StreamedCollinearity(
+                df, _usable_features_list, train_idx_screen,
+                corr_threshold=float(getattr(self.config, "dedup_x_remaining_corr_threshold", 0.99)),
+            )
+        if _ram_state is not None:
+            _phase_ram_report(_ram_state, "lazy_prebin_features_done")
+    else:
+        _full_x_matrix = take_screen_matrix(
+            self, df,
+            _usable_features_list,
+            train_idx_screen,
+        )
+        if _ram_state is not None:
+            _phase_ram_report(_ram_state, "build_full_x_matrix_done")
+        # Cache-consulting prebin: codes are deterministic on (matrix bytes, nbins), so a re-discovery
+        # on the SAME screen sample + nbins with a different config (transforms / rerank / re-enabled
+        # bin estimator) reuses the bit-identical codes instead of recomputing the per-column quantile
+        # binning. Opt out via MLFRAME_PREBIN_CACHE=0 (force fresh recompute, no store).
+        _full_x_prebinned = (
+            _prebin_feature_columns_cached(
+                _full_x_matrix,
+                nbins=int(self.config.mi_nbins),
+                use_cache=_prebin_use_cache,
+            )
+            if _bin_estimator
+            else None
+        )
+        if _ram_state is not None:
+            _phase_ram_report(_ram_state, "prebin_features_done")
+    return _use_lazy_prebin, _full_x_matrix, _full_x_prebinned, _streamed_dedup
 
 def fit(
     self: "CompositeTargetDiscovery",
@@ -546,53 +606,13 @@ def fit(
     # building it entirely: pull + bin one column at a time
     # (``_prebin_feature_columns_lazy``) so peak extra RAM is ONE column, not
     # the whole plane. BIT-IDENTICAL codes (shared per-column kernel). Gated to
-    # bin + dedup-off (dedup needs the float matrix) + polars + a size floor;
-    # ndarray / small / knn / dedup-on inputs keep the eager path. Override via
+    # bin + polars + a size floor; ndarray / small / knn inputs keep the eager path. Dedup runs on a row-block Gram
+    # (``_lazy_dedup.StreamedCollinearity``) instead of the float plane. Override via
     # MLFRAME_DISCOVERY_LAZY_PREBIN=0|1 (force off / on; ignores the gate).
-    _lazy_force = os.environ.get("MLFRAME_DISCOVERY_LAZY_PREBIN", "").strip().lower()
-    _lazy_n_floor = int(os.environ.get("MLFRAME_DISCOVERY_LAZY_PREBIN_MIN_N", "50000"))
-    _lazy_eligible = _bin_estimator and not _dedup_x_remaining and _is_polars_df(df) and len(_usable_features_list) > 0
-    if _lazy_force in ("0", "false", "no", "off"):
-        _use_lazy_prebin = False
-    elif _lazy_force in ("1", "true", "yes", "on"):
-        _use_lazy_prebin = _lazy_eligible
-    else:
-        _use_lazy_prebin = _lazy_eligible and train_idx_screen.size >= _lazy_n_floor
-    _prebin_use_cache = env_flag("MLFRAME_PREBIN_CACHE", default=True)
-    if _use_lazy_prebin:
-        # Defer column extraction: never materialise the (n, F) float plane.
-        _full_x_matrix = None
-        _full_x_prebinned: np.ndarray | None = _prebin_feature_columns_lazy(
-            df,
-            _usable_features_list,
-            train_idx_screen,
-            nbins=int(self.config.mi_nbins),
-        )
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "lazy_prebin_features_done")
-    else:
-        _full_x_matrix = take_screen_matrix(
-            self, df,
-            _usable_features_list,
-            train_idx_screen,
-        )
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "build_full_x_matrix_done")
-        # Cache-consulting prebin: codes are deterministic on (matrix bytes, nbins), so a re-discovery
-        # on the SAME screen sample + nbins with a different config (transforms / rerank / re-enabled
-        # bin estimator) reuses the bit-identical codes instead of recomputing the per-column quantile
-        # binning. Opt out via MLFRAME_PREBIN_CACHE=0 (force fresh recompute, no store).
-        _full_x_prebinned = (
-            _prebin_feature_columns_cached(
-                _full_x_matrix,
-                nbins=int(self.config.mi_nbins),
-                use_cache=_prebin_use_cache,
-            )
-            if _bin_estimator
-            else None
-        )
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "prebin_features_done")
+    _use_lazy_prebin, _full_x_matrix, _full_x_prebinned, _streamed_dedup = _screen_matrices(
+        self, df, _usable_features_list, train_idx_screen, _bin_estimator=_bin_estimator, _dedup_x_remaining=_dedup_x_remaining,
+        _ram_state=_ram_state if _ram_profiler_on else None,
+    )
 
     # Per-feature MI(y, x_j) is INDEPENDENT of which base column is excluded, so
     # compute the full-feature vector ONCE and derive each base's mi_y by
@@ -654,8 +674,8 @@ def fit(
                 # prebinned codes). Carry a zero-row float32 proxy of the right
                 # WIDTH so the ``x_remaining_matrix.shape[1]`` index/empty checks
                 # and the eval body's shape reads stay correct without allocating
-                # the (n, F-1) plane. dedup is off on this gate, so the float
-                # values are provably unused.
+                # the (n, F-1) plane. Dedup reads the streamed Gram, not these
+                # values.
                 _rem_cols = _x_prebinned.shape[1] if _x_prebinned is not None else 0
                 x_remaining_matrix: Any = np.empty((0, _rem_cols), dtype=np.float32)
             else:
@@ -663,9 +683,10 @@ def fit(
                 x_remaining_matrix = np.delete(_full_x_matrix, _drop_idx, axis=1)
             # Original-column indices that survive base-drop (used to derive the knn mi_y baseline from the
             # precomputed base-invariant per-feature vector); dedup prunes this in lockstep with x_remaining_matrix.
-            _surviving_orig_idx = np.delete(np.arange(_full_x_matrix.shape[1]), _drop_idx) if _full_x_matrix is not None else None
-            if _dedup_x_remaining and not _use_lazy_prebin and x_remaining_matrix.shape[1] > 1:
-                _keep = near_collinear_keep_mask(
+            _surviving_orig_idx = np.delete(np.arange(len(_usable_features_list)), _drop_idx)
+            _ctx_keep = None
+            if _dedup_x_remaining and x_remaining_matrix.shape[1] > 1:
+                _keep = _streamed_dedup.keep_mask(_drop_idx) if _use_lazy_prebin else near_collinear_keep_mask(
                     x_remaining_matrix,
                     corr_threshold=_dedup_corr_thr,
                 )
@@ -675,6 +696,7 @@ def fit(
                         _x_prebinned = _x_prebinned[:, _keep]
                     if _surviving_orig_idx is not None:
                         _surviving_orig_idx = _surviving_orig_idx[_keep]
+                    _ctx_keep = _keep
         else:
             # Invariant: every base in usable_features is in _col_index, so this arm is unreachable; keeping the base in its own x_remaining would leak it into the MI baseline, so skip rather than mis-score.
             log_throttle(
@@ -694,11 +716,15 @@ def fit(
             col_index=_col_index, drop_idx=_drop_idx, mi_aggregation=_mi_aggregation, per_feat_y_knn_full=_per_feat_y_knn_full,
             x_remaining_matrix=x_remaining_matrix, y_screen=y_screen, mi_kwargs=_mi_kwargs,
         )
+        # The context keeps the surviving column indices, not the (rows x features) copies: every base's copies held at
+        # once were the discovery peak. The evaluator gathers them when the base's first transform runs and drops them
+        # after its last (``discovery._eval.context_matrices``); a gather equals the delete-then-keep build byte for byte.
         _base_contexts[base] = dict(
             base_train=base_train,
             base_screen=base_screen,
-            x_remaining_matrix=x_remaining_matrix,
-            _x_prebinned=_x_prebinned,
+            x_remaining_matrix=None,
+            _x_prebinned=None,
+            _cols=(_drop_idx, _ctx_keep),
             mi_y_for_base=mi_y_for_base,
             _mi_kwargs=_mi_kwargs,
             # Shrunk-domain ``mi_y_compare`` memo shared by all transforms on this base (they share the ``valid_screen`` mask); lock guards the eval threads.
@@ -716,7 +742,7 @@ def fit(
     # and the dead ``x_remaining_matrix`` store, so hand it a zero-row proxy of
     # the full column count -- never read for values on this gate.
     _unary_full_x = _full_x_matrix
-    if _use_lazy_prebin:
+    if _full_x_prebinned is not None:  # the bin estimator reads only codes: the float plane is dead from here on
         _full_width = _full_x_prebinned.shape[1] if _full_x_prebinned is not None else 0
         _unary_full_x = np.empty((0, _full_width), dtype=np.float32)
     assert _unary_full_x is not None  # built above whenever not _use_lazy_prebin
@@ -735,6 +761,14 @@ def fit(
     )
     if _unary_ctx is not None:
         _base_contexts[_UNARY_BASE_SENTINEL] = _unary_ctx
+    _full_views = {"x": None if _full_x_prebinned is not None else _full_x_matrix, "pb": _full_x_prebinned}
+    x_remaining_matrix = _x_prebinned = _unary_full_x = None
+    if _full_x_prebinned is not None:
+        _full_x_matrix = None
+    for _ctx in _base_contexts.values():
+        if "_cols" in _ctx:
+            _ctx["_full_views"] = _full_views
+            _ctx["_matrices_lock"] = threading.Lock()
 
     # Build flat (base, transform_name, transform) work list. Base-dependent
     # transforms iterate per base normally. Unary (``requires_base=False``)
