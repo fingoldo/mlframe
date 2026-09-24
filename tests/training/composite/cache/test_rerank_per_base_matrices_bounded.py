@@ -12,6 +12,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import pytest
 
 
 def test_the_map_gathers_on_demand_bounds_its_cache_and_drops_a_synthetic_bases_parents():
@@ -60,6 +61,7 @@ def _rerank_peak(n_bases: int, monkeypatch) -> tuple:
     return peaks[0]
 
 
+@pytest.mark.slow  # one discovery fit at 4k x 240 with twelve bases (~70 s)
 def test_the_rerank_peak_stays_below_one_copy_per_base(monkeypatch):
     """With twelve bases, one float32 X-without-base and one float64 WAIC copy per base alone are 36 screen matrices;
     the bounded caches keep the whole rerank under 32 (176 MB before, 106 MB after at 4k x 240)."""

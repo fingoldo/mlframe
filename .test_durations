@@ -1,4 +1,8 @@
 {
+    "tests/training/composite/perf/test_discovery_memory_budgets.py::test_the_leak_corr_filter_peaks_at_one_sample_matrix_and_its_mask[pandas]": 35.0,
+    "tests/training/composite/perf/test_discovery_memory_budgets.py::test_the_leak_corr_filter_peaks_at_one_sample_matrix_and_its_mask[polars]": 35.0,
+    "tests/training/composite/perf/test_discovery_memory_budgets.py::test_after_the_rerank_only_the_bin_codes_the_base_pool_and_one_fold_scheme_stay_resident": 110.0,
+    "tests/training/composite/cache/test_rerank_per_base_matrices_bounded.py::test_the_rerank_peak_stays_below_one_copy_per_base": 70.0,
     "tests/calibration/test_api_consistency_fixes.py::test_api15_pick_best_calibrator_reports_secondary_ece_when_probs_y_given": 1.9900156790000096,
     "tests/calibration/test_api_consistency_fixes.py::test_api15_secondary_ece_none_when_probs_y_omitted": 1.1170756469999787,
     "tests/calibration/test_api_consistency_fixes.py::test_api31_binary_postcalibrator_sets_sklearn_attrs_and_predict_proba": 1.9182763170000499,

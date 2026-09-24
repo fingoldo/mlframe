@@ -192,6 +192,34 @@ def safe_abs_corr_all_dispatch(
     return np.asarray(out)
 
 
+def abs_corr_all_no_copy(y: np.ndarray, X: np.ndarray, *, reference_fn) -> np.ndarray:
+    """``|corr(y, X[:, j])|`` by the kernel on ``X`` as given: no float64, contiguous or centred copy of the matrix.
+
+    The kernel promotes every element to float64 before it is summed, so a float32 or strided ``X`` gives the same numbers
+    as the float64 contiguous copy ``safe_abs_corr_all_dispatch`` hands it; a flagged column is re-decided on its own float64
+    copy, as there. For callers that re-check every column near their decision threshold exactly (the leak filter): the
+    size dispatch, which picks the faster backend, would otherwise run the numpy reference and its (n, F) temporaries.
+    """
+    if X.ndim != 2:
+        raise ValueError("abs_corr_all_no_copy expects a 2-D X")
+    if not _HAS_NUMBA or X.shape[1] == 0:
+        return np.asarray(reference_fn(y, X))
+    y_finite = np.isfinite(y)
+    n_finite = int(y_finite.sum())
+    if n_finite < 3:
+        return np.zeros(X.shape[1])
+    y_f, X_f = (y, X) if n_finite == y_finite.shape[0] else (y[y_finite], X[y_finite])
+    y_dev = (y_f - y_f.mean()).astype(np.float64, copy=False)  # a float64 y needs no second copy
+    var_y = float(np.dot(y_dev, y_dev))
+    if var_y < _VAR_FLOOR:
+        return np.zeros(X.shape[1])
+    out, borderline = _abs_corr_all_kernel(X_f, y_dev, var_y, _BORDERLINE_BAND)
+    if borderline.any():
+        for j in np.nonzero(borderline)[0]:
+            out[j] = _safe_corr_single(y_dev, var_y, np.asarray(X_f[:, j], dtype=np.float64))
+    return np.asarray(out)
+
+
 def _warm_corr_kernel() -> None:
     """Compile the kernel at import on a tiny matrix so the first real call is hot."""
     if not _HAS_NUMBA:

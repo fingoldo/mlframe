@@ -92,4 +92,13 @@ def base_ordered(indices: Sequence[int], base_of: Callable[[int], str]) -> list:
     return sorted(indices, key=lambda i: first[base_of(i)])
 
 
-__all__ = ["BoundedMemo", "PerBaseMatrices", "base_ordered"]
+def release_fold_caches() -> None:
+    """Drop the shared LightGBM and Ridge fold entries of matrices that are gone: after the rerank, all of its per-base ones."""
+    from ._lgb_shared_fold import prune_dead as prune_lgb
+    from ._ridge_shared_fold import prune_dead as prune_ridge
+
+    prune_lgb()
+    prune_ridge()
+
+
+__all__ = ["BoundedMemo", "PerBaseMatrices", "base_ordered", "release_fold_caches"]

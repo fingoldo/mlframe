@@ -11,6 +11,7 @@ from typing import Any, List, Sequence, cast
 import numpy as np
 
 from .._composite_utils import is_polars_df as _is_polars_df
+from ._corr_numba import abs_corr_all_no_copy
 from .screening import (
     _extract_column_array,
     _is_numeric_column,
@@ -135,15 +136,56 @@ def _maybe_sample_for_leak_corr(
     return sampled, y_sampled
 
 
+_FINITE_SCAN_ROWS = 65_536
+"""Rows per chunk of the leak-corr block's finiteness scan."""
+
+_LEAK_CORR_BLOCK_NO_PROBE_BYTES = 64 * 1024**2
+"""A leak-corr block this small is allocated without probing available RAM."""
+
+
+def _leak_corr_buffer(n_rows: int, n_cols: int) -> np.ndarray | None:
+    """A C-order float32 ``(n_rows, n_cols)`` block the leak-corr columns are gathered straight into, or None.
+
+    Gathering into one block replaces holding every column and then stacking a second copy of them all, which doubled the
+    filter's peak. None, and the per-column list path with its adaptive sampler, when the block would take more than
+    ``_LEAK_CORR_ALLOC_AVAIL_FRACTION`` of available RAM (or RAM cannot be probed): that is the case the sampler exists for.
+    """
+    if n_rows <= 0 or n_cols <= 0:
+        return None
+    if n_rows * n_cols * 4 <= _LEAK_CORR_BLOCK_NO_PROBE_BYTES:  # the RAM probe costs ~3 ms, more than gathering a small block
+        return np.empty((n_rows, n_cols), dtype=np.float32)
+    try:
+        import psutil as _psutil
+
+        available_bytes = int(_psutil.virtual_memory().available)
+    except Exception as exc:
+        logger.debug("leak-corr block sizing: psutil probe failed, gathering per column: %s", exc)
+        return None
+    if n_rows * n_cols * 4 > _LEAK_CORR_ALLOC_AVAIL_FRACTION * available_bytes:
+        return None
+    return np.empty((n_rows, n_cols), dtype=np.float32)
+
+
 # |corr| within this of the threshold is recomputed in float64: the vectorised float32 pass is only good to ~1e-5.
 _LEAK_CORR_RECHECK_BAND = 1e-4
 
 
-def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, corr_drops):
+def _is_every_row(train_idx: Any, df: Any) -> bool:
+    """True when ``train_idx`` is ``0 .. len(df) - 1`` in order."""
+    idx = np.asarray(train_idx)
+    try:
+        n = len(df)
+    except TypeError:
+        return False
+    return idx.ndim == 1 and idx.size == n and (n == 0 or (int(idx[0]) == 0 and int(idx[-1]) == n - 1 and np.array_equal(idx, np.arange(n))))
+
+
+def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, corr_drops, block=None):
     """Split the survivors into kept columns and leak-corr drops, appending each drop to ``drops``/``corr_drops``.
 
     Carved out of ``_filter_features`` so the gather loop and the correlation decision stay separately readable;
-    the rules are unchanged.
+    the rules are unchanged. ``block``, when given, holds the candidate columns in its leading columns (``candidate_arrays``
+    are views of it), so the matrix is that slice rather than a stacked copy.
     """
     # Vectorised corr filter on survivors. Replaces the per-column
     # ``abs(_safe_corr(arr, y_train))`` loop. NaN rows in the survivor matrix
@@ -162,24 +204,32 @@ def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, cor
         _sampled_arrays, _y_for_corr = _maybe_sample_for_leak_corr(
             candidates, candidate_arrays, _y_leak,
         )
-        X_train = np.column_stack(_sampled_arrays)
-        # Free the per-column ndarrays the moment they land in the stacked matrix:
+        X_train = block[:, :len(candidates)] if (block is not None and _sampled_arrays is candidate_arrays) else np.column_stack(_sampled_arrays)
+        # Free the per-column ndarrays the moment they land in the stacked matrix (on the list path):
         # candidate_arrays holds (n_features) views/copies that double the peak
         # footprint until we let them go (~8 GB on a 4M-row x 500-col float32 frame).
         candidate_arrays.clear()
         _sampled_arrays = []
-        # nanmean over (N, F) requires no temp; nb the prior np.where(isfinite, X, nan)
-        # built a SECOND full-frame copy purely to silence non-finite cells, redundant.
-        col_means = np.nanmean(X_train, axis=0)
-        non_finite_mask = ~np.isfinite(X_train)
-        if non_finite_mask.any():
+        # The prior np.where(isfinite, X, nan) built a SECOND full-frame copy purely to silence non-finite cells, redundant.
+        # Finiteness is scanned in row chunks and a mask is kept only for the columns that have a non-finite cell: an
+        # (N, F) mask was a quarter of the matrix for the few such columns. The means are taken over those columns only;
+        # a C-order axis-0 reduction sums each column in row order whatever the other columns are, so they are the same.
+        col_has_nan = np.zeros(X_train.shape[1], dtype=bool)
+        for _start in range(0, X_train.shape[0], _FINITE_SCAN_ROWS):
+            col_has_nan |= ~np.isfinite(X_train[_start:_start + _FINITE_SCAN_ROWS]).all(axis=0)
+        _nan_cols = np.nonzero(col_has_nan)[0]
+        non_finite_cols = {int(j): ~np.isfinite(X_train[:, j]) for j in _nan_cols}
+        if _nan_cols.size:
             # X_train is a freshly-allocated buffer owned by this function; mutating
             # in-place is safe (the .copy() removed here cost another full-frame
             # allocation -- ~8 GB transient on the 4M-row prod frame).
-            X_train[non_finite_mask] = np.broadcast_to(
-                col_means, X_train.shape,
-            )[non_finite_mask]
-        abs_corrs = _safe_abs_corr_all(_y_for_corr, X_train)
+            col_means = np.nanmean(np.ascontiguousarray(X_train[:, _nan_cols]), axis=0)
+            for _k, _j in enumerate(_nan_cols):
+                X_train[non_finite_cols[int(_j)], _j] = col_means[_k]
+        # Every column within _LEAK_CORR_RECHECK_BAND of the threshold is recomputed exactly below, so the ~1e-9 backend
+        # drift of the kernel can move no decision and no recorded value; the kernel reads the float32 block as is, where
+        # the numpy reference built centred and float64 copies of it.
+        abs_corrs = abs_corr_all_no_copy(_y_for_corr, X_train, reference_fn=_safe_abs_corr_all)
         # Mean-imputation dilutes |corr| by ~sqrt(frac_finite) for NaN-bearing
         # columns (imputed rows contribute 0 to the centred cross-product but
         # inflate the variance denominator). With the near-1 forbidden-base
@@ -194,14 +244,16 @@ def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, cor
         # 1 - threshold: a legitimate near-copy scored |corr| = 1.00000018, above any threshold an operator could raise it
         # to, so the logged advice to raise the threshold could not work. Columns within the band of the threshold are
         # recomputed exactly, as the NaN-bearing ones are.
-        col_has_nan = non_finite_mask.any(axis=0)
         recheck = col_has_nan | (np.asarray(abs_corrs) >= threshold - _LEAK_CORR_RECHECK_BAND)
         if recheck.any():
             y64 = np.asarray(_y_for_corr, dtype=np.float64)
             y_ok = np.isfinite(y64)
             for j in np.nonzero(recheck)[0]:
-                finite_rows = (~non_finite_mask[:, j]) & y_ok
+                finite_rows = (~non_finite_cols[int(j)]) & y_ok if int(j) in non_finite_cols else y_ok
                 if int(finite_rows.sum()) < 3:
+                    # Under three rows finite in both is no evidence either way; the mean-imputed score of such a column is
+                    # its two or so real points against a constant, which can sit at 1 and drop it as a leak of y.
+                    abs_corrs[j] = 0.0
                     continue
                 xj = X_train[finite_rows, j].astype(np.float64)
                 yj = y64[finite_rows]
@@ -286,6 +338,11 @@ def _filter_features(
     candidate_arrays: list[np.ndarray] = []
     _leak_rows = _leak_corr_sample_rows(int(np.asarray(train_idx).size))
     _y_leak = y_train if _leak_rows is None or y_train is None else np.asarray(y_train)[_leak_rows]
+    _n_leak_rows = int(np.asarray(train_idx).size) if _leak_rows is None else int(_leak_rows.size)
+    # Train rows that are the whole frame in order are read as whole columns: a row gather copies the index and, on pandas,
+    # a float64 column per feature on the way to float32, for the same values.
+    _col_rows = None if _is_every_row(train_idx, df) else train_idx
+    _block = _leak_corr_buffer(_n_leak_rows, len(feature_cols))
     if _leak_rows is not None:
         logger.info(
             "[CompositeTargetDiscovery] leak-corr test reads a %d-row stride of the %d train rows; the constancy and "
@@ -308,7 +365,7 @@ def _filter_features(
             n_finite, ptp_or_none = _polars_stats[col]
             arr = None
         else:
-            arr = _extract_column_array(df, col, rows=train_idx)
+            arr = _extract_column_array(df, col, rows=_col_rows)
             finite_mask = np.isfinite(arr)
             n_finite = int(finite_mask.sum())
             ptp_or_none = float(np.ptp(arr[finite_mask])) if n_finite else None
@@ -329,12 +386,18 @@ def _filter_features(
         # Keep only the rows the leak-corr test will read: the constancy and finite-count checks above are done with,
         # so the full column can be released here instead of being held until the stack.
         if arr is None:
-            _rows = np.asarray(train_idx) if _leak_rows is None else np.asarray(train_idx)[_leak_rows]
-            candidate_arrays.append(_extract_column_array(df, col, rows=_rows))
+            _rows = _col_rows if _leak_rows is None else np.asarray(train_idx)[_leak_rows]
+            _col = _extract_column_array(df, col, rows=_rows)
         else:
-            candidate_arrays.append(arr if _leak_rows is None else arr[_leak_rows])
+            _col = arr if _leak_rows is None else arr[_leak_rows]
+        if _block is not None:
+            _block[:, len(candidate_arrays)] = _col
+            _col = _block[:, len(candidate_arrays)]
+        candidate_arrays.append(_col)
+        arr = None
 
-    kept = _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, corr_drops)
+    kept = _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, corr_drops, block=_block)
+    del _block
     self._filter_drops = drops
     # The corr filter is the one an operator may legitimately want to overrule for a named base, so the names it took
     # are kept: an explicit ``base_candidates=[...]`` entry is let back in through them (the numeric, finite-row and

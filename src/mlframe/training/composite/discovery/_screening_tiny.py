@@ -20,6 +20,7 @@ import logging
 import math
 import re
 import threading
+from collections import OrderedDict
 import warnings
 from typing import TYPE_CHECKING, Any
 
@@ -44,9 +45,10 @@ logger = logging.getLogger(__name__)
 # the feature values (KFold.split shuffles np.arange(n) by the seeded RNG). Across
 # all N_SPECS in one rerank sweep that triple is identical, so the fold-index lists
 # repeat; cache them once per sweep (also skips KFold.split's per-call x re-validation).
-# Bounded LRU-ish: cap entries so a long-lived process can't grow it unboundedly.
-_KFOLD_SPLIT_CACHE: dict[tuple[int, int, int], list[tuple[np.ndarray, np.ndarray]]] = {}
-_KFOLD_SPLIT_CACHE_MAX = 256
+# LRU over keys: each entry holds ``cv_folds x n_rows`` int64 indices (40 MB at 1M rows x 5 folds), so the bound is a
+# handful of keys, not hundreds: a sweep reuses one key set, and 256 keys at 1M rows could hold 10 GB.
+_KFOLD_SPLIT_CACHE: "OrderedDict[tuple[int, int, int], list[tuple[np.ndarray, np.ndarray]]]" = OrderedDict()
+_KFOLD_SPLIT_CACHE_MAX = 8
 _KFOLD_SPLIT_CACHE_LOCK = threading.Lock()  # parallel screening workers share the cache; clear-then-insert must not interleave
 
 
@@ -61,14 +63,16 @@ def _cached_kfold_splits(n_rows: int, cv_folds: int, random_state: int):
     key = (int(n_rows), int(cv_folds), int(random_state))
     with _KFOLD_SPLIT_CACHE_LOCK:
         cached = _KFOLD_SPLIT_CACHE.get(key)
+        if cached is not None:
+            _KFOLD_SPLIT_CACHE.move_to_end(key)
     if cached is not None:
         return cached
     kf = make_discovery_splitter(cv_folds, random_state=random_state)[0]  # the one place a shuffled discovery KFold is built
     splits = list(kf.split(np.empty(n_rows, dtype=np.uint8)))
     with _KFOLD_SPLIT_CACHE_LOCK:
-        if len(_KFOLD_SPLIT_CACHE) >= _KFOLD_SPLIT_CACHE_MAX:
-            _KFOLD_SPLIT_CACHE.clear()  # cheap bounded reset; sweeps reuse one key set
         _KFOLD_SPLIT_CACHE[key] = splits
+        while len(_KFOLD_SPLIT_CACHE) > _KFOLD_SPLIT_CACHE_MAX:
+            _KFOLD_SPLIT_CACHE.popitem(last=False)
     return splits
 
 

@@ -38,6 +38,7 @@ from ._fit_ram import _phase_ram_report, _process_mem_mb  # noqa: F401 -- _proce
 from ._eval import build_unary_base_context, eval_one_transform, release_context_matrices
 from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidates_report_entry, take_screen_matrix
 from ._fit_multibase import apply_multi_base_forward_stepwise
+from ._per_base_x import release_fold_caches
 from ._eval_stats import near_collinear_keep_mask
 from mlframe.utils.log_throttle import log_throttle
 from mlframe.utils.env_flags import env_flag
@@ -811,6 +812,7 @@ def fit(
             train_idx=train_idx,
             y_full=y_full,
         )
+        release_fold_caches()
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "tiny_model_rerank_done")
 

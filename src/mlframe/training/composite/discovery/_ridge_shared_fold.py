@@ -56,6 +56,18 @@ def _impute_in_place(xi: np.ndarray, fill: np.ndarray, bad: np.ndarray | None = 
     return xi
 
 
+def _drop_dead_locked() -> None:
+    """Remove the entries whose matrix has been freed; the caller holds ``_LOCK``."""
+    for dead in [k for k, (ref, _) in _CACHE.items() if ref() is None]:
+        del _CACHE[dead]
+
+
+def prune_dead() -> None:
+    """Drop the entries whose matrix has been freed, so a finished phase leaves nothing of its folds resident."""
+    with _LOCK:
+        _drop_dead_locked()
+
+
 def _fold_factor(x: np.ndarray, rows: np.ndarray) -> tuple[np.ndarray, np.ndarray, Any]:
     """This thread's ``(fill, column_mean, cholesky_factor)`` for the fold ``x[rows]``, computed on first use."""
     from scipy.linalg import cho_factor
@@ -85,8 +97,7 @@ def _fold_factor(x: np.ndarray, rows: np.ndarray) -> tuple[np.ndarray, np.ndarra
     with _LOCK:
         # An entry whose matrix is gone can never hit again (a new matrix at the same id fails the weakref check), so
         # it goes now rather than when the LRU reaches it: the rerank gathers per-base matrices on demand and drops them.
-        for _dead in [k for k, (ref, _) in _CACHE.items() if ref() is None]:
-            del _CACHE[_dead]
+        _drop_dead_locked()
         _CACHE[key] = (weakref.ref(x), entry)
         while len(_CACHE) > _MAX_ENTRIES:
             # evict-ok: memo; a miss recomputes the value

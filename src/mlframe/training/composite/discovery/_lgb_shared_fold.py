@@ -62,6 +62,18 @@ def lgb_params(*, num_leaves: int, learning_rate: float, random_state: int, dete
     return params
 
 
+def _drop_dead_locked() -> None:
+    """Remove the entries whose matrix has been freed; the caller holds ``_LOCK``."""
+    for dead in [k for k, (ref, _) in _CACHE.items() if ref() is None]:
+        del _CACHE[dead]
+
+
+def prune_dead() -> None:
+    """Drop the entries whose matrix has been freed, so a finished phase leaves nothing of its folds resident."""
+    with _LOCK:
+        _drop_dead_locked()
+
+
 def _fold_dataset(x: np.ndarray, rows: np.ndarray, params: Dict[str, Any]) -> Any:
     """This thread's constructed dataset for ``x[rows]``, built on first use."""
     import lightgbm as lgb
@@ -82,8 +94,7 @@ def _fold_dataset(x: np.ndarray, rows: np.ndarray, params: Dict[str, Any]) -> An
     with _LOCK:
         # An entry whose matrix is gone can never hit again (a new matrix at the same id fails the weakref check), so
         # it goes now rather than when the LRU reaches it: the rerank gathers per-base matrices on demand and drops them.
-        for _dead in [k for k, (ref, _) in _CACHE.items() if ref() is None]:
-            del _CACHE[_dead]
+        _drop_dead_locked()
         _CACHE[key] = (weakref.ref(x), ds)
         while len(_CACHE) > _MAX_ENTRIES:
             # evict-ok: memo; a miss recomputes the value
