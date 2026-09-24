@@ -20,9 +20,9 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `estimator_ensemble.md` | 22 | 21 | 0 | 1 | 0 | 0 |
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 13 | 2 | 2 | 0 | 0 |
+| `tests.md` | 17 | 15 | 2 | 0 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 19 | 20 | 2 | 0 | 0 |
-| **Total** | **179** | **141** | **32** | **5** | **1** | **0** |
+| **Total** | **179** | **143** | **32** | **3** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -181,8 +181,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `TST-05` | No test checks that predict is independent of how rows are batched, and the recurrent-transform tests invert over the full series, which hides every batch-state defect | batching-invariance property tests over all transforms: pointwise chunk equality, recurrent exact with warm-up prefix, known limits pinned (frac_diff memory, centred window), NaN base contained; recurrent biz test scores per test segment |
 | **RESOLVED** | P2 | `TST-06` | The discovery time-awareness tests shuffle rows correctly but assert only the `_screen_time_ordered_` flag, which is the one thing the sort changes | folds and sample order asserted against the time key; mutation-checked against the pre-DSC-05 behaviour |
 | **RESOLVED** | P2 | `TST-07` | The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04 | harness scoped, dead asserts removed; the fresh-row check found and fixed a DSC-03 residual |
-| **TODO** | P2 | `TST-08` | Group handling is tested only with clean string/int labels on row-random splits, and the unseen-group tests assert only finiteness | |
-| **TODO** | P2 | `TST-09` | Polars coverage is limited to four pointwise transforms and a monotone-time OOF case, which hides the polars row-misalignment bug | |
+| **RESOLVED** | P2 | `TST-08` | Group handling is tested only with clean string/int labels on row-random splits, and the unseen-group tests assert only finiteness | estimator-level unseen-group fallback pinned to the global parameters; the rest was covered |
+| **RESOLVED** | P2 | `TST-09` | Polars coverage is limited to four pointwise transforms and a monotone-time OOF case, which hides the polars row-misalignment bug | external_val source and five transform families added; found and fixed LightGBM-inner failing on polars |
 | **RESOLVED** | P2 | `TST-10` | The CTE fuzz suite asserts only finiteness and a y-envelope that the post-inverse clip guarantees, on small-scale data, and states "found NO production bug" | oracle inner reproduces train y over nine decades of scale; found + fixed box_cox_y constant-T collapse (normalised form) |
 | **RESOLVED** | P2 | `TST-11` | Several biz_val tests have no honest baseline, compare against a baseline starved of the base column, or assert only "not worse" | honest baselines measured (grouped EWMA fixture moved to its real regime), OOF NNLS strict win via predict, noise asserts no spec, var(T) -> held-out RMSE |
 | **RESOLVED** | P2 | `TST-12` | Targeted transform and ensemble tests use the one parameter region where the filed defect is silent | gaps filled for EST-05/EST-06; the rest was covered by the fixes' tests |

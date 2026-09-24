@@ -18,6 +18,7 @@ from . import _soft_shrink as _soft_shrink
 from ._estimator_helpers import _carry_forward_fill
 from ._routing import inner_input as _inner_input
 from ._routing import resolve_transform as get_transform
+from ._inner_frame import frame_for_inner
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +293,7 @@ def _predict_unclipped(self, X: Any, inner_X: Any = None, t_hat_override: Option
         # The inner reads its own pipeline stage (the entry's fitted pre_pipeline applied to X, group plumbing column dropped),
         # while the base above was read from X itself, the stage the transform params were fit on. No frame-flavour conversion
         # happens here: a 100 GB polars frame must never be silently materialised.
-        X_for_inner = inner_X if inner_X is not None else _inner_input(self, X, transform)
+        X_for_inner = frame_for_inner(self.estimator_, inner_X if inner_X is not None else _inner_input(self, X, transform))
         t_hat = np.asarray(
             self.estimator_.predict(X_for_inner), dtype=np.float64,
         ).reshape(-1)
@@ -494,7 +495,7 @@ def predict_quantile(
                 f"CompositeTargetEstimator.predict_quantile: transform " f"'{self.transform_name}' requires groups but group_column is " f"not configured."
             )
         inverse_kwargs["groups"] = _extract_groups(X, self.group_column)
-    X_for_inner = inner_X if inner_X is not None else _inner_input(self, X, transform)
+    X_for_inner = frame_for_inner(inner, inner_X if inner_X is not None else _inner_input(self, X, transform))
 
     alpha_is_scalar = np.isscalar(alpha)
     try:
