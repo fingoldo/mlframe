@@ -151,3 +151,36 @@ def test_an_unseen_category_encodes_to_the_global_prior():
         enc.fit_transform(cats, y)
         out = enc.transform(np.array(["zzz", "never"]))
         np.testing.assert_allclose(out, enc._global_prior, rtol=0, atol=1e-12, err_msg=method)
+
+
+_RECURRENT_TWINS = {"ewma_residual_grouped": "ewma_residual", "frac_diff_grouped": "frac_diff", "rolling_quantile_ratio_grouped": "rolling_quantile_ratio"}
+
+
+def test_every_recurrent_grouped_transform_has_an_ungrouped_twin():
+    """The recurrent grouped transforms are exactly the ones the seed leg below covers."""
+    recurrent = {n for n in _GROUPED if n not in _GLOBAL_INVERSE}
+    assert recurrent == set(_RECURRENT_TWINS)
+    assert all(t in TRANSFORMS_REGISTRY for t in _RECURRENT_TWINS.values())
+
+
+@pytest.mark.parametrize("name", sorted(_RECURRENT_TWINS))
+def test_an_unseen_group_continues_from_the_ungrouped_seed(name: str):
+    """Under recurrence continuation an unseen group is served exactly what the ungrouped twin serves: same seed, same recursion.
+
+    The grouped transforms once seeded unseen groups with the whole-history mean, so a group the model never saw restarted
+    from a level the ungrouped series had long left (TRF-22).
+    """
+    tg, tu = TRANSFORMS_REGISTRY[name], TRANSFORMS_REGISTRY[_RECURRENT_TWINS[name]]
+    y, b, g = _grouped_data()
+    y = y + np.linspace(0.0, 30.0, y.size)  # a trend, so the tail state and the history mean differ by far more than the tolerance
+    rng = np.random.default_rng(3)
+    bn, tn = rng.uniform(1.0, 10.0, 40), rng.normal(0.0, 0.3, 40)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pg = dict(tg.fit(y, b if tg.requires_base else None, groups=g), recurrence_continuation=True)
+        pu = dict(tu.fit(y, b if tu.requires_base else None), recurrence_continuation=True)
+        got = tg.inverse(tn, bn if tg.requires_base else None, pg, groups=np.full(40, 100))
+        want = tu.inverse(tn, bn if tu.requires_base else None, pu)
+        cold = tg.inverse(tn, bn if tg.requires_base else None, {**pg, "recurrence_continuation": False}, groups=np.full(40, 100))
+    np.testing.assert_allclose(got, want, rtol=0, atol=1e-12)
+    assert np.max(np.abs(cold - want)) > 1e-6, "canary: without continuation the seed must differ, or the leg proves nothing"
