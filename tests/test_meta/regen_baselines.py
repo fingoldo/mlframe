@@ -28,6 +28,7 @@ _BASELINES: dict[str, tuple[str, str]] = {
     "_vacuous_loop_baseline.json": ("test_shared_checks_wired", "regenerate_vacuous_loop_baseline"),
     "_fail_open_handlers_baseline.json": ("test_shared_checks_wired", "regenerate_fail_open_baseline"),
     "_function_length_baseline.json": ("test_shared_checks_wired", "regenerate_function_length_baseline"),
+    "_function_complexity_baseline.json": ("test_function_complexity", "regenerate_baseline"),
     "_verbose_gated_except_baseline.json": ("test_no_bare_except", "regenerate_baseline"),
     "_debt_baseline.json": ("test_deferred_drift", "regenerate_baseline"),
     "_docstring_baseline.json": ("test_public_docstrings", "regenerate_baseline"),

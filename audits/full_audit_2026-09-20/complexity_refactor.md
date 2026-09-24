@@ -49,7 +49,7 @@ arbitrary line ranges.
 
 | ID | Complexity | Function | Location | Status |
 |---|---|---|---|---|
-| CX-GATE | - | blocking C901 ratchet at 25 + baseline | `.github/workflows/ci.yml`, `.pre-commit-config.yaml`, `pyproject.toml` | TODO |
+| CX-GATE | - | blocking C901 ratchet at 25 + baseline | `tests/test_meta/test_function_complexity.py`, `_function_complexity_baseline.json` (193 entries), `py_ci_shared.function_complexity`; `pyproject.toml` max-complexity 25 with the measured distribution | DONE - the ratchet (ruff C901 numbers, path::qualname keys) is the blocking gate; the plain ruff steps keep `--ignore C901` since a baseline-less ruff run would fail on the 193 tracked functions |
 | CX-001 | 317 | `_fit_impl` | `src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py:123` | TODO |
 | CX-002 | 147 | `materialise_and_finalise_fe_candidates` | `src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py:50` | TODO |
 | CX-003 | 115 | `_score_one_pair` | `src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_score.py:79` | TODO |

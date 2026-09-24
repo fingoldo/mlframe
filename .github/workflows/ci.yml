@@ -632,6 +632,8 @@ jobs:
     name: Ruff (real bugs - blocking)
     uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@a5f21545929963284b176143c96c42bb1de4508a  # v1 (reads RUFF_VERSION from tool_versions.py)
     with:
+      # C901 is gated by the baselined ratchet tests/test_meta/test_function_complexity.py (limit 25); a plain ruff run
+      # would fail on the 193 tracked functions over it.
       ignore: "C901"
 
   lint-blocking:

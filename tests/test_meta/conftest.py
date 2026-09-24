@@ -23,6 +23,8 @@ _REFRESH_FLAGS = [
     "--refresh-bare-except-baseline",
     "--refresh-cache-mutation-lock-baseline",
     "--refresh-console-unicode-baseline",
+    "--refresh-cross-module-dict-mutation-baseline",
+    "--refresh-function-complexity-baseline",
     "--refresh-debt-baseline",
     "--refresh-docstring-baseline",
     "--refresh-fitted-attr-setstate-baseline",

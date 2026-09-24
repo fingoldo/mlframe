@@ -60,4 +60,6 @@ Run from the repository root. The script re-runs each meta-test in
 - `_discovery_algo_version_baseline.json` - source hash of composite/discovery and composite/transforms pinned to DISCOVERY_ALGO_VERSION (test_discovery_algo_version_bumped.py; a version bump re-pins it, --refresh-content-hash-version-baseline for comment-only edits)
 - `_fail_open_handlers_baseline.json` - exception handlers in the composite and feature-selection packages that keep a candidate on error, fall back quietly, or skip a reject on NaN (py_ci_shared.fail_open_handlers, `regen_baselines.py`)
 - `_function_length_baseline.json` - per-function line ceilings for functions over 150 lines (py_ci_shared.function_length, `regen_baselines.py`)
+- `_function_complexity_baseline.json` - per-function McCabe (ruff C901) ceilings for functions over complexity 25 (py_ci_shared.function_complexity, `regen_baselines.py`)
+- `_cross_module_dict_mutation_baseline.json` - grandfathered cross-module dict mutations (`--refresh-cross-module-dict-mutation-baseline`)
 - `_value_bearing_asserts_baseline.json` - production asserts that check a value, which `python -O` deletes (`regen_baselines.py`)
