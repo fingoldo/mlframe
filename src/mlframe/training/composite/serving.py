@@ -119,13 +119,11 @@ def _inv_ratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.nda
 
 
 def _inv_logratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
-    """Inverts ``logratio``: ``y = base * exp(soft_cap(t_hat))``, clipping ``t_hat`` to ``median_t +/- soft_cap_k*mad_eff`` first."""
-    # _logratio_inverse -> base * exp(softcap(t)) centred on median_t.
-    median_t = float(p["median_t"])
-    mad = float(p["mad_eff"])
-    k = float(p["soft_cap_k"])
-    cap = k * mad
-    t_capped = np.clip(t_hat, median_t - cap, median_t + cap)
+    """Inverts ``logratio``: ``y = base * exp(soft_cap(t_hat))``, clipping ``t_hat`` to ``median_t +/- soft_cap_k*mad_eff`` (at least the training T range) first."""
+    # _logratio_inverse -> base * exp(softcap(t)) centred on median_t, the band widened to the training T envelope.
+    from .transforms.linear import logratio_t_band
+
+    t_capped = np.clip(t_hat, *logratio_t_band(p))
     return np.asarray(base * np.exp(t_capped))
 
 

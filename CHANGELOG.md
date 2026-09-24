@@ -127,6 +127,7 @@ history.
 
 ### Changed
 
+- The `logratio` inverse clips `T_hat` to `median_t +/- soft_cap_k * mad_eff` widened to the training T range (new params `t_train_min` / `t_train_max`; serving export and the provenance formula share `logratio_t_band`). Rows with y near zero have log-ratios beyond ten MADs, and the old band reconstructed even those training rows wrong (0.025 off on a target crossing zero). Params saved before keep the MAD band.
 - `median_residual` and `quantile_residual` grow their bin count with the training rows (like n^0.3, from 100 / 200 rows per bin, capped at 200 bins; `composite._quantile_edges.bins_for_rows`). A fixed 10-20 bins left the step function's bias flat as data grew. On a saturating relation the downstream composite RMSE improves 1.4-3% at 20k-100k rows and is unchanged at 2k.
 - `monotonic_residual` makes its knot values monotone by weighted isotonic regression instead of a cumulative max, which lifted every dip in the noisy knot medians. On ~200-row groups `monotonic_residual_grouped` placed identical groups 0.075 sd above the pooled fit; now 0.025.
 - The composite MoE gate says once, at INFO, when it cannot deploy because the configured `group_column` is not among the features. An extractor's `group_field` is dropped from the features as bookkeeping, and the enabled gate was then a silent no-op; keep the column among the features to enable it.
