@@ -46,14 +46,14 @@ least one of its findings moves).
 | Status | Report | Findings | Area |
 |---|---|---|---|
 | **CLOSED** | [training_core.md](training_core.md) | 13 | suite orchestration, splits, booster dataset reuse (12 fixed, TRC-01 not a defect) |
-| **PARTIAL** | [feature_selection.md](feature_selection.md) | 21 | feature selection (FS-01, FS-02, FS-03 fixed) |
+| **CLOSED** | [feature_selection.md](feature_selection.md) | 21 | feature selection (19 fixed; FS-07 and FS-16 rejected as defaults, measured, kept opt-in) |
 | **CLOSED** | [feature_engineering.md](feature_engineering.md) | 14 | feature engineering and preprocessing (all 14 fixed) |
 | **CLOSED** | [metrics.md](metrics.md) | 18 | metrics and calibration (16 fixed incl. MET-18 found during implementation; MET-08 and MET-16 rejected) |
-| **PARTIAL** | [predict_persistence.md](predict_persistence.md) | 18 | serving path and artifact round-trip (PRD-01..PRD-12, PRD-15 fixed) |
-| **RESOLVED** | [ensembling_models.md](ensembling_models.md) | 14 | model zoo, blends, thresholds, votenrank |
-| **PARTIAL** | [evaluation_reporting.md](evaluation_reporting.md) | 16 | diagnostic verdicts (EVR-01, EVR-02, EVR-03 fixed) |
-| **PARTIAL** | [performance.md](performance.md) | 7 | measured performance (PRF-01, PRF-02, PRF-07 fixed) |
-| **PARTIAL** | [concurrency_resources.md](concurrency_resources.md) | 12 | concurrency and resources (CNC-01 fixed) |
+| **CLOSED** | [predict_persistence.md](predict_persistence.md) | 18 | serving path and artifact round-trip (all 18 fixed) |
+| **CLOSED** | [ensembling_models.md](ensembling_models.md) | 14 | model zoo, blends, thresholds, votenrank (all 14 fixed) |
+| **CLOSED** | [evaluation_reporting.md](evaluation_reporting.md) | 16 | diagnostic verdicts (all 16 fixed) |
+| **CLOSED** | [performance.md](performance.md) | 7 | measured performance (all 7 fixed) |
+| **CLOSED** | [concurrency_resources.md](concurrency_resources.md) | 12 | concurrency and resources (all 12 fixed) |
 | **CLOSED** | [config_contracts.md](config_contracts.md) | 32 | config contracts (30 fixed, CFG-05 and CFG-10 not defects) |
 
 ## What the wave is about
