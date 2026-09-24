@@ -109,8 +109,7 @@ def from_fitted_inner(
     if _env_lo is not None and _env_hi is not None and np.isfinite(_env_lo) and np.isfinite(_env_hi) and _env_hi >= _env_lo:
         t_clip_low, t_clip_high = float(_env_lo), float(_env_hi)
     elif int(finite.sum()) >= 10:
-        _t_train_recon = _reconstruct_t_train(get_transform(transform_name), transform_name, y_train, finite,
-                                              transform_fitted_params, base_train, groups_train)
+        _t_train_recon = _reconstruct_t_train(get_transform(transform_name), transform_name, y_train, finite, transform_fitted_params, base_train, groups_train)
         if _t_train_recon is not None:
             t_finite = _t_train_recon[np.isfinite(_t_train_recon)]
             if t_finite.size >= 10:

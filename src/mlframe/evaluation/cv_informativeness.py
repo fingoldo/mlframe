@@ -14,7 +14,11 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable, Tuple
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _classify_fold_trend(fold_sizes: np.ndarray, margins: np.ndarray, corr_threshold: float) -> dict:
@@ -139,8 +143,13 @@ def cv_informativeness_check(
     result = {
         "fold_results": fold_results,
         "fraction_folds_informative": fraction_informative,
-        "informative": fraction_informative >= 0.5,
+        # None, not False, when there was nothing to measure: ``nan >= 0.5`` is False, and False is this module's
+        # red flag ("CV-driven decisions are untrustworthy") - a maximally consequential verdict from zero folds, as
+        # when a caller passes an already-exhausted ``.split()`` generator.
+        "informative": (fraction_informative >= 0.5) if fold_results else None,
     }
+    if not fold_results:
+        logger.warning("cv_informativeness_check: no folds were evaluated (an exhausted split generator?); informativeness is unknown, not False.")
     if check_trend:
         result["trend_diagnostic"] = _classify_fold_trend(np.asarray(fold_sizes, dtype=np.float64), np.asarray(margins, dtype=np.float64), trend_corr_threshold)
     return result

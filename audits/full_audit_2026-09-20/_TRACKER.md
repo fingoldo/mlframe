@@ -23,15 +23,15 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `training_core.md` | 13 | 11 | 1 | 0 | 0 | 1 |
 | `feature_selection.md` | 21 | 3 | 0 | 18 | 0 | 0 |
-| `feature_engineering.md` | 14 | 2 | 0 | 12 | 0 | 0 |
+| `feature_engineering.md` | 14 | 13 | 1 | 0 | 0 | 0 |
 | `metrics.md` | 18 | 15 | 1 | 0 | 2 | 0 |
 | `predict_persistence.md` | 18 | 18 | 0 | 0 | 0 | 0 |
 | `ensembling_models.md` | 14 | 14 | 0 | 0 | 0 | 0 |
-| `evaluation_reporting.md` | 16 | 3 | 0 | 13 | 0 | 0 |
+| `evaluation_reporting.md` | 16 | 16 | 0 | 0 | 0 | 0 |
 | `performance.md` | 7 | 7 | 0 | 0 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 12 | 0 | 0 | 0 | 0 |
 | `config_contracts.md` | 32 | 4 | 0 | 27 | 0 | 1 |
-| **Total** | **165** | **79** | **1** | **81** | **2** | **2** |
+| **Total** | **165** | **103** | **2** | **56** | **2** | **2** |
 
 ## Per-report status
 
@@ -95,5 +95,9 @@ Test failures met while verifying this wave that are NOT caused by it: each was 
 | `tests/feature_selection/gpu/test_cmi_residency_traffic.py::test_pair_search_residency_no_nk_codes_bulk_d2h` | fails identically on `origin/master` | 17 bulk D2H transfers at (n,K) scale on the strict pair-search path; the codes/float buffer is not staying resident |
 | `tests/feature_selection/gpu/test_gpu_cpu_mi_selection_equivalence.py::test_mrmr_gpu_cpu_selection_identical[clf_binary]` | fails identically on `origin/master` | the GPU path selects `add(qubed(c),rint(e))` where the CPU path does not |
 | `tests/reporting/test_calibration_debiased_ece.py::test_biz_debiased_ece_bin_count_stable_on_perfectly_calibrated` | fails identically on `origin/master` | bin-count change 0.0123 against a 0.01 bound |
+| `tests/feature_engineering/test_wavelet_dwt.py` (8 tests, order-dependent) | fails on `origin/master` under `--randomly-seed` 22/33/44 | FIXED here: the filter-cache test planted a zero-length db4 sentinel in the module's real cache and never restored it; it now uses a private cache, and the cached filter arrays are read-only |
+| `tests/preprocessing/test_reject_outliers.py` (4 tests) | error on hosts without `imblearn` | FIXED here: the default pipeline needs the optional `imblearn`; those tests now `importorskip` it |
+| `report_probabilistic_model_perf` cyclomatic complexity | 94 on `origin/master` (ruff limit 40) | OPEN, owed: brought to 84 by extracting the per-class aggregation, but a ~780-line function needs splitting into phase helpers - a refactor of its own, queued after this wave |
+| `hybrid_orth_mi_fe` (+2) and `CompositeTargetEstimator.fit` (+1) over their length ceilings | introduced by `66fedbf83` (another active session) | left to that session to avoid colliding with work in progress |
 | `tests/reporting/test_metric_over_time_direction.py::test_roc_auc_over_time_title_says_higher_is_better` | fails identically on `origin/master` | the line panel does not render, so the direction is never checked |
 | `tests/test_meta/test_no_source_text_claims.py`, `test_no_single_shot_timing_assertion.py`, `test_no_nondiscriminating_assert.py`, `test_no_audit_metadata_in_comments.py`, `test_shared_uncalled_functions.py` | master-side entries only | each lists findings in files this wave did not touch (`data/datasets/*`, the ruff-pin and roster tests, six single-shot timing tests); the entries this wave introduced are fixed |

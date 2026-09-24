@@ -11,7 +11,7 @@ This is OPT-IN: research-only remains the default. Users who want a shortlist tr
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import polars as pl
@@ -21,6 +21,8 @@ try:
 except ImportError:  # pragma: no cover - sklearn always present in mlframe
     BaseEstimator = object
     TransformerMixin = object
+
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,10 @@ def _to_2d_numeric(X) -> np.ndarray:
         arr = np.asarray(X)
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
-    return np.ascontiguousarray(arr, dtype=np.float32)
+    # float64, not float32: an id-like or large-magnitude column (epoch-microseconds ~1.7e15) loses everything below
+    # ~1e8 in float32, so kNN / RFF distances computed from it were dominated by rounding error with nothing warning.
+    # The wrapped transformer can still downcast where it knows that is safe.
+    return np.ascontiguousarray(arr, dtype=np.float64)
 
 
 class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
@@ -55,6 +60,12 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         When True (default) the adapter returns the original columns concatenated with the new feature columns, so downstream models keep the raw features. When False, only the new feature columns are returned.
     compute_kwargs:
         Extra keyword arguments forwarded verbatim to ``compute_fn`` (e.g. ``n_features=128``, ``task="binary"``).
+    splitter:
+        The CV splitter for the Mode-A out-of-fold train transform (anything with ``split(X)``). Pass a time-aware
+        one (``TimeSeriesSplit``, a purged / grouped splitter) whenever rows are ordered or grouped: the transformers'
+        own contract (``transformer/_oof.py``) makes the splitter REQUIRED precisely because a shuffled KFold on
+        temporal data builds each row's feature from its own future. ``None`` falls back to shuffled KFold, and says so
+        in the log once, since that fallback is only honest for exchangeable rows.
     """
 
     def __init__(
@@ -66,6 +77,7 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         passthrough: bool = True,
         compute_kwargs: Optional[dict] = None,
         seed: Optional[int] = None,
+        splitter: Any = None,
     ):
         self.compute_fn = compute_fn
         if seed is not None:
@@ -80,6 +92,7 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         self.needs_y = needs_y
         self.passthrough = passthrough
         self.compute_kwargs = compute_kwargs
+        self.splitter = splitter
 
     def fit(self, X, y=None):
         """Stash the train fold (and target, if the wrapped ``compute_fn`` needs it) for later use in ``transform``."""
@@ -141,12 +154,22 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         return result
 
     def _make_oof_splitter(self):
-        """KFold splitter for the Mode-A OOF train transform. Plain KFold (NOT StratifiedKFold): the wrapped
-        transformers call ``splitter.split(X)`` inconsistently -- some pass ``y``, some do not -- and
-        StratifiedKFold raises without ``y``. KFold works either way; stratification is a negligible gain for
-        OOF feature generation."""
+        """The splitter for the Mode-A OOF train transform: the caller's, else a logged shuffled-KFold fallback.
+
+        The fallback is plain KFold (NOT StratifiedKFold): the wrapped transformers call ``splitter.split(X)``
+        inconsistently -- some pass ``y``, some do not -- and StratifiedKFold raises without ``y``. It is announced
+        rather than silent because it is only honest when the rows are exchangeable.
+        """
+        if self.splitter is not None:
+            return self.splitter
         from sklearn.model_selection import KFold
 
+        log_throttle(
+            logger, "shortlist_adapter_default_kfold", logging.WARNING,
+            "%s: no splitter given, so the out-of-fold train features use a SHUFFLED KFold. On time-ordered or grouped "
+            "rows that builds each row's feature from its own future or its own group; pass splitter= (a "
+            "TimeSeriesSplit, or a grouped / purged splitter) in that case.", type(self).__name__,
+        )
         n = self._X_train_.shape[0]
         n_splits = int(min(5, max(2, n)))
         return KFold(n_splits=n_splits, shuffle=True, random_state=self.random_state)
@@ -167,6 +190,10 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
             return self.transform(X)
         kwargs = dict(self.compute_kwargs or {})
         kwargs.setdefault("seed", self.random_state)
+        if self._X_train_.shape[0] < 2:
+            # No split exists for one row (KFold(2).split raises), and an OOF feature for a single row has no
+            # other rows to come from anyway; the out-of-sample path is the only one that can answer.
+            return self.transform(X)
         splitter = self._make_oof_splitter()
         if "y_train" in params or "X_train" in params:
             feats = self.compute_fn(self._X_train_, self._y_train_, None, splitter=splitter, **kwargs)

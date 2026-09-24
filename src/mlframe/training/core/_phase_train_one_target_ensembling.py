@@ -201,17 +201,17 @@ def _finalize_per_target_ensembling(
         try:
             _saw = _ensembles.get("_stacking_gate") if isinstance(_ensembles, dict) else None
             if isinstance(_saw, dict) and _saw.get("applied_to_blend") and _saw.get("aligned_weights"):
-                metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(
-                    str(cur_target_name), {}
-                )["blend_weights"] = [float(w) for w in _saw["aligned_weights"]]
+                metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(str(cur_target_name), {})["blend_weights"] = [
+                    float(w) for w in _saw["aligned_weights"]
+                ]
         except Exception as _w_err:
             logger.warning("blend-weight stamp failed for %s/%s: %s", target_type, cur_target_name, _w_err)
         # And the member set those weights belong to, so predict blends exactly the models training scored.
         _members = _ensembles.get("_surviving_members") if isinstance(_ensembles, dict) else None
         if isinstance(_members, list) and _members:
-            metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(
-                str(cur_target_name), {}
-            )["members"] = [str(_n) for _n in _members]
+            metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(str(cur_target_name), {})["members"] = [
+                str(_n) for _n in _members
+            ]
         _ens_methods_used = common_params.get("ensembling_methods") if isinstance(common_params, dict) else None
         _rrf_in_iter = False
         if isinstance(_ens_methods_used, (list, tuple)):
@@ -223,9 +223,7 @@ def _finalize_per_target_ensembling(
                 _rrf_k_used = int(common_params.get("rrf_k", 60))
             except (TypeError, ValueError):
                 _rrf_k_used = 60
-            metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(
-                str(cur_target_name), {}
-            )["rrf_k"] = _rrf_k_used
+            metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(str(cur_target_name), {})["rrf_k"] = _rrf_k_used
 
     # Per-target binary decision thresholds (val, never test): one per member, tuned on that member's own val
     # probabilities, and one for the ensemble, tuned on the BLEND's. See _tune_decision_thresholds.
@@ -306,6 +304,7 @@ def _tune_decision_thresholds(
         paths = metadata.setdefault("decision_threshold_paths", {})
 
         def _stamp(key: str, probs, label: str) -> None:
+            """Record the decision threshold and how it was chosen for ``key``: tuned on ``probs``, or the 0.5 default."""
             if not tune:
                 thresholds[key], paths[key] = 0.5, "default_0.5"
                 return

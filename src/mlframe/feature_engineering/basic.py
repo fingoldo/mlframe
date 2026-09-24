@@ -132,6 +132,12 @@ _DEFAULT_DATE_METHODS: Dict[str, type] = {
 
 # Default periods for ``add_cyclical_date_features``. ``day`` here is day-of-month (period 31);
 # ``day_of_year`` is the finer-grained annual cycle (period 365.25).
+#
+# The fixed 31 is an artefact for short months: 28 February and 1 March are calendar-adjacent but land about two thirds
+# of the circle apart. Pass ``("day", MONTH_LENGTH_PERIOD)`` to encode day-of-month against each row's own month length
+# instead. The default stays 31 because the encoding is recomputed at predict: changing it under the same column names
+# would silently re-encode a feature every already-saved model was trained on. ``day_of_year`` carries the same
+# seasonality without the artefact.
 _DEFAULT_CYCLICAL_PERIODS: Tuple[Tuple[str, float], ...] = (
     ("hour", 24.0),
     ("day", 31.0),
@@ -139,6 +145,9 @@ _DEFAULT_CYCLICAL_PERIODS: Tuple[Tuple[str, float], ...] = (
     ("month", 12.0),
     ("day_of_year", 365.25),
 )
+
+# Period marker for a day-of-month encoding against the row's actual month length (28-31), rather than a fixed 31.
+MONTH_LENGTH_PERIOD = "month_length"
 
 
 def _collect_pandas_tz(series: pd.Series) -> str:
@@ -250,7 +259,7 @@ def create_date_features(
     delete_original_cols: bool = True,
     methods: Optional[Dict[str, type]] = None,
     add_cyclical: bool = True,
-    cyclical_periods: Optional[Sequence[Tuple[str, float]]] = None,
+    cyclical_periods: Optional[Sequence[Tuple[str, Union[float, str]]]] = None,
 ) -> Union[pd.DataFrame, pl.DataFrame]:
     """Decompose datetime columns into integer date parts (year, day, weekday, month, ...).
 
@@ -377,7 +386,7 @@ def create_date_features(
 def add_cyclical_date_features(
     df: Union[pd.DataFrame, pl.DataFrame],
     cols: List[str],
-    periods: Optional[Sequence[Tuple[str, float]]] = None,
+    periods: Optional[Sequence[Tuple[str, Union[float, str]]]] = None,
     delete_original_cols: bool = False,
     _precomputed_bases: Optional[Dict[Tuple[str, str], np.ndarray]] = None,
 ) -> Union[pd.DataFrame, pl.DataFrame]:
@@ -447,6 +456,14 @@ def add_cyclical_date_features(
         for col in cols:
             obj = df[col].dt
             for period_name, period_value in periods:
+                if period_value == MONTH_LENGTH_PERIOD:
+                    if period_name != "day":
+                        raise ValueError(f"{MONTH_LENGTH_PERIOD!r} is a period for day-of-month only, got it for {period_name!r}")
+                    fraction = ((obj.day - 1) / obj.days_in_month).to_numpy(dtype=np.float64)
+                    s, c = _cyclical_sincos_njit(np.ascontiguousarray(fraction), two_pi)
+                    new_cols[f"{col}_{period_name}_sin"] = s
+                    new_cols[f"{col}_{period_name}_cos"] = c
+                    continue
                 precomputed = None if _precomputed_bases is None else _precomputed_bases.get((col, period_name))
                 if precomputed is not None:
                     # The integer date field already extracted by create_date_features equals the float field
@@ -470,6 +487,14 @@ def add_cyclical_date_features(
             for period_name, period_value in periods:
                 if period_name == "is_weekend":
                     raise ValueError("is_weekend is a binary indicator, not periodic; cyclical encoding is meaningless. Drop it from `periods`.")
+                if period_value == MONTH_LENGTH_PERIOD:
+                    if period_name != "day":
+                        raise ValueError(f"{MONTH_LENGTH_PERIOD!r} is a period for day-of-month only, got it for {period_name!r}")
+                    days_in_month = col_dt.month_end().dt.day().cast(pl.Float64)
+                    angle_expr = (col_dt.day().cast(pl.Float64) - 1.0) / days_in_month * two_pi
+                    all_exprs.append(angle_expr.sin().cast(pl.Float32).alias(f"{col}_{period_name}_sin"))
+                    all_exprs.append(angle_expr.cos().cast(pl.Float32).alias(f"{col}_{period_name}_cos"))
+                    continue
                 if period_name == "weekday":
                     base_expr = (col_dt.weekday() - 1).cast(pl.Float64)
                 else:

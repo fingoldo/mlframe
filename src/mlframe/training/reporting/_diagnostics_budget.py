@@ -13,6 +13,7 @@ so a shortened report never looks like a complete one.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Callable, List, Optional, Tuple, TypeVar
 
@@ -24,6 +25,17 @@ T = TypeVar("T")
 # Diagnostics whose cost scales with rows or with the model's own structure, as opposed to the per-split metric
 # panels. These are what get restricted to a single model when several near-identical ones are being reported.
 HEAVY_DIAGNOSTICS: frozenset = frozenset({"pdp_ice", "pdp_2d", "interaction_strength", "slice_finder", "shap", "shap_interactions", "shap_per_instance"})
+
+
+# An ensemble variant's name: ``Ens<METHOD> ...`` (e.g. ``EnsARITHM``) or anything with ``ensemble`` as a word. Matched
+# at a word start: the bare substring test "ens" in name caught ``sensor_lgbm``, ``density_model`` and
+# ``IntensityRegressor``, and silently dropped SHAP, PDP and the rest of the heavy diagnostics for the project's main model.
+_ENSEMBLE_VARIANT_NAME = re.compile(r"(?:^|[^A-Za-z])(?:Ens[A-Z]|[Ee]nsemble)")
+
+
+def is_ensemble_variant_name(model_name: "str | None") -> bool:
+    """Whether ``model_name`` names an ensemble variant rather than a primary model."""
+    return bool(model_name) and _ENSEMBLE_VARIANT_NAME.search(str(model_name)) is not None
 
 
 class HeavyDiagnosticsPolicy:
@@ -64,8 +76,16 @@ class DiagnosticsBudget:
     report regardless of cost.
     """
 
-    def __init__(self, max_seconds: float, *, verbose: bool = True, policy: "HeavyDiagnosticsPolicy | None" = None) -> None:
-        """Start the clock. ``policy`` decides scope (which diagnostics apply here); the budget decides time."""
+    def __init__(
+        self, max_seconds: float, *, verbose: bool = True, policy: "HeavyDiagnosticsPolicy | None" = None, charts: "dict | None" = None,
+    ) -> None:
+        """Start the clock. ``policy`` decides scope (which diagnostics apply here); the budget decides time.
+
+        ``charts``, the report's ``metrics["charts"]`` dict, receives every diagnostic this budget drops under
+        ``charts["skipped"]`` with the reason. The log line alone left a truncated report looking identical to a
+        complete one to anything reading ``charts``.
+        """
+        self.charts = charts
         self.max_seconds = float(max_seconds or 0.0)
         self.verbose = verbose
         self.policy = HeavyDiagnosticsPolicy(mode="all") if policy is None else policy
@@ -92,15 +112,22 @@ class DiagnosticsBudget:
         """Run one diagnostic unless it is out of scope for this model or the budget is already spent."""
         if not self.policy.allows(name):
             self.out_of_scope.append(name)
+            self._record_skip(name, "restricted to the primary model (ReportingConfig.heavy_diagnostics_for)")
             return None
         if self.exhausted():
             self.skipped.append(name)
+            self._record_skip(name, f"diagnostics budget of {self.max_seconds:.0f}s exhausted")
             return None
         _t0 = time.perf_counter()
         try:
             return fn()
         finally:
             self.timings.append((name, time.perf_counter() - _t0))
+
+    def _record_skip(self, name: str, reason: str) -> None:
+        """Write one dropped diagnostic into ``charts["skipped"]`` when a charts dict was given."""
+        if isinstance(self.charts, dict):
+            self.charts.setdefault("skipped", {})[name] = reason
 
     def report(self) -> None:
         """Say what was dropped and why, once; log a per-diagnostic timing breakdown, worst first.
@@ -132,4 +159,4 @@ class DiagnosticsBudget:
         )
 
 
-__all__ = ["HEAVY_DIAGNOSTICS", "DiagnosticsBudget", "HeavyDiagnosticsPolicy"]
+__all__ = ["HEAVY_DIAGNOSTICS", "DiagnosticsBudget", "HeavyDiagnosticsPolicy", "is_ensemble_variant_name"]

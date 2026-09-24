@@ -32,16 +32,16 @@ def _fallback_edges(finite: np.ndarray, base: str, n_bins: int) -> np.ndarray:
 
 
 @overload
-def refine_near_collapsed_supervised_edges(edges: np.ndarray, finite: np.ndarray, base: str, fallback_nbins: int) -> np.ndarray: ...
+def refine_near_collapsed_supervised_edges(edges: np.ndarray, finite: np.ndarray, base: str, fallback_nbins: int) -> np.ndarray:
+    """Typing overload: an edge array in, an edge array out."""
 
 
 @overload
-def refine_near_collapsed_supervised_edges(edges: None, finite: np.ndarray, base: str, fallback_nbins: int) -> None: ...
+def refine_near_collapsed_supervised_edges(edges: None, finite: np.ndarray, base: str, fallback_nbins: int) -> None:
+    """Typing overload: no edges in, no edges out."""
 
 
-def refine_near_collapsed_supervised_edges(
-    edges: Optional[np.ndarray], finite: np.ndarray, base: str, fallback_nbins: int
-) -> Optional[np.ndarray]:
+def refine_near_collapsed_supervised_edges(edges: Optional[np.ndarray], finite: np.ndarray, base: str, fallback_nbins: int) -> Optional[np.ndarray]:
     """Return ``edges`` unchanged unless one bin dominates (see module docstring), else ``edges`` united with the
     unsupervised fallback edges. ``finite`` is the column's finite values; ``edges`` are inner cuts."""
     if edges is None or not hasattr(edges, "size") or edges.size == 0 or finite.size == 0 or fallback_nbins < 2:

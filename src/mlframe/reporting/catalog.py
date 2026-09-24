@@ -113,7 +113,7 @@ _STANDALONE_DIAGNOSTICS: List[Tuple[str, str]] = [
     ("model_card", "One-glance per-(model, split) executive card: headline metrics, traffic-light verdict, 3 mini sparklines (opt-in via ReportingConfig.model_card)."),
     ("decile_table", "Binary decile / gain table: per-decile response rate, cumulative gain and lift."),
     ("split_comparison", "Per-split metric comparison for the same model (train / val / test side by side)."),
-    ("prediction_stability", "Rank-stability of per-row predictions across splits or refits (Spearman-based)."),
+    ("prediction_stability", "Ensemble member disagreement on ONE split: per-row spread of the members' predictions and their pairwise rank agreement (needs >=2 members; not a cross-split or cross-refit stability read)."),
     ("weak_segments", "Per-split weak-segment heatmap: mean error over a 2-feature equal-population grid."),
     ("weak_slices", "Worst feature-value slices ranked by degradation x support (the slice_finder headline)."),
     ("error_bias", "Per-feature value distributions of the over- / under-predicting tails vs the majority."),
@@ -129,6 +129,7 @@ _STANDALONE_DIAGNOSTICS: List[Tuple[str, str]] = [
     ("pdp_2d", "Two-feature partial-dependence surface for the top interacting pair."),
     ("shap_interactions", "SHAP interaction values for the top feature pairs (tree models)."),
     ("shap_per_instance", "Per-instance SHAP attribution for the top-K most-confident-wrong rows."),
+    ("risk_coverage", "Selective-prediction risk-coverage curve and AURC; for regression the confidence is a PROXY (distance of the prediction from the prediction mean), and its metrics are keyed accordingly."),
 ]
 
 # Task type -> its ALLOWED_*_PANEL_TOKENS frozenset (the source of truth for which tokens exist).

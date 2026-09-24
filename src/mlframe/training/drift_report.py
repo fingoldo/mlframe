@@ -182,9 +182,7 @@ def _regression_shape_warnings(split_name: str, splits: dict[str, Any], drifts: 
     # every statistic here, so one rule covers all three.
     train_std = float(train_summary.get("std") or 0.0)
     n_train = int(train_summary.get("n") or 0)
-    resolvable = (
-        _MIN_RESOLVABLE_SE_MULTIPLE * train_std / np.sqrt(n_train) if train_std > 0 and n_train > 1 else 0.0
-    )
+    resolvable = _MIN_RESOLVABLE_SE_MULTIPLE * train_std / np.sqrt(n_train) if train_std > 0 and n_train > 1 else 0.0
     for key, label, stat_name in checks:
         train_v = train_summary.get(key)
         split_v = split_summary.get(key)

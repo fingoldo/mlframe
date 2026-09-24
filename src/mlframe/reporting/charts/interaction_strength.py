@@ -41,13 +41,19 @@ def interaction_strength_panel(
     labels = tuple(str(f) for f in feats)
     off = M.copy()
     np.fill_diagonal(off, 0.0)
-    _i, _j = np.unravel_index(int(np.nanargmax(off)), off.shape)
-    _h = float(off[_i, _j])
-    verdict = (
-        f"additive-dominated (max H {_h:.2f} between {labels[_i]} and {labels[_j]})"
-        if _h < 0.10
-        else f"interaction-dominated: max H {_h:.2f} between {labels[_i]} and {labels[_j]}"
-    )
+    _n_degenerate = int(np.isnan(off[np.triu_indices_from(off, k=1)]).sum())
+    if np.all(np.isnan(off) | (off == 0.0)) and _n_degenerate:
+        verdict = f"not estimable: {_n_degenerate} pair(s) have main effects dominating a near-flat joint surface"
+    else:
+        _i, _j = np.unravel_index(int(np.nanargmax(off)), off.shape)
+        _h = float(off[_i, _j])
+        verdict = (
+            f"additive-dominated (max H {_h:.2f} between {labels[_i]} and {labels[_j]})"
+            if _h < 0.10
+            else f"interaction-dominated: max H {_h:.2f} between {labels[_i]} and {labels[_j]}"
+        )
+        if _n_degenerate:
+            verdict += f"; {_n_degenerate} degenerate pair(s) shown blank"
     return HeatmapPanelSpec(
         matrix=M,
         row_labels=labels,

@@ -203,10 +203,7 @@ def _log_cardinality_and_drift_snapshot(
                             logger,
                             "phase_drift_snapshot_category_drift_suspect",
                             logging.WARNING,
-                            "  Category drift suspect: %s -- val has %s categories "
-                            "(%s of train card %s) that train never saw. "
-                            "%s\n"
-                            "%s",
+                            "  Category drift suspect: %s -- val has %s categories " "(%s of train card %s) that train never saw. " "%s\n" "%s",
                             c,
                             v_only,
                             f"{v_frac:.1%}",

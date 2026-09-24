@@ -121,7 +121,8 @@ def _dtype_signature(X: Any):
         if isinstance(dtypes, (list, tuple)):  # polars
             return tuple(_canonical_dtype(d) for d in dtypes)
         return _canonical_dtype(dtypes)
-    except Exception:  # a dtype probe must never break the key; it only sharpens it
+    except Exception as exc:  # a dtype probe must never break the key; it only sharpens it
+        logger.debug("dtype signature unavailable for %s (%s: %s); the key falls back to columns + content.", type(X).__name__, type(exc).__name__, exc)
         return None
 
 

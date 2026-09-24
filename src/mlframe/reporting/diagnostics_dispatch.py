@@ -38,6 +38,17 @@ DIAG_ROW_CAP: int = 100_000
 DIAG_MAX_FEATURES: int = 200
 
 
+def _record_skipped(charts: Optional[dict], name: str, reason: str) -> None:
+    """Record in ``charts["skipped"]`` (name -> reason) a diagnostic that was enabled but deliberately not rendered.
+
+    Without it a budget-capped or out-of-scope diagnostic appeared in neither ``saved`` nor ``failed``, so a consumer
+    reading ``charts`` could not tell a shortened report from a complete one, or from a knob that was simply off.
+    """
+    if not isinstance(charts, dict):
+        return
+    charts.setdefault("skipped", {})[name] = reason
+
+
 def _record(charts: Optional[dict], name: str, ok: bool) -> None:
     """Append ``name`` to ``charts["saved"]`` or ``charts["failed"]`` depending on ``ok``; no-op when ``charts`` isn't a dict (diagnostics run with tracking disabled)."""
     if not isinstance(charts, dict):
@@ -485,7 +496,6 @@ from ._diagnostics_adversarial import (  # noqa: F401  (re-exported; tests clear
     _render_adversarial_panel,
 )
 
-
 _PSI_CACHE: dict = {}
 _PSI_CACHE_LOCK = threading.Lock()  # concurrent suites share it; the evict-then-insert must not interleave
 
@@ -544,7 +554,8 @@ def _with_caption_note(spec: Any, note: str) -> Any:
     try:
         cap = getattr(spec, "caption", "") or ""
         return dataclasses.replace(spec, caption=(cap + " " + note).strip())
-    except Exception:
+    except Exception as exc:
+        logger.debug("could not append a caption note to %s (%s: %s); the chart keeps its caption.", type(spec).__name__, type(exc).__name__, exc)
         return spec
 
 

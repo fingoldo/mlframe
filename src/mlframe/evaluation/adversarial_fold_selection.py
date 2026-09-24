@@ -102,9 +102,7 @@ def _oof_is_test_proba(
 
         oof_is_test_proba = np.empty(n_union, dtype=np.float64)
         for fold_i, (fit_idx, held_idx) in enumerate(cv.split(np.zeros(n_union), source_label)):
-            fit_idx, _ = train_test_split(
-                fit_idx, train_size=max_fit_rows, stratify=source_label[fit_idx], random_state=seed + fold_i
-            )
+            fit_idx, _ = train_test_split(fit_idx, train_size=max_fit_rows, stratify=source_label[fit_idx], random_state=seed + fold_i)
             fold_clf = clone(clf).fit(_rows(fit_idx), source_label[fit_idx])
             oof_is_test_proba[held_idx] = fold_clf.predict_proba(_rows(held_idx))[:, 1]
 

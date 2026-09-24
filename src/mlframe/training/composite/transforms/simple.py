@@ -413,7 +413,7 @@ def _rolling_quantile_ratio_fit(
     scale = float(np.median(np.abs(base_f[finite]))) if finite.any() else 1.0
     eps = max(scale * 1e-6, 1e-12)
     # Last k-1 train base values: the window history a continuation batch (recurrence_continuation) starts from, instead of a truncated window.
-    tail_base = base_f[np.isfinite(base_f)][-(k - 1):] if k > 1 else base_f[:0]
+    tail_base = base_f[np.isfinite(base_f)][-(k - 1) :] if k > 1 else base_f[:0]
     return {"k": k, "eps": eps, "mode": mode, "tail_base": [float(v) for v in tail_base]}
 
 

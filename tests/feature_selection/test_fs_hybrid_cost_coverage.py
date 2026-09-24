@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 import numpy as np
 import pytest
 
-from mlframe.feature_selection._benchmarks.fs_hybrid._arms import FITS_SOURCE_NOT_MEASURED, build_arm_roster
+from mlframe.feature_selection._benchmarks.fs_hybrid._arms import FITS_SOURCE_DECLARED, FITS_SOURCE_NOT_MEASURED, build_arm_roster
 from mlframe.feature_selection._benchmarks.fs_hybrid._scm_beds import build_scm_bed
 
 #: Deliberately tiny. This test is about whether a number EXISTS and where it came from, never about its
@@ -81,11 +81,19 @@ def test_a_declared_count_that_disagrees_with_the_counted_one_is_still_recorded(
     They do disagree, for real reasons. `boruta-shap` declares one fit per trial and costs two.
     `lars-order` declares one and costs none, because a LARS path is not a model fit. Keeping both means a
     reader can see which figure the table used and why.
+
+    The counted figure wins, with one exception written into `_resolve_fit_count`: a counted ZERO against a
+    positive declaration. That is the CatBoost arms, whose selection runs in native code the counter cannot
+    see, so the zero measures the counter's blindness rather than the arm's cost -- publishing it would put
+    the most expensive arms at the top of the cost table. The declared figure is used there, and the source
+    field says so.
     """
     disagreements = {name: record for name, record in arm_costs.items() if record["declared"] is not None and record["counted"] is not None and record["declared"] != record["counted"]}
 
     assert arm_costs.items()
-    for name, record in arm_costs.items():
-        if name not in disagreements:
+    for name, record in disagreements.items():
+        if record["counted"] == 0 and record["declared"]:
+            assert record["fits"] == record["declared"], f"{name} counted zero against a declared {record['declared']} and must publish the declaration"
+            assert record["source"] == FITS_SOURCE_DECLARED, f"{name} used its declared count but reports the source as {record['source']!r}"
             continue
         assert record["fits"] == record["counted"], f"{name} publishes {record['fits']} while counting {record['counted']}: the counted figure is the measured one and must win"

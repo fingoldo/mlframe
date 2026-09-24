@@ -137,8 +137,8 @@ def env_signature_drift(saved: dict, live: dict) -> list[tuple[str, Any, Any]]:
     being read - so only major/minor differences count, which is what this function's caller documents.
     """
     libs = sorted(set(saved or {}) | set(live or {}))
-    return [(lib, (saved or {}).get(lib), (live or {}).get(lib)) for lib in libs
-            if _major_minor((saved or {}).get(lib)) != _major_minor((live or {}).get(lib))]
+    return [(lib, (saved or {}).get(lib), (live or {}).get(lib)) for lib in libs if _major_minor((saved or {}).get(lib)) != _major_minor((live or {}).get(lib))]
+
 
 def _polars_native_class_names() -> tuple[str, ...]:
     """Bare class-name allowlist for the polars fastpath: CatBoost and XGBoost sklearn-API estimators (and the

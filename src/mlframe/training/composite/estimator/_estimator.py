@@ -45,6 +45,7 @@ from . import (  # noqa: F401 - _is_polars_df: unused in this module, re-exporte
 # The fitted-from-spec / fit / predict / predict_invert paths all use these, so
 # they must be imported alongside the parent helpers above.
 from ..transforms import get_transform, DomainViolationError
+from ._inner_frame import frame_for_inner
 
 logger = logging.getLogger(__name__)
 
@@ -681,6 +682,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         # prototype passed in stays untouched and sklearn.clone() of
         # the wrapper produces a fresh inner.
         estimator = clone(self.base_estimator)
+        X_valid = frame_for_inner(estimator, X_valid)  # a polars frame only for an inner that reads polars
         # Monotonic-constraint passthrough. ``X_valid`` is the exact frame the inner trains on (group_column already dropped), so its width is the post-drop feature count the constraint must match. Validated here (not in __init__) because the dropped-column set is only known once transform / group_column resolve at fit. See the class docstring for the T-scale semantics.
         if self.monotone_constraints is not None:
             self._apply_monotone_constraints(estimator, self._count_feature_columns(X_valid))

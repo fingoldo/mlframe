@@ -17,6 +17,33 @@ from typing import Any, Optional, Sequence
 import numpy as np
 
 
+def _recommendation(delta: float, min_auc_delta: float) -> str:
+    """ "drop" / "keep" only for an AUC change past ``min_auc_delta``; inside it the sign is fit noise."""
+    if delta > min_auc_delta:
+        return "drop"
+    if delta < -min_auc_delta:
+        return "keep"
+    return "inconclusive"
+
+
+def _importance_vs_delta_rank_correlation(audited: list) -> float:
+    """Spearman rank correlation of adversarial importance against the ablation delta; NaN when not measurable.
+
+    Ranks, as documented: LightGBM gain importances are heavy-tailed, and a Pearson correlation on the raw gains was
+    decided by the single largest one. NaN rather than 0.0 when it cannot be measured, because 0.0 is exactly the value
+    that reads as CONFIRMING the source finding.
+    """
+    if len(audited) < 2:
+        return float("nan")
+    imp_vals = np.array([a["adversarial_importance"] for a in audited])
+    delta_vals = np.array([a["private_auc_delta_when_dropped"] for a in audited])
+    if not (np.std(imp_vals) > 0 and np.std(delta_vals) > 0):
+        return float("nan")
+    from scipy.stats import spearmanr
+
+    return float(spearmanr(imp_vals, delta_vals).correlation)
+
+
 def adversarial_validation_feature_audit(
     X_train: Any,
     y_train: np.ndarray,
@@ -28,6 +55,7 @@ def adversarial_validation_feature_audit(
     seed: int = 0,
     lgbm_params: Optional[dict] = None,
     stability_folds: Optional[int] = None,
+    min_auc_delta: float = 0.002,
 ) -> dict:
     """Empirically test whether the top adversarial-AUC-contributing features actually hurt generalization.
 
@@ -57,6 +85,11 @@ def adversarial_validation_feature_audit(
         recommendation by chance; this mode distinguishes robust calls (low delta variance, unanimous
         keep/drop vote) from noisy ones a caller should not trust from one split alone. Left ``None`` (the
         default), behavior and output are bit-identical to the pre-stability-mode implementation.
+    min_auc_delta
+        Smallest pseudo-private AUC change that counts as evidence either way. A feature whose ablation moves the AUC
+        by less is ``"inconclusive"``: the two fits differ by one column and a random split, so the sign of a
+        +2e-5 difference is fit noise, and turning it into a ``"drop"`` would issue exactly the kind of unvalidated
+        per-feature ban this module exists to question.
 
     Returns
     -------
@@ -65,11 +98,11 @@ def adversarial_validation_feature_audit(
         ablated feature: ``name``, ``adversarial_importance``, ``private_auc_delta_when_dropped`` (positive =
         dropping the feature IMPROVED pseudo-private AUC, i.e. the ban heuristic was right for this feature;
         negative = dropping HURT pseudo-private AUC, i.e. keep it despite the adversarial flag), and
-        ``recommendation`` (``"drop"`` / ``"keep"``), plus a ``"stability"`` sub-dict when ``stability_folds``
+        ``recommendation`` (``"drop"`` / ``"keep"``, or ``"inconclusive"`` inside ``+/- min_auc_delta``), plus a ``"stability"`` sub-dict when ``stability_folds``
         is set: ``delta_values`` (per-fold ``private_auc_delta_when_dropped``), ``delta_std``, ``keep_frac``
         (fraction of folds recommending "keep"), and ``stable`` (``True`` iff ``keep_frac`` is unanimous, i.e.
         0.0 or 1.0 -- the recommendation did not flip across any reshuffle)), ``importance_vs_generalization_correlation``
-        (Pearson correlation between adversarial importance rank and ``private_auc_delta_when_dropped`` across
+        (Spearman RANK correlation between adversarial importance and ``private_auc_delta_when_dropped`` across
         the audited features -- low/near-zero replicates the source finding that adversarial contribution is a
         poor predictor of actual generalization harm).
     """
@@ -116,12 +149,13 @@ def adversarial_validation_feature_audit(
             dropped_cols = [c for c in all_feature_cols if c != feature_name]
             dropped_private_auc = _fit_auc(dropped_cols)
             delta = dropped_private_auc - baseline_private_auc
+            recommendation = _recommendation(delta, min_auc_delta)
             split_audited.append(
                 {
                     "name": feature_name,
                     "adversarial_importance": float(importances[idx]),
                     "private_auc_delta_when_dropped": delta,
-                    "recommendation": "drop" if delta > 0 else "keep",
+                    "recommendation": recommendation,
                 }
             )
         return split_audited
@@ -135,23 +169,17 @@ def adversarial_validation_feature_audit(
         for feature_pos, feature_entry in enumerate(audited):
             delta_values = [float(fold[feature_pos]["private_auc_delta_when_dropped"]) for fold in fold_results]
             keep_votes = sum(1 for fold in fold_results if fold[feature_pos]["recommendation"] == "keep")
+            inconclusive_votes = sum(1 for fold in fold_results if fold[feature_pos]["recommendation"] == "inconclusive")
             keep_frac = keep_votes / stability_folds
             feature_entry["stability"] = {
                 "delta_values": delta_values,
                 "delta_std": float(np.std(delta_values)),
                 "keep_frac": keep_frac,
+                "inconclusive_frac": inconclusive_votes / stability_folds,
                 "stable": keep_frac in (0.0, 1.0),
             }
 
-    if len(audited) >= 2:
-        imp_vals = np.array([a["adversarial_importance"] for a in audited])
-        delta_vals = np.array([a["private_auc_delta_when_dropped"] for a in audited])
-        if np.std(imp_vals) > 0 and np.std(delta_vals) > 0:
-            correlation = float(np.corrcoef(imp_vals, delta_vals)[0, 1])
-        else:
-            correlation = 0.0
-    else:
-        correlation = float("nan")
+    correlation = _importance_vs_delta_rank_correlation(audited)
 
     result = {
         "adversarial_auc": auc,

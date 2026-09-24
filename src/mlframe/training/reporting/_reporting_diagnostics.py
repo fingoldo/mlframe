@@ -304,15 +304,14 @@ def _render_post_fit_diagnostics(
     # One diagnostic used to carry a 20s cap while the block around it had none, so a run skipped the
     # interaction surface for being projected at 20s and then spent six minutes on the rest. The budget
     # binds on the block, and is checked BETWEEN diagnostics -- a half-drawn figure is worse than a missing one.
-    from mlframe.training.reporting._diagnostics_budget import DiagnosticsBudget, HeavyDiagnosticsPolicy
+    from mlframe.training.reporting._diagnostics_budget import DiagnosticsBudget, HeavyDiagnosticsPolicy, is_ensemble_variant_name
 
-    # A model whose name carries an ensemble marker is a VARIANT of models already explained -- five
-    # aggregations of the same two members produce five identical SHAP surfaces. Scope the expensive
-    # diagnostics to the primary model; the metric and calibration panels still render for every variant,
-    # since comparing them is what those panels are for.
-    _is_ensemble_variant = "ens" in (model_name or "").lower() or "ensemble" in (model_name or "").lower()
+    # An ensemble VARIANT re-explains models already explained (five aggregations of two members give five identical
+    # SHAP surfaces): scope the heavy diagnostics to the primary model; metric / calibration panels render for all.
+    _is_ensemble_variant = is_ensemble_variant_name(model_name)
     _policy = HeavyDiagnosticsPolicy(mode=getattr(cfg, "heavy_diagnostics_for", "best"), is_primary=not _is_ensemble_variant)
-    _budget = DiagnosticsBudget(getattr(cfg, "diagnostics_max_seconds", 0.0) or 0.0, policy=_policy)
+    _charts = metrics.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics, dict) else None
+    _budget = DiagnosticsBudget(getattr(cfg, "diagnostics_max_seconds", 0.0) or 0.0, policy=_policy, charts=_charts)
 
     from mlframe.reporting.diagnostics_dispatch import (
         build_combined_html_report, render_category_discriminability_diagnostic, render_class_structure_diagnostic,
@@ -410,7 +409,7 @@ def _render_post_fit_diagnostics(
 
     if getattr(cfg, "category_discriminability_charts", True) and df is not None and tt == "binary_classification" and y_arr is not None and not _multilabel:
         _budget.run("category_discriminability", lambda: render_category_discriminability_diagnostic(
-                df=df, y_true=y_arr, feature_names=names,
+                df=df, y_true=y_arr, feature_names=names, feature_importances=importances,
                 plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
                 top_k=getattr(cfg, "category_discriminability_top_k", 15),
                 max_columns=getattr(cfg, "category_discriminability_max_columns", 40),
@@ -469,7 +468,9 @@ def _render_post_fit_diagnostics(
             _budget.run("risk_coverage", lambda: render_risk_coverage_diagnostic(
                     y_true=y_arr, y_score=y_pred, task="regression", confidence=conf, plot_outputs=plot_outputs,
                     base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
-            ))
+                    confidence_source="proxy_distance_from_prediction_mean",
+                ),
+            )
 
     if getattr(cfg, "model_card", False) and y_arr is not None:
         _mc_task = "regression" if task == "regression" else ("binary" if tt == "binary_classification" else "classification")

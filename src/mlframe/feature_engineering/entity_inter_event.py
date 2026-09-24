@@ -351,6 +351,7 @@ def entity_inter_event_features(
     window_size: Optional[int] = None,
     window_time: Optional[float] = None,
     causal: bool = True,
+    include_forward_looking: bool = False,
 ) -> dict[str, np.ndarray]:
     """Time-gap + group-aggregate features keyed by ``entity_ids``.
 
@@ -375,12 +376,18 @@ def entity_inter_event_features(
         what the feature names promise and what is reconstructible at serving time. ``False`` restores the previous
         whole-segment aggregate, where an entity with gaps ``[1, 1, 1, 100]`` gave row 0 a mean of 25.75 - a number
         determined by an event three steps in its future, which flatters a backtest and changes with the batch split.
+    include_forward_looking
+        Opt-in, default ``False``: also emit ``time_to_next_event``, the gap to the entity's NEXT event. Its value is
+        the timestamp of an event that has not happened yet at the row's own time, so it is unavailable at serving
+        time and highly predictive in a backtest - leakage by construction. It is only for analyses that are
+        explicitly retrospective (describing a finished history), never for a model's training frame.
 
     Returns
     -------
     dict[str, np.ndarray]
-        ``time_since_prev_event`` / ``time_to_next_event`` (NaN at each entity's first/last row —
-        boundaries never bleed across entities, per ``per_group_shift``'s contract), plus
+        ``time_since_prev_event`` (NaN at each entity's first row — boundaries never bleed across entities, per
+        ``per_group_shift``'s contract; with ``include_forward_looking=True`` also ``time_to_next_event``, NaN at each
+        entity's last row), plus
         ``group_mean_time_delta`` / ``group_std_time_delta`` / ``group_median_time_delta`` (that entity's
         inter-event-gap statistics to date under the default ``causal=True``; with ``causal=False``, one
         whole-segment value repeated for every row of the entity). When
@@ -402,14 +409,11 @@ def entity_inter_event_features(
     ts = np.ascontiguousarray(timestamps, dtype=np.float64)
 
     prev_ts = per_group_shift(ts, entity_ids, n=1)
-    next_ts = per_group_shift(ts, entity_ids, n=-1)
     time_since_prev = ts - prev_ts
-    time_to_next = next_ts - ts
 
     mean_dt, std_dt, median_dt = _broadcast_group_stats(time_since_prev, entity_ids, causal=causal)
     out = {
         "time_since_prev_event": time_since_prev,
-        "time_to_next_event": time_to_next,
         "group_mean_time_delta": mean_dt,
         "group_std_time_delta": std_dt,
         "group_median_time_delta": median_dt,
@@ -420,6 +424,9 @@ def entity_inter_event_features(
         out["group_mean_value"] = mean_v
         out["group_std_value"] = std_v
         out["group_median_value"] = median_v
+
+    if include_forward_looking:
+        out["time_to_next_event"] = per_group_shift(ts, entity_ids, n=-1) - ts
 
     if window_size is not None or window_time is not None:
         mean_dt_w, std_dt_w = _windowed_group_stats(time_since_prev, ts, entity_ids, window_size=window_size, window_time=window_time)

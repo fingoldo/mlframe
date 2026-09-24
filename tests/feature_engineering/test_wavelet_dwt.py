@@ -154,14 +154,18 @@ class TestWaveletDenoise:
 
 class TestFilterCache:
     """Groups tests for: TestFilterCache."""
-    def test_filters_cached_on_repeat_call(self):
-        """Filters cached on repeat call."""
-        from mlframe.feature_engineering.wavelet_dwt import (
-            get_wavelet_filters,
-            _FILTER_CACHE,
-        )
+    def test_filters_cached_on_repeat_call(self, monkeypatch):
+        """Filters cached on repeat call.
 
-        _FILTER_CACHE.clear()
+        Works on a private cache dict: this test plants a zero-length sentinel under "db4", and doing that in the
+        module's real cache poisoned every db4 test that ran after it - "coefficient shape mismatch", all-zero
+        reconstructions - so the suite passed or failed depending on test order.
+        """
+        from mlframe.feature_engineering import wavelet_dwt
+        from mlframe.feature_engineering.wavelet_dwt import get_wavelet_filters
+
+        monkeypatch.setattr(wavelet_dwt, "_FILTER_CACHE", {})
+        _FILTER_CACHE = wavelet_dwt._FILTER_CACHE
         _ = get_wavelet_filters("db4")
         assert "db4" in _FILTER_CACHE
         # Mutate cache entry; second call must return the mutated value

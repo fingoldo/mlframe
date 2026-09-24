@@ -85,4 +85,3 @@ def _y_quantile_grid(y_train) -> list:
     y = np.asarray(y_train, dtype=np.float64).reshape(-1)
     y = y[np.isfinite(y)]
     return np.quantile(y, np.linspace(0.0, 1.0, 101)).tolist() if y.size else []
-

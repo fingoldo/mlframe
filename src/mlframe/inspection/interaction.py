@@ -8,7 +8,12 @@ separate (additive) effects. For a fitted model `f`, using partial-dependence fu
 
 (all PD functions centred to mean 0 over the evaluation points). H² ≈ 0 means the joint effect is purely additive
 (``PD_ij = PD_i + PD_j``); H² ≈ 1 means the effect is almost entirely interaction (e.g. an XOR / product target with
-no main effects). H = sqrt(H²) ∈ [0, 1].
+no main effects). H = sqrt(H²) ∈ [0, 1] when the estimate is well posed.
+
+The ratio can exceed 1 on a real model: strong main effects sitting on a weak joint PD surface make the numerator
+larger than the denominator. That is a degenerate estimate, not maximal interaction, so it is reported as NaN rather
+than clamped to 1 - a clamp put an additive pair at the top of the interaction heatmap, which is exactly the pair a
+reader would then engineer an explicit interaction feature for.
 
 This is genuinely absent from sklearn (which has `partial_dependence` but no interaction statistic) and is only in
 niche packages (`artemis`, `sklearn-gbmi`); it is built here directly on the suite's existing
@@ -101,6 +106,12 @@ def friedman_h_statistic(
     return _h_from_1d_pdps(model, X, i0, i1, p0, p1, xi, xj, grid=grid, sample=sample, seed=seed)
 
 
+# A pure interaction sits at a ratio of 1 up to PD-estimation noise, which on a sampled grid overshoots by well under a
+# percent; a clear excess is the degenerate case (main effects on a near-flat joint surface). Between the two the value
+# is clamped to 1 as before; past this bound it is reported as NaN.
+_H2_DEGENERATE_ABOVE = 1.05
+
+
 def _h_from_1d_pdps(model, X, i0, i1, p0, p1, xi, xj, *, grid, sample, seed) -> float:
     """Core H-statistic given the two features' already-computed 1-D PDPs; only the 2-D surface is computed here."""
     p2 = compute_pdp_2d(model, X, (i0, i1), grid=grid, sample=sample, seed=seed)
@@ -114,8 +125,10 @@ def _h_from_1d_pdps(model, X, i0, i1, p0, p1, xi, xj, *, grid, sample, seed) -> 
     if denom <= 1e-12:
         return 0.0  # joint PD is flat -> model ignores the pair
     numer = float(np.sum((c_ij - c_i - c_j) ** 2))
-    h2 = min(max(numer / denom, 0.0), 1.0)
-    return float(np.sqrt(h2))
+    ratio = numer / denom
+    if ratio > _H2_DEGENERATE_ABOVE:
+        return float("nan")  # degenerate: main effects dominate a near-flat joint surface; see the module docstring
+    return float(np.sqrt(min(max(ratio, 0.0), 1.0)))
 
 
 def pairwise_interaction_strength(

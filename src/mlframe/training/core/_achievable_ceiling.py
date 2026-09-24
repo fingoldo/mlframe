@@ -284,22 +284,19 @@ def _collapsed_ceiling_verdict_kwargs(
         return dict(
             headroom=float("nan"), decision="proceed",
             reason=f"optimistic composite ceiling unmeasured: {n_offered} candidate base(s) offered, 0 evaluable "
-                   f"(absent / shape-mismatched columns). Absence of measurement, not evidence against composites",
+            f"(absent / shape-mismatched columns). Absence of measurement, not evidence against composites",
         )
-    _reason = (
-        f"optimistic composite ceiling collapsed on ALL {n_collapsed}/{n_evaluated} evaluable base(s) "
-        f"(non-finite reconstruction on the holdout)"
-    )
+    _reason = f"optimistic composite ceiling collapsed on ALL {n_collapsed}/{n_evaluated} evaluable base(s) " f"(non-finite reconstruction on the holdout)"
     if y_hold_std > 0 and floor_rmse <= strong_floor_frac * y_hold_std:
         return dict(
             headroom=float("nan"), decision="skip",
             reason=f"{_reason}; the floor {floor_rmse:.4g} is already strong vs std(y)={y_hold_std:.4g} "
-                   f"(<= {strong_floor_frac:.0%}), so there is measured evidence against composites, lag_predict deployed instead",
+            f"(<= {strong_floor_frac:.0%}), so there is measured evidence against composites, lag_predict deployed instead",
         )
     return dict(
         headroom=float("nan"), decision="proceed",
         reason=f"{_reason}, but the floor {floor_rmse:.4g} is weak vs std(y)={y_hold_std:.4g} "
-               f"(> {strong_floor_frac:.0%}), so the tiny-model ceiling is low-confidence; discovery proceeds",
+        f"(> {strong_floor_frac:.0%}), so the tiny-model ceiling is low-confidence; discovery proceeds",
     )
 
 

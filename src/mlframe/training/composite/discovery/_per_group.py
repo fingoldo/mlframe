@@ -33,7 +33,6 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
-
 def _group_val_rows(val_df: Any, val_y: Any, group_col: str, group_val: Any) -> tuple[Any, Any]:
     """The val rows of one group, so its specs are gated on the population they will be routed to.
 

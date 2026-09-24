@@ -145,7 +145,9 @@ def greedy_backward_elimination(
     else:
         if cv is None:
             cv = KFold(n_splits=5, shuffle=True, random_state=0)
-        folds = list(cv.split(np.empty(n)))
+        # The target is passed even though KFold ignores it: a stratified splitter -- the natural choice for a
+        # classification target -- requires it and raised on the first fold without it.
+        folds = list(cv.split(np.empty(n), y_arr))
 
         def score_fn(frame: pd.DataFrame) -> float:
             """CV score for this column subset over the precomputed folds."""

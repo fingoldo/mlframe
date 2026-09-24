@@ -44,10 +44,8 @@ def _extremality_matrix_njit(values: np.ndarray, out: np.ndarray) -> None:
     path (the caller already wraps this in a broad except -- but a native access violation crashes the
     whole process before Python's exception machinery ever runs, so the only real mitigation is removing
     the parallel dispatch itself). Verified: the exact crashing test now completes without segfaulting.
-    On HEAVILY TIED / low-cardinality columns, numba's argsort can still break ties in a different order
-    than numpy's quicksort (each row still gets a mathematically valid extremality score, just possibly a
-    different rank among exactly-equal values) -- unrelated to the parallel/serial choice, applies either
-    way, and is the same precision-vs-speed tradeoff any non-tie-averaged ordinal rank accepts."""
+    Ties get the MID-RANK of their block, so equal values always score equally, whatever order argsort left
+    them in - the same convention as the fit-time reference path in ``row_wise_extremality_reference``."""
     n_rows, n_cols = values.shape
     for j in prange(n_cols):
         n_valid = 0
@@ -67,10 +65,19 @@ def _extremality_matrix_njit(values: np.ndarray, out: np.ndarray) -> None:
                 k += 1
         order = np.argsort(valid_vals)
         denom = n_valid + 1
-        for r in range(n_valid):
-            orig_i = valid_idx[order[r]]
-            frac = (r + 1) / denom
-            out[orig_i, j] = abs(frac - 0.5) * 2.0
+        # Mid-rank over each block of equal values, the same convention the fit-time reference path uses. The
+        # ordinal rank gave two rows holding the same value different scores - on a 0/1 column, one near 1.0 and
+        # one near 0.0 depending on where argsort happened to put them.
+        a = 0
+        while a < n_valid:
+            b = a + 1
+            while b < n_valid and valid_vals[order[b]] == valid_vals[order[a]]:
+                b += 1
+            frac = ((a + b + 1) * 0.5) / denom
+            score = abs(frac - 0.5) * 2.0
+            for r in range(a, b):
+                out[valid_idx[order[r]], j] = score
+            a = b
 
 
 def _compute_extremality_matrix(X: pd.DataFrame, columns: Optional[Sequence[str]]) -> tuple[np.ndarray, list]:

@@ -9,6 +9,7 @@ only the rows the fitted detector doesn't flag as an outlier (``predict(X) == 1`
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from mlframe.preprocessing.outliers import reject_outliers
 
@@ -25,6 +26,7 @@ def _make_data_with_outliers(n_inliers: int = 200, n_outliers: int = 10, seed: i
 
 def test_reject_outliers_drops_rows_and_keeps_x_y_aligned():
     """Reject outliers drops rows and keeps x y aligned."""
+    pytest.importorskip("imblearn", reason="the default reject_outliers pipeline is built on imblearn, an optional dependency")
     X, y = _make_data_with_outliers()
     X_out, y_out = reject_outliers(X, y, verbose=False)
     assert X_out.shape[0] == y_out.shape[0]
@@ -34,6 +36,7 @@ def test_reject_outliers_drops_rows_and_keeps_x_y_aligned():
 
 def test_reject_outliers_preferentially_drops_the_injected_outlier_cluster():
     """Most of the surviving rows should come from the inlier cluster, not the injected far-away outliers."""
+    pytest.importorskip("imblearn", reason="the default reject_outliers pipeline is built on imblearn, an optional dependency")
     X, y = _make_data_with_outliers(n_inliers=200, n_outliers=10)
     _X_out, y_out = reject_outliers(X, y, verbose=False)
     # y==1 marks the injected far-away outlier cluster; it should be a small minority of what survives
@@ -42,6 +45,7 @@ def test_reject_outliers_preferentially_drops_the_injected_outlier_cluster():
 
 
 def test_reject_outliers_no_outliers_present_keeps_almost_everything():
+    pytest.importorskip("imblearn", reason="the default reject_outliers pipeline is built on imblearn, an optional dependency")
     """On data with no genuine outlier structure, IsolationForest's default contamination still flags a
     small fraction (its own baseline rate) -- but the vast majority of rows must survive."""
     rng = np.random.default_rng(1)
@@ -65,6 +69,7 @@ def test_reject_outliers_accepts_a_custom_model():
 
 def test_reject_outliers_verbose_logs_without_raising(caplog):
     """``verbose=True`` (the default) must log a summary line and not raise."""
+    pytest.importorskip("imblearn", reason="the default reject_outliers pipeline is built on imblearn, an optional dependency")
     import logging
 
     X, y = _make_data_with_outliers(n_inliers=50, n_outliers=3)

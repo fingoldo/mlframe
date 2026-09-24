@@ -126,8 +126,15 @@ def _fit_transform_fold(x: np.ndarray, transform_name: str, train_idx: np.ndarra
     raise ValueError(f"_fit_transform_fold: unknown transform_name {transform_name!r}")
 
 
-def _top_correlated_context_columns(df: pd.DataFrame, col: str, pool: List[str], n_context_features: int) -> List[str]:
-    """Rank ``pool`` columns by |Pearson r| against ``col`` and keep the top ``n_context_features``."""
+def _top_correlated_context_columns(df: pd.DataFrame, col: str, pool: List[str], n_context_features: int, rows: Optional[np.ndarray] = None) -> List[str]:
+    """Rank ``pool`` columns by |Pearson r| against ``col`` and keep the top ``n_context_features``.
+
+    ``rows`` restricts the ranking to those positions - a fold's TRAIN rows. Ranking over the whole frame let each
+    held-out fold's own rows decide which context columns its score was built from, so a column correlated with
+    ``col`` only inside that fold was picked for it and inflated its "held-out" score.
+    """
+    if rows is not None:
+        df = df.iloc[rows]
     target = df[col].to_numpy(dtype=np.float64)
     target_fill = target.copy()
     target_fill[~np.isfinite(target_fill)] = np.nanmedian(target_fill[np.isfinite(target_fill)]) if np.isfinite(target_fill).any() else 0.0
@@ -146,6 +153,28 @@ def _top_correlated_context_columns(df: pd.DataFrame, col: str, pool: List[str],
             scored.append((abs(corr), cand))
     scored.sort(key=lambda t: t[0], reverse=True)
     return [name for _, name in scored[:n_context_features]]
+
+
+def _classification_probe_score(model, y_test: np.ndarray, proba: np.ndarray) -> float:
+    """Held-out score of a classification probe, higher is better, for any number of classes.
+
+    The probe used to score ``predict_proba(...)[:, 1]`` whatever the target: on a 4-class ``y`` that compared the
+    labels against class 1's probability alone, and each column's "best transform" was chosen on a meaningless number.
+    Binary keeps its ROC AUC; with more classes it is the one-vs-rest macro AUC over the classes the model knows, or,
+    when a test fold lacks a class and that AUC is undefined, the negative log-loss, which is always defined.
+    """
+    from sklearn.metrics import log_loss, roc_auc_score
+
+    from mlframe.metrics.core import fast_roc_auc
+
+    proba = np.asarray(proba, dtype=np.float64)
+    if proba.ndim == 2 and proba.shape[1] == 2:
+        return float(fast_roc_auc(y_test, proba[:, 1]))
+    labels = list(getattr(model, "classes_", range(proba.shape[1])))
+    try:
+        return float(roc_auc_score(y_test, proba, multi_class="ovr", average="macro", labels=labels))
+    except ValueError:
+        return -float(log_loss(y_test, proba, labels=labels))
 
 
 def select_column_transforms(
@@ -219,8 +248,6 @@ def select_column_transforms(
     from sklearn.linear_model import LogisticRegression, Ridge
     from sklearn.model_selection import KFold, StratifiedKFold
 
-    from mlframe.metrics.core import fast_roc_auc
-
     if probe_model_fn is None:
         if task == "classification":
             probe_model_fn = lambda: LogisticRegression(max_iter=200)  # noqa: E731
@@ -249,18 +276,21 @@ def select_column_transforms(
         raw = df[col].to_numpy(dtype=np.float64)
 
         col_context_columns: List[str] = []
-        context_matrix: Optional[np.ndarray] = None
+        fold_context: List[tuple] = []
         if multivariate_probe:
-            col_context_columns = _top_correlated_context_columns(df, col, context_pool, n_context_features)
-            # Raw, unfilled: the per-fold fill happens inside the fold loop below, from the train slice only.
-            context_raw = [df[ctx_col].to_numpy(dtype=np.float64) for ctx_col in col_context_columns]
-            context_matrix = np.column_stack(context_raw) if context_raw else np.zeros((len(raw), 0))
+            # Chosen per fold, from that fold's TRAIN rows only (see ``_top_correlated_context_columns``). Raw and
+            # unfilled: the fill also happens inside the fold loop, from the same train slice.
+            for train_idx, _ in fold_indices:
+                names = _top_correlated_context_columns(df, col, context_pool, n_context_features, rows=train_idx)
+                raw_ctx = [df[ctx_col].to_numpy(dtype=np.float64) for ctx_col in names]
+                fold_context.append((names, np.column_stack(raw_ctx) if raw_ctx else np.zeros((len(raw), 0))))
+                col_context_columns.extend(n for n in names if n not in col_context_columns)
 
         scores: Dict[str, float] = {}
         for transform_name in candidate_transforms:
             fold_scores = []
             transform_failed = False
-            for train_idx, test_idx in fold_indices:
+            for fold_i, (train_idx, test_idx) in enumerate(fold_indices):
                 # Fit the transform on THIS FOLD'S train rows only, then apply it to both train
                 # and test -- fitting on the full column (train+test) before splitting would leak
                 # the test fold's own statistics into its "held-out" score.
@@ -275,7 +305,8 @@ def select_column_transforms(
                     transform_failed = True
                     break
                 if multivariate_probe:
-                    assert context_matrix is not None and multivariate_probe_model_fn is not None
+                    assert multivariate_probe_model_fn is not None
+                    context_matrix = fold_context[fold_i][1]
                     ctx_filled = np.column_stack([_fill_nonfinite_from_train(context_matrix[:, i], train_idx) for i in range(context_matrix.shape[1])]) if context_matrix.shape[1] else context_matrix
                     ctx_train, ctx_test = ctx_filled[train_idx], ctx_filled[test_idx]
                     inter_train = [transformed_train.reshape(-1, 1) * ctx_train[:, i : i + 1] for i in range(ctx_train.shape[1])]
@@ -285,8 +316,7 @@ def select_column_transforms(
                     model = multivariate_probe_model_fn()
                     model.fit(feature_train, y[train_idx])
                     if task == "classification":
-                        proba = model.predict_proba(feature_test)[:, 1]
-                        fold_scores.append(fast_roc_auc(y[test_idx], proba))
+                        fold_scores.append(_classification_probe_score(model, y[test_idx], model.predict_proba(feature_test)))
                     else:
                         pred = model.predict(feature_test)
                         fold_scores.append(-float(np.sqrt(np.mean((y[test_idx] - pred) ** 2))))
@@ -294,8 +324,7 @@ def select_column_transforms(
                     model = probe_model_fn()
                     model.fit(transformed_train.reshape(-1, 1), y[train_idx])
                     if task == "classification":
-                        proba = model.predict_proba(transformed_test.reshape(-1, 1))[:, 1]
-                        fold_scores.append(fast_roc_auc(y[test_idx], proba))
+                        fold_scores.append(_classification_probe_score(model, y[test_idx], model.predict_proba(transformed_test.reshape(-1, 1))))
                     else:
                         pred = model.predict(transformed_test.reshape(-1, 1))
                         fold_scores.append(-float(np.sqrt(np.mean((y[test_idx] - pred) ** 2))))

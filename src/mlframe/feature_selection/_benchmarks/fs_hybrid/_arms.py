@@ -661,12 +661,16 @@ class MRMRArm(BaseArm):
 
     score_kind = "selection_order"
 
-    def _compute(self, X, y):
-        """Fit MRMR and read its selection-order ``support_`` through the shared extractor."""
+    def _build_model(self) -> Any:
+        """Build the unfitted MRMR; a variant arm overrides only this, so extraction stays identical."""
         from mlframe.feature_selection.filters import MRMR
 
+        return MRMR(verbose=0, fe_max_steps=(1 if self.fe else 0), n_jobs=-1, random_seed=self.random_seed, max_runtime_mins=self.max_runtime_mins)
+
+    def _compute(self, X, y):
+        """Fit MRMR and read its selection-order ``support_`` through the shared extractor."""
         names = _feature_names(X)
-        model = MRMR(verbose=0, fe_max_steps=(1 if self.fe else 0), n_jobs=-1, random_seed=self.random_seed, max_runtime_mins=self.max_runtime_mins)
+        model = self._build_model()
         model.fit(X, pd.Series(np.asarray(y)))
         raw_support = np.asarray(getattr(model, "support_", np.zeros(0)))
         if raw_support.dtype == np.bool_:
@@ -899,51 +903,26 @@ class ShapProxiedArm(BaseArm):
 
 
 # ------------------------------------------------------------------------------------------------- roster
-def build_arm_roster(n_features: int, *, k: Optional[int] = None, random_state: int = 0) -> "Dict[str, Callable[[], BaseArm]]":
-    """Factory map ``name -> zero-arg builder`` for the Phase-0 arms, sized to ``n_features``.
+def build_arm_roster(
+    n_features: int, *, k: Optional[int] = None, random_state: int = 0, relevant: Optional[Sequence[str]] = None
+) -> "Dict[str, Callable[[], BaseArm]]":
+    """Factory map ``name -> zero-arg builder`` for every arm, sized to ``n_features``.
+
+    Assembled in `_roster`, which this delegates to; the import is deferred because `_roster` imports the arm
+    classes defined in this module.
 
     Args:
-        n_features: Width of the bench frame; sizes the random/variance controls when ``k`` is omitted.
-        k: Cardinality for the fixed-K controls; defaults to ``max(1, n_features // 4)``.
+        n_features: Width of the bench frame; sizes the fixed-K arms and gates the O(d^2) wrappers.
+        k: Cardinality for the fixed-K arms; defaults to ``max(1, n_features // 4)``.
         random_state: Seed threaded into every stochastic arm.
+        relevant: The bed's declared answer key; the oracle reference arms exist only when it is given.
 
     Returns:
         Ordered dict of arm name to a builder returning a FRESH unfitted arm.
     """
-    kk = int(k) if k is not None else max(1, int(n_features) // 4)
-    roster: Dict[str, Callable[[], BaseArm]] = {}
-    roster["all-features"] = lambda: AllFeaturesArm()
-    roster[f"random-{kk}"] = lambda: RandomSelectionArm(k=kk, random_state=random_state)
-    roster["variance-sort"] = lambda: VarianceSortArm(k=kk)
-    roster["univariate-mi"] = lambda: UnivariateMIArm(random_state=random_state)
-    roster["skb-f"] = lambda: SklearnScoreArm("kbest_f", k=kk, random_state=random_state)
-    roster["skb-mi"] = lambda: SklearnScoreArm("kbest_mi", k=kk, random_state=random_state)
-    roster["select-fdr"] = lambda: SklearnScoreArm("fdr_f", random_state=random_state)
-    roster["sfm-lgbm"] = lambda: SelectFromModelArm(random_state=random_state)
-    roster["lars-order"] = lambda: LarsPathArm(max_features=kk)
-    roster["boruta"] = lambda: BorutaArm(random_state=random_state)
-    roster["ace"] = lambda: ACEArm(random_state=random_state)
-    roster["knockoffs"] = lambda: KnockoffArm(random_state=random_state)
-    roster["mrmr"] = lambda: MRMRArm(random_seed=random_state)
-    roster["rfecv"] = lambda: RFECVArm(random_state=random_state)
-    roster["boruta-shap"] = lambda: BorutaShapArm(random_state=random_state)
-    roster["shap-proxied"] = lambda: ShapProxiedArm(random_state=random_state)
-    # Imported here rather than at module scope: the rank-aggregation arm imports `BaseArm` from this
-    # module, so a top-level import would close the cycle.
-    from ._arms_byproduct import ByProductEnsembleArm
-    from ._arms_external import CatBoostSelectArm, catboost_available
-    from ._arms_rank_aggregation import RankAggregationArm
+    from ._roster import build_full_roster
 
-    roster["rank-vote"] = lambda: RankAggregationArm(k=kk, rule="borda", random_state=random_state)
-    roster["byproduct-ensemble"] = lambda: ByProductEnsembleArm(k=kk, random_state=random_state)
-    if catboost_available():
-        # Three arms rather than one: collapsing the elimination criteria would report whichever happened
-        # to be the default as "CatBoost", and this suite's whole position on RFECV is that a method's
-        # internal knobs are not a detail when they move the result.
-        for algorithm in ("shap", "loss", "predictions"):
-            roster[f"catboost-{algorithm}"] = (lambda algo: lambda: CatBoostSelectArm(algorithm=algo, k=kk, random_state=random_state))(algorithm)
-    return roster
-
+    return build_full_roster(n_features, k=k, random_state=random_state, relevant=relevant)
 
 __all__ = [
     "ACEArm",

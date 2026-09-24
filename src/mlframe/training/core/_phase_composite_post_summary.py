@@ -201,7 +201,7 @@ def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics:
         _pm = (_raw_rep or {}).get("primary_metric")
         if not _pm or not _pm.startswith("val_"):
             continue
-        _metric = _pm[len("val_"):]
+        _metric = _pm[len("val_") :]
         _dir = _mhb(_metric)
         _is_min = True if _dir is None else (not _dir)
         _rows = (_yscale.get(str(_tt)) or {}).get(_comp) or []

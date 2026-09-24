@@ -14,6 +14,7 @@ that module's own top-level imports.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import numpy as np
@@ -67,6 +68,9 @@ from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(_reporting_mod.__name__)
 
+# Per-class keys that are not metrics: a p-value, a degrees-of-freedom count or a base rate has no meaningful mean.
+_NOT_AGGREGATABLE = re.compile(r"(^|_)(p|pval|pvalue|p_value|dof|df)$|^base_rate$|^n_|support", re.IGNORECASE)
+
 
 def _resolve_class_label(class_id: int, class_name: Any, target_label_encoder: Any) -> str:
     """Human-readable label for one report class.
@@ -89,6 +93,35 @@ def _slugify_class(name: str) -> str:
     if not slug:
         slug = "".join(ch if ch.isalnum() else "-" for ch in name).strip("-")
     return slug or "class"
+
+
+def _aggregate_per_class_metrics(metrics: dict, per_class_blocks: list, supports: dict) -> None:
+    """Write ``macro_<key>`` and, when real class supports exist, ``weighted_<key>`` for every per-class METRIC key.
+
+    Only metric keys: a mean of p-values, degrees of freedom or base rates is not a statistic (a "macro_HL_p" is not a
+    p-value), so ``_NOT_AGGREGATABLE`` keys stay per-class. ``weighted_*`` needs a support for every class; without
+    them it used to be the macro mean under another name, so it is simply not emitted.
+    """
+    all_keys = set()
+    for _, blk in per_class_blocks:
+        for k, v in blk.items():
+            if isinstance(v, (int, float, np.floating, np.integer)) and not isinstance(v, bool) and not _NOT_AGGREGATABLE.search(str(k)):
+                all_keys.add(k)
+    have_supports = len(supports) == len(per_class_blocks) and sum(supports.values()) > 0
+    for key in all_keys:
+        vals, wts = [], []
+        for cid, blk in per_class_blocks:
+            try:
+                fv = float(blk.get(key))
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(fv):
+                vals.append(fv)
+                wts.append(supports.get(cid, 0))
+        arr, w = np.asarray(vals, dtype=np.float64), np.asarray(wts, dtype=np.float64)
+        metrics[f"macro_{key}"] = float(arr.mean()) if vals else float("nan")
+        if have_supports:
+            metrics[f"weighted_{key}"] = float((arr * w).sum() / w.sum()) if vals and w.sum() > 0 else float("nan")
 
 
 def report_probabilistic_model_perf(
@@ -654,11 +687,8 @@ def report_probabilistic_model_perf(
     if metrics is not None and is_multilabel is False and len(classes) > 2:
         _per_class_blocks = [(cid, metrics[cid]) for cid in metrics if isinstance(cid, (int, np.integer)) and isinstance(metrics[cid], dict)]
         if _per_class_blocks:
-            # Class supports for weighted-mean (true positives per class).
-            try:
-                _yt_all = np.asarray(targets).astype(np.int64, copy=False)
-            except (TypeError, ValueError):
-                _yt_all = None
+            # Class supports, with no int cast: string labels failed it and left weighted_* a silent copy of macro_*.
+            _yt_all = np.asarray(targets) if targets is not None else None
             _supports = {}
             if _yt_all is not None and _yt_all.ndim == 1:
                 for cid, _ in _per_class_blocks:
@@ -672,36 +702,7 @@ def report_probabilistic_model_perf(
                     # actual class label at that position.
                     _label = classes[cid] if classes is not None and cid < len(classes) else cid
                     _supports[cid] = int(np.sum(_yt_all == _label))
-            # Aggregate every numeric key shared across per-class blocks.
-            _all_keys = set()
-            for _, blk in _per_class_blocks:
-                for k, v in blk.items():
-                    if isinstance(v, (int, float, np.floating, np.integer)) and not isinstance(v, bool):
-                        _all_keys.add(k)
-            for key in _all_keys:
-                vals = []
-                wts = []
-                for cid, blk in _per_class_blocks:
-                    v = blk.get(key)
-                    if v is None:
-                        continue
-                    try:
-                        fv = float(v)
-                    except (TypeError, ValueError):
-                        continue
-                    if not np.isfinite(fv):
-                        continue
-                    vals.append(fv)
-                    wts.append(_supports.get(cid, 1))
-                if not vals:
-                    metrics[f"macro_{key}"] = float("nan")
-                    metrics[f"weighted_{key}"] = float("nan")
-                    continue
-                arr = np.asarray(vals, dtype=np.float64)
-                w = np.asarray(wts, dtype=np.float64)
-                metrics[f"macro_{key}"] = float(arr.mean())
-                w_total = w.sum()
-                metrics[f"weighted_{key}"] = float((arr * w).sum() / w_total) if w_total > 0 else float(arr.mean())
+            _aggregate_per_class_metrics(metrics, _per_class_blocks, _supports)
 
     # Registered single-label classification scalars (quadratic_weighted_kappa / weighted_kappa /
     # exploss from metrics_registry). Mirrors the multilabel dispatch below, but lands the values in

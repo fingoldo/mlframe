@@ -42,7 +42,6 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
-
 _ECDF_MAX_KNOTS: int = 2048
 """Upper bound on stored ECDF knots per axis."""
 

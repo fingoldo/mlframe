@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 from mlframe.training._splitting_helpers import _build_details, _calculate_split_sizes, _perform_split, fmt_ts
 
-
 # Derived from the timestamps and the requested sizes, so it describes the layout BEFORE a random-row val top-up moves
 # the boundaries; the realised split is reported separately.
 _IMPLIED_FORWARD_LAYOUT_MSG = (

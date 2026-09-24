@@ -191,9 +191,7 @@ PER_GROUP_SMOOTHING_MAX_PSEUDOCOUNTS: float = 1000.0
 this the baseline is the global mean for every realistic group size anyway."""
 
 
-def _empirical_bayes_pseudocounts(
-    y: np.ndarray, group_sizes: np.ndarray, group_means: np.ndarray, global_mean: float
-) -> float:
+def _empirical_bayes_pseudocounts(y: np.ndarray, group_sizes: np.ndarray, group_means: np.ndarray, global_mean: float) -> float:
     """Shrinkage strength ``m`` for ``(n*mean + m*global) / (n + m)``, estimated from the data.
 
     ``m = sigma_within^2 / sigma_between^2`` is the hierarchical-model (James-Stein) weight: it is how many
@@ -265,11 +263,9 @@ def _per_group_predict_polars(
         stats_df.get_column("__raw_mean__").to_numpy(),
         global_mean,
     )
-    stats_df = stats_df.with_columns(
-        (
-            (pl.col("__raw_mean__") * pl.col("__size__") + global_mean * _m) / (pl.col("__size__") + _m)
-        ).alias("__mean__")
-    ).drop("__raw_mean__")
+    stats_df = stats_df.with_columns(((pl.col("__raw_mean__") * pl.col("__size__") + global_mean * _m) / (pl.col("__size__") + _m)).alias("__mean__")).drop(
+        "__raw_mean__"
+    )
     n_groups = stats_df.height
 
     # iter386: do ONE left-join per side and reuse its (mean, size, seen)
@@ -389,9 +385,7 @@ def _per_group_predict(
     global_mean = float(y_series.mean())
     group_sizes = grouped.size()
     _raw_means = grouped.mean()
-    _m = _empirical_bayes_pseudocounts(
-        y_series.to_numpy(), group_sizes.to_numpy(), _raw_means.to_numpy(), global_mean
-    )
+    _m = _empirical_bayes_pseudocounts(y_series.to_numpy(), group_sizes.to_numpy(), _raw_means.to_numpy(), global_mean)
     group_means = _shrink_group_means(_raw_means, group_sizes, global_mean, _m)
 
     train_pred = cat_train.map(group_means).fillna(global_mean).to_numpy()

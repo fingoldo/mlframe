@@ -33,13 +33,22 @@ class CVDeltaHistory:
         self._pooled_ss: float = 0.0
         self._pooled_dof: int = 0
         self.n_updates: int = 0
+        # Content of every score vector already pooled. In a selection loop the baseline is the same current-best for
+        # many consecutive candidates, and re-adding it each time counted one variance estimate over and over: 40
+        # candidates against one unchanged 5-fold baseline claimed 160 degrees of freedom from 4 real ones, and the
+        # band's t collapsed from 2.776 to about 1.97 with no new information.
+        self._seen: set = set()
 
     def update(self, fold_scores: np.ndarray) -> None:
-        """Fold a new set of per-fold scores into the pooled variance estimate."""
+        """Fold a new set of per-fold scores into the pooled variance estimate; a vector already pooled adds nothing."""
         fold_scores = np.asarray(fold_scores, dtype=np.float64).ravel()
         n = fold_scores.shape[0]
         if n < 2:
             return
+        key = fold_scores.tobytes()
+        if key in self._seen:
+            return
+        self._seen.add(key)
         var = float(np.var(fold_scores, ddof=1))
         self._pooled_ss += (n - 1) * var
         self._pooled_dof += n - 1

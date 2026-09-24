@@ -13,9 +13,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from contextlib import nullcontext
-
-from mlframe.utils.warning_filters import install_filter_once
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
@@ -23,7 +20,6 @@ from mlframe.utils.warning_filters import install_filter_once
 
 from typing import Any, Callable, Optional, Sequence
 
-import warnings
 
 import pandas as pd, numpy as np
 from matplotlib import pyplot as plt
@@ -69,6 +65,23 @@ from pyutilz.logginglib import log_result
 from mlframe.calibration.quality import make_custom_calibration_plot
 
 from catboost import Pool
+
+from contextlib import nullcontext
+
+
+from mlframe.utils.warning_filters import install_filter_once
+
+
+def _install_report_warning_filters() -> None:
+    """Silence this module's known-noisy sklearn warnings, once and process-wide.
+
+    Installed once instead of snapshot-and-restored around the report body: report rendering is reachable from a joblib
+    ``backend="threading"`` worker (the bootstrap path fans out that way), and ``catch_warnings`` mutates the
+    process-global filter list, so two overlapping blocks restore each other's snapshot - one loses its suppression
+    mid-run, or leaks an "ignore" into unrelated caller code. Both filters are scoped to this module.
+    """
+    install_filter_once(category=UndefinedMetricWarning, module=r".*mlframe\.evaluation\.reports")
+    install_filter_once(category=FutureWarning, module=r".*mlframe\.evaluation\.reports")
 
 
 def train_test_split_from_generator(gen: Any, X=None, y=None, groups=None):
@@ -185,13 +198,8 @@ def evaluate_estimators(
     classification_report_dict: Optional[dict] = None
     cm: Any = None
 
-    # Installed once instead of snapshot-and-restored around this block: report rendering is reachable from a joblib
-    # ``backend="threading"`` worker (the bootstrap path fans out that way), and ``catch_warnings`` mutates the
-    # process-global filter list, so two overlapping blocks restore each other's snapshot - one loses its suppression
-    # mid-run, or leaks an "ignore" into unrelated caller code. Both filters are scoped to this module.
-    install_filter_once(category=UndefinedMetricWarning, module=r".*mlframe\.evaluation\.reports")
-    install_filter_once(category=FutureWarning, module=r".*mlframe\.evaluation\.reports")
-    with nullcontext():  # keeps this long body's indentation; the suppression above is process-wide and permanent
+    _install_report_warning_filters()
+    with nullcontext():  # keeps this long body's indentation; see _install_report_warning_filters
 
         if caption:
             display(Markdown(f"**{caption.upper()}:**"))
@@ -536,9 +544,8 @@ def evaluate_grouped(
         return out
 
     res = []
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
-        warnings.filterwarnings("ignore", category=FutureWarning)
+    _install_report_warning_filters()
+    with nullcontext():  # keeps this body's indentation; see _install_report_warning_filters
 
         for position, qty in tqdmu(X_test[by_column].value_counts().head(ntop).to_dict().items()):
             idx = X_test[by_column] == position

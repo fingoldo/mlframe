@@ -407,8 +407,15 @@ def test_profile_smoke_representative_shape_is_fast():
     rng = np.random.default_rng(0)
     n, g = 50_000, 200
     df = pd.DataFrame({"y": rng.normal(size=n), "well": rng.integers(0, g, n), "md": rng.random(n)})
-    t0 = time.perf_counter()
-    out = engineer_grouped_causal_bases(df, "y", "well", "md", lags=(1, 2), trailing_windows=(3,))
-    dt = time.perf_counter() - t0
+    def _timed():
+        """One engineering pass and its wall time."""
+        t0 = time.perf_counter()
+        result = engineer_grouped_causal_bases(df, "y", "well", "md", lags=(1, 2), trailing_windows=(3,))
+        return result, time.perf_counter() - t0
+
+    # Best of three: one measurement on a shared host moves 2-3x with load, which a single-shot ceiling reads as a regression.
+    runs = [_timed() for _ in range(3)]
+    out = runs[0][0]
+    dt = min(t for _, t in runs)
     assert set(out) == {"y__gcausal_lag1", "y__gcausal_lag2", "y__gcausal_tmean3", "y__gcausal_expmean"}
-    assert dt < 4.0, f"engineering 50k/200-group took {dt:.2f}s (numba warm expected << 1s)"
+    assert dt < 4.0, f"engineering 50k/200-group took {dt:.2f}s at best of 3 (numba warm expected << 1s)"

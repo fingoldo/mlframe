@@ -358,7 +358,6 @@ def _tiny_cv_rmse_y_scale(
         # Hoisted split cache: identical (n,cv_folds,seed) across N_SPECS -> identical splits.
         splits = _cached_kfold_splits(x_clean.shape[0], cv_folds, random_state)
 
-
     def _one_fold(
         train_fold: np.ndarray, val_fold: np.ndarray,
     ) -> tuple[float, np.ndarray | None]:

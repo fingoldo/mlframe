@@ -267,55 +267,24 @@ class TestCompositeIntegration:
                 df["target"].std()
             ), f"predictions {preds} do not track y {y_rows}; looks like T-scale (residual) instead of y-scale"
 
-    def test_oof_holdout_gate_runs_without_crashing(self, tmp_path) -> None:
-        """When ``oof_holdout_frac > 0``, the post-loop ensemble path
-        must compute honest holdout predictions (re-fit clones on
-        stack_train, predict on stack_holdout) and use them for
-        weighting / the validation gate. Smoke test: just verify the
-        suite completes successfully and produces an ensemble entry."""
-        from mlframe.training.configs import CompositeTargetDiscoveryConfig
-        from mlframe.training.core import train_mlframe_models_suite
+    def test_oof_holdout_gate_runs_without_crashing(self, opted_in_suite) -> None:
+        """With the cross-target ensemble on, the OOF holdout path runs and the suite ends with a composite or an ensemble.
 
-        df = _tvt_dataset(n=600)
-        cfg = CompositeTargetDiscoveryConfig(
-            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
-            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
-            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
-            min_honest_gain_z=0.0,
-            enabled=True,
-            min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
-            base_candidates=["TVT_prev"],
-            transforms=["diff", "linear_residual"],
-            mi_sample_n=300,
-            top_k_after_mi=2,
-            eps_mi_gain=-1.0,
-            cross_target_ensemble_strategy="oof_weighted",
-            oof_holdout_frac=0.2,  # 20% honest holdout
-            oof_random_state=7,
-        )
-        models, _metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="composite_oof_gate",
-            features_and_targets_extractor=_build_minimal_fte(),
-            mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
-            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
-            verbose=0,
-            composite_target_discovery_config=cfg,
-        )
-        # Either the ensemble entry exists OR the gate fired and
-        # left a single best component instead. Both are valid
-        # outcomes; the test just verifies the OOF code path
-        # completes without crashing.
+        The shared run already exercises it: the ensemble is on and ``oof_holdout_frac`` is at its 0.2 default, so the
+        OOF clones are refit on the stack rows and scored on the holdout. Either the ensemble entry exists or the gate
+        fired and kept the best single component; both are valid, a run with neither is not.
+        """
+        models, metadata, _df, _records = opted_in_suite
         regression = models.get("regression") or models.get(__import__("mlframe.training.configs", fromlist=["TargetTypes"]).TargetTypes.REGRESSION) or {}
+        spec_names = {
+            spec["name"]
+            for by_target in metadata.get("composite_target_specs", {}).values()
+            for specs in by_target.values()
+            for spec in specs
+        }
         ensemble_keys = [k for k in regression if k.startswith("_CT_ENSEMBLE__")]
-        # Ensemble entry may or may not exist depending on whether
-        # the gate fired.
-        # Validate: at least one composite-target entry exists either
-        # way (post-wrap from PR5).
-        composite_keys = [k for k in regression if "linear_residual" in k or "diff" in k]
-        assert len(composite_keys + ensemble_keys) > 0
+        composite_keys = [k for k in regression if k in spec_names]
+        assert composite_keys + ensemble_keys, f"neither a composite nor an ensemble entry; keys {list(regression)}"
 
     def test_y_scale_metrics_populated_after_wrap(self, opted_in_suite) -> None:
         """The per-target loop reports composite metrics on the y scale beside the T-scale ones."""
@@ -466,7 +435,7 @@ class TestCompositeIntegration:
             f"diagnosable; got {[r.getMessage() for r in records[-20:]]}"
         )
 
-    def test_composite_dummy_baseline_inverted_to_y_scale(self, tmp_path) -> None:
+    def test_composite_dummy_baseline_inverted_to_y_scale(self, opted_in_suite) -> None:
         """When the per-target loop computes dummy baselines on a
         composite target, the strongest dummy predictions live on the
         T-scale (e.g. ``median(T_train)``). The suite-end verdict block
@@ -479,45 +448,25 @@ class TestCompositeIntegration:
         This test locks the inversion contract:
         ``metadata['dummy_baselines'][regression][<composite_name>]
         ['y_scale_strongest_metrics']`` must be populated for both splits.
-        For the additive ``linear_residual`` the inverted dummy's y-error
-        equals its T-error row by row, so the y-scale RMSE must equal the
-        T-scale one; the inverted dummy uses the base, so it is
+        For an additive transform (``diff``, ``linear_residual``) the inverted
+        dummy's y-error equals its T-error row by row, so the y-scale RMSE must
+        equal the T-scale one; the inverted dummy uses the base, so it is
         residual-sized rather than the raw target's spread.
         """
-        from mlframe.training.configs import CompositeTargetDiscoveryConfig
-        from mlframe.training.core import train_mlframe_models_suite
+        from mlframe.training.composite.transforms import get_transform
 
-        df = _tvt_dataset(n=600)
-        cfg = CompositeTargetDiscoveryConfig(
-            # These tests are about what a TRAINED composite target does (wrapping, persistence, serving), so they need
-            # one to be trained: on a 400-row fixture a spec beats raw but cannot clear the default 2-SE significance
-            # floor on its paired gain, which is the right production call and would leave every assertion vacuous.
-            min_honest_gain_z=0.0,
-            enabled=True,
-            min_honest_gain_to_train=None,  # these tests check the suite wiring; the fixture's gains sit below the ship floor
-            base_candidates=["TVT_prev"],
-            transforms=["linear_residual"],
-            mi_sample_n=200,
-            top_k_after_mi=1,
-            eps_mi_gain=-1.0,
-            cross_target_ensemble_strategy="off",
-        )
-        _models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="composite_yscale_dummy",
-            features_and_targets_extractor=_build_minimal_fte(),
-            mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
-            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
-            verbose=0,
-            composite_target_discovery_config=cfg,
-        )
+        _models, metadata, df, _records = opted_in_suite
         db = metadata.get("dummy_baselines", {}).get("regression", {})
-        # Find the composite-target entry. Match both the legacy long form
-        # ('__linear_residual__') and the new short alias ('-linres-') -
-        # composite_transforms.py:1380 switched to short names 2026-05-16.
-        composite_names = [n for n in db if "__linear_residual__" in n or "-linres-" in n]
+        # Any composite whose transform is additive in T carries the identity below; the shared run ships diff and/or
+        # linear_residual, both additive, so the test does not depend on which one the gates keep.
+        additive = {
+            spec["name"]
+            for by_target in metadata.get("composite_target_specs", {}).values()
+            for specs in by_target.values()
+            for spec in specs
+            if getattr(get_transform(spec["transform_name"]), "additive_in_t", False)
+        }
+        composite_names = [n for n in db if n in additive]
         assert composite_names, f"expected a composite target dummy entry; got keys={list(db.keys())}"
         rep = db[composite_names[0]]
         ys = rep.get("y_scale_strongest_metrics")
@@ -533,7 +482,7 @@ class TestCompositeIntegration:
         y_std = float(np.std(np.asarray(df["target"], dtype=np.float64)))
         for split in ("val", "test"):
             assert np.isfinite(ys[split]["RMSE"]) and np.isfinite(ys[split]["MAE"])
-            # linear_residual is additive in T (y = T + alpha*base + beta), so the inverted dummy's y-error equals its T-error
+            # An additive transform (y = T + g(base)) makes the inverted dummy's y-error equal its T-error
             # row by row: the y-scale RMSE must equal the T-scale one. The inverted dummy (median(T) + alpha*base) uses the
             # base, so it is residual-sized (measured 0.70-0.73), well under a raw constant's std(y) of 2.97.
             np.testing.assert_allclose(ys[split]["RMSE"], t_scale[f"{split}_RMSE"], rtol=1e-6, err_msg=f"{split}: y-scale dummy RMSE != T-scale")

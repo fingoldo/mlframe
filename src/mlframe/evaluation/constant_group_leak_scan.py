@@ -152,8 +152,7 @@ def constant_group_target_scan(
         combo_cols = list(candidate_cols)[:combo_max_cols]
         for depth in range(2, combo_max_size + 1):
             rows.extend(
-                _scan_one(combo, combo, df, y, min_group_size, overall_var, variance_ratio_threshold, family_alpha)
-                for combo in combinations(combo_cols, depth)
+                _scan_one(combo, combo, df, y, min_group_size, overall_var, variance_ratio_threshold, family_alpha) for combo in combinations(combo_cols, depth)
             )
 
     # pd.DataFrame([]) has no columns for sort_values to find -- an empty candidate_cols (and no combo
