@@ -640,6 +640,10 @@ def _replay_suite_datetime_decomposition(df, metadata, verbose: int = 0):
     _present_sources = [c for c in _methods_map.keys() if c in df.columns]
     if not _present_sources:
         return df
+    # The cyclical encoding version the model was fitted with; a bundle from before it was recorded used version 1.
+    from mlframe.feature_engineering.basic import LEGACY_CYCLICAL_ENCODING_VERSION
+
+    _cyclical_version = metadata.get("datetime_cyclical_version", LEGACY_CYCLICAL_ENCODING_VERSION)
     # Group sources by their methods dict so we batch-decompose cols sharing the same expansion (typical case: every suite-owned datetime col uses the same configured methods).
     _by_methods: Dict[Tuple[Tuple[str, str], ...], List[str]] = {}
     for _src in _present_sources:
@@ -652,7 +656,7 @@ def _replay_suite_datetime_decomposition(df, metadata, verbose: int = 0):
             _resolved_methods[_accessor] = _dtype_resolvers.get(_dtype_name, _np.int8)
         if verbose:
             logger.info("Replaying datetime decomposition (%s) on %d source col(s): %s", "/".join(sorted(_resolved_methods.keys())), len(_srcs), _srcs)
-        df = create_date_features(df, cols=_srcs, delete_original_cols=True, methods=_resolved_methods)
+        df = create_date_features(df, cols=_srcs, delete_original_cols=True, methods=_resolved_methods, cyclical_version=_cyclical_version)
     return df
 
 

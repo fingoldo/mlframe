@@ -43,7 +43,8 @@ from ._spec_shared import spec_base_columns, rmse
 from ._honest_oof_select import cached_honest_prediction
 
 import logging
-from typing import Any, Sequence, cast
+from collections.abc import Sequence
+from typing import Any, cast
 
 import numpy as np
 
@@ -55,7 +56,6 @@ from ._rejection_ledger import RejectStage, ledger_append
 from .._row_roles import note_rows
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
 from ._rejection_ledger import spec_inverse
-from ._screening_tiny import _build_tiny_model
 from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
@@ -238,11 +238,14 @@ def _holdout_fit_context(self: Any, df: Any, usable_features: Sequence[str], scr
         if memo is not None and key in memo["fits"]:
             model, last_residual_q["q"] = memo["fits"][key]
             return np.asarray(model.predict(x_eval), dtype=np.float64)
-        model = _build_tiny_model(
-            "lgb", n_estimators=n_estimators, num_leaves=num_leaves,
-            learning_rate=learning_rate, random_state=rs,
-        )
-        model.fit(xf, tf)
+        # The native fit on a dataset binned once per (fit matrix, rows) and shared by every spec the gate scores with
+        # the label swapped; same booster as the sklearn wrapper's fit, which re-binned the fit rows per spec.
+        from ._lgb_shared_fold import fit_on_rows, lgb_params
+
+        rows = np.arange(x_fit.shape[0]) if row_mask is None else np.flatnonzero(row_mask)
+        model = fit_on_rows(np.asarray(x_fit), rows, np.asarray(tf, dtype=np.float64), n_estimators=n_estimators,
+                            params=lgb_params(num_leaves=num_leaves, learning_rate=learning_rate, random_state=rs, deterministic=False,
+                                              num_threads=-1))
         _res = np.asarray(tf, dtype=np.float64) - np.asarray(model.predict(xf), dtype=np.float64)
         _res = _res[np.isfinite(_res)]
         last_residual_q["q"] = np.quantile(_res, (np.arange(N_SMEAR_QUANTILES) + 0.5) / N_SMEAR_QUANTILES) if _res.size >= 4 * N_SMEAR_QUANTILES else None

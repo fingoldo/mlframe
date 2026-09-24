@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from mlframe.feature_engineering.basic import create_date_features
+from mlframe.feature_engineering.basic import CYCLICAL_ENCODING_VERSION, LEGACY_CYCLICAL_ENCODING_VERSION, create_date_features
 
 from ..configs import TargetTypes
 from . import FeaturesAndTargetsExtractor
@@ -145,6 +145,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         self.classification_exact_values = classification_exact_values
         self.use_uniform_weighting = use_uniform_weighting
         self.use_recency_weighting = use_recency_weighting
+        self.cyclical_version = CYCLICAL_ENCODING_VERSION  # pinned at construction; predict with this object replays it
 
     def add_features(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd.DataFrame, pl.DataFrame]:
         """Derive datetime features from ``ts_field`` (if configured) and record the emitted column names so the suite skips re-decomposing the same timestamp column downstream."""
@@ -152,7 +153,9 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             if self.verbose:
                 logger.info("create_date_features %s over column %s...", self.datetime_features, self.ts_field)
             _pre_cols = set(df.columns)
-            df = create_date_features(df, cols=[self.ts_field], delete_original_cols=False, methods=self.datetime_features)
+            # An extractor pickled before the encoding was versioned has no attribute and replays version 1.
+            _version = getattr(self, "cyclical_version", LEGACY_CYCLICAL_ENCODING_VERSION)
+            df = create_date_features(df, cols=[self.ts_field], delete_original_cols=False, methods=self.datetime_features, cyclical_version=_version)
             _derived = [c for c in df.columns if c not in _pre_cols]
             # Record so the suite (``_phase_fit_pipeline``) can SKIP re-decomposing ``ts_field`` -- the second pass would emit duplicate / overwriting cols.
             self.ftextractor_emitted_columns[self.ts_field] = _derived

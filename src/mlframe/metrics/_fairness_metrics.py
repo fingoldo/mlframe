@@ -435,16 +435,26 @@ def robust_mlperf_metric(
     whole_set_weight: float = 0.5,
     min_group_size: int = 100,
     ddof: int = 1,
+    sample_weight: Optional[np.ndarray] = None,
 ) -> float:
     """Bins indices need to be aware of arr sizes: boostings can call the metric on
     multiple sets of different lengths - train, val, etc. Arrays will be pure numpy, so no other means to
     distinguish except the arr size.
 
+    ``sample_weight`` (per row) reaches ``metric`` sliced like ``y_true``, whole set and every subgroup alike; it is not
+    passed at all when None, so metrics without the parameter keep working.
+
     The dispersion penalty uses the Bessel-corrected sample std (``ddof=1`` default) over the per-subgroup metrics, matching ``compute_fairness_metrics``: ddof=0
     under-estimates the spread at small group counts, under-penalising an unfair model. Pass ``ddof=0`` for the legacy population-std penalty."""
 
+    def _w(idx=None) -> dict:
+        """The ``sample_weight`` kwarg for a metric call, sliced to ``idx`` when given; empty when unweighted."""
+        if sample_weight is None:
+            return {}
+        return {"sample_weight": sample_weight if idx is None else np.asarray(sample_weight)[idx]}
+
     weights_sum = whole_set_weight
-    total_metric_value = metric(y_true, y_score) * whole_set_weight
+    total_metric_value = metric(y_true, y_score, **_w()) * whole_set_weight
 
     lo = len(y_true)
     if subgroups and lo in subgroups:
@@ -460,14 +470,14 @@ def robust_mlperf_metric(
                     continue
                 if isinstance(y_score, Sequence):
                     if len(y_score) == 2:
-                        metric_value = metric(y_true[bin_indices], [el[bin_indices] for el in y_score])
+                        metric_value = metric(y_true[bin_indices], [el[bin_indices] for el in y_score], **_w(bin_indices))
                     else:
-                        metric_value = metric(y_true[bin_indices], y_score[1][bin_indices])
+                        metric_value = metric(y_true[bin_indices], y_score[1][bin_indices], **_w(bin_indices))
                 else:
                     if y_score.ndim == 2:
-                        metric_value = metric(y_true[bin_indices], y_score[bin_indices, :])
+                        metric_value = metric(y_true[bin_indices], y_score[bin_indices, :], **_w(bin_indices))
                     else:
-                        metric_value = metric(y_true[bin_indices], y_score[bin_indices])
+                        metric_value = metric(y_true[bin_indices], y_score[bin_indices], **_w(bin_indices))
                 perfs.append(metric_value)
 
             if perfs:

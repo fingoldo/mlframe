@@ -23,15 +23,15 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `training_core.md` | 13 | 11 | 1 | 0 | 0 | 1 |
 | `feature_selection.md` | 21 | 19 | 1 | 0 | 1 | 0 |
-| `feature_engineering.md` | 14 | 13 | 1 | 0 | 0 | 0 |
-| `metrics.md` | 18 | 15 | 1 | 0 | 2 | 0 |
+| `feature_engineering.md` | 14 | 14 | 0 | 0 | 0 | 0 |
+| `metrics.md` | 18 | 16 | 0 | 0 | 2 | 0 |
 | `predict_persistence.md` | 18 | 18 | 0 | 0 | 0 | 0 |
 | `ensembling_models.md` | 14 | 14 | 0 | 0 | 0 | 0 |
 | `evaluation_reporting.md` | 16 | 16 | 0 | 0 | 0 | 0 |
 | `performance.md` | 7 | 7 | 0 | 0 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 12 | 0 | 0 | 0 | 0 |
 | `config_contracts.md` | 32 | 30 | 0 | 0 | 0 | 2 |
-| **Total** | **165** | **155** | **4** | **0** | **3** | **3** |
+| **Total** | **165** | **157** | **2** | **0** | **3** | **3** |
 
 Queued after every finding above is implemented: [complexity_refactor.md](complexity_refactor.md) - 193 production
 functions over a McCabe complexity of 25 (threshold confirmed by the project owner) plus the blocking ratchet gate
@@ -47,8 +47,8 @@ least one of its findings moves).
 |---|---|---|---|
 | **PARTIAL** | [training_core.md](training_core.md) | 13 | suite orchestration, splits, booster dataset reuse (all 13 dispositioned: 11 fixed, TRC-10 PARTIAL, TRC-01 not a defect) |
 | **PARTIAL** | [feature_selection.md](feature_selection.md) | 21 | feature selection (FS-01, FS-02, FS-03 fixed) |
-| **PARTIAL** | [feature_engineering.md](feature_engineering.md) | 14 | feature engineering and preprocessing (FE-01, FE-02 fixed) |
-| **PARTIAL** | [metrics.md](metrics.md) | 18 | metrics and calibration (15 fixed incl. MET-18 found during implementation, MET-04 partial, MET-08 and MET-16 rejected) |
+| **CLOSED** | [feature_engineering.md](feature_engineering.md) | 14 | feature engineering and preprocessing (all 14 fixed) |
+| **CLOSED** | [metrics.md](metrics.md) | 18 | metrics and calibration (16 fixed incl. MET-18 found during implementation; MET-08 and MET-16 rejected) |
 | **PARTIAL** | [predict_persistence.md](predict_persistence.md) | 18 | serving path and artifact round-trip (PRD-01..PRD-12, PRD-15 fixed) |
 | **RESOLVED** | [ensembling_models.md](ensembling_models.md) | 14 | model zoo, blends, thresholds, votenrank |
 | **PARTIAL** | [evaluation_reporting.md](evaluation_reporting.md) | 16 | diagnostic verdicts (EVR-01, EVR-02, EVR-03 fixed) |
@@ -89,6 +89,9 @@ Test failures met while verifying this wave that are NOT caused by it: each was 
 
 | Test | Pre-wave result | Note |
 |---|---|---|
+| `tests/feature_selection/wrappers/test_wrappers_config_validation_and_stress.py::TestSkipRetrainingYContent` | failed on `origin/master` | FIXED here (stale fixture): on 3 columns both targets keep every column even on a fresh instance, so equal supports could not tell a refit from a replay. Now 6 columns, and the reused instance must reproduce a fresh fit's support for the second target |
+| `test_discovery_algo_version_bumped` | failed on `origin/master` | FIXED here: discovery sources changed without a bump; `DISCOVERY_ALGO_VERSION` 3 -> 4 |
+| Meta gates red on `origin/master` (15 tests) | same failures on `origin/master` 615fce57d | OPEN, owed as its own pass: new pyutilz / py-ci-shared checks landed without the code or baselines following. `test_code_audit_baseline` (22 src findings), `test_code_audit_tests_baseline` (24), `test_public_annotations` (27 functions), `test_no_value_bearing_asserts` (3 bench asserts), `test_no_underscore_imports_cross_package`, `test_no_new_nondiscriminating_assert`, `test_no_new_source_text_claims` (105 tests), `test_no_sklearn_metrics_in_production` (`preprocessing/auto_transform_select.py`), `test_no_new_unlocked_module_level_cache` (2), `test_no_unpaired_module_reload_in_tests` (1), `test_no_new_undocumented_public_symbols` (1), `test_no_new_pydoclint_findings` (1), `test_transform_name_tables_in_src_are_derived_or_explained` (1), `test_no_new_unguarded_scanning_gate` (7), `test_pipeline_extensions_sites_marked_best_effort` (count 1 != 3), `test_every_used_marker_is_registered` (`perf`), and two py-ci-shared checker bugs: `test_dev_requirements_git_dependencies_are_pinned_or_first_party` parses `requirements-dev.txt` as TOML, `test_version_consistent_across_sources` rejects a dynamic `[project].version` |
 | `tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_residual_passes.py::test_biz_val_residual_passes_no_noise_inflation` | fails, 23 selected vs 6 | residual pass 2 rescues noise columns on a pure-strong bed |
 | `tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_residual_passes.py::test_biz_val_residual_hard_vs_soft` | fails (2/6 vs 3/6), gate-independent | |
 | `tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_faith_interaction.py::test_biz_val_faith_interaction_beats_additive_on_xor` | fails, additive recovers 2/2 XOR operands | the bed's premise no longer holds |

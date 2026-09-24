@@ -332,6 +332,10 @@ def _phase_fit_pipeline(
         _store = metadata.setdefault("datetime_methods", {})
         for _src in _dt_cols:
             _store[_src] = dict(_persisted_methods)
+        # The cyclical sin/cos encoding is recomputed at predict under the same names; record which version fitted it.
+        from mlframe.feature_engineering.basic import CYCLICAL_ENCODING_VERSION
+
+        metadata["datetime_cyclical_version"] = CYCLICAL_ENCODING_VERSION
 
     # Pre-pipeline polars-pre frames are unconditionally ALIASED to the input frames -- never cloned.
     # Audit-time concern (CONV-HIGH-1) was that polars-ds Blueprint.ordinal_encode / one_hot_encode

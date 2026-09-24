@@ -21,6 +21,7 @@ from mlframe.feature_engineering.basic import (
     add_cyclical_date_features,
     _DEFAULT_DATE_METHODS,
     _DEFAULT_CYCLICAL_PERIODS,
+    MONTH_LENGTH_PERIOD,
     _resolve_pandas_method,
     _cyclical_sincos_njit,
 )
@@ -57,6 +58,12 @@ def _reference_loop(df, cols, methods, periods, add_cyclical):
             for col in cols:
                 obj = df[col].dt
                 for period_name, period_value in periods:
+                    if period_value == MONTH_LENGTH_PERIOD:  # day-of-month against the row's own month length
+                        frac = ((obj.day - 1) / obj.days_in_month).to_numpy(dtype=np.float64)
+                        s, c = _cyclical_sincos_njit(np.ascontiguousarray(frac), two_pi)
+                        df[f"{col}_{period_name}_sin"] = s
+                        df[f"{col}_{period_name}_cos"] = c
+                        continue
                     pc = precomputed.get((col, period_name))
                     if pc is not None:
                         base = np.ascontiguousarray(pc, dtype=np.float64)
