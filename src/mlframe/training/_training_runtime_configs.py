@@ -77,7 +77,7 @@ class SliceStableESConfig(InertFieldsWarningMixin, BaseConfig):
 
     enabled: bool = False
     diagnostic_only: bool = False
-    k: int = 5
+    k: int = Field(default=5, ge=2)  # k=1 silently fell back to classic ES while the user had enabled slice-stable ES
     source: Literal["random", "fairness", "temporal", "both"] = "temporal"
     mode: Literal["online", "posthoc"] = "online"
     on_unsupported: Literal["skip", "posthoc", "raise"] = "posthoc"
@@ -342,7 +342,7 @@ class TrainingControlConfig(BaseConfig):
     verbose : bool
         Whether to print verbose output (default: False).
     use_cache : bool
-        Whether to load cached models if available (default: False).
+        Whether to load cached models if available (default: True).
     just_evaluate : bool
         Skip training, only evaluate pre-computed predictions (default: False).
     compute_trainset_metrics : bool
@@ -428,7 +428,7 @@ class MetricsConfig(BaseConfig):
         Additional details for test set report.
     """
 
-    nbins: int = DEFAULT_CALIBRATION_BINS
+    nbins: int = Field(default=DEFAULT_CALIBRATION_BINS, ge=2)  # one bin is no calibration curve
     custom_ice_metric: Optional[Callable] = None
     custom_rice_metric: Optional[Callable] = None
     subgroups: Optional[Dict] = None  # keys: subgroup_name -> column_name or criteria
@@ -497,6 +497,9 @@ class OutputConfig(BaseConfig):
     data_dir: Optional[str] = ""
     models_dir: Optional[str] = "models"
     plot_file: Optional[str] = ""
+    # True means "save charts wherever data_dir points": with the default empty data_dir nothing is written, and the
+    # suite says so at the end of every run (log_chart_summary: "0 charts saved; set output_config.data_dir").
+    # Only an explicit save_charts=True without a data_dir is an error (see the validator below).
     save_charts: bool = True
 
     # Default ON: all 6 registered evaluation diagnostics run by default. Names resolve against

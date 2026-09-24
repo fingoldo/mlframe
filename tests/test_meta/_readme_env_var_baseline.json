@@ -1,4 +1,5 @@
-[
-  "_SF3_ARM_SEEDS",
-  "_USAB_FORCE_FULL_REFIT"
-]
+{
+  "entries": {},
+  "gate": "readme-env-var",
+  "schema": 1
+}

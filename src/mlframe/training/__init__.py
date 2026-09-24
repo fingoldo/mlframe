@@ -20,8 +20,7 @@ All configuration uses Pydantic models but supports dict-like instantiation:
 - `TrainingSplitConfig`: Train/val/test splitting settings
 - `PreprocessingBackendConfig`: Polars-ds pipeline settings
 - `LinearModelConfig`: Linear model hyperparameters
-- `TreeModelConfig`: Tree model hyperparameters
-- `MLPConfig`: Neural network settings
+- `TreeModelConfig`, `MLPConfig`: deprecated, not read by the suite (use `ModelHyperparamsConfig`)
 - `AutoMLConfig`: AutoML settings
 - `TrainingConfig`: Aggregated configuration
 

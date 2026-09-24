@@ -33,22 +33,22 @@ per the dispatcher-contract convention instead.
 
 from __future__ import annotations
 
-import os
 import logging
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from mlframe.utils.env_flags import env_float, env_int
 
 logger = logging.getLogger(__name__)
 
 # Routing thresholds (env-overridable; see module docstring). Calibrated on the fs_hybrid bed so that
 # clean / large-n beds stay on gini (no permutation cost) and noisy / small-n/p beds switch to
 # permutation (where it controls accepted-noise). Conservative by design: only clear noise trips it.
-_NP_RATIO_THR = float(os.environ.get("MLFRAME_BORUTA_AUTO_NP_RATIO", "30.0"))
-_OOB_GAP_THR = float(os.environ.get("MLFRAME_BORUTA_AUTO_OOB_GAP", "0.25"))
+_NP_RATIO_THR = 30.0  # defaults; the MLFRAME_BORUTA_AUTO_* overrides are read on every call below
+_OOB_GAP_THR = 0.25
 # Probe RF is intentionally small/cheap (this is a router, not the selector); bounded rows keep it ~O(50ms).
-_PROBE_N_ESTIMATORS = int(os.environ.get("MLFRAME_BORUTA_AUTO_PROBE_TREES", "80"))
-_PROBE_MAX_ROWS = int(os.environ.get("MLFRAME_BORUTA_AUTO_PROBE_ROWS", "2000"))
+_PROBE_N_ESTIMATORS = 80
+_PROBE_MAX_ROWS = 2000
 
 
 def _probe_signals(X, y, classification: bool, random_state: int) -> dict:
@@ -56,24 +56,26 @@ def _probe_signals(X, y, classification: bool, random_state: int) -> dict:
     Xv = np.asarray(X, dtype=np.float64)
     yv = np.asarray(y).ravel()
     n, p = Xv.shape
+    max_rows = env_int("MLFRAME_BORUTA_AUTO_PROBE_ROWS", _PROBE_MAX_ROWS, minimum=2)
+    n_trees = env_int("MLFRAME_BORUTA_AUTO_PROBE_TREES", _PROBE_N_ESTIMATORS, minimum=1)
 
     # Bound rows: the router must be cheap relative to a full BorutaShap fit.
-    if n > _PROBE_MAX_ROWS:
+    if n > max_rows:
         rng = np.random.default_rng(random_state)
-        idx = rng.choice(n, size=_PROBE_MAX_ROWS, replace=False)
+        idx = rng.choice(n, size=max_rows, replace=False)
         Xv, yv = Xv[idx], yv[idx]
-        n = _PROBE_MAX_ROWS
+        n = max_rows
 
     np_ratio = float(n) / max(1, p)
 
     if classification:
         rf = RandomForestClassifier(
-            n_estimators=_PROBE_N_ESTIMATORS, oob_score=True, bootstrap=True,
+            n_estimators=n_trees, oob_score=True, bootstrap=True,
             random_state=random_state, n_jobs=-1,
         )
     else:
         rf = RandomForestRegressor(
-            n_estimators=_PROBE_N_ESTIMATORS, oob_score=True, bootstrap=True,
+            n_estimators=n_trees, oob_score=True, bootstrap=True,
             random_state=random_state, n_jobs=-1,
         )
 
@@ -116,16 +118,18 @@ def resolve_auto_importance_measure(X, y, classification: bool, random_state: in
     where permutation's ~11x cost buys nothing). diagnostics carries the signals + reason for logging
     and unit tests."""
     sig = _probe_signals(X, y, classification, random_state)
+    np_thr = env_float("MLFRAME_BORUTA_AUTO_NP_RATIO", _NP_RATIO_THR, minimum=0.0)
+    gap_thr = env_float("MLFRAME_BORUTA_AUTO_OOB_GAP", _OOB_GAP_THR)
 
     reasons = []
-    if sig["np_ratio"] < _NP_RATIO_THR:
-        reasons.append(f"n/p={sig['np_ratio']:.1f}<{_NP_RATIO_THR}")
-    if sig["oob_gap"] > _OOB_GAP_THR:
-        reasons.append(f"oob_gap={sig['oob_gap']:.3f}>{_OOB_GAP_THR}")
+    if sig["np_ratio"] < np_thr:
+        reasons.append(f"n/p={sig['np_ratio']:.1f}<{np_thr}")
+    if sig["oob_gap"] > gap_thr:
+        reasons.append(f"oob_gap={sig['oob_gap']:.3f}>{gap_thr}")
 
     measure = "permutation" if reasons else "gini"
     diag = dict(sig)
     diag["resolved_measure"] = measure
     diag["reasons"] = reasons
-    diag["thresholds"] = {"np_ratio": _NP_RATIO_THR, "oob_gap": _OOB_GAP_THR}
+    diag["thresholds"] = {"np_ratio": np_thr, "oob_gap": gap_thr}
     return measure, diag

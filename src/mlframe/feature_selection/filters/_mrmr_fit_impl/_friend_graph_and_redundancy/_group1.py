@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import warnings
-import os
 
 import numpy as np
 
@@ -351,7 +350,9 @@ def _friend_graph_and_redundancy_passes_group1(
         except Exception as exc:
             logger.debug("mrmr: mi_direct import/binding failed for the raw-redundancy significance probe; probe disabled: %r", exc, exc_info=True)
             _mi_direct_rr = None  # type: ignore[assignment]
-        _rr_signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
+        from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
+
+        _rr_signif_alpha = mrmr_null_signif_alpha()
         _rr_q_dtype = getattr(self, "quantization_dtype", np.int32)
 
         def _rr_raw_is_significant(_idx):

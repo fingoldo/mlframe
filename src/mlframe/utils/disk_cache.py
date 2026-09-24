@@ -98,6 +98,28 @@ def _hasher() -> Any:
     return hashlib.blake2b(digest_size=_HASH_DIGEST_BYTES)
 
 
+def hash_array_content(arr: np.ndarray) -> str:
+    """Stable hash of an ndarray's FULL content (shape, dtype and every byte); a 32-character hex string.
+
+    For keys whose cached value depends on every element - supervised bin edges depend on the whole column-to-target
+    pairing, quantile edges on the whole column - where ``hash_array_summary``'s head/tail/sum/min/max summary lets two
+    arrays that differ only in the middle rows share a key and replay each other's result. xxh3 when available.
+    """
+    arr = np.ascontiguousarray(arr)
+    if arr.dtype == object:
+        return hash_array_summary(arr, n_summary_rows=max(1, arr.shape[0] if arr.ndim else 1))
+    head = f"{arr.shape}|{arr.dtype.str}|".encode("ascii")
+    try:
+        import xxhash
+
+        return str(xxhash.xxh3_128_hexdigest(head + arr.tobytes()))
+    except ImportError:
+        h = _hasher()
+        h.update(head)
+        h.update(memoryview(arr).cast("B"))
+        return str(h.hexdigest())
+
+
 def hash_array_summary(arr: np.ndarray, n_summary_rows: int = _DEFAULT_SUMMARY_ROWS) -> str:
     """Stable content hash of an ndarray from a sub-O(N) summary.
 

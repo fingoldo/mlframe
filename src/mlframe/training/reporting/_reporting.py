@@ -520,6 +520,8 @@ def report_model_perf(
                 y_train_min=_ytmin, y_train_max=_ytmax, y_train_std=_ytstd,
                 plot_sample_size=_scatter_sample,
                 reporting_config=reporting_config,
+                mase_naive_mae=getattr(y_train_envelope_stats, "naive_mae", None),
+                mase_seasonality=getattr(reporting_config, "mase_seasonality", None),
             )
 
     # Render multiclass / multilabel / LTR panel

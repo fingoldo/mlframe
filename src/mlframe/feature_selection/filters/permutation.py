@@ -74,7 +74,14 @@ import os as _os
 # within the null-mean SE of each other can swap order seed-to-seed in the irreversible greedy path. Raise
 # ``MLFRAME_MRMR_NULL_PERMS`` (finer null, proportional cost) when near-tie stability matters; a shrunk/analytic
 # null mean at small budgets is a FUTURE option.
-_NULL_MEAN_MIN_PERMS = max(2, int(_os.environ.get("MLFRAME_MRMR_NULL_PERMS", "32")))
+_NULL_MEAN_MIN_PERMS = 32  # the default; null_mean_min_perms() applies the MLFRAME_MRMR_NULL_PERMS override on every call
+
+
+def null_mean_min_perms() -> int:
+    """``MLFRAME_MRMR_NULL_PERMS`` (>= 2), read on every call; ``_NULL_MEAN_MIN_PERMS`` when unset or invalid."""
+    from mlframe.utils.env_flags import env_int
+
+    return env_int("MLFRAME_MRMR_NULL_PERMS", _NULL_MEAN_MIN_PERMS, minimum=2)
 
 
 @njit(nogil=True, cache=True)
@@ -810,7 +817,7 @@ def mi_direct(
         confidence = 0.0
         p_value = 1.0  # default for the original_mi == 0 / no-perm path: an uninformative feature is maximally non-significant.
         if original_mi > 0 and npermutations > 0:
-            _null_nperms = max(int(npermutations), _NULL_MEAN_MIN_PERMS)
+            _null_nperms = max(int(npermutations), null_mean_min_perms())
             _cy = classes_y_safe if classes_y_safe is not None else classes_y
             # Reached from the FE pair sweep's threaded chunk pipeline, where a producer thread runs
             # while the main thread scores. Two threads inside one prange region aborts the process on

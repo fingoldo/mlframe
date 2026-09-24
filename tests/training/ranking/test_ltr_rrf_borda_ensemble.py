@@ -185,7 +185,7 @@ def test_ranker_suite_resolution_legacy_field_wins_when_explicitly_set():
 
 def test_ranker_suite_resolution_function_arg_top_priority():
     """The explicit function-arg ``ensemble_method`` overrides every config field."""
-    cfg = LearningToRankConfig(ltr_ensemble_method="borda", ensemble_method="rrf")
+    cfg = LearningToRankConfig(ltr_ensemble_method="borda")
     ensemble_method_arg = "score_mean"
     if ensemble_method_arg is not None:
         method = ensemble_method_arg

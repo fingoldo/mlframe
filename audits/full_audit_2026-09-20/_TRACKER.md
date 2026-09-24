@@ -22,7 +22,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
 | `training_core.md` | 13 | 11 | 1 | 0 | 0 | 1 |
-| `feature_selection.md` | 21 | 3 | 0 | 18 | 0 | 0 |
+| `feature_selection.md` | 21 | 19 | 1 | 0 | 1 | 0 |
 | `feature_engineering.md` | 14 | 13 | 1 | 0 | 0 | 0 |
 | `metrics.md` | 18 | 15 | 1 | 0 | 2 | 0 |
 | `predict_persistence.md` | 18 | 18 | 0 | 0 | 0 | 0 |
@@ -30,8 +30,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `evaluation_reporting.md` | 16 | 16 | 0 | 0 | 0 | 0 |
 | `performance.md` | 7 | 7 | 0 | 0 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 12 | 0 | 0 | 0 | 0 |
-| `config_contracts.md` | 32 | 4 | 0 | 27 | 0 | 1 |
-| **Total** | **165** | **113** | **3** | **45** | **2** | **2** |
+| `config_contracts.md` | 32 | 30 | 0 | 0 | 0 | 2 |
+| **Total** | **165** | **155** | **4** | **0** | **3** | **3** |
 
 Queued after every finding above is implemented: [complexity_refactor.md](complexity_refactor.md) - 193 production
 functions over a McCabe complexity of 25 (threshold confirmed by the project owner) plus the blocking ratchet gate
@@ -54,7 +54,7 @@ least one of its findings moves).
 | **PARTIAL** | [evaluation_reporting.md](evaluation_reporting.md) | 16 | diagnostic verdicts (EVR-01, EVR-02, EVR-03 fixed) |
 | **PARTIAL** | [performance.md](performance.md) | 7 | measured performance (PRF-01, PRF-02, PRF-07 fixed) |
 | **PARTIAL** | [concurrency_resources.md](concurrency_resources.md) | 12 | concurrency and resources (CNC-01 fixed) |
-| **PARTIAL** | [config_contracts.md](config_contracts.md) | 32 | config contracts (CFG-01..CFG-04 fixed, CFG-05 not a defect) |
+| **CLOSED** | [config_contracts.md](config_contracts.md) | 32 | config contracts (30 fixed, CFG-05 and CFG-10 not defects) |
 
 ## What the wave is about
 
@@ -100,6 +100,9 @@ Test failures met while verifying this wave that are NOT caused by it: each was 
 | `tests/feature_selection/gpu/test_gpu_cpu_mi_selection_equivalence.py::test_mrmr_gpu_cpu_selection_identical[clf_binary]` | fails identically on `origin/master` | the GPU path selects `add(qubed(c),rint(e))` where the CPU path does not |
 | `tests/reporting/test_calibration_debiased_ece.py::test_biz_debiased_ece_bin_count_stable_on_perfectly_calibrated` | fails identically on `origin/master` | bin-count change 0.0123 against a 0.01 bound |
 | `tests/feature_engineering/test_wavelet_dwt.py` (8 tests, order-dependent) | fails on `origin/master` under `--randomly-seed` 22/33/44 | FIXED here: the filter-cache test planted a zero-length db4 sentinel in the module's real cache and never restored it; it now uses a private cache, and the cached filter arrays are read-only |
+| `BorutaShap(importance_measure="gini")` with any unfitted LightGBM / XGBoost / sklearn tree | raised on `origin/master` | FIXED here: `hasattr(model, 'feature_importances_')` is False before fit (the property raises NotFittedError), so every model but RandomForest was refused; the check now looks at the class. Pinned by `tests/feature_selection/boruta_shap/test_gini_accepts_unfitted_boosters.py` |
+| `tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_regression_union/test_state_of_union_regression.py::TestCrossBasisHierarchyActivation::test_all_orth_arity_layers_contribute` | fails identically on `origin/master` | `hybrid_orth_features_` empty after the all-on fit |
+| `tests/.../test_dcd_perf_bit_equivalence.py::TestLayer50_PerfBudget::test_dcd_all_auto_under_30s` | 127s on both `origin/master` and this tree on a loaded host | a wall-clock budget; re-measure on a quiet host |
 | `tests/preprocessing/test_reject_outliers.py` (4 tests) | error on hosts without `imblearn` | FIXED here: the default pipeline needs the optional `imblearn`; those tests now `importorskip` it |
 | `report_probabilistic_model_perf` cyclomatic complexity | 94 on `origin/master` (ruff limit 40) | OPEN, owed: brought to 84 by extracting the per-class aggregation, but a ~780-line function needs splitting into phase helpers - a refactor of its own, queued after this wave |
 | `hybrid_orth_mi_fe` (+2) and `CompositeTargetEstimator.fit` (+1) over their length ceilings | introduced by `66fedbf83` (another active session) | left to that session to avoid colliding with work in progress |

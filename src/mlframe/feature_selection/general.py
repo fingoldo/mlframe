@@ -289,17 +289,13 @@ def estimate_features_relevancy(
 
         by = int(occupied_bins_per_col[target_col_idx])  # occupied target bins
 
-        # ----------------------------------------------------------------------------------------------
-        # Bias-correct the observed MI before ANY comparison. Raw plug-in MI is positively biased by the
-        # Miller-Madow floor ``(Bx-1)(By-1)/(2N)`` even for independent variables; subtracting the same
-        # per-feature floor that ``analytic_mi_null`` reports puts the observed statistic on the null's
-        # own scale so the raw-MI exceedance tests below are no longer fooled by the bias mean.
-        # ----------------------------------------------------------------------------------------------
+        # Raw observed MI against RAW permuted MI: a permutation keeps both marginals, so the null carries the same
+        # Miller-Madow floor and the two share one scale. Debiasing only the observed side rejected real many-bin signals.
         raw_mi_row = np.asarray(original_mi_results[target_idx], dtype=np.float64)
         # Vectorized over ALL candidate columns in one gammaincc (was a per-column analytic_mi_null loop -> 138k scalar
         # chi2.sf calls, the #1 MRMR-screen hotspot). Bit-identical to the scalar loop.
         null_mean_row, p_values = analytic_mi_null_batch(raw_mi_row, n_samples, occupied_bins_per_col[: bins.shape[1]], by)
-        debiased_mi = np.where(np.isfinite(raw_mi_row), raw_mi_row - null_mean_row, -np.inf)
+        observed_mi = np.where(np.isfinite(raw_mi_row), raw_mi_row, -np.inf)
 
         if not permuted_max_mi_quantile:
             # Wave 21 P1: nanmax so NaN-MI permutations don't poison the max.
@@ -312,16 +308,16 @@ def estimate_features_relevancy(
             baseline_mi = np.nanquantile(all_permuted_mis[target_name], permuted_max_mi_quantile) * min_mi_prevalence
 
         target_features_usefulness = np.zeros(bins.shape[1], dtype=np.int32)
-        # test #1: BIAS-CORRECTED original MI must be above the highest permuted MI for this feature.
+        # test #1: original MI must be above the highest permuted MI for this feature (both raw; see above).
         # The exceedance uses ``>=`` (a permuted MI that ties the observed counts as a failure); on discrete / low-cardinality data ties are frequent, so this is mildly
         # conservative (it can demote a genuinely-weak feature whose null occasionally ties it). Tolerated here because the prevalence is rate-thresholded against
         # ``max_permuted_prevalence_percent`` rather than requiring zero exceedances, and ``nanmax`` / ``nanquantile`` already guard the NaN-MI degenerate-pair case below.
-        permuted_prevalence = (current_permuted_mis[target_name] >= debiased_mi).sum(axis=0)
+        permuted_prevalence = (current_permuted_mis[target_name] >= observed_mi).sum(axis=0)
         passed_permutation = ((permuted_prevalence / current_permuted_mis[target_name].shape[0]) <= max_permuted_prevalence_percent).astype(np.int32)
         target_features_usefulness = target_features_usefulness + passed_permutation
 
-        # test #2: bias-corrected original MI must be significantly above the highest permuted MI of all features (for this target) seen so far
-        passed_baseline = (debiased_mi > baseline_mi).astype(np.int32)
+        # test #2: original MI must be significantly above the highest permuted MI of all features (for this target) seen so far, raw against raw
+        passed_baseline = (observed_mi > baseline_mi).astype(np.int32)
         target_features_usefulness = target_features_usefulness + passed_baseline
 
         # test #3: Benjamini-Hochberg FDR control across the per-feature analytic (G-test) p-values. This

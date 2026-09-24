@@ -5,6 +5,8 @@ Behaviour preserved bit-for-bit; the parent re-exports ``EnsemblingConfig`` from
 from __future__ import annotations
 
 from typing import ClassVar
+
+from pydantic import Field
 from ._configs_base import BaseConfig
 from ._inert_fields import InertFieldsWarningMixin
 
@@ -53,7 +55,7 @@ class EnsemblingConfig(InertFieldsWarningMixin, BaseConfig):
     Binary classification only - for regression there is no class
     balance to check; the flag has no effect."""
 
-    degenerate_class_ratio: float = 0.01
+    degenerate_class_ratio: float = Field(default=0.01, gt=0.0, lt=1.0)  # compared with a class ratio in (0, 1]
     """Threshold below which a confidence-filtered subset is flagged
     as degenerate. ``0.01`` means a class balance worse than 1:100
     (e.g. 21 negatives vs 81 815 positives, observed in one prod log)

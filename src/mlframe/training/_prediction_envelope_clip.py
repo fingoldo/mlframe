@@ -66,6 +66,24 @@ class TrainEnvelopeStats(NamedTuple):
     y_min: float
     y_max: float
     y_std: float
+    # MASE scale: the train target's seasonal-naive MAE at ReportingConfig.mase_seasonality (None when not computed).
+    naive_mae: Optional[float] = None
+
+
+def train_naive_mae(y_train: Any, seasonality: int) -> Optional[float]:
+    """Mean ``|y_i - y_{i-m}|`` over the train target in row order, the scale MASE divides by; None when undefined.
+
+    Computed on TRAIN only, so the test-split MASE stays an honest out-of-sample ratio.
+    """
+    from mlframe.metrics.regression._regression_extras import _naive_mae_kernel
+
+    try:
+        arr = np.ascontiguousarray(np.asarray(y_train, dtype=np.float64).reshape(-1))
+        value = float(_naive_mae_kernel(arr, int(seasonality)))
+    except (TypeError, ValueError) as exc:
+        logger.debug("train_naive_mae failed: %s", exc)
+        return None
+    return value if np.isfinite(value) and value > 0 else None
 
 
 def compute_train_envelope_stats(y_train: Any) -> Optional[TrainEnvelopeStats]:

@@ -224,8 +224,8 @@ class TrainingSplitConfig(BaseConfig):
     # routing the suite's MAIN split through ``composite/cv.py`` (purged forward-walk) is wired in a follow-up.
     time_column: Optional[str] = None
     # CV strategy for the main split: "random" (default, legacy) / "timeseries" (forward-walk) / "purged"
-    # (forward-walk + purge/embargo). Consumed by the conformal structure-inference today; the make_train_test_split
-    # routing lands in the E2 follow-up. Kept here so the intent is declarable now and conformal validity is honest.
+    # (forward-walk + purge/embargo). Consumed by the conformal structure-inference, and by the main split: with
+    # "purged" and ``cv_purge > 0`` the embargo is applied in ``core/_phase_helpers_fit_split._apply_purge_embargo``.
     cv_strategy: Literal["random", "timeseries", "purged"] = "random"
     # Embargo gap (rows) for cv_strategy="purged": drop the most-recent ``cv_purge`` TRAIN rows (closest in
     # time to the future val/test block) so a windowed/recurrent label near the boundary cannot leak into the
@@ -328,10 +328,10 @@ class TrainingSplitConfig(BaseConfig):
         _calib = self.calib_size if self.calib_size is not None else 0.0
         _conformal = self.conformal_size if self.conformal_size is not None else 0.0
         _total = self.test_size + self.val_size + _calib + _conformal
-        if _total > 1.0:
+        if _total >= 1.0:  # == 1.0 leaves an EMPTY train set
             raise ValueError(
                 f"test_size ({self.test_size}) + val_size ({self.val_size}) + calib_size ({_calib}) + "
-                f"conformal_size ({_conformal}) = {_total} must be <= 1.0"
+                f"conformal_size ({_conformal}) = {_total} must be < 1.0 to leave rows for training"
             )
         if _conformal > 0:
             raise ValueError(
@@ -668,11 +668,10 @@ class PreprocessingExtensionsConfig(BaseConfig):
     # via PySR / juliacall). Off by default; enable with
     # pysr_enabled=True plus a pysr_params dict for budget control.
     pysr_enabled: bool = False
-    # Seed threaded into PySR's internal RNG (sample subsampling, GA initial population).
-    # Without this, _apply_pysr_fe used to fall back to 42 unconditionally because the
-    # field was absent (suite-level random_seed lives on TrainingSplitConfig, a different
-    # object, so getattr(config, "random_seed", 42) always hit the default).
-    random_seed: int = 42
+    # Seed for PySR's internal RNG and the RBFSampler / Nystroem / dim-reducer projections. None (default) inherits
+    # TrainingSplitConfig.random_seed in the suite, so a seed sweep varies these steps too instead of pinning them to
+    # 42 in every arm; an explicit int pins them. Outside the suite None falls back to 42.
+    random_seed: Optional[int] = None
     pysr_params: Optional[Dict] = Field(
         default=None,
         description="passed to PySRRegressor() as constructor kwargs (escape hatch for power users; "
@@ -799,7 +798,7 @@ class FeatureTypesConfig(BaseConfig):
 
         If you have a genuinely mid-cardinality column you want treated as text (100-300 unique tokens with repetitive content), override per-call via ``FeatureTypesConfig(cat_text_cardinality_threshold=100)``.
     cat_text_cardinality_threshold_pct : float
-        Data-size-aware companion to the absolute ``cat_text_cardinality_threshold``. Expressed as a fraction of ``n_rows``; default 0.001 (0.1%). The effective promotion threshold used during auto-detection is
+        Data-size-aware companion to the absolute ``cat_text_cardinality_threshold``. Expressed as a fraction of ``n_rows``; default 0.001 (0.1%). The effective promotion threshold used during auto-detection is Below the absolute threshold a column must also be mostly unique (distinct values >= half its non-null rows) to be promoted, so a 60-300 value enum on a mid-size frame stays categorical.
         ``min(cat_text_cardinality_threshold, max(50, int(n_rows * cat_text_cardinality_threshold_pct)))``. Rationale: a flat 300-uniq floor is wrong at both ends of the data-size spectrum - on a 100-row toy dataset every string column stays "cat", on a 10M-row dataset 300 is still tiny relative to the population. The pct knob makes the floor scale with sample size while the absolute ``cat_text_cardinality_threshold`` keeps a hard cap so very large datasets don't accidentally route 100k-uniq columns into the text path. The hard floor of 50 prevents pathologically tiny effective thresholds on micro-datasets. Set to 0 to disable the size-aware floor and recover legacy behaviour (effective = absolute threshold).
 
     Notes

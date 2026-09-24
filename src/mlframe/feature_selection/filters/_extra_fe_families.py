@@ -581,7 +581,7 @@ def _top_mi_num_cols(
     y_bin = _coerce_y_classes(y)
     arr = X[num_cols].to_numpy(dtype=np.float64)
     mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=10), dtype=np.float64)
-    order = np.argsort(-mi)
+    order = np.argsort(-mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
     return [num_cols[i] for i in order[: int(max_cols)]]
 
 

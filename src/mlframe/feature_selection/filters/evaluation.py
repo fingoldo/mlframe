@@ -5,7 +5,6 @@ See ``screen.py`` for the screening orchestrator that calls these functions.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Sequence, Tuple
 
 import numba
@@ -35,6 +34,7 @@ from .info_theory import (
 from .permutation import mi_direct
 from .info_theory._state_and_dispatch import get_group_mi
 from .info_theory._group_mi import group_relevance_mi
+from mlframe.utils.env_flags import env_flag, env_float
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -42,11 +42,14 @@ logger = logging.getLogger(__name__)
 # S-F3: the JMIM joint-MI aggregation applies the same ``nexisting`` discount exponent the Fleuret CMI branch uses. For a conditional MI (usually in [0,1] nats) ``x**k``
 # shrinks the value (a discount for deeper interactions), but a JMIM JOINT MI ``I({X,Z};Y)`` is routinely >1 nat, and ``x**k`` AMPLIFIES values >1 - the opposite of a
 # discount. When set, ``MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY=1`` clamps the exponent so it can only ever shrink (never amplify) the joint MI, removing that spurious
-# amplification. Read once at import so the njit ``evaluate_gain`` captures it as a compile-time constant (a bench toggles it per subprocess). Default off = bit-identical.
+# amplification. Read per call by ``jmim_exponent_discount_only`` and passed to the njit ``evaluate_gain`` as an argument (a global would be frozen at its
+# first compile). Default off = bit-identical.
 # bench-attempt-rejected: bench_sf3_jmim_exponent_selection.py (8 seeds, synergy fixture) - the discount-only correction NEVER improved selection (0 seed wins), was
 # selection-identical on 7/8 and regressed 1 seed (recall 0.8->0.6), mean recall 0.800 (exponent) vs 0.775 (corrected). The exponent is load-bearing, so it stays the default;
 # the correction is kept as an off-by-default option for re-testing on other data/hardware.
-_JMIM_EXPONENT_DISCOUNT_ONLY = os.environ.get("MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY", "0") == "1"
+def jmim_exponent_discount_only() -> bool:
+    """``MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY``, read on every call."""
+    return env_flag("MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY")
 
 # Observability sink for the JMIM joint-MI cache (see _evaluate_candidates_inner).
 # Each completed JMIM-mode candidate-evaluation appends {"size", "hits"}. Bounded so a long
@@ -69,8 +72,12 @@ _JMIM_CACHE_STATS: "_deque" = _deque(maxlen=4096)
 # 1/33~0.0303, 2/33~0.0606, ... - so any alpha in the open interval (0.0303, 0.0606) is INDISTINGUISHABLE from alpha=0.0606, and a feature whose null is tied/beaten by exactly
 # one shuffle ("1 tie") reads p~0.0606 >= 0.05 and is treated as NON-significant (its full null mean is subtracted). At the default budget the gate cannot resolve the
 # 0.0303..0.0606 band; raise ``MLFRAME_MRMR_NULL_PERMS`` (finer steps ~1/(B+1), at proportional permutation cost) if you need to separate alpha values inside that band.
-import os as _os
-_MRMR_NULL_SIGNIF_ALPHA = float(_os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
+_MRMR_NULL_SIGNIF_ALPHA = 0.05  # the default; mrmr_null_signif_alpha() applies the env override on every call
+
+
+def mrmr_null_signif_alpha() -> float:
+    """``MLFRAME_MRMR_NULL_SIGNIF_ALPHA`` in (0, 1), read on every call; ``_MRMR_NULL_SIGNIF_ALPHA`` when unset or invalid."""
+    return env_float("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", _MRMR_NULL_SIGNIF_ALPHA, minimum=1e-12, maximum=1.0 - 1e-12)
 
 
 def _materialize_var(factors_data, var_idx, factors_nbins, dtype=np.int32):
@@ -174,6 +181,7 @@ def evaluate_gain(
     max_confirmation_cand_nbins: int = MAX_CONFIRMATION_CAND_NBINS,
     use_su: bool = False,  # SU normalization toggle threaded from process_candidates / mrmr_fit_impl.
     use_jmim: bool = False,  # JMIM aggregator toggle, threaded from the Python-level caller for the same reason as ``use_su`` - ``@njit`` cannot do ``from X import Y`` or call a non-njit thread-local reader at runtime (IMPORT_NAME opcode is unsupported).
+    jmim_discount_only: bool = False,  # MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY, read by the Python caller (see jmim_exponent_discount_only)
     use_mm: bool = False,  # N-F2: Miller-Madow toggle for the redundancy CMI, threaded like use_su so the redundancy carries the SAME bias correction as the MM relevance. Default False -> plug-in redundancy, unchanged.
 ) -> tuple:
     """``max_confirmation_cand_nbins`` is a parameter (not a baked-in constant). Default mirrors the legacy value; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2`` unless the user pins it explicitly."""
@@ -311,7 +319,7 @@ def evaluate_gain(
                                         cached_jmim_MIs[_jmim_key] = additional_knowledge
                                 if nexisting > 0:
                                     _disc = additional_knowledge ** (nexisting + 1)
-                                    if _JMIM_EXPONENT_DISCOUNT_ONLY and _disc > additional_knowledge:
+                                    if jmim_discount_only and _disc > additional_knowledge:
                                         # joint MI > 1 -> the exponent would amplify; clamp to discount-only (never increase the joint MI).
                                         pass
                                     else:
@@ -429,6 +437,28 @@ def _materialise_knob_columns(*, factors_data, X, y, factors_nbins, dtype, selec
     out["sel"] = (cols, nbins)
     out["hoisted"] = False
     return out
+
+
+
+_GATE_FAILED_MSG = (
+    "%s failed for candidate %s (%s: %s); the candidate is excluded from this round rather than ranked un-gated beside "
+    "gated ones. Further failures of this gate are counted, not logged."
+)
+
+
+def _exclude_ungated_candidate(cand_idx, partial_gains: dict, expected_gains) -> float:
+    """Take a candidate an enabled gate could not evaluate out of this round's ranking; returns its new gain, 0.0.
+
+    The gate either replaces the gain with a score on another scale (RelaxMRMR) or is the test that must pass for the
+    candidate to count at all (the permutation gates). Swallowing its failure left THIS candidate on the raw scale,
+    un-tested, beside candidates that were gated - one greedy ranking over mixed scales. A candidate that could not be
+    checked is not admitted by a check.
+    """
+    if cand_idx in partial_gains:
+        _g, _k = partial_gains[cand_idx]
+        partial_gains[cand_idx] = (0.0, _k)
+    expected_gains[cand_idx] = 0.0
+    return 0.0
 
 
 def evaluate_candidate(
@@ -590,7 +620,7 @@ def evaluate_candidate(
                 # GPU path returned RAW plug-in MI, inflating high-cardinality / heavy-tailed / monotone-datetime
                 # / engineered columns above genuine lower-cardinality signal, AND making selection
                 # hardware-dependent (GPU-present hosts selected differently from CPU-only ones).
-                if p_value >= _MRMR_NULL_SIGNIF_ALPHA:
+                if p_value >= mrmr_null_signif_alpha():
                     direct_gain = max(0.0, direct_gain - null_mean)
             else:
                 # Significance-gated empirical-null debiasing of the relevance MI. On a wide composite-FE candidate pool the in-sample plug-in MI is upward-biased for
@@ -617,7 +647,7 @@ def evaluate_candidate(
                 # relative-gain floor and drop it. The permutation p-value IS that discriminator: a significant feature (``p_value < alpha``) sits ABOVE its null and keeps its
                 # full observed MI; a non-significant feature (``p_value >= alpha``) sits WITHIN its null and gets the full null mean subtracted, collapsing toward 0. alpha is a
                 # textbook level (0.05), not a fixture-tuned fraction, and the selection is stable across a wide alpha band because real signal clears p ~ 0 and noise sits at p ~ 1.
-                if p_value >= _MRMR_NULL_SIGNIF_ALPHA:
+                if p_value >= mrmr_null_signif_alpha():
                     direct_gain = max(0.0, direct_gain - null_mean)
             # SU-NORMALIZE THE MARGINAL RELEVANCE under mi_normalization='su'. The conditional/redundancy term already uses
             # conditional_symmetric_uncertainty, but the marginal relevance (the value the min_relevance_gain floor compares against,
@@ -729,6 +759,7 @@ def evaluate_candidate(
                 can_use_y_cache=True,
                 use_su=(_use_su := use_su_normalization()),
                 use_jmim=use_jmim_aggregator(),
+                jmim_discount_only=jmim_exponent_discount_only(),
                 use_mm=(use_mi_miller_madow() and not _use_su),  # MM redundancy when MM relevance is active
             )
 
@@ -837,7 +868,8 @@ def evaluate_candidate(
                 partial_gains[cand_idx] = (current_gain, _k)
             expected_gains[cand_idx] = current_gain
         except Exception as _relax_exc:
-            logger.warning("RelaxMRMR score computation failed silently: %r", _relax_exc)
+            log_throttle(logger, "evaluation_gate_failed_relaxmrmr", logging.WARNING, _GATE_FAILED_MSG, "RelaxMRMR score", cand_idx, type(_relax_exc).__name__, _relax_exc)
+            current_gain = _exclude_ungated_candidate(cand_idx, partial_gains, expected_gains)
 
     # PID synergy bonus (Williams-Beer / Ince I_ccs). Default bonus=0.0 -> skipped (byte-identical). When bonus>0, add ``bonus * max_j synergy(X, Z_j; Y)`` so a candidate
     # that is synergistic with an already-selected feature (XOR-like joint information neither carries alone) is rewarded - the standard redundancy gate would otherwise drop
@@ -892,7 +924,8 @@ def evaluate_candidate(
                     partial_gains[cand_idx] = (0.0, _k)
                 expected_gains[cand_idx] = 0.0
         except Exception as _cmi_exc:
-            logger.warning("CMI permutation early-stop failed silently: %r", _cmi_exc)
+            log_throttle(logger, "evaluation_gate_failed_cmi", logging.WARNING, _GATE_FAILED_MSG, "CMI permutation early-stop", cand_idx, type(_cmi_exc).__name__, _cmi_exc)
+            current_gain = _exclude_ungated_candidate(cand_idx, partial_gains, expected_gains)
 
     # D10 Conditional Permutation Test (Berrett, Wang, Barber, Samworth 2020). Default off -> skipped (byte-identical).
     # Complements cmi_perm_stop: uses the dedicated ``conditional_permutation_test`` primitive (within-selected-stratum
@@ -929,7 +962,8 @@ def evaluate_candidate(
                     partial_gains[cand_idx] = (0.0, _k)
                 expected_gains[cand_idx] = 0.0
         except Exception as _cpt_exc:
-            logger.warning("D10 conditional permutation test failed silently: %r", _cpt_exc)
+            log_throttle(logger, "evaluation_gate_failed_conditional", logging.WARNING, _GATE_FAILED_MSG, "conditional permutation test", cand_idx, type(_cpt_exc).__name__, _cpt_exc)
+            current_gain = _exclude_ungated_candidate(cand_idx, partial_gains, expected_gains)
 
     return current_gain, sink_reasons
 

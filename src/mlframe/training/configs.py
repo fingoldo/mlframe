@@ -305,6 +305,16 @@ def config_from_dict(config_class: type[BaseConfig], params: Dict[str, Any]) -> 
 
 # Export all configs and constants
 __all__ = [
+    # Previously missing, so ``from mlframe.training.configs import *`` did not bring them in although the module
+    # defines or re-exports them; tests/training/test_configs_all_is_complete.py keeps the list whole.
+    "BaselineDiagnosticsConfig",
+    "CompositeTargetDiscoveryConfig",
+    "DummyBaselinesConfig",
+    "EnsemblingConfig",
+    "LearningToRankConfig",
+    "MultilabelDispatchConfig",
+    "PreprocessingExtensionsConfig",
+    "QuantileRegressionConfig",
     # Constants
     "DEFAULT_RANDOM_SEED",
     "DEFAULT_TREE_ITERATIONS",

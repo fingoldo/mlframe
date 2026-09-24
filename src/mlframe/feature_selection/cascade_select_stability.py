@@ -3,9 +3,9 @@
 A single ``cascade_select`` run's ``final_selected`` set is sensitive to which rows happened to land in the
 CV folds - a borderline feature (weak true signal, or a noise column that got lucky) can flip in/out of the
 final set purely because of the row sample, not because of its real usefulness. Stability selection (Meinshausen
-& Buhlmann, 2010) addresses this generically: rerun the whole selection procedure over many bootstrap
-row-resamples and only keep features that were selected in at least a chosen fraction of the runs. This module
-reuses :func:`cascade_select` unmodified as the inner selector, run B times over independent bootstrap resamples.
+& Buhlmann, 2010) addresses this generically: rerun the whole selection procedure over many
+row subsamples and only keep features that were selected in at least a chosen fraction of the runs. This module
+reuses :func:`cascade_select` unmodified as the inner selector, run B times over independent half-size subsamples drawn without replacement.
 """
 from __future__ import annotations
 
@@ -38,7 +38,8 @@ def cascade_select_stable(
     X, y, estimator_factory
         Passed through to each :func:`cascade_select` call.
     n_bootstrap
-        Number of bootstrap row-resamples (sampling with replacement, same size as ``X``) to run the full
+        Number of row subsamples (half of ``X``, drawn WITHOUT replacement; with replacement, duplicated rows landed in
+        both the train and test folds of the inner CV) to run the full
         cascade over.
     stability_threshold
         A feature is kept in ``stable_selected`` only if it appears in ``final_selected`` in at least this
@@ -71,7 +72,10 @@ def cascade_select_stable(
     selection_counts: Dict[str, int] = {}
 
     for _ in range(n_bootstrap):
-        row_idx = rng.integers(0, n_rows, size=n_rows)
+        # Half the rows WITHOUT replacement (the Meinshausen-Buhlmann regime ``StabilityMRMR`` already uses). A
+        # with-replacement bootstrap put duplicated rows into both the train and test folds of ``cascade_select``'s
+        # inner CV, so every run scored features partly on rows its models had already seen.
+        row_idx = np.sort(rng.choice(n_rows, size=max(2, n_rows // 2), replace=False))
         X_boot = X.iloc[row_idx].reset_index(drop=True)
         y_boot = np.asarray(y)[row_idx]
 

@@ -15,19 +15,44 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # categoricals (hash IDs, zip codes), so an ungated ``nb_a*nb_b`` (pair) or ``nb_a*nb_b*nb_c`` (triple) product silently OOMs the per-iteration buffer
 # and can overflow the index product. A joint with more cells than there are rows is degenerate (most cells empty, MI dominated by sampling noise), so a
 # pair/triple whose RAW cardinality exceeds this cap is skipped and scored MI=0.0 - the no-information sentinel the FE noise-gate already treats as
-# uninformative. 64M int64 cells == 512 MiB per worker thread is the default ceiling; override via ``MLFRAME_BATCH_JOINT_CARD_CAP`` (read by the Python
-# callers and threaded down) for hosts that want a different RAM budget. The triple kernel dense-renumbers occupied cells so its WORKING histogram is
+# uninformative. 64M int64 cells == 512 MiB per worker thread is the default ceiling; override via ``MLFRAME_BATCH_JOINT_CARD_CAP`` (read per call by
+# ``joint_cardinality_cap`` in the Python callers and passed to the kernels as ``cap``) for hosts that want a different RAM budget. The triple kernel dense-renumbers occupied cells so its WORKING histogram is
 # bounded by ``n``, but the ``remap`` table it must allocate is sized by the raw product - the same OOM hazard, gated identically.
+from mlframe.utils.log_throttle import log_throttle
+
 MAX_JOINT_CARDINALITY = 64_000_000
+_CAP_ENV = "MLFRAME_BATCH_JOINT_CARD_CAP"
 
 
-def check_joint_cardinality(*cards: int, cap: int = MAX_JOINT_CARDINALITY, what: str = "joint") -> None:
+def joint_cardinality_cap() -> int:
+    """The joint-histogram cell cap: ``MLFRAME_BATCH_JOINT_CARD_CAP`` when set to a positive int, else 64M.
+
+    Read on every call, not at import: the njit kernels take it as an argument because a module-level constant is
+    compiled into their on-disk cache, so an operator changing the variable would get the old cap back from the cache.
+    An unparseable value is reported and ignored rather than breaking the import.
+    """
+    raw = os.environ.get(_CAP_ENV, "").strip()
+    if not raw:
+        return MAX_JOINT_CARDINALITY
+    try:
+        cap = int(raw.replace("_", ""))
+    except ValueError:
+        cap = 0
+    if cap <= 0:
+        log_throttle(logger, "batch_joint_card_cap_invalid", logging.WARNING, "%s=%r is not a positive integer; using %d.", _CAP_ENV, raw, MAX_JOINT_CARDINALITY)
+        return MAX_JOINT_CARDINALITY
+    return cap
+
+
+def check_joint_cardinality(*cards: int, cap: "int | None" = None, what: str = "joint") -> None:
     """Raise ValueError if the dense joint product of ``cards`` exceeds ``cap`` (default 64M cells / 512 MiB int64).
 
     Shared guard for the pure-Python estimator entry points (PID / BUR / JMIM / RelaxMRMR) that dense-allocate a
     ``prod(cards)`` histogram with no per-kernel cap of their own. Staged multiply-with-division so a billion-scale
     product cannot wrap int64 and silently pass the check (the same overflow trap the njit kernels guard against).
+    ``cap`` defaults to :func:`joint_cardinality_cap`.
     """
+    cap = joint_cardinality_cap() if cap is None else int(cap)
     prod = 1
     for c in cards:
         c = int(c)
@@ -45,6 +70,7 @@ def batch_pair_mi_prange(
     nbins: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
+    cap: int = MAX_JOINT_CARDINALITY,
 ) -> np.ndarray:
     """Vectorised batch MI computation over an array of (a, b) variable-index pairs.
 
@@ -100,7 +126,7 @@ def batch_pair_mi_prange(
         # histogram (silent corruption) or asks np.zeros for a negative dimension (hard error).
         # The real allocation is (joint_card, n_classes_y), so the cap must bound nb_a*nb_b*n_classes_y, not
         # just joint_card - a high n_classes_y otherwise multiplies the histogram past the 512 MiB budget.
-        if nb_a <= 0 or nb_b <= 0 or n_classes_y <= 0 or nb_b > MAX_JOINT_CARDINALITY // n_classes_y or nb_a > MAX_JOINT_CARDINALITY // (nb_b * n_classes_y):
+        if nb_a <= 0 or nb_b <= 0 or n_classes_y <= 0 or nb_b > cap // n_classes_y or nb_a > cap // (nb_b * n_classes_y):
             out[p] = 0.0
             continue
         joint_card = nb_a * nb_b
@@ -149,6 +175,7 @@ def batch_pair_mi_perm_batched(
     nbins: np.ndarray,
     y_perms: np.ndarray,
     freqs_y: np.ndarray,
+    cap: int = MAX_JOINT_CARDINALITY,
 ) -> np.ndarray:
     """Permutation-batched pair MI for the maxT null: MI of every pair vs EACH of the ``K`` permuted targets in
     ``y_perms`` (shape ``(K, n)``), returned as ``(K, n_pairs)``. Bit-identical to calling
@@ -171,7 +198,7 @@ def batch_pair_mi_perm_batched(
         nb_a = int(nbins[a])
         nb_b = int(nbins[b])
         # Cap the true (joint_card, n_classes_y) allocation, not just joint_card (see the non-perm twin).
-        if nb_a <= 0 or nb_b <= 0 or n_classes_y <= 0 or nb_b > MAX_JOINT_CARDINALITY // n_classes_y or nb_a > MAX_JOINT_CARDINALITY // (nb_b * n_classes_y):
+        if nb_a <= 0 or nb_b <= 0 or n_classes_y <= 0 or nb_b > cap // n_classes_y or nb_a > cap // (nb_b * n_classes_y):
             for k in range(K):
                 out[k, p] = 0.0
             continue
@@ -217,6 +244,7 @@ def batch_triple_mi_prange(
     nbins: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
+    cap: int = MAX_JOINT_CARDINALITY,
 ) -> np.ndarray:
     """Vectorised batch JOINT MI ``I((x_a, x_b, x_c); y)`` over an array of (a, b, c) variable-index triples.
 
@@ -269,7 +297,7 @@ def batch_triple_mi_prange(
         # direct-address ``remap`` table below is sized by the raw product and is the OOM hazard. MI=0.0 is the gate's uninformative sentinel.
         # Test the cap via staged division BEFORE multiplying: nb_a*nb_b*nb_c is int64 and wraps silently on
         # billion-scale cardinalities, defeating the cap and asking np.full for a negative/overflowed dimension.
-        if nb_a <= 0 or nb_b <= 0 or nb_c <= 0 or nb_b > MAX_JOINT_CARDINALITY // nb_c or nb_a > MAX_JOINT_CARDINALITY // (nb_b * nb_c):
+        if nb_a <= 0 or nb_b <= 0 or nb_c <= 0 or nb_b > cap // nb_c or nb_a > cap // (nb_b * nb_c):
             out[p] = 0.0
             continue
         raw_card = nb_a * nb_b * nb_c
@@ -326,6 +354,7 @@ def batch_triple_mi_perm_batched(
     nbins: np.ndarray,
     y_perms: np.ndarray,
     freqs_y: np.ndarray,
+    cap: int = MAX_JOINT_CARDINALITY,
 ) -> np.ndarray:
     """Permutation-batched TRIPLE joint MI for the order-3 maxT null: joint MI of every (a,b,c) triple vs EACH of
     the ``K`` permuted targets in ``y_perms`` (shape ``(K, n)``), returned as ``(K, n_triples)``. The order-3 twin
@@ -350,7 +379,7 @@ def batch_triple_mi_perm_batched(
         nb_a = int(nbins[a])
         nb_b = int(nbins[b])
         nb_c = int(nbins[c])
-        if nb_a <= 0 or nb_b <= 0 or nb_c <= 0 or nb_b > MAX_JOINT_CARDINALITY // nb_c or nb_a > MAX_JOINT_CARDINALITY // (nb_b * nb_c):
+        if nb_a <= 0 or nb_b <= 0 or nb_c <= 0 or nb_b > cap // nb_c or nb_a > cap // (nb_b * nb_c):
             for k in range(K):
                 out[k, p] = 0.0
             continue

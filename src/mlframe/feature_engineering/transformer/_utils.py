@@ -11,10 +11,10 @@ All ``logger.*`` and ``print`` output here is ASCII-only by project rule; cp1251
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional
 
 import numpy as np
+from mlframe.utils.env_flags import env_int
 
 try:
     from numba import njit, prange
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 # Above this element count the prange thread-launch floor is amortised and the parallel counter
 # scales across cores; below it the serial kernel avoids the spawn overhead. Env-overridable per host.
-_NONFINITE_PAR_THRESHOLD = int(os.environ.get("MLFRAME_NONFINITE_PAR_THRESHOLD", "1000000"))
+_NONFINITE_PAR_THRESHOLD = env_int("MLFRAME_NONFINITE_PAR_THRESHOLD", 1000000, minimum=0)
 
 
 @njit(cache=True)

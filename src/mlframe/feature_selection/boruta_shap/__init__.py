@@ -138,6 +138,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
         random_state=0,
         sample: bool = False,
         train_or_test="train",
+        resample_holdout_per_trial: bool = False,
         premerge_clusters: bool = False,
         premerge_corr_thr: float = 0.92,
         normalize: bool = True,
@@ -216,12 +217,10 @@ class BorutaShap(TransformerMixin, BaseEstimator):
         self.classification = classification
         self.model = model
 
-        # sklearn contract: __init__ stores params verbatim and derives nothing that mutates them. The
-        # resolved-model (``model_``) is built in ``check_model`` so ``get_params``/``clone`` round-trip the
-        # constructor args unchanged (``model=None`` stays None on a fitted instance). The private RNG
-        # (``_rng``, A-P0-004) is a fresh ``default_rng(random_state)`` - an INDEPENDENT Generator that does
-        # NOT touch the process-global ``np.random`` stream, so building it here keeps both contracts: clone
-        # re-runs __init__ and re-derives the same RNG from the unchanged seed.
+        # sklearn contract: __init__ stores params verbatim and derives nothing that mutates them. ``model_`` is built in
+        # ``check_model`` so ``get_params``/``clone`` round-trip the constructor args (``model=None`` stays None when
+        # fitted). ``_rng`` is a fresh ``default_rng(random_state)`` - an INDEPENDENT Generator that does NOT touch the
+        # process-global ``np.random``, so clone re-runs __init__ and re-derives the same RNG from the unchanged seed.
         self.random_state = random_state
         self._rng = np.random.default_rng(random_state)
 
@@ -235,6 +234,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
         self.shadow_min_pad = shadow_min_pad
         self.sample = sample
         self.train_or_test = train_or_test
+        self.resample_holdout_per_trial = resample_holdout_per_trial  # opt-in; see Check_if_chose_train_or_test_and_train_model
         # premerge_clusters (off by default): collapse raw |corr| >= premerge_corr_thr clusters to one representative
         # BEFORE the shadow gate, then re-expand accepted reps to their members. De-dilutes the shadow comparison on
         # redundant data -> measured (R2b-6) +recall, -noise, and faster (the gate sees fewer columns). 7/12 cells won
@@ -345,9 +345,11 @@ class BorutaShap(TransformerMixin, BaseEstimator):
         # not ``"predict_proba"``. Variable now matches the attribute it actually probes.
         check_predict = hasattr(self.model, "predict")
 
+        # On the CLASS as well as the instance: before fit, ``feature_importances_`` is a property that raises
+        # NotFittedError on LightGBM, XGBoost and sklearn's own trees, so ``hasattr(model, ...)`` was False and every
+        # such model was refused for importance_measure='gini' - only RandomForest got through, by a name exemption.
         try:
-            check_feature_importance = hasattr(self.model, "feature_importances_")
-
+            check_feature_importance = hasattr(type(self.model), "feature_importances_") or hasattr(self.model, "feature_importances_")
         except (AttributeError, TypeError):
             check_feature_importance = True
 
@@ -495,8 +497,16 @@ class BorutaShap(TransformerMixin, BaseEstimator):
         train_or_test = _resolved_train_or_test if _resolved_train_or_test is not None else self.train_or_test
         if train_or_test.lower() == "test":
             # keeping the same naming convenetion as to not add complexit later on
+            # One fixed partition unless ``resample_holdout_per_trial``. Redrawing per trial answers a real concern - with one
+            # holdout, features are removed adaptively on one partition's evidence - but bench-attempt-rejected as the default
+            # (2026-09-24): on test_biz_val_boruta_auto_beats_gini_on_noisy_replicated it made 'auto' lose to gini on 2 of 3
+            # seeds (held-out AUC deltas -0.003 / -0.108 / -0.007) while the fixed holdout passes.
+            _base_seed = self.random_state
+            _trial = int(getattr(self, "_current_trial_", 0) or 0)
+            _resample = bool(getattr(self, "resample_holdout_per_trial", False)) and isinstance(_base_seed, (int, np.integer))
+            _split_seed = int(_base_seed) + _trial if _resample else _base_seed
             self.X_boruta_train, self.X_boruta_test, self.y_train, self.y_test = train_test_split(
-                self.X_boruta, self.y, test_size=0.3, random_state=self.random_state, stratify=self.stratify
+                self.X_boruta, self.y, test_size=0.3, random_state=_split_seed, stratify=self.stratify
             )
             self.Train_model(self.X_boruta_train, self.y_train)
 

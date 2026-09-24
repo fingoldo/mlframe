@@ -143,14 +143,10 @@ class ReportingConfig(BaseConfig):
         "RMSLE", "Spearman", "MBE",
     )
 
-    # MASE seasonality (Hyndman & Koehler 2006).
-    # The MASE *value* is only computed when the caller plumbs the
-    # precomputed train-fold naive-MAE scale into the regression-report
-    # signature (``mase_naive_mae=``); this knob sets the seasonality the
-    # caller used so it can be stamped alongside the metric.
-    # Common values: 1 (simple naive), 7 (daily->weekly), 12 (monthly->yearly),
-    # 24 (hourly->daily). MUST match the seasonality used by the caller.
-    mase_seasonality: int = 1
+    # MASE seasonality (Hyndman & Koehler 2006): the lag of the seasonal-naive forecast whose train MAE scales MASE.
+    # The suite computes that scale on the train target (row order) at this lag and stamps it next to the metric.
+    # Common values: 1 (simple naive), 7 (daily->weekly), 12 (monthly->yearly), 24 (hourly->daily).
+    mase_seasonality: int = Field(default=1, ge=1)
 
     # backend x output-format DSL. See ``mlframe.reporting.output.parse_plot_output_dsl`` for grammar.
     #
@@ -270,7 +266,7 @@ class ReportingConfig(BaseConfig):
     # metric and calibration panels, which is what actually distinguishes them. "all" restores rendering
     # them for every model -- a production run drew five identical SHAP surfaces for five aggregations of
     # two members correlated at 0.996.
-    heavy_diagnostics_for: str = "best"
+    heavy_diagnostics_for: Literal["best", "all"] = "best"  # a typo used to fall back to "best" with only a log line
 
     diagnostics_max_seconds: float = 300.0
 
@@ -538,6 +534,18 @@ class ConformalConfig(BaseConfig):
 
     enabled: bool = True
     alphas: Tuple[float, ...] = (0.1, 0.2)
+
+    @model_validator(mode="after")
+    def _validate_alphas(self) -> "ConformalConfig":
+        """Miscoverage levels must be a non-empty, strictly increasing set inside (0, 1), as for QuantileRegressionConfig.
+
+        0.0 asks for an infinite interval and 1.0 for an empty one; unsorted or duplicated levels produced intervals
+        that did not nest.
+        """
+        a = list(self.alphas)
+        if not a or any(not (0.0 < x < 1.0) for x in a) or a != sorted(a) or len(set(a)) != len(a):
+            raise ValueError(f"ConformalConfig.alphas must be non-empty, unique, ascending and inside (0, 1); got {a}")
+        return self
     score: Literal["normalized", "absolute"] = "normalized"
     classification_mode: Literal["sets_lac", "sets_aps", "off"] = "sets_lac"
 
@@ -638,6 +646,7 @@ class FairnessConfig(InertFieldsWarningMixin, BaseConfig):
 
     # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
     INERT_FIELDS: ClassVar[dict[str, str]] = {
+        "enabled": "no fairness analysis runs from this class; set behavior_config.fairness_features instead",
         "protected_attributes": "the suite reads behavior_config.fairness_features instead",
         "fairness_metrics": "the name collides with the compute_fairness_metrics function; nothing reads the field",
     }

@@ -69,6 +69,19 @@ def _make_group_time_series(n_splits, groups, fallback, verbose):
     return GroupTimeSeriesSplit(n_splits=n_splits)
 
 
+def _fixed_shuffle_seed(cv_shuffle: bool, random_state):
+    """A concrete seed for a shuffled splitter, so every ``.split()`` inside one fit returns the same folds.
+
+    With ``random_state=None`` a shuffled splitter repartitions on EVERY call, and RFECV splits once per outer
+    iteration: the per-fold prescreen universes, keyed by each fold's train-index bytes, then never matched a later split
+    and every fold silently fell back to the leaky full-data prescreen. One seed per fit keeps the shuffle random across
+    fits and identical across the splits inside this one.
+    """
+    if cv_shuffle and random_state is None:
+        return int(np.random.default_rng().integers(0, 2**31 - 1))
+    return random_state
+
+
 def _resolve_cv_and_val_cv(
     *,
     cv,
@@ -90,6 +103,7 @@ def _resolve_cv_and_val_cv(
     when ``early_stopping_val_nsplits`` was falsy. ``cv`` is the original
     object when it was already a splitter (no int / numeric-string).
     """
+    random_state = _fixed_shuffle_seed(cv_shuffle, random_state)
     if cv is None or str(cv).isnumeric():
         if cv is None:
             cv = 3
@@ -99,10 +113,9 @@ def _resolve_cv_and_val_cv(
         # Pandas path: DatetimeIndex.is_monotonic_increasing. Polars path: scan for a single datetime / date column that is
         # monotonically increasing (polars has no row index; the time axis is necessarily a column).
         _is_time_series = False
-        # Suite-level timestamps hint: callers pass ``timestamps=`` via fit_params (1-D monotonic
-        # array-like). This catches the case where X has no DatetimeIndex / no polars datetime col
-        # but the suite knows the row order is temporal (e.g. integer epoch seconds in a separate
-        # array). Honour the hint regardless of X's schema.
+        # Suite-level timestamps hint: callers pass ``timestamps=`` via fit_params (1-D monotonic array-like). This
+        # catches the case where X has no DatetimeIndex / no polars datetime col but the suite knows the row order is
+        # temporal (e.g. integer epoch seconds in a separate array). Honour the hint regardless of X's schema.
         _ts_hint = fit_params.pop("timestamps", None) if isinstance(fit_params, dict) else None
         if groups is None and _ts_hint is not None:
             try:

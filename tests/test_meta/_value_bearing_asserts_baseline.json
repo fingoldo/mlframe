@@ -62,7 +62,6 @@
   "feature_selection/_benchmarks/profile_boruta_shap.py::golden_prof['accepted'] == golden['accepted']",
   "feature_selection/_benchmarks/profile_boruta_shap.py::golden_prof['hits'] == golden['hits']",
   "feature_selection/_benchmarks/profile_boruta_shap_small.py::golden2 == golden",
-  "feature_selection/boruta_shap/_fit_explain.py::_n_basis == _n_train",
   "feature_selection/filters/_benchmarks/bench_analytic_noise_gate_occupied_bins.py::np.array_equal(old, new)",
   "feature_selection/filters/_benchmarks/bench_auto_scorer_batch_separable.py::np.array_equal(o[0], ne[0]) and np.array_equal(o[1], ne[1])",
   "feature_selection/filters/_benchmarks/bench_cluster_aggregate_mi_compact_stack.py::o == nw",

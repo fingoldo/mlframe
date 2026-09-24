@@ -67,6 +67,7 @@ logger = logging.getLogger(__name__)
 # The gate-grid build kernels live in a sibling (file-size carve only); re-exported here because the parent
 # is their only caller and `_conditional_gate_fe._gate_select_grid_njit` is the name benchmarks reference.
 from ._conditional_gate_kernels import _gate_mask_grid_njit, _gate_select_grid_njit
+from mlframe.utils.env_flags import env_int
 
 __all__ = [
     "ArgmaxHit",
@@ -106,7 +107,7 @@ _MIN_MARGIN = 0.02
 # instead of the numpy per-tau loop. The isolated build kernel wins at all n, but an earlier reject found
 # it LOSES end-to-end at small n (build is a tiny fraction of the scan + its prange contends with the MI prange);
 # gated ON only for large n where the build is a real fraction of the scan (validated end-to-end). Env-overridable.
-_GATE_BUILD_NJIT_MIN_N = int(os.environ.get("MLFRAME_GATE_BUILD_NJIT_MIN_N", "20000"))
+_GATE_BUILD_NJIT_MIN_N = env_int("MLFRAME_GATE_BUILD_NJIT_MIN_N", 20000, minimum=0)
 
 # Absolute floor the engineered MI must clear ABOVE the permutation-null band (not just `> null_hi`); mirrors _pairwise_modular_fe._MIN_NULL_MARGIN.
 # Guards the cardinality-inflation false positive on a few-class y (a ~10-bin regression/quantized target), where a select/mask column's

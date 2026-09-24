@@ -20,6 +20,7 @@ from mlframe._numba_parallel_guard import parallel_kernel_entry
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.utils.env_flags import env_int
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ from mlframe._array_buffer import array_buffer
 _NUMERIC_CODE_CACHE: "_OrderedDict[bytes, np.ndarray]" = _OrderedDict()
 # Total bytes of cached column-code arrays to retain (column codes are n_rows*dtype; gate so a 100GB-frame
 # fit cannot pin unbounded RAM). Override via env. Default 512 MB.
-_NUMERIC_CODE_CACHE_MAX_BYTES = int(os.environ.get("MLFRAME_DISCRETIZE_COL_CACHE_MAX_BYTES", str(512 * 1024 * 1024)))
+_NUMERIC_CODE_CACHE_MAX_BYTES = env_int("MLFRAME_DISCRETIZE_COL_CACHE_MAX_BYTES", 512 * 1024 * 1024, minimum=0)
 _NUMERIC_CODE_CACHE_BYTES = 0
 # categorize_dataset runs under joblib backend="threading"; guard every mutation of the OrderedDict AND the
 # byte counter so concurrent workers cannot corrupt the dict (RuntimeError on concurrent mutation) or drift

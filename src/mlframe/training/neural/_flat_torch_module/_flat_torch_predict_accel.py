@@ -13,6 +13,7 @@ import os
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 import torch
+from mlframe.utils.env_flags import env_int
 
 logger = logging.getLogger("mlframe.training.neural.flat")
 
@@ -28,7 +29,7 @@ else:
 # (static in + static out) + the graph object, so an inference run over many distinct batch shapes (ragged
 # tails across folds/targets/datasets) would otherwise grow VRAM without bound. Evicting the least-recently
 # replayed graph keeps the hot full-batch graph resident. Override via env for a host with more/less VRAM.
-_CUDA_GRAPH_PREDICT_CACHE_MAX = max(1, int(os.environ.get("MLFRAME_CUDA_GRAPH_PREDICT_CACHE_MAX", "16")))
+_CUDA_GRAPH_PREDICT_CACHE_MAX = env_int("MLFRAME_CUDA_GRAPH_PREDICT_CACHE_MAX", 16, minimum=1)
 
 
 class _PredictAccelMixin(_PredictAccelBase):

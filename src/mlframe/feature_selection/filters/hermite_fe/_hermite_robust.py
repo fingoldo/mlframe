@@ -31,12 +31,12 @@ scale without changing the loss, or vice-versa) - not folded onto one flag.
 """
 from __future__ import annotations
 
-import os
 
 import numba
 import numpy as np
 
 from mlframe.core.robust_location import _median_sorted as _median_sorted_njit
+from mlframe.utils.env_flags import env_int
 
 # Robust bounds = median +/- _ROBUST_AXIS_K * (1.4826*MAD). MAD is contamination-proof up to ~50% of the column, so the
 # derived span ~ 6*sigma stays anchored to the CLEAN core regardless of how many 1000x spikes are injected - unlike an
@@ -126,7 +126,7 @@ def _detect_heavy_tail_njit(x: np.ndarray) -> bool:
 # Finite-subset size below which the fused njit core (one loop, no boolean-mask / abs-array temporaries) beats the numpy
 # body; above it numpy's introselect ``np.median`` outpaces numba's sort-based median. Crossover ~3000 measured on the dev
 # box (bench_detect_heavy_tail_njit.py: 1.31x@2407 / 1.20x@1000 win; 0.86-0.90x loss at n>=4000). Env-overridable per HW.
-_DETECT_HEAVY_TAIL_NJIT_MAX_N = int(os.environ.get("MLFRAME_DETECT_HEAVY_TAIL_NJIT_MAX_N", "3000"))
+_DETECT_HEAVY_TAIL_NJIT_MAX_N = env_int("MLFRAME_DETECT_HEAVY_TAIL_NJIT_MAX_N", 3000, minimum=0)
 
 # Fit-scoped memo for ``_detect_heavy_tail``: its verdict is a pure deterministic function of x's VALUES, but the
 # orth-FE driver probes the SAME operand column up to ~5x per fit (4 routing bases each call fit_fn(x)->detect, +

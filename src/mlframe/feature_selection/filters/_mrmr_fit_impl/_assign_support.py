@@ -20,7 +20,6 @@ this function sets directly -- ``selected_vars`` itself is not read again after 
 from __future__ import annotations
 
 import logging
-import os
 
 import numpy as np
 
@@ -498,7 +497,9 @@ def _assign_support(
             _eb_name_to_in = {nm: i for i, nm in enumerate(self.feature_names_in_)}
             _eb_cols_idx = {nm: i for i, nm in enumerate(cols)}
             _eb_recipes = {getattr(_r, "name", None): _r for _r in (getattr(self, "_engineered_recipes_", None) or [])}
-            _eb_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
+            from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
+
+            _eb_alpha = mrmr_null_signif_alpha()
             _eb_qdtype = getattr(self, "quantization_dtype", np.int32)
             _eb_operands: list[str] = []
             for _enm, _erec in _eb_recipes.items():

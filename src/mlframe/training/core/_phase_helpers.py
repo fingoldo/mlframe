@@ -31,6 +31,7 @@ from ..utils import (
 from ..strategies import get_strategy
 from ..pipeline import prepare_dfs_for_catboost_joint
 from ._setup_helpers import _apply_outlier_detection_global, _convert_dfs_to_pandas
+from mlframe.utils.env_flags import env_float
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ _DEFAULT_TEST_SIZE = 0.15
 # pressure before composite-discovery, which only matters once the released Polars frame is large; the collect itself
 # costs ~0.85s (object-count driven, not frame-size), so on small frames it is pure overhead. Skip it below this
 # released-frame size. Override via MLFRAME_FORCED_GC_MIN_DF_MB; set to 0 to always force (legacy behaviour).
-_FORCED_GC_MIN_DF_MB = float(os.environ.get("MLFRAME_FORCED_GC_MIN_DF_MB", "256"))
+_FORCED_GC_MIN_DF_MB = env_float("MLFRAME_FORCED_GC_MIN_DF_MB", 256.0, minimum=0.0)
 
 
 def _should_force_post_pipeline_gc(df_size_mb: Optional[float]) -> bool:

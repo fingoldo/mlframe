@@ -27,10 +27,10 @@ not extrapolate meaningfully beyond the data range, and is sensitive to bandwidt
 from __future__ import annotations
 
 import logging
-import os
 
 import numpy as np
 from numba import njit, prange
+from mlframe.utils.env_flags import env_int
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ __all__ = ["nadaraya_watson_smooth", "per_group_nadaraya_watson_smooth", "KERNEL
 KERNELS = ("gaussian", "epanechnikov", "boxcar", "tricube")
 
 # Parallelize over query points once there are enough to amortise the prange spawn. Env-overridable.
-_NW_PARALLEL_MIN_QUERIES = int(os.environ.get("MLFRAME_NW_PARALLEL_MIN_QUERIES", "2000"))
+_NW_PARALLEL_MIN_QUERIES = env_int("MLFRAME_NW_PARALLEL_MIN_QUERIES", 2000, minimum=0)
 
 
 @njit(fastmath=False, cache=True, inline="always")

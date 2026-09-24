@@ -247,7 +247,13 @@ def ace_select(
     accepted = np.zeros(p, dtype=bool)
 
     remaining = np.arange(p)  # column indices still competing (masking loop shrinks this)
-    for _round in range(max(1, n_masking_rounds)):
+    # A feature that is not accepted is re-tested in every later round, so without a correction it gets up to
+    # ``n_masking_rounds`` shots at nominal alpha, and ``accepted`` only ever grows: the realised FDR of the returned set
+    # was several times nominal on all-noise data. Split alpha across the planned rounds (a union bound over rounds), as
+    # ``filters/_boruta.py`` does for its repeated per-round tests.
+    n_rounds = max(1, n_masking_rounds)
+    alpha_round = alpha / n_rounds
+    for _round in range(n_rounds):
         if remaining.size == 0:
             break
         idx = remaining
@@ -259,9 +265,9 @@ def ace_select(
         mean_round = real_imps.mean(axis=0)
 
         if fdr_control:
-            acc_round = _benjamini_hochberg_reject(pvals_round, alpha)
+            acc_round = _benjamini_hochberg_reject(pvals_round, alpha_round)
         else:
-            acc_round = pvals_round < alpha
+            acc_round = pvals_round < alpha_round
 
         imp_mean[idx] = mean_round
         contrast_bar[idx] = thr

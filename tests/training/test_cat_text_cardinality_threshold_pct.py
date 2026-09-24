@@ -139,3 +139,13 @@ def test_50_row_minimum_floor_applies():
     assert "txt" not in text_at_floor, "49 uniques is below the 50 floor; must NOT promote."
     assert "txt" not in text_above_floor, "50 uniques is exactly at the floor; the strict > check keeps it as cat."
     assert "txt" in text_well_above, "60 uniques > 50 hard floor; must promote."
+
+
+def test_lowered_threshold_keeps_mid_cardinality_enum_categorical():
+    """On a 50k-row frame the pct knob lowers the threshold to 50; a 200-value enum must still stay categorical, while
+    a mostly-unique free-text column of the same frame is promoted."""
+    n = 50_000
+    df = pl.DataFrame({"country": [f"c{i % 200}" for i in range(n)], "note": [f"note {i} " + "x" * (i % 7) for i in range(n)]})
+    text, _, _ = _auto_detect_feature_types(df, FeatureTypesConfig(), cat_features=["country", "note"])
+    assert "country" not in text
+    assert "note" in text

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from mlframe.utils.env_flags import env_float, env_int
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,8 @@ _DEFAULT_CORES_PER_SM = 64
 
 # VRAM safety cushion: fraction of free VRAM held back, with an absolute floor (protects small cards where
 # a percentage alone is too thin near OOM). Both env-overridable.
-_FE_VRAM_CUSHION_FRAC = float(os.environ.get("MLFRAME_FE_VRAM_CUSHION_FRAC", "0.10") or 0.10)
-_FE_VRAM_CUSHION_FLOOR = int(os.environ.get("MLFRAME_FE_VRAM_CUSHION_FLOOR_BYTES", str(128 * 1024 * 1024)) or (128 * 1024 * 1024))
+_FE_VRAM_CUSHION_FRAC = env_float("MLFRAME_FE_VRAM_CUSHION_FRAC", 0.10, minimum=0.0, maximum=1.0)
+_FE_VRAM_CUSHION_FLOOR = env_int("MLFRAME_FE_VRAM_CUSHION_FLOOR_BYTES", 128 * 1024 * 1024, minimum=0)
 
 
 def _cores_per_sm(cc_major: int, cc_minor: int) -> int:

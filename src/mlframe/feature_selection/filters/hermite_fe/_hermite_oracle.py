@@ -13,12 +13,13 @@ import logging
 import os as _os
 
 import numpy as np
+from mlframe.utils.env_flags import env_int
 
 logger = logging.getLogger(__name__)
 
 # Thresholds in array length n. Tunable via env var.
-_PAR_THRESHOLD = int(_os.environ.get("MLFRAME_POLYEVAL_PAR_THRESHOLD", "50000"))
-_CUDA_THRESHOLD = int(_os.environ.get("MLFRAME_POLYEVAL_CUDA_THRESHOLD", "500000"))
+_PAR_THRESHOLD = env_int("MLFRAME_POLYEVAL_PAR_THRESHOLD", 50000, minimum=0)
+_CUDA_THRESHOLD = env_int("MLFRAME_POLYEVAL_CUDA_THRESHOLD", 500000, minimum=0)
 
 
 def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:

@@ -172,6 +172,25 @@ def compose_pair_fe(
     }
 
 
+
+def _heldout_trivial_mi(x_a, x_b, y, tr, va, *, discrete_target, mi_estimator, plugin_n_bins) -> float:
+    """Held-out MI of the trivial pair baseline, CHOSEN on the fold's train rows and SCORED on its held-out rows.
+
+    The engineered transform is fit on ``tr`` and scored on ``va``; the baseline used to be the max over ~12 trivial
+    features picked on ``va`` itself, so the honest-uplift ratio divided one out-of-sample number by a winner's-curse
+    maximum from the very same rows. Choosing it the same way as the transform makes the ratio compare like with like.
+    """
+    from .fe_baselines import _mi_1d, best_trivial_pair, trivial_pair_features
+
+    chosen = best_trivial_pair(x_a[tr], x_b[tr], y[tr], discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+    if not chosen:
+        return 0.0
+    feat_va = trivial_pair_features(x_a[va], x_b[va]).get(chosen[0])
+    if feat_va is None or not np.all(np.isfinite(feat_va)):
+        return 0.0
+    return float(_mi_1d(feat_va, y[va], discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins))
+
+
 def validate_pair_fe_cv(
     x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray,
     *,
@@ -258,11 +277,7 @@ def validate_pair_fe_cv(
             })
             continue
         oos_mi = _mi_1d(eng_va, y[va], discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
-        # Compute trivial baseline on heldout for honest uplift.
-        from .fe_baselines import best_trivial_pair
-
-        triv = best_trivial_pair(x_a[va], x_b[va], y[va], discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
-        triv_mi = triv[2] if triv else 0.0
+        triv_mi = _heldout_trivial_mi(x_a, x_b, y, tr, va, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
         if oos_mi > triv_mi:
             folds_with_pos_uplift += 1
         oos_per_fold.append({

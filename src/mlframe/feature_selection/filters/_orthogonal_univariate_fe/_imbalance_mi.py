@@ -52,6 +52,8 @@ import os
 
 import numpy as np
 
+from mlframe.utils.env_flags import env_float, env_int
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -86,8 +88,8 @@ except ImportError:  # pragma: no cover - numba is a hard dep in this repo
 #    promote chance-separating features. 150 rare rows is the documented
 #    "enough to estimate" floor (the WIN fixture has ~200 positives at 1%; the
 #    GATE-control fixture has ~20 and must fall back). Overridable via env.
-_PRIOR_THRESHOLD = float(os.environ.get("MLFRAME_FE_IMBALANCE_PRIOR", "0.30"))
-_N_RARE_FLOOR = int(os.environ.get("MLFRAME_FE_IMBALANCE_N_RARE", "150"))
+_PRIOR_THRESHOLD = 0.30  # defaults; MLFRAME_FE_IMBALANCE_PRIOR / _N_RARE are read on every call
+_N_RARE_FLOOR = 150
 
 
 def _imbalance_mode() -> str:
@@ -171,9 +173,9 @@ def compute_class_weights(y: np.ndarray) -> np.ndarray | None:
 
     # Two-sided gate (applied for the opt-in on/auto modes): correct only when
     # imbalanced enough AND with enough rare rows to estimate reliably.
-    if minority_prior >= _PRIOR_THRESHOLD:
+    if minority_prior >= env_float("MLFRAME_FE_IMBALANCE_PRIOR", _PRIOR_THRESHOLD, minimum=0.0, maximum=0.5):
         return None  # balanced / mild imbalance -> plain MI (no-regression)
-    if rare_count < _N_RARE_FLOOR:
+    if rare_count < env_int("MLFRAME_FE_IMBALANCE_N_RARE", _N_RARE_FLOOR, minimum=0):
         return None  # too few rare rows -> plain MI (gate fallback)
 
     # Inverse-prior weights: each populated class -> equal total mass 1/K_pop.

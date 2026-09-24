@@ -40,6 +40,8 @@ def cascade_select(
     scoring: Optional[str] = None,
     random_state: int = 42,
     rfecv_kwargs: Optional[Dict[str, Any]] = None,
+    X_holdout: Any = None,
+    y_holdout: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
     """Run the 3-stage cascade: Boruta screen -> forward selection -> permutation backward elimination.
 
@@ -72,7 +74,13 @@ def cascade_select(
     dict
         ``boruta_result`` (the raw :func:`boruta_select` output), ``boruta_confirmed`` (list of column
         names), ``forward_selected`` (list, in the order added), ``final_selected`` (list, the RFECV
-        backward-elimination output), ``rfecv`` (the fitted :class:`RFECV` instance).
+        backward-elimination output), ``rfecv`` (the fitted :class:`RFECV` instance), and ``holdout_score``.
+
+        The scores inside ``rfecv`` (``cv_results_["cv_mean_perf"]`` and the like) are a RANKING signal only: they were
+        computed on the same rows Boruta and forward selection already used to narrow the candidates, so they are
+        selection-optimistic and must not be reported as an estimate of generalisation. ``holdout_score`` is: the
+        final subset refitted on ``X`` and scored (``scoring``, or the estimator's own ``score``) on the untouched
+        ``X_holdout`` / ``y_holdout`` when the caller passes them, else None.
     """
     from .wrappers.rfecv import RFECV
 
@@ -115,7 +123,21 @@ def cascade_select(
         "forward_selected": forward_selected,
         "final_selected": final_selected,
         "rfecv": rfecv,
+        "holdout_score": _holdout_score(estimator_factory, X, y, final_selected, X_holdout, y_holdout, scoring),
     }
+
+
+def _holdout_score(estimator_factory, X, y, selected, X_holdout, y_holdout, scoring) -> Optional[float]:
+    """Refit on ``selected`` columns of ``X`` and score on the caller's untouched holdout; None when there is none."""
+    if X_holdout is None or y_holdout is None or not selected:
+        return None
+    model = estimator_factory()
+    model.fit(X[selected], y)
+    if scoring is None:
+        return float(model.score(X_holdout[selected], y_holdout))
+    from sklearn.metrics import get_scorer
+
+    return float(get_scorer(scoring)(model, X_holdout[selected], y_holdout))
 
 
 __all__ = ["cascade_select"]

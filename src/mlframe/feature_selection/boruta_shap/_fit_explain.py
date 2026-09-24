@@ -30,6 +30,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+
+def _uses_held_out_split(self) -> bool:
+    """Whether the fit ran on the 70% train slice ('test' mode), reading the resolved working copy like ``_fit_model``."""
+    resolved = getattr(self, "_train_or_test_", None)
+    return str(resolved if resolved is not None else getattr(self, "train_or_test", "")).lower() == "test"
+
+
 def _premerge_collapse(X, thr):
     """premerge_clusters: collapse |Pearson| >= thr clusters of X to one representative (first column of each
     cluster). Returns (X_reps, rep_members) where rep_members maps representative -> [member columns incl. rep]."""
@@ -386,20 +393,15 @@ def fit(self, X, y):
                 f"BorutaShap.fit: duplicate column names not supported: {dup_names[:10]}. "
                 f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
             )
-        # Ordinal-encode object / pandas-Categorical columns in self.X so
-        # the internal surrogate fit (Train_model) and the SHAP step
-        # downstream both see numeric features. Pre-fix iter-179 / iter-237
-        # path: when the suite's main cat-encoder is bypassed (polars-
-        # fastpath models / cat_enc=ordinal where the encoder ran on the
-        # polars-pre frame only), BorutaShap is fed a raw pandas frame
-        # with object dtype cat cols; LGB / XGB surrogates raise
-        # ``ValueError: could not convert string to float: 'A'`` and the
-        # entire feature-selection branch is lost. The codes are private
-        # to BorutaShap internals: ``transform`` returns ``X.iloc[:,
-        # indices]`` of the CALLER-supplied frame (not self.X), so the
-        # encoding never leaks into the downstream model's input. The CB
-        # path also benefits because cat_features=col_names still works
-        # on int codes (CB treats them as ordinal-encoded categories).
+        # Ordinal-encode object / pandas-Categorical columns in self.X so the internal surrogate fit (Train_model) and
+        # the SHAP step downstream both see numeric features. Pre-fix iter-179 / iter-237 path: when the suite's main
+        # cat-encoder is bypassed (polars- fastpath models / cat_enc=ordinal where the encoder ran on the polars-pre
+        # frame only), BorutaShap is fed a raw pandas frame with object dtype cat cols; LGB / XGB surrogates raise
+        # ``ValueError: could not convert string to float: 'A'`` and the entire feature-selection branch is lost. The
+        # codes are private to BorutaShap internals: ``transform`` returns ``X.iloc[:, indices]`` of the CALLER-
+        # supplied frame (not self.X), so the encoding never leaks into the downstream model's input. The CB path also
+        # benefits because cat_features=col_names still works on int codes (CB treats them as ordinal-encoded
+        # categories).
         _self_x_encoded_cols = self._ordinal_encode_object_cols_inplace(
             self.X,
         )
@@ -455,6 +457,7 @@ def fit(self, X, y):
             raise ValueError(f"BorutaShap.fit: n_trials must be >= 1, got {self.n_trials}.")
         pbar = tqdmu(range(self.n_trials), desc="Feature selection", disable=not self.verbose)
         for trial in pbar:
+            self._current_trial_ = trial  # seeds the opt-in per-trial holdout redraw
             self.remove_features_if_rejected()
             self.columns = self.X.columns.to_numpy()
             self.create_shadow_features()
@@ -600,19 +603,21 @@ def explain(self):
         dtype='object')
     """
 
+    # In train_or_test='test' mode the model was fitted on the 70% ``X_boruta_train`` slice, so that slice - not the full
+    # ``X_boruta``, which also holds the 30% the fit never saw - is the training distribution the explanation must use.
+    _train_slice = getattr(self, "X_boruta_train", None)
+    _fit_frame = _train_slice if _train_slice is not None and _uses_held_out_split(self) else self.X_boruta
     if self.sample:
         basis = self.find_sample()
     else:
-        basis = self.X_boruta
+        basis = _fit_frame
 
     # SHAP background must be the TRAIN slice - self.X_boruta = [self.X | shadow] and self.X was set in fit() from the caller-supplied X (train) via X.copy(). The shadow half is randomized from self.X column-wise so it stays train-distribution-aligned. Both invariants must hold for SHAP TreeExplainer (tree_path_dependent feature_perturbation) to produce attributions on the same distribution the surrogate model was trained on; mixing val/test rows here would let SHAP interpolate against held-out distribution and inflate borderline features' importance.
-    if hasattr(self, "X") and hasattr(self.X, "shape") and hasattr(self.X_boruta, "shape"):
-        _n_train = int(self.X.shape[0])
-        _n_basis = int(self.X_boruta.shape[0]) if not self.sample else int(basis.shape[0])
-        if not self.sample:
-            assert _n_basis == _n_train, (  # nosec B101 - internal invariant check in src/mlframe/feature_selection/boruta_shap, not reachable with untrusted input
-                f"BorutaShap: SHAP background row count ({_n_basis}) != train row count ({_n_train}); " f"val/test rows must not leak into the explainer basis."
-            )  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
+    # The unsampled basis IS the fitted slice by construction above. The assert that used to stand here compared the
+    # basis against ``self.X``, the full frame, so in 'test' mode it compared the full frame with itself and could not fire.
+    if hasattr(_fit_frame, "shape") and hasattr(basis, "shape"):
+        _n_train = int(_fit_frame.shape[0])
+        _n_basis = int(basis.shape[0])
         logger.info(
             "BorutaShap: SHAP TreeExplainer fitted on train background (n_train=%d, n_basis=%d, sampled=%s)",
             _n_train, _n_basis, bool(self.sample),

@@ -62,6 +62,7 @@ from ._main_train_suite_encoding import (
     _assert_suite_return_shape,
     _encode_string_multiclass_target,
 )
+from ._phase_helpers_fit_pipeline import extensions_with_split_seed
 from ._main_train_suite_polars_gate import any_pipeline_stage_requested, needs_polars_pre_clone
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df, mirror_split_outputs_to_ctx  # noqa: F401
 from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification  # noqa: F401
@@ -462,7 +463,7 @@ def train_mlframe_models_suite(
             pipeline_config=pipeline_config,
             preprocessing_config=preprocessing_config,
             feature_types_config=feature_types_config,
-            preprocessing_extensions=preprocessing_extensions,
+            preprocessing_extensions=extensions_with_split_seed(preprocessing_extensions, getattr(split_config, "random_seed", None)),
             metadata=metadata,
             verbose=bool(verbose),
             # Threaded through so apply_preprocessing_extensions can grab a 1-D

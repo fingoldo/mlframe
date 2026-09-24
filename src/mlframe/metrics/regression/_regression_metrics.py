@@ -42,17 +42,17 @@ from __future__ import annotations
 
 from typing import Dict, Union
 
-import os
 
 import numpy as np
 import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD, _check_equal_length
+from mlframe.utils.env_flags import env_int
 
 # Max-error gets its own (higher) crossover: the prange ``max`` reduction carries more per-launch overhead than the ``+=``
 # reductions of MAE/MSE/R2, so it only nets positive at large n (~2-4x at 5-10M, a wash below ~1M -- bench
 # bench_fast_max_error_par_iter130.py). Conservative 5M default; override per-host via the env var.
-_MAX_ERROR_PAR_THRESHOLD: int = int(os.environ.get("MLFRAME_MAX_ERROR_PAR_THRESHOLD", "5000000"))
+_MAX_ERROR_PAR_THRESHOLD: int = env_int("MLFRAME_MAX_ERROR_PAR_THRESHOLD", 5000000, minimum=0)
 
 
 # ---------- 1-D unweighted ----------

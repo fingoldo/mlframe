@@ -157,7 +157,9 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             # through to the magnitude-only path so the never-empty guarantee still holds.
             from ..permutation import mi_direct as _mi_direct_fb
             from ..info_theory import mi as _mi_pair_fb
-            _signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
+            from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
+
+            _signif_alpha = mrmr_null_signif_alpha()
             _redundancy_frac = float(os.environ.get("MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC", "0.5"))
             _q_dtype = getattr(self, "quantization_dtype", np.int32)
             _accepted: list = []  # input-space indices accepted into the rescue
