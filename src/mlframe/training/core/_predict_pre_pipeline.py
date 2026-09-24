@@ -139,6 +139,7 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
     # frame minus the expected pca0..pcaN extension cols and crashes with
     # "expects features missing from input: ['pca0', ...]". Surfaced by
     # iter-49 300k seed=13 cb-regression where dim_reducer=PCA was on.
+    _df_in = df  # the non-numeric columns fit time passed around the pipeline are re-attached from here
     _fit_feature_names = getattr(ext_pipeline, "feature_names_in_", None)
     if _fit_feature_names is not None and isinstance(df, pd.DataFrame):
         _fit_list = [str(_c) for _c in _fit_feature_names]
@@ -182,7 +183,7 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
     if _is_sparse:
         try:
             from ..pipeline import sparse_df_from_spmatrix
-            return sparse_df_from_spmatrix(_arr, _names, df.index)
+            return _reattach_passthrough(sparse_df_from_spmatrix(_arr, _names, df.index), _df_in, ext_pipeline)
         except Exception as e:
             # This is the one handler in the file that changes RESOURCE behaviour rather than a value: a wide
             # TF-IDF or one-hot output deliberately kept sparse is materialised dense, which on the frame sizes
@@ -201,7 +202,14 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
                 _dense_bytes / 1e9,
             )
             _arr = _arr.toarray()
-    return pd.DataFrame(_arr, columns=_names, index=df.index)
+    return _reattach_passthrough(pd.DataFrame(_arr, columns=_names, index=df.index), _df_in, ext_pipeline)
+
+
+def _reattach_passthrough(out: pd.DataFrame, df_in: Any, ext_pipeline: Any) -> pd.DataFrame:
+    """Append the non-numeric columns fit time passed around the extension pipeline (``_mlframe_passthrough_columns_``)."""
+    cols = [c for c in (getattr(ext_pipeline, "_mlframe_passthrough_columns_", None) or []) if c in getattr(df_in, "columns", ()) and c not in out.columns]
+    return pd.concat([out, df_in[cols].set_axis(out.index)], axis=1) if cols else out
+
 
 def _apply_row_wise_extensions(df: Any, config: Optional[dict], verbose: int = 0) -> Any:
     """Recompute row-wise extension columns (row_summary_*/row_extreme_*) on a predict-time frame.

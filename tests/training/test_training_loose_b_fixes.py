@@ -54,8 +54,11 @@ def test_f1_degradation_augment_match_noise_level_shares_memory_for_non_numeric_
 
     rng = np.random.default_rng(0)
     n = 200
-    X_train = pd.DataFrame({"num": rng.normal(size=n), "cat": pd.array(["a", "b"] * (n // 2), dtype="string")})
-    X_test = pd.DataFrame({"num": rng.normal(scale=3.0, size=n), "cat": pd.array(["a", "b"] * (n // 2), dtype="string")})
+    # A numpy-backed object column: an arrow-backed ``string`` column shares its immutable buffers even across a DEEP copy
+    # and builds a fresh array on every ``to_numpy()``, so it can neither show nor rule out the copy this test is about.
+    X_train = pd.DataFrame({"num": rng.normal(size=n), "cat": pd.Series(["a", "b"] * (n // 2), dtype=object)})
+    X_test = pd.DataFrame({"num": rng.normal(scale=3.0, size=n), "cat": pd.Series(["a", "b"] * (n // 2), dtype=object)})
+    assert not np.shares_memory(X_train.copy(deep=True)["cat"].to_numpy(), X_train["cat"].to_numpy())  # the check can fail
 
     out = match_noise_level(X_train, X_test, np.random.default_rng(1))
     # The non-numeric column was never touched by this function -- a deep=False copy means it shares

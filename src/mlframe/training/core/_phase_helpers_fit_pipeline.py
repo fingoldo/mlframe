@@ -447,8 +447,27 @@ def _phase_fit_pipeline(
     # discovery + two-step target encoding) that need a supervised signal. Cheap no-op when unused.
     # target_by_type carries the PRE-split full target -- slice to train_idx (mirrors the PySR
     # extraction below) so these steps never see val/test rows' targets.
+    # Columns the composite-FE steps below add are replayed at predict; the input validator must accept them.
+    _cols_before_composite = list(train_df.columns) if train_df is not None and hasattr(train_df, "columns") else []
+
+    # More than one target: the label-supervised composite steps are fitted per target (``_per_target_supervised_fe``);
+    # the suite-level blocks below then run only their unsupervised parts.
+    from ..pipeline._per_target_supervised_fe import apply_per_target_supervised_fe, iter_targets, supervised_steps_enabled
+
+    _per_target_targets = iter_targets(target_by_type) if supervised_steps_enabled(preprocessing_extensions) and hasattr(target_by_type, "items") else []
+    _per_target_mode = len(_per_target_targets) > 1
+    if _per_target_mode:
+        train_df, val_df, test_df = apply_per_target_supervised_fe(
+            train_df, val_df, test_df, preprocessing_extensions, _per_target_targets, train_idx, group_ids, timestamps, val_idx, test_idx,
+            metadata, verbose=verbose,
+        )
+        _extensions_as_configured = preprocessing_extensions
+        preprocessing_extensions = preprocessing_extensions.model_copy(
+            update={"categorical_group_concat_auto_enabled": False, "two_step_target_encode_columns": None}
+        )
+
     _y_for_composite = None
-    if target_by_type is not None and hasattr(target_by_type, "items"):
+    if not _per_target_mode and target_by_type is not None and hasattr(target_by_type, "items"):
         try:
             _y_for_composite = _composite_fe_supervised_target(target_by_type, metadata)
         except Exception as e:
@@ -552,6 +571,12 @@ def _phase_fit_pipeline(
             train_df, val_df, test_df, preprocessing_extensions, timestamps,
             train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
         )
+
+    if _per_target_mode:  # the shared blocks above are done; everything after (and the caller) sees the config as configured
+        preprocessing_extensions = _extensions_as_configured
+    if train_df is not None and hasattr(train_df, "columns"):
+        _before = set(_cols_before_composite)
+        metadata["composite_fe_emitted_columns"] = [c for c in train_df.columns if c not in _before]
 
     t0_fit_pipeline = timer()
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
@@ -764,6 +789,9 @@ def _phase_fit_pipeline(
         logger.debug("swallowed exception in _phase_helpers_fit_pipeline.py: %s", e)
         pass
     _post_cols = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else list(train_df.columns)
+    # On a polars run the pandas-tier frame here does not carry the categorical columns (polars-native models read them from
+    # the polars frames), so they were missing from the recorded schema although the model is fitted on them; list them.
+    _post_cols = _post_cols + [c for c in (cat_features or []) if c not in set(_post_cols)]
     # SKEW-COL-ORDER: write the explicit "post_pipeline_columns" name AND the legacy "columns" alias. ``_post_cols`` is already a freshly built list; reuse
     # the same reference under both keys so an in-place mutation by one downstream consumer is visible under the other (the historical aliasing contract).
     metadata["post_pipeline_columns"] = _post_cols

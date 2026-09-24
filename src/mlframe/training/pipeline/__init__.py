@@ -209,6 +209,21 @@ def _build_dim_reducer(name: str, n_components: int, random_state: int):
     return factories[name]()
 
 
+def pysr_predict_column(model, df, index: int):
+    """One PySR equation evaluated on ``df``, as float32 - the ONE evaluation fit time and predict time share.
+
+    The equation sees only the columns the model was fitted on, in float64: at fit time the frame could carry other
+    dtypes (and the columns earlier equations added) than the float32 frame a caller replays on, and evaluating the same
+    equation on float32 vs float64 inputs differed in the last bit of the float32 result, so a reloaded model did not
+    reproduce its own training features.
+    """
+    import numpy as _np
+
+    cols = [str(c) for c in (getattr(model, "feature_names_in_", None) if getattr(model, "feature_names_in_", None) is not None else df.columns)]
+    X = df[cols].astype(_np.float64) if hasattr(df, "astype") else df
+    return _np.asarray(model.predict(X, index=index), dtype=_np.float32)
+
+
 class PySRTransformer:
     """Persisted PySR symbolic-FE step. Holds the fitted ``PySRRegressor`` plus
     the (column_name -> equation_index) map selected at train time, and
@@ -234,7 +249,7 @@ class PySRTransformer:
         for _col, _idx in self.col_to_index.items():
             if _col in df.columns:
                 continue
-            df[_col] = _np.asarray(self.model.predict(df, index=int(_idx)), dtype=_np.float32)
+            df[_col] = pysr_predict_column(self.model, df, int(_idx))
         return df
 
     # Mirror sklearn-pipeline-ish access so ``get_feature_names_out`` callers

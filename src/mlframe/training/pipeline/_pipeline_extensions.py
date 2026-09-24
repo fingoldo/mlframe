@@ -295,6 +295,20 @@ def _filter_to_numeric(_df, keep_cols=None):
     return _df[_num_cols], _dropped
 
 
+def _with_passthrough(outs: tuple, pre: tuple, cols: list) -> tuple:
+    """Each output frame with the set-aside non-numeric ``cols`` of its pre-filter frame appended (index-aligned)."""
+    if not cols:
+        return outs
+    result = []
+    for out, src in zip(outs, pre):
+        if out is None or src is None:
+            result.append(out)
+            continue
+        present = [c for c in cols if c in src.columns and c not in out.columns]
+        result.append(pd.concat([out, src[present].set_axis(out.index)], axis=1) if present else out)
+    return tuple(result)
+
+
 def apply_preprocessing_extensions(
     train_df,
     val_df,
@@ -538,22 +552,28 @@ def apply_preprocessing_extensions(
     # Note: the cat-encoder pre-pipeline normally runs BEFORE this function, so under standard configs this drop is a no-op. The gate exists to keep production callers + the 1M profiler harness robust against axis combinations where cat_encoding canonicalised to a path that bypassed the encoder.
 
     t0_numeric_filter = timer()
+    # The non-numeric columns (categorical / text the models consume natively, e.g. CatBoost cat_features) are set ASIDE
+    # here, not dropped: the numeric extension steps run on the rest and the aside columns are re-attached to every output
+    # (``_with_passthrough``), and predict does the same (``_mlframe_passthrough_columns_`` on the fitted pipe). Dropping
+    # them cost every suite whose default-on row-wise steps were active its categorical features, silently for CatBoost.
+    _pre_filter = (train, val, test)
     # Decide the kept-numeric column set ONCE on train, then pin val/test to the SAME list so a column that is numeric on train but object on val (or vice versa) can't silently diverge the per-split schema and break the downstream sklearn transform.
     train, _dropped_train = _filter_to_numeric(train)
     _kept_train = list(train.columns) if isinstance(train, pd.DataFrame) else None
     val, _ = _filter_to_numeric(val, keep_cols=_kept_train)
     test, _ = _filter_to_numeric(test, keep_cols=_kept_train)
-    if _dropped_train:
-        logger.warning(
-            # Say that they are DROPPED, because they are: ``train`` is rebound to the filtered frame just above,
-            # so these columns are absent from what this function returns and therefore from what the model is
-            # fitted on. The previous wording claimed they "remain in the frame the model is fitted on", which
-            # reads as reassurance about a column that has in fact just been removed.
-            "apply_preprocessing_extensions: %d non-numeric column(s) dropped from the extension pipeline "
-            "(kbins / polynomial / scaler / dim_reducer all reject object dtype), so they do not reach the "
-            "model either: %s. Encode these upstream (e.g. via OrdinalEncoder / OneHotEncoder in the suite's "
-            "cat-encoder pre-pipeline) if you want them kept and transformed.",
-            len(_dropped_train), _dropped_train[:8],
+    # Only categorical-like columns pass through (what the models consume natively as cat / text features); a timedelta,
+    # datetime or other non-numeric leftover stays dropped, as no model in the suite takes it raw.
+    _pre_train = _pre_filter[0]
+    _passthrough = [
+        c for c in (_dropped_train or [])
+        if isinstance(_pre_train, pd.DataFrame) and c in _pre_train.columns
+        and (pd.api.types.is_object_dtype(_pre_train[c]) or pd.api.types.is_string_dtype(_pre_train[c]) or isinstance(_pre_train[c].dtype, pd.CategoricalDtype))
+    ]
+    if _passthrough and verbose:
+        logger.info(
+            "apply_preprocessing_extensions: %d non-numeric column(s) bypass the numeric extension steps and pass through "
+            "unchanged to the model: %s.", len(_passthrough), _passthrough[:8],
         )
 
     # All-null column filter. SimpleImputer(strategy="median") silently
@@ -711,6 +731,7 @@ def apply_preprocessing_extensions(
             # PySR / TF-IDF applied but no sklearn pipeline. Bundle so predict-time
             # replay sees the PySR transformer; legacy raw-dict shape is used only
             # when PySR is absent so untouched persisted artefacts keep loading.
+            train, val, test = _with_passthrough((train, val, test), _pre_filter, _passthrough)
             if _pysr_transformer is not None:
                 return train, val, test, PreprocessingExtensionsBundle(
                     pysr=_pysr_transformer, tfidf=tfidf_pipes or None, sklearn_pipe=None,
@@ -721,6 +742,7 @@ def apply_preprocessing_extensions(
             # sklearn-bridge stage ran. Return the augmented ``train``/``val``/``test`` (NOT the
             # original ``train_df``/``val_df``/``test_df``) so the new columns survive -- the prior
             # early-return here unconditionally discarded them since it only checked for PySR/TF-IDF.
+            train, val, test = _with_passthrough((train, val, test), _pre_filter, _passthrough)
             return train, val, test, None
         return train_df, val_df, test_df, None
 
@@ -783,6 +805,8 @@ def apply_preprocessing_extensions(
     train_out = _to_df(train_arr, train)
     val_out = _to_df(val_arr, val)
     test_out = _to_df(test_arr, test)
+    pipe._mlframe_passthrough_columns_ = _passthrough  # predict re-attaches the same columns after the transform
+    train_out, val_out, test_out = _with_passthrough((train_out, val_out, test_out), _pre_filter, _passthrough)
     # Two-level verbosity: caller-side ``verbose`` (function-level kill switch)
     # AND ``config.verbose_logging`` (per-config opt-out for this stage when
     # batching many folds whose output would drown the log). WARN paths above

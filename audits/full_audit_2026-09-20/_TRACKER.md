@@ -21,7 +21,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT |
 |---|---|---|---|---|---|---|
-| `training_core.md` | 13 | 11 | 1 | 0 | 0 | 1 |
+| `training_core.md` | 13 | 12 | 0 | 0 | 0 | 1 |
 | `feature_selection.md` | 21 | 19 | 1 | 0 | 1 | 0 |
 | `feature_engineering.md` | 14 | 14 | 0 | 0 | 0 | 0 |
 | `metrics.md` | 18 | 16 | 0 | 0 | 2 | 0 |
@@ -31,7 +31,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `performance.md` | 7 | 7 | 0 | 0 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 12 | 0 | 0 | 0 | 0 |
 | `config_contracts.md` | 32 | 30 | 0 | 0 | 0 | 2 |
-| **Total** | **165** | **157** | **2** | **0** | **3** | **3** |
+| **Total** | **165** | **158** | **1** | **0** | **3** | **3** |
 
 Queued after every finding above is implemented: [complexity_refactor.md](complexity_refactor.md) - 193 production
 functions over a McCabe complexity of 25 (threshold confirmed by the project owner) plus the blocking ratchet gate
@@ -45,7 +45,7 @@ least one of its findings moves).
 
 | Status | Report | Findings | Area |
 |---|---|---|---|
-| **PARTIAL** | [training_core.md](training_core.md) | 13 | suite orchestration, splits, booster dataset reuse (all 13 dispositioned: 11 fixed, TRC-10 PARTIAL, TRC-01 not a defect) |
+| **CLOSED** | [training_core.md](training_core.md) | 13 | suite orchestration, splits, booster dataset reuse (12 fixed, TRC-01 not a defect) |
 | **PARTIAL** | [feature_selection.md](feature_selection.md) | 21 | feature selection (FS-01, FS-02, FS-03 fixed) |
 | **CLOSED** | [feature_engineering.md](feature_engineering.md) | 14 | feature engineering and preprocessing (all 14 fixed) |
 | **CLOSED** | [metrics.md](metrics.md) | 18 | metrics and calibration (16 fixed incl. MET-18 found during implementation; MET-08 and MET-16 rejected) |
@@ -89,6 +89,14 @@ Test failures met while verifying this wave that are NOT caused by it: each was 
 
 | Test | Pre-wave result | Note |
 |---|---|---|
+| Default suite trained CatBoost without its categorical columns | failed on `origin/master` | FIXED here (found building TRC-10's end-to-end test): the default-on row-wise extension steps ran the numeric-only filter of `apply_preprocessing_extensions`, which DROPPED every string / categorical column, so they stayed listed in `cat_features` while no model saw them. Categorical-like columns now pass around the numeric steps and are re-attached at fit and at predict (`_mlframe_passthrough_columns_`); timedelta and other non-numeric leftovers are still dropped. Pinned by `tests/training/test_categoricals_reach_the_model.py` |
+| Composite-FE columns replayed at predict were stripped before the model | failed on `origin/master` | FIXED here: the input validator allowed only raw input columns, so a replayed concat / target-encoding column was dropped as "extra" and the model trained on it could not predict. The fit phase records `metadata["composite_fe_emitted_columns"]` and the validator allows them. Same test file |
+| A pandas `category` column promoted to text reached CatBoost as `category` | unreachable on master (the column was dropped) | FIXED here: text features are cast to strings after type detection (`_categorical_text_to_string`). Pinned by `test_high_cardinality_cat_column_trains_successfully` |
+| `metadata["columns"]` on a polars run omitted the categorical columns the model is fitted on | wrong on master | FIXED here: the recorded schema lists the declared cat features. Pinned by `test_polars_and_pandas_paths_produce_close_metrics` |
+| `charts["skipped"]` written as a list by the panel branch and as a dict by `_record_skipped` | TypeError on master when both fire | FIXED here: the panel branch writes name -> reason. Pinned by `tests/training/test_batch_e_registry_keys.py` (3 tests that crashed on it) |
+| `TestConfidenceAnalysis::test_confidence_analysis_basic` | failed on `origin/master` | FIXED here: the confidence regressor inherited the main model's `callbacks`, which CatBoost refuses on GPU and which belong to the main model's eval set anyway; they are removed from its fit params |
+| PySR columns drifted in the last float32 bit after a reload | failed intermittently | FIXED here: fit and predict evaluate every equation through one helper (`pysr_predict_column`) on the model's own feature columns in float64. Pinned by `tests/training/test_pysr_replay_parity.py` |
+| `test_f1_degradation_augment_match_noise_level_shares_memory_for_non_numeric_cols` | failed on `origin/master` | FIXED here (test): an arrow-backed `string` column shares buffers even across a deep copy and builds a new array on every `to_numpy()`, so the check could not observe the copy; it now uses a numpy-backed object column and proves a deep copy would fail it |
 | `tests/feature_selection/wrappers/test_wrappers_config_validation_and_stress.py::TestSkipRetrainingYContent` | failed on `origin/master` | FIXED here (stale fixture): on 3 columns both targets keep every column even on a fresh instance, so equal supports could not tell a refit from a replay. Now 6 columns, and the reused instance must reproduce a fresh fit's support for the second target |
 | `test_discovery_algo_version_bumped` | failed on `origin/master` | FIXED here: discovery sources changed without a bump; `DISCOVERY_ALGO_VERSION` 3 -> 4 |
 | Meta gates red on `origin/master` (15 tests) | same failures on `origin/master` 615fce57d | OPEN, owed as its own pass: new pyutilz / py-ci-shared checks landed without the code or baselines following. `test_code_audit_baseline` (22 src findings), `test_code_audit_tests_baseline` (24), `test_public_annotations` (27 functions), `test_no_value_bearing_asserts` (3 bench asserts), `test_no_underscore_imports_cross_package`, `test_no_new_nondiscriminating_assert`, `test_no_new_source_text_claims` (105 tests), `test_no_sklearn_metrics_in_production` (`preprocessing/auto_transform_select.py`), `test_no_new_unlocked_module_level_cache` (2), `test_no_unpaired_module_reload_in_tests` (1), `test_no_new_undocumented_public_symbols` (1), `test_no_new_pydoclint_findings` (1), `test_transform_name_tables_in_src_are_derived_or_explained` (1), `test_no_new_unguarded_scanning_gate` (7), `test_pipeline_extensions_sites_marked_best_effort` (count 1 != 3), `test_every_used_marker_is_registered` (`perf`), and two py-ci-shared checker bugs: `test_dev_requirements_git_dependencies_are_pinned_or_first_party` parses `requirements-dev.txt` as TOML, `test_version_consistent_across_sources` rejects a dynamic `[project].version` |

@@ -24,7 +24,6 @@ all three splits. The sklearn-bridge contract is now explicit:
 
 from __future__ import annotations
 
-import logging
 
 import numpy as np
 import pandas as pd
@@ -47,7 +46,7 @@ def _make_mixed_frame(n: int = 200, seed: int = 0) -> pd.DataFrame:
     )
 
 
-def test_polynomial_with_string_column_drops_string_no_crash(caplog) -> None:
+def test_polynomial_with_string_column_passes_string_through_no_crash() -> None:
     """The polynomial-degree=2 path on a frame with cat_mid='M03' must
     not raise. Pre-fix this surfaced as ``ValueError: The truth value
     of an array with more than one element is ambiguous``."""
@@ -55,42 +54,28 @@ def test_polynomial_with_string_column_drops_string_no_crash(caplog) -> None:
     df_val = _make_mixed_frame(50, seed=1)
     df_test = _make_mixed_frame(50, seed=2)
     cfg = PreprocessingExtensionsConfig(polynomial_degree=2)
-    with caplog.at_level(logging.WARNING, logger="mlframe.training.pipeline"):
-        out = apply_preprocessing_extensions(
-            df_train,
-            df_val,
-            df_test,
-            cfg,
-            verbose=0,
-        )
+    out = apply_preprocessing_extensions(df_train, df_val, df_test, cfg, verbose=0)
     # Function returns (train, val, test, tfidf_pipes_or_None)
     assert out is not None
-    out_train, out_val, out_test, _ = out
+    out_train, out_val, out_test, pipe = out
     assert isinstance(out_train, pd.DataFrame)
-    # ``cat_mid`` must NOT appear in the output -- it was filtered
-    # before the sklearn-bridge ever saw it.
-    for _df, _label in ((out_train, "train"), (out_val, "val"), (out_test, "test")):
-        if _df is None:
-            continue
-        assert (
-            "cat_mid" not in _df.columns
-        ), f"cat_mid leaked into {_label} output -- the numeric-only filter at apply_preprocessing_extensions entry did not fire."
-    # The drop must be visible in the log (single WARN line with
-    # the dropped column names).
-    assert any(
-        "dropped" in rec.message and "cat_mid" in rec.message for rec in caplog.records
-    ), f"expected dropped-non-numeric WARN; got: {[r.message for r in caplog.records]}"
+    # ``cat_mid`` bypasses the numeric steps (no polynomial term is built from it) and reaches every split unchanged:
+    # dropping it here used to cost a CatBoost model its categorical feature.
+    for _df, _src, _label in ((out_train, df_train, "train"), (out_val, df_val, "val"), (out_test, df_test, "test")):
+        assert list(_df["cat_mid"]) == list(_src["cat_mid"]), f"cat_mid did not pass through {_label} unchanged"
+        assert not [c for c in _df.columns if "cat_mid" in c and c != "cat_mid"], "cat_mid was fed into a numeric step"
+    assert getattr(pipe, "_mlframe_passthrough_columns_", None) == ["cat_mid"]
 
 
 def test_scaler_with_object_column_no_truth_value_error() -> None:
     """RobustScaler is the other axis the 1M harness toggles. Same
-    contract: object dtype must be filtered, not leaked."""
+    contract: object dtype bypasses the numeric step and passes through."""
     df_train = _make_mixed_frame(150, seed=3)
     cfg = PreprocessingExtensionsConfig(scaler="RobustScaler")
     out = apply_preprocessing_extensions(df_train, None, None, cfg, verbose=0)
     assert out is not None
     out_train = out[0]
-    assert "cat_mid" not in out_train.columns
+    assert list(out_train["cat_mid"]) == list(df_train["cat_mid"])  # passed through, not scaled or dropped
 
 
 def test_all_numeric_frame_unchanged_by_filter() -> None:

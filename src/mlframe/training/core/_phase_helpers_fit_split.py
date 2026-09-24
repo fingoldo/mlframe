@@ -718,6 +718,9 @@ def _phase_auto_detect_feature_types(
     text_emb_set = set(text_features) | set(embedding_features)
     effective_cat_features = [c for c in raw_cat_features if c not in text_emb_set]
     _validate_feature_type_exclusivity(text_features, embedding_features, effective_cat_features)
+    # A pandas ``category`` column promoted to text keeps its category dtype, which CatBoost refuses for a text feature
+    # ("has dtype 'category' but is not in cat_features"); text is a string column on every path (polars keeps String).
+    train_df, val_df, test_df = (_categorical_text_to_string(_f, text_features) for _f in (train_df, val_df, test_df))
     cat_features = effective_cat_features
     metadata["cat_features"] = cat_features
 
@@ -834,3 +837,17 @@ def _phase_auto_detect_feature_types(
 # the 1k-LOC monolith threshold. ``_phase_train_val_test_split`` and
 # ``_phase_auto_detect_feature_types`` remain inline above.
 from ._phase_helpers_fit_pipeline import _phase_fit_pipeline  # noqa: F401
+
+
+def _categorical_text_to_string(df: Any, text_features: list) -> Any:
+    """``df`` with every text feature that is a pandas ``category`` turned into plain strings (missing -> "")."""
+    if not isinstance(df, pd.DataFrame) or not text_features:
+        return df
+    cols = [c for c in text_features if c in df.columns and isinstance(df[c].dtype, pd.CategoricalDtype)]
+    if not cols:
+        return df
+    df = df.copy(deep=False)
+    for c in cols:
+        df[c] = df[c].astype(object).where(df[c].notna(), "").astype(str)
+    return df
+

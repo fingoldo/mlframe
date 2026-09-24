@@ -119,6 +119,9 @@ def run_confidence_analysis(
         fit_params_copy = copy.copy(fit_params)
         if "eval_set" in fit_params_copy:
             del fit_params_copy["eval_set"]
+        # The main model's callbacks (visualisers, early-stopping hooks bound to ITS eval set) do not belong to this
+        # regressor, and CatBoost refuses user callbacks outright on GPU ("User defined callbacks are not supported").
+        fit_params_copy.pop("callbacks", None)
     if sample_weight is not None and "sample_weight" not in fit_params_copy:
         _sw_arr = np.asarray(sample_weight)
         if hasattr(test_df, "shape") and _sw_arr.shape[0] == test_df.shape[0]:

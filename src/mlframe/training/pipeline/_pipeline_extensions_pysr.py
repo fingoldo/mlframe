@@ -73,7 +73,7 @@ def _apply_pysr_fe(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from . import PySRTransformer, _maybe_set_pysr_thread_env
+    from . import PySRTransformer, _maybe_set_pysr_thread_env, pysr_predict_column
     if y_train is None:
         logger.warning(
             "_apply_pysr_fe: pysr_enabled=True but y_train was not passed in "
@@ -253,11 +253,11 @@ def _apply_pysr_fe(
         # absent across splits, and log the skip so the operator sees how many
         # equations were dropped.
         try:
-            train_df[col_name] = np.asarray(model.predict(train_df, index=idx), dtype=np.float32)
+            train_df[col_name] = pysr_predict_column(model, train_df, idx)
             if val_df is not None:
-                val_df[col_name] = np.asarray(model.predict(val_df, index=idx), dtype=np.float32)
+                val_df[col_name] = pysr_predict_column(model, val_df, idx)
             if test_df is not None:
-                test_df[col_name] = np.asarray(model.predict(test_df, index=idx), dtype=np.float32)
+                test_df[col_name] = pysr_predict_column(model, test_df, idx)
         except Exception as _eq_err:
             # Roll back any partial writes so train / val / test stay schema-consistent.
             for _frame in (train_df, val_df, test_df):

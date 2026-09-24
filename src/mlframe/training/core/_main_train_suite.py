@@ -63,6 +63,7 @@ from ._main_train_suite_encoding import (
     _encode_string_multiclass_target,
 )
 from ._phase_helpers_fit_pipeline import extensions_with_split_seed
+from ..pipeline._per_target_supervised_fe import target_scoped_frames
 from ._main_train_suite_polars_gate import any_pipeline_stage_requested, needs_polars_pre_clone
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df, mirror_split_outputs_to_ctx  # noqa: F401
 from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification  # noqa: F401
@@ -715,7 +716,9 @@ def train_mlframe_models_suite(
                     target_type, cur_target_name, cur_target_values, metadata,
                 )
                 targets[cur_target_name] = cur_target_values
-                pr._train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values)
+                # Other targets' label-supervised composite columns are hidden from this target's models.
+                with target_scoped_frames(ctx, target_type, cur_target_name):
+                    pr._train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values)
 
         export_votenrank_leaderboards(ctx=ctx, data_dir=data_dir, verbose=verbose)
 

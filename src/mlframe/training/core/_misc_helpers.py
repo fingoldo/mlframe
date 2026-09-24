@@ -377,6 +377,8 @@ def _validate_input_columns_against_metadata(
         for _period in _cyclical_period_names:
             _allowed.append(f"{_src}_{_period}_sin")
             _allowed.append(f"{_src}_{_period}_cos")
+    # Columns the predict-time composite-FE replays add (categorical concat, target encoding, per-target variants, ...).
+    _allowed.extend(metadata.get("composite_fe_emitted_columns") or [])
     _fte_emitted = metadata.get("ftextractor_emitted_columns") or {}
     for _emitted_list in _fte_emitted.values():
         if isinstance(_emitted_list, (list, tuple, set)):
