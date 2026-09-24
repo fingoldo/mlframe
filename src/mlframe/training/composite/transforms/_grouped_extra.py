@@ -203,7 +203,7 @@ def _rqr_grouped_median(
     history_base: np.ndarray | None = None, history_groups: np.ndarray | None = None, continuation: bool = False,
 ) -> np.ndarray:
     """Rolling median of ``base`` computed independently within each group's stable-order subsequence; each group's window also reads its
-    ``history_base`` rows and, under recurrence continuation (inverse only), its stored train tail."""
+    ``history_base`` rows and, under recurrence continuation (inverse only), its stored train tail (an unseen group: the ungrouped tail)."""
     from . import _canonical_group_key
     from .simple import _rqr_rolling_median
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
@@ -215,7 +215,9 @@ def _rqr_grouped_median(
         key = _canonical_group_key(g)
         parts = []
         if use_tail:
-            parts.append(np.asarray(params.get("per_group_tail_base", {}).get(key, []), dtype=np.float64))
+            # An unseen group continues from the ungrouped series' tail, the seed ``rolling_quantile_ratio`` uses; an empty
+            # prefix restarted its window cold, so its first k-1 rows took the median of a truncated window.
+            parts.append(np.asarray(params.get("per_group_tail_base", {}).get(key, params.get("tail_base", [])), dtype=np.float64))
         hist = _group_history(history_base, history_groups, key)
         if hist is not None:
             parts.append(hist)

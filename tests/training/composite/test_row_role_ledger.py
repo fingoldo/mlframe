@@ -93,3 +93,47 @@ def test_the_ledger_is_off_unless_enabled_and_rejects_unknown_roles(monkeypatch)
     assert not _row_roles._LOG
     with recording(), pytest.raises(ValueError):
         note_rows("test", "verdit", "typo")
+
+
+def _fit_report_collisions(log) -> dict[str, int]:
+    """Per decision (consumer), how many rows of one row set it both fitted on and reported on."""
+    out = {}
+    for c in {r.consumer for r in log}:
+        for s in {r.row_set for r in log if r.consumer == c}:
+            fit = [r.rows for r in log if r.consumer == c and r.row_set == s and r.role == "fit" and r.rows is not None]
+            rep = [r.rows for r in log if r.consumer == c and r.row_set == s and r.role == "report" and r.rows is not None]
+            if fit and rep:
+                out[c] = int(np.intersect1d(np.concatenate(fit), np.concatenate(rep)).size)
+    return out
+
+
+def _stack_gate_log(n: int):
+    """The ledger of the xt-ensemble fallback gate scoring an nnls stack on an ``n``-row OOF matrix."""
+    from mlframe.training.composite import CompositeCrossTargetEnsemble
+    from mlframe.training.core._phase_composite_post_xt_ensemble._crossfit import gate_stack_rmse
+
+    rng = np.random.default_rng(0)
+    y = rng.normal(size=n)
+    P = np.column_stack([y + rng.normal(0.0, s, n) for s in (0.5, 0.8, 1.2)])
+    comps = [object(), object(), object()]
+    with recording() as log:
+        ens = CompositeCrossTargetEnsemble.from_nnls_stack(component_models=comps, component_names=["a", "b", "c"], component_predictions=P, y_train=y)
+        rmse = gate_stack_rmse(CompositeCrossTargetEnsemble, "nnls_stack", comps, ["a", "b", "c"], P, y, P @ np.asarray(ens.weights))
+        reads = list(log)
+    assert np.isfinite(rmse)
+    return reads, n
+
+
+def test_the_xt_stack_gate_never_scores_weights_on_their_own_fit_rows():
+    """Each fold of the stack gate reports on OOF rows its weights were not fitted on, and every OOF row is reported once (EST-05)."""
+    reads, n = _stack_gate_log(400)
+    collisions = _fit_report_collisions(reads)
+    assert collisions and set(collisions.values()) == {0}, collisions
+    reported = np.concatenate([r.rows for r in reads if r.role == "report"])
+    assert np.array_equal(np.sort(reported), np.arange(n))
+
+
+def test_the_canary_sees_the_in_sample_stack_gate():
+    """Too few rows to cross-fit: the gate falls back to scoring the weights on their own fit rows, and the contract sees it."""
+    reads, n = _stack_gate_log(12)
+    assert _fit_report_collisions(reads) == {"xt_stack_gate[in-sample]": n}

@@ -78,3 +78,61 @@ def test_the_scans_see_what_they_claim_to_see():
     tree = ast.parse(src)
     assert heuristic_calls(tree) == [2]
     assert slot_writes(tree) == [3]
+
+
+# (c) One construction site per registry adapter. The extended registry once rebuilt six adapter tuples out of the same
+# fit/forward/inverse functions the base registry had wrapped, so the two copies could drift (one carried a fix, the other
+# did not). ``Transform(...)`` is built only in the registry modules and the chain factory, and a registry ``fit`` is
+# wrapped into a ``Transform`` in one module only. Sharing forward/inverse under a different fit is a different transform
+# (``linear_residual_multi_robust`` reuses the multi-base apply with a robust fit), so the adapter's identity is its fit.
+_TRANSFORM_BUILD_ALLOWED = {
+    "training/composite/transforms/registry.py",
+    "training/composite/transforms/_registry_extended.py",
+    "training/composite/transforms/nonlinear.py",  # the chain factories: they build from their arguments, not a fixed function
+}
+
+
+def transform_builds(tree: ast.Module) -> list[tuple[int, set[str]]]:
+    """``(line, {the module-level function passed as fit=})`` for every ``Transform(...)`` call."""
+    out = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call) and getattr(n.func, "id", getattr(n.func, "attr", None)) == "Transform":
+            fits = [k.value for k in n.keywords if k.arg == "fit"]
+            out.append((n.lineno, {v.id for v in fits if isinstance(v, ast.Name) and v.id.startswith("_")}))
+    return out
+
+
+def _adapter_findings(root: Path) -> tuple[list[str], dict[str, set[str]]]:
+    """Builds outside the allowed modules, and each wrapped function's set of building modules."""
+    outside, sites = [], {}
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root).as_posix()
+        if "_benchmarks" in path.parts:
+            continue
+        for line, funcs in transform_builds(parsed_ast(path)):
+            if rel not in _TRANSFORM_BUILD_ALLOWED:
+                outside.append(f"{rel}:{line}")
+            for f in funcs:
+                sites.setdefault(f, set()).add(rel)
+    return outside, sites
+
+
+def test_registry_adapters_have_one_construction_site():
+    """No ``Transform(...)`` outside the registry modules, and no fit wrapped into a ``Transform`` in two modules."""
+    outside, sites = _adapter_findings(_PKG)
+    assert not outside, f"Transform(...) built outside the registry modules: {outside}"
+    twice = {f: sorted(m) for f, m in sites.items() if len(m) > 1}
+    assert not twice, f"registry fits wrapped into a Transform in more than one module: {twice}"
+    assert sum(len(transform_builds(parsed_ast(_PKG / p))) for p in _TRANSFORM_BUILD_ALLOWED) >= 40, "the scan lost its subject"
+
+
+def test_the_adapter_rule_sees_a_rebuilt_adapter(tmp_path):
+    """Canary: a second module wrapping a registry function it does not own is reported."""
+    pkg = tmp_path / "mlframe" / "training" / "composite" / "transforms"
+    pkg.mkdir(parents=True)
+    (pkg / "registry.py").write_text("T = Transform(name='a', fit=_a_fit, forward=_a_fwd)\n", encoding="utf-8")
+    (pkg / "_registry_extended.py").write_text("T2 = Transform(name='a2', fit=_a_fit, forward=_a_fwd)\n", encoding="utf-8")
+    (pkg / "elsewhere.py").write_text("T3 = Transform(name='b', fit=_b_fit)\n", encoding="utf-8")
+    outside, sites = _adapter_findings(tmp_path / "mlframe")
+    assert outside == ["training/composite/transforms/elsewhere.py:1"]
+    assert sites["_a_fit"] == {"training/composite/transforms/registry.py", "training/composite/transforms/_registry_extended.py"}
