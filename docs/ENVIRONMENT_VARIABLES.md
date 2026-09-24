@@ -25,7 +25,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `ITER87_RESULTS` | `'D:/Temp/iter87_results.json'` | [src/mlframe/feature_selection/_benchmarks/bench_iter87_cumulative.py](../src/mlframe/feature_selection/_benchmarks/bench_iter87_cumulative.py#L212) |
 | `JULIA_NUM_THREADS` | `'?'` | [src/mlframe/training/_benchmarks/bench_pysr_fe.py](../src/mlframe/training/_benchmarks/bench_pysr_fe.py#L190) |
 | `KMP_DUPLICATE_LIB_OK` | `'TRUE'` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L68) |
-| `LOKY_MAX_CPU_COUNT` | — | [src/mlframe/training/__init__.py](../src/mlframe/training/__init__.py#L96) |
+| `LOKY_MAX_CPU_COUNT` | — | [src/mlframe/training/__init__.py](../src/mlframe/training/__init__.py#L95) |
 | `MDL_OLD_BASELINE` | `''` | [src/mlframe/feature_engineering/_benchmarks/bench_mdl_binning_split_iter81.py](../src/mlframe/feature_engineering/_benchmarks/bench_mdl_binning_split_iter81.py#L30) |
 | `MKL_NUM_THREADS` | `'2'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_union_backward_bench.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_union_backward_bench.py#L34) |
 | `MLFRAME_ALLOW_UNVERIFIED_PICKLE` | — | [src/mlframe/utils/safe_pickle.py](../src/mlframe/utils/safe_pickle.py#L44) |
@@ -57,7 +57,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_CMI_XC_RESIDENT` | `'1'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L428) |
 | `MLFRAME_CMI_YZ_HOIST` | `'1'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L725) |
 | `MLFRAME_CONFIDENCE_BLEND_BACKEND` | `''` | [src/mlframe/votenrank/confidence_gated_blend.py](../src/mlframe/votenrank/confidence_gated_blend.py#L190) |
-| `MLFRAME_CRASH_HEARTBEAT_S` | `''` | [src/mlframe/training/crash_diagnostics.py](../src/mlframe/training/crash_diagnostics.py#L320) |
+| `MLFRAME_CRASH_HEARTBEAT_S` | `''` | [src/mlframe/training/crash_diagnostics.py](../src/mlframe/training/crash_diagnostics.py#L324) |
 | `MLFRAME_CRASH_LOG_DIR` | `''` | [src/mlframe/training/crash_diagnostics.py](../src/mlframe/training/crash_diagnostics.py#L111) |
 | `MLFRAME_CRIT_DTYPE_RELAXED` | `'1'` | [src/mlframe/feature_selection/filters/_fe_gpu_batch/_devices.py](../src/mlframe/feature_selection/filters/_fe_gpu_batch/_devices.py#L60) |
 | `MLFRAME_CTX_STRICT` | — | [src/mlframe/training/core/_misc_helpers.py](../src/mlframe/training/core/_misc_helpers.py#L667) |
@@ -69,18 +69,18 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_DISABLE_COMPOSITE` | — | [src/mlframe/training/core/_phase_config_setup.py](../src/mlframe/training/core/_phase_config_setup.py#L115) |
 | `MLFRAME_DISABLE_GPU` | `''` | [src/mlframe/feature_selection/filters/_confirm_predictor.py](../src/mlframe/feature_selection/filters/_confirm_predictor.py#L451) |
 | `MLFRAME_DISABLE_HNSW` | `''` | [src/mlframe/feature_engineering/transformer/_knn_helper.py](../src/mlframe/feature_engineering/transformer/_knn_helper.py#L49) |
-| `MLFRAME_DISABLE_PREDICTION_ENVELOPE_CLIP` | — | [src/mlframe/training/_prediction_envelope_clip.py](../src/mlframe/training/_prediction_envelope_clip.py#L117) |
+| `MLFRAME_DISABLE_PREDICTION_ENVELOPE_CLIP` | — | [src/mlframe/training/_prediction_envelope_clip.py](../src/mlframe/training/_prediction_envelope_clip.py#L135) |
 | `MLFRAME_DISCOVERY_CACHE_MAX_BYTES` | — | [src/mlframe/training/composite/cache_store.py](../src/mlframe/training/composite/cache_store.py#L346) |
 | `MLFRAME_DISCOVERY_CACHE_STRICT` | — | [src/mlframe/training/composite/cache_store.py](../src/mlframe/training/composite/cache_store.py#L373) |
 | `MLFRAME_DISCOVERY_CACHE_TMP_AGE_S` | — | [src/mlframe/training/composite/cache_store.py](../src/mlframe/training/composite/cache_store.py#L474) |
-| `MLFRAME_DISCOVERY_LAZY_PREBIN` | `''` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L542) |
-| `MLFRAME_DISCOVERY_LAZY_PREBIN_MIN_N` | `'50000'` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L543) |
-| `MLFRAME_DISCOVERY_RAM_PROFILER` | `True` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L393) |
+| `MLFRAME_DISCOVERY_LAZY_PREBIN` | `''` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L548) |
+| `MLFRAME_DISCOVERY_LAZY_PREBIN_MIN_N` | `'50000'` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L549) |
+| `MLFRAME_DISCOVERY_RAM_PROFILER` | `True` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L399) |
 | `MLFRAME_DISCOVERY_SKIP_TINY_RERANK` | — | [src/mlframe/training/composite/discovery/_tiny_rerank.py](../src/mlframe/training/composite/discovery/_tiny_rerank.py#L104) |
 | `MLFRAME_DISCRETIZE_COL_CACHE` | `'1'` | [src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py](../src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py#L108) |
 | `MLFRAME_DISCRETIZE_COL_CACHE_MAX_BYTES` | `512 * 1024 * 1024` | [src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py](../src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py#L73) |
 | `MLFRAME_DISCRETIZE_FLOAT32` | `''` | [src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py](../src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py#L51) |
-| `MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD` | `50000` | [src/mlframe/feature_selection/filters/discretization/__init__.py](../src/mlframe/feature_selection/filters/discretization/__init__.py#L571) |
+| `MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD` | `50000` | [src/mlframe/feature_selection/filters/discretization/__init__.py](../src/mlframe/feature_selection/filters/discretization/__init__.py#L570) |
 | `MLFRAME_DTW_AUTOTUNE` | `'1'` | [src/mlframe/signal/dtw.py](../src/mlframe/signal/dtw.py#L535) |
 | `MLFRAME_DTW_BACKEND` | `''` | [src/mlframe/signal/dtw.py](../src/mlframe/signal/dtw.py#L566) |
 | `MLFRAME_EWMA_BACKEND` | `''` | [src/mlframe/training/composite/transforms/_nonlinear_ewma_fracdiff.py](../src/mlframe/training/composite/transforms/_nonlinear_ewma_fracdiff.py#L241) |
@@ -236,8 +236,8 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_POLYEVAL_CUDA_THRESHOLD` | `500000` | [src/mlframe/feature_selection/filters/hermite_fe/_hermite_oracle.py](../src/mlframe/feature_selection/filters/hermite_fe/_hermite_oracle.py#L22) |
 | `MLFRAME_POLYEVAL_ORACLE` | `'0'` | [src/mlframe/feature_selection/filters/hermite_fe/_hermite_oracle.py](../src/mlframe/feature_selection/filters/hermite_fe/_hermite_oracle.py#L62) |
 | `MLFRAME_POLYEVAL_PAR_THRESHOLD` | `50000` | [src/mlframe/feature_selection/filters/hermite_fe/_hermite_oracle.py](../src/mlframe/feature_selection/filters/hermite_fe/_hermite_oracle.py#L21) |
-| `MLFRAME_PREBIN_CACHE` | `True` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L551) |
-| `MLFRAME_PREBIN_CACHE_MAX_BYTES` | — | [src/mlframe/training/composite/cache.py](../src/mlframe/training/composite/cache.py#L383) |
+| `MLFRAME_PREBIN_CACHE` | `True` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L557) |
+| `MLFRAME_PREBIN_CACHE_MAX_BYTES` | — | [src/mlframe/training/composite/cache.py](../src/mlframe/training/composite/cache.py#L386) |
 | `MLFRAME_PREWARM_HEAVY_LIBS` | `''` | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L603) |
 | `MLFRAME_PRE_PIPELINE_CACHE_MAX` | `8` | [src/mlframe/training/pipeline/_pipeline_cache.py](../src/mlframe/training/pipeline/_pipeline_cache.py#L74) |
 | `MLFRAME_PRE_PIPELINE_CACHE_MAX_BYTES` | `0` | [src/mlframe/training/pipeline/_pipeline_cache.py](../src/mlframe/training/pipeline/_pipeline_cache.py#L75) |
