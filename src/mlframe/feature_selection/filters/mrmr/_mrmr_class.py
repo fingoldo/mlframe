@@ -313,6 +313,18 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         ("fe_escalation_underdelivery_enable", False),
     )
 
+    # Knobs whose constructor default is ``None`` meaning "auto": resolved at the start of each fit to the fast-search
+    # value above when ``fe_fast_search`` is on, else to the package value here, and put back to ``None`` afterwards.
+    # They used to default to the package value itself, and the profile overrides only a knob still AT its default -
+    # so an explicit ``fe_stability_vote_enable=True`` was indistinguishable from not passing it and was silently
+    # turned off. ``sklearn.clone`` passes every parameter back to the constructor, so "what the caller passed" cannot
+    # be tracked any other way; a distinct auto value is the one that survives a clone.
+    _AUTO_KNOB_DEFAULTS = (
+        ("fe_stability_vote_enable", True),
+        ("fe_escalation_underdelivery_enable", True),
+        ("fe_pair_prewarp_enable", True),
+    )
+
     # DEFAULT screen-subsample for the MI/FE candidate search, resolved (HW/size-aware) via the
     # kernel_tuning_cache. This is the FEATURE-RECOVERY default (distinct from the bit-stability
     # ``_fast_search_default_subsample_n`` 90k fallback): the FE MI-sweep / polynom-pair / conditional-gate
@@ -655,7 +667,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # fold-specific NOISE survivors with no measured loss of genuine signal recovery
         # at negligible cost. Self-gates to a no-op below 2 unary_binary survivors / k<2 /
         # tiny n. Set False to byte-reproduce the pre-vote support.
-        fe_stability_vote_enable: bool = True,
+        # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
+        # or False is honoured whatever fe_fast_search says.
+        fe_stability_vote_enable: Optional[bool] = None,
         # Number of held-out folds for the stability vote (>= 2; below 2 the vote is a
         # structural no-op). 5 mirrors the backlog spec - enough folds that a genuine
         # recipe clears the quorum comfortably while a single-fold-quirk winner fails.
@@ -799,7 +813,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # the capture's OWN finer-binning refinement CMI(capture@2*nbins; y |
         # capture@nbins). Measured: complete captures 0.70-2.44, the sin-fixture
         # envelope junk capture 14.6 - 3.0 separates with margin on both sides.
-        fe_escalation_underdelivery_enable: bool = True,
+        # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
+        # or False is honoured whatever fe_fast_search says.
+        fe_escalation_underdelivery_enable: Optional[bool] = None,
         fe_escalation_underdelivery_excess_frac: float = 0.05,
         fe_escalation_underdelivery_self_ratio: float = 3.0,
         # PREVALENCE-FAILED SYNERGY RESCUE (2026-06-12, F2 a**2/b miss, default-ON). A
@@ -1144,7 +1160,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # solve (~5ms/pair, cProfile-confirmed negligible) AND is uplift-gated +
         # noise/linear-clean, so it is a free accuracy win: ON by default per the
         # "accuracy-improving mechanisms default-on" policy. Set False to disable.
-        fe_pair_prewarp_enable: bool = True,
+        # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
+        # or False is honoured whatever fe_fast_search says.
+        fe_pair_prewarp_enable: Optional[bool] = None,
         fe_pair_prewarp_basis: str = "chebyshev",
         fe_pair_prewarp_max_degree: int = 4,
         # PER-OPERAND MEDIAN GATE for the elementary unary/binary
@@ -3961,12 +3979,20 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             logger.debug("mrmr: default screen-subsample application failed; screening at full n: %r", exc, exc_info=True)
             _default_screen_saved = {}
         _fast_search_saved: dict = {}
-        if bool(getattr(self, "fe_fast_search", False)):
+        # Resolve the auto knobs first; an explicit True/False is never touched, and the fast-search pass below leaves
+        # these alone because a resolved value no longer equals the None default it compares against.
+        _fast_values = dict(self._FAST_SEARCH_OVERRIDES)
+        _fast_on = bool(getattr(self, "fe_fast_search", False))
+        for _auto_attr, _pkg_value in self._AUTO_KNOB_DEFAULTS:
+            if getattr(self, _auto_attr, None) is None:
+                _fast_search_saved[_auto_attr] = None
+                setattr(self, _auto_attr, _fast_values[_auto_attr] if (_fast_on and _auto_attr in _fast_values) else _pkg_value)
+        if _fast_on:
             try:
-                _fast_search_saved = self._apply_fast_search_profile()
+                _fast_search_saved.update(self._apply_fast_search_profile())
             except Exception as exc:
+                # No reset of the saved map: it already holds the auto-knob entries above, which still need restoring.
                 logger.debug("mrmr: fast-search profile application failed; using unmodified knobs: %r", exc, exc_info=True)
-                _fast_search_saved = {}
         # LAZY ctor-alias reconciliation (sklearn ``get_params`` stays byte-identical to what the user
         # passed). The constructor no longer promotes ``random_state`` -> ``random_seed``; that is
         # resolved HERE and the EFFECTIVE value is written onto the public attr for the fit duration so

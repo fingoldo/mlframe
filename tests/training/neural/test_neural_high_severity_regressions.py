@@ -407,6 +407,32 @@ def test_h_neu_16_ranks_within_group_equivalent_and_faster() -> None:
     fast_out = _r._ranks_within_group(scores, group_starts)
     np.testing.assert_array_equal(naive_out, fast_out)
 
+    # The optimisation is "no per-group Python work". Count Python and C calls made by the vectorised path: the count
+    # must not grow with the number of groups. This is deterministic, so it holds on any runner, however slow or
+    # loaded; a regression back to a per-group loop makes the count grow tenfold here.
+    import sys
+
+    def _calls(n_g: int) -> int:
+        """Python + C function calls made by one vectorised ranking over ``n_g`` groups."""
+        starts = np.arange(0, n_g * docs_per + 1, docs_per, dtype=np.intp)
+        sub = scores[: n_g * docs_per]
+        count = [0]
+
+        def _prof(frame, event, arg):
+            """Count call events."""
+            if event in ("call", "c_call"):
+                count[0] += 1
+
+        sys.setprofile(_prof)
+        try:
+            _r._ranks_within_group(sub, starts)
+        finally:
+            sys.setprofile(None)
+        return count[0]
+
+    calls_small, calls_large = _calls(1_000), _calls(10_000)
+    assert calls_large <= calls_small + 5, f"call count grows with group count ({calls_small} -> {calls_large}): per-group work is back"
+
     if running_under_xdist():
         pytest.skip("timing comparison flakes under -n contention; equivalence asserted above")
 
@@ -421,6 +447,8 @@ def test_h_neu_16_ranks_within_group_equivalent_and_faster() -> None:
             repeat=5,
         )
     )
-    # Vectorised lexsort must beat the per-group Python argsort loop on 5k groups.
-    assert t_fast < t_naive, f"vectorised={t_fast:.3f}s naive={t_naive:.3f}s"
+    # The wall-clock margin depends on the runner: on the dev host the vectorised path wins clearly, but on macOS CI
+    # runners (fast per-call numpy, slow large sorts) the two came out within 10% of each other (0.94s vs 0.86s). The
+    # structural check above is what pins the optimisation; this one catches the vectorised path becoming much slower.
+    assert t_fast < 1.5 * t_naive, f"vectorised={t_fast:.3f}s naive={t_naive:.3f}s"
     print(f"[H-NEU-16] naive={t_naive:.3f}s  vectorised={t_fast:.3f}s  speedup={t_naive / t_fast:.1f}x")

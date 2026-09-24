@@ -274,9 +274,8 @@ def test_bizvalue_noise_survivor_reduction():
     """The decisive win: across several noise frames (gates relaxed so noise
     slips the in-fit gate), the default-on vote cuts the total fold-specific
     engineered survivors strictly below the no-vote count -- toward 0."""
-    # fe_fast_search=False: the fast-search profile (default-on) overrides fe_stability_vote_enable to False for the
-    # duration of a fit whenever it is at its default, and True IS the default, so without this the 'vote on' arm
-    # silently ran with the vote off.
+    # fe_fast_search=False keeps the fast-search profile out of a test about the vote. (Under that profile an explicit
+    # fe_stability_vote_enable=True used to be silently overridden; the knob now defaults to None, so it is honoured.)
     base = dict(verbose=0, random_seed=42, n_jobs=1, fe_smart_polynom_iters=0, fe_fast_search=False, **RELAXED)
     tot_off = tot_on = 0
     for seed in range(4):

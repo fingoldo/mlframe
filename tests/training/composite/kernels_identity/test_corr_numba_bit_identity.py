@@ -16,6 +16,7 @@ kernel (or makes it slower than numpy) trips.
 
 from __future__ import annotations
 
+import os
 import time
 
 import numpy as np
@@ -118,6 +119,40 @@ class TestCorrNumbaBitIdentity:
 class TestCorrNumbaBizValue:
     """Groups tests covering corr numba biz value."""
     @skip_under_numba_disabled_jit
+    def test_kernel_engaged_at_production_shape(self, monkeypatch) -> None:
+        """At the production shape the size gate routes to the kernel, which runs once for all columns, and the numpy
+        reference is not asked to redo the whole frame. Deterministic, unlike the speed check below."""
+        from mlframe.training.composite.discovery import _corr_numba, _ktc_dispatch
+
+        monkeypatch.delenv(_ktc_dispatch._CORR_ENV, raising=False)
+        # Take the hardcoded size gate, not the per-host tuning cache, whose measured crossover is host-dependent.
+        monkeypatch.setattr(_ktc_dispatch, "_lookup_backend", lambda *a, fallback, **k: fallback)
+        kernel_calls: list = []
+        real_kernel = _corr_numba._abs_corr_all_kernel
+
+        def _spy(X, *a):
+            """Record the kernel call's column count, then run it."""
+            kernel_calls.append(X.shape[1])
+            return real_kernel(X, *a)
+
+        monkeypatch.setattr(_corr_numba, "_abs_corr_all_kernel", _spy)
+        ref_calls: list = []
+
+        def _ref(y, X):
+            """Record a whole-frame reference call."""
+            ref_calls.append(X.shape)
+            return _safe_abs_corr_all_numpy(y, X)
+
+        rng = np.random.default_rng(0)
+        n, f = 50_000, 200
+        X = rng.normal(size=(n, f))
+        y = X[:, 0] * 0.6 + rng.normal(size=n)
+        got = safe_abs_corr_all_dispatch(y, X, reference_fn=_ref)
+        assert kernel_calls == [f], f"kernel calls: {kernel_calls}"
+        assert ref_calls == [], f"the numpy reference redid the whole frame: {ref_calls}"
+        np.testing.assert_allclose(got, _safe_abs_corr_all_numpy(y, X), rtol=0, atol=1e-9)
+
+    @skip_under_numba_disabled_jit
     @pytest.mark.flaky(reruns=4, reruns_delay=2, only_rerun=["AssertionError"])
     def test_biz_kernel_faster_than_numpy_at_production_shape(self) -> None:
         """Floor 1.2x; measured ~6.7x on the dev host (n=50k, F=200, 16 physical cores). CI's runner
@@ -147,11 +182,22 @@ class TestCorrNumbaBizValue:
         t_np = _best(_safe_abs_corr_all_numpy)
         t_nb = _best(_dispatch)
         speedup = t_np / t_nb if t_nb > 0 else float("inf")
+        # The kernel's win is prange parallelism, so it scales with physical cores. On a 2-vCPU runner (the macOS legs
+        # measured 0.77x-0.95x against Accelerate-backed numpy) there is no win to demand; there the floor only catches
+        # the kernel becoming far slower. That the kernel is actually dispatched is pinned by
+        # test_kernel_engaged_at_production_shape, which does not depend on the runner.
+        try:
+            import psutil
+
+            cores = psutil.cpu_count(logical=False) or 1
+        except ImportError:
+            cores = max(1, (os.cpu_count() or 2) // 2)
+        floor = 1.05 if cores >= 4 else 0.5
         # Floor lowered 1.2x->1.05x (2026-08-21): CI measured 1.08x on a run with an unusually heavy
         # account-wide job load (66+ concurrently-queued jobs contending for the same 2-vCPU runner
         # pool), below even the 1.31x-1.48x worst case this test's own docstring already cites as the
         # historical CI floor. Still well above 1.0x, so a real regression (kernel dropped entirely,
         # numba falling back to the numpy path) is caught.
         assert (
-            speedup >= 1.05
-        ), f"numba corr kernel should be >=1.05x numpy at n={n} F={f}; got {speedup:.2f}x (numpy {t_np * 1e3:.1f}ms, numba {t_nb * 1e3:.1f}ms)"
+            speedup >= floor
+        ), f"numba corr kernel should be >={floor}x numpy at n={n} F={f} on {cores} cores; got {speedup:.2f}x (numpy {t_np * 1e3:.1f}ms, numba {t_nb * 1e3:.1f}ms)"
