@@ -9,6 +9,7 @@ otherwise, so its verdicts cannot change.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from mlframe.training.composite import CompositeTargetDiscovery
 from mlframe.training.composite.discovery._honest_oof_select import cached_honest_prediction, prediction_key
@@ -103,3 +104,32 @@ def test_a_prediction_is_withheld_when_the_fit_mask_differs():
     other_mask[0] = False
     assert cached_honest_prediction(disc, fit_idx, eval_idx, name, other_mask) is None
     assert cached_honest_prediction(disc, fit_idx, eval_idx, "no-such-spec", full_mask) is None
+
+
+@pytest.mark.parametrize("gate_cap, expect_reuse", [(None, True), (20_000, False)])
+def test_above_the_old_cap_the_gate_still_reuses_honest_oof(monkeypatch, gate_cap, expect_reuse):
+    """With the gate's default cap equal to honest-OOF's, a frame whose screen exceeds 20k rows still shares its predictions;
+    the old 20k gate cap drew a different sample there and refit every spec."""
+    from mlframe.training.composite import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery import _honest_rmse_gate
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    served = {"n": 0}
+    real_cached = _honest_rmse_gate.cached_honest_prediction
+
+    def counting_cached(*a, **k):
+        out = real_cached(*a, **k)
+        served["n"] += out is not None
+        return out
+
+    monkeypatch.setattr(_honest_rmse_gate, "cached_honest_prediction", counting_cached)
+    df, groups, _y, levels = _frame(n_groups=40, per=1500)  # 60k rows: the screen sample exceeds both caps
+    train_idx, _holdout = _split_upper_tail(groups, levels, 4)
+    kw = {} if gate_cap is None else {"honest_rmse_gate_sample_n": gate_cap}
+    disc = CompositeTargetDiscovery(CompositeTargetDiscoveryConfig(
+        enabled=True, random_state=0, base_candidates=["base_full", "base_partial"], tiny_model_n_estimators=20, mi_sample_n=45_000, **kw,
+    ))
+    disc._group_ids_for_rerank = groups
+    disc.fit(df, "y", _FEATS, train_idx)
+    assert disc.specs_, "the fixture must leave specs for the gate to score"
+    assert (served["n"] > 0) == expect_reuse, served

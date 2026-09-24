@@ -849,7 +849,10 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # A spec survives only when its y-scale holdout RMSE <= raw-y tiny RMSE * this tolerance (1.05 = within 5% of raw).
     honest_rmse_gate_tolerance: float = 1.05
     # Row cap per side (screen fit rows / holdout eval rows) for the gate's tiny-model fits; bounds cost on huge frames.
-    honest_rmse_gate_sample_n: int = 20_000
+    # Equal to the honest-OOF selector's cap (yscale_holdout_gate_sample_n): both draw with the same seeded generator in the
+    # same order, so equal caps give identical samples and the gate reuses honest-OOF's predictions at any frame size. At
+    # 20_000 the two samples differed above 20k rows and the gate refit everything - on fewer rows.
+    honest_rmse_gate_sample_n: int = 30_000
 
     # Hard cap on the base-candidate grid entering the per-(base, transform) MI screen. The "auto" path is already
     # capped by ``auto_base_top_k``; an EXPLICIT ``base_candidates`` list had no cap, so a long list multiplied the
