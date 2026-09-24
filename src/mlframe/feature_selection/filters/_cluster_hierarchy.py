@@ -164,6 +164,17 @@ def _resolve_anchor_indices(anchor_names: list, name_to_idx: dict) -> dict:
     return resolved
 
 
+def _record_pair_su(pair_sus: dict, a_name: str, b_name: str, s: float) -> None:
+    """Store a pair's SU only when it was actually measured.
+
+    A failed or non-finite SU used to be stored as 0.0 - "maximally non-redundant" - which is a measurement nobody
+    made, and it also dragged down the medoid statistic of any component the pair sat in. Leaving the pair out is
+    what the tau-calibration path already does; both consumers here treat a missing pair as "no edge, no vote".
+    """
+    if s is not None and np.isfinite(s):
+        pair_sus[(a_name, b_name)] = float(s)
+
+
 def _components_from_pair_sus(
     anchor_names: list,
     pair_sus: dict,
@@ -336,21 +347,20 @@ def build_cluster_hierarchy(
                 try:
                     s = pair_su(cal_state, a_idx, b_idx)
                 except Exception as exc:
-                    s = 0.0
+                    s = float("nan")
                     n_failed_pairs += 1
                     log_throttle(
                         logger,
                         "cluster_hierarchy_per_pair_su_failed",
                         logging.WARNING,
                         "build_cluster_hierarchy: per-pair SU failed (e.g. "
-                        "(%s,%s): %r); affected pairs default to SU=0 "
-                        "(treated as non-redundant). Further failures "
-                        "suppressed for this build.", a_name, b_name, exc,
+                        "(%s,%s): %r); affected pairs are left out of this "
+                        "level. Further failures suppressed for this build.", a_name, b_name, exc,
                     )
-                pair_sus[(a_name, b_name)] = float(s) if np.isfinite(s) else 0.0
+                _record_pair_su(pair_sus, a_name, b_name, s)
         else:
             for (a_name, b_name), s in zip(name_pairs, scores):
-                pair_sus[(a_name, b_name)] = float(s) if np.isfinite(s) else 0.0
+                _record_pair_su(pair_sus, a_name, b_name, s)
         components = _components_from_pair_sus(
             resolved_names, pair_sus, super_tau,
         )

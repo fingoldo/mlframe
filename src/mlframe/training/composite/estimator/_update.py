@@ -98,6 +98,51 @@ class _RingBuffer:
         return self._view[:n]
 
 
+def _apply_drift_refit(self, info: dict, helper_alpha: float, helper_beta: float) -> tuple[float, float]:
+    """Refit the spec on the live segment of the buffer the way ``fit`` would, and refresh everything ``fit`` derives from it.
+
+    The drift helper detects the break with closed-form OLS statistics and reports where the live regime starts
+    (``change_point``). The coefficients it returns are OLS, which is ``fit``'s own answer for ``linear_residual`` but not for
+    ``linear_residual_robust``: after a refit the robust spec silently served plain least-squares coefficients (beta 0.603
+    against the robust fit's 0.506 on the same rows). So the coefficients come from the transform's own ``fit`` on the live
+    segment, and the y-clip, the median, the base range and the T-clip are derived from that same segment - not from a buffer
+    that still holds the regime the refit exists to leave behind. Returns the ``(alpha, beta)`` now in force.
+    """
+    from . import _soft_shrink, _y_train_clip_bounds
+    from ..discovery._t_equivalence import t_train_envelope
+    from ..transforms import get_transform
+    from ..transforms._call_gateway import call_transform
+
+    y_buf = np.asarray(self._buffer_y_.contiguous(), dtype=np.float64)
+    b_buf = np.asarray(self._buffer_base_.contiguous(), dtype=np.float64)
+    cp = int(info.get("change_point", -1) if info.get("change_point") is not None else -1)
+    live = slice(cp, None) if 0 <= cp < y_buf.size else slice(None)
+    y_live, b_live = y_buf[live], b_buf[live]
+    ok = np.isfinite(y_live) & np.isfinite(b_live)
+    y_live, b_live = y_live[ok], b_live[ok]
+    transform = get_transform(self.transform_name)
+    alpha, beta = float(helper_alpha), float(helper_beta)
+    try:
+        refit = call_transform(transform, "fit", y_live, b_live)
+        alpha, beta = float(refit["alpha"]), float(refit["beta"])
+    except Exception as err:  # the OLS coefficients the helper found are still a valid drift correction
+        logger.warning("[CompositeTargetEstimator.update] the transform's own refit failed (%s); serving the drift check's OLS "
+                       "coefficients instead.", err)
+    self.fitted_params_["alpha"], self.fitted_params_["beta"] = alpha, beta
+    try:
+        if y_live.size >= 10:
+            self.fitted_params_["y_train_median"] = float(np.median(y_live))
+            self.fitted_params_["y_clip_low"], self.fitted_params_["y_clip_high"] = _y_train_clip_bounds(y_live)
+            # The base range too: otherwise live-regime bases outside the dead train range are soft-shrunk back or sent to the fallback.
+            _soft_shrink.capture_base_fit_range(self, transform, b_live)
+            env = t_train_envelope(call_transform(transform, "forward", y_live, b_live, self.fitted_params_))
+            if env is not None:  # the one envelope formula fit(), from_fitted_inner() and discovery share
+                self.fitted_params_["t_clip_low"], self.fitted_params_["t_clip_high"] = env
+    except Exception as env_err:
+        logger.warning("[CompositeTargetEstimator.update] envelope refresh after drift refit failed (%s); kept the pre-drift clip bounds.",
+                       env_err)
+    return alpha, beta
+
 def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
     """Streaming-update interface: append new (y, base) observations to a rolling buffer and run a drift check.
 
@@ -158,39 +203,8 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
     )
     info["buffer_n_total"] = buffer_n
     if info.get("refit"):
-        # Update params in-place. The wrapper's predict() reads these on every call so the next predict will use the drifted alpha / beta.
-        self.fitted_params_["alpha"] = new_alpha
-        self.fitted_params_["beta"] = new_beta
-        # Refresh the y-clip envelope + median + T-clip from the RECENT
-        # (drifted) buffer. The alpha/beta-only refit left these at their
-        # pre-drift train values, so a drift-corrected prediction that moved
-        # into the new regime was clipped back toward the DEAD regime by the
-        # stale envelope -- defeating the correction.
-        try:
-            from . import _soft_shrink, _y_train_clip_bounds
-            from ..discovery._t_equivalence import t_train_envelope
-            from ..transforms._call_gateway import call_transform
-            from ..transforms import get_transform
-            _by = np.asarray(self._buffer_y_.contiguous(), dtype=np.float64)
-            _bb = np.asarray(self._buffer_base_.contiguous(), dtype=np.float64)
-            _finy = np.isfinite(_by)
-            if int(_finy.sum()) >= 10:
-                self.fitted_params_["y_train_median"] = float(np.median(_by[_finy]))
-                _lo, _hi = _y_train_clip_bounds(_by[_finy])
-                self.fitted_params_["y_clip_low"] = _lo
-                self.fitted_params_["y_clip_high"] = _hi
-                _tr = get_transform(self.transform_name)
-                # The base range too: otherwise live-regime bases outside the dead train range are soft-shrunk back or sent to the fallback.
-                _soft_shrink.capture_base_fit_range(self, _tr, _bb)
-                _t = call_transform(_tr, "forward", _by, _bb, self.fitted_params_)
-                _env = t_train_envelope(_t)  # the one envelope formula fit(), from_fitted_inner() and discovery share
-                if _env is not None:
-                    self.fitted_params_["t_clip_low"], self.fitted_params_["t_clip_high"] = _env
-        except Exception as _env_err:
-            logger.warning(
-                "[CompositeTargetEstimator.update] envelope refresh after drift " "refit failed (%s); kept the pre-drift clip bounds.",
-                _env_err,
-            )
+        # The predict path reads these on every call, so the next predict already serves the live regime.
+        new_alpha, new_beta = _apply_drift_refit(self, info, new_alpha, new_beta)
         logger.info(
             "[CompositeTargetEstimator.update] streaming refit fired (z=%.2f > %.2f). alpha %.4f -> %.4f, beta %.4f -> %.4f. buffer_n=%d",
             info["z_score"], self.online_refit_z_threshold,
