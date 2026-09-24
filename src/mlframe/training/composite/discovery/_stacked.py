@@ -12,6 +12,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from .screening import _extract_column_array
+from ._score import Score, rank_specs
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -130,10 +131,7 @@ def fit_stacked(
         return self
 
     rank_by_tiny = getattr(self, "tiny_rerank_scores_", None) or {}
-    ranked = sorted(
-        pass1_specs,
-        key=lambda s: rank_by_tiny.get(s.name, float("inf")),
-    )
+    ranked = rank_specs(pass1_specs, lambda s: Score(rank_by_tiny.get(s.name, float("inf")), "y_rmse", "tiny_rerank", "tiny_consensus"), tiebreak=None)
     top_specs = ranked[: int(max_pass1_specs_to_stack)]
 
     from ..ensemble.feature_stacking import composite_oof_predictions
@@ -288,10 +286,7 @@ def fit_stacked_on_residual(
         return self
 
     rank_by_tiny = getattr(self, "tiny_rerank_scores_", None) or {}
-    ranked = sorted(
-        pass1_specs,
-        key=lambda s: rank_by_tiny.get(s.name, float("inf")),
-    )
+    ranked = rank_specs(pass1_specs, lambda s: Score(rank_by_tiny.get(s.name, float("inf")), "y_rmse", "tiny_rerank", "tiny_consensus"), tiebreak=None)
 
     from ..ensemble.feature_stacking import composite_oof_predictions
 

@@ -16,6 +16,7 @@ from ..spec import CompositeSpec
 from ..ensemble import _is_monotone_nondecreasing
 from ._rejection_ledger import RejectStage, ledger_append
 from ._per_base_x import PerBaseMatrices, base_ordered
+from ._score import Score, rank_specs
 from ._tiny_rerank_waic import _apply_waic_tiebreak
 from .screening import (
     _extract_column_array,
@@ -899,7 +900,9 @@ def _tiny_model_rerank(
     # (common on small synthetic / regression tests) doesn't make top-M
     # pick depend on dict iteration order.
     _names = [getattr(s, "name", str(i)) for i, s in enumerate(kept_specs)]
-    order = np.lexsort((_names, agg_scores))
+    # One unit: the aggregated y-scale RMSE, unmeasured specs already put on the honest scale above.
+    order = np.asarray(rank_specs(range(len(kept_specs)), lambda i: Score(agg_scores[i], "y_rmse", "tiny_rerank", "tiny_consensus", kept_specs[i].transform_name),
+                                  name=lambda i: _names[i], transform=lambda i: kept_specs[i].transform_name), dtype=np.int64)
 
     # WAIC tie-break (config ``transform_waic_validation_enabled``). Tiny-CV RMSE on the small screening sample can
     # rank two transforms within measurement noise while one genuinely generalises and the other has merely memorised

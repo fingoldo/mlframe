@@ -237,7 +237,12 @@ def rank_pending_composites(pending: list) -> list:
     Each tier is ranked in its own unit (a fraction of RMSE, or nats); one sort over both ranked a fraction against nats,
     i.e. arbitrarily across targets. A non-finite gain sorts last in its tier.
     """
-    return sorted(pending, key=lambda item: (bool(item.get("rmse_gain")), item["gain"] if np.isfinite(item["gain"]) else -np.inf), reverse=True)
+    from mlframe.training.composite.discovery._score import Score, rank_specs
+
+    rmse_tier = [p for p in pending if p.get("rmse_gain")]
+    mi_tier = [p for p in pending if not p.get("rmse_gain")]
+    return (rank_specs(rmse_tier, lambda p: Score(p["gain"], "rmse_frac", "honest_holdout", "honest_rmse"), descending=True, tiebreak=None)
+            + rank_specs(mi_tier, lambda p: Score(p["gain"], "mi_nats", "screen", "mi_gain"), descending=True, tiebreak=None))
 
 
 def _maybe_narrow_to_unary_transforms(disc_cfg: Any, diag: Any, target_name: str) -> Any:

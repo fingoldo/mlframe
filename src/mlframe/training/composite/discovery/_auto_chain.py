@@ -73,6 +73,7 @@ from ._splitter import discovery_splits
 from ._screening_tiny import _build_tiny_model
 from ._yscale_scoring import median_filled_predictions
 from .screening import _mi_to_target
+from ._score import Score, rank_specs
 from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
@@ -560,5 +561,5 @@ def discover_chains(
             )
             if cand is not None:
                 candidates.append(cand)
-    candidates.sort(key=lambda c: c.rmse)
+    candidates = rank_specs(candidates, lambda c: Score(c.rmse, "y_rmse", "cv", "auto_chain_cv"), tiebreak=None, name=lambda c: "", transform=lambda c: None)
     return candidates[:top_k]

@@ -55,8 +55,12 @@ def prune_equivalent_composite_specs(
         for holder in (getattr(s, "fitted_params", None), (exported_by_name.get(n) or {}).get("fitted_params")):
             if isinstance(holder, dict):
                 holder["t_train_envelope_low"], holder["t_train_envelope_high"] = env
-    gain = {p["name"]: p.get("gain", float("-inf")) for p in pending if str(p.get("tt")) == str(target_type)}
-    priority = sorted(t_train_by_name, key=lambda n: -float(gain.get(n, float("-inf"))) if np.isfinite(gain.get(n, np.nan)) else float("inf"))
+    # The budget's order, tier by tier: raw gains mix RMSE fractions and MI nats when some specs of the target were
+    # measured on the honest holdout and others fell back to MI. Specs the budget does not list follow, in their order.
+    from ._phase_composite_discovery_gates import rank_pending_composites
+
+    ranked = [p["name"] for p in rank_pending_composites([p for p in pending if str(p.get("tt")) == str(target_type)])]
+    priority = [n for n in ranked if n in t_train_by_name] + [n for n in t_train_by_name if n not in set(ranked)]
     drops = find_equivalent_composite_specs(y_full[tr], t_train_by_name, priority, r2_tol=r2_tol)
     if not drops:
         return drops

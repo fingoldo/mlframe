@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from . import CompositeTargetDiscovery
 
 from ..spec import CompositeSpec
+from ._score import Score, rank_specs
 from ._eval_stats import (
     apply_alpha_drift_gate,
     apply_fdr_control_to_candidates,
@@ -67,7 +68,7 @@ def filter_sort_and_gate_candidates(
     # biased, NOT a calibrated generalisation gain. The de-bias is the post-selection holdout re-score below
     # (``apply_honest_holdout``); use mi_gain only as the ranking key here, read ``honest_holdout_gain`` for
     # a generalisation estimate.
-    kept_specs.sort(key=lambda s: (-s.mi_gain, getattr(s, "name", "")))
+    kept_specs = rank_specs(kept_specs, lambda s: Score(s.mi_gain, "mi_nats", "screen", "mi_gain", s.transform_name), descending=True)
     kept_specs = kept_specs[: self.config.top_k_after_mi]
 
     # Rolling-origin alpha-drift Chow test for linear_residual specs (lifted to

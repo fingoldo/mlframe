@@ -11,6 +11,7 @@ import numpy as np
 
 from ..transforms import UnknownTransformError, get_transform
 from ._rejection_ledger import RejectStage, ledger_append
+from ._score import Score, rank_specs
 from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
@@ -156,7 +157,8 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     new_order: list[int] = []
     for band in bands:
         if len(band) > 1 and all(b in waic for b in band):
-            band = sorted(band, key=lambda b: (-waic[b], names[b]))
+            band = rank_specs(band, lambda b: Score(waic[b], "waic_nats", "screen_oof", "waic", kept_specs[b].transform_name), descending=True,
+                              name=lambda b: names[b], transform=lambda b: kept_specs[b].transform_name)
         new_order.extend(band)
     return np.asarray(new_order, dtype=int)
 

@@ -66,6 +66,8 @@ from typing import Any, Callable, Dict, List, Sequence
 
 import numpy as np
 
+from ._score import Score, rank_specs
+
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -380,10 +382,8 @@ def stability_select_specs(
 
     denom = max(1, n_successful)
     frequencies = {name: count / denom for name, count in keep_counter.items()}
-    stable_specs = sorted(
-        (n for n, f in frequencies.items() if f >= freq_threshold),
-        key=lambda n: (-frequencies[n], n),
-    )
+    stable_specs = rank_specs([n for n, f in frequencies.items() if f >= freq_threshold],
+                              lambda n: Score(frequencies[n], "frequency", "replicates", "stability_selection"), descending=True)
     logger.info(
         "[stability_select_specs] n_replicates=%d (successful=%d), frac=%.2f, "
         "threshold=%.2f, group_aware=%s. Stable: %d/%d spec(s). Frequencies: %s",
