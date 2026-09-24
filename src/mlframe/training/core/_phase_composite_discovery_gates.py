@@ -119,7 +119,10 @@ def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, tar
     for _spec in specs:
         _needed = [str(getattr(_spec, "base_column", "") or "")]
         _needed += [str(_c) for _c in (getattr(_spec, "extra_base_columns", ()) or ())]
-        _missing = [_c for _c in _needed if _c and _c not in available]
+        # A synthetic interaction base (``a__mul__b``) is rebuilt from its parents wherever the parents are present.
+        from ..composite._synthetic_bases import parse_synthetic
+
+        _missing = [_c for _c in _needed if _c and _c not in available and parse_synthetic(_c, available) is None]
         if _missing:
             dropped.append({
                 "name": getattr(_spec, "name", None) or getattr(_spec, "transform_name", "?"),
@@ -184,8 +187,11 @@ def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None
     return h.hexdigest()
 
 
-def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_dir, inputs_digest: str = ""):
+def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_dir, inputs_digest: str = "", signature_out: dict | None = None):
     """The discovery cache, its key and any cached payload for this target; a failed key build yields no cache.
+
+    ``signature_out``, when given, receives the frame's ``data_signature`` and the seed it was sampled with, so the caller
+    can hand it to the discovery fit instead of having it computed a second time.
 
     The key carries the data fingerprint, the target column and the config signature (which embeds the library
     versions, so a poisoned entry cannot survive an upgrade). A hit skips the whole MI / rerank path.
@@ -205,6 +211,8 @@ def _discovery_cache_lookup(disc_cfg, disc_df, target_name, feature_cols, cache_
             disc_df, target_name, feature_cols,
             random_state=int(42 if _rs_raw is None else _rs_raw),
         )
+        if signature_out is not None:
+            signature_out.update(sig=_df_sig, random_state=int(42 if _rs_raw is None else _rs_raw))
         _cfg_sig = _discovery_config_signature(disc_cfg)
         # random_state is already folded into _df_sig (seeds the row-sample) and into _cfg_sig (via the dataclass dump). Passing it again to make_discovery_cache_key would be a double-fold (DISC-RANDOM-STATE-DBL): the same data + same config but with random_state mutated would produce three independent hash mixes. We rename the kwarg here to ``_legacy_random_state_sentinel=0`` so a future reader cannot misread "random_state=0" as the actual seed in use.
         # The inputs digest (group ids, hint strengths, time order, val frame) rides with the data fingerprint.

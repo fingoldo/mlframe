@@ -180,4 +180,6 @@ def test_a_failing_scorer_records_nan_rather_than_aborting_the_single_feature_br
         model.score = real_score
 
     assert imp.shape == (1,), "the failing scorer aborted the computation instead of recording NaN"
-    assert np.isnan(imp[0]), f"every repeat failed, so nothing was measured and the importance is NaN; got {imp[0]}"
+    # NaN, not 0.0: real importances here are baseline - score and routinely negative, so a 0.0 for a feature that
+    # could not be measured outranked every feature measured to be harmful.
+    assert np.isnan(imp[0]), f"every repeat failed, so the importance is unmeasured (NaN); got {imp[0]}"

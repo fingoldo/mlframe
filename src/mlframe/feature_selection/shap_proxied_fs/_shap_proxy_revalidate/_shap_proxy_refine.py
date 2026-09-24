@@ -19,6 +19,19 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_prox
 )
 
 
+
+def _mark_selection_optimistic(ranked: list, best_idx) -> None:
+    """Flag the chosen subset's ``honest_loss`` as selection-optimistic.
+
+    Every candidate is scored on the same holdout and the winner is the minimum over them, so the winner's number is
+    the most favourable draw of a noisy estimate - the winner's curse the disjoint holdout was meant to avoid. The value
+    is still the right thing to RANK by; it is not an unbiased estimate of the subset's loss, and the report says so
+    rather than presenting it as one. An unbiased figure needs a reporting slice the selection never saw.
+    """
+    for d in ranked:
+        if d.get("features") == best_idx:
+            d["honest_loss_selection_optimistic"] = True
+
 def _ucb_stop_remaining_cannot_win(
     best_stable_score, remaining_proxy_losses, ucb_slack, parsimony_tol,
 ):
@@ -195,13 +208,12 @@ def revalidate_top_n(
     member_cols = [_expand(idx, unit_to_members) for _, idx in candidates]
     candidate_seeds = [[int(rng.integers(0, 2**31 - 1)) for _ in range(n_models)] for _ in candidates]
     n_total = len(candidates)
-    # UCB batched dispatch (iter34): evaluate proxy-ranked candidates in batches; stop once the
-    # running winner provably beats every remaining candidate's UCB lower bound. Determinism:
-    # within-batch joblib results are zipped back to the (cols, seed) tuples we dispatched, ties in
-    # proxy ordering are broken by the original candidate index (kind="stable" argsort), and ALL
-    # seeds are sampled BEFORE the gate decides any batch - so n_candidates_evaluated is the only
-    # variable between UCB and the legacy path; ranked entries for evaluated candidates are
-    # bit-identical given identical seed + cache state.
+    # UCB batched dispatch (iter34): evaluate proxy-ranked candidates in batches; stop once the running winner
+    # provably beats every remaining candidate's UCB lower bound. Determinism: within-batch joblib results are zipped
+    # back to the (cols, seed) tuples we dispatched, ties in proxy ordering are broken by the original candidate index
+    # (kind="stable" argsort), and ALL seeds are sampled BEFORE the gate decides any batch - so n_candidates_evaluated
+    # is the only variable between UCB and the legacy path; ranked entries for evaluated candidates are bit-identical
+    # given identical seed + cache state.
     proxy_losses_arr = np.asarray([float(c[0]) for c in candidates], dtype=np.float64)
     # ``candidate_score`` (iter34): the caller's already-computed per-candidate score (corrector-
     # predicted honest loss when the bias corrector fit cleanly, raw proxy_loss otherwise). The
@@ -413,6 +425,7 @@ def revalidate_top_n(
                 d["stable_score"] = float(winner_full_loss) + lambda_stab * d["honest_std"]
                 d["honest_loss_capped"] = float(np.asarray(per_candidate[next(i for i, (_, ix) in enumerate(candidates) if tuple(ix) == best_idx)]).mean())
                 break
+    _mark_selection_optimistic(ranked, best_idx)  # the winner's holdout loss is a min over candidates
 
     # Same-size (in member columns) random-subset baseline for the winner (winner's-curse context).
     # RF1: only meaningful when the winner is strictly smaller than the full feature set; when k >= f the

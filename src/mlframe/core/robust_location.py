@@ -25,10 +25,10 @@ from __future__ import annotations
 
 import logging
 
-import os
 
 import numpy as np
 from numba import njit, prange
+from mlframe.utils.env_flags import env_int
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ __all__ = ["robust_mean_mestimator", "geometric_median", "trimmed_mean", "winsor
 WEIGHTS = ("meshalkin", "huber", "tukey")
 
 # Parallelize the IRLS reweighting pass over samples once n amortises the prange spawn. Env-overridable.
-_ROBUST_MEAN_PARALLEL_MIN_N = int(os.environ.get("MLFRAME_ROBUST_MEAN_PARALLEL_MIN_N", "50000"))
+_ROBUST_MEAN_PARALLEL_MIN_N = env_int("MLFRAME_ROBUST_MEAN_PARALLEL_MIN_N", 50000, minimum=0)
 
 
 @njit(fastmath=False, cache=True)

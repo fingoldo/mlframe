@@ -438,7 +438,7 @@ def hybrid_orth_mi_pair_fe(
         raw_X_all = X[raw_cols_all]
         from .._fe_usability_signal import _crit_np_dtype
         raw_mi_arr = _mi_classif_batch(raw_X_all.to_numpy(dtype=_crit_np_dtype()), y_arr, nbins=nbins)
-        order = np.argsort(-raw_mi_arr)
+        order = np.argsort(-raw_mi_arr, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
         fallback = [raw_cols_all[i] for i in order[: int(top_pair_seed_k)]]
         for src in fallback:
             if src not in seed_sources:

@@ -9,7 +9,6 @@ section this fans out from and the ``(selected_vars, cols, data, nbins)`` thread
 from __future__ import annotations
 
 import logging
-import os
 
 import numpy as np
 
@@ -347,7 +346,9 @@ def _friend_graph_and_redundancy_passes_group3(
                 except Exception as exc:
                     logger.debug("mrmr: mi_direct import/binding failed for the post-cluster-rescue significance probe; probe disabled: %r", exc, exc_info=True)
                     _pcr_mi_direct = None  # type: ignore[assignment]
-                _pcr_signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
+                from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
+
+                _pcr_signif_alpha = mrmr_null_signif_alpha()
                 _pcr_q_dtype = getattr(self, "quantization_dtype", np.int32)
 
                 def _pcr_raw_is_significant(_idx):

@@ -33,6 +33,8 @@ from .._helpers import (
     split_into_train_test,
 )
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 # Folds run concurrently under joblib(prefer="threads", require="sharedmem") in _fit_outer_loop; they all
@@ -41,6 +43,38 @@ logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 # them as a logical group; an explicit lock makes each fold's commit of its results atomic w.r.t. other
 # folds so a reader (or a concurrent committer) never observes a half-written fold.
 _FOLD_STATE_LOCK = threading.Lock()
+
+
+def _apply_fold_prescreen(self, train_index, current_features):
+    """Restrict the searched subset to the features that survive THIS fold's train-only prescreen.
+
+    Nested prescreen: the universes are precomputed in fit, keyed by the pre-frac fold train-index bytes. A feature that
+    survived the global prescreen only via this fold's test rows is dropped here, so the fold score is honest. If the
+    mask would empty the subset, the fold keeps it unmasked rather than fit 0 features; a fold that matches no
+    universe at all is announced (``_warn_unmatched_prescreen_fold``).
+    """
+    _pfu = getattr(self, "_prescreen_fold_universes", None)
+    if _pfu is None:
+        return current_features
+    _fold_set = _pfu.get(hash(np.ascontiguousarray(np.asarray(train_index), dtype=np.int64).tobytes()))
+    if _fold_set is None:
+        _warn_unmatched_prescreen_fold()
+        return current_features
+    _masked = [f for f in current_features if f in _fold_set]
+    return _masked or current_features
+
+
+def _warn_unmatched_prescreen_fold() -> None:
+    """Say, once, that a fold's rows matched no precomputed per-fold prescreen.
+
+    Its score then uses the full-data prescreen, which saw the fold's own test rows - the leak the nested prescreen exists
+    to remove. The usual cause is a splitter that repartitions on every call.
+    """
+    log_throttle(
+        logger, "rfecv_nested_prescreen_fold_unmatched", logging.WARNING,
+        "RFECV: a fold's train rows match no precomputed per-fold prescreen (a non-deterministic splitter?); that fold is "
+        "scored on the full-data prescreen universe, which saw its test rows.",
+    )
 
 
 @functools.lru_cache(maxsize=256)
@@ -100,17 +134,7 @@ def _eval_fold_body(
     if self.min_train_size and len(train_index) < self.min_train_size:
         return None
 
-    # Nested prescreen (audit4-C honest fix): restrict the searched subset to features that survive THIS fold's
-    # train-only prescreen (precomputed in fit, keyed by the pre-frac fold train-index bytes). A feature that
-    # survived the global prescreen only via this fold's test rows is dropped here, so the fold score is honest.
-    # If the mask would empty the subset, keep it unmasked for this (degenerate) fold rather than fit 0 features.
-    _pfu = getattr(self, "_prescreen_fold_universes", None)
-    if _pfu is not None:
-        _fold_set = _pfu.get(hash(np.ascontiguousarray(np.asarray(train_index), dtype=np.int64).tobytes()))
-        if _fold_set is not None:
-            _masked = [f for f in current_features if f in _fold_set]
-            if _masked:
-                current_features = _masked
+    current_features = _apply_fold_prescreen(self, train_index, current_features)
 
     if frac:
         size = int(len(train_index) * frac)

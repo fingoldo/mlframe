@@ -3,13 +3,12 @@
 A bare ``transform.fit(y, base)`` drops ``groups`` and ``sample_weight`` silently: a grouped transform refit without its
 groups raised mid-discovery, per-fold refits fell back to global parameters, and chain fits ignored the weights.
 ``call_transform`` passes each optional argument exactly when the transform declares it and fails loudly when a required
-one is missing. Existing bare calls are recorded in ``_transform_gateway_baseline.json`` and may only shrink.
+one is missing. Every call in composite/ and core/ goes through it; there is no baseline of exceptions.
 """
 
 from __future__ import annotations
 
 import ast
-import orjson
 from collections import Counter
 from pathlib import Path
 
@@ -19,7 +18,6 @@ from tests.test_meta._shared_ast_cache import parsed_ast
 
 _PKG = Path(mlframe.__file__).resolve().parent
 _SCOPE = (_PKG / "training" / "composite", _PKG / "training" / "core")
-_BASELINE = Path(__file__).resolve().parent / "_transform_gateway_baseline.json"
 _OPS = frozenset({"fit", "forward", "inverse"})
 _TRANSFORM_NAMES = frozenset({"transform", "tr", "_t", "_transform", "bivariate", "unary", "tf", "chain_tf", "_tf"})
 _SOURCES = frozenset({"get_transform", "TRANSFORMS_REGISTRY", "_TRANSFORMS_REGISTRY"})
@@ -69,14 +67,10 @@ def _scan() -> Counter:
     return counts
 
 
-def test_no_new_bare_transform_calls():
-    """Every bare call is recorded; the record may only shrink (a converted call must leave it)."""
+def test_no_bare_transform_calls():
+    """No bare call remains; the 53 recorded when the gateway was introduced are all routed through it."""
     got = _scan()
-    recorded = Counter(orjson.loads(_BASELINE.read_text(encoding="utf-8")))
-    new = {k: v - recorded.get(k, 0) for k, v in got.items() if v > recorded.get(k, 0)}
-    gone = {k: v - got.get(k, 0) for k, v in recorded.items() if v > got.get(k, 0)}
-    assert not new, f"route these transform calls through call_transform(transform, op, ..., groups=..., sample_weight=...): {new}"
-    assert not gone, f"these recorded bare calls are gone; lower them in {_BASELINE.name}: {gone}"
+    assert not got, f"route these transform calls through call_transform(transform, op, ..., groups=..., sample_weight=...): {dict(got)}"
 
 
 def test_the_scan_sees_a_bare_call_and_not_the_gateway():

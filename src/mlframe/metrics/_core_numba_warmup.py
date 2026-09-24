@@ -124,6 +124,12 @@ def prewarm_numba_cache(include_feature_selection: bool = True, include_heavy_li
     """
     if getattr(_REENTRANCY, "in_progress", False):
         return
+    if _os.environ.get("MLFRAME_SKIP_NUMBA_PREWARM", "").strip().lower() in ("1", "true", "yes"):
+        # Fifteen benchmark scripts set this to keep compile time out of what they measure, and nothing read it: every
+        # one of them silently paid the full warm-up it was trying to skip. Said once, since a skipped warm-up moves the
+        # first fit's timing.
+        log_throttle(logger, "numba_prewarm_skipped_by_env", logging.INFO, "MLFRAME_SKIP_NUMBA_PREWARM is set; skipping the numba prewarm.")
+        return
     _REENTRANCY.in_progress = True
     try:
         # The warm-up calls every kernel on a handful of synthetic rows, so a CUDA kernel here is launched with a

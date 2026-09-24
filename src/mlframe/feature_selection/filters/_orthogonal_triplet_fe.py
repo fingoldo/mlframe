@@ -447,7 +447,7 @@ def hybrid_orth_mi_triplet_fe(
                 # scope, shares this residual MI batch with sibling opt-in layers.
                 _baseline_map.update(cached_raw_mi_baseline(_missing, X[_missing].to_numpy(dtype=_dt), y_arr, nbins=nbins))
             raw_mi_arr = np.array([float(_baseline_map.get(c, 0.0)) for c in raw_cols_all])
-            order = np.argsort(-raw_mi_arr)
+            order = np.argsort(-raw_mi_arr, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
             seed_sources = [raw_cols_all[i] for i in order[: int(top_triplet_seed_k)]]
 
     # EXPLICIT TRIPLETS (GBM seeder): when the caller passes an order-3

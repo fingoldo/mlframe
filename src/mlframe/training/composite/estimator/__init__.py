@@ -73,6 +73,13 @@ def _extract_base(X: Any, base_column: str) -> np.ndarray:
     message points at the fix (``forced_keep_columns`` in the feature
     selection config).
     """
+    if base_column not in getattr(X, "columns", ()):
+        # A synthetic interaction base is recomputed from its parents, so a fresh frame needs no extra column.
+        from .._synthetic_bases import synthetic_column
+
+        syn = synthetic_column(X, base_column)
+        if syn is not None:
+            return syn
     # Polars
     if _is_polars_df(X):
         if base_column not in X.columns:
@@ -134,6 +141,9 @@ def _extract_base_matrix(X: Any, base_columns: Sequence[str]) -> np.ndarray:
     # 1M-row x 8-col synthetic in bench_extract_base_matrix.py). Same for pandas: ``loc[:, cols].to_numpy()``
     # avoids per-column dispatch.
     cols_list = list(base_columns)
+    if any(c not in getattr(X, "columns", ()) for c in cols_list):
+        # One or more synthetic interaction bases: resolve column by column (each missing one from its parents).
+        return np.column_stack([_extract_base(X, c) for c in cols_list])
     if _is_polars_df(X):
         missing = [c for c in cols_list if c not in X.columns]
         if missing:

@@ -66,6 +66,7 @@ from .estimator import (
     _to_1d_numpy,
 )
 from .transforms import get_transform
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -250,9 +251,9 @@ class CompositeTargetTransformer(TransformerMixin, BaseEstimator):
 
         # Fit transform-specific params on the TRAIN target only (the y handed here).
         if base_arr is None:
-            params = transform.fit(y_arr, np.empty(0))
+            params = call_transform(transform, "fit", y_arr, np.empty(0))
         else:
-            params = transform.fit(y_arr, base_arr)
+            params = call_transform(transform, "fit", y_arr, base_arr)
 
         self.transform_name_ = self.transform_name
         self.fitted_params_ = dict(params)
@@ -265,7 +266,7 @@ class CompositeTargetTransformer(TransformerMixin, BaseEstimator):
         transform = get_transform(self._fitted_transform_name())
         y_arr = _to_1d_numpy(y)
         base_arr = self._replay_base(y_arr.shape[0])
-        out = transform.forward(y_arr, base_arr, self.fitted_params_)
+        out = call_transform(transform, "forward", y_arr, base_arr, self.fitted_params_)
         return np.asarray(out, dtype=np.float64).reshape(-1)
 
     def inverse_transform(self, t: Any) -> np.ndarray:
@@ -273,7 +274,7 @@ class CompositeTargetTransformer(TransformerMixin, BaseEstimator):
         transform = get_transform(self._fitted_transform_name())
         t_arr = _to_1d_numpy(t)
         base_arr = self._replay_base(t_arr.shape[0])
-        out = transform.inverse(t_arr, base_arr, self.fitted_params_)
+        out = call_transform(transform, "inverse", t_arr, base_arr, self.fitted_params_)
         return np.asarray(out, dtype=np.float64).reshape(-1)
 
     # ---- func / inverse_func pair for TransformedTargetRegressor -----

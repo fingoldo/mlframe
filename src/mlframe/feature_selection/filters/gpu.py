@@ -579,8 +579,8 @@ def mi_direct_gpu(
     # to strong genuine signal, and GPU-present hosts selected differently from CPU-only hosts. max_failed is lifted
     # to the full budget so the early-stop cannot truncate the null (unbiased mean + full-resolution p-value).
     if return_null_mean:
-        from .permutation import _NULL_MEAN_MIN_PERMS
-        npermutations = max(int(npermutations), _NULL_MEAN_MIN_PERMS)
+        from .permutation import null_mean_min_perms
+        npermutations = max(int(npermutations), null_mean_min_perms())
         max_failed = npermutations
 
     confidence = 0.0

@@ -70,11 +70,17 @@ def _apply_honest_holdout_stages(self, df, target_col, kept_specs, usable_featur
 
         # The SELECTION half: this gate drops specs, so it must not read the rows the reported honest number comes from.
         _select_idx = getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx)
-        kept_specs = apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _select_idx, y_full)
-        # The exported RMSE gain comes from the report half: the one above is conditioned on having passed the gate.
-        _report_idx = getattr(self, "honest_holdout_report_idx_", None)
-        if kept_specs and _report_idx is not None and _select_idx is not None and not np.array_equal(_report_idx, _select_idx):
-            apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _report_idx, y_full, record_only=True)
+        # Both passes share their fit rows and read the two halves of one holdout: gather each once, fit each model once.
+        self._honest_gate_memo = {"key": (id(df), tuple(usable_features)), "mats": {}, "fits": {},
+                                  "holdout": None if _honest_holdout_idx is None else np.sort(np.asarray(_honest_holdout_idx)), "holdout_x": None}
+        try:
+            kept_specs = apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _select_idx, y_full)
+            # The exported RMSE gain comes from the report half: the one above is conditioned on having passed the gate.
+            _report_idx = getattr(self, "honest_holdout_report_idx_", None)
+            if kept_specs and _report_idx is not None and _select_idx is not None and not np.array_equal(_report_idx, _select_idx):
+                apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _report_idx, y_full, record_only=True)
+        finally:
+            self._honest_gate_memo = None
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "honest_rmse_gate_done")
 
@@ -440,6 +446,10 @@ def fit(
     df, usable_features, base_candidates = maybe_add_grouped_causal_bases(
         self, df, target_col, usable_features, base_candidates, train_idx,
     )
+    # Interaction bases (a*b beating both parents on MI) become base candidates here, before screening, so a composite on
+    # one is selected and gated like any other base; outside discovery the name resolves from its parents.
+    from ._interaction_specs import add_interaction_bases
+    df, usable_features, base_candidates = add_interaction_bases(self, df, usable_features, base_candidates, train_idx, y_train)
     self._df_ref = df  # engineered columns must be visible to downstream gates that read self._df_ref.
 
     if not base_candidates:
@@ -631,8 +641,17 @@ def fit(
         base_train = _extract_column_array(df, base)[train_idx]
         self._auto_base_pool[base] = base_train
         base_screen = base_train[sample_idx]
-        if base in _col_index:
-            _drop_idx = _col_index[base]
+        # A synthetic interaction base is not a feature; its parents carry it, so they leave x_remaining as a base does.
+        from .._synthetic_bases import parse_synthetic
+
+        _syn = None if base in _col_index else parse_synthetic(str(base), list(_col_index))
+        if base in _col_index or _syn is not None:
+            _drop_idx: int | list[int]
+            if base in _col_index:
+                _drop_idx = _col_index[base]
+            else:
+                assert _syn is not None  # the enclosing condition guarantees it
+                _drop_idx = [_col_index[_syn[0]], _col_index[_syn[2]]]
             _x_prebinned = np.delete(_full_x_prebinned, _drop_idx, axis=1) if _full_x_prebinned is not None else None
             if _use_lazy_prebin:
                 # No float plane on the lazy path -- the base-dropped float matrix
@@ -902,7 +921,11 @@ def fit(
     # The data signature the specs were fit on is read only by ``discover_incremental``, but it cost 84-308 ms at 200k x 50
     # (seconds on wide polars frames) on every fit, stability replicate and per-group fit. Record what it needs and let
     # ``fit_data_signature()`` compute it on first use; pickling computes it before the frame reference is dropped. The row count lets it re-score only appended rows.
-    self._fit_data_signature = None
+    # A signature the caller already computed on this very frame, target and feature list is taken as is.
+    _seed = getattr(self, "_fit_data_signature_seed", None)
+    _seed_ok = _seed is not None and _seed[0] == id(df) and _seed[1] == target_col and _seed[2] == tuple(feature_cols)
+    self._fit_data_signature = _seed[3] if (_seed is not None and _seed_ok) else None
+    self._fit_data_signature_seed = None
     self._fit_data_signature_inputs, self._fit_n_rows = (target_col, list(feature_cols)), len(df)
 
     # Bookkeeping. (target_col + df_ref + train_idx already stashed.)

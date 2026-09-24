@@ -346,6 +346,7 @@ def _gate_seeded_triples_order3(
     try:
         from ._permutation_null import pooled_triple_permutation_null_joint_mi_floor
         from .info_theory import batch_triple_mi_prange
+        from .info_theory._batch_kernels import joint_cardinality_cap
 
         _ta = np.fromiter((t[0] for t in seeded_triples), dtype=np.int64, count=len(seeded_triples))
         _tb = np.fromiter((t[1] for t in seeded_triples), dtype=np.int64, count=len(seeded_triples))
@@ -359,7 +360,7 @@ def _gate_seeded_triples_order3(
             quantile=float(getattr(self, "fe_triple_maxt_null_quantile", 0.95)),
             random_seed=getattr(self, "random_seed", None),
         )
-        _obs = batch_triple_mi_prange(data, _ta, _tb, _tc, _nb, _cy, _fy)
+        _obs = batch_triple_mi_prange(data, _ta, _tb, _tc, _nb, _cy, _fy, joint_cardinality_cap())
         _kept = [seeded_triples[i] for i in range(len(seeded_triples)) if float(_obs[i]) >= _floor]
         if verbose >= 1:
             logger.info(

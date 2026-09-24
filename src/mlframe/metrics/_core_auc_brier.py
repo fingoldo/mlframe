@@ -19,6 +19,7 @@ from ._numba_params import NUMBA_NJIT_PARAMS, _check_equal_length
 
 
 import os as _os
+from mlframe.utils.env_flags import env_int
 
 # central dispatcher for ``argsort(y_score)[::-1]``
 # in metric kernels. Default UNSTABLE (numpy quicksort) -- 2-3x faster than
@@ -38,7 +39,7 @@ import os as _os
 # nets a CONSISTENT ~10% END-TO-END win at 200k (A/B: CPU 9.37/8.29s vs GPU 7.98/7.89s, both GPU runs beat both CPU).
 # Default = 50k (the measured isolated crossover). Tune per host via MLFRAME_METRICS_ARGSORT_GPU_MIN_N (huge = force
 # CPU). Stable-sort opt-in always stays on CPU. (Lesson: never reject on the extremes -- sweep the gated middle.)
-_GPU_ARGSORT_MIN_N = int(_os.environ.get("MLFRAME_METRICS_ARGSORT_GPU_MIN_N", "50000"))
+_GPU_ARGSORT_MIN_N = env_int("MLFRAME_METRICS_ARGSORT_GPU_MIN_N", 50000, minimum=0)
 _GPU_ARGSORT_AVAILABLE: "bool | None" = None
 
 # parallel bucket-split argsort for the large-N CPU path. The metric kernels' descending argsort is
@@ -49,7 +50,7 @@ _GPU_ARGSORT_AVAILABLE: "bool | None" = None
 # (8-thread, this host): 1.46x@100k / 1.62x@500k / 2.33x@1M / 4.01x@5M, y_score-order identical to np.argsort. Gated to
 # the unstable CPU default at N >= _PAR_BUCKET_ARGSORT_MIN_N; the stable-sort opt-in and the GPU path are untouched.
 # Tune the gate per host via MLFRAME_METRICS_ARGSORT_PAR_MIN_N (huge value = force scalar numpy).
-_PAR_BUCKET_ARGSORT_MIN_N = int(_os.environ.get("MLFRAME_METRICS_ARGSORT_PAR_MIN_N", "200000"))
+_PAR_BUCKET_ARGSORT_MIN_N = env_int("MLFRAME_METRICS_ARGSORT_PAR_MIN_N", 200000, minimum=0)
 
 
 @numba.njit(cache=True, nogil=True, parallel=True)

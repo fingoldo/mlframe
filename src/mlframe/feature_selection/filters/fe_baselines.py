@@ -266,11 +266,12 @@ def best_trivial_pair(
             # All-NaN: no valid baseline - caller treats None as
             # "no baseline beat the gate" which is the correct semantic.
             return None, None, float("nan")
-        if not _finite_mask.all():
-            _finite_idx = np.where(_finite_mask)[0]
-            best_idx = int(_finite_idx[np.argmax(mi_arr[_finite_idx])])
-        else:
-            best_idx = int(np.argmax(mi_arr))
+        # Among the finite maxima, the lexicographically smallest NAME: plug-in MI is quantised, so exact ties are real,
+        # and np.argmax's lowest-index rule let the enumeration order of the candidate pool decide which baseline an
+        # engineered candidate had to beat.
+        _max = float(np.max(mi_arr[_finite_mask]))
+        _tied = [int(i) for i in np.flatnonzero(_finite_mask & (mi_arr == _max))]
+        best_idx = min(_tied, key=lambda i: str(valid_names[i]))
         return valid_names[best_idx], valid_cols[best_idx], float(mi_arr[best_idx])
     # KSG path: no batch kernel, fall back to per-feature loop.
     best_name, best_arr, best_mi = None, None, -np.inf
@@ -280,7 +281,7 @@ def best_trivial_pair(
             mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
             n_neighbors=n_neighbors,
         )
-        if mi > best_mi:
+        if mi > best_mi or (mi == best_mi and best_name is not None and str(name) < str(best_name)):  # same tie rule as above
             best_mi = mi
             best_name = name
             best_arr = f

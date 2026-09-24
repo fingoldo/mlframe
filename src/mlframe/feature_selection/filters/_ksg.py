@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import logging
 import math
-import os
 
 import numpy as np
 from numba import njit
@@ -51,7 +50,14 @@ def reset_ksg_gpu_circuit_breaker() -> None:
     _KSG_GPU_FAILED = False
 
 
-_KSG_GPU_THRESHOLD = int(os.environ.get("MLFRAME_KSG_GPU_N", "50000"))
+_KSG_GPU_THRESHOLD = 50000  # the default; ksg_gpu_threshold() applies the MLFRAME_KSG_GPU_N override on every call
+
+
+def ksg_gpu_threshold() -> int:
+    """``MLFRAME_KSG_GPU_N`` (>= 1), read on every call; ``_KSG_GPU_THRESHOLD`` when unset or invalid."""
+    from mlframe.utils.env_flags import env_int
+
+    return env_int("MLFRAME_KSG_GPU_N", _KSG_GPU_THRESHOLD, minimum=1)
 
 
 # =============================================================================
@@ -508,7 +514,7 @@ def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5, estimator: str 
     x = np.asarray(x).ravel()
     n = x.size
     global _KSG_GPU_FAILED
-    if estimator == "mixed_ksg" and prefer_gpu and n >= _KSG_GPU_THRESHOLD and not _KSG_GPU_FAILED:
+    if estimator == "mixed_ksg" and prefer_gpu and n >= ksg_gpu_threshold() and not _KSG_GPU_FAILED:
         try:
             import cupy  # noqa: F401
             return mixed_ksg_mi_gpu(x, y, k=k)

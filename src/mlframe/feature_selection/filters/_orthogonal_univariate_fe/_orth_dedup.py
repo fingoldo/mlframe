@@ -11,6 +11,8 @@ import threading
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.utils.env_flags import env_int
 import pandas as pd
 from numba import njit, prange
 
@@ -23,15 +25,16 @@ logger = logging.getLogger(__name__)
 # every small-n path (all tests) is byte-for-byte unchanged. Override via MLFRAME_FE_DEDUP_MAX_CORR_ROWS.
 import os as _os
 
-_MAX_CORR_ROWS = int(_os.environ.get("MLFRAME_FE_DEDUP_MAX_CORR_ROWS", "100000") or "100000")
+_MAX_CORR_ROWS = 100000  # default; MLFRAME_FE_DEDUP_MAX_CORR_ROWS is read on every call
 
 
 def _dedup_sample_idx(n_rows: int) -> Optional[np.ndarray]:
     """Deterministic row-sample index for the correlation pass (see ``_MAX_CORR_ROWS``), factored out so the
     fit-scoped memo's cache-key hash (:func:`_dedup_cache_key`) samples the EXACT same rows the correlation
     pass itself would - same seed, same ``n_rows`` -> same draw both times."""
-    if n_rows > _MAX_CORR_ROWS:
-        return np.sort(np.random.default_rng(0).choice(n_rows, size=_MAX_CORR_ROWS, replace=False))
+    cap = env_int("MLFRAME_FE_DEDUP_MAX_CORR_ROWS", _MAX_CORR_ROWS, minimum=2)
+    if n_rows > cap:
+        return np.sort(np.random.default_rng(0).choice(n_rows, size=cap, replace=False))
     return None
 
 

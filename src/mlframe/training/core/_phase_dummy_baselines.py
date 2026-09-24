@@ -10,6 +10,7 @@ from ..composite.transforms import composite_target_names, is_composite_target
 from ..evaluation import report_model_perf
 from ..phases import phase
 from .utils import _augment_with_dropped_high_card_cols
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -316,10 +317,7 @@ def run_dummy_baselines(
                         )
                     else:
                         _base_split = np.asarray(_split_df[_base_col], dtype=np.float64)
-                    _y_dummy_split = _tf.inverse(
-                        np.asarray(_T_preds, dtype=np.float64),
-                        _base_split, _fp,
-                    )
+                    _y_dummy_split = call_transform(_tf, "inverse", np.asarray(_T_preds, dtype=np.float64), _base_split, _fp)
                     _y_true_split = np.asarray(_raw_y_full, dtype=np.float64)[_split_idx]
                     _diff = _y_dummy_split.astype(np.float64) - _y_true_split
                     _finite = np.isfinite(_diff)

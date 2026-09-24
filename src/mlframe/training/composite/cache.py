@@ -235,11 +235,14 @@ def data_signature(
     # reductions on pandas); the sample is an O(sample_n) gather, never a full materialisation.
     cols_to_hash = [target_col] + [c for c in feature_cols if c != target_col]
     if is_polars:
-        present = [c for c in cols_to_hash if c in df.columns]
-        tokens = {c: _canonical.polars_logical_type(df.schema[c]) for c in present}
+        schema = df.schema  # built once: the property rebuilds the dict on every access (0.44 s over 500 columns)
+        present = [c for c in cols_to_hash if c in schema]
+        tokens = {c: _canonical.polars_logical_type(schema[c]) for c in present}
         stats = _canonical.polars_column_stats(df, present, tokens) if present else {}
+        # One row gather of the sample and one batched encode, instead of a gather and a few expressions per column.
+        encoded = _canonical.encode_polars_frame(df.select(present)[sample_idx], tokens) if present else {}
         for c in present:
-            _fold_column(h, tokens[c], stats[c], _canonical.encode_polars_slice(df.get_column(c).gather(sample_idx), tokens[c]))
+            _fold_column(h, tokens[c], stats[c], encoded[c])
     else:
         for c in cols_to_hash:
             if c not in df.columns:

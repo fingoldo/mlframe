@@ -8,10 +8,13 @@ mechanism for every other one, declared next to the class rather than in a test'
 
 from __future__ import annotations
 
+import logging
 import warnings
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 
 from pydantic import model_validator
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["InertFieldsWarningMixin"]
 
@@ -24,10 +27,15 @@ class InertFieldsWarningMixin:
     """
 
     INERT_FIELDS: ClassVar[dict[str, str]] = {}
+    # Set on a class the suite never reads at all: constructing it warns (FutureWarning, shown by default) with this hint.
+    UNCONSUMED_CLASS_HINT: ClassVar[Optional[str]] = None
 
     @model_validator(mode="after")
     def _warn_on_inert_field_values(self) -> Any:
-        """Emit one ``UserWarning`` per inert field that was set away from its declared default."""
+        """Warn once per construction of an unconsumed class, and once per inert field set away from its default."""
+        hint = type(self).UNCONSUMED_CLASS_HINT
+        if hint:
+            warnings.warn(f"{type(self).__name__} is not read by the training suite and will be removed: {hint}", FutureWarning, stacklevel=2)
         fields = getattr(type(self), "model_fields", {})
         for name, why in type(self).INERT_FIELDS.items():
             field = fields.get(name)
@@ -37,7 +45,8 @@ class InertFieldsWarningMixin:
             default = field.default
             try:
                 unchanged = value == default or (value is None and default is None)
-            except Exception:  # pragma: no cover - exotic comparison, treat as set
+            except Exception:  # pragma: no cover - exotic comparison: say so, then treat the field as set (the warning below fires)
+                logger.warning("%s.%s: could not compare the value with its default; treating it as set.", type(self).__name__, name)
                 unchanged = False
             if unchanged:
                 continue

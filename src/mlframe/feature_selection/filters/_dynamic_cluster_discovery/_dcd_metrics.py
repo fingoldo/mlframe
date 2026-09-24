@@ -16,25 +16,71 @@ import numpy as np
 if TYPE_CHECKING:
     from . import DCDState
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
+
+
+def _is_foreign(state, factors_data, factors_nbins) -> bool:
+    """Whether the caller passed a factors matrix or bin counts that describe different data from the state's own.
+
+    The state's caches (pair SU, per-column entropy, the cached ``fn`` array) describe ITS matrix: served for another
+    dataset they returned the state's SU, and written with it they poisoned later lookups, so foreign data is scored on a
+    scratch copy. Not an identity test: the state stores ``np.asarray(factors_nbins)``, a new object whenever the caller passed a
+    list or another dtype, and every DCD hot-path call hands the ORIGINAL arrays back in. Identity sent each of those
+    through the uncached scratch path and doubled the fit time. The matrix counts as the state's own when it is the
+    same buffer; the bin counts, a handful of ints, are compared by value.
+    """
+    own_fd, own_fn = state.factors_data, state.factors_nbins
+    if factors_data is not None and factors_data is not own_fd:
+        if own_fd is None or getattr(factors_data, "shape", None) != getattr(own_fd, "shape", None) or not np.may_share_memory(factors_data, own_fd):
+            return True
+    if factors_nbins is not None and factors_nbins is not own_fn:
+        if own_fn is None or not np.array_equal(np.asarray(factors_nbins), np.asarray(own_fn)):
+            return True
+    return False
+
+
+def _scratch_state(state, factors_data, factors_nbins):
+    """A shallow copy of ``state`` pointed at the override data, with empty caches so nothing crosses datasets."""
+    import copy
+    from collections import OrderedDict
+
+    scratch = copy.copy(state)
+    scratch.factors_data = factors_data if factors_data is not None else state.factors_data
+    scratch.factors_nbins = factors_nbins if factors_nbins is not None else state.factors_nbins
+    scratch.pairwise_su_cache = OrderedDict()
+    scratch.column_entropy_cache = {}
+    scratch._fn_arr_cached = None
+    scratch._pair_idx_buf = None
+    return scratch
+
+
+def _no_matrix(fn_name: str, a: int, b: int) -> float:
+    """NaN for a pair that cannot be scored because the state carries no factors matrix, said once per process.
+
+    0.0 would claim "not redundant at all" (SU) or "functionally equivalent" (VI) - a measurement nobody made.
+    """
+    log_throttle(
+        logger, f"dcd_{fn_name}_without_matrix", logging.WARNING,
+        "%s(%s, %s): the state has no factors matrix, so nothing can be computed; returning NaN (unknown).", fn_name, a, b,
+    )
+    return float("nan")
 
 
 def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = None, factors_data=None, factors_nbins=None, dtype=np.int32) -> float:
     """Cached symmetric-uncertainty between columns ``a`` and ``b``.
 
-    Returns SU(X_a, X_b) in [0, 1] under ``distance='su'`` (default). For
-    ``distance='vi'`` returns ``1 - VI/log(2*n_bins)`` to remain bounded;
-    for ``'sotoca_pla'`` returns the target-aware distance from the
-    Sotoca-Pla 2010 formula. For Layer 46 ``distance='auto'`` returns
-    ``max(SU, VI_sim)`` per pair — picks up both linear-friendly
-    duplicates (SU strong) and non-linear functional equivalences
-    (VI tighter), at the cost of one extra MI computation per pair.
-
-    Cache key: ``(min(a,b), max(a,b))`` tuple (4× cheaper than frozenset
-    per Critic2 finding).
+    Returns SU(X_a, X_b) in [0, 1] under ``distance='su'`` (default). For ``distance='vi'`` returns ``1 - VI/log(2*n_bins)``
+    to remain bounded; for ``'sotoca_pla'`` the target-aware Sotoca-Pla 2010 distance. ``distance='auto'`` returns
+    ``max(SU, VI_sim)`` per pair - linear-friendly duplicates (SU strong) and non-linear functional equivalences (VI
+    tighter), at the cost of one extra MI computation per pair. Cache key: ``(min(a,b), max(a,b))`` (4x cheaper than a
+    frozenset). Foreign ``factors_*`` overrides are scored on a scratch copy (``_is_foreign``); no matrix gives NaN.
     """
     if a == b:
         return 1.0
+    if _is_foreign(state, factors_data, factors_nbins):
+        return pair_su(_scratch_state(state, factors_data, factors_nbins), a, b, dtype=dtype)
     key = (a, b) if a < b else (b, a)
     cache = state.pairwise_su_cache
     if key in cache:
@@ -44,7 +90,7 @@ def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = Non
     fd = factors_data if factors_data is not None else state.factors_data
     fn = factors_nbins if factors_nbins is not None else state.factors_nbins
     if fd is None or fn is None:
-        return 0.0
+        return _no_matrix("pair_su", a, b)
     state.n_cache_misses += 1
     state.n_su_calls += 1
     # Layer 46: ``"auto"`` runs the SU and VI branches
@@ -295,14 +341,18 @@ def pair_vi(state: DCDState, a: int, b: int, factors_data=None, factors_nbins=No
     This helper returns raw VI in nats for users who need the metric
     interpretation (cluster cohesion plots, comparison with SU).
     Reuses ``state.column_entropy_cache`` and the ``_pair_idx_buf`` /
-    ``_fn_arr_cached`` scratch buffers populated by ``pair_su``.
+    ``_fn_arr_cached`` scratch buffers populated by ``pair_su``; foreign ``factors_*`` overrides are scored on a
+    scratch copy for the same reason as there. NaN when there is no matrix: VI = 0.0 would mean "functionally
+    equivalent".
     """
     if a == b:
         return 0.0
+    if _is_foreign(state, factors_data, factors_nbins):
+        return pair_vi(_scratch_state(state, factors_data, factors_nbins), a, b, dtype=dtype)
     fd = factors_data if factors_data is not None else state.factors_data
     fn = factors_nbins if factors_nbins is not None else state.factors_nbins
     if fd is None or fn is None:
-        return 0.0
+        return _no_matrix("pair_vi", a, b)
     from ..info_theory import mi, entropy, merge_vars
     fn_arr = state._fn_arr_cached
     if fn_arr is None:

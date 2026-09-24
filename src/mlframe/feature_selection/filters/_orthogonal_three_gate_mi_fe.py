@@ -61,10 +61,11 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.utils.env_flags import env_int
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -92,7 +93,7 @@ logger = logging.getLogger(__name__)
 # We therefore GATE on per-fold TRAIN-row count: batch below the threshold, fall back
 # to the bit-identical scalar per-column path above it. Override via env var for
 # hardware retuning.
-_OOF_BATCH_BINNING_MAX_TRAIN_ROWS = int(os.environ.get("MLFRAME_OOF_BATCH_BINNING_MAX_TRAIN_ROWS", "16000"))
+_OOF_BATCH_BINNING_MAX_TRAIN_ROWS = 16000  # default; the env override is read on every call
 
 __all__ = [
     "score_features_by_kfold_oof_mi",
@@ -224,7 +225,7 @@ def _fold_test_bins(
     only and are bit-identical - the gate only affects performance, never the
     OOF MI values. See :data:`_OOF_BATCH_BINNING_MAX_TRAIN_ROWS`.
     """
-    if train_idx.size <= _OOF_BATCH_BINNING_MAX_TRAIN_ROWS:
+    if train_idx.size <= env_int("MLFRAME_OOF_BATCH_BINNING_MAX_TRAIN_ROWS", _OOF_BATCH_BINNING_MAX_TRAIN_ROWS, minimum=0):
         _, test_bins = _bin_with_train_edges_batched(
             arr[train_idx, :], arr[test_idx, :], nbins=nbins,
         )

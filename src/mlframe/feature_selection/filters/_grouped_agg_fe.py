@@ -431,8 +431,10 @@ def score_grouped_agg_by_cmi_uplift(
         if col in source_mi_cache:
             return source_mi_cache[col]
         if col not in raw_X.columns:
-            source_mi_cache[col] = 0.0
-            return 0.0
+            # Unknown, not zero: a 0.0 baseline made ``uplift = cmi - 0`` clear the gate for any candidate whose
+            # source is missing from raw_X, bypassing the redundancy-vs-source check entirely. NaN fails ``>=``.
+            source_mi_cache[col] = float("nan")
+            return float("nan")
         x_bin = _quantile_bin(raw_X[col].to_numpy(), nbins=n_bins)
         mi = _cmi_from_binned(x_bin, y_bin, None)
         source_mi_cache[col] = float(mi)

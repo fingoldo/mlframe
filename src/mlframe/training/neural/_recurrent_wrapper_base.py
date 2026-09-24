@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import os
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
@@ -29,6 +28,7 @@ from ._recurrent_cat_embeddings import _RecurrentCatEmbeddingMixin
 from ._recurrent_config import RNNType, InputMode, RecurrentConfig
 from ._recurrent_data import RecurrentDataset, recurrent_collate_fn
 from ._recurrent_torch_model import RecurrentTorchModel
+from mlframe.utils.env_flags import env_int
 
 logger = logging.getLogger("mlframe.training.neural.recurrent_dataset_helpers")  # matches the pre-carve logger name; preserves log-filter/caplog compatibility for existing callers/tests
 
@@ -43,7 +43,7 @@ _DEFAULT_SEQ_INPUT_SIZE: int = 4
 # a permutation-importance-style loop issuing many distinct predict()/predict_proba() calls per fit
 # accumulates one full-size cached array per distinct call for the whole lifetime of the (possibly
 # long-lived) fitted estimator -- unbounded host RAM growth.
-_PREDICTION_CACHE_MAX = max(1, int(os.environ.get("MLFRAME_RECURRENT_PREDICTION_CACHE_MAX", "16")))
+_PREDICTION_CACHE_MAX = env_int("MLFRAME_RECURRENT_PREDICTION_CACHE_MAX", 16, minimum=1)
 
 
 # Substring-match on the monitor name was buggy: "val_log_likelihood" contains

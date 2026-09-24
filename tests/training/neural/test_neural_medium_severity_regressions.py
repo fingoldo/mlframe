@@ -15,7 +15,6 @@ Categories covered (matches the wave 3 prompt enumeration):
 
 from __future__ import annotations
 
-import logging
 
 import numpy as np
 import pytest
@@ -253,54 +252,18 @@ def test_m_neu_08_ranks_within_group_scales_to_100k_queries() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_m_neu_09_ensemble_method_conflict_warns(caplog) -> None:
-    """When legacy ``ensemble_method`` and typed ``ltr_ensemble_method`` are
-    both customised to different non-default values, the resolver previously
-    picked legacy silently. Post-fix it WARNs so the operator sees the override.
-    """
-    pytest.importorskip("mlframe.training.configs")
+def test_m_neu_09_ensemble_method_conflict_is_rejected() -> None:
+    """Legacy ``ensemble_method`` and typed ``ltr_ensemble_method`` both set explicitly to different values are rejected
+    at config time: the resolver would otherwise pick one by priority and fuse with a method the user did not choose."""
     from mlframe.training.configs import LearningToRankConfig
 
-    cfg = LearningToRankConfig()
-    cfg.ensemble_method = "borda"
-    # ltr_ensemble_method is the typed Literal field; force a conflict.
-    cfg.ltr_ensemble_method = "rrf"  # default, no conflict expected
-
-    # Recreate the resolver branch inline (without invoking the whole suite,
-    # which requires a heavy synthetic dataset).
-    _legacy = getattr(cfg, "ensemble_method", "rrf")
-    _typed = getattr(cfg, "ltr_ensemble_method", "rrf")
-    # _typed defaults to "rrf"; no warn expected in this no-conflict case.
-    assert _legacy == "borda" and _typed == "rrf"
-
-    # Now flip to a real conflict and call the actual suite-level branch via
-    # a minimal stub that exercises the same logic path.
-    cfg.ltr_ensemble_method = "borda"  # same value -> no conflict (resolver picks legacy)
-    # Both equal: no conflict either.
-    cfg.ltr_ensemble_method = "rrf"
-    cfg.ensemble_method = "score_mean"
-    # Now legacy=score_mean and typed=rrf - legacy wins because not "rrf" default;
-    # typed is rrf default so no conflict log. This still preserves silent path
-    # for the default-typed case, which is correct.
-
-    # Real conflict: legacy="borda", typed="rrf-with-custom"... typed is a Literal,
-    # so only valid pair where both non-default + differ is legacy="score_mean"
-    # vs typed="borda".
-    cfg.ensemble_method = "score_mean"
-    cfg.ltr_ensemble_method = "borda"
-
-    with caplog.at_level(logging.WARNING, logger="mlframe.training.ranking.ranker_suite"):
-        # Inline-exec the resolver from ranker_suite.py - the function body
-        # was extracted from train_mlframe_ranker_suite. Replicate the gist:
-        _legacy = cfg.ensemble_method
-        _typed = cfg.ltr_ensemble_method
-        if _legacy != "rrf" and _typed != "rrf" and _typed != _legacy:
-            logging.getLogger("mlframe.training.ranking.ranker_suite").warning(
-                "conflict: legacy=%s typed=%s",
-                _legacy,
-                _typed,
-            )
-    assert any("conflict" in r.message for r in caplog.records), caplog.records
+    with pytest.raises(ValueError, match="both set and disagree"):
+        LearningToRankConfig(ensemble_method="score_mean", ltr_ensemble_method="borda")
+    with pytest.raises(ValueError, match="both set and disagree"):
+        LearningToRankConfig(ensemble_method="borda", ltr_ensemble_method="rrf")
+    assert LearningToRankConfig(ensemble_method="borda", ltr_ensemble_method="borda").ltr_ensemble_method == "borda"
+    assert LearningToRankConfig(ensemble_method="score_mean").ensemble_method == "score_mean"
+    assert LearningToRankConfig(ltr_ensemble_method="borda").ltr_ensemble_method == "borda"
 
 
 # ---------------------------------------------------------------------------

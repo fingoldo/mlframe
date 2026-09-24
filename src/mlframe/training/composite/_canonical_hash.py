@@ -247,6 +247,37 @@ def encode_polars_slice(small: Any, token: str) -> bytes:
     return _encode_text(small.to_list(), mask)
 
 
+def encode_polars_frame(small: Any, tokens: dict) -> dict:
+    """``{column: encode_polars_slice(column, token)}`` for every column of a SMALL polars frame, byte-identical to the
+    per-column calls, with the numeric columns encoded a dtype group at a time.
+
+    Each per-column encode ran three or four tiny polars expressions (null mask, NaN mask, fill, export), each a separate
+    engine collect: at 500 columns the signature's sample and row-order windows spent about 2 s there. One ``select`` per
+    (token, dtype) group builds every mask and every filled column of the group together, and the per-column byte layout is
+    the same ``_encode_numeric`` call as before.
+    """
+    out: dict = {}
+    schema = small.schema
+    groups: dict = {}
+    for c in small.columns:
+        tok = tokens[c]
+        if tok in ("bool", "int") or tok in _FLOAT_TOKENS:
+            groups.setdefault((tok, schema[c]), []).append(c)
+        else:
+            out[c] = encode_polars_slice(small.get_column(c), tok)
+    for (tok, dt), cols in groups.items():
+        if tok in _FLOAT_TOKENS:
+            masks = small.select([(pl.col(c).is_null() | pl.col(c).is_nan().fill_null(False)).alias(c) for c in cols]).to_numpy()
+            vals = small.select([pl.col(c).fill_null(0.0) for c in cols]).to_numpy()
+        else:
+            masks = small.select([pl.col(c).is_null() for c in cols]).to_numpy()
+            vals = small.select([pl.col(c).fill_null(False if tok == "bool" else 0) for c in cols]).to_numpy()
+        np_dt = _numeric_np_dtype(tok, np.dtype("<u8") if dt == pl.UInt64 else None)
+        for j, c in enumerate(cols):
+            out[c] = _encode_numeric(vals[:, j], np.asarray(masks[:, j], dtype=bool), np_dt)
+    return out
+
+
 def _polars_ns_factor(dt: Any) -> int:
     """Multiplier that converts a polars temporal dtype's physical integers to the canonical resolution."""
     if dt == pl.Date:
@@ -424,7 +455,10 @@ def row_order_fingerprint(df: Any, n_rows: int) -> Optional[bytes]:
         if height > n_rows:
             n_tail = min(height - n_rows, n_rows)
             windows.append(df.slice(height - n_tail, n_tail))
-        encode = lambda w, j: encode_polars_slice(w.to_series(j), polars_logical_type(w.dtypes[j]))  # noqa: E731
+        # Every column of a window encoded together (one select per dtype group), not a few tiny expressions per column.
+        _encoded = [encode_polars_frame(w, {c: polars_logical_type(t) for c, t in w.schema.items()}) for w in windows]
+        _pos = {id(w): k for k, w in enumerate(windows)}
+        encode = lambda w, j: _encoded[_pos[id(w)]][w.columns[j]]  # noqa: E731
     elif isinstance(df, pd.DataFrame):
         height = len(df)
         windows = [df.iloc[: min(height, n_rows)]]

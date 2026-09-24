@@ -19,6 +19,7 @@ from ._estimator_helpers import _carry_forward_fill
 from ._routing import inner_input as _inner_input
 from ._routing import resolve_transform as get_transform
 from ._inner_frame import frame_for_inner
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ def _inverse_with_fallback(
         # returns the conditional MEAN of y, not the inverse of the mean of T. Absent quantiles -> the plain inverse.
         from ._smearing import smeared_inverse
 
-        y_hat = smeared_inverse(lambda t: transform.inverse(t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles")).reshape(-1)
+        y_hat = smeared_inverse(lambda t: call_transform(transform, "inverse", t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles")).reshape(-1)
     else:
         y_hat = np.full_like(t_hat, fill_value=np.nan, dtype=np.float64)
         # Inverse on valid rows only; placeholder base for invalid rows is
@@ -132,7 +133,7 @@ def _inverse_with_fallback(
         else:
             base_safe = np.where(mask, base_arr, 1.0)
         y_hat_valid = np.asarray(
-            transform.inverse(t_hat, base_safe, params, **inverse_kwargs),
+            call_transform(transform, "inverse", t_hat, base_safe, params, **inverse_kwargs),
             dtype=np.float64,
         ).reshape(-1)
         y_hat[domain_ok] = y_hat_valid[domain_ok]
@@ -360,6 +361,28 @@ def predict_from_t(self, X: Any, t_hat: np.ndarray) -> np.ndarray:
     return np.asarray(np.clip(y_hat, params["y_clip_low"], params["y_clip_high"]))
 
 
+def predict_with_pre_clip(self, X: Any, inner_X: Any = None) -> tuple[np.ndarray, np.ndarray]:
+    """``(predict(X), predict_pre_clip(X))`` from one inner predict and inverse.
+
+    The wrap pass scored both: two full inner predicts and inverses per (entry, split) for one clip apart. The clipped
+    value and the runtime clip counters are exactly what :func:`predict` produces.
+    """
+    y_hat, _, meta = self._predict_unclipped(X, inner_X=inner_X)
+    pre_clip = np.asarray(y_hat, dtype=np.float64).copy()
+    return _clip_and_record(self, np.asarray(y_hat), meta), pre_clip
+
+
+def _clip_and_record(self, y_hat: np.ndarray, meta: dict[str, Any]) -> np.ndarray:
+    """Clip to the fitted train envelope and record the clip and violation counters in ``runtime_stats_``."""
+    params = meta["params"]
+    low, high = params["y_clip_low"], params["y_clip_high"]
+    low_hits, high_hits = int(np.sum(y_hat < low)), int(np.sum(y_hat > high))
+    if low_hits or high_hits:
+        y_hat = np.clip(y_hat, low, high)
+    _record_runtime_stats(self, meta["n_rows"], meta["n_violation"], low_hits, high_hits, meta["t_low_hits"], meta["t_high_hits"])
+    return np.asarray(y_hat)
+
+
 def predict(self, X: Any, inner_X: Any = None) -> np.ndarray:
     """Predict on the original target scale (bound as ``CompositeTargetEstimator.predict``).
 
@@ -370,29 +393,11 @@ def predict(self, X: Any, inner_X: Any = None) -> np.ndarray:
     out-of-domain / NaN bases), then clips predictions to the fitted train envelope, counting
     violations for observability. Returns the original-scale ``y_hat``.
     """
-    y_hat, n, meta = self._predict_unclipped(X, inner_X=inner_X)
-    params = meta["params"]
-    n_violation = meta["n_violation"]
-    n = meta["n_rows"]
-
-    # Post-inverse y-clip. Prediction outside the train envelope is
-    # almost always exp() / division blow-up; clip and count for
-    # observability.
-    low = params["y_clip_low"]
-    high = params["y_clip_high"]
-    low_hits = int(np.sum(y_hat < low))
-    high_hits = int(np.sum(y_hat > high))
-    if low_hits or high_hits:
-        y_hat = np.clip(y_hat, low, high)
-
-    # Accumulate counters + fire the callback. The T-clip hit counts (computed
-    # inside _predict_unclipped) flow through here so they are observable in
-    # runtime_stats_ / the callback rather than only in a per-batch WARNING.
-    _record_runtime_stats(
-        self, n, n_violation, low_hits, high_hits,
-        meta["t_low_hits"], meta["t_high_hits"],
-    )
-    return np.asarray(y_hat)
+    y_hat, _n, meta = self._predict_unclipped(X, inner_X=inner_X)
+    # Post-inverse y-clip. Prediction outside the train envelope is almost always exp() / division blow-up; clip and count
+    # for observability. The T-clip hit counts (computed inside _predict_unclipped) flow through to runtime_stats_ / the
+    # callback rather than only into a per-batch WARNING.
+    return _clip_and_record(self, np.asarray(y_hat), meta)
 
 
 def predict_quantile(

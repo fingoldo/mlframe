@@ -46,7 +46,9 @@ def train_base_values(train_df: Any, spec: dict) -> Optional[np.ndarray]:
     try:
         from ..composite import _extract_base_matrix
 
-        if not all(c in train_df.columns for c in cols):
+        from ..composite._synthetic_bases import is_resolvable
+
+        if not all(is_resolvable(train_df, c) for c in cols):
             return None
         mat = _extract_base_matrix(train_df, cols)
         return mat[:, 0] if len(cols) == 1 else mat

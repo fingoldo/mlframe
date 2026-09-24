@@ -764,6 +764,15 @@ layer 2 spans only inner-loop boundaries where suite-level strong references kee
   [sklearn-matrix CI workflow](.github/workflows/sklearn-matrix-ci.yml) tests the
   composite-target wrapper surface against scikit-learn 1.6 through 1.8 on every PR,
   catching attribute-delegation breakage before users hit it.
+- **Restart the kernel between runs in a long Jupyter session.** On Windows a process
+  is killed once the system-wide commit charge reaches its limit (`WinError 1455`, or
+  an access violation when the failed allocation happened inside a C library). Freed
+  memory does not always return that charge: releasing 1.87 GB held by polars gave
+  back 0.60 GB of commit, while numpy returned all of it, so a kernel that has been
+  loading and reshaping frames for hours holds a commit charge nothing in the next run
+  can release. One production kernel started a suite with 1.0 GB of commit left against
+  a 344 GB limit, holding 204.8 GB of private commit with a 0.8 GB resident set, and
+  died 27 minutes in. The suite now says so at WARNING, at startup and in the heartbeat.
 - **Fuzz-tested.** Roughly 150 pairwise and 400 three-wise (IPOG-covering) parameter
   combos run per release. Combo regressions become permanent sensors so they do not
   recur.

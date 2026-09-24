@@ -151,6 +151,8 @@ class CompositeTargetDiscovery:
     _time_ordering_: Any
     _fit_data_signature: str | None
     _fit_data_signature_inputs: tuple | None
+    # (id(df), target_col, feature tuple, signature) a caller already computed for this exact frame, or None.
+    _fit_data_signature_seed: tuple | None
     # Row count at fit time, so an incremental re-score can tell appended rows from the original ones.
     _fit_n_rows: int
     # Sweep-shared honest holdout set by ``fit_with_stability_check`` (consumed by
@@ -179,6 +181,7 @@ class CompositeTargetDiscovery:
         state.pop("_df_ref", None)
         state.pop("_auto_base_pool", None)
         state.pop("_screen_matrix_stash", None)  # holds the frame and a screen-sized matrix if a fit stopped mid-way
+        state.pop("_honest_gate_memo", None)  # the honest gate's per-fit matrices and fitted tiny models, if a fit stopped mid-way
         return state
 
     def fit_data_signature(self) -> str:
@@ -258,9 +261,7 @@ class CompositeTargetDiscovery:
                 # Unary specs have ``base_full is None`` (the transform ignores
                 # base); pass None straight through rather than slicing.
                 _base_valid = None if base_full is None else base_full[valid]
-                t[valid] = transform.forward(
-                    y_full[valid], _base_valid, spec.fitted_params,
-                )
+                t[valid] = call_transform(transform, "forward", y_full[valid], _base_valid, spec.fitted_params)
             yield spec.name, t
 
     # Per-cluster composite (REOPENED, was a REJECTED design decision -- see ``discovery/_per_group.py``
@@ -682,3 +683,4 @@ def discover_incremental(
 # nothing references, so they are withdrawn until the arm that needs them lands; they remain public on
 # `_eval_stats` and cost one line to re-export when there is something to re-export them for.
 from ._eval_stats import bootstrap_gain_p_value
+from mlframe.training.composite.transforms._call_gateway import call_transform

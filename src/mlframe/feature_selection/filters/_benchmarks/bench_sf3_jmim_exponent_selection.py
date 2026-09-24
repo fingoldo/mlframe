@@ -45,10 +45,11 @@ def _make_synergy_fixture(seed, n=1500):
 
 
 def _run_arm(seeds):
+    """Fit MRMR once per seed under the current environment and return each seed's picks and recall of the planted features."""
     from mlframe.feature_selection.filters.mrmr._mrmr_class import MRMR
-    from mlframe.feature_selection.filters.evaluation import _JMIM_EXPONENT_DISCOUNT_ONLY
+    from mlframe.feature_selection.filters.evaluation import jmim_exponent_discount_only
 
-    out = {"discount_only": bool(_JMIM_EXPONENT_DISCOUNT_ONLY), "per_seed": [], "recalls": []}
+    out = {"discount_only": jmim_exponent_discount_only(), "per_seed": [], "recalls": []}
     for seed in seeds:
         X, y, informative = _make_synergy_fixture(seed)
         sel = MRMR(redundancy_aggregator="jmim", max_runtime_mins=0.5, verbose=0)
@@ -67,6 +68,7 @@ def _run_arm(seeds):
 
 
 def _drive_both():
+    """Run the exponent and the discount-only JMIM correction in separate processes and compare their recall of planted features."""
     seeds = list(range(8))
     env_base = dict(os.environ)
     env_base["CUDA_VISIBLE_DEVICES"] = ""

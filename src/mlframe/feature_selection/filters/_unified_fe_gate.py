@@ -402,7 +402,7 @@ def unified_second_pass_gate(
     if raw_num and int(seed_raw_cols_count) > 0:
         raw_arr = X_with_all_engineered[raw_num].to_numpy(dtype=np.float64)
         raw_mi = np.asarray(_mi_classif_batch(raw_arr, y_bin, nbins=nbins), dtype=np.float64)
-        order = np.argsort(-raw_mi)
+        order = np.argsort(-raw_mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
         seed_cols = [raw_num[i] for i in order[: int(seed_raw_cols_count)]]
         seed_bins = [_quantile_bin(X_with_all_engineered[c].to_numpy(), nbins=nbins) for c in seed_cols]
         if seed_bins:

@@ -809,6 +809,10 @@ def train_and_evaluate_model(
             try:
                 from ._prediction_envelope_clip import compute_train_envelope_stats
                 _y_train_envelope_stats = compute_train_envelope_stats(train_target)
+                if _y_train_envelope_stats is not None:
+                    from ._prediction_envelope_clip import train_naive_mae
+
+                    _y_train_envelope_stats = _y_train_envelope_stats._replace(naive_mae=train_naive_mae(train_target, reporting.mase_seasonality))
             except Exception as _env_err:
                 logger.debug(
                     "Could not compute train envelope stats: %s. Per-split " "eval-fallback envelope still applies in the reporter.",

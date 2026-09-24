@@ -45,6 +45,7 @@ from . import (  # noqa: F401 - _is_polars_df: unused in this module, re-exporte
 # The fitted-from-spec / fit / predict / predict_invert paths all use these, so
 # they must be imported alongside the parent helpers above.
 from ..transforms import get_transform, DomainViolationError
+from ..transforms._call_gateway import call_transform
 from ._inner_frame import frame_for_inner
 
 logger = logging.getLogger(__name__)
@@ -250,6 +251,11 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         from . import _soft_shrink as _ss
 
         _ss.set_thread_info(self, value)
+
+    def predict_with_pre_clip(self, X: Any, inner_X: Any = None) -> "tuple[np.ndarray, np.ndarray]":
+        """``(predict(X), predict_pre_clip(X))`` from one inner predict. See ``_predict.predict_with_pre_clip``."""
+        from . import _predict as _pred
+        return _pred.predict_with_pre_clip(self, X, inner_X=inner_X)
 
     def predict_pre_clip(self, X: Any, inner_X: Any = None) -> "np.ndarray":
         """Inverse-of-transform y-prediction WITHOUT the train-envelope clip. See ``_predict.predict_pre_clip``.
@@ -539,7 +545,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         # is the plain 2-arg form.
         _dcf = getattr(transform, "domain_check_fitted", None)
         if _dcf is not None and bool(valid.any()):
-            _provisional_params = transform.fit(y_arr[valid], base_arr[valid])
+            _provisional_params = call_transform(transform, "fit", y_arr[valid], base_arr[valid])
             if isinstance(_provisional_params, dict):
                 _valid_fitted = np.asarray(
                     _dcf(y_arr, base_arr, _provisional_params), dtype=bool,
@@ -588,7 +594,6 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         # signature, so a TypeError deep inside a weight-aware fit propagates instead of reading as "no weight support"). ``row_index``: fit
         # always sees domain-filter-COMPACTED y_train/base_train (unlike forward(), which the recurrent branch below routes through the FULL
         # sequence), so a fit that needs each row's TRUE absolute position (seasonal_residual's phase = row_index % period) gets it explicitly.
-        from ..transforms._call_gateway import call_transform
 
         transform_params = call_transform(transform, "fit", y_train, base_train, groups=groups_train, sample_weight=sample_weight_train,
                                           row_index=np.flatnonzero(valid))
@@ -625,14 +630,10 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             # against the full-length sequence, scrambling row identity inside every *_grouped recurrent
             # transform and leaving part of the output buffer uninitialized.
             recurrent_forward_kwargs: dict[str, Any] = {"groups": groups_full} if groups_full is not None else {}
-            t_full = transform.forward(
-                y_seq, base_seq, transform_params, **recurrent_forward_kwargs,
-            )
+            t_full = call_transform(transform, "forward", y_seq, base_seq, transform_params, **recurrent_forward_kwargs)
             t_train = np.asarray(t_full, dtype=np.float64).reshape(-1)[valid]
         else:
-            t_train = transform.forward(
-                y_train, base_train, transform_params, **transform_forward_kwargs,
-            )
+            t_train = call_transform(transform, "forward", y_train, base_train, transform_params, **transform_forward_kwargs)
 
         # Sanity: T must be finite or the inner estimator will choke.
         if not np.all(np.isfinite(t_train)):

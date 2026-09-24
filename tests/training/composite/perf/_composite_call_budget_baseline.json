@@ -1,5 +1,22 @@
 {
-  "build_feature_matrix": {"measured": 4, "note": "ideal 1 per fit (PRF-18): the screen matrix is rebuilt by the tiny rerank, the honest gate and the y-scale gate"},
-  "near_collinear_keep_mask": {"measured": 5, "note": "ideal 1 correlation build per target (PRF-01): one per base context plus the unary context"},
-  "lgb_Dataset": {"measured": 54, "note": "ideal: one per distinct (base matrix, fold) (PRF-07); today 18 shared-fold builds plus 18 per-spec CV fits, 9 honest-gate fits, 8 WAIC OOF fits and 1 baseline"}
+  "build_feature_matrix": {
+    "measured": 4,
+    "note": "ideal 1 per fit (PRF-18): the screen matrix is rebuilt by the tiny rerank, the honest gate and the y-scale gate"
+  },
+  "near_collinear_keep_mask": {
+    "measured": 5,
+    "note": "ideal 1 correlation build per target (PRF-01): one per base context plus the unary context"
+  },
+  "lgb_Dataset": {
+    "measured": 54,
+    "note": "ideal: one per distinct (base matrix, fold) (PRF-07); today 18 shared-fold builds plus 18 per-spec CV fits, 9 honest-gate fits, 8 WAIC OOF fits and 1 baseline"
+  },
+  "yscale_predicts_per_wrapper_split": {
+    "measured": 3,
+    "note": "ideal 2 (PRF-13/14): the per-model hook (before the phase) plus one phase predict; the wrap-pass watchdog's y-scale predict and the refit pre-screen's predict (through its shim) read the same split in two different frame objects, which the identity-keyed phase memo cannot join"
+  },
+  "pp_transforms_per_pipeline_frame": {
+    "measured": 3,
+    "note": "ideal 1 per (pipeline, frame) (PRF-16): the training transform, the per-model hook (before the phase memo) and one memoised phase transform"
+  }
 }

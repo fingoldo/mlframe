@@ -23,12 +23,12 @@ from __future__ import annotations
 
 import logging
 
-import os
 
 import numpy as np
 from numba import njit, prange
 
 from mlframe.core.recency_weights import SCHEMES
+from mlframe.utils.env_flags import env_int
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ __all__ = ["per_group_recency_weighted_mode", "per_group_behavioral_stability"]
 
 # Parallelize the per-entity KDE over groups once there are enough of them to amortise the prange spawn (~50us).
 # Crossover measured in _benchmarks/profile_recency_features.py; env-overridable per host.
-_KDE_PARALLEL_MIN_GROUPS = int(os.environ.get("MLFRAME_RECENCY_KDE_PARALLEL_MIN_GROUPS", "512"))
+_KDE_PARALLEL_MIN_GROUPS = env_int("MLFRAME_RECENCY_KDE_PARALLEL_MIN_GROUPS", 512, minimum=0)
 
 
 @njit(fastmath=False, cache=True)

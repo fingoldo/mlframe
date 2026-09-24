@@ -15,8 +15,9 @@ selected features.
 from __future__ import annotations
 
 import os
+from mlframe.utils.env_flags import env_float
 
-_CP_SAT_TIME_LIMIT_S = float(os.environ.get("MLFRAME_FE_VRAM_CPSAT_TIME_LIMIT_S", "1.0") or 1.0)
+_CP_SAT_TIME_LIMIT_S = env_float("MLFRAME_FE_VRAM_CPSAT_TIME_LIMIT_S", 1.0, minimum=0.0)
 _SCALE = 1000  # integer scale for the relative speed weights
 
 

@@ -37,6 +37,22 @@ class FeatureSelectionConfig(InertFieldsWarningMixin, BaseConfig):
 
     Controls mRMR (minimum Redundancy Maximum Relevance) and RFECV
     (Recursive Feature Elimination with Cross-Validation) feature selection.
+    Every field is documented by the comment above it; the list below covers the entry points and every step that
+    runs WITHOUT being asked for.
+
+    On by default
+    -------------
+    pre_screen_unsupervised : bool
+        Drops zero-variance and >99%-null columns from the train split once per suite, before any selector
+        (thresholds: ``pre_screen_variance_threshold`` / ``pre_screen_null_fraction_threshold``).
+    rfecv_cluster_reduce : bool
+        When RFECV runs, it runs on cluster medoids: features correlated above ``rfecv_cluster_corr_threshold``
+        (``rfecv_cluster_corr_method``, Pearson by default) are collapsed to one representative first.
+    rfecv_leakage_corr_threshold : float
+        When RFECV runs, columns with ``|Pearson(x, y)| > 0.95`` go through its ``leakage_action`` (warn / exclude /
+        raise); ``None`` disables the check.
+    skip_identity_equivalent_pre_pipelines : bool
+        A selection pipeline that keeps every column and adds none is not trained as a separate variant.
 
     Parameters
     ----------

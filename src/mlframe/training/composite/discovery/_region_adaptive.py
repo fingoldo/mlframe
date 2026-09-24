@@ -52,6 +52,7 @@ import numpy as np
 
 # Reuse the registry transforms verbatim (fit/forward/inverse), no new Transform.
 from ..transforms.registry import _TRANSFORMS_REGISTRY
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ class RegionAdaptiveSpec:
             if not m.any():
                 continue
             tr = _TRANSFORMS_REGISTRY[self.region_transforms[k]]
-            out[m] = tr.forward(y[m], base[m], self.region_params[k])
+            out[m] = call_transform(tr, "forward", y[m], base[m], self.region_params[k])
         return out
 
     def inverse(self, t_hat: np.ndarray, base: np.ndarray) -> np.ndarray:
@@ -125,7 +126,7 @@ class RegionAdaptiveSpec:
             if not m.any():
                 continue
             tr = _TRANSFORMS_REGISTRY[self.region_transforms[k]]
-            out[m] = tr.inverse(t_hat[m], base[m], self.region_params[k])
+            out[m] = call_transform(tr, "inverse", t_hat[m], base[m], self.region_params[k])
         return out
 
 
@@ -174,8 +175,8 @@ def _oof_score_transform(
     tr = _TRANSFORMS_REGISTRY[tr_name]
     if n < max(2 * n_folds, 8):
         # Too few rows for OOF: fit + score in-sample (region degenerate).
-        params = tr.fit(y, base)
-        t = tr.forward(y, base, params)
+        params = call_transform(tr, "fit", y, base)
+        t = call_transform(tr, "forward", y, base, params)
         vy = float(np.var(y)) or 1.0
         return 1.0 - float(np.var(t)) / vy
     idx = rng.permutation(n)
@@ -187,8 +188,8 @@ def _oof_score_transform(
         if len(trn) < 2 or len(te) < 1:
             continue
         try:
-            params = tr.fit(y[trn], base[trn])
-            t_te = tr.forward(y[te], base[te], params)
+            params = call_transform(tr, "fit", y[trn], base[trn])
+            t_te = call_transform(tr, "forward", y[te], base[te], params)
         except Exception as e:  # nosec B112 - best-effort path
             logger.debug("region-adaptive fold fit/forward failed: %s", e)
             continue

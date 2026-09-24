@@ -19,10 +19,11 @@ except ImportError:  # pragma: no cover
 from sklearn.base import clone
 
 from .._composite_utils import is_polars_df as _is_polars_df
-from ..estimator import CompositeTargetEstimator
+from ..estimator import CompositeTargetEstimator, _extract_groups
 from ..transforms import get_transform
 from ._oof_split import _align_fit_sw, _carve_inner_eval_split
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger("mlframe.training.composite.ensemble")
 
@@ -75,10 +76,10 @@ def _compute_oof_with_external_holdout(
                 valid = transform.domain_check(y_train_full, base_full)
                 if valid.sum() < 10:
                     raise ValueError("too few valid rows after domain filter")
-                t_train = transform.forward(
-                    y_train_full[valid], base_full[valid],
-                    spec["fitted_params"],
-                )
+                # A grouped transform reads the component's own group column from the raw train frame.
+                _t_group_col = getattr(inner, "group_column", None)
+                _t_groups = _extract_groups(train_X, _t_group_col)[valid] if _t_group_col else None
+                t_train = call_transform(transform, "forward", y_train_full[valid], base_full[valid], spec["fitted_params"], groups=_t_groups)
                 inner_clone = clone(inner.estimator_)
                 if isinstance(X_stack_t, pd.DataFrame):
                     X_train_valid = X_stack_t.iloc[valid].reset_index(

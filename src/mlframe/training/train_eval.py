@@ -36,6 +36,7 @@ from .configs import (
     DEFAULT_RFECV_MAX_NOIMPROVING_ITERS,
 )
 from .io import load_mlframe_model, save_mlframe_model
+from ._model_cache_fingerprint import training_fingerprint, training_fingerprint_mismatch
 
 logger = logging.getLogger(__name__)
 
@@ -452,6 +453,8 @@ def process_model(
     # and retrain rather than bubble the opaque backend error.
     use_cache_flag = bool(common_params.get("use_cache", True))
     use_cached_model = use_cache_flag and bool(fpath and exists(fpath))
+    # What this model would be trained on: a cached dump trained on anything else is stale.
+    fingerprint = training_fingerprint(model_params.get("model"), model_params, common_params) if fpath else None
     if use_cached_model:
         assert fpath is not None  # guaranteed by the use_cached_model construction above
         if verbose:
@@ -476,6 +479,8 @@ def process_model(
             mismatch = _validate_cached_model_schema(loaded_model, common_params.get("train_df"))
             if not mismatch:
                 mismatch = _composite_cache_mismatch(loaded_model, common_params.get("composite_spec_digest"))
+            if not mismatch:
+                mismatch = training_fingerprint_mismatch(loaded_model, fingerprint)
             if mismatch:
                 logger.warning("Invalidating stale cached model at %s: %s. Retraining.", fpath, mismatch)
                 use_cached_model = False
@@ -558,6 +563,10 @@ def process_model(
             # original preds. Operators who need the forensic snapshot can re-save with
             # lean=False explicitly (rare; the metrics dict on the model object already
             # carries every train/val/test scalar score).
+            try:
+                model.training_fingerprint_ = fingerprint
+            except AttributeError:
+                logger.debug("could not stamp training_fingerprint_ on %s", type(model).__name__)
             save_mlframe_model(model, fpath, lean=True)
 
     # Where this entry's dump lives, so composite post-processing can re-save it once it wraps the model.

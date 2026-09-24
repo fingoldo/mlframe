@@ -15,7 +15,6 @@ strategy is documented and applied identically to both engines (legacy pandas si
 from __future__ import annotations
 
 import logging
-import os
 import warnings
 from typing import Any, Optional, Union
 
@@ -24,6 +23,7 @@ import pandas as pd
 from numba import njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from mlframe.utils.env_flags import env_float, env_int
 
 
 # Sklearn / astropy removed from categorize_1d_array hot path.
@@ -567,7 +567,7 @@ def discretize_uniform_parallel(arr: np.ndarray, n_bins: int, min_value: float, 
 
 # Crossover (measured at n=10M float64): serial wins <~50k (prange spawn dominates), parallel wins above
 # (2.2x @100k -> 47.9x @1M). Override via MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD for non-dev hardware.
-_UNIFORM_PAR_THRESHOLD = int(os.environ.get("MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD", "50000"))
+_UNIFORM_PAR_THRESHOLD = env_int("MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD", 50000, minimum=0)
 
 
 def discretize_array(

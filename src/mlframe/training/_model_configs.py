@@ -7,7 +7,7 @@ threshold. Behaviour preserved bit-for-bit; every class is re-exported from
 
 What lives here:
   - ``ModelConfig`` (base) and subclasses: ``LinearModelConfig``,
-    ``TreeModelConfig``, ``MLPConfig``, ``NGBConfig``.
+    ``TreeModelConfig``, ``MLPConfig``, ``NGBConfig`` (the last three deprecated: the suite reads ModelHyperparamsConfig).
   - ``AutoMLConfig``, ``ModelHyperparamsConfig``, ``TrainingBehaviorConfig``.
   - ``MultilabelDispatchConfig``, ``LearningToRankConfig``,
     ``QuantileRegressionConfig``, ``EnsemblingConfig``.
@@ -163,7 +163,8 @@ class TreeModelConfig(InertFieldsWarningMixin, ModelConfig):
     max_depth : int, optional
         Maximum tree depth (None for unlimited).
     early_stopping_rounds : int or None
-        Rounds without improvement before stopping. 0 = auto (iterations // 3).
+        Rounds without improvement before stopping. 0 = auto (iterations // 3); ``ModelHyperparamsConfig``, the
+        config the suite reads, has no auto value and rejects 0.
         None disables early stopping entirely.
     task_type : str
         Computation device: "CPU" or "GPU". Case-insensitive, normalized to uppercase.
@@ -178,6 +179,8 @@ class TreeModelConfig(InertFieldsWarningMixin, ModelConfig):
     hgb_kwargs : dict, optional
         HistGradientBoosting-specific parameters.
     """
+
+    UNCONSUMED_CLASS_HINT: ClassVar[Optional[str]] = "set tree hyperparameters through ModelHyperparamsConfig (iterations, learning_rate, ...) and its cb_kwargs / lgb_kwargs / xgb_kwargs / hgb_kwargs"
 
     # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
     INERT_FIELDS: ClassVar[dict[str, str]] = {
@@ -216,7 +219,7 @@ class TreeModelConfig(InertFieldsWarningMixin, ModelConfig):
         return v_upper
 
 
-class MLPConfig(ModelConfig):
+class MLPConfig(InertFieldsWarningMixin, ModelConfig):
     """Configuration for Multi-Layer Perceptron (PyTorch Lightning).
 
     Controls neural network architecture, training, and optimization settings.
@@ -242,6 +245,8 @@ class MLPConfig(ModelConfig):
     float32_matmul_precision : str
         PyTorch matmul precision: "high", "medium", "highest". Case-insensitive.
     """
+
+    UNCONSUMED_CLASS_HINT: ClassVar[Optional[str]] = "set MLP hyperparameters through ModelHyperparamsConfig.mlp_kwargs"
 
     model_params: Optional[Dict[str, Any]] = None  # keys: hidden_dims, activation, dropout
     network_params: Optional[Dict[str, Any]] = None  # keys: layers, batch_norm
@@ -282,6 +287,8 @@ class NGBConfig(InertFieldsWarningMixin, ModelConfig):
     Score : Any, optional
         NGBoost scoring rule class (e.g., ngboost.scores.LogScore, CRPS).
     """
+
+    UNCONSUMED_CLASS_HINT: ClassVar[Optional[str]] = "set NGBoost hyperparameters through ModelHyperparamsConfig.ngb_kwargs"
 
     # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
     INERT_FIELDS: ClassVar[dict[str, str]] = {
@@ -325,7 +332,8 @@ class AutoMLConfig(InertFieldsWarningMixin, BaseConfig):
     automl_target_label : str
         Target column name for AutoML (default: "target").
     time_limit : int, optional
-        Maximum training time in seconds.
+        Maximum training time in seconds, passed to AutoGluon as ``fit(time_limit=...)`` and to LightAutoML as
+        ``TabularAutoML(timeout=...)``; a ``time_limit`` / ``timeout`` key in the per-library params dict takes precedence.
     """
 
     # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
@@ -347,7 +355,7 @@ class AutoMLConfig(InertFieldsWarningMixin, BaseConfig):
     automl_verbose: int = 1
     automl_show_fi: bool = True
     automl_target_label: str = "target"
-    time_limit: Optional[int] = None  # In seconds
+    time_limit: Optional[int] = Field(default=None, ge=1)  # seconds; forwarded to both libraries (see _with_time_budget)
 
 
 class ModelHyperparamsConfig(BaseConfig):
@@ -365,7 +373,8 @@ class ModelHyperparamsConfig(BaseConfig):
     iterations : int
         Number of boosting iterations.
     early_stopping_rounds : int or None
-        Patience for early stopping. None disables early stopping entirely.
+        Patience for early stopping, >= 1. None disables early stopping entirely. Unlike the deprecated
+        ``TreeModelConfig``, 0 is rejected rather than meaning "auto": give the patience explicitly.
     catboost_custom_classif_metrics : list of str, optional
         Custom CatBoost classification metrics.
     rfecv_kwargs : dict, optional

@@ -587,7 +587,7 @@ def greedy_mi_fe_construct(
     y_arr = y_arr.astype(np.int64)
     raw_arr = X[candidates_pool].to_numpy(dtype=np.float64)
     raw_mi = _mi_classif_batch(raw_arr, y_arr, nbins=nbins)
-    order = np.argsort(-raw_mi)
+    order = np.argsort(-raw_mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
     seed_cols = [candidates_pool[i] for i in order[: int(seed_cols_count)]]
 
     # 2. Enumerate candidates.

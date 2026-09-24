@@ -661,10 +661,10 @@ def per_feature_edges(
     _y_key: str | None = None
     if cache_dir is not None:
         try:
-            from mlframe.utils.disk_cache import DiskCache, compose_key, hash_array_summary, hash_object
+            from mlframe.utils.disk_cache import DiskCache, compose_key, hash_array_content, hash_object
 
             _cache = DiskCache(cache_dir)
-            _y_key = hash_array_summary(y) if (needs_y and y is not None) else "no_y"
+            _y_key = hash_array_content(y) if (needs_y and y is not None) else "no_y"
             _kw_key = hash_object({
                 "method": method_resolved,
                 "base": str(base),
@@ -884,9 +884,9 @@ def per_feature_edges(
         _col_cache_key = None
         if _cache is not None:
             try:
-                from mlframe.utils.disk_cache import hash_array_summary, compose_key
+                from mlframe.utils.disk_cache import hash_array_content, compose_key
 
-                _col_summary = hash_array_summary(col)
+                _col_summary = hash_array_content(col)
                 assert _y_key is not None  # set together with _cache in the same cache_dir-guarded try block above
                 _col_cache_key = "nbin_" + compose_key(_col_summary, _y_key, _kw_key)
                 _hit = _cache.get(_col_cache_key)

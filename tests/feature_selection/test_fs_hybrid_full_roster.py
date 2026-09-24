@@ -194,3 +194,53 @@ def test_the_information_scorers_disagree_on_a_redundant_bed() -> None:
     cmim_top: Dict[str, bool] = {c: True for c in X.columns[cmim.support]}
     assert "x0_copy" in mim_top and "x0" in mim_top, "MIM should spend its budget on the copy"
     assert "x1" in cmim_top and not ("x0" in cmim_top and "x0_copy" in cmim_top), "CMIM should reject the copy"
+
+
+def test_the_forecast_list_in_code_is_the_table_in_the_preregistration() -> None:
+    """The tier runs `PREREGISTERED_2E_ARMS`; the document says which arms were forecast. They must agree."""
+    import re
+    from pathlib import Path
+
+    from mlframe.feature_selection._benchmarks.fs_hybrid._roster import PREREGISTERED_2E_ARMS
+
+    doc = (Path(__file__).resolve().parents[2] / "docs" / "BENCHMARK_PREREGISTRATION.md").read_text(encoding="utf-8")
+    section = doc[doc.index("## 2e.") : doc.index("\n## ", doc.index("## 2e.") + 5)]
+    in_table = set(re.findall(r"^\| `([^`]+)` \| `[^`]+` \|", section, flags=re.M))
+    assert in_table == set(PREREGISTERED_2E_ARMS)
+
+
+def test_the_predictions_tier_runs_every_forecast_arm_on_every_bed_that_names_it() -> None:
+    """Derived from the registry, so a prediction added to a bed can never be left out of the run."""
+    from mlframe.feature_selection._benchmarks.fs_hybrid._roster import PREREGISTERED_2E_ARMS
+    from mlframe.feature_selection._benchmarks.fs_hybrid._tiers import TIERS, TIER_NAMES, get_tier
+
+    tier = get_tier("predictions")
+    forecast = set(PREREGISTERED_2E_ARMS)
+    expected_beds = {bed.name for bed in _beds() if forecast & set(bed.expected_to_break)}
+    assert set(tier.scenarios) == expected_beds
+    assert set(tier.arms) == forecast
+    assert "predictions" in TIER_NAMES and "predictions" not in TIERS, "built on request, not at import"
+
+
+def _wide_bed(seed: int):
+    """A sixty-column bed: past the width cap, so the quadratic wrappers are not built on it."""
+    rng = np.random.default_rng(seed)
+    X = pd.DataFrame(rng.normal(size=(240, 60)), columns=[f"c{i}" for i in range(60)])
+    y = (X["c0"] + 0.5 * rng.normal(size=240) > 0).astype(int).to_numpy()
+    return X, y, {"relevant": ["c0"]}
+
+
+def test_a_width_gated_arm_is_skipped_on_a_wide_bed_and_a_typo_still_stops_the_run(tmp_path) -> None:
+    """The two absences differ: a wrapper past its cap is skipped, a name no roster builds is an error."""
+    import json
+
+    from mlframe.feature_selection._benchmarks.fs_hybrid.run_experiment import run_grid
+
+    results = tmp_path / "cells.jsonl"
+    run_grid(scenarios=[("wide", _wide_bed)], dataset_seeds=[0], cv_seeds=[0], results_path=str(results), arms=["greedy-backward"])
+    arms_run = {json.loads(line)["arm"] for line in results.read_text(encoding="utf-8").splitlines() if line.strip()}
+    assert "greedy-backward" not in arms_run
+    assert "all-features" in arms_run, "the null hypothesis still runs, so the bed is not silently empty"
+
+    with pytest.raises(ValueError, match="no such name"):
+        run_grid(scenarios=[("wide", _wide_bed)], dataset_seeds=[0], cv_seeds=[0], results_path=str(tmp_path / "b.jsonl"), arms=["greedy-backwards"])

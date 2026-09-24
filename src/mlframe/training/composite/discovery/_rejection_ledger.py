@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Optional
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -100,4 +101,4 @@ def _apply_inverse(transform: Any, base: Any, params: Any, t: Any):
     """Invert one transformed prediction with a spec's own transform, base and fitted params."""
     import numpy as np
 
-    return np.asarray(transform.inverse(t, base, params), dtype=np.float64)
+    return np.asarray(call_transform(transform, "inverse", t, base, params), dtype=np.float64)

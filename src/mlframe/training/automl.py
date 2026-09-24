@@ -302,6 +302,14 @@ def train_lama_model(
     )
 
 
+def _with_time_budget(params, key, time_limit):
+    """``params`` with ``AutoMLConfig.time_limit`` under the library's own key (AutoGluon ``fit(time_limit=)``, LightAutoML
+    ``TabularAutoML(timeout=)``); a key the caller put in ``params`` wins, and no budget leaves ``params`` untouched."""
+    if time_limit is None:
+        return params
+    return {key: time_limit, **(params or {})}
+
+
 def train_automl_models_suite(
     train_df: Union[pd.DataFrame, pl.DataFrame],
     test_df: Optional[Union[pd.DataFrame, pl.DataFrame]] = None,
@@ -390,7 +398,7 @@ def train_automl_models_suite(
             test_df=test_df,
             target_name=config.automl_target_label or target_name,
             init_params=config.autogluon_init_params,
-            fit_params=config.autogluon_fit_params,
+            fit_params=_with_time_budget(config.autogluon_fit_params, "time_limit", config.time_limit),
             verbose=config.automl_verbose,
         )
 
@@ -408,7 +416,7 @@ def train_automl_models_suite(
             train_df=train_df,
             test_df=test_df,
             target_name=config.automl_target_label or target_name,
-            init_params=config.lama_init_params,
+            init_params=_with_time_budget(config.lama_init_params, "timeout", config.time_limit),
             fit_params=config.lama_fit_params,
             verbose=config.automl_verbose,
         )

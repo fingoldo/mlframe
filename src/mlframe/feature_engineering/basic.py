@@ -17,7 +17,7 @@ import pandas as pd
 import polars as pl
 import polars.selectors as cs
 
-import os
+from mlframe.utils.env_flags import env_int
 
 try:
     from numba import njit, prange
@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
 
 # Below this row count the prange thread-launch floor (~17 ms on the dev box) dwarfs the per-element sin/cos work, so the serial kernel wins; above it the
 # embarrassingly-parallel split scales near-linearly (12.3x @ 10M on a 6-col date frame). Env-overridable for hosts with a cheaper/dearer thread pool.
-_CYCLICAL_PAR_THRESHOLD = int(os.environ.get("MLFRAME_CYCLICAL_PAR_THRESHOLD", "1000000"))
+_CYCLICAL_PAR_THRESHOLD = env_int("MLFRAME_CYCLICAL_PAR_THRESHOLD", 1000000, minimum=0)
 
 
 @njit(cache=True)

@@ -19,6 +19,7 @@ from .screening import (
     _mi_to_target_prebinned,
 )
 from ..transforms import compose_target_name
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -339,7 +340,7 @@ def _eval_one_transform_impl(
     _y_train_valid = y_train[valid]
     _base_train_valid = base_train[valid]
     _valid_stale = False
-    fitted_params = transform.fit(_y_train_valid, _base_train_valid)
+    fitted_params = call_transform(transform, "fit", _y_train_valid, _base_train_valid)
     # Fitted-params-aware domain refinement. The pre-fit
     # ``domain_check`` above cannot see learned params (log_y's ``offset``,
     # centered_ratio's shift ``c`` + eps-floor), so it lets rows through that
@@ -447,9 +448,7 @@ def _eval_one_transform_impl(
                 _valid_screen_probe = _valid_screen_probe & _valid_screen_fitted
         _y_screen_valid = y_screen[_valid_screen_probe].astype(np.float64)
         _base_screen_valid = base_screen[_valid_screen_probe].astype(np.float64)
-        _t_screen_full = transform.forward(
-            _y_screen_valid, _base_screen_valid, fitted_params,
-        )
+        _t_screen_full = call_transform(transform, "forward", _y_screen_valid, _base_screen_valid, fitted_params)
         _t_train_finite = _t_screen_full[np.isfinite(_t_screen_full)]
         _y_train_finite = _y_screen_valid[np.isfinite(_y_screen_valid)]
         if _t_train_finite.size > 1 and _y_train_finite.size > 1:
@@ -496,9 +495,7 @@ def _eval_one_transform_impl(
             reason="too few rows in screening sample after domain filter",
         ))
         return _local
-    t_screen = transform.forward(
-        y_screen[valid_screen], base_screen[valid_screen], fitted_params,
-    )
+    t_screen = call_transform(transform, "forward", y_screen[valid_screen], base_screen[valid_screen], fitted_params)
 
     # MI(T, X_remaining) on the same valid rows -- comparable
     # to mi_y_for_base computed on the same x_remaining.

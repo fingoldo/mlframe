@@ -20,14 +20,14 @@ candidate matrices fed to the batcher are nan-filled upstream.)
 """
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import numpy as np
+from mlframe.utils.env_flags import env_int
 
 # Column blocks per device for the packer's load-balancing granularity (more blocks -> finer makespan
 # balance across heterogeneous devices; the per-device executor re-chunks each block for VRAM anyway).
-_BLOCKS_PER_DEVICE = int(os.environ.get("MLFRAME_FE_VRAM_BLOCKS_PER_DEVICE", "4") or 4)
+_BLOCKS_PER_DEVICE = env_int("MLFRAME_FE_VRAM_BLOCKS_PER_DEVICE", 4, minimum=1)
 
 
 def gpu_fe_batch_mi(

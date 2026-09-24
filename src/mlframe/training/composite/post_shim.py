@@ -136,7 +136,10 @@ class PrePipelinePredictShim(BaseEstimator):
         if self.pre_pipeline is None:
             return X
         try:
-            return self.pre_pipeline.transform(subset_to_fit_columns(X, self.pre_pipeline))
+            from ..core._prediction_memo import memo_transform
+
+            pp = self.pre_pipeline
+            return memo_transform(pp, X, lambda: pp.transform(subset_to_fit_columns(X, pp)))
         except Exception as exc:
             # NEVER fall back to the untransformed X: a fitted pre_pipeline
             # (StandardScaler / SimpleImputer / ...) means the inner was

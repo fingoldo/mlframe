@@ -189,7 +189,8 @@ def _apply_pysr_fe(
     # Thread the suite-level seed through to PySR's internal sampler. Without this, run_pysr_feature_engineering's df.sample(...) draws a fresh row subset each call and equations drift run-to-run.
     _column_was_injected = False
     try:
-        pysr_random_state = int(getattr(config, "random_seed", 42))
+        _pysr_seed = getattr(config, "random_seed", None)
+        pysr_random_state = int(_pysr_seed) if _pysr_seed is not None else 42
         train_df[temp_target_col] = np.asarray(y_train).ravel()
         _column_was_injected = True
         model = run_pysr_feature_engineering(

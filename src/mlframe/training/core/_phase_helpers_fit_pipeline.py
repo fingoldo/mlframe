@@ -45,6 +45,21 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.training.core._phase_helpers_fit_split")
 
 
+def extensions_with_split_seed(preprocessing_extensions: "PreprocessingExtensionsConfig | dict | None", split_seed: "int | None") -> "PreprocessingExtensionsConfig":
+    """``preprocessing_extensions`` as a config whose ``random_seed`` is the suite's split seed unless the caller pinned one.
+
+    Accepts None / dict / config like ``_phase_fit_pipeline``; None becomes the default config, which is what that
+    function builds for None anyway.
+    """
+    if preprocessing_extensions is None:
+        preprocessing_extensions = PreprocessingExtensionsConfig()
+    elif isinstance(preprocessing_extensions, dict):
+        preprocessing_extensions = PreprocessingExtensionsConfig(**preprocessing_extensions)
+    if getattr(preprocessing_extensions, "random_seed", 0) is None and split_seed is not None:
+        preprocessing_extensions = preprocessing_extensions.model_copy(update={"random_seed": int(split_seed)})
+    return preprocessing_extensions
+
+
 def _detect_native_cat_models(strategies) -> tuple[bool, bool]:
     """Return ``(has_cb, all_native_cat)`` from RESOLVED strategy instances.
 

@@ -40,6 +40,7 @@ __all__ = [
     "LIGHTWEIGHT_TRANSFORMS",
     "export_serving_spec",
     "load_serving_spec",
+    "serving_base_from_columns",
 ]
 
 # Bump when the spec schema changes in a way that breaks old loaders.
@@ -119,13 +120,11 @@ def _inv_ratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.nda
 
 
 def _inv_logratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
-    """Inverts ``logratio``: ``y = base * exp(soft_cap(t_hat))``, clipping ``t_hat`` to ``median_t +/- soft_cap_k*mad_eff`` first."""
-    # _logratio_inverse -> base * exp(softcap(t)) centred on median_t.
-    median_t = float(p["median_t"])
-    mad = float(p["mad_eff"])
-    k = float(p["soft_cap_k"])
-    cap = k * mad
-    t_capped = np.clip(t_hat, median_t - cap, median_t + cap)
+    """Inverts ``logratio``: ``y = base * exp(soft_cap(t_hat))``, clipping ``t_hat`` to ``median_t +/- soft_cap_k*mad_eff`` (at least the training T range) first."""
+    # _logratio_inverse -> base * exp(softcap(t)) centred on median_t, the band widened to the training T envelope.
+    from .transforms.linear import logratio_t_band
+
+    t_capped = np.clip(t_hat, *logratio_t_band(p))
     return np.asarray(base * np.exp(t_capped))
 
 
@@ -267,7 +266,50 @@ def export_serving_spec(estimator: Any) -> Dict[str, Any]:
         "fallback_predict": getattr(estimator, "fallback_predict", "y_train_median"),
         "fitted_params": _jsonify(dict(fitted_params)),
     }
+    # A synthetic interaction base (``a__mul__b``) exists in no serving frame: record how to build it from its parents.
+    from ._synthetic_bases import parse_synthetic
+
+    known = list(getattr(estimator, "feature_names_in_", None) or getattr(estimator, "_fit_columns_", None) or [])
+    recipes = {}
+    for c in base_columns:
+        parsed = parse_synthetic(c, known) if known else _split_synthetic_name(c)
+        if parsed is not None:
+            recipes[c] = {"parents": [parsed[0], parsed[2]], "op": parsed[1]}
+    if recipes:
+        spec["base_recipes"] = recipes
     return spec
+
+
+def _split_synthetic_name(name: str):
+    """``(a, op, b)`` from the first ``__mul__`` / ``__add__`` / ``__sub__`` in ``name`` with both sides non-empty, or None."""
+    from ._synthetic_bases import SPECABLE_OPS
+
+    for op in SPECABLE_OPS:
+        token = f"__{op}__"
+        i = name.find(token)
+        if i > 0 and i + len(token) < len(name):
+            return name[:i], op, name[i + len(token):]
+    return None
+
+
+def serving_base_from_columns(spec: Dict[str, Any], columns: Dict[str, Any]) -> np.ndarray:
+    """The base argument a loaded serving predict takes, built from raw feature columns (name -> 1-D array).
+
+    Plain base columns are read as they are; a synthetic base listed in ``spec["base_recipes"]`` is computed from its
+    parents with the same arithmetic discovery used.
+    """
+    recipes = spec.get("base_recipes", {}) or {}
+    ops = {"mul": np.multiply, "add": np.add, "sub": np.subtract}
+    cols = []
+    for c in spec.get("base_columns", []):
+        if c in columns:
+            cols.append(np.asarray(columns[c], dtype=np.float64).reshape(-1))
+        elif c in recipes:
+            a, b = recipes[c]["parents"]
+            cols.append(ops[recipes[c]["op"]](np.asarray(columns[a], dtype=np.float64).reshape(-1), np.asarray(columns[b], dtype=np.float64).reshape(-1)))
+        else:
+            raise KeyError(f"serving_base_from_columns: base column {c!r} is neither supplied nor a recorded synthetic base")
+    return cols[0] if len(cols) == 1 else np.column_stack(cols)
 
 
 def load_serving_spec(

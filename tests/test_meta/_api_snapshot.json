@@ -3,6 +3,7 @@
     "kind": "class",
     "module": "mlframe.training._model_configs",
     "mro": [
+      "mlframe.training._inert_fields.InertFieldsWarningMixin",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
       "builtins.object"
@@ -56,6 +57,7 @@
     "kind": "class",
     "module": "mlframe.training._model_configs_ensembling",
     "mro": [
+      "mlframe.training._inert_fields.InertFieldsWarningMixin",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
       "builtins.object"
@@ -65,6 +67,7 @@
     "kind": "class",
     "module": "mlframe.training._reporting_configs",
     "mro": [
+      "mlframe.training._inert_fields.InertFieldsWarningMixin",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
       "builtins.object"
@@ -83,6 +86,7 @@
     "kind": "class",
     "module": "mlframe.training._feature_selection_config",
     "mro": [
+      "mlframe.training._inert_fields.InertFieldsWarningMixin",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
       "builtins.object"
@@ -136,6 +140,7 @@
     "kind": "class",
     "module": "mlframe.training._model_configs",
     "mro": [
+      "mlframe.training._inert_fields.InertFieldsWarningMixin",
       "mlframe.training._model_configs.ModelConfig",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
@@ -164,6 +169,7 @@
     "kind": "class",
     "module": "mlframe.training._model_configs_behavior",
     "mro": [
+      "mlframe.training._inert_fields.InertFieldsWarningMixin",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
       "builtins.object"
@@ -173,6 +179,7 @@
     "kind": "class",
     "module": "mlframe.training._model_configs",
     "mro": [
+      "mlframe.training._inert_fields.InertFieldsWarningMixin",
       "mlframe.training._model_configs.ModelConfig",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
@@ -256,6 +263,7 @@
     "kind": "class",
     "module": "mlframe.training._preprocessing_configs",
     "mro": [
+      "mlframe.training._inert_fields.InertFieldsWarningMixin",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
       "builtins.object"
@@ -283,6 +291,7 @@
     "kind": "class",
     "module": "mlframe.training._model_configs_behavior",
     "mro": [
+      "mlframe.training._inert_fields.InertFieldsWarningMixin",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
       "builtins.object"
@@ -368,6 +377,7 @@
     "kind": "class",
     "module": "mlframe.training._model_configs",
     "mro": [
+      "mlframe.training._inert_fields.InertFieldsWarningMixin",
       "mlframe.training._model_configs.ModelConfig",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
@@ -447,6 +457,11 @@
     "kind": "callable",
     "module": "mlframe.training.drift_report",
     "signature": "(train_target:any:0:, val_target:any:0:, test_target:any:0:, target_type:any:0:, warn_threshold_pp:kw:1:5.0, regression_mean_z_threshold:kw:1:0.5, regression_rel_shift_threshold:kw:1:0.2, multi_warn_threshold_pp:kw:1:5.0)"
+  },
+  "compute_signature": {
+    "kind": "callable",
+    "module": "mlframe.training._dataset_cache_fingerprint",
+    "signature": "(X:any:0:, extra:kw:1:())"
   },
   "config_from_dict": {
     "kind": "callable",

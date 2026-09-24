@@ -43,7 +43,7 @@ from ._configs_base import (  # noqa: F401
 # re-exported below so historical
 # ``from mlframe.training.configs import PreprocessingConfig`` (and the
 # other moved names) imports continue to resolve. See sibling for SSOT.
-from ._preprocessing_configs import (  # noqa: F401
+from ._preprocessing_configs import (
     PreprocessingConfig, TrainingSplitConfig, PreprocessingBackendConfig,
     PreprocessingExtensionsConfig, FeatureTypesConfig,
 )
@@ -56,7 +56,7 @@ from ._feature_selection_config import FeatureSelectionConfig
 # ``_model_configs.py``; re-exported below so historical
 # ``from mlframe.training.configs import ModelConfig`` (and the other moved
 # names) imports continue to resolve. See sibling for SSOT.
-from ._model_configs import (  # noqa: F401
+from ._model_configs import (
     ModelConfig, LinearModelConfig, TreeModelConfig, MLPConfig, NGBConfig,
     AutoMLConfig, ModelHyperparamsConfig, TrainingBehaviorConfig,
     MultilabelDispatchConfig, LearningToRankConfig, QuantileRegressionConfig,
@@ -281,7 +281,7 @@ from ._reporting_configs import (  # noqa: F401
 # sibling. Re-exported here so historical
 # ``from mlframe.training.configs import CompositeTargetDiscoveryConfig``
 # imports continue to resolve. See sibling for SSOT.
-from ._composite_target_discovery_config import CompositeTargetDiscoveryConfig  # noqa: F401
+from ._composite_target_discovery_config import CompositeTargetDiscoveryConfig
 
 
 # Helper function to create config from dict (backward compatibility)
@@ -305,6 +305,16 @@ def config_from_dict(config_class: type[BaseConfig], params: Dict[str, Any]) -> 
 
 # Export all configs and constants
 __all__ = [
+    # Previously missing, so ``from mlframe.training.configs import *`` did not bring them in although the module
+    # defines or re-exports them; tests/training/test_configs_all_is_complete.py keeps the list whole.
+    "BaselineDiagnosticsConfig",
+    "CompositeTargetDiscoveryConfig",
+    "DummyBaselinesConfig",
+    "EnsemblingConfig",
+    "LearningToRankConfig",
+    "MultilabelDispatchConfig",
+    "PreprocessingExtensionsConfig",
+    "QuantileRegressionConfig",
     # Constants
     "DEFAULT_RANDOM_SEED",
     "DEFAULT_TREE_ITERATIONS",

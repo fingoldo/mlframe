@@ -576,8 +576,12 @@ def score_grouped_quantile_by_mi_uplift(
 
     def _source_mi(col: Optional[str]) -> float:
         """Cached ``MI(source_col; y)`` lookup, used as the baseline an engineered column must beat (the uplift gate)."""
-        if not col or col not in raw_X.columns:
-            return 0.0
+        if not col:
+            return 0.0  # no single source: nothing to be redundant against
+        if col not in raw_X.columns:
+            # Unknown, not zero: a 0.0 baseline made ``uplift = mi - 0`` clear the gate for any candidate whose named
+            # source is missing from raw_X, bypassing the redundancy-vs-source check. NaN fails ``>=``.
+            return float("nan")
         if col in source_mi_cache:
             return source_mi_cache[col]
         mi = _plug_in_mi(_bin(raw_X[col].to_numpy()), y_bin)

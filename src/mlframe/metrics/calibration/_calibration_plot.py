@@ -50,6 +50,7 @@ plt = _LazyModule("matplotlib.pyplot")
 # Single source of truth for numba kwargs across mlframe.metrics modules.
 from .._numba_params import NUMBA_NJIT_PARAMS
 from mlframe._output_paths import ensure_parent_dir
+from mlframe.utils.env_flags import env_int
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +196,7 @@ def render_title_metric_token(
 # Below it, numba thread-spawn overhead makes the serial scan faster (measured crossover
 # ~1M on this host: serial 0.0004/0.0047/0.0476 s vs prange 0.0083/0.0104/0.0181 s at
 # 100k/1M/10M, 22 threads; prange wins 2.63x at 10M). Tunable via env for other hardware.
-_CALIB_BINNING_PRANGE_THRESHOLD = int(os.environ.get("MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD", "2000000"))
+_CALIB_BINNING_PRANGE_THRESHOLD = env_int("MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD", 2000000, minimum=0)
 
 
 def _drop_nonfinite_pairs(y_true: np.ndarray, y_pred: np.ndarray):

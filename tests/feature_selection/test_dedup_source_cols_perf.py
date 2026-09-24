@@ -64,19 +64,14 @@ def test_exact_duplicate_dropped_above_row_cap():
 
 
 def test_row_cap_env_override(monkeypatch):
-    """The MLFRAME_FE_DEDUP_MAX_CORR_ROWS override is honored (re-import to re-read the module constant)."""
+    """The MLFRAME_FE_DEDUP_MAX_CORR_ROWS override is honored, including when set after the module was imported."""
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_dedup import _dedup_sample_idx
+
     monkeypatch.setenv("MLFRAME_FE_DEDUP_MAX_CORR_ROWS", "5000")
-    import importlib
-
-    import mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_dedup as mod
-
-    _orig_dict = dict(mod.__dict__)
-    mod = importlib.reload(mod)
-    try:
-        assert mod._MAX_CORR_ROWS == 5000
-    finally:
-        mod.__dict__.clear()
-        mod.__dict__.update(_orig_dict)  # restore default constant for other tests
+    idx = _dedup_sample_idx(20_000)
+    assert idx is not None and idx.size == 5000
+    monkeypatch.delenv("MLFRAME_FE_DEDUP_MAX_CORR_ROWS")
+    assert _dedup_sample_idx(20_000) is None  # under the 100k default: every row is used
 
 
 @pytest.mark.parametrize("N,P", [(2_000_000, 40)])

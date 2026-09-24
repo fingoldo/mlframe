@@ -186,7 +186,7 @@ class TrainingBehaviorConfig(BaseConfig):
     # Booster stride for ``capture_iteration_metrics``: capture every Kth round (the best/last round is always
     # captured regardless). 1 = every round. Bounds the per-round predict+metric overhead. Ignored for neural
     # (every validated epoch is captured -- the preds are already materialised so there is nothing to amortise).
-    iteration_metrics_stride: int = 1
+    iteration_metrics_stride: int = Field(default=1, ge=1)  # 0 or negative never records an iteration
 
     # Default True: ``_trainer_train_and_evaluate.maybe_wrap_for_partial_fit_es``
     # auto-wraps linear/ridge/lasso/elasticnet/huber/sgd/ransac models in
@@ -269,7 +269,16 @@ class TrainingBehaviorConfig(BaseConfig):
     # no-OOF behaviour (real extra compute: K-fold retrains per model, so NOT flipped default-ON); set
     # ``>=2`` to enable, e.g. so ``recommend_diversity_additions_in_leaderboard`` (which requires OOF) can
     # fire, or for ``score_ensemble``'s OOF-preferred quality gate / stacking-aware gate.
-    oof_n_splits: int = 0
+    # 0 = no OOF; otherwise >= 2. Every consumer tests ``>= 2``, so 1 silently meant "no OOF" (validated below).
+    oof_n_splits: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _oof_n_splits_is_zero_or_at_least_two(self) -> "TrainingBehaviorConfig":
+        """Reject ``oof_n_splits=1``: one split is no out-of-fold estimate, and every consumer treats it as 0."""
+        if self.oof_n_splits == 1:
+            raise ValueError("oof_n_splits must be 0 (no OOF) or >= 2; 1 split produces no out-of-fold predictions.")
+        return self
+
     oof_has_time: bool = False
     oof_random_seed: int = 42
 
@@ -347,17 +356,19 @@ class TrainingBehaviorConfig(BaseConfig):
     # Extreme-AR + group-aware skip for UNBOUNDED-OUTPUT models. When set,
     # skips fitting the models listed in ``extreme_ar_group_aware_skip_models``
     # on targets where lag1_corr >= mlp_extreme_ar_threshold AND the split is
-    # group-aware. Default TRUE.
+    # group-aware. Default FALSE (opt-in), by the project owner's decision: turning the model off is not the fix -
+    # the framework is to make it work on this regime, and the damage meanwhile is bounded by the TTR predict clip and
+    # the ensemble's dummy-floor gate (pinned by tests/training/neural/test_mlp_extreme_ar_protection.py).
     #
-    # Why default ON now: on this regime an unbounded-output model
+    # The case for skipping, kept for whoever revisits it: on this regime an unbounded-output model
     # (MLP / linear) trained on the ABSOLUTE target catastrophically
     # extrapolates on unseen test groups (observed: MLP TEST R2=-35,
     # RMSE 3928 vs lag-baseline 13.5; the pre-tanh activations saturate on
     # shifted-group features so predictions collapse to the train-range
     # extremes). The model is then ALWAYS dropped by the ensemble quality
     # gate anyway -- so training it just burns wall-time + RAM + a multi-GB
-    # checkpoint for a result that never reaches the blend. Skipping is the
-    # pragmatic default until a substantive fix lands.
+    # checkpoint for a result that never reaches the blend. Setting this to True is the pragmatic workaround until
+    # a substantive fix lands.
     #
     # Criteria for what to gate (``extreme_ar_group_aware_skip_models``):
     # this is a COST optimisation, gated on EMPIRICAL collapse, NOT on the
@@ -603,6 +614,21 @@ class LearningToRankConfig(BaseConfig):
     without external calibration; ``score_mean`` is intentionally excluded
     here (use ``ensemble_method=score_mean`` with ``assume_comparable_scales``
     if you have calibrated scores)."""
+
+    @model_validator(mode="after")
+    def _one_ensemble_method(self) -> "LearningToRankConfig":
+        """Reject ``ensemble_method`` and ``ltr_ensemble_method`` both set explicitly to different values.
+
+        The call site resolves them by priority (the legacy field wins when it is not the default), so a user who set
+        the typed field while a shared base config pinned the legacy one got a fusion they did not ask for.
+        """
+        both = {"ensemble_method", "ltr_ensemble_method"} <= self.model_fields_set
+        if both and self.ensemble_method != self.ltr_ensemble_method:
+            raise ValueError(
+                f"LearningToRankConfig: ensemble_method={self.ensemble_method!r} and ltr_ensemble_method={self.ltr_ensemble_method!r} "
+                "are both set and disagree; set one of them (ensemble_method also accepts 'score_mean')."
+            )
+        return self
 
     rrf_k: int = 60
     """RRF damping constant. 60 is the TREC default. Larger ``k`` flattens

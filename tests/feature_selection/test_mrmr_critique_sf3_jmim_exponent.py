@@ -7,15 +7,12 @@ an off-by-default option (``MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY``) for re-testin
 future change cannot silently flip to the regressing behaviour, and documents that the flag exists.
 """
 
-import os
 
 
-def test_jmim_exponent_discount_only_is_off_by_default():
-    # The gate is read once at import as a numba compile-time constant; with no env override it must be OFF (exponent applied).
+def test_jmim_exponent_discount_only_is_off_by_default(monkeypatch):
+    # Read per call and passed to the njit kernel as an argument; with no env override it must be OFF (exponent applied).
     """Jmim exponent discount only is off by default."""
-    assert os.environ.get("MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY", "0") == "0"
     from mlframe.feature_selection.filters import evaluation
 
-    # Only assert the default when the process did not opt in, so the flag's existence is pinned without coupling to env state.
-    if os.environ.get("MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY", "0") == "0":
-        assert evaluation._JMIM_EXPONENT_DISCOUNT_ONLY is False
+    monkeypatch.delenv("MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY", raising=False)
+    assert evaluation.jmim_exponent_discount_only() is False

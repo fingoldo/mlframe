@@ -31,9 +31,9 @@ class _FlakyScoreModel:
 
 
 def test_single_feature_branch_survives_scorer_crash():
-    """With a single feature (p==1, the no-conditioning-set fallback path), a model.score() crash must not propagate.
-    Every repeat failed, so nothing was measured and the importance is NaN: real importances are ``baseline - score``
-    and routinely negative, so a 0.0 would outrank every feature measured to be harmful."""
+    """With a single feature (p==1, the no-conditioning-set fallback path), a model.score() crash must not propagate:
+    the importance is recorded as NaN (unmeasured), matching the general (p>1) branch. 0.0 used to stand in for it, and
+    since real importances are baseline - score and routinely negative, an unmeasured feature outranked harmful ones."""
     rng = np.random.default_rng(0)
     n = 100
     X = rng.random((n, 1))
@@ -44,7 +44,7 @@ def test_single_feature_branch_survives_scorer_crash():
     importances = _conditional_permutation_importance(model, X, y, n_repeats=3)
 
     assert importances.shape == (1,)
-    assert np.isnan(importances[0]), f"an unmeasurable feature must read NaN, not {importances[0]}"
+    assert np.isnan(importances[0])
 
 
 def test_general_branch_records_nan_when_every_repeat_fails():

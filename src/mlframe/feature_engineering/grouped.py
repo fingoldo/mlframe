@@ -47,10 +47,11 @@ __all__ = [
 ]
 
 import logging
-import os
 from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
+
+from mlframe.utils.env_flags import env_int
 
 # per_group_cum_reduce(op="count"): use the vectorized within-group-rank path only
 # when the average group size is at or below this (i.e. many small groups). Above it,
@@ -58,7 +59,7 @@ import numpy as np
 # measured at avg~=64-100 (bench_per_group_cum_count_vectorized_iter135.py): avg<=50
 # wins 1.2-1.7x, avg=20 -> 1.9x, avg=10 -> 2.9x; avg>=100 ties/loses. Default 64 sits
 # on the safe side of the crossover. Env-overridable per host.
-_COUNT_VECTORIZE_MAX_AVG = int(os.environ.get("MLFRAME_GROUPED_COUNT_VECTORIZE_MAX_AVG", "64"))
+_COUNT_VECTORIZE_MAX_AVG = env_int("MLFRAME_GROUPED_COUNT_VECTORIZE_MAX_AVG", 64, minimum=0)
 
 from mlframe.utils.log_throttle import log_throttle
 

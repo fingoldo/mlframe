@@ -49,6 +49,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from .estimator import CompositeTargetEstimator
 from .transforms import get_transform
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,7 @@ class HeteroscedasticCompositeEstimator(RegressorMixin, BaseEstimator):
         params = mean.fitted_params_
         y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
         base = self._base_of(mean, transform, X, n_rows=y_arr.shape[0])
-        t_target = np.asarray(transform.forward(y_arr, base, params), dtype=np.float64).reshape(-1)
+        t_target = np.asarray(call_transform(transform, "forward", y_arr, base, params), dtype=np.float64).reshape(-1)
         t_hat_train = np.asarray(mean.estimator_.predict(X), dtype=np.float64).reshape(-1)
 
         finite = np.isfinite(t_target) & np.isfinite(t_hat_train)
@@ -203,7 +204,7 @@ class HeteroscedasticCompositeEstimator(RegressorMixin, BaseEstimator):
         if X_cal is not None and y_cal is not None:
             y_cal_arr = np.asarray(y_cal, dtype=np.float64).reshape(-1)
             base_cal = self._base_of(mean, transform, X_cal, n_rows=y_cal_arr.shape[0])
-            t_target_cal = np.asarray(transform.forward(y_cal_arr, base_cal, params), dtype=np.float64).reshape(-1)
+            t_target_cal = np.asarray(call_transform(transform, "forward", y_cal_arr, base_cal, params), dtype=np.float64).reshape(-1)
             t_hat_cal = np.asarray(mean.estimator_.predict(X_cal), dtype=np.float64).reshape(-1)
             resid_cal = t_target_cal - t_hat_cal
             sigma_cal = self._ngboost_sigma(mean.estimator_, X_cal) if use_ngboost else np.exp(0.5 * np.asarray(var_inner.predict(X_cal), dtype=np.float64).reshape(-1))
@@ -293,8 +294,8 @@ class HeteroscedasticCompositeEstimator(RegressorMixin, BaseEstimator):
         transform = get_transform(self.transform_name)
         params = self.mean_estimator_.fitted_params_
         base, _t_hat, t_lo, t_hi = self._t_bounds(X, a)
-        y_lo = np.asarray(transform.inverse(t_lo, base, params), dtype=np.float64).reshape(-1)
-        y_hi = np.asarray(transform.inverse(t_hi, base, params), dtype=np.float64).reshape(-1)
+        y_lo = np.asarray(call_transform(transform, "inverse", t_lo, base, params), dtype=np.float64).reshape(-1)
+        y_hi = np.asarray(call_transform(transform, "inverse", t_hi, base, params), dtype=np.float64).reshape(-1)
         lo = np.minimum(y_lo, y_hi)
         hi = np.maximum(y_lo, y_hi)
         return lo, hi

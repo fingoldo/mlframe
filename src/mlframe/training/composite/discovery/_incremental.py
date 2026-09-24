@@ -48,6 +48,7 @@ from .screening import (
     _prebin_feature_columns,
     _sample_indices,
 )
+from mlframe.training.composite.transforms._call_gateway import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +174,7 @@ def _rescore_spec_gain(
     y_v = y[valid].astype(np.float64)
     base_v = None if base is None else base[valid].astype(np.float64)
     try:
-        t = transform.forward(y_v, base_v, spec.fitted_params)
+        t = call_transform(transform, "forward", y_v, base_v, spec.fitted_params)
     except Exception as _err:  # -- a spec that can no longer forward is invalid on the new data
         logger.debug("incremental: spec %s forward failed: %s", spec.name, _err)
         return float("nan")

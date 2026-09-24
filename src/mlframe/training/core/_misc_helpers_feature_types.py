@@ -48,6 +48,20 @@ def _filter_polars_cat_features_by_dtype(
     return valid
 
 
+# The size-lowered threshold exists for small frames, where free text cannot reach 300 distinct values. There it only
+# promotes a column that is also mostly unique: on a 50k-row frame the lowered threshold is 50, and without this a
+# 60-300 value enum (country code, channel) went to TF-IDF text instead of staying a native categorical.
+_LOWERED_THRESHOLD_MIN_UNIQUE_RATIO = 0.5
+
+
+def _promotes_to_text(n_unique: int, non_null: int, threshold: int, abs_threshold: int) -> bool:
+    """Whether a string column's cardinality makes it text: above the absolute threshold, or above the size-lowered one
+    while at least half its non-null values are distinct."""
+    if n_unique > abs_threshold:
+        return True
+    return n_unique > threshold and n_unique >= _LOWERED_THRESHOLD_MIN_UNIQUE_RATIO * max(non_null, 1)
+
+
 def _auto_detect_feature_types(
     df,
     feature_types_config,
@@ -180,8 +194,8 @@ def _auto_detect_feature_types(
             _agg_row = df.lazy().select(_aggs).collect()
             for i, name in enumerate(text_like_cols):
                 n_unique = int(_agg_row[f"__autodetect_nu_{i}__"][0])
-                if n_unique > threshold:
-                    non_null = int(_agg_row[f"__autodetect_cnt_{i}__"][0])
+                non_null = int(_agg_row[f"__autodetect_cnt_{i}__"][0])
+                if _promotes_to_text(n_unique, non_null, threshold, abs_threshold):
                     if non_null < min_non_null_abs:
                         skipped_low_non_null.append((name, n_unique, non_null))
                         continue
@@ -305,7 +319,7 @@ def _auto_detect_feature_types(
                 _count_map = _agg.loc["count"].to_dict()
                 _stats = [(col, int(_nunique_map[col]), int(_count_map[col])) for col in nunique_cols]
             for col, n_unique, non_null in _stats:
-                if n_unique > threshold:
+                if _promotes_to_text(n_unique, non_null, threshold, abs_threshold):
                     if non_null < min_non_null_abs:
                         skipped_low_non_null.append((col, n_unique, non_null))
                         continue

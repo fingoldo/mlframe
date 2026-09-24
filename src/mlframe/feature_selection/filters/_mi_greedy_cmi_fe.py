@@ -1500,7 +1500,7 @@ def greedy_cmi_fe_construct(
     #    Unary candidates still enumerate over the full pool below.
     raw_arr = X[candidates_pool].to_numpy(dtype=np.float64)
     raw_mi = _mi_classif_batch(raw_arr, y_bin, nbins=nbins)
-    order = np.argsort(-raw_mi)
+    order = np.argsort(-raw_mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
     binary_seed_cols = [candidates_pool[i] for i in order[: int(seed_cols_count)]] if int(seed_cols_count) > 0 else list(candidates_pool)
 
     # 2. Enumerate candidates. UNARY over the full pool (so transforms on
