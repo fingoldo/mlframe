@@ -155,6 +155,40 @@ def _correlation_if_duplicate_of_raw(y_hat: np.ndarray, raw_pred: np.ndarray, rm
     return corr if corr >= _DUPLICATE_OF_RAW_MIN_CORR else None
 
 
+def _digest(a: Any) -> bytes:
+    """Content digest of an array (or None) for the gate memo keys."""
+    import hashlib
+
+    if a is None:
+        return b"none"
+    arr = np.ascontiguousarray(np.asarray(a))
+    return hashlib.blake2b(f"{arr.dtype.str}{arr.shape}".encode() + arr.view(np.uint8).data, digest_size=16).digest()
+
+
+def _gate_matrix(self: Any, df: Any, feats: list, rows: np.ndarray) -> np.ndarray:
+    """The feature matrix for ``rows``, through the honest-stage memo when one is open.
+
+    The gate runs twice per fit (the selection half, then the record-only report half) over the same fit rows and the two
+    halves of one holdout: with the memo the fit rows are gathered once and the whole holdout once, and each half is a
+    slice of it, instead of four gathers.
+    """
+    memo = getattr(self, "_honest_gate_memo", None)
+    if memo is None or memo["key"] != (id(df), tuple(feats)):
+        return self._build_feature_matrix(df, feats, rows)
+    rows = np.asarray(rows)
+    k = _digest(rows)
+    if k in memo["mats"]:
+        return memo["mats"][k]
+    hold = memo.get("holdout")
+    if hold is not None and np.isin(rows, hold).all():
+        if memo.get("holdout_x") is None:
+            memo["holdout_x"] = self._build_feature_matrix(df, feats, hold)
+        pos = np.searchsorted(hold, rows)
+        return memo["holdout_x"][pos]
+    memo["mats"][k] = self._build_feature_matrix(df, feats, rows)
+    return memo["mats"][k]
+
+
 def _holdout_fit_context(self: Any, df: Any, usable_features: Sequence[str], screen_idx: np.ndarray, holdout_idx: np.ndarray,
                          y_full: np.ndarray) -> tuple | None:
     """The rows, matrices and tiny-model fitter one gate pass scores with, or None when a side is below 50 rows.
@@ -180,8 +214,8 @@ def _holdout_fit_context(self: Any, df: Any, usable_features: Sequence[str], scr
         return None
 
     feats = list(usable_features)
-    x_fit = self._build_feature_matrix(df, feats, fit_idx)
-    x_eval = self._build_feature_matrix(df, feats, eval_idx)
+    x_fit = _gate_matrix(self, df, feats, fit_idx)
+    x_eval = _gate_matrix(self, df, feats, eval_idx)
     y_fit = np.asarray(y_full)[fit_idx].astype(np.float64)
     y_eval = np.asarray(y_full)[eval_idx].astype(np.float64)
     y_eval_std = float(np.std(y_eval[np.isfinite(y_eval)])) if y_eval.size else 0.0
@@ -198,6 +232,12 @@ def _holdout_fit_context(self: Any, df: Any, usable_features: Sequence[str], scr
         """Fit a fresh tiny model on ``target_fit`` (optionally masked to the transform's valid fit rows) and predict on the shared holdout matrix."""
         xf = x_fit if row_mask is None else x_fit[row_mask]
         tf = target_fit if row_mask is None else target_fit[row_mask]
+        # The report pass fits exactly what the selection pass fitted (same fit rows, target and mask): reuse the model.
+        memo = getattr(self, "_honest_gate_memo", None)
+        key = (_digest(fit_idx), _digest(target_fit), _digest(row_mask))
+        if memo is not None and key in memo["fits"]:
+            model, last_residual_q["q"] = memo["fits"][key]
+            return np.asarray(model.predict(x_eval), dtype=np.float64)
         model = _build_tiny_model(
             "lgb", n_estimators=n_estimators, num_leaves=num_leaves,
             learning_rate=learning_rate, random_state=rs,
@@ -206,6 +246,8 @@ def _holdout_fit_context(self: Any, df: Any, usable_features: Sequence[str], scr
         _res = np.asarray(tf, dtype=np.float64) - np.asarray(model.predict(xf), dtype=np.float64)
         _res = _res[np.isfinite(_res)]
         last_residual_q["q"] = np.quantile(_res, (np.arange(N_SMEAR_QUANTILES) + 0.5) / N_SMEAR_QUANTILES) if _res.size >= 4 * N_SMEAR_QUANTILES else None
+        if memo is not None:
+            memo["fits"][key] = (model, last_residual_q["q"])
         return np.asarray(model.predict(x_eval), dtype=np.float64)
 
     return fit_idx, eval_idx, y_fit, y_eval, y_eval_std, _fit_predict, last_residual_q

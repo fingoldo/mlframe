@@ -70,11 +70,17 @@ def _apply_honest_holdout_stages(self, df, target_col, kept_specs, usable_featur
 
         # The SELECTION half: this gate drops specs, so it must not read the rows the reported honest number comes from.
         _select_idx = getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx)
-        kept_specs = apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _select_idx, y_full)
-        # The exported RMSE gain comes from the report half: the one above is conditioned on having passed the gate.
-        _report_idx = getattr(self, "honest_holdout_report_idx_", None)
-        if kept_specs and _report_idx is not None and _select_idx is not None and not np.array_equal(_report_idx, _select_idx):
-            apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _report_idx, y_full, record_only=True)
+        # Both passes share their fit rows and read the two halves of one holdout: gather each once, fit each model once.
+        self._honest_gate_memo = {"key": (id(df), tuple(usable_features)), "mats": {}, "fits": {},
+                                  "holdout": None if _honest_holdout_idx is None else np.sort(np.asarray(_honest_holdout_idx)), "holdout_x": None}
+        try:
+            kept_specs = apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _select_idx, y_full)
+            # The exported RMSE gain comes from the report half: the one above is conditioned on having passed the gate.
+            _report_idx = getattr(self, "honest_holdout_report_idx_", None)
+            if kept_specs and _report_idx is not None and _select_idx is not None and not np.array_equal(_report_idx, _select_idx):
+                apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _report_idx, y_full, record_only=True)
+        finally:
+            self._honest_gate_memo = None
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "honest_rmse_gate_done")
 

@@ -179,6 +179,7 @@ class CompositeTargetDiscovery:
         state.pop("_df_ref", None)
         state.pop("_auto_base_pool", None)
         state.pop("_screen_matrix_stash", None)  # holds the frame and a screen-sized matrix if a fit stopped mid-way
+        state.pop("_honest_gate_memo", None)  # the honest gate's per-fit matrices and fitted tiny models, if a fit stopped mid-way
         return state
 
     def fit_data_signature(self) -> str:

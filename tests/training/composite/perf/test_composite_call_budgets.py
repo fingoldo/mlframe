@@ -22,7 +22,8 @@ pytestmark = pytest.mark.slow  # one full discovery fit (~60 s)
 
 _BASELINE = Path(__file__).resolve().parent / "_composite_call_budget_baseline.json"
 # Ideal calls per default discovery fit of the fixture below.
-_IDEAL = {"build_feature_matrix": 1, "near_collinear_keep_mask": 1, "data_signature": 0, "generate_interaction_bases": 1, "lgb_Dataset": 0}
+_IDEAL = {"build_feature_matrix": 1, "near_collinear_keep_mask": 1, "data_signature": 0, "generate_interaction_bases": 1, "lgb_Dataset": 0,
+          "honest_holdout_gather": 1}
 
 
 @pytest.fixture(scope="module")
@@ -32,6 +33,7 @@ def counts():
 
     import mlframe.training.composite.cache as cache
     import mlframe.training.composite.discovery._eval_stats as es
+    import mlframe.training.composite.discovery._honest_holdout as hh
     from mlframe.training.composite import CompositeTargetDiscovery
     from mlframe.training.composite.transforms import interaction_bases as ib
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
@@ -49,7 +51,7 @@ def counts():
                                          discovery_n_jobs=1, tiny_model_n_jobs=1, tiny_rerank_n_jobs=1)
     targets = {"near_collinear_keep_mask": es.near_collinear_keep_mask, "data_signature": cache.data_signature,
                "generate_interaction_bases": ib.generate_interaction_bases, "lgb_Dataset": lgb.Dataset.__init__,
-               "build_feature_matrix": CompositeTargetDiscovery._build_feature_matrix}
+               "build_feature_matrix": CompositeTargetDiscovery._build_feature_matrix, "honest_holdout_gather": hh._build_x_remaining_holdout}
     owners = {"lgb_Dataset": (lgb.Dataset, "__init__"), "build_feature_matrix": (CompositeTargetDiscovery, "_build_feature_matrix")}
     with warnings.catch_warnings(), CallBudget(targets, owners) as calls:
         warnings.simplefilter("ignore")
@@ -73,5 +75,7 @@ def test_a_primitive_stays_within_its_budget(counts, primitive: str):
 def test_every_baseline_entry_is_a_budgeted_primitive():
     """The baseline only records known primitives, each with a note on why it exceeds the ideal."""
     base = orjson.loads(_BASELINE.read_text(encoding="utf-8"))
-    assert set(base) <= set(_IDEAL)
+    from .test_composite_post_phase_call_budgets import _IDEAL as _POST_IDEAL
+
+    assert set(base) <= set(_IDEAL) | set(_POST_IDEAL)
     assert all(str(v.get("note", "")).strip() for v in base.values())

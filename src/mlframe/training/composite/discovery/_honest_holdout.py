@@ -426,7 +426,14 @@ def rescore_specs_on_holdout(
         with _x_remaining_lock:
             cached = _x_remaining_cache.get(key)
             if cached is None:
-                cached = _build_x_remaining_holdout(df, usable_features, base_columns, holdout_idx)
+                # Every base set's matrix is a column subset of the one over all usable features: gather that once and
+                # slice it, instead of one gather per base set.
+                if "__all__" not in _x_remaining_cache:
+                    _x_remaining_cache["__all__"] = _build_x_remaining_holdout(df, usable_features, (), holdout_idx)
+                base_set = set(base_columns)
+                keep = [i for i, c in enumerate(usable_features) if c not in base_set]
+                full = _x_remaining_cache["__all__"]
+                cached = full[:, keep] if keep else np.zeros((holdout_idx.size, 0), dtype=np.float32)
                 _x_remaining_cache[key] = cached
         return cached
 
