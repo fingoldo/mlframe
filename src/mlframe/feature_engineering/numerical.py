@@ -758,9 +758,8 @@ def _defined_relative_changes(numer: np.ndarray, denom: np.ndarray) -> np.ndarra
     data. A relative change from zero does not exist; dropping it keeps the statistics about the steps that do.
     """
     with np.errstate(divide="ignore", invalid="ignore"):
-        ratios: np.ndarray = numer / denom - 1
-    finite: np.ndarray = ratios[np.isfinite(ratios)]
-    return finite
+        ratios = numer / denom - 1
+    return np.asarray(ratios[np.isfinite(ratios)])
 
 
 def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: int = 0, use_diffs: bool = False, dtype=np.float32) -> np.ndarray:

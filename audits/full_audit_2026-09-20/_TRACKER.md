@@ -31,7 +31,11 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `performance.md` | 7 | 7 | 0 | 0 | 0 | 0 |
 | `concurrency_resources.md` | 12 | 12 | 0 | 0 | 0 | 0 |
 | `config_contracts.md` | 32 | 4 | 0 | 27 | 0 | 1 |
-| **Total** | **165** | **103** | **2** | **56** | **2** | **2** |
+| **Total** | **165** | **113** | **3** | **45** | **2** | **2** |
+
+Queued after every finding above is implemented: [complexity_refactor.md](complexity_refactor.md) - 193 production
+functions over a McCabe complexity of 25 (threshold confirmed by the project owner) plus the blocking ratchet gate
+(CX-GATE). Counted separately from the 165 findings of this wave.
 
 ## Per-report status
 

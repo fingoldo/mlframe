@@ -131,6 +131,45 @@ _to_native = to_native
 _factorize = _shared_factorize
 
 
+def _paired_gain_z(codes, w, y, P, n_groups, lag_idx):
+    """Per-group and pooled z of each expert's gain over lag: mean(d) / se(d) with d = err_lag^2 - err_k^2 per row.
+
+    Rows count only where y, the weight and every expert are finite (the tier-1 matched set the choice is made on). A
+    positive z says the expert's squared error is lower than lag's by that many standard errors; ``nan`` where a group has
+    fewer than two such rows, which never clears the bar. Returns ``(z[n_groups, K], pooled_z[K])``.
+    """
+    n_experts = P.shape[1]
+    nan_z = np.full((n_groups, n_experts), np.nan), np.full(n_experts, np.nan)
+    if lag_idx < 0 or codes.size == 0:
+        return nan_z
+    ok = (codes >= 0) & np.isfinite(y) & np.isfinite(w) & (w > 0) & np.all(np.isfinite(P), axis=1)
+    if not ok.any():
+        return nan_z
+    c, wt = codes[ok], w[ok]
+    sq = (P[ok] - y[ok, None]) ** 2
+    d = sq[:, [lag_idx]] - sq  # > 0 where the expert beats lag on the row
+
+    def _z(counts, sw, s1, s2):
+        """Weighted mean over its standard error, from the weight, first- and second-moment sums."""
+        with np.errstate(invalid="ignore", divide="ignore"):
+            mean = s1 / sw
+            var = np.maximum(s2 / sw - mean * mean, 0.0)
+            se = np.sqrt(var / np.maximum(counts - 1, 1))
+            z = np.where(se > 0, mean / se, np.where(mean > 0, np.inf, 0.0))
+        return np.where(counts >= 2, z, np.nan)
+
+    counts = np.bincount(c, minlength=n_groups).astype(np.float64)
+    sw = np.bincount(c, weights=wt, minlength=n_groups)
+    z = np.empty((n_groups, n_experts))
+    for k in range(n_experts):
+        s1 = np.bincount(c, weights=wt * d[:, k], minlength=n_groups)
+        s2 = np.bincount(c, weights=wt * d[:, k] ** 2, minlength=n_groups)
+        z[:, k] = _z(counts, sw, s1, s2)
+    pooled = _z(np.full(n_experts, float(c.size)), np.full(n_experts, float(wt.sum())), (wt[:, None] * d).sum(axis=0),
+                (wt[:, None] * d * d).sum(axis=0))
+    return z, pooled
+
+
 def _grouped_sse_bincount(codes, w, y, P, n_groups, n_experts, lag_idx):
     """Vectorized fallback: build the two matched masks, then O(n) bincount reductions per expert."""
     finite_w = np.isfinite(w) & (w > 0)
@@ -204,8 +243,9 @@ class MoESelectionGate:
         failsafe: str = "lag",
         shrink_rtol: float = 0.0,
         tie_rtol: float = 1e-9,
-        min_group_rows: int = 1,
+        min_group_rows: int = 20,
         prefer: Optional[Sequence[str]] = None,
+        min_gain_z: float = 2.0,
     ) -> None:
         if shrink_rtol < 0:
             raise ValueError(f"shrink_rtol must be >= 0; got {shrink_rtol}")
@@ -213,11 +253,18 @@ class MoESelectionGate:
             raise ValueError(f"tie_rtol must be >= 0; got {tie_rtol}")
         if min_group_rows < 1:
             raise ValueError(f"min_group_rows must be >= 1; got {min_group_rows}")
+        if min_gain_z < 0:
+            raise ValueError(f"min_gain_z must be >= 0; got {min_gain_z}")
         self.failsafe = failsafe
         self.shrink_rtol = float(shrink_rtol)
         self.tie_rtol = float(tie_rtol)
         self.min_group_rows = int(min_group_rows)
         self.prefer = None if prefer is None else list(prefer)
+        # A per-group choice made on a few dozen rows follows the noise: with shrink_rtol=0 and one row per group, experts
+        # 10% noisier than lag were chosen in half the groups and the gate served 5% worse than plain lag on fresh rows.
+        # A non-lag expert now has to beat lag by min_gain_z standard errors of the paired per-row difference in squared
+        # error, so a small group stays on the failsafe unless its evidence is real.
+        self.min_gain_z = float(min_gain_z)
 
     # -- fit -----------------------------------------------------------------
 
@@ -297,6 +344,7 @@ class MoESelectionGate:
             return self
 
         rows_all, W_all, sse_all, rows_nl, W_nl, sse_nl = _grouped_sse(codes, w, y, P, n_groups, K, self._lag_idx)
+        self._gain_z, self._pooled_gain_z = _paired_gain_z(codes, w, y, P, n_groups, self._lag_idx)
 
         self._global_idx = self._pick_global(sse_all, W_all, sse_nl, W_nl)
         self.group_choice_idx_ = self._pick_per_group(rows_all, W_all, sse_all, rows_nl, W_nl, sse_nl)
@@ -326,7 +374,10 @@ class MoESelectionGate:
         if pooled_W <= 0:
             return self._lag_idx if self._lag_idx >= 0 else self._priority_idx[0]
         rmse = np.sqrt(sse_src.sum(axis=0) / pooled_W)
-        return self._argmin_pref(rmse, exclude_lag=(sse_src is sse_nl and self._lag_idx >= 0))
+        best = self._argmin_pref(rmse, exclude_lag=(sse_src is sse_nl and self._lag_idx >= 0))
+        if sse_src is sse_all and self._lag_idx >= 0 and best != self._lag_idx and not self._pooled_gain_z[best] >= self.min_gain_z:
+            return self._lag_idx  # the pooled winner's edge over lag is inside its own noise
+        return best
 
     def _argmin_pref(self, rmse: np.ndarray, *, exclude_lag: bool) -> int:
         """Argmin of ``rmse`` breaking near-ties (within ``tie_rtol``) toward ``_priority_idx`` order."""
@@ -347,21 +398,23 @@ class MoESelectionGate:
         m = self.min_group_rows
         for g in range(self._n_groups):
             if rows_all[g] >= m and W_all[g] > 0:
-                choice[g] = self._choose_tier1(sse_all[g], W_all[g])
+                choice[g] = self._choose_tier1(sse_all[g], W_all[g], g)
             elif rows_nl[g] >= m and W_nl[g] > 0:
                 choice[g] = self._argmin_pref(np.sqrt(sse_nl[g] / W_nl[g]), exclude_lag=(self._lag_idx >= 0))
             else:
                 choice[g] = self._global_idx
         return choice
 
-    def _choose_tier1(self, sse_g: np.ndarray, W_g: float) -> int:
-        """Per-group choice on the fully-matched set: deploy lag unless a non-lag expert beats it by shrink_rtol."""
+    def _choose_tier1(self, sse_g: np.ndarray, W_g: float, g: int = -1) -> int:
+        """Per-group choice on the fully-matched set: deploy lag unless a non-lag expert beats it by shrink_rtol AND by
+        ``min_gain_z`` standard errors of the paired squared-error difference on this group's rows."""
         rmse = np.sqrt(sse_g / W_g)
         if self._lag_idx < 0:
             return self._argmin_pref(rmse, exclude_lag=False)
         lag_rmse = rmse[self._lag_idx]
         best_nl = self._argmin_pref(rmse, exclude_lag=True)
-        if np.isfinite(rmse[best_nl]) and rmse[best_nl] < lag_rmse * (1.0 - self.shrink_rtol):
+        significant = g < 0 or self._gain_z[g, best_nl] >= self.min_gain_z
+        if np.isfinite(rmse[best_nl]) and rmse[best_nl] < lag_rmse * (1.0 - self.shrink_rtol) and significant:
             return best_nl
         return self._lag_idx
 

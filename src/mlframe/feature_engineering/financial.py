@@ -11,7 +11,9 @@ __all__ = [
     "merge_perticker_and_wholemarket_features",
 ]
 
+import importlib
 import logging
+from types import ModuleType
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import polars as pl
@@ -21,8 +23,13 @@ import polars.selectors as cs
 # add_ohlcv_ta_indicators() path. Deferred to that function so consumers
 # that only want the rolling-stats / market-wide helpers can import
 # mlframe.feature_engineering.financial without TA-Lib installed.
+# Loaded through importlib rather than an `import` statement so the name has ONE type in every environment. With
+# the statement, mypy typed it as a module where polars_talib is installed and as Any where it is not, so the
+# `None` fallback was an error in CI and fine locally -- and a `type: ignore` would only move the error to the
+# environment without the package, where it becomes an unused ignore.
+plta: Optional[ModuleType]
 try:
-    import polars_talib as plta
+    plta = importlib.import_module("polars_talib")
 except ImportError:
     plta = None
 

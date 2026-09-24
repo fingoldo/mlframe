@@ -823,6 +823,7 @@ DEP002 = [
     "pytest-randomly", "pytest-instafail", "pytest-progress", "pytest-split", "pytest-rerunfailures", "coverage", "freezegun",
     "ruff", "black", "mypy", "bandit", "pre-commit", "pip-audit",
     "pydoclint",  # invoked as `pydoclint` CLI command, never imported
+    "polars-talib",  # imported through importlib.import_module in feature_engineering/financial.py, which deptry cannot see: the statement form typed the name differently where the package is and is not installed
     "codespell", "deptry", "interrogate", "vulture", "yamllint",  # invoked by pre-commit hooks as `python -m ...`, never imported
     "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette",
     "py-ci-shared",  # invoked as `python -m py_ci_shared.*` CLI/pre-commit-hook commands, never `import py_ci_shared`

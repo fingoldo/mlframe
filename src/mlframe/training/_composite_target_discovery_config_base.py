@@ -82,7 +82,11 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # among {composite, raw, lag} per group with a never-worse-than-lag guarantee. Default ON; no-op without lag / groups.
     moe_gate_enabled: bool = True
     moe_gate_shrink_rtol: float = 0.0  # a non-lag expert must beat lag by this margin to be chosen over the failsafe
-    moe_gate_min_group_rows: int = 1  # groups below this row count defer to the lag failsafe
+    moe_gate_min_group_rows: int = 20  # groups below this row count defer to the lag failsafe
+    # ...and by this many standard errors of the paired per-row squared-error difference. With 1 row per group and no
+    # significance bar the per-group choice followed noise: experts 10% worse than lag won half the groups and the gate
+    # served 5% worse than lag on fresh rows. 2 standard errors keeps lag unless a group's evidence is real.
+    moe_gate_min_gain_z: float = 2.0
 
     # Base-candidate ranking criterion. "mi" (default) ranks by pairwise MI(base, y); "mrmr" reranks by
     # min-redundancy-max-relevance so a top-K of near-duplicate strong bases is diversified (score = MI(base,y) -

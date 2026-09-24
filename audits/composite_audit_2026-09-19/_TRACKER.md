@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 15 | 2 | 0 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 22 | 19 | 0 | 0 | 0 |
-| **Total** | **179** | **147** | **31** | **0** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 24 | 17 | 0 | 0 | 0 |
+| **Total** | **179** | **149** | **29** | **0** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -213,21 +213,21 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P2 | `PMT-15` | Cache-key completeness by input perturbation, plus a code-version gate on discovery sources | discovery key inputs perturbed, spec digest, algo-version gate; auto-derived input table open |
 | **PARTIAL** | P2 | `PMT-16` | polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared) | carrier parity for OOF + row slicers (EST-07 and 4 siblings fixed); shared scanner open |
 | **PARTIAL** | P1 | `PMT-17` | Absorption and consistency on each transform's canonical DGP | canonical-DGP absorption for all 40 base transforms; fixed quantile_residual small-n; smoother/grouped legs open |
-| **PARTIAL** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | self-influence canaries (causal bases, OOF encoding, all transforms <0.1); leg c spy pending DSC-13/EST-17 |
-| **PARTIAL** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | null canaries; found + fixed noise specs shipping (constant-mean null in the honest gate); DSC-20 + meta-guard open |
+| **RESOLVED** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | legs b+c built: fit/score-disjointness spy over tiny CV, OOF and the gate fallback with canaries; test-row influence found + fixed interaction-pair MI reading off-mask rows |
+| **RESOLVED** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | null canaries for every selector plus a registration meta-guard; found + fixed the MoE gate choosing by noise (new z-test defaults) |
 | **RESOLVED** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | liveness registry: every default-on knob mapped to its effect test; found dead MoE params + 3 inert defaults (fixed) |
 | **RESOLVED** | P1 | `PMT-21` | Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST) | AST persist-after-mutate over training/core; fires on the INT-02 shape |
 | **PARTIAL** | P1 | `PMT-22` | One module-scoped composite suite fixture with discriminating persistence, routing and reporting contracts | one-run suite contract fixture, 7 identity legs; d/h/i suite variants + TST-17 rewrite open |
 | **RESOLVED** | P2 | `PMT-23` | State parity across alternate constructors: fit() vs from_fitted_inner() vs update() vs unpickle | fit / from_fitted_inner / update / unpickle parity over the registry; found + fixed the robust refit serving OLS |
-| **PARTIAL** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | unseen-key fallbacks pinned to exact global answers; MoE vs pooled-best; recurrent seed leg open |
-| **PARTIAL** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | (a) and (b) ship as test_composite_authoritative_sources.py; (c) has no second construction site left after TRF-25 |
+| **RESOLVED** | P1 | `PMT-24` | Unseen-key fallback property for every router and grouped component | leg b built (recurrent seed == ungrouped continuation seed); fixed rolling_quantile_ratio_grouped cold-starting unseen groups |
+| **RESOLVED** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | (c) one-construction-site rule for registry adapters, with canary |
 | **RESOLVED** | P2 | `PMT-26` | Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test | empty _frame_copy_baseline.json plus the shares_memory test; no pandas-2.x-only leg needed |
 | **PARTIAL** | P3 | `PMT-27` | Diagnostics truthfulness: report reasons come from the ledger, printed advice is executed, alert policy matches its docstring | (a) and (c) shipped; (b) printed-advice scanner still owed to py-ci-shared |
 | **RESOLVED** | P3 | `PMT-28` | Test timing and cost hygiene: relative timing races need real slack, and repeated heavy trainings share a fixture | relative timing races and heavy direct trainings are scanned; the composite module is under the threshold |
-| **PARTIAL** | P1 | `PMT-29` | Split-role ledger: selection rows and report rows never overlap, and verdicts read test | row-role ledger + contract test (holdout select/report disjoint, verdict=test, charts=train); xt fit/report leg open |
+| **RESOLVED** | P1 | `PMT-29` | Split-role ledger: selection rows and report rows never overlap, and verdicts read test | xt stack-gate fit/report leg annotated + tested with an in-sample canary |
 | **RESOLVED** | P1 | `PMT-30` | Config-restriction and per-candidate isolation contract: every registry transform is accepted, isolated and honoured | registry-wide restriction contract; found + fixed discovery aborting on every grouped config (val frame lacked gcausal bases) |
-| **PARTIAL** | P1 | `PMT-31` | Stage-sentinel inner: wrappers and every predict entry point must feed the inner its own pipeline stage and the base its raw stage | stage sentinel: wrapper/composite_predict/shim/CT-ensemble routes pinned; MoE + suite-internal entry points open |
-| **PARTIAL** | P1 | `PMT-32` | Fresh-process persistence round trip for every registry transform and the whole auto-chain name space | 57 wrappers + CT ensemble loaded in one fresh subprocess; MoE wrapper open |
+| **RESOLVED** | P1 | `PMT-31` | Stage-sentinel inner: wrappers and every predict entry point must feed the inner its own pipeline stage and the base its raw stage | MoE, wrap-pass builder + watchdog, per-model hook and OOF refit legs; two-stage class meta-guard |
+| **RESOLVED** | P1 | `PMT-32` | Fresh-process persistence round trip for every registry transform and the whole auto-chain name space | MoE wrapper added to the one-subprocess round trip (59 models) |
 | **RESOLVED** | P1 | `PMT-33` | Runtime registry mutation must have a load-time replay (shared scanner) | shared runtime-registry scanner; mlframe wired with 5 reasoned replay writers |
 | **RESOLVED** | P2 | `PMT-34` | getattr default parity: `getattr(cfg, "field", literal)` must match the pydantic field default (shared scanner) | shared scanner wired with an empty allowlist; all 49 drifted sites aligned |
 | **RESOLVED** | P3 | `PMT-35` | Unread constructor parameters in estimator classes (shared scanner) | shared scanner wired over all of src; one further dead parameter removed |

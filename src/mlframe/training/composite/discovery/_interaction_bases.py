@@ -101,8 +101,8 @@ def score_interaction_pairs(
         Interaction MI must be ``>= ratio * max(mi_a, mi_b)`` (relative guard so
         a pair that merely re-expresses one strong base does not pass).
     train_mask
-        Optional boolean row mask forwarded to ``generate_interaction_bases`` so
-        the div eps floor is train-scale-derived (no test-scale leak).
+        Optional boolean row mask: the MI scores are taken on these rows only, and it is forwarded to
+        ``generate_interaction_bases`` so the div eps floor is train-scale-derived too. A mask of the wrong length raises.
 
     Returns
     -------
@@ -115,6 +115,17 @@ def score_interaction_pairs(
     names = list(candidates.keys())[:top_k]
     if len(names) < 2:
         return ([], {}) if return_columns else []
+    # Every score is taken on the train rows. The mask used to reach only the div eps floor, so a caller passing
+    # train+test rows got pairs chosen by MI that read the test targets.
+    fit: slice | np.ndarray
+    if train_mask is None:
+        fit = slice(None)
+    else:
+        mask = np.asarray(train_mask, dtype=bool).reshape(-1)
+        if mask.shape != y.shape:
+            raise ValueError(f"score_interaction_pairs: train_mask has {mask.size} rows, y has {y.size}")
+        fit = mask
+    y_fit = y[fit]
     # Marginal MI per candidate, computed once (reused across every pair it
     # appears in). Bit-identical to recomputing per pair, just cheaper.
     mi_marg: Dict[str, float] = {}
@@ -123,7 +134,7 @@ def score_interaction_pairs(
         if col.shape != y.shape:
             mi_marg[n] = 0.0
             continue
-        mi_marg[n] = _mi_pair_bin(col, y, nbins=nbins)
+        mi_marg[n] = _mi_pair_bin(col[fit], y_fit, nbins=nbins)
     synth, prov = generate_interaction_bases(
         {n: candidates[n] for n in names},
         ops=ops,
@@ -143,7 +154,7 @@ def score_interaction_pairs(
         mi_a = float(mi_marg.get(name_a, 0.0))
         mi_b = float(mi_marg.get(name_b, 0.0))
         add_mi = max(mi_a, mi_b)
-        mi_z = _mi_pair_bin(z, y, nbins=nbins)
+        mi_z = _mi_pair_bin(z[fit], y_fit, nbins=nbins)
         gain = mi_z - add_mi
         qualifies = gain >= min_synergy_gain and mi_z >= max(min_margin_ratio * add_mi, 1e-12)
         results.append(

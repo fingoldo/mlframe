@@ -25,6 +25,11 @@ def _rmse(a, b):
 # --------------------------------------------------------------------------- unit: per-group argmin
 
 
+# These tests pin the choice mechanics - argmin per group, tiers, tie-breaks, weights - on toy frames of a few rows per
+# group, so they switch off the two small-sample guards the defaults carry (at least 20 rows per group, and a gain over
+# lag of at least 2 paired standard errors). Those guards have their own tests below, on data big enough to mean something.
+_MECH = dict(min_group_rows=1, min_gain_z=0.0)
+
 def test_per_group_argmin_selection_correct():
     # Group A: composite exact, raw/lag off -> pick composite. Group B: lag exact -> pick lag.
     """Per group argmin selection correct."""
@@ -33,7 +38,7 @@ def test_per_group_argmin_selection_correct():
     raw = np.array([2.0, 2.0, 2.0, 12.0, 12.0, 12.0])  # off everywhere
     lag = np.array([3.0, 3.0, 3.0, 10.0, 10.0, 10.0])  # exact on B
     g = np.array(["A", "A", "A", "B", "B", "B"])
-    gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
+    gate = MoESelectionGate(**_MECH).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert gate.group_choice_["A"] == "composite"
     assert gate.group_choice_["B"] == "lag"
 
@@ -47,7 +52,7 @@ def test_gate_never_selects_worse_than_lag_on_selection_split():
     raw = y + rng.normal(0, 0.5, n)
     lag = y + rng.normal(0, 0.3, n)
     g = rng.integers(0, 6, n)
-    gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
+    gate = MoESelectionGate(**_MECH).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert gate.guarantee_["not_worse_than_lag"] is True
     assert gate.guarantee_["not_worse_than_best_single"] is True
     gate_rmse = gate.guarantee_["pooled_rmse_gate"]
@@ -64,7 +69,7 @@ def test_gate_pooled_rmse_exact_argmin_at_shrink_zero():
     raw = np.array([1.0, -1.0, 5.05, 4.95])
     lag = np.array([0.5, -0.5, 5.0, 5.0])
     g = np.array([0, 0, 1, 1])
-    gate = MoESelectionGate(shrink_rtol=0.0).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
+    gate = MoESelectionGate(**_MECH, shrink_rtol=0.0).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     routed = gate.predict({"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert _rmse(routed, y) == pytest.approx(gate.guarantee_["pooled_rmse_gate"])
 
@@ -80,7 +85,7 @@ def test_global_fallback_for_unseen_group_is_the_pooled_best_expert():
     raw = np.array([2.0, 2.0, 2.0, 2.0])
     lag = np.array([1.0, 1.0, 1.0, 1.0])
     g = np.array(["A", "A", "B", "B"])
-    gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
+    gate = MoESelectionGate(**_MECH).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert gate.global_choice_ == "composite", "the pooled-best expert must take the unseen-group rows"
     out = gate.predict({"composite": np.array([9.0]), "raw": np.array([8.0]), "lag": np.array([7.0])}, group_ids=np.array(["Z"]))
     assert out[0] == 9.0
@@ -93,7 +98,7 @@ def test_global_fallback_stays_lag_when_lag_is_the_pooled_best():
     raw = np.array([2.0, 2.0, 2.0, 2.0])
     lag = np.array([0.1, -0.1, 1.1, 0.9])
     g = np.array(["A", "A", "B", "B"])
-    gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
+    gate = MoESelectionGate(**_MECH).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert gate.global_choice_ == "lag"
     out = gate.predict({"composite": np.array([9.0]), "raw": np.array([8.0]), "lag": np.array([7.0])}, group_ids=np.array(["Z"]))
     assert out[0] == 7.0
@@ -103,7 +108,7 @@ def test_degenerate_single_expert_no_groups():
     """Degenerate single expert no groups."""
     y = np.array([1.0, 2.0, 3.0])
     comp = np.array([1.1, 2.1, 2.9])
-    gate = MoESelectionGate().fit(y, {"composite": comp})
+    gate = MoESelectionGate(**_MECH).fit(y, {"composite": comp})
     assert gate.global_choice_ == "composite"
     out = gate.predict({"composite": comp})
     assert np.allclose(out, comp)
@@ -115,7 +120,7 @@ def test_degenerate_no_groups_single_global_choice():
     comp = np.array([0.1, -0.1, 0.1, -0.1])
     raw = np.array([1.0, 1.0, 1.0, 1.0])
     lag = np.array([2.0, 2.0, 2.0, 2.0])
-    gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag})
+    gate = MoESelectionGate(**_MECH).fit(y, {"composite": comp, "raw": raw, "lag": lag})
     # Single group -> composite is best -> beats lag -> deployed everywhere (groupless fallback = that choice).
     assert gate.group_choice_[None] == "composite"
     assert gate.global_choice_ == "composite"
@@ -130,7 +135,7 @@ def test_tie_prefers_lag():
     comp = np.array([1.0, -1.0, 1.0])
     raw = np.array([5.0, 5.0, 5.0])
     lag = np.array([1.0, -1.0, 1.0])
-    gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=np.zeros(3))
+    gate = MoESelectionGate(**_MECH).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=np.zeros(3))
     assert gate.group_choice_[0.0] == "lag"
 
 
@@ -144,7 +149,7 @@ def test_shrink_rtol_keeps_lag_on_marginal_win_but_stays_not_worse_than_lag():
     comp = y + rng.normal(0, 0.29, n)  # marginally better than lag
     raw = y + rng.normal(0, 0.8, n)
     g = np.zeros(n)
-    gate = MoESelectionGate(shrink_rtol=0.10).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
+    gate = MoESelectionGate(**_MECH, shrink_rtol=0.10).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert gate.group_choice_[0.0] == "lag"
     assert gate.guarantee_["not_worse_than_lag"] is True
 
@@ -157,7 +162,7 @@ def test_nan_lag_rows_routed_by_priority_fallback():
     raw = np.array([2.0, 2.0, 2.0])
     lag = np.array([np.nan, 0.1, -0.1])  # NaN first row; near-exact elsewhere
     g = np.zeros(3)
-    gate = MoESelectionGate(prefer=("lag", "raw", "composite")).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
+    gate = MoESelectionGate(**_MECH, prefer=("lag", "raw", "composite")).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert gate.group_choice_[0.0] == "lag"
     out = gate.predict({"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert out[0] == 2.0  # raw, not NaN
@@ -171,7 +176,7 @@ def test_all_nan_lag_group_uses_nonlag_expert():
     comp = np.array([0.1, -0.1, 0.1, -0.1])  # best
     raw = np.array([1.0, 1.0, 1.0, 1.0])
     lag = np.array([np.nan, np.nan, np.nan, np.nan])
-    gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=np.zeros(4))
+    gate = MoESelectionGate(**_MECH).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=np.zeros(4))
     assert gate.group_choice_[0.0] == "composite"
 
 
@@ -181,7 +186,7 @@ def test_no_lag_expert_is_plain_argmin_selector():
     comp = np.array([0.1, -0.1, 4.0, 6.0])
     raw = np.array([1.0, -1.0, 5.0, 5.0])
     g = np.array([0, 0, 1, 1])
-    gate = MoESelectionGate(failsafe="lag").fit(y, {"composite": comp, "raw": raw}, group_ids=g)
+    gate = MoESelectionGate(**_MECH, failsafe="lag").fit(y, {"composite": comp, "raw": raw}, group_ids=g)
     assert gate.group_choice_[0] == "composite"
     assert gate.group_choice_[1] == "raw"
 
@@ -193,7 +198,7 @@ def test_route_labels_reports_per_row_choice():
     raw = np.array([2.0, 2.0, 2.0, 2.0])
     lag = np.array([3.0, 3.0, 1.0, 1.0])
     g = np.array(["A", "A", "B", "B"])
-    gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
+    gate = MoESelectionGate(**_MECH).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     labels = gate.route_labels(g)
     assert list(labels) == ["composite", "composite", "lag", "lag"]
 
@@ -208,15 +213,15 @@ def test_sample_weight_shifts_group_choice():
     raw = np.array([5.0, 5.0, 5.0])
     g = np.zeros(3)
     w = np.array([100.0, 1.0, 1.0])
-    gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g, sample_weight=w)
+    gate = MoESelectionGate(**_MECH).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g, sample_weight=w)
     assert gate.group_choice_[0.0] == "lag"
-    gate_uw = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
+    gate_uw = MoESelectionGate(**_MECH).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert gate_uw.group_choice_[0.0] == "composite"
 
 
 def test_empty_input_guarded():
     """Empty input guarded."""
-    gate = MoESelectionGate().fit(np.array([]), {"composite": np.array([]), "lag": np.array([])})
+    gate = MoESelectionGate(**_MECH).fit(np.array([]), {"composite": np.array([]), "lag": np.array([])})
     assert gate.guarantee_["pooled_rmse_gate"] is None
 
 

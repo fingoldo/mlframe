@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -19,7 +20,7 @@ from mlframe.training.composite import CompositeTargetEstimator
 from mlframe.training.composite.transforms import get_transform
 
 
-class StageSentinelInner:
+class StageSentinelInner(BaseEstimator, RegressorMixin):
     """A linear inner that remembers the per-column mean/std of the frame it was fit on and refuses any other stage."""
 
     def fit(self, X, y):
@@ -106,3 +107,113 @@ def test_the_sentinel_catches_both_misroutes():
     t = get_transform("linear_residual")
     wrong = t.inverse(inner.predict(pp.transform(X)), pp.transform(X)["b"].to_numpy(), params)
     assert _rmse(wrong, y) > 50.0
+
+
+def _entry_and_spec(pp, params):
+    """A suite model entry whose inner was trained on ``pp``'s output, and the composite spec it belongs to."""
+    from types import SimpleNamespace
+
+    spec = {"name": "y-linres-b", "transform_name": "linear_residual", "base_column": "b", "fitted_params": dict(params), "target_col": "y"}
+    return SimpleNamespace(pre_pipeline=pp, model=None), spec
+
+
+def test_the_wrap_pass_builder_routes_both_stages():
+    """``build_composite_wrapper``, which the end-of-target wrap pass and the per-model hook both use, wires the entry's stage."""
+    from mlframe.training.core._composite_wrap_helpers import build_composite_wrapper
+
+    X, y, pp, params, inner = _fixture()
+    entry, spec = _entry_and_spec(pp, params)
+    wrapper = build_composite_wrapper(entry=entry, inner=inner, spec=spec, y_train=y, train_df=X)
+    assert _rmse(wrapper.predict(X), y) < 1.0
+
+
+def test_the_wrap_watchdog_reads_the_inner_at_its_stage(caplog):
+    """The wrap-pass watchdog predicts the inner itself; a wrong stage would trip the sentinel and surface as its warning."""
+    import logging
+
+    from mlframe.training.core._composite_wrap_helpers import build_composite_wrapper
+    from mlframe.training.core._composite_wrap_watchdog import run_wrap_watchdog
+
+    X, y, pp, params, inner = _fixture()
+    entry, spec = _entry_and_spec(pp, params)
+    wrapper = build_composite_wrapper(entry=entry, inner=inner, spec=spec, y_train=y, train_df=X)
+    with caplog.at_level(logging.WARNING):
+        run_wrap_watchdog(wrapper, spec, X, y, composite_name="y-linres-b", split_name="val")
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING], [r.getMessage() for r in caplog.records]
+
+
+def test_the_per_model_hook_wraps_the_entry_at_its_stage(caplog):
+    """The per-model y-scale hook swallows errors, so the check is the wrapper it leaves behind and the absence of warnings."""
+    import logging
+
+    from mlframe.training.core._phase_composite_wrapping import emit_per_model_composite_y_scale_test
+
+    X, y, pp, params, inner = _fixture()
+    entry, spec = _entry_and_spec(pp, params)
+    entry.model = inner
+    idx = np.arange(len(y))
+    with caplog.at_level(logging.WARNING):
+        emit_per_model_composite_y_scale_test(entry=entry, composite_spec=spec, orig_target_name="y", composite_name="y-linres-b",
+                                              target_name="y-linres-b", y_full=y, test_idx=idx[300:], test_df_pd=X.iloc[300:],
+                                              train_idx=idx[:300], train_df=X.iloc[:300])
+    assert isinstance(entry.model, CompositeTargetEstimator), "the hook did not wrap the entry"
+    assert _rmse(entry.model.predict(X), y) < 1.0
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING], [r.getMessage() for r in caplog.records]
+
+
+def test_the_moe_wrapper_feeds_every_expert_its_own_stage():
+    """The deployed MoE wrapper predicts each expert on raw X; the composite and the shimmed raw model reach their stages."""
+    from mlframe.training.composite._moe_gate import MoESelectionGate
+    from mlframe.training.composite.post_shim import PrePipelinePredictShim
+    from mlframe.training.core._phase_composite_post_lag_predict import _LagPredictDeployableModel
+    from mlframe.training.core._phase_composite_post_moe import _MoEGatedDeployableModel
+
+    X, y, pp, params, inner = _fixture()
+    raw = PrePipelinePredictShim(model=StageSentinelInner().fit(pp.transform(X), y), pre_pipeline=pp, name="raw")
+    moe = _MoEGatedDeployableModel(composite_model=_wrapper(inner, params, y, X, pp), raw_model=raw, lag_model=_LagPredictDeployableModel("b"),
+                                   gate=MoESelectionGate(failsafe="lag"), group_column=None)
+    moe.gate.fit(y, moe._expert_preds(X))
+    assert _rmse(moe.predict(X), y) < 1.0
+
+
+def test_the_oof_refits_feed_the_cloned_inner_its_stage():
+    """The honest-OOF path refits a clone of the inner per fold and predicts the holdout at the same stage."""
+    from mlframe.training.composite.ensemble import compute_oof_holdout_predictions
+
+    X, y, pp, params, inner = _fixture()
+    spec = {"name": "y-linres-b", "transform_name": "linear_residual", "base_column": "b", "fitted_params": dict(params)}
+    oof, y_hold, surviving = compute_oof_holdout_predictions(
+        component_models=[_wrapper(inner, params, y, X, pp)], component_names=["c"], component_specs=[spec], train_X=X, y_train_full=y,
+        base_train_full_per_spec={"y-linres-b": X["b"].to_numpy()}, holdout_frac=0.2, random_state=0, kfold=3,
+    )
+    assert surviving == ["c"], "the component dropped out of OOF (a sentinel assertion inside a fold is one way)"
+    assert _rmse(oof[:, 0], y_hold) < 1.0
+
+
+# Classes that hold a fitted inner (``self.estimator_``) and extract a base themselves: each routes two stages, so each
+# needs an entry-point test above.
+_TWO_STAGE_CLASSES = {
+    "composite/estimator/_estimator.py::CompositeTargetEstimator": "test_a_wrapper_with_its_pipeline_routes_raw_to_the_base_and_the_stage_to_the_inner",
+}
+
+
+def test_every_two_stage_class_is_covered():
+    """A new class holding ``self.estimator_`` and calling a base extractor must join the stage-routing contract."""
+    import ast
+    from pathlib import Path
+
+    import mlframe
+
+    root = Path(mlframe.__file__).resolve().parent / "training"
+    found = set()
+    for path in sorted(root.rglob("*.py")):
+        if "_benchmarks" in path.parts:
+            continue
+        for cls in (n for n in ast.walk(ast.parse(path.read_text(encoding="utf-8"))) if isinstance(n, ast.ClassDef)):
+            nodes = list(ast.walk(cls))
+            holds = any(isinstance(a, ast.Attribute) and a.attr == "estimator_" and isinstance(a.value, ast.Name) and a.value.id == "self" for a in nodes)
+            names = [getattr(c.func, "attr", None) or getattr(c.func, "id", "") or "" for c in nodes if isinstance(c, ast.Call)]
+            if holds and any("extract" in n and "base" in n for n in names):
+                found.add(f"{path.relative_to(root).as_posix()}::{cls.name}")
+    assert found == set(_TWO_STAGE_CLASSES), sorted(found ^ set(_TWO_STAGE_CLASSES))
+    assert all(t in globals() for t in _TWO_STAGE_CLASSES.values())

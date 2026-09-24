@@ -58,8 +58,27 @@ def _build(name: str, X: pd.DataFrame, y: np.ndarray):
     )
 
 
+def _moe_wrapper(composite, X: pd.DataFrame, y: np.ndarray):
+    """The deployed MoE wrapper over {the CT ensemble, a raw-y model, the lag column}, its gate routing per group of ``g``.
+
+    The gate's thresholds are opened up so the per-group choice really differs between groups, so a wrapper that
+    lost its group column or gate state on load would predict differently.
+    """
+    from mlframe.training.composite._moe_gate import MoESelectionGate
+    from mlframe.training.core._phase_composite_post_lag_predict import _LagPredictDeployableModel
+    from mlframe.training.core._phase_composite_post_moe import _MoEGatedDeployableModel
+
+    raw = make_pipeline(ColumnTransformer([("f", "passthrough", ["b", "x"])], remainder="drop"), LinearRegression()).fit(X, y)
+    lag = _LagPredictDeployableModel("b")
+    wrapper = _MoEGatedDeployableModel(composite_model=composite, raw_model=raw, lag_model=lag,
+                                       gate=MoESelectionGate(failsafe="lag", min_group_rows=1, min_gain_z=0.0), group_column="g")
+    wrapper.gate.fit(y, wrapper._expert_preds(X), group_ids=X["g"].to_numpy())
+    assert len(set(wrapper.gate.group_choice_.values())) >= 2, wrapper.gate.group_choice_
+    return wrapper
+
+
 def test_every_composite_loads_and_predicts_identically_in_a_fresh_process(tmp_path):
-    """One subprocess loads every saved wrapper (and a CT ensemble of two) through the production loader and matches."""
+    """One subprocess loads every saved wrapper, a CT ensemble of two and the MoE wrapper over it, and each matches."""
     from mlframe.training._io_save import save_mlframe_model
 
     reregister_auto_chain_transforms(_CHAIN_NAMES)
@@ -81,6 +100,9 @@ def test_every_composite_loads_and_predicts_identically_in_a_fresh_process(tmp_p
         ens = CompositeCrossTargetEnsemble.from_nnls_stack(component_models=pair, component_names=["a", "b"], component_predictions=P, y_train=y)
         save_mlframe_model(ens, str(tmp_path / "ct_ensemble.dump"), verbose=0)
         expected["ct_ensemble"] = np.asarray(ens.predict(X_pred), dtype=np.float64).tolist()
+        moe = _moe_wrapper(ens, X, y)
+        save_mlframe_model(moe, str(tmp_path / "moe_wrapper.dump"), verbose=0)
+        expected["moe_wrapper"] = np.asarray(moe.predict(X_pred), dtype=np.float64).tolist()
     assert len(built) >= 0.9 * (len(list_transforms()) + len(_CHAIN_NAMES)), f"only {len(built)} wrappers could be built"
     assert all(c in built for c in _CHAIN_NAMES), sorted(set(_CHAIN_NAMES) - set(built))
     X_pred.to_pickle(tmp_path / "X_pred.pkl")

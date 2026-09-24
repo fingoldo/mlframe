@@ -130,3 +130,87 @@ def test_a_transforms_params_hold_no_row_own_target(name: str):
     0.04-0.07, flat in n by design, which is why the bound is 0.1 and not 5/n.
     """
     assert _registry_self_influence(name, 2000) < 0.1
+
+
+# ---------------------------------------------------------------------------
+# Test-row influence: what is learnt from train is untouched by the rows outside the train mask.
+# ---------------------------------------------------------------------------
+
+
+def _masked_candidates(n: int = 800, seed: int = 0):
+    """Three candidate columns and a target; the last quarter of the rows is outside the train mask."""
+    rng = np.random.default_rng(seed)
+    cands = {"a": rng.uniform(0.5, 2.0, n), "b": rng.normal(0.0, 1.0, n), "c": rng.uniform(1.0, 3.0, n)}
+    y = cands["a"] * cands["c"] + rng.normal(0.0, 0.1, n)
+    mask = np.arange(n) < 3 * n // 4
+    return cands, y, mask
+
+
+def _perturb_off_mask(cands: dict, y: np.ndarray, mask: np.ndarray):
+    """The same frame with every non-train row blown up by three orders of magnitude."""
+    return {k: np.where(mask, v, v * 1e3 + 7.0) for k, v in cands.items()}, np.where(mask, y, y * 1e3 - 5.0)
+
+
+def _mask_takers():
+    """Every composite function that takes a ``train_mask``, called on ``(cands, y, mask)``; returns what it learnt."""
+    from mlframe.training.composite.discovery._interaction_bases import score_interaction_pairs, discover_interaction_bases
+    from mlframe.training.composite.transforms.interaction_bases import generate_interaction_bases
+
+    def _gen(c, y, m):
+        syn, prov = generate_interaction_bases(c, top_k=3, train_mask=m)
+        return {k: (np.asarray(v)[m], {p: q for p, q in prov[k].items() if p != "n_finite"}) for k, v in syn.items()}
+
+    def _score(c, y, m):
+        return [{k: v for k, v in r.items() if not isinstance(v, np.ndarray)} for r in score_interaction_pairs(c, y, top_k=3, train_mask=m)]
+
+    def _surface(c, y, m):
+        cols, recs = discover_interaction_bases(c, y, top_k=3, train_mask=m)
+        return sorted(cols), [{k: v for k, v in r.items() if not isinstance(v, np.ndarray)} for r in recs]
+
+    return {"generate_interaction_bases": _gen, "score_interaction_pairs": _score, "discover_interaction_bases": _surface}
+
+
+def _same(a, b) -> bool:
+    """Deep equality with NaN == NaN and arrays compared elementwise."""
+    if isinstance(a, dict):
+        return isinstance(b, dict) and a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+    if isinstance(a, (list, tuple)):
+        return isinstance(b, (list, tuple)) and len(a) == len(b) and all(_same(x, z) for x, z in zip(a, b))
+    if isinstance(a, np.ndarray) or isinstance(a, float):
+        return bool(np.array_equal(np.asarray(a), np.asarray(b), equal_nan=True))
+    return a == b
+
+
+@pytest.mark.parametrize("name", sorted(_mask_takers()))
+def test_rows_outside_the_train_mask_do_not_move_what_is_learnt(name: str):
+    """Blowing up every non-train row leaves each train-learnt quantity (eps floors, MI scores, chosen pairs) identical."""
+    fn = _mask_takers()[name]
+    cands, y, mask = _masked_candidates()
+    ref = fn(cands, y, mask)
+    moved = fn(*_perturb_off_mask(cands, y, mask), mask)
+    assert _same(ref, moved), f"{name} learnt from rows outside the train mask"
+
+
+@pytest.mark.parametrize("name", sorted(_mask_takers()))
+def test_a_mis_shaped_train_mask_raises(name: str):
+    """A mask of the wrong length is an error, not a silent fall back to every row (TRF-24)."""
+    cands, y, mask = _masked_candidates()
+    with pytest.raises(ValueError):
+        _mask_takers()[name](cands, y, mask[:-3])
+
+
+def test_every_train_mask_taker_is_covered():
+    """A new composite function taking ``train_mask`` must join the test-row influence canary."""
+    import ast
+    from pathlib import Path
+
+    import mlframe
+
+    root = Path(mlframe.__file__).resolve().parent / "training" / "composite"
+    takers = set()
+    for path in root.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.FunctionDef) and not node.name.startswith("_"):
+                if any(a.arg == "train_mask" for a in node.args.args + node.args.kwonlyargs):
+                    takers.add(node.name)
+    assert takers == set(_mask_takers()), sorted(takers ^ set(_mask_takers()))

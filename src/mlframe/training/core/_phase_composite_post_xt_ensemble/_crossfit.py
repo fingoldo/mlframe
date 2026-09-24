@@ -12,6 +12,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from ...composite._row_roles import note_rows
 from ...composite.discovery._splitter import make_discovery_splitter
 
 _N_SPLITS = 5
@@ -49,7 +50,9 @@ def cross_fitted_stack_rmse(ens_cls: Any, strategy: str, components: Sequence[An
         return float("nan")
     build = ens_cls.from_linear_stack if strategy == "linear_stack" else ens_cls.from_nnls_stack
     pred = np.full(y.shape, np.nan)
-    for tr, te in make_discovery_splitter(_N_SPLITS, random_state=random_state)[0].split(P):
+    for k, (tr, te) in enumerate(make_discovery_splitter(_N_SPLITS, random_state=random_state)[0].split(P)):
+        note_rows("oof_rows", "fit", f"xt_stack_gate[fold {k}]", tr)
+        note_rows("oof_rows", "report", f"xt_stack_gate[fold {k}]", te)
         ens = build(component_models=list(components), component_names=list(names), component_predictions=P[tr], y_train=y[tr],
                     sample_weight=None if sample_weight is None else np.asarray(sample_weight)[tr])
         w = np.asarray(ens.weights, dtype=np.float64)
@@ -85,4 +88,9 @@ def gate_stack_rmse(ens_cls: Any, strategy: str, components: Sequence[Any], name
     if strategy not in ("nnls_stack", "linear_stack"):
         return in_sample
     cf = cross_fitted_stack_rmse(ens_cls, strategy, components, names, P, y, sample_weight=sample_weight)
-    return cf if np.isfinite(cf) else in_sample
+    if np.isfinite(cf):
+        return cf
+    rows = np.arange(np.asarray(y).reshape(-1).size)  # too few rows to cross-fit: the weights are scored on the rows they were fit on
+    note_rows("oof_rows", "fit", "xt_stack_gate[in-sample]", rows)
+    note_rows("oof_rows", "report", "xt_stack_gate[in-sample]", rows)
+    return in_sample
