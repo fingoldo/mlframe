@@ -193,6 +193,9 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # Fitted attribute (list of engineered names from hybrid stage);
     # legacy pickles default to empty list.
     "hybrid_orth_features_": [],
+    # Protection re-adds the held-out gate left out, with the gain each measured. Older pickles predate the record; an
+    # empty list is the truthful answer for them, since the gate did not exist to reject anything.
+    "protection_readd_rejections_": [],
     # Fitted attribute: every column the hybrid-orth family appended, INCLUDING the ones selection later
     # dropped (``hybrid_orth_features_`` keeps only survivors). Legacy pickles default to empty list.
     "hybrid_orth_candidates_": [],

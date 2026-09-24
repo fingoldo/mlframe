@@ -64,10 +64,20 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+      # pyutilz is a first-party dependency not published to PyPI, so a bare `pip install -e .[dev]` cannot resolve
+      # mlframe's `pyutilz>=1.0.0` and installs nothing: every run of this workflow failed at install and the benchmark
+      # never ran. Install it the way ci.yml does, through py-ci-shared's install-pyutilz action (clone + one uv resolve).
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+        with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[dev]"
+          pyutilz-ref: 960399fafa8e72c536b25a9cbace0b302688a968  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Price the run before paying for it
         run: |

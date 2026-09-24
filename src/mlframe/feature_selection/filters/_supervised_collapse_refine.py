@@ -33,12 +33,12 @@ def _fallback_edges(finite: np.ndarray, base: str, n_bins: int) -> np.ndarray:
 
 @overload
 def refine_near_collapsed_supervised_edges(edges: np.ndarray, finite: np.ndarray, base: str, fallback_nbins: int) -> np.ndarray:
-    """Given edges, the result is always an array: refinement only ever adds cuts."""
+    """Typing overload: an edge array in, an edge array out."""
 
 
 @overload
 def refine_near_collapsed_supervised_edges(edges: None, finite: np.ndarray, base: str, fallback_nbins: int) -> None:
-    """Given no edges, there is nothing to refine and the result stays ``None``."""
+    """Typing overload: no edges in, no edges out."""
 
 
 def refine_near_collapsed_supervised_edges(edges: Optional[np.ndarray], finite: np.ndarray, base: str, fallback_nbins: int) -> Optional[np.ndarray]:

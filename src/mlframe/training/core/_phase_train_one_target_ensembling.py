@@ -304,7 +304,7 @@ def _tune_decision_thresholds(
         paths = metadata.setdefault("decision_threshold_paths", {})
 
         def _stamp(key: str, probs, label: str) -> None:
-            """Record a tuned threshold for one prediction set, or the 0.5 default when tuning is off or the rows do not align."""
+            """Record the decision threshold and how it was chosen for ``key``: tuned on ``probs``, or the 0.5 default."""
             if not tune:
                 thresholds[key], paths[key] = 0.5, "default_0.5"
                 return

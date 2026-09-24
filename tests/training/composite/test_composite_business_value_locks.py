@@ -89,7 +89,10 @@ class TestLockRegimeGate:
         y = 0.97 * base + 0.5 * x1 + rng.normal(scale=0.1, size=n)
         q80 = np.quantile(base, 0.80)
         high = base >= q80
-        y[high] += 30.0 * rng.normal(size=int(high.sum()))
+        # 10, not 30: at 30 the contaminated spec's honest RMSE (13.5) is worse than the constant train mean (13.0), so the
+        # constant-null gate rejects it before any per-bin check and both arms keep nothing. At 10 it beats the constant
+        # and the lenient global gate, and only the per-bin gate sees the damaged top quintile - the case this locks.
+        y[high] += 10.0 * rng.normal(size=int(high.sum()))
         df = pd.DataFrame({"base": base, "x1": x1, "y": y})
         train_idx = np.arange(int(n * 0.8))
         # OFF: per_bin disabled, global tolerance VERY lenient.
@@ -280,6 +283,7 @@ class TestLockEnsembleNNLS:
         t = get_transform("diff")
 
         def _lgbm():
+            """A fresh, identically configured LightGBM regressor for each stack member."""
             return LGBMRegressor(n_estimators=200, num_leaves=31, learning_rate=0.05, random_state=0, verbosity=-1)
 
         component_models, component_names, oof_cols, single_rmses = [], [], [], []

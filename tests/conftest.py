@@ -424,6 +424,28 @@ def _snapshot_restore_default_tuning_cache():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_reporting_render_overrides(monkeypatch):
+    """Start every test with the reporting layer's process-wide render switches unset, and put them back afterwards.
+
+    The per-format-subfolder and inline-display overrides are thread-local, so on an xdist worker they outlive the test
+    that set them. A suite run sets both for its duration and restores them at the end; one that raises before the
+    restore leaves them on, and every later chart test on that worker writes to ``png/<name>.png`` instead of
+    ``<name>.png``. Which test leaks depends on the shard's order, so it showed up only on the macOS shards - three
+    INV-6 chart tests failed there while passing everywhere else.
+    """
+    from mlframe.reporting.renderers.save import set_format_subfolders, set_inline_display_mode
+    from mlframe.reporting.renderers import save as _save
+
+    monkeypatch.delenv("MLFRAME_PLOT_FORMAT_SUBFOLDERS", raising=False)
+    prior_sub = getattr(_save._SUBFOLDER_OVERRIDE, "value", _save._UNSET)
+    prior_inline = getattr(_save._INLINE_OVERRIDE, "value", _save._UNSET)
+    set_format_subfolders(None)
+    set_inline_display_mode(None)
+    yield
+    _save._SUBFOLDER_OVERRIDE.value = prior_sub
+    _save._INLINE_OVERRIDE.value = prior_inline
+
+@pytest.fixture(autouse=True)
 def _clear_pin_memory_env_override(monkeypatch):
     """Clear MLFRAME_MLP_PIN_MEMORY before every test so an operator's ambient shell-level
     override (set to work around a driver/CUDA-toolkit pinned-memory teardown crash during a

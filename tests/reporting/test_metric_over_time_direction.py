@@ -39,8 +39,11 @@ def _direction_in_title(metric: str) -> str:
     n_days, per_day = 5, 150
     n = n_days * per_day
     ts = np.repeat(np.arange(n_days), per_day).astype("datetime64[D]").astype("datetime64[ns]")
-    yt = rng.normal(size=n)
-    yp = yt + rng.normal(scale=0.3, size=n)
+    latent = rng.normal(size=n)
+    yp = latent + rng.normal(scale=0.3, size=n)
+    # A ranking metric needs binary labels to score; a continuous target leaves every bucket unscorable and the chart
+    # falls back to its bare-name panel, which is exactly the zero-assertion trap the docstring describes.
+    yt = (latent > 0).astype(np.int64) if metric in ("roc_auc", "pr_auc", "average_precision") else latent
     hib = metric_name_higher_is_better(metric)
     hib = True if hib is None else hib
     spec = metric_over_time(yt, yp, ts, metric=metric, higher_is_better=hib)
