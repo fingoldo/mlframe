@@ -173,7 +173,8 @@ def run_composite_moe_and_value_report(
 
     _group_column = getattr(composite_target_discovery_config, "group_column", None)
     _shrink_rtol = float(getattr(composite_target_discovery_config, "moe_gate_shrink_rtol", 0.0))
-    _min_group_rows = int(getattr(composite_target_discovery_config, "moe_gate_min_group_rows", 1))
+    _min_group_rows = int(getattr(composite_target_discovery_config, "moe_gate_min_group_rows", 20))
+    _min_gain_z = float(getattr(composite_target_discovery_config, "moe_gate_min_gain_z", 2.0))
 
     _ctx_groups = getattr(ctx, "group_ids", None) if ctx is not None else None
     _ctx_sw = getattr(ctx, "sample_weights", None) if ctx is not None else None
@@ -268,7 +269,7 @@ def run_composite_moe_and_value_report(
                 continue
             try:
                 _gate = MoESelectionGate(
-                    failsafe="lag", shrink_rtol=_shrink_rtol, min_group_rows=_min_group_rows,
+                    failsafe="lag", shrink_rtol=_shrink_rtol, min_group_rows=_min_group_rows, min_gain_z=_min_gain_z,
                 ).fit(
                     _y_sel,
                     {"composite": _composite_sel, "raw": _raw_sel, "lag": _lag_sel},
