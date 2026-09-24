@@ -43,6 +43,11 @@ def _record_skipped(charts: Optional[dict], name: str, reason: str) -> None:
 
     Without it a budget-capped or out-of-scope diagnostic appeared in neither ``saved`` nor ``failed``, so a consumer
     reading ``charts`` could not tell a shortened report from a complete one, or from a knob that was simply off.
+
+    Every writer of ``charts["skipped"]`` goes through here, so the key has one shape. It used to have two: the panel
+    grid appended names to a LIST while the diagnostics assigned name -> reason into a DICT, and whichever wrote second
+    raised ``TypeError: list indices must be integers or slices, not str`` -- which ended a production suite run after
+    2 h 33 min, at the report of one of its last models.
     """
     if not isinstance(charts, dict):
         return

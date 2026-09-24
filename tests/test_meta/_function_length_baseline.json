@@ -327,7 +327,7 @@
   "src/mlframe/training/pipeline/_pipeline_helpers.py::_passthrough_cols_fit_transform": 183,
   "src/mlframe/training/pipeline/_pipeline_helpers_apply.py::_apply_pre_pipeline_transforms": 408,
   "src/mlframe/training/ranking/_ranker_suite_train.py::train_mlframe_ranker_suite": 912,
-  "src/mlframe/training/reporting/_reporting.py::report_model_perf": 372,
+  "src/mlframe/training/reporting/_reporting.py::report_model_perf": 351,
   "src/mlframe/training/reporting/_reporting_diagnostics.py::_render_post_fit_diagnostics": 305,
   "src/mlframe/training/reporting/_reporting_probabilistic.py::report_probabilistic_model_perf": 780,
   "src/mlframe/training/reporting/_reporting_regression/__init__.py::report_regression_model_perf": 725,

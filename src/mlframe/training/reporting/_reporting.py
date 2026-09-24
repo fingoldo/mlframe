@@ -302,6 +302,39 @@ def _fi_png_path(base: str) -> str:
 
     return resolve_output_path(base + "_fiplot", "matplotlib", "png", multi_output=False)
 
+
+def _account_panel_render(metrics: Any, target_type: Any, rendered_tag: Any, panel_failures: list, plot_file: Any) -> None:
+    """Record in ``metrics["charts"]`` whether the multi-target panel grid rendered, failed, or had nothing to render.
+
+    INV-48: account which panel grids rendered so a run can assert chart presence. The no-crash contract holds -- a
+    failed render is logged + swallowed inside the dispatcher and recorded as "failed". INV-56: also stamp the base path
+    so the accounting points at the on-disk artifact, not just a tag.
+
+    "Nothing to render" is NOT a failure. ``render_multi_target_panels`` returns None both for "nothing rendered because
+    the branch matched and crashed" and for "no branch matched at all", and the second is the normal case for a
+    regression target: ``binary_panels`` defaults non-empty, so the guard opens for every report, and a regression run
+    then recorded ``regression_panels`` as FAILED on every single report -- for a grid that does not exist. It is
+    recorded as skipped instead, through the one helper every writer of ``charts["skipped"]`` shares: this path used to
+    append to a list there while the diagnostics assigned into a dict, which ended a production run with a TypeError.
+    """
+    if not isinstance(metrics, dict):
+        return
+    charts = metrics.setdefault("charts", {"saved": [], "failed": []})
+    which = ("binary" if (target_type or "").lower() == "binary_classification" else (target_type or "").lower()) or "panels"
+    if rendered_tag:
+        charts["saved"].append(f"{rendered_tag}_panels")
+        charts.setdefault("paths", []).append(f"{plot_file}_{rendered_tag}_panels")
+    elif panel_failures:
+        charts["failed"].append(f"{which}_panels")
+        # Distinguishes an actual render-time exception (branch matched, then crashed) from a plain no-op -- a batch
+        # run needs to count how many reports dropped a whole panel set.
+        charts.setdefault("panel_exceptions", []).extend(panel_failures)
+    else:
+        from mlframe.reporting.diagnostics_dispatch import _record_skipped
+
+        _record_skipped(charts, f"{which}_panels", "no panel grid applies to this target type")
+
+
 def report_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -571,30 +604,7 @@ def report_model_perf(
                 target_type=target_type,
                 panel_failures=_panel_failures,
             )
-            # INV-48: account which panel grids rendered so a run can assert
-            # chart presence. The no-crash contract holds -- a failed render is
-            # logged + swallowed inside the dispatcher and recorded as "failed".
-            # INV-56: also stamp the base path so the accounting points at the on-disk artifact, not just a tag.
-            if isinstance(metrics, dict):
-                _charts = metrics.setdefault("charts", {"saved": [], "failed": []})
-                _which = ("binary" if (target_type or "").lower() == "binary_classification" else (target_type or "").lower()) or "panels"
-                if _rendered_tag:
-                    _charts["saved"].append(f"{_rendered_tag}_panels")
-                    _charts.setdefault("paths", []).append(f"{plot_file}_{_rendered_tag}_panels")
-                elif _panel_failures:
-                    _charts["failed"].append(f"{_which}_panels")
-                    # Distinguishes an actual render-time exception (branch matched, then crashed) from a plain
-                    # no-op -- a batch run needs to count how many reports dropped a whole panel set.
-                    _charts.setdefault("panel_exceptions", []).extend(_panel_failures)
-                else:
-                    # NOT a failure. ``render_multi_target_panels`` returns None both for "nothing rendered
-                    # because the branch matched and crashed" and for "no branch matched at all", and the second
-                    # is the normal case for a regression target: ``binary_panels`` defaults non-empty, so the
-                    # guard above opens for every report, and a regression run then recorded
-                    # ``regression_panels`` as FAILED on every single report -- for a grid that does not exist.
-                    # An operator reading that goes hunting for a rendering bug, and a genuine failure in this
-                    # slot is indistinguishable from the no-op.
-                    _charts.setdefault("skipped", []).append(f"{_which}_panels")
+            _account_panel_render(metrics, target_type, _rendered_tag, _panel_failures, plot_file)
 
     # Per-model train-vs-val iteration curves (INV-24): default-ON; no-op for non-boosting models, when charts are
     # not saved to disk, or when the model carries no eval history.
