@@ -193,10 +193,18 @@ def _build_full_column_from_splits(
         if _split_df is None or _split_idx is None:
             continue
         if col_name not in _split_df.columns:
-            continue
+            from ..composite._synthetic_bases import synthetic_column
+
+            # A synthetic interaction base (``a__mul__b``) lives in no frame; it is its parents' product on every split.
+            col_vals = synthetic_column(_split_df, col_name)
+            if col_vals is None:
+                continue
+        else:
+            col_vals = None
         _seen_anywhere = True
         try:
-            col_vals = _split_df[col_name].to_numpy() if hasattr(_split_df[col_name], "to_numpy") else _np.asarray(_split_df[col_name])
+            if col_vals is None:
+                col_vals = _split_df[col_name].to_numpy() if hasattr(_split_df[col_name], "to_numpy") else _np.asarray(_split_df[col_name])
         except Exception:
             logger.debug("failed materialising column %r from split frame; skipping", col_name, exc_info=True)
             continue

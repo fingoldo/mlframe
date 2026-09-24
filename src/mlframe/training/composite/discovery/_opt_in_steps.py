@@ -6,8 +6,6 @@ were never reachable from a plain ``fit`` call:
 
 * **region-adaptive** (``_region_adaptive.fit_region_adaptive``) -- per-region
   best-transform selection routed by frozen quantile edges of the base.
-* **interaction-base discovery** (``_interaction_bases.discover_interaction_bases``)
-  -- surface ``a OP b`` synthetic bases whose interaction MI beats both marginals.
 * **auto transform-chaining** (``_auto_chain.discover_chains``) -- compose every
   ``residual x tail-unary`` chain and keep those that beat both single stages on
   held-out y-scale RMSE.
@@ -15,15 +13,15 @@ were never reachable from a plain ``fit`` call:
 ``run_optional_discovery_steps`` runs ONLY the enabled steps (each gated by a
 config flag that defaults ``True``) over the already-kept single-base
 specs, stashes the per-step rich artefacts on dedicated instance attributes
-(``region_adaptive_specs_`` / ``interaction_bases_`` / ``auto_chains_``), and
+(``region_adaptive_specs_`` / ``auto_chains_``), and
 returns a list of well-formed extra :class:`CompositeSpec` objects the caller
 appends to ``kept_specs``.
 
 Flag discipline (CRITICAL)
 --------------------------
-``interaction_base_discovery_enabled`` and ``auto_chain_discovery_enabled`` default ``True`` (each has test-confirmed
-business value); ``region_adaptive_enabled`` defaults ``False`` (committed-but-rejected prototype, kept behind the flag).
-With all three explicitly set ``False`` this function is a flag-gated no-op: it
+``auto_chain_discovery_enabled`` defaults ``True`` (test-confirmed business value); ``region_adaptive_enabled`` defaults
+``False`` (committed-but-rejected prototype, kept behind the flag). Interaction bases are no longer a step here: they are
+added as base candidates before screening (``_interaction_specs``). With both flags ``False`` this function is a flag-gated no-op: it
 returns an empty list and sets each artefact attribute to its empty default, so
 the discovered ``specs_`` / ``report_`` are byte-identical to the pre-hook flow.
 
@@ -47,7 +45,6 @@ from ..transforms import compose_target_name
 from ..transforms.registry import _TRANSFORMS_REGISTRY
 from .screening import _extract_column_array, _sample_indices
 from ._region_adaptive import fit_region_adaptive
-from ._interaction_bases import discover_interaction_bases
 from ._auto_chain import discover_chains
 
 logger = logging.getLogger(__name__)
@@ -114,49 +111,6 @@ def _run_region_adaptive(
             "spec(s) over base(s): %s", len(out), sorted(seen_bases),
         )
     return out
-
-
-def _run_interaction_bases(
-    self: Any, df: Any, screen_idx: np.ndarray, y_screen: np.ndarray,
-) -> tuple[dict[str, np.ndarray], list[dict[str, Any]]]:
-    """Surface synthetic ``a OP b`` interaction bases from the auto-base pool.
-
-    Candidates are the train-row-restricted auto-base columns (``_auto_base_pool``)
-    sampled to the screen rows. Returns ``({synth_name -> screen-row ndarray},
-    [score_record])`` for the caller to stash on ``interaction_bases_``. These are
-    new BASE candidates (not specs); they are reported but not appended to
-    ``specs_`` (turning them into specs needs a full re-screen, out of scope for
-    the cheap opt-in hook).
-    """
-    pool: dict[str, np.ndarray] = getattr(self, "_auto_base_pool", {}) or {}
-    if len(pool) < 2:
-        return {}, []
-    # Map each pooled train-row array down to the screen rows. The pool stores
-    # arrays already restricted to ``train_idx``; the screen sample is a subset of
-    # those positions, so reuse the SAME relative offsets the main screen used.
-    rel = self._screen_sample_rel_idx
-    candidates: dict[str, np.ndarray] = {}
-    for name, arr in pool.items():
-        a = np.asarray(arr, dtype=np.float64).reshape(-1)
-        if rel is not None and rel.max(initial=-1) < a.shape[0]:
-            candidates[name] = a[rel]
-        elif a.shape[0] == y_screen.shape[0]:
-            candidates[name] = a
-    candidates = {n: c for n, c in candidates.items() if c.shape == y_screen.shape}
-    if len(candidates) < 2:
-        return {}, []
-    top_k = int(getattr(self.config, "interaction_base_top_k", 4))
-    max_pairs = int(getattr(self.config, "interaction_base_max_pairs", 3))
-    # Every row here is a train row by construction: ``_auto_base_pool`` is already restricted to ``train_idx`` and
-    # the screen sample indexes into it. Pass that explicitly rather than leaving it implicit -- the generator warns
-    # about a possible test-scale leak when the mask is absent, which on this path was a false alarm four times per
-    # run, and a WARNING that cries leak without a leak teaches the reader to ignore the one that matters.
-    train_mask = np.ones(y_screen.shape[0], dtype=bool)
-    synth, records = discover_interaction_bases(
-        candidates, y_screen, top_k=top_k, max_pairs=max_pairs,
-        nbins=int(self.config.mi_nbins), train_mask=train_mask,
-    )
-    return synth, records
 
 
 def _run_auto_chain(
@@ -298,13 +252,12 @@ def run_optional_discovery_steps(
 ) -> list[CompositeSpec]:
     """Run the enabled opt-in discovery steps; return extra appendable specs.
 
-    Gated by three config flags (all default ``True``):
+    Gated by two config flags:
 
     * ``region_adaptive_enabled`` -> ``region_adaptive_specs_`` artefact.
-    * ``interaction_base_discovery_enabled`` -> ``interaction_bases_`` artefact.
     * ``auto_chain_discovery_enabled`` -> appendable chain :class:`CompositeSpec`s.
 
-    With all three off this is a no-op returning ``[]`` (and the empty-default
+    With both off this is a no-op returning ``[]`` (and the empty-default
     artefacts), so the discovered specs are byte-identical to the pre-hook flow.
     Each step is defensively isolated: a step that raises logs a warning and is
     skipped, never aborting ``fit``.
@@ -312,26 +265,24 @@ def run_optional_discovery_steps(
     # Empty-default artefacts so attribute access is always safe + the OFF path
     # is observably a no-op.
     self.region_adaptive_specs_ = []
-    self.interaction_bases_ = {}
-    self.interaction_base_records_ = []
     self.auto_chains_ = []
+    # interaction_bases_ / interaction_base_records_ are set by add_interaction_bases at the start of fit.
 
     ra_on = bool(getattr(config, "region_adaptive_enabled", False))
-    ib_on = bool(getattr(config, "interaction_base_discovery_enabled", True))
     ac_on = bool(getattr(config, "auto_chain_discovery_enabled", True))
     # ``transforms`` is the caller's whitelist: chains are a transform family, so they are built only when it lists one
     # (the default list does). ``transforms=["linear_residual"]`` used to train an extra chain model regardless.
     if ac_on and not any(str(t).startswith("chain_") for t in (getattr(config, "transforms", None) or [])):
         ac_on = False
         logger.info("[CompositeTargetDiscovery.auto_chain] skipped: the transforms whitelist lists no chain_* transform.")
-    if not (ra_on or ib_on or ac_on) or not kept_specs:
+    if not (ra_on or ac_on) or not kept_specs:
         return []
 
     train_idx = np.asarray(train_idx)
     y_full = _extract_column_array(df, target_col)
     y_train = y_full[train_idx]
-    # Build the screen sample once and remember the train-relative offsets so the
-    # interaction step can index ``_auto_base_pool`` (already train-restricted).
+    # Build the screen sample once and remember the train-relative offsets so the steps can index ``_auto_base_pool``
+    # (already train-restricted).
     sample_idx = _sample_indices(
         train_idx.size, config.mi_sample_n, config.random_state,
         strategy=getattr(config, "mi_sample_strategy", 'stratified_quantile'),
@@ -347,10 +298,6 @@ def run_optional_discovery_steps(
         self.region_adaptive_specs_ = _run_region_adaptive(
             self, df, target_col, kept_specs, screen_idx, y_screen,
         )
-    if ib_on:
-        synth, records = _run_interaction_bases(self, df, screen_idx, y_screen)
-        self.interaction_bases_ = synth
-        self.interaction_base_records_ = records
     if ac_on:
         chain_specs = _run_auto_chain(
             self, df, target_col, kept_specs, feature_cols,

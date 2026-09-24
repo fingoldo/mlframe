@@ -119,7 +119,10 @@ def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, tar
     for _spec in specs:
         _needed = [str(getattr(_spec, "base_column", "") or "")]
         _needed += [str(_c) for _c in (getattr(_spec, "extra_base_columns", ()) or ())]
-        _missing = [_c for _c in _needed if _c and _c not in available]
+        # A synthetic interaction base (``a__mul__b``) is rebuilt from its parents wherever the parents are present.
+        from ..composite._synthetic_bases import parse_synthetic
+
+        _missing = [_c for _c in _needed if _c and _c not in available and parse_synthetic(_c, available) is None]
         if _missing:
             dropped.append({
                 "name": getattr(_spec, "name", None) or getattr(_spec, "transform_name", "?"),

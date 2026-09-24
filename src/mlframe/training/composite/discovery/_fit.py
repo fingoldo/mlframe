@@ -446,6 +446,10 @@ def fit(
     df, usable_features, base_candidates = maybe_add_grouped_causal_bases(
         self, df, target_col, usable_features, base_candidates, train_idx,
     )
+    # Interaction bases (a*b beating both parents on MI) become base candidates here, before screening, so a composite on
+    # one is selected and gated like any other base; outside discovery the name resolves from its parents.
+    from ._interaction_specs import add_interaction_bases
+    df, usable_features, base_candidates = add_interaction_bases(self, df, usable_features, base_candidates, train_idx, y_train)
     self._df_ref = df  # engineered columns must be visible to downstream gates that read self._df_ref.
 
     if not base_candidates:
@@ -637,8 +641,12 @@ def fit(
         base_train = _extract_column_array(df, base)[train_idx]
         self._auto_base_pool[base] = base_train
         base_screen = base_train[sample_idx]
-        if base in _col_index:
-            _drop_idx = _col_index[base]
+        # A synthetic interaction base is not a feature; its parents carry it, so they leave x_remaining as a base does.
+        from .._synthetic_bases import parse_synthetic
+
+        _syn = None if base in _col_index else parse_synthetic(str(base), list(_col_index))
+        if base in _col_index or _syn is not None:
+            _drop_idx = _col_index[base] if base in _col_index else [_col_index[_syn[0]], _col_index[_syn[2]]]
             _x_prebinned = np.delete(_full_x_prebinned, _drop_idx, axis=1) if _full_x_prebinned is not None else None
             if _use_lazy_prebin:
                 # No float plane on the lazy path -- the base-dropped float matrix

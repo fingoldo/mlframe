@@ -56,6 +56,13 @@ def _extract_column_array(df: Any, col: str, rows: np.ndarray | None = None) -> 
     the source column already has float32 dtype the polars/pandas backing
     buffer is returned zero-copy; in-place mutation would corrupt the source
     DataFrame. Use ``.copy()`` at the call site if mutation is required."""
+    if col not in getattr(df, "columns", ()):
+        # A synthetic interaction base (``a__mul__b``) absent from this frame (a val frame, a caller's frame) is its parents' product.
+        from .._synthetic_bases import synthetic_column
+
+        syn = synthetic_column(df, col, rows)
+        if syn is not None:
+            return syn.astype(np.float32)
     if _is_polars_df(df):
         # Polars Series.to_numpy() already returns an ndarray; the prior
         # np.asarray wrapper allocated a redundant view. copy=False keeps

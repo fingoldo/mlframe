@@ -135,20 +135,19 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     #   - region_adaptive: per-region best-transform selection routed by frozen
     #     quantile edges of each kept base (``_region_adaptive.fit_region_adaptive``);
     #     results surface on ``CompositeTargetDiscovery.region_adaptive_specs_``.
-    #   - interaction_base_discovery: surface ``a OP b`` synthetic interaction bases
-    #     whose MI beats both marginals (``_interaction_bases.discover_interaction_bases``);
-    #     results surface on ``interaction_bases_`` / ``interaction_base_records_``.
+    #   - interaction_base_discovery: ``a * b`` / ``a + b`` / ``a - b`` whose MI beats both marginals are added as base
+    #     candidates before screening (``_interaction_specs``), so a composite on one is selected, trained and served (the
+    #     base resolves from its parents anywhere); every surfaced pair is also on ``interaction_base_records_``.
     #   - auto_chain_discovery: compose every ``residual x tail-unary`` chain and keep
     #     those that beat both single stages on held-out y-scale RMSE
     #     (``_auto_chain.discover_chains``); winning chains are APPENDED to ``specs_``
     #     (their composed Transform is registered so ``iter_transform`` resolves it)
     #     and also surface on ``auto_chains_``.
     # Default ON: these opt-in discovery steps each have test-confirmed business
-    # value (region-adaptive +47% OOS on region-dependent data, interaction-base
-    # +90% on pure-interaction targets, auto-chaining beats both single stages
-    # 8/8 seeds) and are no-harm by construction -- region-adaptive +
-    # interaction surface as informational artefacts (region_adaptive_specs_ /
-    # interaction_bases_) WITHOUT altering the selected specs_, and auto-chaining
+    # value (region-adaptive +47% OOS on region-dependent data, auto-chaining beats both single stages 8/8 seeds;
+    # interaction bases are measured in test_biz_val_interaction_base_specs.py) -- region-adaptive surfaces an
+    # informational artefact (region_adaptive_specs_) WITHOUT altering the selected specs_, interaction bases compete
+    # through every gate like any base, and auto-chaining
     # only APPENDS chains that already beat both single stages on held-out RMSE
     # (empty when none win). All three are compute-bounded by their caps below.
     # Set False to skip the extra discovery passes for the fastest possible fit.
