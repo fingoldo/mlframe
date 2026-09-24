@@ -68,3 +68,35 @@ def memo_predict(model: Any, frame: Any) -> np.ndarray:
     with _LOCK:
         memo[key] = (model, frame, preds)
     return cast(np.ndarray, preds.copy())
+
+
+def memo_transform(pipeline: Any, frame: Any, compute: Callable[[], Any], tag: str = "") -> Any:
+    """``compute()`` - a fitted pipeline's transform of ``frame`` - served from the active memo for a repeated (pipeline, frame).
+
+    Every wrapper predict re-applied its inner pre-pipeline to the whole frame, and the report, the MoE gate and the refit
+    pre-screen predicted the same wrappers on the same frames: one frame went through one fitted pipeline seven times in a
+    suite run. ``tag`` separates variants of the same pair (a grouped wrapper drops its group column first). The transformed
+    frame is shared, not copied: its readers only select columns from it.
+    """
+    memo = _ACTIVE
+    if memo is None or pipeline is None:
+        return compute()
+    key = ("transform", id(pipeline), id(frame), tag, getattr(frame, "shape", None))
+    with _LOCK:
+        hit = memo.get(key)
+    if hit is not None and hit[0] is pipeline and hit[1] is frame:
+        return hit[2]
+    out = compute()
+    with _LOCK:
+        memo[key] = (pipeline, frame, out)
+    return out
+
+
+def memo_seed(model: Any, frame: Any, preds: Any) -> None:
+    """Record ``preds`` as ``model.predict(frame)`` in the active memo, for a caller that computed it another way."""
+    memo = _ACTIVE
+    if memo is None:
+        return
+    key = (id(model), id(frame), getattr(frame, "shape", None))
+    with _LOCK:
+        memo[key] = (model, frame, np.asarray(preds, dtype=np.float64).reshape(-1).copy())

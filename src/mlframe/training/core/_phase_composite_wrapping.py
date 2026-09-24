@@ -12,7 +12,7 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple  # noqa: F401
 
 import numpy as np
-from ._prediction_memo import memo_predict
+from ._prediction_memo import memo_predict, memo_seed
 
 # dependencies needed by the moved _run_composite_target_wrapping.
 from ..composite import CompositeTargetEstimator
@@ -575,13 +575,14 @@ def _run_composite_target_wrapping(
                         # the clip is [y_train_min, y_train_max], train rows are in-envelope, clip is a no-op. Val / test rows
                         # may drift outside; the clip then narrows the headline RMSE. To make that contribution explicit we ALSO
                         # capture the raw (pre-clip) prediction via ``predict_pre_clip`` and emit a parallel metric block.
-                        _y_pred_wrapped = memo_predict(_wrapper_for_score, _split_df)
-                        if hasattr(_wrapper_for_score, "predict_pre_clip"):
-                            _y_pred_raw = np.asarray(
-                                _wrapper_for_score.predict_pre_clip(_split_df),
-                                dtype=np.float64,
-                            ).reshape(-1)
+                        if hasattr(_wrapper_for_score, "predict_with_pre_clip"):
+                            # One inner predict gives both numbers (predict + predict_pre_clip ran it twice); the clipped
+                            # one is handed to the phase memo for the report and the MoE that predict this pair next.
+                            _y_pred_wrapped, _y_pred_raw = (np.asarray(a, dtype=np.float64).reshape(-1)
+                                                            for a in _wrapper_for_score.predict_with_pre_clip(_split_df))
+                            memo_seed(_wrapper_for_score, _split_df, _y_pred_wrapped)
                         else:
+                            _y_pred_wrapped = memo_predict(_wrapper_for_score, _split_df)
                             # Inner is not a CompositeTargetEstimator (raw / passthrough); raw == wrapped is the honest answer.
                             _y_pred_raw = _y_pred_wrapped
                         # Use wrapped predictions for sample-log, cache, and the headline metric block (back-compat).

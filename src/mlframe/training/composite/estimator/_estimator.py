@@ -252,6 +252,11 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
 
         _ss.set_thread_info(self, value)
 
+    def predict_with_pre_clip(self, X: Any, inner_X: Any = None) -> "tuple[np.ndarray, np.ndarray]":
+        """``(predict(X), predict_pre_clip(X))`` from one inner predict. See ``_predict.predict_with_pre_clip``."""
+        from . import _predict as _pred
+        return _pred.predict_with_pre_clip(self, X, inner_X=inner_X)
+
     def predict_pre_clip(self, X: Any, inner_X: Any = None) -> "np.ndarray":
         """Inverse-of-transform y-prediction WITHOUT the train-envelope clip. See ``_predict.predict_pre_clip``.
 

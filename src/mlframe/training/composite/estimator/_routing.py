@@ -51,9 +51,14 @@ def inner_input(self: Any, X: Any, transform: Transform) -> Any:
     fit-time columns so a wider frame (extra suite columns, base columns the inner never saw) is accepted.
     """
     X_in = X
-    if transform.requires_groups and self.group_column:
+    drop_group = bool(transform.requires_groups and self.group_column)
+    if drop_group:
         X_in = self._drop_columns(X_in, [self.group_column])
     pp = getattr(self, "inner_pre_pipeline_", None)
     if pp is not None:
-        X_in = pp.transform(subset_to_fit_columns(X_in, pp))
+        from ...core._prediction_memo import memo_transform
+
+        _raw = X_in
+        # Inside a composite post-processing phase the same frame reaches the same fitted pipeline from several callers.
+        X_in = memo_transform(pp, X, lambda: pp.transform(subset_to_fit_columns(_raw, pp)), tag="drop_group" if drop_group else "")
     return subset_to_fit_columns(X_in, self.estimator_)

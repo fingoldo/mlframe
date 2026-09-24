@@ -19,8 +19,9 @@ pytest.importorskip("lightgbm")
 pytestmark = pytest.mark.slow  # one composite suite run (~60 s)
 
 _BASELINE = Path(__file__).resolve().parent / "_composite_call_budget_baseline.json"
-# Ideal counts: one y-scale predict per (wrapper, split) serves the hook, the report and the MoE (PRF-13) - two, since the
-# wrap pass also scores the pre-clip prediction for the model card (PRF-14); one transform per (pipeline, frame) (PRF-16).
+# Ideal counts of inner-model predicts per (wrapper, split): the per-model hook scores each wrapper as it is trained, before
+# the post-processing phase, and the phase's own consumers (report, MoE, refit pre-screen) share one predict through the
+# phase memo - two. One transform per (pipeline, frame) within the phase (PRF-16).
 _IDEAL = {"yscale_predicts_per_wrapper_split": 2, "pp_transforms_per_pipeline_frame": 1}
 
 
@@ -40,7 +41,8 @@ def post_counts(tmp_path_factory):
     real_predict, real_transform = CompositeTargetEstimator._predict_unclipped, Pipeline.transform
 
     def predict_spy(self, X, *a, **k):
-        predicts[(id(self), len(X))] += 1
+        if k.get("t_hat_override") is None:  # an inverse of given T-scale predictions runs no inner model
+            predicts[(id(self), len(X))] += 1
         return real_predict(self, X, *a, **k)
 
     def transform_spy(self, X, *a, **k):

@@ -130,7 +130,8 @@ def test_a_split_whose_predict_raises_is_reported(caplog):
     def _boom(*_a, **_k):
         raise RuntimeError("predict exploded")
 
-    entry.model.predict = _boom
+    # The shared predict engine raises, so every scoring path (predict, predict_with_pre_clip) fails the way a broken inner does.
+    entry.model._predict_unclipped = _boom
     with caplog.at_level(logging.WARNING):
         _wrap(ctx, skip_predict=False)
     assert any("skipped" in r.getMessage() and "predict exploded" in r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING)
