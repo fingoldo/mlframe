@@ -78,6 +78,7 @@ def _timer_derived_names(func: ast.AST) -> set:
     parsing of a profiler header is not recognised, and those sites are listed in the baseline instead.
     """
     names: set = set()
+    helpers = _timing_helpers(func)
     for _ in range(3):  # a couple of passes so a chain of assignments propagates
         grew = False
         for node in _own_body_nodes(func):
@@ -87,13 +88,86 @@ def _timer_derived_names(func: ast.AST) -> set:
             if not isinstance(tgt, ast.Name) or tgt.id in names:
                 continue
             for sub in ast.walk(node.value):
-                if _is_timer_call(sub) or (isinstance(sub, ast.Name) and sub.id in names):
+                helper_call = isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) and sub.func.id in helpers
+                if _is_timer_call(sub) or helper_call or (isinstance(sub, ast.Name) and sub.id in names):
                     names.add(tgt.id)
                     grew = True
                     break
         if not grew:
             break
     return names
+
+
+def _timing_helpers(func: ast.AST) -> set:
+    """Names of the functions nested in ``func`` that call a timer: ``t = _wall(fn)`` is a measurement too.
+
+    The njit sentinel timed both legs through a local ``_wall`` helper, so neither ``np_t`` nor ``nj_t`` was assigned from a
+    timer call directly and the comparison between them was invisible to this scan.
+    """
+    return {
+        node.name for node in ast.walk(func)
+        if isinstance(node, _FUNC_NODES) and node is not func and any(_is_timer_call(sub) for sub in ast.walk(node))
+    }
+
+
+# The least slack a relative timing race may have. Two measurements taken on a shared runner move independently by far
+# more than a few percent, so ``t_a <= t_b * 1.05`` fails on contention, not on code; 1.25 still catches a real fall-back
+# to a path that is several times slower, which is what these sentinels exist for.
+_MIN_RELATIVE_SLACK = 1.25
+
+
+def _is_tight_relative_race(node: ast.Assert, timer_names: set) -> bool:
+    """True for ``t_a <cmp> t_b * k`` (either order, either side) between two measurements with ``k`` inside the slack.
+
+    Also catches the same shape on durations the test did not time itself but read off a result object - an attribute or
+    name that says it is in seconds (``stats.saved_seconds > 0.05 * stats.median_seconds``): sub-second fits make such a
+    ratio a measurement of the host, not of the code.
+    """
+    test = node.test
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1 or not isinstance(test.ops[0], _COMPARE_OPS):
+        return False
+
+    def _ident(n: ast.AST) -> str | None:
+        """The identifier a name or attribute reads."""
+        return n.id if isinstance(n, ast.Name) else (n.attr if isinstance(n, ast.Attribute) else None)
+
+    def _is_reported_seconds(n: ast.AST) -> bool:
+        """A duration the test did not time itself, read off a result by a name that says it is in seconds."""
+        ident = _ident(n)
+        return ident is not None and ident not in timer_names and ident.lower().endswith(("_seconds", "_elapsed", "_duration_s"))
+
+    def _is_duration(n: ast.AST) -> bool:
+        """A timer-derived name, or a reported duration in seconds."""
+        return _ident(n) in timer_names or _is_reported_seconds(n)
+
+    def _scaled(n: ast.AST) -> float | None:
+        """``k`` when ``n`` is ``duration * k`` or ``k * duration`` with a numeric ``k``, else None."""
+        if not (isinstance(n, ast.BinOp) and isinstance(n.op, ast.Mult)):
+            return None
+        for a, c in ((n.left, n.right), (n.right, n.left)):
+            if _is_duration(a) and isinstance(c, ast.Constant) and isinstance(c.value, (int, float)):
+                return float(c.value)
+        return None
+
+    left, right = test.left, test.comparators[0]
+    for plain, other in ((left, right), (right, left)):
+        k = _scaled(other)
+        if k is not None and _is_duration(plain) and k > 0:
+            if _is_reported_seconds(plain) or any(_is_reported_seconds(x) for x in ast.walk(other)):
+                return True  # any ratio of reported seconds: on sub-second fits it measures the host, whatever k is
+            # Slack is the distance from parity either way: ``t_a <= t_b * 1.05`` and ``t_a >= t_b * 0.95`` are both races,
+            # while ``t_cache < 0.3 * t_fresh`` demands a 3.3x speedup - a strong claim, but not one a few percent of noise flips.
+            return max(k, 1.0 / k) < _MIN_RELATIVE_SLACK
+    return False
+
+
+def _is_perf_marked(func: ast.AST) -> bool:
+    """True when the function carries ``@pytest.mark.perf``: a timing gate that is opted out of the default run."""
+    for dec in getattr(func, "decorator_list", []) or []:
+        node = dec.func if isinstance(dec, ast.Call) else dec
+        if isinstance(node, ast.Attribute) and node.attr == "perf":
+            return True
+    return False
 
 
 def _is_wall_clock_assert(node: ast.Assert, timer_names: set) -> bool:
@@ -157,17 +231,20 @@ def _single_shot_timing_functions(tree: ast.Module) -> list[tuple[int, str]]:
         if _is_hang_guard(func):
             continue
         timer_names = _timer_derived_names(func)
-        has_timer = has_ratio_assert = has_min_call = has_loop = False
+        has_timer = has_ratio_assert = has_min_call = has_loop = has_tight_race = False
         for node in _own_body_nodes(func):
             if _is_timer_call(node):
                 has_timer = True
+            elif isinstance(node, ast.Assert) and _is_tight_relative_race(node, timer_names) and not _is_perf_marked(func):
+                has_tight_race = True
             elif isinstance(node, ast.Assert) and (_is_ratio_floor_assert(node) or _is_wall_clock_assert(node, timer_names)):
                 has_ratio_assert = True
             elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "min":
                 has_min_call = True
             elif isinstance(node, (ast.For, ast.While)):
                 has_loop = True
-        if has_timer and has_ratio_assert and not (has_min_call or has_loop):
+        # A tight relative race is flagged even under best-of-N: the slack, not the sample count, is what loses to contention.
+        if has_tight_race or (has_timer and has_ratio_assert and not (has_min_call or has_loop)):
             out.append((func.lineno, func.name))
     return out
 
@@ -261,6 +338,43 @@ def test_bare_wall_clock_ceiling():
     assert ratio >= 1.0
 
 
+def test_tight_race_through_a_helper():
+    def _wall(fn):
+        t0 = time.perf_counter()
+        fn()
+        return time.perf_counter() - t0
+    samples = []
+    for _ in range(7):
+        samples.append(_wall(run))
+    np_t = _wall(numpy_path)
+    nj_t = _wall(njit_path)
+    assert nj_t <= np_t * 1.05
+
+def test_race_with_real_slack():
+    def _wall(fn):
+        t0 = time.perf_counter()
+        fn()
+        return time.perf_counter() - t0
+    np_t = min(_wall(numpy_path) for _ in range(5))
+    nj_t = min(_wall(njit_path) for _ in range(5))
+    assert nj_t <= np_t * 1.5
+
+def test_seconds_read_off_a_result():
+    stats = run()
+    assert stats.estimated_wallclock_saved_seconds > 0.05 * stats.median_completed_trial_seconds
+
+
+@pytest.mark.perf
+def test_tight_race_opted_out_as_perf():
+    def _wall(fn):
+        t0 = time.perf_counter()
+        fn()
+        return time.perf_counter() - t0
+    a_t = _wall(a)
+    b_t = _wall(b)
+    assert a_t <= b_t * 1.05
+
+
 @pytest.mark.hang_guard
 def test_hang_guard_is_exempt():
     t0 = time.perf_counter()
@@ -282,4 +396,6 @@ def test_detector_flags_both_single_shot_shapes():
     that it is fast, so lumping it in with perf gates would get both loosened by the same reflex.
     """
     found = _single_shot_timing_functions(ast.parse(_DETECTOR_SAMPLE))
-    assert sorted(name for _, name in found) == ["test_bare_wall_clock_ceiling", "test_single_shot_flaky"], found
+    assert sorted(name for _, name in found) == [
+        "test_bare_wall_clock_ceiling", "test_seconds_read_off_a_result", "test_single_shot_flaky", "test_tight_race_through_a_helper",
+    ], found

@@ -482,7 +482,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: low.
 - **Runtime**: under 2 s.
 - **Repo**: mlframe.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - (a) test_no_single_shot_timing_assertion.py now sees measurements taken through a local timing helper (the njit sentinel's shape) and flags a relative race t_a <cmp> t_b * k whose slack max(k, 1/k) is under 1.25, best-of-N or not, unless the test is marked perf; any ratio of durations read off a result object in seconds (the HPO pruner case) is flagged whatever k is. Canary cases cover each shape. Checked against the previous detector on the same tree: a strict superset (26 sites against 22, none lost). The refresh also dropped 41 stale baseline entries that other changes had fixed or shifted (the test only warned about those). In the composite scope the grouped-causal profile smoke moved to best of three; the njit sentinel and the HPO test were already fixed under TST-16. (b) test_heavy_training_shares_fixture.py records modules whose test functions train the full suite directly three or more times (_heavy_training_baseline.json, may only shrink); test_composite_integration.py drops out of it: the OOF-gate and dummy-baseline tests now read the shared fixture too, leaving only the two negative controls, which need configs of their own
 
 ### PMT-29 [P1] Split-role ledger: selection rows and report rows never overlap, and verdicts read test
 - **Asserts**:

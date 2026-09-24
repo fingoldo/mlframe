@@ -36,6 +36,7 @@ FLAG_EXEMPT: dict[str, str] = {
     "_tested_but_uncalled_baseline.json": "edit by hand (test_tested_but_uncalled.py lists the keys)",
     "_discovery_layout_baseline.json": "edit by hand (test_discovery_layout_and_copies.py lists new and fixed keys)",
     "_frame_copy_baseline.json": "edit by hand (test_no_frame_copy_in_target_loops.py lists new and fixed keys)",
+    "_heavy_training_baseline.json": "edit by hand (test_heavy_training_shares_fixture.py lists grown and shrunk modules)",
     "_transform_gateway_baseline.json": "edit by hand (test_transform_calls_use_gateway.py lists new and fixed keys)",
     # py-ci-shared content-hash gate: its shared flag, not a per-file one.
     "_discovery_algo_version_baseline.json": "--refresh-content-hash-version-baseline",

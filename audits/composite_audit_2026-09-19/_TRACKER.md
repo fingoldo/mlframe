@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 15 | 2 | 0 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 19 | 20 | 2 | 0 | 0 |
-| **Total** | **179** | **144** | **32** | **2** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 20 | 20 | 1 | 0 | 0 |
+| **Total** | **179** | **145** | **32** | **1** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -223,7 +223,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P2 | `PMT-25` | Authoritative-source scanner: no name heuristics or unchecked target-slot writes where a registry or spec set exists | (a) and (b) ship as test_composite_authoritative_sources.py; (c) has no second construction site left after TRF-25 |
 | **RESOLVED** | P2 | `PMT-26` | Frame-copy scanner for per-target loops, plus a pandas-2.x shared-memory test | empty _frame_copy_baseline.json plus the shares_memory test; no pandas-2.x-only leg needed |
 | **PARTIAL** | P3 | `PMT-27` | Diagnostics truthfulness: report reasons come from the ledger, printed advice is executed, alert policy matches its docstring | (a) and (c) shipped; (b) printed-advice scanner still owed to py-ci-shared |
-| **TODO** | P3 | `PMT-28` | Test timing and cost hygiene: relative timing races need real slack, and repeated heavy trainings share a fixture | |
+| **RESOLVED** | P3 | `PMT-28` | Test timing and cost hygiene: relative timing races need real slack, and repeated heavy trainings share a fixture | relative timing races and heavy direct trainings are scanned; the composite module is under the threshold |
 | **PARTIAL** | P1 | `PMT-29` | Split-role ledger: selection rows and report rows never overlap, and verdicts read test | row-role ledger + contract test (holdout select/report disjoint, verdict=test, charts=train); xt fit/report leg open |
 | **RESOLVED** | P1 | `PMT-30` | Config-restriction and per-candidate isolation contract: every registry transform is accepted, isolated and honoured | registry-wide restriction contract; found + fixed discovery aborting on every grouped config (val frame lacked gcausal bases) |
 | **PARTIAL** | P1 | `PMT-31` | Stage-sentinel inner: wrappers and every predict entry point must feed the inner its own pipeline stage and the base its raw stage | stage sentinel: wrapper/composite_predict/shim/CT-ensemble routes pinned; MoE + suite-internal entry points open |

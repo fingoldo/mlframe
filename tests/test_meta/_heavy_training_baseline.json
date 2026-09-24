@@ -1,0 +1,19 @@
+{
+ "training/neural/test_mlp_multi_targets.py": 4,
+ "training/ranking/test_bizvalue_ranking.py": 7,
+ "training/test_all_models.py": 30,
+ "training/test_biz_val_training_core.py": 4,
+ "training/test_core.py": 104,
+ "training/test_core_coverage.py": 30,
+ "training/test_diagnostics_suite_integration.py": 11,
+ "training/test_evaluation_diagnostics_suite_wiring.py": 4,
+ "training/test_feature_drift_auto_action_e2e.py": 4,
+ "training/test_feature_selection.py": 10,
+ "training/test_integration_prod_like_polars.py": 6,
+ "training/test_perf_optimizations.py": 8,
+ "training/test_prod_log_review_regression_sensors.py": 4,
+ "training/test_splitting.py": 6,
+ "training/test_stress.py": 13,
+ "training/test_suite_coverage_gaps.py": 26,
+ "training/test_train_mlframe_models_suite_error_paths.py": 9
+}
