@@ -657,16 +657,11 @@ def fit(
         self._auto_base_pool[base] = base_train
         base_screen = base_train[sample_idx]
         # A synthetic interaction base is not a feature; its parents carry it, so they leave x_remaining as a base does.
-        from .._synthetic_bases import parse_synthetic
+        from .._synthetic_bases import dropped_columns
 
-        _syn = None if base in _col_index else parse_synthetic(str(base), list(_col_index))
-        if base in _col_index or _syn is not None:
-            _drop_idx: int | list[int]
-            if base in _col_index:
-                _drop_idx = _col_index[base]
-            else:
-                assert _syn is not None  # the enclosing condition guarantees it
-                _drop_idx = [_col_index[_syn[0]], _col_index[_syn[2]]]
+        _dropped = dropped_columns(base, _col_index)
+        if _dropped:
+            _drop_idx: int | list[int] = _col_index[base] if base in _col_index else [_col_index[c] for c in _dropped]
             _x_prebinned = np.delete(_full_x_prebinned, _drop_idx, axis=1) if _full_x_prebinned is not None else None
             if _use_lazy_prebin:
                 # No float plane on the lazy path -- the base-dropped float matrix

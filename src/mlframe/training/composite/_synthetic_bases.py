@@ -73,10 +73,25 @@ def synthetic_column(frame: Any, name: str, rows: Optional[np.ndarray] = None) -
     return np.asarray(_APPLY[op](_parent(frame, a, rows), _parent(frame, b, rows)), dtype=np.float64)
 
 
+def dropped_columns(base: str, columns: Any) -> list:
+    """The feature columns that carry ``base`` and leave X when X is scored without the base.
+
+    ``[base]`` for a real feature, the two parents for a synthetic base built from features, else ``[]`` (a unary spec's
+    empty base, or a base that is not among the features).
+    """
+    if not base:
+        return []
+    cols = list(columns)
+    if base in cols:
+        return [base]
+    parsed = parse_synthetic(str(base), cols)
+    return [] if parsed is None else [parsed[0], parsed[2]]
+
+
 def is_resolvable(frame: Any, name: str) -> bool:
     """True when ``frame`` holds ``name`` or both parents of the synthetic base ``name``."""
     cols = _columns(frame)
     return name in cols or parse_synthetic(str(name), cols) is not None
 
 
-__all__ = ["SPECABLE_OPS", "is_resolvable", "parse_synthetic", "synthetic_column"]
+__all__ = ["SPECABLE_OPS", "dropped_columns", "is_resolvable", "parse_synthetic", "synthetic_column"]

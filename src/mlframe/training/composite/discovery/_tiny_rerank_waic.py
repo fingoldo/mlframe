@@ -71,22 +71,20 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     rs = int(getattr(self.config, "random_state", 42) or 0)
     yb = np.asarray(y_screen, dtype=np.float64).ravel()
     # One float64 valid-row matrix per base, shared by every spec on it: the per-spec cast copied the same (n, F) block
-    # each time, and handing every spec the same array object lets the WAIC folds reuse one binned dataset per fold.
-    import threading
+    # each time, and handing every spec the same array object lets the WAIC folds reuse one binned dataset per fold. The
+    # specs are scored grouped by base and only the latest two bases' matrices are kept: one per base held them all.
+    from ._per_base_x import BoundedMemo, base_ordered
 
-    _base_x: dict = {}
-    _base_x_lock = threading.Lock()
+    _base_x = BoundedMemo(capacity=2)
 
     def _valid_x(base_col, base_screen, x_mat):
-        """``(valid mask, float64 X on the valid rows)`` for this base, built once."""
-        with _base_x_lock:
-            hit = _base_x.get(base_col)
-            if hit is None:
-                bb = np.asarray(base_screen, dtype=np.float64).ravel()
-                valid = np.isfinite(yb) & np.isfinite(bb)
-                hit = (valid, bb, np.ascontiguousarray(np.asarray(x_mat, dtype=np.float64)[valid]))
-                _base_x[base_col] = hit
-        return hit
+        """``(valid mask, float64 X on the valid rows)`` for this base, built once while it is in use."""
+        def build():
+            bb = np.asarray(base_screen, dtype=np.float64).ravel()
+            valid = np.isfinite(yb) & np.isfinite(bb)
+            return valid, bb, np.ascontiguousarray(np.asarray(x_mat, dtype=np.float64)[valid])
+
+        return _base_x.get_or_build(base_col, build)
 
     def _waic_for(i: int):
         """WAIC of spec ``i`` on the screen sample, or None when it cannot be scored."""
@@ -144,6 +142,7 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
             to_score.extend(band)
         pos += len(band)
 
+    to_score = base_ordered(to_score, lambda i: getattr(kept_specs[i], "base_column", None))
     n_jobs = max(1, min(len(to_score), cpu_count_physical()))
     if n_jobs > 1:
         results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_waic_for)(i) for i in to_score)

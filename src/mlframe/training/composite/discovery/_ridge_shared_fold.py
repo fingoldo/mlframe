@@ -45,8 +45,12 @@ class _RidgeFoldModel:
 
 def _impute(x: np.ndarray, fill: np.ndarray) -> np.ndarray:
     """``x`` as float64 with non-finite cells replaced by ``fill`` column-wise (what ``SimpleImputer(mean)`` does)."""
-    xi = np.array(x, dtype=np.float64, copy=True)
-    bad = ~np.isfinite(xi)
+    return _impute_in_place(np.array(x, dtype=np.float64, copy=True), fill)
+
+
+def _impute_in_place(xi: np.ndarray, fill: np.ndarray, bad: np.ndarray | None = None) -> np.ndarray:
+    """``_impute`` on a float64 array the caller owns: fills it in place and returns it."""
+    bad = ~np.isfinite(xi) if bad is None else bad
     if bad.any():
         xi[bad] = np.broadcast_to(fill, xi.shape)[bad]
     return xi
@@ -62,16 +66,27 @@ def _fold_factor(x: np.ndarray, rows: np.ndarray) -> tuple[np.ndarray, np.ndarra
         if hit is not None and hit[0]() is x:
             _CACHE.move_to_end(key)
             return cast(tuple, hit[1])
-    raw = np.asarray(x[rows], dtype=np.float64)
-    fill = np.nanmean(np.where(np.isfinite(raw), raw, np.nan), axis=0)
+    # One float64 copy of the fold, imputed and centred in place: the where-copy, the imputed copy and the centred copy were
+    # three more fold-sized float64 arrays at once (29 MB of a 122 MB rerank peak at 4k x 240), for the same numbers.
+    xc = np.asarray(x[rows], dtype=np.float64)  # x[rows] is already a fresh copy
+    finite = np.isfinite(xc)
+    all_finite = bool(finite.all())
+    fill = np.nanmean(xc if all_finite else np.where(finite, xc, np.nan), axis=0)
     fill = np.where(np.isfinite(fill), fill, 0.0)  # an all-missing column imputes to 0, contributing nothing
-    xi = _impute(raw, fill)
-    mu = xi.mean(axis=0)
-    xc = xi - mu
+    if not all_finite:
+        _impute_in_place(xc, fill, ~finite)
+    del finite
+    mu = xc.mean(axis=0)
+    xc -= mu
     gram = xc.T @ xc
+    del xc
     gram[np.diag_indices_from(gram)] += _ALPHA
     entry = (fill, mu, cho_factor(gram))
     with _LOCK:
+        # An entry whose matrix is gone can never hit again (a new matrix at the same id fails the weakref check), so
+        # it goes now rather than when the LRU reaches it: the rerank gathers per-base matrices on demand and drops them.
+        for _dead in [k for k, (ref, _) in _CACHE.items() if ref() is None]:
+            del _CACHE[_dead]
         _CACHE[key] = (weakref.ref(x), entry)
         while len(_CACHE) > _MAX_ENTRIES:
             # evict-ok: memo; a miss recomputes the value
@@ -86,7 +101,7 @@ def fit_ridge_on_shared_fold(x: np.ndarray, rows: np.ndarray, target: np.ndarray
     fill, mu, factor = _fold_factor(x, rows)
     t = np.asarray(target, dtype=np.float64)
     t_mean = float(t.mean())
-    xi = _impute(x[rows], fill)
+    xi = _impute_in_place(np.asarray(x[rows], dtype=np.float64), fill)
     # Centring X is folded into the right-hand side: (X - mu)^T (t - t_mean) == X^T (t - t_mean), as the residual sums to 0.
     coef = cho_solve(factor, xi.T @ (t - t_mean))
     return _RidgeFoldModel(fill, coef, t_mean - float(mu @ coef))

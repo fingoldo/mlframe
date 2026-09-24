@@ -172,7 +172,10 @@ def _run_auto_chain(
             return base_col, []
         try:
             base_screen = _extract_column_array(df, base_col, rows=screen_idx)
-            x_matrix = np.delete(x_full, col_index[base_col], axis=1) if base_col in col_index else x_full
+            from .._synthetic_bases import dropped_columns
+
+            _drop = [col_index[c] for c in dropped_columns(base_col, col_index)]  # a synthetic base drops its parents
+            x_matrix = np.delete(x_full, _drop, axis=1) if _drop else x_full
             chains = discover_chains(
                 y=y_screen, base=base_screen, x_matrix=x_matrix,
                 residual_names=res_names,

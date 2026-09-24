@@ -15,6 +15,7 @@ import numpy as np
 from ..spec import CompositeSpec
 from ..ensemble import _is_monotone_nondecreasing
 from ._rejection_ledger import RejectStage, ledger_append
+from ._per_base_x import PerBaseMatrices, base_ordered
 from ._tiny_rerank_waic import _apply_waic_tiebreak
 from .screening import (
     _extract_column_array,
@@ -190,13 +191,8 @@ def _tiny_model_rerank(
     # first pass. Keyed by spec.name -> per-bin ndarray. Only populated
     # when ``per_bin_enabled_pre`` is True.
     _per_bin_first_pass: dict[str, np.ndarray] = {}
-    _per_base_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
 
-    # Pre-build per-base cache serially (one entry per unique
-    # base_column). Doing this before the parallel rerank avoids a
-    # lazy-init serialization point inside the threaded loop and
-    # ensures the read-only cache is fully populated by the time
-    # workers run.
+    # The base vectors are extracted serially before the parallel rerank.
     # Build the full screen-sample feature matrix ONCE, then derive each
     # base's "all features except this base" matrix via np.delete on the
     # in-RAM matrix instead of re-extracting B+1 full-column passes from the
@@ -207,9 +203,11 @@ def _tiny_model_rerank(
     # that column.
     _usable_list = list(usable_features)
     _x_full = self._build_feature_matrix(df, _usable_list, train_idx_screen)
-    _col_index = {c: i for i, c in enumerate(_usable_list)}
+    # Base vectors are extracted here; each base's X-without-base is gathered from _x_full on first use and at most two
+    # stay cached (``PerBaseMatrices``), so the rerank no longer holds one copy per distinct base.
+    _base_screens: dict = {}
     for spec in kept_specs:
-        if spec.base_column in _per_base_cache:
+        if spec.base_column in _base_screens:
             continue
         # Unary (``requires_base=False``) specs carry an empty
         # ``base_column`` sentinel -- they ignore the base entirely. Extracting
@@ -218,19 +216,12 @@ def _tiny_model_rerank(
         # against the FULL feature matrix (no base column dropped), mirroring
         # the dedicated unary context built in ``discovery/_fit.py``.
         if spec.base_column == "":
-            base_screen = np.zeros(train_idx_screen.size, dtype=np.float32)
-            _per_base_cache[spec.base_column] = (base_screen, _x_full)
+            _base_screens[spec.base_column] = np.zeros(train_idx_screen.size, dtype=np.float32)
             continue
-        base_screen = _extract_column_array(
-            df, spec.base_column, rows=train_idx_screen,
-        )
-        if spec.base_column in _col_index:
-            x_matrix = np.delete(_x_full, _col_index[spec.base_column], axis=1)
-        else:
-            # Base is not among the screened features (e.g. a lag column the
-            # user excluded); no column to drop -- reuse x_full read-only.
-            x_matrix = _x_full
-        _per_base_cache[spec.base_column] = (base_screen, x_matrix)
+        # A base not among the screened features (e.g. a lag column the user excluded) keeps the full matrix; a
+        # synthetic interaction base drops its parents, as the screen does.
+        _base_screens[spec.base_column] = _extract_column_array(df, spec.base_column, rows=train_idx_screen)
+    _per_base_cache = PerBaseMatrices(_x_full, _usable_list, _base_screens)
     _tiny_rerank_ram_checkpoint(f"per_base_cache_built(n_unique_bases={len(_per_base_cache)})")
 
     n_seed_repeats = max(1, int(getattr(
@@ -261,7 +252,7 @@ def _tiny_model_rerank(
     _early_any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or (
         _groups_screen is None
         and any(
-            _is_monotone_nondecreasing(_base_arr) for spec in kept_specs if (_base_arr := _per_base_cache.get(spec.base_column, (None, None))[0]) is not None
+            _is_monotone_nondecreasing(_base_arr) for spec in kept_specs if (_base_arr := _per_base_cache.base_screen(spec.base_column)) is not None
         )
     )
     if _require_raw_baseline:
@@ -324,10 +315,9 @@ def _tiny_model_rerank(
             for spec in kept_specs:
                 if spec.base_column in raw_per_bin_per_base:
                     continue
-                cached = _per_base_cache.get(spec.base_column)
-                if cached is None:
+                base_screen = _per_base_cache.base_screen(spec.base_column)
+                if base_screen is None:
                     continue
-                base_screen, _ = cached
                 family = families[0]
                 if _raw_fold_preds is None:
                     raw_result = _tiny_cv_rmse_raw_y(
@@ -529,9 +519,13 @@ def _tiny_model_rerank(
     _tiny_rerank_ram_checkpoint(f"pre_parallel_loop(n_specs={len(kept_specs)}, n_families={len(families)}, rerank_n_jobs={_rerank_n_jobs}, inner_n_jobs={_rerank_inner_n_jobs}, worker_fold_n_jobs={_worker_fold_n_jobs})")
     if _rerank_n_jobs > 1 and len(kept_specs) > 1:
         from joblib import Parallel as _Parallel, delayed as _delayed
+
+        # Grouped by base so the bounded per-base cache gathers each base once; results go back to spec order.
+        _dispatch = base_ordered(range(len(kept_specs)), lambda i: kept_specs[i].base_column)
         _rerank_results = _Parallel(
             n_jobs=_rerank_n_jobs, backend="threading", prefer="threads",
-        )(_delayed(_rerank_one_spec)(s) for s in kept_specs)
+        )(_delayed(_rerank_one_spec)(kept_specs[i]) for i in _dispatch)
+        _rerank_results = [r for _, r in sorted(zip(_dispatch, _rerank_results))]
     else:
         # Sequential path: log every other spec so the kill-point is bracketed
         # without flooding the log on a 100-spec rerank. The parallel path

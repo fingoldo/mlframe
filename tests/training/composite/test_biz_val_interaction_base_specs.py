@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.training.composite._synthetic_bases import parse_synthetic, synthetic_column
+from mlframe.training.composite._synthetic_bases import dropped_columns, parse_synthetic, synthetic_column
 
 pytest.importorskip("lightgbm")
 
@@ -49,6 +49,9 @@ def test_the_resolver_rebuilds_a_product_from_its_parents_and_defers_to_a_real_c
     assert parse_synthetic("a__x__sub__b", df.columns) == ("a__x", "sub", "b")
     assert synthetic_column(df.assign(**{"a__x__mul__b": [9.0, 9.0]}), "a__x__mul__b") is None
     assert synthetic_column(df, "a__x__div__b") is None, "div needs a fitted floor and is not resolvable"
+    # Wherever X is scored without the base (screen, rerank, opt-in chains, holdout re-score), a synthetic base drops its parents.
+    assert dropped_columns("a__x__mul__b", ["a__x", "b", "c"]) == ["a__x", "b"] and dropped_columns("c", ["c"]) == ["c"]
+    assert dropped_columns("", ["c"]) == [] and dropped_columns("zz", ["c"]) == []
 
 
 @pytest.mark.parametrize("seed", [0, 1, 2])

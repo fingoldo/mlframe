@@ -431,7 +431,9 @@ def rescore_specs_on_holdout(
                 # slice it, instead of one gather per base set.
                 if "__all__" not in _x_remaining_cache:
                     _x_remaining_cache["__all__"] = _build_x_remaining_holdout(df, usable_features, (), holdout_idx)
-                base_set = set(base_columns)
+                from .._synthetic_bases import dropped_columns
+
+                base_set = {d for b in base_columns for d in dropped_columns(b, usable_features)}  # a synthetic base: its parents
                 keep = [i for i, c in enumerate(usable_features) if c not in base_set]
                 full = _x_remaining_cache["__all__"]
                 cached = full[:, keep] if keep else np.zeros((holdout_idx.size, 0), dtype=np.float32)

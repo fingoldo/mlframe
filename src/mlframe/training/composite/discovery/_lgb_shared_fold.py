@@ -80,6 +80,10 @@ def _fold_dataset(x: np.ndarray, rows: np.ndarray, params: Dict[str, Any]) -> An
     with _CONSTRUCT_LOCK:
         ds = lgb.Dataset(_raw, label=np.zeros(rows.shape[0]), params=params, free_raw_data=True).construct()
     with _LOCK:
+        # An entry whose matrix is gone can never hit again (a new matrix at the same id fails the weakref check), so
+        # it goes now rather than when the LRU reaches it: the rerank gathers per-base matrices on demand and drops them.
+        for _dead in [k for k, (ref, _) in _CACHE.items() if ref() is None]:
+            del _CACHE[_dead]
         _CACHE[key] = (weakref.ref(x), ds)
         while len(_CACHE) > _MAX_ENTRIES:
             # evict-ok: memo; a miss recomputes the value
