@@ -67,12 +67,21 @@ def _pp_is_fitted(pp: Any) -> bool:
     return bool(_is_fitted(pp))
 
 
+def _has_supervised_selection(pp: Any) -> bool:
+    """True when a step of ``pp`` chose features using the target: MRMR, RFECV, BorutaShap and their wrappers all expose
+    ``get_support``, which is what marks a fitted selection mask here."""
+    steps = getattr(pp, "steps", None)
+    candidates = [s for _name, s in steps] if steps else [pp]
+    return any(hasattr(step, "get_support") for step in candidates if step is not None and step != "passthrough")
+
+
 def _transform_pair_via(
     pp: Any,
     X_train: Any,
     X_holdout: Any,
     *,
     y_train: Any = None,
+    refit_supervised: bool = False,
 ) -> tuple[Any, Any]:
     """Project the OOF train + holdout slices into the SAME feature space the deployed model predicts in.
 
@@ -88,7 +97,10 @@ def _transform_pair_via(
     """
     if pp is None:
         return X_train, X_holdout
-    if _pp_is_fitted(pp):
+    # A fitted supervised selector chose its features with y on every train row, the fold's holdout rows included, so the
+    # OOF score of that component was optimistic and the NNLS weights leaned toward it. On a CV fold it is refit on the
+    # fold's own train rows, like an unfitted pipeline; unsupervised steps (scalers, imputers) keep the cheap reuse.
+    if _pp_is_fitted(pp) and not (refit_supervised and y_train is not None and _has_supervised_selection(pp)):
         return pp.transform(subset_to_fit_columns(X_train, pp)), pp.transform(subset_to_fit_columns(X_holdout, pp))
     # Unfitted pre_pipeline: fit a clone on the train slice (leak-free) and
     # reuse it for both slices so the OOF lives in the deployed space.
@@ -101,7 +113,8 @@ def _transform_pair_via(
     return pp_fit.transform(X_train), pp_fit.transform(X_holdout)
 
 
-def _transform_pair_cached(memo: dict | None, pp: Any, X_train: Any, X_holdout: Any, *, y_train: Any = None) -> tuple[Any, Any]:
+def _transform_pair_cached(memo: dict | None, pp: Any, X_train: Any, X_holdout: Any, *, y_train: Any = None,
+                           refit_supervised: bool = False) -> tuple[Any, Any]:
     """:func:`_transform_pair_via`, reusing the result for other components that hold the same fitted pipeline.
 
     Components built from one strategy share a single fitted ``pre_pipeline`` object, and every one of them re-ran the
@@ -111,10 +124,12 @@ def _transform_pair_cached(memo: dict | None, pp: Any, X_train: Any, X_holdout: 
     """
     if memo is None or pp is None or not _pp_is_fitted(pp):
         return _transform_pair_via(pp, X_train, X_holdout, y_train=y_train)
-    key = (id(pp), id(X_train), id(X_holdout))
+    # A fold refit of a shared fitted pipeline is deterministic in the fold's slices too, so it is memoised the same way:
+    # components built from one strategy share the pipeline, and each would otherwise refit the selector again.
+    key = (id(pp), id(X_train), id(X_holdout), bool(refit_supervised))
     hit = memo.get(key)
     if hit is None or hit[0] is not pp:
-        hit = (pp, _transform_pair_via(pp, X_train, X_holdout, y_train=y_train))
+        hit = (pp, _transform_pair_via(pp, X_train, X_holdout, y_train=y_train, refit_supervised=refit_supervised))
         memo[key] = hit
     return hit[1]
 
@@ -514,7 +529,7 @@ def _oof_holdout_predictions_with_rows(
                 try:
                     inner, pp = _unwrap_shim(model)
                     X_stack_t, X_holdout_t = _transform_pair_cached(
-                        _pair_memo, pp, X_stack, X_holdout, y_train=y_stack,
+                        _pair_memo, pp, X_stack, X_holdout, y_train=y_stack, refit_supervised=True,
                     )
                     if isinstance(inner, CompositeTargetEstimator):
                         if spec is None:
@@ -762,7 +777,7 @@ def _oof_holdout_predictions_with_rows(
         try:
             inner, pp = _unwrap_shim(model)
             X_stack_t, X_holdout_t = _transform_pair_cached(
-                _pair_memo, pp, X_stack, X_holdout, y_train=y_stack,
+                _pair_memo, pp, X_stack, X_holdout, y_train=y_stack, refit_supervised=True,
             )
             if isinstance(inner, CompositeTargetEstimator):
                 # Composite-target wrapper. Re-fit the inner on stack_train T values, then re-wrap and predict.
