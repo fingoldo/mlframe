@@ -41,7 +41,8 @@
         "skb-f",
         "select-fdr",
         "lars-order",
-        "variance-sort"
+        "variance-sort",
+        "ridge-prefilter"
       ],
       "family": "reference",
       "primary_target_set": "markov_blanket",
@@ -74,7 +75,12 @@
       "expected_to_break": [
         "sfm-lgbm",
         "boruta",
-        "boruta-shap"
+        "boruta-shap",
+        "catboost-shap",
+        "catboost-predictions",
+        "boruta-shap-registry",
+        "hetero-vote",
+        "null-importance"
       ],
       "family": "mixed_types",
       "primary_target_set": "markov_blanket",
@@ -108,7 +114,18 @@
         "sfm-lgbm",
         "boruta-shap",
         "rfecv",
-        "variance-sort"
+        "variance-sort",
+        "catboost-shap",
+        "catboost-loss",
+        "catboost-predictions",
+        "shap-proxied",
+        "mrmr-tree-rescued",
+        "rfecv-registry",
+        "boruta-shap-registry",
+        "cascade",
+        "cascade-stable",
+        "hetero-vote",
+        "zero-importance"
       ],
       "family": "mixed_types",
       "primary_target_set": "markov_blanket",
@@ -179,7 +196,8 @@
         "boruta",
         "rfecv",
         "sfm-lgbm",
-        "byproduct-ensemble"
+        "byproduct-ensemble",
+        "greedy-backward"
       ],
       "family": "corrupted",
       "primary_target_set": "markov_blanket",
@@ -190,7 +208,13 @@
       "expected_to_break": [
         "mrmr",
         "variance-sort",
-        "univariate-mi"
+        "univariate-mi",
+        "it-cmim",
+        "mrmr-grouped",
+        "rfecv-registry",
+        "boruta-shap-registry",
+        "unanimous-permutation",
+        "permutation-topk"
       ],
       "family": "redundant",
       "primary_target_set": "markov_blanket",
@@ -202,7 +226,13 @@
         "mrmr",
         "univariate-mi",
         "skb-mi",
-        "ace"
+        "ace",
+        "it-relax",
+        "mrmr-pld",
+        "mrmr-relax",
+        "mrmr-tree-rescued",
+        "mrmr-stability",
+        "greedy-backward"
       ],
       "family": "linear",
       "primary_target_set": "markov_blanket",
@@ -211,7 +241,9 @@
     },
     "linear_k5_p50": {
       "expected_to_break": [
-        "variance-sort"
+        "variance-sort",
+        "zero-importance",
+        "unsupervised-prescreen"
       ],
       "family": "linear",
       "primary_target_set": "markov_blanket",
@@ -286,7 +318,10 @@
         "select-fdr",
         "skb-f",
         "skb-mi",
-        "univariate-mi"
+        "univariate-mi",
+        "bandit",
+        "bandit-ensemble",
+        "unsupervised-prescreen"
       ],
       "family": "null",
       "primary_target_set": "markov_blanket",
@@ -300,7 +335,10 @@
         "skb-mi",
         "boruta",
         "rfecv",
-        "sfm-lgbm"
+        "sfm-lgbm",
+        "noise-floor",
+        "bandit",
+        "bandit-ensemble"
       ],
       "family": "null",
       "primary_target_set": "markov_blanket",
@@ -345,7 +383,8 @@
         "skb-mi",
         "univariate-mi",
         "mrmr",
-        "knockoffs"
+        "knockoffs",
+        "it-jmim"
       ],
       "family": "marginals",
       "primary_target_set": "markov_blanket",
@@ -369,7 +408,9 @@
         "mrmr",
         "knockoffs",
         "boruta-shap",
-        "sfm-lgbm"
+        "sfm-lgbm",
+        "mrmr-grouped",
+        "mrmr-grouped-expand"
       ],
       "family": "economics",
       "primary_target_set": "markov_blanket",
@@ -380,7 +421,14 @@
       "expected_to_break": [
         "boruta-shap",
         "sfm-lgbm",
-        "ace"
+        "ace",
+        "catboost-loss",
+        "shap-proxied",
+        "it-mim",
+        "mrmr-grouped-expand",
+        "unanimous-permutation",
+        "null-importance",
+        "permutation-topk"
       ],
       "family": "redundant",
       "primary_target_set": "markov_blanket",
@@ -417,7 +465,11 @@
         "select-fdr",
         "lars-order",
         "rank-vote",
-        "byproduct-ensemble"
+        "byproduct-ensemble",
+        "it-mim",
+        "near-noise-auc",
+        "ksg-mi",
+        "relevance-table"
       ],
       "family": "structure",
       "primary_target_set": "markov_blanket",
@@ -446,7 +498,8 @@
         "skb-f",
         "skb-mi",
         "boruta",
-        "rfecv"
+        "rfecv",
+        "noise-floor"
       ],
       "family": "reference",
       "primary_target_set": "markov_blanket",
@@ -463,7 +516,21 @@
         "select-fdr",
         "variance-sort",
         "rank-vote",
-        "byproduct-ensemble"
+        "byproduct-ensemble",
+        "it-mim",
+        "it-cmim",
+        "it-jmim",
+        "it-relax",
+        "mrmr-pld",
+        "mrmr-relax",
+        "mrmr-stability",
+        "cascade",
+        "cascade-stable",
+        "ridge-prefilter",
+        "forward-select",
+        "near-noise-auc",
+        "ksg-mi",
+        "relevance-table"
       ],
       "family": "interactions",
       "primary_target_set": "markov_blanket",
@@ -476,7 +543,8 @@
         "univariate-mi",
         "skb-f",
         "skb-mi",
-        "boruta"
+        "boruta",
+        "forward-select"
       ],
       "family": "interactions",
       "primary_target_set": "markov_blanket",

@@ -21,7 +21,6 @@ __all__ = [
 ]
 
 import logging
-import warnings
 from contextlib import contextmanager
 from typing import Any, Optional, Sequence, cast
 

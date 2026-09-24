@@ -198,12 +198,6 @@ except ImportError:  # pragma: no cover
 
 from ._combine_fallback import _finite_member_mean
 
-
-
-
-
-
-
 # Rank-fusion methods are NOT moment-based (RRF / Borda operate on rank
 # positions, not on raw values), so they live in their own bucket and are
 # not in SIMPLE_ENSEMBLING_METHODS by default. Classification flavours in
@@ -815,12 +809,6 @@ def build_predictive_kwargs(train_data, test_data, val_data, is_regression: bool
         )
 
 
-
-
-
-
-
-
 from .member_metrics import (  # noqa: F401
     _PER_MEMBER_KERNEL_NAME,
     _PER_MEMBER_NUMBA_FLOOR_ELEMENTS,
@@ -829,7 +817,7 @@ from .member_metrics import (  # noqa: F401
 )
 
 # Correlation helpers carved to _correlation.py (1k-LOC house limit); re-exported for existing importers.
-from ._correlation import (  # noqa: F401,E402
+from ._correlation import (  # noqa: F401
     _emit_pairs_above_threshold,
     _has_cupy,
     _pairwise_corr_or_nan,

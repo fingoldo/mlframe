@@ -112,7 +112,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         family="null",
         builder=null_spec,
         defaults={"width": 100},
-        expected_to_break=("select-fdr", "skb-f", "skb-mi", "univariate-mi"),
+        expected_to_break=("select-fdr", "skb-f", "skb-mi", "univariate-mi", "bandit", "bandit-ensemble", "unsupervised-prescreen"),
         purpose="false-discovery discipline: nothing is relevant, so anything selected is a false positive",
     ),
     Scenario(
@@ -120,7 +120,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         family="null",
         builder=null_spec,
         defaults={"width": 1000},
-        expected_to_break=("select-fdr", "skb-f", "skb-mi", "boruta", "rfecv", "sfm-lgbm"),
+        expected_to_break=("select-fdr", "skb-f", "skb-mi", "boruta", "rfecv", "sfm-lgbm", "noise-floor", "bandit", "bandit-ensemble"),
         purpose="the same discipline where the best-looking noise column is genuinely convincing",
     ),
     Scenario(
@@ -128,14 +128,14 @@ SCENARIOS: Tuple[Scenario, ...] = (
         family="linear",
         builder=linear_spec,
         defaults={"n_informative": 5, "n_noise": 45},
-        expected_to_break=("variance-sort",),
+        expected_to_break=("variance-sort", "zero-importance", "unsupervised-prescreen"),
         purpose="control: every method should succeed here, except the one that never looks at the target",
     ),
     Scenario(
         name="linear_gaussian_lowdim_n200",
         family="linear",
         builder=linear_lowdim_spec,
-        expected_to_break=("mrmr", "univariate-mi", "skb-mi", "ace"),
+        expected_to_break=("mrmr", "univariate-mi", "skb-mi", "ace", "it-relax", "mrmr-pld", "mrmr-relax", "mrmr-tree-rescued", "mrmr-stability", "greedy-backward"),
         purpose="small n: a t-statistic uses every row, a binned MI estimate throws most of them away",
     ),
     Scenario(
@@ -143,7 +143,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         family="redundant",
         builder=exact_redundancy_spec,
         defaults={"n_copies": 5},
-        expected_to_break=("boruta-shap", "sfm-lgbm", "ace"),
+        expected_to_break=("boruta-shap", "sfm-lgbm", "ace", "catboost-loss", "shap-proxied", "it-mim", "mrmr-grouped-expand", "unanimous-permutation", "null-importance", "permutation-topk"),
         purpose="importance splits across identical copies, so each looks weaker than the direction is",
     ),
     Scenario(
@@ -151,7 +151,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         family="redundant",
         builder=private_delta_spec,
         defaults={"n_members": 3},
-        expected_to_break=("mrmr", "variance-sort", "univariate-mi"),
+        expected_to_break=("mrmr", "variance-sort", "univariate-mi", "it-cmim", "mrmr-grouped", "rfecv-registry", "boruta-shap-registry", "unanimous-permutation", "permutation-topk"),
         purpose="the members are jointly necessary, so collapsing the cluster destroys signal",
     ),
     Scenario(
@@ -159,7 +159,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         family="interactions",
         builder=parity_spec,
         defaults={"order": 3},
-        expected_to_break=("mrmr", "univariate-mi", "skb-f", "skb-mi", "lars-order", "select-fdr", "variance-sort", "rank-vote", "byproduct-ensemble"),
+        expected_to_break=("mrmr", "univariate-mi", "skb-f", "skb-mi", "lars-order", "select-fdr", "variance-sort", "rank-vote", "byproduct-ensemble", "it-mim", "it-cmim", "it-jmim", "it-relax", "mrmr-pld", "mrmr-relax", "mrmr-stability", "cascade", "cascade-stable", "ridge-prefilter", "forward-select", "near-noise-auc", "ksg-mi", "relevance-table"),
         purpose="operands with zero marginal association: invisible to any one-column-at-a-time ranking",
     ),
     Scenario(
@@ -167,7 +167,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         family="interactions",
         builder=parity_plus_decoy_spec,
         defaults={"order": 3},
-        expected_to_break=("mrmr", "univariate-mi", "skb-f", "skb-mi", "boruta"),
+        expected_to_break=("mrmr", "univariate-mi", "skb-f", "skb-mi", "boruta", "forward-select"),
         purpose="separates finding nothing from confidently finding the wrong thing",
     ),
     Scenario(
@@ -188,7 +188,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         name="friedman1",
         family="reference",
         builder=friedman1_spec,
-        expected_to_break=("skb-f", "select-fdr", "lars-order", "variance-sort"),
+        expected_to_break=("skb-f", "select-fdr", "lars-order", "variance-sort", "ridge-prefilter"),
         purpose="published bed: a sine interaction and a centred square that no linear statistic can see",
     ),
     Scenario(
@@ -209,7 +209,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         name="weston_guyon_k4_p100",
         family="reference",
         builder=weston_guyon_spec,
-        expected_to_break=("select-fdr", "skb-f", "skb-mi", "boruta", "rfecv"),
+        expected_to_break=("select-fdr", "skb-f", "skb-mi", "boruta", "rfecv", "noise-floor"),
         purpose="published bed: equal-weight informative columns against same-marginal probes, so partial credit is unavailable",
     ),
     Scenario(
@@ -244,21 +244,21 @@ SCENARIOS: Tuple[Scenario, ...] = (
         name="quantized_6levels",
         family="marginals",
         builder=quantized_spec,
-        expected_to_break=("skb-mi", "univariate-mi", "mrmr", "knockoffs"),
+        expected_to_break=("skb-mi", "univariate-mi", "mrmr", "knockoffs", "it-jmim"),
         purpose="fewer distinct values than an estimator wants bins, so ties dominate the ranking",
     ),
     Scenario(
         name="graded_cardinality",
         family="mixed_types",
         builder=graded_cardinality_spec,
-        expected_to_break=("sfm-lgbm", "boruta", "boruta-shap"),
+        expected_to_break=("sfm-lgbm", "boruta", "boruta-shap", "catboost-shap", "catboost-predictions", "boruta-shap-registry", "hetero-vote", "null-importance"),
         purpose="equal signal at four cardinalities: a method ranking them apart is ranking by split opportunities",
     ),
     Scenario(
         name="id_trap",
         family="mixed_types",
         builder=id_trap_spec,
-        expected_to_break=("sfm-lgbm", "boruta-shap", "rfecv", "variance-sort"),
+        expected_to_break=("sfm-lgbm", "boruta-shap", "rfecv", "variance-sort", "catboost-shap", "catboost-loss", "catboost-predictions", "shap-proxied", "mrmr-tree-rescued", "rfecv-registry", "boruta-shap-registry", "cascade", "cascade-stable", "hetero-vote", "zero-importance"),
         purpose="a unique-per-row column that maximises impurity importance and generalises to nothing",
     ),
     Scenario(
@@ -321,7 +321,7 @@ SCENARIOS: Tuple[Scenario, ...] = (
         name="label_flip_uniform_15pct",
         family="corrupted",
         builder=uniform_flip_spec,
-        expected_to_break=("boruta", "rfecv", "sfm-lgbm", "byproduct-ensemble"),
+        expected_to_break=("boruta", "rfecv", "sfm-lgbm", "byproduct-ensemble", "greedy-backward"),
         purpose="symmetric label noise: the declared ceiling is unreachable and the gap is the information the flip destroyed",
     ),
     Scenario(
@@ -377,14 +377,14 @@ SCENARIOS: Tuple[Scenario, ...] = (
         name="redundancy_graded",
         family="economics",
         builder=graded_redundancy_spec,
-        expected_to_break=("mrmr", "knockoffs", "boruta-shap", "sfm-lgbm"),
+        expected_to_break=("mrmr", "knockoffs", "boruta-shap", "sfm-lgbm", "mrmr-grouped", "mrmr-grouped-expand"),
         purpose="four correlation levels in one bed, so a threshold's breaking point is a curve rather than a guess",
     ),
     Scenario(
         name="simpson_sign_reversal",
         family="structure",
         builder=simpson_reversal_spec,
-        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr", "lars-order", "rank-vote", "byproduct-ensemble"),
+        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr", "lars-order", "rank-vote", "byproduct-ensemble", "it-mim", "near-noise-auc", "ksg-mi", "relevance-table"),
         purpose="a strong column whose marginal association is zero because its sign flips between subgroups",
     ),
     Scenario(

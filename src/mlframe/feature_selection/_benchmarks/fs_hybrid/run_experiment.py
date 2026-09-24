@@ -100,7 +100,7 @@ def _declared_target_size(truth: Dict[str, Any], n_features: int) -> Optional[in
     return int(min(int(declared), n_features))
 
 
-def build_arm_roster(n_features: int, *, k: Optional[int] = None, random_state: int = 0) -> Dict[str, Callable[[], Any]]:
+def build_arm_roster(n_features: int, *, k: Optional[int] = None, random_state: int = 0, relevant: Optional[Sequence[str]] = None) -> Dict[str, Callable[[], Any]]:
     """Return `{arm_name: factory}` from the real roster in `_arms`, with `all-features` as the null hypothesis.
 
     Delegates rather than duplicating: `_arms` is where each arm's verified `score_kind` lives, and a second
@@ -109,17 +109,10 @@ def build_arm_roster(n_features: int, *, k: Optional[int] = None, random_state: 
     """
     from ._arms import build_arm_roster as _real_roster
 
-    roster: Dict[str, Callable[[], Any]] = dict(_real_roster(n_features, k=k, random_state=random_state))
+    roster: Dict[str, Callable[[], Any]] = dict(_real_roster(n_features, k=k, random_state=random_state, relevant=relevant))
     if NULL_ARM not in roster:
         raise ValueError(f"the arm roster must contain the null hypothesis {NULL_ARM!r}; got {sorted(roster)}")
     return roster
-
-
-# Internal estimator per wrapper arm, so `assert_wrapper_estimator_differs` can refuse a tautological cell.
-WRAPPER_INTERNAL_ESTIMATOR: Dict[str, Optional[str]] = {
-    "rfecv_lgbm": "lightgbm",
-    "rfecv_logit": "logistic",
-}
 
 
 def _fit_arm(factory: Callable[[], Any], x_train: pd.DataFrame, y_train: np.ndarray, cv_seed: int) -> Tuple[Any, float, float]:
@@ -210,6 +203,10 @@ def run_cell(
     record["host_contended"] = True
     record["panel"] = list(PANEL_MEMBERS)
     try:
+        # Keyed by the names the roster actually builds; a hand-written copy here once went stale and made this
+        # guard return "not a wrapper" for every real arm. Imported lazily, as the roster itself is.
+        from ._roster import WRAPPER_INTERNAL_ESTIMATOR
+
         assert_wrapper_estimator_differs(spec.arm, WRAPPER_INTERNAL_ESTIMATOR.get(spec.arm))
         feature_names = [str(c) for c in x_train.columns]
         target_size = _declared_target_size(truth, len(feature_names))
@@ -364,7 +361,7 @@ def run_grid(
             # Built per scenario, not once for the grid: the fixed-cardinality arms (random-k, variance-sort)
             # need this bed's feature count, and a roster carried over from a wider bed would ask them for
             # more columns than exist here.
-            cell_roster = dict(roster) if roster is not None else build_arm_roster(int(x_all.shape[1]), random_state=int(dataset_seed))
+            cell_roster = dict(roster) if roster is not None else build_arm_roster(int(x_all.shape[1]), random_state=int(dataset_seed), relevant=_declared_relevant(truth))
             if arms is not None:
                 wanted = set(arms) | {NULL_ARM}
                 missing = wanted - set(cell_roster)

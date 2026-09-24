@@ -3,7 +3,6 @@ and (c) the empirical / algorithmic basis. Magic numbers without docstrings are 
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Sequence
 
 import numpy as np

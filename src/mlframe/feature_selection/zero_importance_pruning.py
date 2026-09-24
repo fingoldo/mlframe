@@ -51,7 +51,8 @@ def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[
     # of the index, matching X's own row_select above.
     y_select = (lambda idx: y.iloc[idx]) if hasattr(y, "iloc") else (lambda idx: y[idx])
     scores = []
-    for train_idx, test_idx in cv.split(X):
+    # `y` is passed for the stratified splitters that require it; KFold ignores it.
+    for train_idx, test_idx in cv.split(X, np.asarray(y)):
         model = clone(estimator)
         model.fit(row_select(train_idx), y_select(train_idx))
         preds = model.predict(row_select(test_idx))

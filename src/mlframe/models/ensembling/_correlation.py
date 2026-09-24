@@ -7,7 +7,7 @@ Carved out of ``base.py`` (1k-LOC house limit); ``base`` re-exports every name h
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional, Tuple
+from typing import Optional, Sequence
 
 import numpy as np
 

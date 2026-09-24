@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 
 pytest.importorskip("numba")
-from numba import njit, prange  # noqa: E402
+from numba import njit, prange
 
-from mlframe.utils.misc import seed_numba_in_this_thread, seed_numba_worker_threads  # noqa: E402
+from mlframe.utils.misc import seed_numba_in_this_thread, seed_numba_worker_threads
 
 
 @njit(parallel=True, cache=True)
@@ -36,6 +36,7 @@ def test_a_prange_kernel_is_reproducible_after_seeding():
 
 
 def test_a_different_seed_gives_a_different_stream():
+    """The negative control: reproducibility would be vacuous if every seed produced the same stream."""
     seed_numba_worker_threads(7)
     first = _parallel_draws(64)
     seed_numba_worker_threads(8)
@@ -46,6 +47,7 @@ def test_a_threading_worker_can_seed_its_own_numba_rng():
     """A joblib backend="threading" worker is an ordinary thread with its own state; nothing else seeds it."""
 
     def draw(seed, out, i):
+        """Seed this thread's numba RNG and record its first draw in slot ``i``."""
         seed_numba_in_this_thread(seed)
         out[i] = _one_draw()
 
@@ -59,6 +61,7 @@ def test_a_threading_worker_can_seed_its_own_numba_rng():
 
 
 def test_set_random_seed_covers_the_worker_threads():
+    """The public seeding entry point reaches the prange workers too, not only the helper this file tests directly."""
     from mlframe.utils.misc import set_random_seed
 
     set_random_seed(123)

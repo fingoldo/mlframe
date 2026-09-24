@@ -308,6 +308,102 @@ after the three legs reported, none of them in response to an arm's result:
 
 None of these beds may be edited after their first reported run without bumping the lock.
 
+
+## 2e. The roster doubled, and every new method was predicted to break BEFORE it ran
+
+The roster went from 21 arms to 52: the information-theoretic family one criterion at a time, the MRMR
+class's own variants, every wrapper, stability and bandit method in the repository, the registry-built
+RFECV and BorutaShap that section 8 always required, the univariate filters, and an oracle reference pair.
+
+Section 8 says a meta-test requires every arm to be named in at least two beds' `expected_to_break`. That
+meta-test did not exist. When it was written, four methods already in the roster -- the three CatBoost
+criteria and `shap-proxied` -- were named fewer than twice, so the rule had been violated for as long as
+those arms had existed. It is now `test_fs_hybrid_full_roster.py`, and it fails on the predictions as they
+stood before this section: 33 methods flagged.
+
+Controls are exempt and say so in code (`_roster.is_control_arm`): `all-features`, `variance-sort`,
+`random-<k>` and the two oracle arms are references, not methods. They are expected to hold still so the
+others can be read against them, not to break.
+
+Every prediction below was written from how the method works, before any of these arms ran on any bed. The
+registry lock was regenerated with them, so `lock_differences()` shows sixteen beds whose expectations
+changed and none whose structure did -- the git history is the record that these came after the first legs
+and before the results for these arms.
+
+Three O(d^2) wrappers are built only on beds of at most fifty columns; a prediction for one of them on a
+wider bed could never be scored, so none was made, and a test keeps it that way.
+
+| arm | predicted to break on | mechanism |
+|---|---|---|
+| `bandit` | `null_p100` | a fixed subset size selects k columns even when nothing is relevant |
+| `bandit` | `null_p1000` | a fixed subset size selects k columns even when nothing is relevant |
+| `bandit-ensemble` | `null_p100` | every seed must fill a fixed-size subset from pure noise |
+| `bandit-ensemble` | `null_p1000` | every seed must fill a fixed-size subset from pure noise |
+| `boruta-shap-registry` | `latent_replicates_private_delta` | the medoid pre-reduction collapses jointly necessary members |
+| `boruta-shap-registry` | `id_trap` | SHAP of a tree credits the ID column |
+| `boruta-shap-registry` | `graded_cardinality` | tree importance tracks cardinality |
+| `cascade` | `xor3` | the forward stage adds one column at a time and no single operand improves the score |
+| `cascade` | `id_trap` | the Boruta stage uses tree importance, which rewards the ID column |
+| `cascade-stable` | `xor3` | the forward stage cannot start an interaction in any bootstrap |
+| `cascade-stable` | `id_trap` | the Boruta stage keeps the ID column in every bootstrap |
+| `catboost-loss` | `id_trap` | an ID column lowers training loss while generalising to nothing |
+| `catboost-loss` | `redundant_exact_k5` | eliminating one copy costs no loss, so copies go in arbitrary order |
+| `catboost-predictions` | `id_trap` | predictions shift most when the memorising ID column is removed |
+| `catboost-predictions` | `graded_cardinality` | prediction change tracks split opportunities |
+| `catboost-shap` | `id_trap` | tree importance rewards a unique-per-row column |
+| `catboost-shap` | `graded_cardinality` | importance tracks split opportunities, i.e. cardinality |
+| `forward-select` | `xor3` | no single operand improves the score, so the interaction never starts |
+| `forward-select` | `xor3_plus_marginal_decoy` | the decoy is taken first and the operands never catch up |
+| `greedy-backward` | `linear_gaussian_lowdim_n200` | at n=200 each removal is decided by CV noise |
+| `greedy-backward` | `label_flip_uniform_15pct` | label noise makes the CV score too noisy to rank removals |
+| `hetero-vote` | `id_trap` | tree members of the vote rank the ID column above its shadows |
+| `hetero-vote` | `graded_cardinality` | tree members vote by split opportunities |
+| `it-cmim` | `xor3` | the first pick is by marginal MI, which is zero for every operand |
+| `it-cmim` | `latent_replicates_private_delta` | conditioning on one replicate zeroes the others' conditional MI though they are jointly needed |
+| `it-jmim` | `xor3` | the first pick is by marginal MI, which is zero for every operand |
+| `it-jmim` | `quantized_6levels` | six levels leave the joint histogram tied and sparse |
+| `it-mim` | `redundant_exact_k5` | relevance alone takes every copy, spending K on one direction |
+| `it-mim` | `xor3` | each operand has zero marginal MI |
+| `it-mim` | `simpson_sign_reversal` | the reversing column has zero marginal MI |
+| `it-relax` | `xor3` | the first pick is by marginal MI, which is zero for every operand |
+| `it-relax` | `linear_gaussian_lowdim_n200` | three-way tables starve at n=200 and the interaction term drops out |
+| `ksg-mi` | `xor3` | univariate: an operand's marginal MI is zero |
+| `ksg-mi` | `simpson_sign_reversal` | univariate: the reversing column's marginal MI is zero |
+| `mrmr-grouped` | `latent_replicates_private_delta` | collapsing a cluster to its medoid destroys jointly necessary members |
+| `mrmr-grouped` | `redundancy_graded` | one medoid per cluster above the threshold loses the members that differ |
+| `mrmr-grouped-expand` | `redundant_exact_k5` | expansion drags every copy back in, spending K on one direction |
+| `mrmr-grouped-expand` | `redundancy_graded` | expansion re-admits whole clusters, widening the set without new information |
+| `mrmr-pld` | `xor3` | marginal-first greedy, as mrmr |
+| `mrmr-pld` | `linear_gaussian_lowdim_n200` | binned MI discards rows a t-statistic uses |
+| `mrmr-relax` | `xor3` | marginal-first greedy, as mrmr |
+| `mrmr-relax` | `linear_gaussian_lowdim_n200` | three-way cells starve at n=200 |
+| `mrmr-stability` | `xor3` | the inner MRMR cannot find operands with zero marginal MI in any bootstrap |
+| `mrmr-stability` | `linear_gaussian_lowdim_n200` | half-sample bootstraps leave about a hundred rows for a binned estimator |
+| `mrmr-tree-rescued` | `linear_gaussian_lowdim_n200` | binned MI discards rows at small n; the rescue does not help a linear signal |
+| `mrmr-tree-rescued` | `id_trap` | the tree rescue uses tree importance, which rewards the ID column |
+| `near-noise-auc` | `xor3` | an operand's univariate AUC is 0.5, so it is dropped |
+| `near-noise-auc` | `simpson_sign_reversal` | the reversing column's marginal AUC is 0.5, so it is dropped |
+| `noise-floor` | `null_p1000` | the top of a noise ranking clears a 95th-percentile floor by chance often enough to admit columns |
+| `noise-floor` | `weston_guyon_k4_p100` | equal-weight signal and same-marginal probes interleave in the importance ranking |
+| `null-importance` | `redundant_exact_k5` | importance splits across copies, pulling each toward its label-shuffled null |
+| `null-importance` | `graded_cardinality` | low-cardinality columns earn less real importance against the same null |
+| `permutation-topk` | `redundant_exact_k5` | permuting one copy is compensated by the others, so each copy scores near zero |
+| `permutation-topk` | `latent_replicates_private_delta` | each replicate is compensated by its siblings under permutation |
+| `relevance-table` | `xor3` | univariate tests see no marginal association |
+| `relevance-table` | `simpson_sign_reversal` | univariate tests see no marginal association |
+| `rfecv-registry` | `latent_replicates_private_delta` | the medoid pre-reduction collapses jointly necessary members |
+| `rfecv-registry` | `id_trap` | the inner LightGBM ranks the ID column highly, as bare rfecv does |
+| `ridge-prefilter` | `xor3` | a linear coefficient cannot see a parity |
+| `ridge-prefilter` | `friedman1` | a sine interaction and a centred square are invisible to a linear fit |
+| `shap-proxied` | `id_trap` | SHAP of a tree proxy credits the ID column |
+| `shap-proxied` | `redundant_exact_k5` | SHAP value splits across identical copies |
+| `unanimous-permutation` | `redundant_exact_k5` | permuting one copy never hurts while the others remain, so every copy is unanimously dropped |
+| `unanimous-permutation` | `latent_replicates_private_delta` | each replicate looks dispensable alone, so the jointly needed set is pruned away |
+| `unsupervised-prescreen` | `null_p100` | it never looks at the target, so every noise column survives |
+| `unsupervised-prescreen` | `linear_k5_p50` | it keeps all forty-five noise columns |
+| `zero-importance` | `linear_k5_p50` | a forty-tree model gives every noise column some split, so nothing is ever exactly zero |
+| `zero-importance` | `id_trap` | the ID column is never unused by a tree |
+
 ## 6b. What a non-rejection means, stated before the numbers are read
 
 A paired contrast that fails to reject is reported in one of two states, and the report may not merge them:
