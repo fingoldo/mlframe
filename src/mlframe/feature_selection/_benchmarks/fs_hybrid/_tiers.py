@@ -27,13 +27,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Tier", "TIERS", "SOURCES", "get_tier", "scenarios_for", "median_cell_seconds", "estimate", "format_estimate", "Estimate"]
+__all__ = ["Tier", "TIERS", "TIER_NAMES", "PREDICTION_SEEDS", "SOURCES", "get_tier", "scenarios_for", "median_cell_seconds", "estimate", "format_estimate", "Estimate"]
 
 
 @dataclass(frozen=True)
@@ -103,6 +103,42 @@ TIERS: Dict[str, Tier] = {
 }
 
 
+#: Seeds for the `predictions` tier: the development range, as for every other tier. Scoring a forecast is not
+#: tuning a threshold, so nothing here is fitted against these seeds and the report range stays untouched.
+PREDICTION_SEEDS: Tuple[int, ...] = (0, 1, 2, 3, 4)
+
+
+def _predictions_tier() -> Tier:
+    """Build the tier that tests the section 2e forecasts: those methods, on the beds that name them.
+
+    Derived from the registry rather than listed, because a hand-written bed list is the thing that drifts: a
+    prediction added to a bed would then never be run. Built on request, not at import, since resolving the
+    registry costs more than every other tier together and most runs never ask for this one.
+    """
+    from mlframe.data.datasets.scenarios import SCENARIOS
+
+    from ._roster import PREREGISTERED_2E_ARMS
+
+    forecast = set(PREREGISTERED_2E_ARMS)
+    beds = list(SCENARIOS.values()) if isinstance(SCENARIOS, dict) else list(SCENARIOS)
+    named = tuple(sorted(bed.name for bed in beds if forecast & set(bed.expected_to_break)))
+    return Tier(
+        name="predictions",
+        source="scm",
+        dataset_seeds=PREDICTION_SEEDS,
+        cv_seeds=(0,),
+        scenarios=named,
+        arms=tuple(PREREGISTERED_2E_ARMS),
+        purpose="score the section 2e break predictions: each forecast method on every bed that predicts it breaks",
+    )
+
+
+#: Tiers built on request rather than at import.
+_LAZY_TIERS: Dict[str, Callable[[], Tier]] = {"predictions": _predictions_tier}
+
+#: Every tier name the command line accepts, eager and lazy alike.
+TIER_NAMES: Tuple[str, ...] = tuple(sorted(set(TIERS) | set(_LAZY_TIERS)))
+
 #: Bed libraries a tier may name, and what each leg is for. Kept here rather than resolved from an
 #: environment variable: a run whose bed list depended on a variable somebody exported earlier is a run
 #: nobody can reproduce from its own manifest.
@@ -142,8 +178,10 @@ def get_tier(name: str) -> Tier:
             default would run a different experiment from the one asked for and label it with the name
             that was asked for.
     """
+    if name in _LAZY_TIERS:
+        return _LAZY_TIERS[name]()
     if name not in TIERS:
-        raise KeyError(f"unknown tier {name!r}; available: {sorted(TIERS)}")
+        raise KeyError(f"unknown tier {name!r}; available: {list(TIER_NAMES)}")
     return TIERS[name]
 
 

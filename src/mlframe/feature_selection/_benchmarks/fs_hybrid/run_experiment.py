@@ -39,7 +39,7 @@ from sklearn.model_selection import train_test_split
 
 from ._anchor import measure_anchor
 from ._runner_pool import resolve_workers
-from ._tiers import TIERS, estimate, format_estimate, get_tier, scenarios_for
+from ._tiers import TIER_NAMES, estimate, format_estimate, get_tier, scenarios_for
 from ._cell_store import JsonlCellStore
 from ._memo import drain_memo_caches
 from ._manifest import build_manifest, load_manifest, write_manifest
@@ -365,8 +365,14 @@ def run_grid(
             if arms is not None:
                 wanted = set(arms) | {NULL_ARM}
                 missing = wanted - set(cell_roster)
+                # Two different absences. A name no roster builds at ANY width is a typo and must stop the run. A
+                # quadratic wrapper is simply not built past its width cap, and skipping it on this bed is the tier
+                # doing what it declared -- raising would make every wide bed unrunnable for any grid naming one.
+                unknown = missing - set(build_arm_roster(1, relevant=["_"]))
+                if unknown:
+                    raise ValueError(f"these arms were requested but the roster has no such name: {sorted(unknown)}")
                 if missing:
-                    raise ValueError(f"these arms were requested but the roster has no such name: {sorted(missing)}")
+                    logger.info("bed %s (%d columns): width-gated arms not built here: %s", scenario_name, int(x_all.shape[1]), sorted(missing))
                 cell_roster = {name: factory for name, factory in cell_roster.items() if name in wanted}
             if NULL_ARM not in cell_roster:
                 raise ValueError(f"the roster must contain the null hypothesis {NULL_ARM!r} on every cell")
@@ -425,7 +431,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Run the pre-registered feature-selection benchmark")
-    parser.add_argument("--tier", default="nightly", choices=sorted(TIERS), help="run size; see `_tiers` for what each is for")
+    parser.add_argument("--tier", default="nightly", choices=list(TIER_NAMES), help="run size; see `_tiers` for what each is for")
     parser.add_argument("--dry-run", action="store_true", help="price the tier from an earlier run's medians and exit without running a cell")
     parser.add_argument("--results", default=RESULTS_PATH)
     parser.add_argument("--no-resume", action="store_true", help="re-run cells already present in the results file")

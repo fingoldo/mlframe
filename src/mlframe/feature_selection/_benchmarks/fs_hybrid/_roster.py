@@ -38,7 +38,7 @@ from ._arms import (
     VarianceSortArm,
 )
 
-__all__ = ["build_full_roster", "WRAPPER_INTERNAL_ESTIMATOR", "CONTROL_ARMS", "is_control_arm"]
+__all__ = ["build_full_roster", "WRAPPER_INTERNAL_ESTIMATOR", "CONTROL_ARMS", "PREREGISTERED_2E_ARMS", "is_control_arm"]
 
 #: Arms that fit a model to decide, and the model they fit. The guard in `run_cell` refuses a wrapper whose
 #: internal model is the ONLY panel member, since it would then be scored on its own objective.
@@ -64,6 +64,45 @@ WRAPPER_INTERNAL_ESTIMATOR: Dict[str, Optional[str]] = {
 #: break on at least two beds does not apply to them -- a control is not expected to break, it is expected
 #: to hold still so the others can be read against it.
 CONTROL_ARMS = ("all-features", "variance-sort", "oracle-informative", "all-except-informative")
+
+
+#: The methods whose break predictions were added in section 2e of the pre-registration, before any of them ran
+#: on a bed. The `predictions` tier runs exactly these; a test keeps this list and that section's table identical.
+PREREGISTERED_2E_ARMS = (
+    "bandit",
+    "bandit-ensemble",
+    "boruta-shap-registry",
+    "cascade",
+    "cascade-stable",
+    "catboost-loss",
+    "catboost-predictions",
+    "catboost-shap",
+    "forward-select",
+    "greedy-backward",
+    "hetero-vote",
+    "it-cmim",
+    "it-jmim",
+    "it-mim",
+    "it-relax",
+    "ksg-mi",
+    "mrmr-grouped",
+    "mrmr-grouped-expand",
+    "mrmr-pld",
+    "mrmr-relax",
+    "mrmr-stability",
+    "mrmr-tree-rescued",
+    "near-noise-auc",
+    "noise-floor",
+    "null-importance",
+    "permutation-topk",
+    "relevance-table",
+    "rfecv-registry",
+    "ridge-prefilter",
+    "shap-proxied",
+    "unanimous-permutation",
+    "unsupervised-prescreen",
+    "zero-importance",
+)
 
 
 def is_control_arm(name: str) -> bool:
