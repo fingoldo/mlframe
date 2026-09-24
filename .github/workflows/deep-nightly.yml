@@ -77,12 +77,12 @@ jobs:
           python-version: "3.12"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@b73e5530850b682504836681cc7da5ad14507893  # v1.4.0
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -166,7 +166,7 @@ jobs:
       # install-pyutilz below runs `uv pip install`, so uv has to exist first. Missing this step is what
       # made the very first deep run die at exit 127 before a single test ran.
       - name: Set up uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         with:
           # 20 shards a night each resolving a several-hundred-package, multi-GB graph from cold is the
           # single largest avoidable spend in this workflow. setup-python's `cache: pip` used to sit here
@@ -176,7 +176,7 @@ jobs:
 
       # Installs pyutilz AND this project in one uv call, exactly as ci.yml does -- the extras are what
       # the action installs, so leaving them empty asks it to install nothing.
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@b73e5530850b682504836681cc7da5ad14507893  # v1.4.0
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -242,7 +242,7 @@ jobs:
       #                       it, and adding two flags' percentages double-counts instead of unioning.
       - name: Upload coverage to Codecov (deep flag)
         if: success() || failure()
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@f50288e5a6f5b7f972efb60f948ce6184c8e9e70  # v1.3.4
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@797f0455956840dfc704399360f58100f4a75b73  # v1.16.1
         with:
           files: ./coverage.xml
           flags: deep
