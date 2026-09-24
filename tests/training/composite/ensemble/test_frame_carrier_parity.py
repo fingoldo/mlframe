@@ -7,6 +7,8 @@ An identity component makes the check exact: its prediction is the row's own y, 
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -95,3 +97,99 @@ def test_the_external_holdout_rows_match_their_targets(carrier, order):
     assert names == ["id"] and P.shape[0] == n_val
     np.testing.assert_array_equal(y_h, y_val)
     np.testing.assert_array_equal(P[:, 0], y_h)
+
+
+# ---------------------------------------------------------------------------
+# Every (frame, idx) helper that branches on polars is registered and checked; the shared order-losing scan finds none.
+# ---------------------------------------------------------------------------
+
+
+def _first_of_split(df, idx):
+    """``create_split_dataframes``' train frame for ``idx`` (the val and test frames go through the same slicer)."""
+    from mlframe.training.preprocessing import create_split_dataframes
+
+    return create_split_dataframes(df, idx, idx, idx)[0]
+
+
+# ``path::function`` (under src/mlframe/training) -> "module:attr" of a ``fn(frame, idx)`` to check, or a reason it is not one.
+FRAME_ROW_SLICERS = {
+    "_data_helpers.py::_subset_dataframe": "mlframe.training._data_helpers:_subset_dataframe",
+    "composite/bagging.py::_take_rows": "mlframe.training.composite.bagging:_take_rows",
+    "composite/classification_discovery.py::_take_rows": "mlframe.training.composite.classification_discovery:_take_rows",
+    "composite/highlevel.py::_select_rows": "mlframe.training.composite.highlevel:_select_rows",
+    "composite/meta.py::_row_subset": "mlframe.training.composite.meta:_row_subset",
+    "composite/row_level_average_importance.py::_subset_rows": "mlframe.training.composite.row_level_average_importance:_subset_rows",
+    "core/_phase_composite_post_xt_ensemble/_phase_composite_post_xt_mtr_oof.py::_slice_rows_by_idx":
+        "mlframe.training.core._phase_composite_post_xt_ensemble._phase_composite_post_xt_mtr_oof:_slice_rows_by_idx",
+    "diagnostics/learning_curve.py::_take_rows": "mlframe.training.diagnostics.learning_curve:_take_rows",
+    "preprocessing.py::create_split_dataframes": "tests.training.composite.ensemble.test_frame_carrier_parity:_first_of_split",
+    "slicing/_slice_helpers.py::_row_select": "mlframe.training.slicing._slice_helpers:_row_select",
+}
+_NOT_ROW_SLICERS = {
+    "_dataset_cache_fingerprint.py::_row_sample_hash": "hashes a row sample for a cache key; it returns no rows",
+    "composite/_canonical_hash.py::row_order_fingerprint": "fingerprints the row order itself; it returns no rows",
+    "neural/data.py::_extract": "a torch Dataset method: plain positional indexing into a tensor or array, no mask branch",
+    "trainer.py::_row": "a closure (not importable); .iloc for pandas, plain positional df[idx] otherwise, no mask branch",
+}
+_FRAME_PARAM = re.compile(r"^(X|X_rows|df|frame|data|X_all|features)$")
+_IDX_PARAM = re.compile(r"(^|_)(idx|rows|row_idx|indices|positions|sel)$")
+
+
+def _frame_idx_helpers() -> set[str]:
+    """Every function whose first two parameters are a frame and an index and whose body branches on polars."""
+    import ast
+    from pathlib import Path
+
+    import mlframe
+
+    root = Path(mlframe.__file__).resolve().parent / "training"
+    out = set()
+    for path in sorted(root.rglob("*.py")):
+        if "_benchmarks" in path.parts:
+            continue
+        for f in (n for n in ast.walk(ast.parse(path.read_text(encoding="utf-8"))) if isinstance(n, ast.FunctionDef)):
+            params = [a.arg for a in f.args.args if a.arg != "self"]
+            if len(params) >= 2 and _FRAME_PARAM.match(params[0]) and _IDX_PARAM.search(params[1]):
+                if re.search(r"polars|pl\.DataFrame|_is_polars|is_polars", ast.unparse(f)):
+                    out.add(f"{path.relative_to(root).as_posix()}::{f.name}")
+    return out
+
+
+def test_every_frame_idx_helper_is_registered():
+    """A new ``(frame, idx)`` helper with a polars branch joins the parity check below, or says why it is not a row slicer."""
+    found = _frame_idx_helpers()
+    listed = set(FRAME_ROW_SLICERS) | set(_NOT_ROW_SLICERS)
+    assert found == listed, f"unregistered: {sorted(found - listed)}; stale: {sorted(listed - found)}"
+
+
+@pytest.mark.parametrize("key", sorted(FRAME_ROW_SLICERS))
+@pytest.mark.parametrize("order", ["monotone", "reversed", "shuffled"])
+def test_every_registered_slicer_keeps_the_index_order_on_both_carriers(key, order):
+    """pandas gives the rows in index order and polars gives the same rows in the same order."""
+    import importlib
+
+    mod, attr = FRAME_ROW_SLICERS[key].split(":")
+    fn = getattr(importlib.import_module(mod), attr)
+    rng = np.random.default_rng(1)
+    frame = pd.DataFrame({"a": np.arange(50, dtype=float), "b": rng.normal(size=50)})
+    idx = {"monotone": np.arange(0, 50, 3), "reversed": np.arange(0, 50, 3)[::-1], "shuffled": rng.permutation(50)[:20]}[order]
+    got_pd = np.asarray(fn(frame, idx)["a"], dtype=float)
+    got_pl = np.asarray(fn(pl.from_pandas(frame), idx)["a"].to_numpy(), dtype=float)
+    np.testing.assert_array_equal(got_pd, idx.astype(float))
+    np.testing.assert_array_equal(got_pl, got_pd)
+
+
+def test_no_function_selects_rows_by_a_mask_built_from_its_positional_index():
+    """py_ci_shared.order_losing_filters over src/mlframe: no function pairs ``.iloc[idx]`` with a mask built from ``idx``.
+
+    On the tree before the fix it flags the five helpers repaired then; it also found fit_stacked / fit_stacked_on_residual.
+    """
+    from pathlib import Path
+
+    olf = pytest.importorskip("py_ci_shared.order_losing_filters")
+    import mlframe
+
+    root = Path(mlframe.__file__).resolve().parent
+    files = sorted(p for p in root.rglob("*.py") if "_benchmarks" not in p.parts)
+    found = olf.find_order_losing_filters(files, root.parent.parent)
+    assert not found, found

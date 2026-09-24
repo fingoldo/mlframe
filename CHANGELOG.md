@@ -127,6 +127,7 @@ history.
 
 ### Changed
 
+- Stacked composite discovery (`fit_stacked`, `fit_stacked_on_residual`) gathers a polars frame's train rows by position, in `train_idx` order like their targets. The boolean-mask filter returned frame order, so an unsorted train index paired every row with another row's target (off by up to 23.8 in the test).
 - The `logratio` inverse clips `T_hat` to `median_t +/- soft_cap_k * mad_eff` widened to the training T range (new params `t_train_min` / `t_train_max`; serving export and the provenance formula share `logratio_t_band`). Rows with y near zero have log-ratios beyond ten MADs, and the old band reconstructed even those training rows wrong (0.025 off on a target crossing zero). Params saved before keep the MAD band.
 - `median_residual` and `quantile_residual` grow their bin count with the training rows (like n^0.3, from 100 / 200 rows per bin, capped at 200 bins; `composite._quantile_edges.bins_for_rows`). A fixed 10-20 bins left the step function's bias flat as data grew. On a saturating relation the downstream composite RMSE improves 1.4-3% at 20k-100k rows and is unchanged at 2k.
 - `monotonic_residual` makes its knot values monotone by weighted isotonic regression instead of a cumulative max, which lifted every dip in the noisy knot medians. On ~200-row groups `monotonic_residual_grouped` placed identical groups 0.075 sd above the pooled fit; now 0.025.

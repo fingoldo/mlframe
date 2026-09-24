@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+import pytest
 import pandas as pd
 
 from mlframe.training.composite.spec import CompositeSpec
@@ -319,3 +320,39 @@ class TestA7ResidualSpecWarning:
         # pass-2 stopped finding them, which is itself the regression worth failing on.
         assert residual_specs, "pass-2 found no residual specs on this seeded fixture; the A7 warning path is no longer exercised"
         assert any("residual-aware training path" in r.message for r in caplog.records), "A7 warning must fire when residual specs are merged into specs_"
+
+
+class _AlignmentRecorder:
+    """Records the frame and target each OOF call receives, returning a finite OOF vector so the run proceeds."""
+
+    def __init__(self) -> None:
+        self.seen: list[tuple] = []
+
+    def __call__(self, factory, X, y, **kwargs):
+        self.seen.append((X, np.asarray(y, dtype=np.float64)))
+        return np.asarray(y, dtype=np.float64) * 0.5
+
+
+@pytest.mark.parametrize("method", ["fit_stacked", "fit_stacked_on_residual"])
+def test_a_polars_frame_with_a_shuffled_train_index_stays_row_aligned(monkeypatch, method: str) -> None:
+    """The train rows handed to the OOF step are in train-index order, like their targets, on a polars frame too.
+
+    The polars branch selected rows with a boolean mask, which returns frame order, while ``y_train = y[train_idx]`` follows
+    the index: with an unsorted index (a shuffled split) every row was paired with another row's target.
+    """
+    pl = pytest.importorskip("polars")
+    from mlframe.training.composite.discovery import CompositeTargetDiscovery
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    n = 800
+    df = pl.from_pandas(_make_frame(n))
+    rec = _AlignmentRecorder()
+    _tiny_discovery(monkeypatch, rec)
+    train_idx = np.random.default_rng(0).permutation(n)[: int(0.8 * n)]
+    cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=500, composite_skip_when_raw_dominates_ratio=0.0)
+    getattr(CompositeTargetDiscovery(config=cfg), method)(
+        df=df, target_col="y", feature_cols=["x_a", "x_b", "n0", "n1"], train_idx=train_idx, n_oof_folds=3,
+    )
+    assert rec.seen, "the OOF step never ran -- pass 1 found no spec to stack"
+    for X, y in rec.seen:
+        np.testing.assert_allclose(np.asarray(X["y"], dtype=np.float64), y, rtol=1e-6)  # the target column is read as float32

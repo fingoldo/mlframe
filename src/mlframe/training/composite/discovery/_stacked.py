@@ -150,9 +150,9 @@ def fit_stacked(
         try:
             import polars as _pl
             if isinstance(df, _pl.DataFrame):
-                mask = np.zeros(df.height, dtype=bool)
-                mask[_train_idx_arr] = True
-                X_train = df.filter(_pl.Series(mask))
+                # Positional gather, in _train_idx_arr order like y_train above: a boolean mask returned frame order, so an
+                # unsorted train index paired each row with another row's target.
+                X_train = df[_train_idx_arr.astype(np.int64)]
             else:
                 raise TypeError(type(df).__name__)
         except Exception:
@@ -305,9 +305,8 @@ def fit_stacked_on_residual(
         try:
             import polars as _pl
             if isinstance(df, _pl.DataFrame):
-                _mask = np.zeros(df.height, dtype=bool)
-                _mask[_train_idx_arr] = True
-                X_train = df.filter(_pl.Series(_mask))
+                # Positional gather in _train_idx_arr order, aligned with y_train (a boolean mask returned frame order).
+                X_train = df[_train_idx_arr.astype(np.int64)]
             else:
                 raise TypeError(type(df).__name__)
         except Exception:
