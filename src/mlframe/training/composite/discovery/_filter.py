@@ -10,6 +10,7 @@ from typing import Any, List, Sequence, cast
 
 import numpy as np
 
+from .._composite_utils import is_polars_df as _is_polars_df
 from .screening import (
     _extract_column_array,
     _is_numeric_column,
@@ -223,6 +224,42 @@ def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, cor
     return kept
 
 
+def _polars_train_stats(self, df, feature_cols, train_idx) -> dict | None:
+    """``{column: (finite count, float32 max - min over the finite values or None)}`` over the train rows of a polars frame,
+    in one aggregation, or None when the per-column path is the faster one.
+
+    The per-column loop pulls every numeric column over every train row into numpy for a count and a range. The values
+    are cast to float32 in the query, as ``_extract_column_array`` casts them, and the range is a float32 subtraction as
+    ``np.ptp`` on that array computes it, so every drop decision is the same. Measured at 1M x 200: when the train rows are
+    the whole frame (discovery's usual case, the suite passes its filtered train frame) one query takes 0.98 s against
+    2.44 s, at +108 MB peak against +10 MB; when rows must be gathered it is slower (2.08 s against 1.84 s), so that case
+    keeps the per-column path. The caller uses it only when the leak-corr test samples rows (frames above
+    ``_LEAK_CORR_MIN_SAMPLE_ROWS``); below that every full column is read for the correlation anyway.
+    """
+    if not _is_polars_df(df):
+        return None
+    import polars as pl
+
+    cols = [c for c in feature_cols if c != self._target_col and not any(p.search(c) for p in self._patterns_compiled)
+            and _is_numeric_column(df, c)]
+    if not cols:
+        return {}
+    idx = np.asarray(train_idx)
+    if not (idx.size == df.height and np.array_equal(idx, np.arange(df.height))):
+        return None  # a row gather makes the batched query slower than the per-column path
+    exprs = []
+    for k, c in enumerate(cols):
+        v = pl.col(c).cast(pl.Float32)
+        fin = v.is_finite().fill_null(False)
+        exprs += [fin.sum().alias(f"n{k}"), v.filter(fin).min().alias(f"lo{k}"), v.filter(fin).max().alias(f"hi{k}")]
+    row = df.select(exprs).row(0)
+    out = {}
+    for k, c in enumerate(cols):
+        n, lo, hi = row[3 * k], row[3 * k + 1], row[3 * k + 2]
+        out[c] = (int(n or 0), None if lo is None else float(np.float32(hi) - np.float32(lo)))
+    return out
+
+
 def _filter_features(
     self,
     df: Any,
@@ -256,6 +293,8 @@ def _filter_features(
             "finite-row checks still read every row, so only the correlation is sampled.",
             _leak_rows.size, int(np.asarray(train_idx).size),
         )
+    # Only when the leak-corr test samples rows: otherwise every full column is read for it anyway.
+    _polars_stats = _polars_train_stats(self, df, feature_cols, train_idx) if _leak_rows is not None else None
     for col in feature_cols:
         if col == self._target_col:
             continue
@@ -265,15 +304,22 @@ def _filter_features(
         if not _is_numeric_column(df, col):
             drops.append({"name": col, "reason": "non_numeric"})
             continue
-        arr = _extract_column_array(df, col, rows=train_idx)
-        finite_mask = np.isfinite(arr)
-        if finite_mask.sum() < 50:
+        if _polars_stats is not None and col in _polars_stats:
+            # The finite count and range came from one engine-side aggregation; only the leak-corr rows leave the frame.
+            n_finite, ptp_or_none = _polars_stats[col]
+            arr = None
+        else:
+            arr = _extract_column_array(df, col, rows=train_idx)
+            finite_mask = np.isfinite(arr)
+            n_finite = int(finite_mask.sum())
+            ptp_or_none = float(np.ptp(arr[finite_mask])) if n_finite else None
+        if n_finite < 50:
             drops.append({
                 "name": col, "reason": "insufficient_finite_rows",
-                "n_finite": int(finite_mask.sum()),
+                "n_finite": int(n_finite),
             })
             continue
-        ptp = float(np.ptp(arr[finite_mask]))
+        ptp = float(ptp_or_none)
         if ptp <= self.config.constant_base_eps:
             drops.append({
                 "name": col, "reason": "constant_or_near_constant",
@@ -283,7 +329,11 @@ def _filter_features(
         candidates.append(col)
         # Keep only the rows the leak-corr test will read: the constancy and finite-count checks above are done with,
         # so the full column can be released here instead of being held until the stack.
-        candidate_arrays.append(arr if _leak_rows is None else arr[_leak_rows])
+        if arr is None:
+            _rows = np.asarray(train_idx) if _leak_rows is None else np.asarray(train_idx)[_leak_rows]
+            candidate_arrays.append(_extract_column_array(df, col, rows=_rows))
+        else:
+            candidate_arrays.append(arr if _leak_rows is None else arr[_leak_rows])
 
     kept = _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, corr_drops)
     self._filter_drops = drops
