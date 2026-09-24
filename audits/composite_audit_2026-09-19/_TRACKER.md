@@ -19,10 +19,10 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `discovery.md` | 30 | 30 | 0 | 0 | 0 | 0 |
 | `estimator_ensemble.md` | 22 | 22 | 0 | 0 | 0 | 0 |
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
-| `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 16 | 1 | 0 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 31 | 10 | 0 | 0 | 0 |
-| **Total** | **179** | **157** | **21** | **0** | **1** | **0** |
+| `performance.md` | 24 | 23 | 0 | 0 | 1 | 0 |
+| `tests.md` | 17 | 17 | 0 | 0 | 0 | 0 |
+| `preventive_meta_tests.md` | 41 | 41 | 0 | 0 | 0 | 0 |
+| **Total** | **179** | **178** | **0** | **0** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -202,7 +202,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `PMT-04` | Non-discriminating test-assertion shapes: literal wide ranges, median-of-error, isinstance-only biz tests, data-dependent skips | py_ci_shared.nondiscriminating_shapes + local biz-val rule wired; suite violators baselined, composite ones fixed under TST-10/11/13 |
 | **RESOLVED** | P1 | `PMT-05` | Row-purity contract for every registered transform and every deployable component: batch-invariant, NaN-local, thread-safe | test_cte_row_purity: chunk invariance to 1e-14, threads, lag_predict fill; found EST-19/EST-20 |
 | **RESOLVED** | P1 | `PMT-06` | Splitter and sampler consistency: one splitter factory, time order and groups honoured everywhere, sampler returns usable rows | no ad-hoc shuffled KFold scan + splitter contract tests; fixed 6 findings |
-| **PARTIAL** | P1 | `PMT-07` | Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform | 7 findings fixed + invariance tests; typed Score/rank_specs + sort scan not built |
+| **RESOLVED** | P1 | `PMT-07` | Units- and provenance-tagged scores: ranking helpers refuse mixed units, and every ranking scorer is invariant under an affine-rescaled twin transform | typed rank_specs + sort scan + SPEC_SCORERS twin invariance; dedup tier mix and region-adaptive T-scale guard fixed |
 | **RESOLVED** | P1 | `PMT-08` | Scale and shift metamorphic property over every registered transform | scale/shift property tests; fixed log_y +1.0 offset and raw-unit arcsinh |
 | **RESOLVED** | P2 | `PMT-09` | Memory layout, copy and GIL-loop scanners with tracemalloc budgets for discovery | (d) budgets built: filter 3.25x -> 1.25x sample matrix; resident after rerank bounded; two defects fixed |
 | **RESOLVED** | P2 | `PMT-10` | Kwarg forwarding: a variant wrapper accepts and forwards its base method's optional parameters; an in-scope argument is not silently omitted (shared scanner) | shared kwarg_forwarding scanner (3 finders) wired with delegates map + 9-entry reasoned allow table |

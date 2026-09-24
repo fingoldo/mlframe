@@ -222,6 +222,11 @@ def fit_region_adaptive(
     transform only wins a region when it generalises there, not when it
     over-fits the in-region noise.
     """
+    # The winner is picked on 1 - var(T) / var(y), a T-scale score: it compares candidates only when every T is in y units.
+    # A compressive candidate (log, ratio, a rescaled twin) would win by shrinking T, not by fitting the region.
+    not_additive = [c for c in candidates if not getattr(_TRANSFORMS_REGISTRY[c], "additive_in_t", False)]
+    if not_additive:
+        raise ValueError(f"region-adaptive candidates must be additive in T (T in y units); not: {not_additive}")
     y = np.asarray(y, dtype=np.float64)
     base = np.asarray(base, dtype=np.float64)
     finite = np.isfinite(y) & np.isfinite(base)
