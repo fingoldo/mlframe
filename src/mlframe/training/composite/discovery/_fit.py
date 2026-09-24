@@ -908,7 +908,11 @@ def fit(
     # The data signature the specs were fit on is read only by ``discover_incremental``, but it cost 84-308 ms at 200k x 50
     # (seconds on wide polars frames) on every fit, stability replicate and per-group fit. Record what it needs and let
     # ``fit_data_signature()`` compute it on first use; pickling computes it before the frame reference is dropped. The row count lets it re-score only appended rows.
-    self._fit_data_signature = None
+    # A signature the caller already computed on this very frame, target and feature list is taken as is.
+    _seed = getattr(self, "_fit_data_signature_seed", None)
+    _seed_ok = _seed is not None and _seed[0] == id(df) and _seed[1] == target_col and _seed[2] == tuple(feature_cols)
+    self._fit_data_signature = _seed[3] if _seed_ok else None
+    self._fit_data_signature_seed = None
     self._fit_data_signature_inputs, self._fit_n_rows = (target_col, list(feature_cols)), len(df)
 
     # Bookkeeping. (target_col + df_ref + train_idx already stashed.)

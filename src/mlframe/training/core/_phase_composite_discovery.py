@@ -473,6 +473,7 @@ def run_composite_target_discovery(
             # multi-million-row frames.
             _disc_cache: DiscoveryCache | None = None
             _disc_cache_key: str | None = None
+            _disc_signature: dict = {}  # the frame signature the cache key computed, handed to the fit below
             # A caller-supplied spec set (a prior run's metadata, the documented reuse path) replays exactly like a cache
             # hit: the same forward-applier builds the T columns, the same auto-chain re-registration runs, and the same
             # dedup and global cap apply. Seeding only metadata, as the old fast path did, trained nothing at all.
@@ -488,7 +489,8 @@ def run_composite_target_discovery(
             elif discovery_cache_dir is not None:
                 _digest = discovery_inputs_digest(group_ids=_grp_filtered_slice, hint_strengths=_hint_strengths if _use_hint else None, disc_df=_disc_df,
                                                   time_column=getattr(_disc_cfg, "time_column", None), val_df=val_df_pd, y_full=_y_arr, val_idx=val_idx)
-                _disc_cache, _disc_cache_key, _cached_payload = _discovery_cache_lookup(_disc_cfg, _disc_df, _tname_disc, _disc_feature_cols, discovery_cache_dir, _digest)
+                _disc_cache, _disc_cache_key, _cached_payload = _discovery_cache_lookup(_disc_cfg, _disc_df, _tname_disc, _disc_feature_cols, discovery_cache_dir, _digest,
+                                                                                         signature_out=_disc_signature)
             else:
                 _cached_payload = None
 
@@ -563,6 +565,9 @@ def run_composite_target_discovery(
             else:
                 try:
                     _disc_instance = CompositeTargetDiscovery(_disc_cfg)
+                    # The cache key already hashed this frame; at the default seed it is the signature the fit records.
+                    if _disc_signature.get("sig") and _disc_signature.get("random_state") == 42:
+                        _disc_instance._fit_data_signature_seed = (id(_disc_df), _tname_disc, tuple(_disc_feature_cols), _disc_signature["sig"])  # type: ignore[attr-defined]
                     if _use_hint and _diag is not None and _hint_strengths:
                         _disc_instance._hint_strengths_pct = _hint_strengths  # type: ignore[attr-defined]  # CompositeTargetDiscovery duck-typed extension point (owned by training/composite)
                     # Group-aware tiny-rerank: when the production split

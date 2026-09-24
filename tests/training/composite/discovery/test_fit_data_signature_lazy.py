@@ -81,3 +81,23 @@ def test_a_pickled_result_keeps_the_signature_for_warm_start():
     assert restored.fit_data_signature() == cache_mod.data_signature(df, "y", _FEATS)
     decision = discover_incremental(restored, df, "y", _FEATS)
     assert decision.reuse, "an identical frame must be reused on the byte-identical fast path"
+
+
+def test_a_signature_the_caller_computed_on_this_frame_is_adopted(monkeypatch):
+    """The suite phase hashes the frame for its cache key; handed over for the same frame, target and features it is taken
+    as is, and one for another frame object is ignored."""
+    df = _frame()
+    sig = cache_mod.data_signature(df, "y", _FEATS)
+    disc = CompositeTargetDiscovery(CompositeTargetDiscoveryConfig(
+        enabled=True, random_state=0, base_candidates=["base"], transforms=["diff", "linear_residual"], screening="mi",
+    ))
+    disc._fit_data_signature_seed = (id(df), "y", tuple(_FEATS), sig)
+    disc.fit(df, "y", _FEATS, np.arange(len(df)))
+    seen = _count_signatures(monkeypatch)
+    assert disc.fit_data_signature() == sig and seen["n"] == 0, "the handed-over signature must be used, not recomputed"
+
+    other = df.copy()
+    disc2 = CompositeTargetDiscovery(disc.config)
+    disc2._fit_data_signature_seed = (id(df), "y", tuple(_FEATS), "stale")
+    disc2.fit(other, "y", _FEATS, np.arange(len(other)))
+    assert disc2.fit_data_signature() == sig, "a seed from another frame object must not be adopted"
