@@ -115,3 +115,26 @@ def test_snapshot_params_reads_catboost_serialised_params(tmp_path):
     catboost.CatBoostRegressor(iterations=20, depth=4, verbose=0, save_snapshot=True, snapshot_file=snap, train_dir=str(tmp_path / "td")).fit(Xt, yt)
     params = snapshot_params(snap)
     assert params is not None and "max_ctr_complexity" in (params.get("cat_feature_params") or {})
+
+
+@pytest.mark.usefixtures("fake_gpu")
+def test_the_resumed_fit_does_not_run_under_the_guards_interrupt():
+    """A production traceback showed a later, unrelated TypeError "During handling of" a KeyboardInterrupt: the resume ran
+    inside the handler, so everything it raised carried the guard's interrupt as context and read as a user's Ctrl+C."""
+    Xt, yt, Xv, yv = _data()
+    model = catboost.CatBoostRegressor(iterations=100_000, learning_rate=0.02, depth=8, od_type="Iter", od_wait=90_000,
+                                       use_best_model=True, verbose=0, thread_count=2)
+    calls = {"n": 0}
+
+    def _fit_then_fail_on_resume(model, model_obj, name, X, y, fit_params, verbose=False):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise ValueError("the resumed fit failed")
+        model.fit(X, y, **fit_params)
+        return model
+
+    fit_params = {"eval_set": (Xv, yv), "callbacks": [SimpleNamespace(time_budget_mins=5 / 60.0)]}
+    with pytest.raises(ValueError) as excinfo:
+        fit_with_cb_gpu_guard(_fit_then_fail_on_resume, model, model, "CatBoostRegressor", Xt, yt, fit_params)
+    assert calls["n"] == 2, "the budget stop must have triggered a resume"
+    assert not isinstance(excinfo.value.__context__, KeyboardInterrupt)

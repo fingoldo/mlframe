@@ -126,6 +126,7 @@ def fit_with_cb_gpu_guard(
 
     with CatBoostGpuFitGuard(model, model_obj, model_type_name, fit_params) as guard:
         result = None
+        interrupted_by_limit = False
         try:
             guard.set_fit_running(True)
             try:
@@ -135,7 +136,11 @@ def fit_with_cb_gpu_guard(
         except KeyboardInterrupt:
             if not guard.limit_reason:
                 raise  # a genuine Ctrl+C: never swallowed
-            if result is None:
-                guard.stop_monitor()
-                result = resume_capped(guard, _fit)
+            interrupted_by_limit = result is None
+        # The resume runs AFTER the handler has exited. Run inside it, the whole resumed fit -- and anything it raised --
+        # carried the guard's KeyboardInterrupt as its context, so a later, unrelated error printed "During handling of
+        # the above exception" under a KeyboardInterrupt and read as a user's Ctrl+C in a production traceback.
+        if interrupted_by_limit:
+            guard.stop_monitor()
+            result = resume_capped(guard, _fit)
         return result

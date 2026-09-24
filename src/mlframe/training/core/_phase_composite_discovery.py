@@ -52,6 +52,7 @@ from ._phase_composite_discovery_gates import (  # noqa: F401  (re-exported)
     _target_pathologies_for_auto_enable,
     _maybe_auto_enable_discovery,
     _maybe_narrow_to_unary_transforms,
+    _per_target_discovery_config,
     _drop_specs_whose_bases_the_suite_cannot_materialise,
     _discovery_cache_lookup,
     discovery_inputs_digest,
@@ -429,41 +430,10 @@ def run_composite_target_discovery(
 
             _disc_df = _build_disc_df_for_target(filtered_train_df, _tname_disc, _y_train_aligned)
 
-            # If hint enabled and BD ran, derive per-target config with dominant_features_hint from ablation top-K.
-            _disc_cfg = _disc_cfg_base
-            _disc_cfg = _maybe_narrow_to_unary_transforms(_disc_cfg, _diag, _tname_disc)
-            if _use_hint and _diag is not None:
-                _hint_top_k = max(1, int(getattr(
-                    composite_target_discovery_config,
-                    "baseline_diagnostics_hint_top_k", 3,
-                )))
-                _ablation = _diag.get("ablation", []) or []
-                _ablation_sorted = sorted(
-                    _ablation,
-                    key=lambda e: -float(e.get("delta_pct", 0.0)),
-                )
-                _hint_cols = [e["feature"] for e in _ablation_sorted[:_hint_top_k] if e.get("feature")]
-                # Strong hints get all top_k slots; weak hints fall back to half-slot cap inside discovery.
-                _hint_strengths = [float(e.get("delta_pct", 0.0)) for e in _ablation_sorted[:_hint_top_k] if e.get("feature")]
-                if _hint_cols:
-                    try:
-                        _disc_cfg = _disc_cfg_base.model_copy(
-                            update={"dominant_features_hint": _hint_cols},
-                        )
-                        logger.info(
-                            "[CompositeTargetDiscovery] target='%s' hint from "
-                            "BaselineDiagnostics ablation top-%d: %s (max delta%%=%.1f)",
-                            _tname_disc, len(_hint_cols), _hint_cols,
-                            max(_hint_strengths) if _hint_strengths else 0.0,
-                        )
-                    except Exception as _clone_err:
-                        logger.info(
-                            "[CompositeTargetDiscovery] hint clone failed for " "target='%s' (%s); proceeding with MI-only.",
-                            _tname_disc,
-                            _clone_err,
-                        )
-            else:
-                _hint_strengths = None
+            _disc_cfg, _hint_strengths = _per_target_discovery_config(
+                _disc_cfg_base, _diag, _tname_disc, use_hint=_use_hint,
+                hint_top_k=getattr(composite_target_discovery_config, "baseline_diagnostics_hint_top_k", 3),
+            )
 
             # Disk-backed discovery cache (ship-or-strip -> ship). Key
             # carries data fingerprint + target column + config signature

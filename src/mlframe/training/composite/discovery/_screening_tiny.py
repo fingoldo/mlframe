@@ -153,6 +153,34 @@ def _silence_tiny_model_output(family: str | None = None):
                     _lgb_logger.setLevel(_silence_tiny_state.lgb_prev_level)
 
 
+def cap_inner_n_jobs(model: Any, outer_n_jobs: int) -> None:
+    """Cap a fold model's own threading at 1 when the folds already run in parallel; a model with nothing to cap is left alone.
+
+    Only parameters the estimator actually exposes are set -- ``n_jobs`` itself, or ``<step>__n_jobs`` inside a pipeline.
+    The linear family is ``Pipeline(SimpleImputer, Ridge)``, which has no ``n_jobs`` anywhere: ``set_params(n_jobs=1)``
+    on it raised, and the handler logged an oversubscription warning for a model that cannot oversubscribe -- 189 of the
+    240 warnings in one production run. A model that does expose the knob and still rejects it is a real risk (every
+    fold's inner model then oversubscribes against the outer dispatch, 4-8x discovery wall time), so that case warns.
+    """
+    if outer_n_jobs <= 1 or not hasattr(model, "get_params"):
+        return
+    try:
+        keys = [k for k in model.get_params(deep=True) if k == "n_jobs" or k.endswith("__n_jobs")]
+    except Exception as exc:  # an estimator that cannot list its params cannot be capped either; nothing to warn about
+        logger.debug("cannot list params of %s to cap n_jobs: %s", type(model).__name__, exc)
+        return
+    if not keys:
+        return
+    try:
+        model.set_params(**{k: 1 for k in keys})
+    except Exception as err:
+        logger.warning(
+            "composite_screening: failed to cap %s=1 on inner %s under outer n_jobs=%d (parallel oversubscription risk; "
+            "discovery wallclock may regress 4-8x): %s: %s",
+            ",".join(keys), type(model).__name__, outer_n_jobs, type(err).__name__, err,
+        )
+
+
 def _build_tiny_model(
     family: str, *, n_estimators: int, num_leaves: int, learning_rate: float, random_state: int, deterministic: bool = False, inner_n_jobs: int = -1
 ) -> Any:
@@ -373,40 +401,22 @@ def _tiny_cv_rmse_raw_y(
     ) -> tuple[float, np.ndarray | None, tuple[np.ndarray, np.ndarray, np.ndarray] | None]:
         """Fit one tiny CV fold's model and return (val RMSE, val predictions or None on failure, fold arrays for downstream reuse or None)."""
         try:
-            model = _build_tiny_model(
-                family,
-                n_estimators=n_estimators,
-                num_leaves=num_leaves,
-                learning_rate=learning_rate,
-                random_state=random_state,
-                deterministic=deterministic,
-                inner_n_jobs=inner_n_jobs,
-            )
-            if n_jobs > 1 and hasattr(model, "set_params"):
-                try:
-                    model.set_params(n_jobs=1)
-                except Exception as _njobs_err:  # best-effort: n_jobs cap is a perf optimization, not correctness
-                    # When the set_params raises (custom model, version skew rejecting the
-                    # kwarg), every fold's inner model oversubscribes its own threads
-                    # against the outer parallel-fold dispatch -- discovery wallclock
-                    # blows up 4-8x with no log evidence pre-fix. Surface the model class
-                    # so the operator can fix the wrapper that's rejecting n_jobs.
-                    logger.warning(
-                        "composite_screening: failed to cap n_jobs=1 on inner %s under "
-                        "outer n_jobs=%d (parallel oversubscription risk; discovery "
-                        "wallclock may regress 4-8x): %s: %s",
-                        type(model).__name__, n_jobs, type(_njobs_err).__name__, _njobs_err,
-                    )
             with _silence_tiny_model_output(family):
                 if family.lower() in ("lgb", "lightgbm") and isinstance(x_clean, np.ndarray):
                     # The fold's binned dataset is shared with every y-scale spec fitted on this matrix and fold (same booster
-                    # as the sklearn wrapper's fit): the raw-y baseline re-binned the same rows on every call.
+                    # as the sklearn wrapper's fit): the raw-y baseline re-binned the same rows on every call. No wrapper is
+                    # built on this path -- one used to be built per fold and thrown away unfitted.
                     from ._screening_tiny_perbin import _fit_fold_model
 
                     model = _fit_fold_model(x_clean, train_fold, train_fold, y_clean[train_fold], family=family, n_estimators=n_estimators,
                                             num_leaves=num_leaves, learning_rate=learning_rate, random_state=random_state,
                                             deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs)
                 else:
+                    model = _build_tiny_model(
+                        family, n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate,
+                        random_state=random_state, deterministic=deterministic, inner_n_jobs=inner_n_jobs,
+                    )
+                    cap_inner_n_jobs(model, n_jobs)
                     model.fit(x_clean[train_fold], y_clean[train_fold])
                 y_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
             y_hat_f64 = y_hat.astype(np.float64)

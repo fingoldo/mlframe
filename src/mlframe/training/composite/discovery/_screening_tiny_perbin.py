@@ -40,6 +40,7 @@ from ._screening_tiny import (
     _build_tiny_model,
     _cached_kfold_splits,
     _silence_tiny_model_output,
+    cap_inner_n_jobs,
 )
 from ._fold_refit import refit_transform_on_fold
 from ._lgb_shared_fold import fit_on_rows, fit_on_shared_fold, lgb_params
@@ -153,21 +154,8 @@ def _tiny_fold_model(family, *, n_estimators, num_leaves, learning_rate, random_
         deterministic=deterministic,
         inner_n_jobs=inner_n_jobs,
     )
-    # When folds run in parallel, cap LightGBM's intra-fit
-    # threads to avoid CPU oversubscription.
-    if n_jobs > 1 and hasattr(model, "set_params"):
-        try:
-            model.set_params(n_jobs=1)
-        except Exception as _njobs_err:
-            # Same oversubscription warning as the sibling branch above
-            # (transformed-target variant): without this log, an operator
-            # tracking "discovery wallclock regressed" never connects it
-            # to a silently-failed n_jobs cap on the inner model.
-            logger.warning(
-                "composite_screening (transformed): failed to cap n_jobs=1 on "
-                "inner %s under outer n_jobs=%d (oversubscription risk): %s: %s",
-                type(model).__name__, n_jobs, type(_njobs_err).__name__, _njobs_err,
-            )
+    # When folds run in parallel, cap the model's intra-fit threads to avoid CPU oversubscription.
+    cap_inner_n_jobs(model, n_jobs)
     return model
 
 
@@ -203,6 +191,22 @@ def _fit_fold_model(x_clean, train_fold, fit_rows, t_fit, *, family, n_estimator
     )
     model.fit(x_clean[fit_rows], t_fit)
     return model
+
+
+def _fitted_domain_mask(transform: Any, y_train: np.ndarray, base_train: np.ndarray, fitted_params: Any) -> np.ndarray:
+    """Rows on the transform's domain, refined by its fitted-params-aware check when it has one.
+
+    The fitted check knows things the pre-fit one cannot (log_y's offset, centered_ratio's c+eps). Without it, rows valid
+    pre-fit but outside the TRUE fitted domain produce a NaN T, and the non-finite guard then discards the WHOLE spec's
+    rerank score -- silently dropping a spec that is perfectly valid on its real domain.
+    """
+    valid = transform.domain_check(y_train, base_train)
+    dcf = getattr(transform, "domain_check_fitted", None)
+    if dcf is not None and isinstance(fitted_params, dict):
+        valid_fitted = np.asarray(dcf(y_train, base_train, fitted_params), dtype=bool)
+        if valid_fitted.shape == np.shape(valid):
+            valid = valid & valid_fitted
+    return valid
 
 
 def _tiny_cv_rmse_y_scale(
@@ -263,19 +267,7 @@ def _tiny_cv_rmse_y_scale(
     n = len(y_train)
     if n < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
-    valid = transform.domain_check(y_train, base_train)
-    # Refine with the fitted-params-aware domain (log_y's offset,
-    # centered_ratio's c+eps). Without this, rows that are valid pre-fit but
-    # out of the TRUE fitted domain produce NaN T below -> the non-finite
-    # guard nukes the WHOLE spec's rerank score, silently dropping a spec
-    # that is perfectly valid on its real domain.
-    _dcf = getattr(transform, "domain_check_fitted", None)
-    if _dcf is not None and isinstance(fitted_params, dict):
-        _valid_fitted = np.asarray(
-            _dcf(y_train, base_train, fitted_params), dtype=bool,
-        )
-        if _valid_fitted.shape == valid.shape:
-            valid = valid & _valid_fitted
+    valid = _fitted_domain_mask(transform, y_train, base_train, fitted_params)
     if valid.sum() < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
     # Baseline-population parity with the raw-y sibling. The raw-y baseline scores EVERY finite-y row, but this transformed-target path previously scored only domain-valid rows -- so composite RMSE was measured on a STRICT SUBSET of the rows raw RMSE was measured on, a population mismatch that biases the raw-baseline gate exactly where a transform's domain excludes hard rows.

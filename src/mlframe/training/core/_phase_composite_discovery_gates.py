@@ -357,3 +357,34 @@ def select_composites_to_train(pending: list[dict], cfg: Any, metadata: dict) ->
     else:
         kept = pending
     return kept
+
+
+def _per_target_discovery_config(base_cfg: Any, diag: Any, target_name: str, *, use_hint: bool, hint_top_k: int) -> tuple[Any, Any]:
+    """``(config, hint_strengths)`` for one target: the unary narrowing first, then the dominant-feature hint ON TOP of it.
+
+    The hint used to be applied as ``base_cfg.model_copy(...)``, rebuilding from the suite-level config and silently
+    discarding the narrowing computed one line earlier. A production run logged "narrowed from 24 transform(s) to the
+    5 base-free unary one(s)" for all four regression targets and then evaluated 59 candidates each anyway: 2 h 8 min
+    of discovery whose single shipped spec was a unary one (``yqclip``) that the narrowed search finds on its own.
+    ``hint_strengths`` is None when no hint was derived, which discovery reads as "no hint".
+    """
+    cfg = _maybe_narrow_to_unary_transforms(base_cfg, diag, target_name)
+    if not (use_hint and diag is not None):
+        return cfg, None
+    top_k = max(1, int(hint_top_k or 3))
+    ablation_sorted = sorted(diag.get("ablation", []) or [], key=lambda e: -float(e.get("delta_pct", 0.0)))
+    hint_cols = [e["feature"] for e in ablation_sorted[:top_k] if e.get("feature")]
+    # Strong hints get all top_k slots; weak hints fall back to half-slot cap inside discovery.
+    hint_strengths = [float(e.get("delta_pct", 0.0)) for e in ablation_sorted[:top_k] if e.get("feature")]
+    if not hint_cols:
+        return cfg, hint_strengths
+    try:
+        cfg = cfg.model_copy(update={"dominant_features_hint": hint_cols})
+    except Exception as clone_err:
+        logger.info("[CompositeTargetDiscovery] hint clone failed for target='%s' (%s); proceeding with MI-only.", target_name, clone_err)
+        return cfg, hint_strengths
+    logger.info(
+        "[CompositeTargetDiscovery] target='%s' hint from BaselineDiagnostics ablation top-%d: %s (max delta%%=%.1f)",
+        target_name, len(hint_cols), hint_cols, max(hint_strengths) if hint_strengths else 0.0,
+    )
+    return cfg, hint_strengths

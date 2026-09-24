@@ -92,7 +92,9 @@ def test_nan_fold_count_warn_fires_when_any_fold_fails(caplog):
                 y_train=y,
                 x_train_matrix=x,
                 cv_folds=5,
-                family="lgb",
+                # A family that fits the model ``_build_tiny_model`` returns. LightGBM folds now train on the shared fold
+                # dataset through the native API and never build a wrapper, so patching the builder injects nothing there.
+                family="linear",
                 n_estimators=5,
                 num_leaves=4,
                 learning_rate=0.1,

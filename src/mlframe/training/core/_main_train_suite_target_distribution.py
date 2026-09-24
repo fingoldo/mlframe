@@ -78,6 +78,27 @@ def _nan_signal_columns_to_keep(candidates: list, fd_report: Any, behavior_confi
     return [_c for _c in nan_only if _c not in _drop]
 
 
+def _warn_structural_nan_drops(nan_dropped: list, fd_report: Any, behavior_config: Any, nan_threshold: float) -> None:
+    """Warn that NaN-heavy columns were dropped whose missingness may be signal -- only those the auto-drop decided.
+
+    Columns above the suite's pre-screen null bar are excluded: the pre-screen drops them regardless of this switch, so
+    advising ``auto_drop_distribution_analyzer_candidates=False`` "to keep them" was false. A production run printed that
+    advice for 9 columns directly under the line saying all 9 were dropped because the pre-screen would drop them anyway.
+    The format string also rendered ``99%%`` -- ``%%%%`` under a single logging substitution.
+    """
+    null_bar = float(getattr(getattr(behavior_config, "feature_selection_config", None), "pre_screen_null_fraction_threshold", 0.99))
+    decided_here = [c for c in nan_dropped if _nan_fraction_of(fd_report, c) <= null_bar]
+    if len(decided_here) < 5:
+        return
+    logger.warning(
+        "[mini-HPT] %d column(s) were dropped for >=%.0f%% missing values alone. When missingness is STRUCTURAL (the "
+        "feature only applies to a subset of rows, e.g. an hourly-rate field on fixed-price jobs) its presence/absence "
+        "is itself predictive, and dropping discards that signal rather than noise -- tree models handle NaN natively. "
+        "Set behavior_config.auto_drop_distribution_analyzer_candidates=False to keep them.",
+        len(decided_here), nan_threshold * 100.0,
+    )
+
+
 def _maybe_auto_drop_after_feature_analyzer(
     *,
     fd_report,
@@ -260,16 +281,7 @@ def _maybe_auto_drop_after_feature_analyzer(
         for _r, _cs in sorted(_by_reason.items()):
             _preview = ", ".join(_cs[:8]) + (f", ... (+{len(_cs) - 8} more)" if len(_cs) > 8 else "")
             logger.info("[mini-HPT]   %s -> %s", _r, _preview)
-        _nan_dropped = _by_reason.get(_nan_label) or []
-        if len(_nan_dropped) >= 5:
-            logger.warning(
-                "[mini-HPT] %d column(s) were dropped for >=%.0f%%%% missing values alone. When missingness is "
-                "STRUCTURAL (the feature only applies to a subset of rows, e.g. an hourly-rate field on "
-                "fixed-price jobs) its presence/absence is itself predictive, and dropping discards that "
-                "signal rather than noise -- tree models handle NaN natively. Set "
-                "behavior_config.auto_drop_distribution_analyzer_candidates=False to keep them.",
-                len(_nan_dropped), _NAN_FRACTION_THRESHOLD * 100.0,
-            )
+        _warn_structural_nan_drops(_by_reason.get(_nan_label) or [], fd_report, behavior_config, _NAN_FRACTION_THRESHOLD)
     return train_df, val_df, test_df, drop_list
 
 

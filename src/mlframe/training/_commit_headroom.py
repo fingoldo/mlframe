@@ -70,11 +70,30 @@ def warn_on_commit_pressure(commit_limit_gb: float, commit_avail_gb: float, priv
     return messages
 
 
+_RETAINED_REPORT_STEP_GB: float = 8.0
+"""The heartbeat repeats the retained-commit warning only after it grew by this much since it was last reported."""
+
+_last_retained_reported_gb: Optional[float] = None
+
+
+def _retained_worth_repeating(private_gb: Optional[float]) -> bool:
+    """Whether the retained-commit condition changed enough since the last report to say it again."""
+    global _last_retained_reported_gb
+    if private_gb is None:
+        return False
+    if _last_retained_reported_gb is not None and private_gb < _last_retained_reported_gb + _RETAINED_REPORT_STEP_GB:
+        return False
+    _last_retained_reported_gb = private_gb
+    return True
+
+
 def check_and_warn(throttle_key: Optional[str] = None) -> list[str]:
     """Probe the system and this process, then warn about whatever commit pressure holds. Never raises.
 
-    ``throttle_key`` routes the warnings through the shared log throttle, for the heartbeat, which would otherwise
-    repeat them every interval for the whole run.
+    ``throttle_key`` marks the heartbeat caller. Low system headroom can develop during a run, so it is repeated there
+    through the shared log throttle, keyed by the CONDITION -- keying by the message text failed, because the message
+    carries a number that changes every beat, and a production run logged the same warning 21 times. Retained commit
+    cannot be released by anything in the run, so the heartbeat repeats it only when it grew materially.
     """
     try:
         from .crash_diagnostics import windows_commit_status
@@ -92,22 +111,21 @@ def check_and_warn(throttle_key: Optional[str] = None) -> list[str]:
             private_gb = float(private) / 1024**3 if private else None
         except Exception as exc:
             logger.debug("process commit probe failed: %s", exc)
-        messages = [
-            m
-            for m in (
-                low_headroom_message(status["commit_limit_gb"], status["commit_avail_gb"]),
-                retained_commit_message(private_gb, rss_gb),
-            )
-            if m
-        ]
+        low = low_headroom_message(status["commit_limit_gb"], status["commit_avail_gb"])
+        retained = retained_commit_message(private_gb, rss_gb)
+        messages = [m for m in (low, retained) if m]
         if throttle_key:
             from mlframe.utils.log_throttle import log_throttle
 
-            for message in messages:
-                log_throttle(logger, f"{throttle_key}:{message[:32]}", logging.WARNING, "[commit-pressure] %s", message)
+            if low:
+                log_throttle(logger, f"{throttle_key}:low_headroom", logging.WARNING, "[commit-pressure] %s", low)
+            if retained and _retained_worth_repeating(private_gb):
+                logger.warning("[commit-pressure] %s", retained)
         else:
             for message in messages:
                 logger.warning("[commit-pressure] %s", message)
+            if retained:
+                _retained_worth_repeating(private_gb)  # the startup report counts: the heartbeat continues from it
         return messages
     except Exception as exc:  # pragma: no cover - a diagnostic must never end a run
         logger.debug("commit-pressure check failed: %s", exc)
