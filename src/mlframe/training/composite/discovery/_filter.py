@@ -134,6 +134,10 @@ def _maybe_sample_for_leak_corr(
     return sampled, y_sampled
 
 
+# |corr| within this of the threshold is recomputed in float64: the vectorised float32 pass is only good to ~1e-5.
+_LEAK_CORR_RECHECK_BAND = 1e-4
+
+
 def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, corr_drops):
     """Split the survivors into kept columns and leak-corr drops, appending each drop to ``drops``/``corr_drops``.
 
@@ -184,11 +188,17 @@ def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, cor
         # only NaN-bearing columns, and they already cleared the >=50-finite
         # gate). float64 also clears the float32 ~1e-5 accumulation that sits
         # inside the threshold band.
+        threshold = float(self.config.forbidden_base_corr_threshold)
+        # The vectorised pass is float32, whose error (~1e-6 here, 1.8e-7 above 1 on a near-copy of y) is the same size as
+        # 1 - threshold: a legitimate near-copy scored |corr| = 1.00000018, above any threshold an operator could raise it
+        # to, so the logged advice to raise the threshold could not work. Columns within the band of the threshold are
+        # recomputed exactly, as the NaN-bearing ones are.
         col_has_nan = non_finite_mask.any(axis=0)
-        if col_has_nan.any():
+        recheck = col_has_nan | (np.asarray(abs_corrs) >= threshold - _LEAK_CORR_RECHECK_BAND)
+        if recheck.any():
             y64 = np.asarray(_y_for_corr, dtype=np.float64)
             y_ok = np.isfinite(y64)
-            for j in np.nonzero(col_has_nan)[0]:
+            for j in np.nonzero(recheck)[0]:
                 finite_rows = (~non_finite_mask[:, j]) & y_ok
                 if int(finite_rows.sum()) < 3:
                     continue
@@ -200,8 +210,7 @@ def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, cor
                 var_y = float(np.dot(y_dev, y_dev))
                 if var_x < 1e-24 or var_y < 1e-24:
                     continue
-                abs_corrs[j] = abs(float(np.dot(x_dev, y_dev)) / np.sqrt(var_x * var_y))
-        threshold = float(self.config.forbidden_base_corr_threshold)
+                abs_corrs[j] = min(1.0, abs(float(np.dot(x_dev, y_dev)) / np.sqrt(var_x * var_y)))
         for col, corr_val in zip(candidates, abs_corrs.tolist()):
             if corr_val >= threshold:
                 drops.append({
