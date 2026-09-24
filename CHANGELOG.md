@@ -127,6 +127,8 @@ history.
 
 ### Changed
 
+- `median_residual` and `quantile_residual` grow their bin count with the training rows (like n^0.3, from 100 / 200 rows per bin, capped at 200 bins; `composite._quantile_edges.bins_for_rows`). A fixed 10-20 bins left the step function's bias flat as data grew. On a saturating relation the downstream composite RMSE improves 1.4-3% at 20k-100k rows and is unchanged at 2k.
+- `monotonic_residual` makes its knot values monotone by weighted isotonic regression instead of a cumulative max, which lifted every dip in the noisy knot medians. On ~200-row groups `monotonic_residual_grouped` placed identical groups 0.075 sd above the pooled fit; now 0.025.
 - The composite MoE gate says once, at INFO, when it cannot deploy because the configured `group_column` is not among the features. An extractor's `group_field` is dropped from the features as bookkeeping, and the enabled gate was then a silent no-op; keep the column among the features to enable it.
 - Composite discovery's leak-correlation filter recomputes in float64 every column whose float32 |corr| lands within 1e-4 of `forbidden_base_corr_threshold`, and caps |corr| at 1. In float32 a near-copy of y (true |corr| 1 - 1.3e-9) scored 1.00000018, above any threshold, so the filter's own advice to raise the threshold could not keep a legitimate lag base; the default 0.99999 sat inside float32 rounding error.
 - `rolling_quantile_ratio_grouped` under recurrence continuation seeds a group it never saw with the ungrouped series' tail, as `rolling_quantile_ratio` does. It used an empty window, so the first k-1 rows of an unseen group were scaled by the median of a truncated window (up to 1.8 off in the test's reconstruction).

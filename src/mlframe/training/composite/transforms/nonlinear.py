@@ -5,7 +5,7 @@ Bound back into the parent's namespace via re-export at the parent's module bott
 from __future__ import annotations
 
 from ._domain_shared import residual_domain_reshaped
-from .._quantile_edges import quantile_bin_edges
+from .._quantile_edges import bins_for_rows, quantile_bin_edges
 
 import logging
 from typing import (
@@ -308,7 +308,9 @@ def _quantile_residual_fit(
     # Tie-safe edges; a discrete base with <= n_bins values gets one bin per value (a binary base used to collapse to one bin).
     # As many bins as the rows can populate: at n=300 with 10 bins of 30 rows and min_bin_n=50 every bin fell back to the
     # global median, so T was y standardised with the base ignored entirely.
-    n_bins = max(2, min(n_bins, base_clean.size // min_bin_n))
+    # The per-bin IQR is noisier than a median, so growth starts at 200 rows per bin: at 100 the 2k-row fit took 12 bins and
+    # the downstream composite RMSE rose 1.7%; at 200 it keeps 10 there and still gains 2-3% at 20k-100k rows.
+    n_bins = max(2, min(bins_for_rows(n_bins, base_clean.size, rows_per_bin=200), base_clean.size // min_bin_n))
     edges = quantile_bin_edges(base_clean, n_bins)
     if edges.size < 2:
         # All base values identical: degenerate single bucket.
@@ -465,9 +467,10 @@ def _monotonic_residual_fit(
     # population threshold down with n so a small train set still fills its edge knots from their own rows.
     min_knot_eff = max(3, min(min_knot_n, y_clean.size // (2 * n_eff)))
     populated = np.zeros(n_eff, dtype=bool)
+    slab_n = np.bincount(slab_idx, minlength=n_eff).astype(np.float64)
     for k in range(n_eff):
         mask = slab_idx == k
-        n_in_slab = int(mask.sum())
+        n_in_slab = int(slab_n[k])
         if n_in_slab >= min_knot_eff:
             knots_y[k] = float(np.median(y_clean[mask]))
             populated[k] = True
@@ -493,11 +496,13 @@ def _monotonic_residual_fit(
             direction = 1
     else:
         direction = 1
-    # Enforce monotonicity by cumulative max / min over knots in the orientation direction; protects against per-knot median noise creating local non-monotonicities PCHIP would otherwise honour (PCHIP is monotone PER SEGMENT but only if the knot values are monotone overall).
-    if direction == 1:
-        knots_y = np.maximum.accumulate(knots_y)
-    else:
-        knots_y = np.minimum.accumulate(knots_y)
+    # Enforce monotonicity over the knots in the orientation direction (PCHIP is monotone per segment only if the knot values are
+    # monotone overall). Weighted pool-adjacent-violators, the least-squares monotone fit, with each knot weighted by its slab's
+    # rows: a cumulative max lifted every dip in the noisy knot medians to the running maximum, a bias that grows as slabs thin,
+    # so a group fitted on ~200 rows of the global population sat 0.07-0.08 sd above the pooled fit.
+    from sklearn.isotonic import isotonic_regression
+
+    knots_y = np.asarray(isotonic_regression(knots_y, sample_weight=np.maximum(slab_n, 1.0), increasing=direction == 1), dtype=np.float64)
     # Degeneracy detection: measure the actual variance reduction g(base) provides on the TRAIN sample. The composite T = y - g(base) is useful iff g captures a non-trivial fraction of y's variance (``var_explained = 1 - var(T) / var(y)``). When < ``_MONOTONIC_DEGENERACY_RATIO`` the spline is noise / a near-constant fit -- downstream models on T produce SAME predictions as on raw y (observed in prod: CB/XGB/LGB MAE identical to raw on a monres-Y spec). Surface the degeneracy so discovery can drop the spec early instead of paying for full training that produces no win.
     _y_var = float(np.var(y_clean)) if y_clean.size > 1 else 0.0
     if _y_var > 0.0:

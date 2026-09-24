@@ -17,7 +17,7 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 
-from .._quantile_edges import quantile_bin_edges
+from .._quantile_edges import bins_for_rows, quantile_bin_edges
 
 logger = logging.getLogger("mlframe.training.composite_transforms")
 
@@ -183,7 +183,7 @@ def _median_residual_fit(
         }
     y_f = y[finite].astype(np.float64)
     b_f = base[finite].astype(np.float64)
-    n_bins = int(_MEDIAN_RESIDUAL_N_BINS)
+    n_bins = bins_for_rows(int(_MEDIAN_RESIDUAL_N_BINS), b_f.size)
     # A discrete base with <= n_bins values gets one bin per value (a binary base used to collapse to ONE bin, i.e. the
     # global median). Only a base whose ties merge MORE distinct values than bins formed loses granularity; that is
     # logged (not ``warnings.warn``, which bypassed the run log and printed a source line to stderr).

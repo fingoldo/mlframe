@@ -40,7 +40,12 @@ class TestFit:
         base = rng.normal(loc=10.0, scale=2.0, size=n)
         y = base + rng.normal(scale=0.5, size=n)
         params = _quantile_residual_fit(y, base)
-        assert params["n_bins"] == _QUANTILE_RESIDUAL_DEFAULT_N_BINS
+        # The default is the bin count at small n; past 200 rows per bin it grows like n^0.3 so the step function sharpens with data.
+        from mlframe.training.composite._quantile_edges import bins_for_rows
+
+        assert params["n_bins"] == _QUANTILE_RESIDUAL_DEFAULT_N_BINS  # 2000 rows: growth starts past 200 rows per bin
+        assert _quantile_residual_fit(np.tile(y, 10), np.tile(base, 10))["n_bins"] == bins_for_rows(_QUANTILE_RESIDUAL_DEFAULT_N_BINS, 10 * n, 200) > 10
+
         assert len(params["bin_medians"]) == params["n_bins"]
         assert len(params["bin_iqrs"]) == params["n_bins"]
         # Edge bins extend to +/- inf for the predict-time OOR contract.
