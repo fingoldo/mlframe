@@ -41,7 +41,7 @@ def test_fresh_interpreter_numpy_fit_predict_is_silent_but_frame_mismatch_still_
 
         df = pd.DataFrame(X, columns=["a", "b", "c"])
         m = lgb.LGBMRegressor(n_estimators=5, verbose=-1).fit(df, y)
-        print("names", list(m.feature_names_in_))
+        print("names", [str(n) for n in m.feature_names_in_])  # numpy 2 reprs array elements as np.str_(...)
         with warnings.catch_warnings(record=True) as rec:
             warnings.simplefilter("always")
             m.predict(X)
