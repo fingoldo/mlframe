@@ -759,7 +759,7 @@ def _defined_relative_changes(numer: np.ndarray, denom: np.ndarray) -> np.ndarra
     """
     with np.errstate(divide="ignore", invalid="ignore"):
         ratios = numer / denom - 1
-    return ratios[np.isfinite(ratios)]
+    return np.asarray(ratios[np.isfinite(ratios)])
 
 
 def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: int = 0, use_diffs: bool = False, dtype=np.float32) -> np.ndarray:

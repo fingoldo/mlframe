@@ -259,7 +259,7 @@ def create_date_features(
     delete_original_cols: bool = True,
     methods: Optional[Dict[str, type]] = None,
     add_cyclical: bool = True,
-    cyclical_periods: Optional[Sequence[Tuple[str, float]]] = None,
+    cyclical_periods: Optional[Sequence[Tuple[str, Union[float, str]]]] = None,
 ) -> Union[pd.DataFrame, pl.DataFrame]:
     """Decompose datetime columns into integer date parts (year, day, weekday, month, ...).
 
@@ -386,7 +386,7 @@ def create_date_features(
 def add_cyclical_date_features(
     df: Union[pd.DataFrame, pl.DataFrame],
     cols: List[str],
-    periods: Optional[Sequence[Tuple[str, float]]] = None,
+    periods: Optional[Sequence[Tuple[str, Union[float, str]]]] = None,
     delete_original_cols: bool = False,
     _precomputed_bases: Optional[Dict[Tuple[str, str], np.ndarray]] = None,
 ) -> Union[pd.DataFrame, pl.DataFrame]:
