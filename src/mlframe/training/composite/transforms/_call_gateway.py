@@ -24,9 +24,7 @@ def _accepted_kwargs(fn: Callable[..., Any]) -> tuple[frozenset[str], bool]:
         sig = inspect.signature(fn)
     except (TypeError, ValueError):
         return frozenset(), True
-    names = frozenset(
-        name for name, p in sig.parameters.items() if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
-    )
+    names = frozenset(name for name, p in sig.parameters.items() if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY))
     var_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
     return names, var_kw
 

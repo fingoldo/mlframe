@@ -213,8 +213,7 @@ def _composite_predict(wrapper: Any, df: Any) -> Any:
             raise
         inner = getattr(wrapper, "estimator_", wrapper)
         logger.warning(
-            "[CompositeTargetEstimator] CatBoost rejected the polars frame on the y-scale predict (%s); "
-            "converting to pandas and retrying.",
+            "[CompositeTargetEstimator] CatBoost rejected the polars frame on the y-scale predict (%s); " "converting to pandas and retrying.",
             str(exc).splitlines()[-1][:200],
         )
         from mlframe.training._predict_guards import _cb_polars_to_pandas

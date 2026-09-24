@@ -168,14 +168,13 @@ def audit_binned_target_maturity(
     n = stats.size
     if n < min_bins or not np.all(np.isfinite(stats)):
         return MaturityAuditResult(
-            verdict="insufficient_data", trend=float("nan"), origin_ratio=float("nan"), n_bins=n,
-            bin_stats=stats.tolist(), bin_counts=counts,
-            warnings=[
-                (
-                    f"maturity audit for target{label} needs at least {min_bins} finite bins; "
-                    f"got {int(np.sum(np.isfinite(stats)))}."
-                )
-            ],
+            verdict="insufficient_data",
+            trend=float("nan"),
+            origin_ratio=float("nan"),
+            n_bins=n,
+            bin_stats=stats.tolist(),
+            bin_counts=counts,
+            warnings=[f"maturity audit for target{label} needs at least {min_bins} finite bins; got {int(np.sum(np.isfinite(stats)))}."],
         )
 
     positions = np.arange(n, dtype=np.float64)

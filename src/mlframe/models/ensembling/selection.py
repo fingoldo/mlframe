@@ -145,10 +145,7 @@ def _score_blend(
             # Multiclass: macro one-vs-rest AUC over every class column. Scoring class 1 alone judged a 5-class blend
             # purely on how it separates class 1, so a member excellent on the other four classes was never picked,
             # and the weights learned that way were applied to all five columns.
-            aucs = [
-                fast_roc_auc((labels == c).astype(np.int64), np.ascontiguousarray(blend[:, k], dtype=np.float64))
-                for k, c in enumerate(classes)
-            ]
+            aucs = [fast_roc_auc((labels == c).astype(np.int64), np.ascontiguousarray(blend[:, k], dtype=np.float64)) for k, c in enumerate(classes)]
             finite = [a for a in aucs if np.isfinite(a)]
             return float(np.mean(finite)) if finite else float("nan")
         binary = (labels == classes[-1]).astype(np.int64) if classes.size == 2 else labels.astype(np.int64)

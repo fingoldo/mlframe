@@ -101,4 +101,3 @@ def _apply_inverse(transform: Any, base: Any, params: Any, t: Any):
     import numpy as np
 
     return np.asarray(transform.inverse(t, base, params), dtype=np.float64)
-

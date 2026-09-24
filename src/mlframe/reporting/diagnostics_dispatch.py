@@ -496,7 +496,6 @@ from ._diagnostics_adversarial import (  # noqa: F401  (re-exported; tests clear
     _render_adversarial_panel,
 )
 
-
 _PSI_CACHE: dict = {}
 _PSI_CACHE_LOCK = threading.Lock()  # concurrent suites share it; the evict-then-insert must not interleave
 

@@ -53,7 +53,6 @@ from .score_flavours import (
 from pyutilz.parallel import cpu_count_physical, parallel_run
 from pyutilz.pythonlib import is_jupyter_notebook
 
-
 # Use the parent module's logger name so caplog filters on
 # ``"mlframe.models.ensembling"`` continue to capture our records.
 # The sibling lives at ``mlframe.models.score`` but the public

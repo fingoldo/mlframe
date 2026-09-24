@@ -44,7 +44,7 @@ measured verdict on the pure-interaction synthetic.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -117,12 +117,14 @@ def score_interaction_pairs(
         return ([], {}) if return_columns else []
     # Every score is taken on the train rows. The mask used to reach only the div eps floor, so a caller passing
     # train+test rows got pairs chosen by MI that read the test targets.
+    fit: Union[slice, np.ndarray]
     if train_mask is None:
         fit = slice(None)
     else:
-        fit = np.asarray(train_mask, dtype=bool).reshape(-1)
-        if fit.shape != y.shape:
-            raise ValueError(f"score_interaction_pairs: train_mask has {fit.size} rows, y has {y.size}")
+        mask = np.asarray(train_mask, dtype=bool).reshape(-1)
+        if mask.shape != y.shape:
+            raise ValueError(f"score_interaction_pairs: train_mask has {mask.size} rows, y has {y.size}")
+        fit = mask
     y_fit = y[fit]
     # Marginal MI per candidate, computed once (reused across every pair it
     # appears in). Bit-identical to recomputing per pair, just cheaper.

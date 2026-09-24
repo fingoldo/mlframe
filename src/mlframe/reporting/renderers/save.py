@@ -267,7 +267,6 @@ def get_inline_display_mode():
     return None
 
 
-
 # Per-backend wait in ``render_and_save``'s multi-backend path; past it the render thread is abandoned.
 _BACKEND_RENDER_TIMEOUT_S = 60.0
 

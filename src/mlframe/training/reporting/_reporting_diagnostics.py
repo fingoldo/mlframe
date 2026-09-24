@@ -469,7 +469,8 @@ def _render_post_fit_diagnostics(
                     y_true=y_arr, y_score=y_pred, task="regression", confidence=conf, plot_outputs=plot_outputs,
                     base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
                     confidence_source="proxy_distance_from_prediction_mean",
-            ))
+                ),
+            )
 
     if getattr(cfg, "model_card", False) and y_arr is not None:
         _mc_task = "regression" if task == "regression" else ("binary" if tt == "binary_classification" else "classification")

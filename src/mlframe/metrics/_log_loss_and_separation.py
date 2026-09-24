@@ -29,7 +29,6 @@ from ._numba_params import (
     _PARALLEL_MULTILABEL_THRESHOLD,
 )
 
-
 _REDUCTION_CHUNKS = 256  # fixed, data-independent partition for the parallel float reductions in this module
 
 

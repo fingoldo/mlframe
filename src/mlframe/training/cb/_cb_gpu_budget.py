@@ -90,9 +90,7 @@ def resume_capped(guard: Any, refit: Callable[[], Any]) -> Any:
     est = guard.est
     row = read_time_left_tail(est.get_params().get("train_dir") or "")
     if row is None or not guard.snapshot_file or not os.path.exists(guard.snapshot_file):
-        raise RuntimeError(
-            f"CatBoost GPU fit interrupted ({guard.limit_reason}) but no progress/snapshot is available to resume from; the fit is lost."
-        )
+        raise RuntimeError(f"CatBoost GPU fit interrupted ({guard.limit_reason}) but no progress/snapshot is available to resume from; the fit is lost.")
     done = int(row[0]) + 1
     saved = snapshot_params(guard.snapshot_file) or {}
     mcc = (saved.get("cat_feature_params") or {}).get("max_ctr_complexity")

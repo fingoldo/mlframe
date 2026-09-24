@@ -20,9 +20,7 @@ logger = logging.getLogger(__name__)
 # Target types whose per-bin ``target_rate`` is a probability in [0, 1]. For those the drift threshold is a
 # percentage-point difference and compares directly against the spread. Every other type carries the target's own
 # units, where an absolute comparison reduces to "is this target's scale bigger than the threshold".
-_PROBABILITY_RATE_TARGET_TYPES: frozenset[str] = frozenset(
-    {"binary_classification", "multiclass_classification", "multilabel_classification"}
-)
+_PROBABILITY_RATE_TARGET_TYPES: frozenset[str] = frozenset({"binary_classification", "multiclass_classification", "multilabel_classification"})
 
 
 def _bin_ages(kept_bins: list) -> list[float]:
@@ -77,19 +75,18 @@ def _unstable_rate_warnings(segments: list, mean_rates: list[float], target_type
         else f"relative spread {spread_rel:.1%} > {drift_warn_threshold:.1%} (absolute spread {spread_abs:.3f} is in target units, "
         f"so it is compared against the segment level rather than against the threshold directly)"
     )
-    return [(
-        f"target rate is NOT stable over time: detected {len(segments)} segments "
-        f"with mean rates ranging {min(mean_rates):.3f}..{max(mean_rates):.3f} "
-        f"({_scale_note}). "
-        f"Likely causes: (a) selection-bias in your data source over time, "
-        f"(b) regime change in the underlying generative process, (c) target "
-        f"definition shift, (d) a still-accruing target whose newest rows have not matured "
-        f"(check the dropped-bin note below -- monotone decline toward the present is its signature). "
-        f"See segment list below for cutoff dates."
-    )] + [
-        f"  segment {s['start_label']}..{s['end_label']} " f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): " f"mean_rate={s['mean_rate']:.3f}"
-        for s in segments
-    ]
+    return [
+        (
+            f"target rate is NOT stable over time: detected {len(segments)} segments "
+            f"with mean rates ranging {min(mean_rates):.3f}..{max(mean_rates):.3f} "
+            f"({_scale_note}). "
+            f"Likely causes: (a) selection-bias in your data source over time, "
+            f"(b) regime change in the underlying generative process, (c) target "
+            f"definition shift, (d) a still-accruing target whose newest rows have not matured "
+            f"(check the dropped-bin note below -- monotone decline toward the present is its signature). "
+            f"See segment list below for cutoff dates."
+        )
+    ] + [f"  segment {s['start_label']}..{s['end_label']} " f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): " f"mean_rate={s['mean_rate']:.3f}" for s in segments]
 
 
 def _dropped_bins_warning(bins: list, kept_bins: list, threshold_n: float, min_bin_fraction: float) -> tuple[int, int, str | None]:

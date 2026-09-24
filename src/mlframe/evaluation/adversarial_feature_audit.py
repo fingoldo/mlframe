@@ -18,7 +18,7 @@ import numpy as np
 
 
 def _recommendation(delta: float, min_auc_delta: float) -> str:
-    """"drop" / "keep" only for an AUC change past ``min_auc_delta``; inside it the sign is fit noise."""
+    """Recommend "drop" / "keep" only for an AUC change past ``min_auc_delta``; inside it the sign is fit noise."""
     if delta > min_auc_delta:
         return "drop"
     if delta < -min_auc_delta:

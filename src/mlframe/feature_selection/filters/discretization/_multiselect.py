@@ -65,7 +65,7 @@ def multiselect_inplace(a: np.ndarray, kths: np.ndarray) -> None:
                 _insertion_sort_range(a, left, h)
                 break
             if budget <= 0:
-                a[left:h + 1].sort()
+                a[left : h + 1].sort()
                 break
             budget -= 1
             m = (left + h) // 2

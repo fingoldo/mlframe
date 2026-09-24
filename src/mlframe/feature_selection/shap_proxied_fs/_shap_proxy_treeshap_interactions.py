@@ -287,7 +287,7 @@ def _per_tree_split_features(ensemble):
     ptr = np.zeros(roots.shape[0] + 1, dtype=np.int64)
     parts = []
     for t in range(roots.shape[0]):
-        f = feats[bounds[t]:bounds[t + 1]]
+        f = feats[bounds[t] : bounds[t + 1]]
         u = np.unique(f[f >= 0]).astype(np.int64)
         parts.append(u)
         ptr[t + 1] = ptr[t] + u.shape[0]

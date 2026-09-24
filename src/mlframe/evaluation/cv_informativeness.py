@@ -18,9 +18,8 @@ import logging
 
 import numpy as np
 
-
-
 logger = logging.getLogger(__name__)
+
 
 def _classify_fold_trend(fold_sizes: np.ndarray, margins: np.ndarray, corr_threshold: float) -> dict:
     """Classify whether per-fold informativeness margins decay as held-out fold size shrinks.

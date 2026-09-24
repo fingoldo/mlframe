@@ -66,10 +66,7 @@ def _has_calib_slice(ctx: "TrainingContext") -> bool:
     calib_idx = getattr(ctx, "calib_idx", None)
     if calib_idx is not None and len(calib_idx) > 0:
         return True
-    return any(
-        getattr(e, "calib_probs", None) is not None or getattr(e, "calib_preds", None) is not None
-        for _t, e in _entries(ctx)
-    )
+    return any(getattr(e, "calib_probs", None) is not None or getattr(e, "calib_preds", None) is not None for _t, e in _entries(ctx))
 
 
 def _behavior_step_enabled(cfg: Any, name: str) -> bool:
@@ -97,9 +94,7 @@ def calib_dependent_steps_skipped(ctx: "TrainingContext") -> list[str]:
     has_classifier = any(t in _CLASSIFICATION_TYPES for t in types)
     has_binary = _BINARY in types
     # Regression conformal falls back to OOF residuals, so only entries lacking them actually lost their intervals.
-    regression_without_oof = any(
-        t == "regression" and getattr(e, "oof_preds", None) is None for t, e in _entries(ctx)
-    )
+    regression_without_oof = any(t == "regression" and getattr(e, "oof_preds", None) is None for t, e in _entries(ctx))
 
     behavior = getattr(ctx, "behavior_config", None)
     conformal = getattr(ctx, "conformal_config", None)

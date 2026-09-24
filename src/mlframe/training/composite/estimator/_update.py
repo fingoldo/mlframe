@@ -126,8 +126,7 @@ def _apply_drift_refit(self, info: dict, helper_alpha: float, helper_beta: float
         refit = call_transform(transform, "fit", y_live, b_live)
         alpha, beta = float(refit["alpha"]), float(refit["beta"])
     except Exception as err:  # the OLS coefficients the helper found are still a valid drift correction
-        logger.warning("[CompositeTargetEstimator.update] the transform's own refit failed (%s); serving the drift check's OLS "
-                       "coefficients instead.", err)
+        logger.warning("[CompositeTargetEstimator.update] the transform's own refit failed (%s); serving the drift check's OLS " "coefficients instead.", err)
     self.fitted_params_["alpha"], self.fitted_params_["beta"] = alpha, beta
     try:
         if y_live.size >= 10:
@@ -139,8 +138,7 @@ def _apply_drift_refit(self, info: dict, helper_alpha: float, helper_beta: float
             if env is not None:  # the one envelope formula fit(), from_fitted_inner() and discovery share
                 self.fitted_params_["t_clip_low"], self.fitted_params_["t_clip_high"] = env
     except Exception as env_err:
-        logger.warning("[CompositeTargetEstimator.update] envelope refresh after drift refit failed (%s); kept the pre-drift clip bounds.",
-                       env_err)
+        logger.warning("[CompositeTargetEstimator.update] envelope refresh after drift refit failed (%s); kept the pre-drift clip bounds.", env_err)
     return alpha, beta
 
 def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:

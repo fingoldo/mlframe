@@ -113,8 +113,7 @@ def _transform_pair_via(
     return pp_fit.transform(X_train), pp_fit.transform(X_holdout)
 
 
-def _transform_pair_cached(memo: dict | None, pp: Any, X_train: Any, X_holdout: Any, *, y_train: Any = None,
-                           refit_supervised: bool = False) -> tuple[Any, Any]:
+def _transform_pair_cached(memo: dict | None, pp: Any, X_train: Any, X_holdout: Any, *, y_train: Any = None, refit_supervised: bool = False) -> tuple[Any, Any]:
     """:func:`_transform_pair_via`, reusing the result for other components that hold the same fitted pipeline.
 
     Components built from one strategy share a single fitted ``pre_pipeline`` object, and every one of them re-ran the

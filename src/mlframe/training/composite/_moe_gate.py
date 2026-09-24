@@ -165,8 +165,7 @@ def _paired_gain_z(codes, w, y, P, n_groups, lag_idx):
         s1 = np.bincount(c, weights=wt * d[:, k], minlength=n_groups)
         s2 = np.bincount(c, weights=wt * d[:, k] ** 2, minlength=n_groups)
         z[:, k] = _z(counts, sw, s1, s2)
-    pooled = _z(np.full(n_experts, float(c.size)), np.full(n_experts, float(wt.sum())), (wt[:, None] * d).sum(axis=0),
-                (wt[:, None] * d * d).sum(axis=0))
+    pooled = _z(np.full(n_experts, float(c.size)), np.full(n_experts, float(wt.sum())), (wt[:, None] * d).sum(axis=0), (wt[:, None] * d * d).sum(axis=0))
     return z, pooled
 
 
