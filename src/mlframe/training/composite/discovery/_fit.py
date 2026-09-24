@@ -69,10 +69,12 @@ def _apply_honest_holdout_stages(self, df, target_col, kept_specs, usable_featur
         from ._honest_rmse_gate import apply_honest_rmse_gate
 
         # The SELECTION half: this gate drops specs, so it must not read the rows the reported honest number comes from.
-        kept_specs = apply_honest_rmse_gate(
-            self, df, target_col, kept_specs, usable_features,
-            train_idx, getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx), y_full,
-        )
+        _select_idx = getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx)
+        kept_specs = apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _select_idx, y_full)
+        # The exported RMSE gain comes from the report half: the one above is conditioned on having passed the gate.
+        _report_idx = getattr(self, "honest_holdout_report_idx_", None)
+        if kept_specs and _report_idx is not None and _select_idx is not None and not np.array_equal(_report_idx, _select_idx):
+            apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _report_idx, y_full, record_only=True)
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "honest_rmse_gate_done")
 

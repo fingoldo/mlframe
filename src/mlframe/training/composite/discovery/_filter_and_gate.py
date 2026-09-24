@@ -49,6 +49,11 @@ def filter_sort_and_gate_candidates(
         # when bootstrap is enabled. Falls back to point estimate
         # when LCB unavailable.
         mi_gain_for_gate = entry.get("mi_gain_lcb", spec.mi_gain)
+        # A NaN gain is an unmeasured spec, not a winning one: ``NaN <= eps`` is False, so the plain comparison admitted it
+        # and the -mi_gain sort then placed it arbitrarily in the top-k.
+        if not np.isfinite(mi_gain_for_gate):
+            entry["reason"] = f"mi_gain is not finite ({mi_gain_for_gate}); the spec could not be measured"
+            continue
         if mi_gain_for_gate <= self.config.eps_mi_gain:
             entry["reason"] = f"mi_gain={spec.mi_gain:.4f} <= eps={self.config.eps_mi_gain:.4f}"
             continue

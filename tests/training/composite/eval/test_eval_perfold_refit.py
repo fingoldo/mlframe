@@ -175,8 +175,14 @@ def test_biz_val_perfold_refit_removes_global_fit_optimism():
     ratio 1.171 on the degree-13 poly residual + cubic+noise synthetic (the
     flexible global fit absorbs noise -> the leaky held-out score is flattered).
     Floor 1.10 (~6% below the measured 1.171) so seed noise does not trip it; a
-    regression that drops the per-fold refit collapses the gap (ratio -> 1.0)
-    and fails.
+    regression in ``refit_transform_on_fold`` that hands back the global params
+    collapses the gap (ratio -> 1.0) and fails.
+
+    Scope: this drives ``refit_transform_on_fold`` through a CV loop written here,
+    so it certifies the helper, not that production calls it. That the screening
+    CV itself scores folds with per-fold params is pinned against the real
+    ``_tiny_cv_rmse_y_scale`` in
+    ``screening/test_tiny_cv_refits_transform_per_fold.py``.
     """
     transform = _make_poly_transform()
     k = 5

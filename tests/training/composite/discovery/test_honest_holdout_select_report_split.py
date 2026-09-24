@@ -60,3 +60,61 @@ def test_the_carve_publishes_both_halves_on_the_instance():
     assert np.intersect1d(select, report).size == 0
     np.testing.assert_array_equal(np.union1d(select, report), np.sort(holdout_idx))
     assert np.intersect1d(screen_idx, report).size == 0, "the reported rows must be unseen by screening as well"
+
+
+def test_the_exported_rmse_gain_is_measured_on_the_report_half():
+    """The RMSE gate decides on the select half; the gain every consumer reads comes from the report half.
+
+    The first fix moved only the MI re-score to the report half. ``honest_holdout_rmse_gain`` - the number the cross-target
+    budget ranks by and the ship floor tests - was still stamped by the gate on the rows it had just used to decide. This
+    spies on the gate: the select-half call must decide, a second call on the report rows must record, and the exported
+    fields must be the recording call's, with the gate's own number kept apart as ``selection_holdout_rmse_gain``.
+    """
+    import warnings
+
+    import pandas as pd
+
+    from mlframe.training.composite import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery import _honest_rmse_gate as gate_mod
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    rng = np.random.default_rng(0)
+    n = 2000
+    base = rng.uniform(50.0, 150.0, n)
+    x1, x2 = rng.normal(size=n), rng.normal(size=n)
+    df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": 0.9 * base + 4.0 * np.sin(x1) + 2.0 * x2 + rng.normal(0.0, 1.0, n)})
+
+    calls: list[dict] = []
+    real_gate = gate_mod.apply_honest_rmse_gate
+
+    def _spy(self, df_, target_col, kept_specs, usable_features, screen_idx, holdout_idx, y_full, **kwargs):
+        """Run the real gate, then note which rows it read, in which mode, and what it stamped."""
+        out = real_gate(self, df_, target_col, kept_specs, usable_features, screen_idx, holdout_idx, y_full, **kwargs)
+        calls.append({"rows": np.asarray(holdout_idx), "record_only": bool(kwargs.get("record_only", False)),
+                      "gains": {s.name: s.honest_holdout_rmse_gain for s in out}})
+        return out
+
+    cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, base_candidates=["base"], transforms=["linear_residual", "diff"])
+    disc = CompositeTargetDiscovery(cfg)
+    import unittest.mock as mock
+
+    with mock.patch.object(gate_mod, "apply_honest_rmse_gate", _spy), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        disc.fit(df, "y", ["base", "x1", "x2"], np.arange(n))
+
+    select, report = disc.honest_holdout_select_idx_, disc.honest_holdout_report_idx_
+    assert np.intersect1d(select, report).size == 0
+    decides = [c for c in calls if not c["record_only"]]
+    records = [c for c in calls if c["record_only"]]
+    assert len(decides) == 1, f"expected one deciding call on the select half, got {len(decides)}"
+    assert len(records) == 1, "no call re-scored the survivors on the report half, so the exported gain is the gate's own"
+    decide, record = decides[0], records[0]
+    np.testing.assert_array_equal(decide["rows"], select)
+    np.testing.assert_array_equal(record["rows"], report)
+
+    specs = disc.export_specs()
+    assert specs, "the fixture must ship at least one spec for the assertion to mean anything"
+    for s in specs:
+        assert s["honest_holdout_rmse_gain"] == record["gains"][s["name"]], "the exported gain is not the report half's"
+        assert s["selection_holdout_rmse_gain"] == decide["gains"][s["name"]], "the gate's own number was lost"
+        assert s["honest_holdout_rmse_gain"] != s["selection_holdout_rmse_gain"], "two different row sets gave the same number"

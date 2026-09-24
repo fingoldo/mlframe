@@ -156,31 +156,15 @@ def _correlation_if_duplicate_of_raw(y_hat: np.ndarray, raw_pred: np.ndarray, rm
     return corr if corr >= _DUPLICATE_OF_RAW_MIN_CORR else None
 
 
-def apply_honest_rmse_gate(
-    self: Any,
-    df: Any,
-    target_col: str,
-    kept_specs: list,
-    usable_features: Sequence[str],
-    screen_idx: np.ndarray,
-    holdout_idx: np.ndarray | None,
-    y_full: np.ndarray,
-) -> list:
-    """Drop specs whose predict-T -> invert-to-y holdout RMSE loses to a raw-y tiny baseline.
+def _holdout_fit_context(self: Any, df: Any, usable_features: Sequence[str], screen_idx: np.ndarray, holdout_idx: np.ndarray,
+                         y_full: np.ndarray) -> tuple | None:
+    """The rows, matrices and tiny-model fitter one gate pass scores with, or None when a side is below 50 rows.
 
-    Returns the surviving spec list (possibly empty -- the correct outcome when every
-    candidate worsens the y-scale prediction). No-ops (keeps every spec) when the gate is
-    disabled, there are no specs, the honest holdout is absent/too small, or the raw-y
-    baseline itself cannot be fit (nothing sound to gate against).
+    Returns ``(fit_idx, eval_idx, y_fit, y_eval, y_eval_std, fit_predict, last_residual_q)``: ``fit_predict(target, mask)``
+    fits a fresh tiny model on the (masked) fit rows and predicts the eval rows, and ``last_residual_q["q"]`` holds the
+    residual quantiles of its last fit for the smearing correction.
     """
-    note_rows("honest_holdout", "select", "honest_rmse_gate", holdout_idx)
     cfg = self.config
-    if not getattr(cfg, "honest_rmse_gate_enabled", True) or not kept_specs:
-        return kept_specs
-    if holdout_idx is None or np.asarray(holdout_idx).size < 50:
-        logger.info("[CompositeTargetDiscovery.honest_rmse_gate] no usable honest holdout (honest_holdout_frac disabled or too small) -- OOS RMSE gate skipped.")
-        return kept_specs
-
     screen_idx, holdout_idx = np.asarray(screen_idx), np.asarray(holdout_idx)
     cap = int(getattr(cfg, "honest_rmse_gate_sample_n", 20_000))
     rng = np.random.default_rng(int(getattr(cfg, "random_state", 42)))
@@ -194,7 +178,7 @@ def apply_honest_rmse_gate(
     fit_idx = _subsample(screen_idx)
     eval_idx = _subsample(holdout_idx)
     if fit_idx.size < 50 or eval_idx.size < 50:
-        return kept_specs
+        return None
 
     feats = list(usable_features)
     x_fit = self._build_feature_matrix(df, feats, fit_idx)
@@ -209,7 +193,7 @@ def apply_honest_rmse_gate(
     rs = int(getattr(cfg, "random_state", 42))
 
     # Residual quantiles of the last tiny-model fit on its own fit rows, for the smearing correction (``_smearing``).
-    _last_residual_q: dict = {"q": None}
+    last_residual_q: dict = {"q": None}
 
     def _fit_predict(target_fit: np.ndarray, row_mask: np.ndarray | None = None) -> np.ndarray:
         """Fit a fresh tiny model on ``target_fit`` (optionally masked to the transform's valid fit rows) and predict on the shared holdout matrix."""
@@ -222,8 +206,46 @@ def apply_honest_rmse_gate(
         model.fit(xf, tf)
         _res = np.asarray(tf, dtype=np.float64) - np.asarray(model.predict(xf), dtype=np.float64)
         _res = _res[np.isfinite(_res)]
-        _last_residual_q["q"] = np.quantile(_res, (np.arange(N_SMEAR_QUANTILES) + 0.5) / N_SMEAR_QUANTILES) if _res.size >= 4 * N_SMEAR_QUANTILES else None
+        last_residual_q["q"] = np.quantile(_res, (np.arange(N_SMEAR_QUANTILES) + 0.5) / N_SMEAR_QUANTILES) if _res.size >= 4 * N_SMEAR_QUANTILES else None
         return np.asarray(model.predict(x_eval), dtype=np.float64)
+
+    return fit_idx, eval_idx, y_fit, y_eval, y_eval_std, _fit_predict, last_residual_q
+
+def apply_honest_rmse_gate(
+    self: Any,
+    df: Any,
+    target_col: str,
+    kept_specs: list,
+    usable_features: Sequence[str],
+    screen_idx: np.ndarray,
+    holdout_idx: np.ndarray | None,
+    y_full: np.ndarray,
+    record_only: bool = False,
+) -> list:
+    """Drop specs whose predict-T -> invert-to-y holdout RMSE loses to a raw-y tiny baseline.
+
+    Returns the surviving spec list (possibly empty -- the correct outcome when every
+    candidate worsens the y-scale prediction). No-ops (keeps every spec) when the gate is
+    disabled, there are no specs, the honest holdout is absent/too small, or the raw-y
+    baseline itself cannot be fit (nothing sound to gate against).
+
+    ``record_only`` re-scores the given specs on rows no decision reads and drops nothing: the numbers the gate decided
+    on are conditioned on having passed it, so exporting them as the honest gain carried the winner's curse into the
+    cross-target budget. In this mode every spec is kept, the ``honest_holdout_rmse*`` fields are stamped from these
+    rows (``None`` where they cannot score the spec), and the gate's own gain moves to ``selection_holdout_rmse_gain``.
+    """
+    note_rows("honest_holdout", "report" if record_only else "select", "honest_rmse_gate", holdout_idx)
+    cfg = self.config
+    if not getattr(cfg, "honest_rmse_gate_enabled", True) or not kept_specs:
+        return kept_specs
+    if holdout_idx is None or np.asarray(holdout_idx).size < 50:
+        logger.info("[CompositeTargetDiscovery.honest_rmse_gate] no usable honest holdout (honest_holdout_frac disabled or too small) -- OOS RMSE gate skipped.")
+        return kept_specs
+
+    ctx = _holdout_fit_context(self, df, usable_features, screen_idx, holdout_idx, y_full)
+    if ctx is None:
+        return kept_specs
+    fit_idx, eval_idx, y_fit, y_eval, y_eval_std, _fit_predict, _last_residual_q = ctx
 
     try:
         # Keep the raw PREDICTION VECTOR, not just its RMSE: specs' squared errors pair with it (see _paired_rmse_gain_se).
@@ -240,15 +262,27 @@ def apply_honest_rmse_gate(
 
     tol = float(getattr(cfg, "honest_rmse_gate_tolerance", 1.05))
     threshold = raw_rmse * tol
-    const_rmse = rmse(y_eval, np.full(y_eval.shape, float(np.mean(y_fit))))  # the null (see _no_better_than_constant)
+    const_rmse = rmse(y_eval, np.full(y_eval.shape, float(np.mean(y_fit))))  # the null a spec must beat (the constant, not the raw tiny model)
     survivors: list = []
     rejected: list[tuple[str, str]] = []
+
+    def _reject(spec: Any, reason: str, numbers: dict | None = None, error: bool = False) -> None:
+        """Drop ``spec`` with ``reason``; in ``record_only`` mode keep it and record that these rows could not score it."""
+        if record_only:
+            _move_rmse_stamps_to_selection(spec)
+            survivors.append(spec)
+        elif error:
+            _gate_error_reject(self, spec, rejected, RejectStage.HONEST_RMSE, reason, with_score=False)
+        else:
+            rejected.append((spec.name, reason))
+            ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=reason, numbers=numbers or {},
+                          base_column=getattr(spec, "base_column", ""), transform_name=getattr(spec, "transform_name", ""))
 
     for spec in kept_specs:
         try:
             transform = get_transform(spec.transform_name)
         except UnknownTransformError:  # not in the registry, so no predict can invert it either
-            _gate_error_reject(self, spec, rejected, RejectStage.HONEST_RMSE, "transform is not registered", with_score=False)
+            _reject(spec, "transform is not registered", error=True)
             continue
         params = dict(spec.fitted_params)
         base_cols = spec_base_columns(spec)
@@ -256,6 +290,8 @@ def apply_honest_rmse_gate(
         base_eval = _base_arg(df, base_cols, eval_idx)
         valid = _spec_fit_mask(transform, y_fit, base_fit, params, spec.name)
         if int(valid.sum()) < 50:
+            if record_only:  # too few valid rows to score on these rows either: no honest number, not the gate's one
+                _move_rmse_stamps_to_selection(spec)
             survivors.append(spec)
             continue
         base_fit_v = base_fit[valid] if base_fit.ndim == 1 else base_fit[valid, :]
@@ -270,48 +306,45 @@ def apply_honest_rmse_gate(
                 y_hat = smeared_inverse(spec_inverse(transform, base_eval, params), t_hat, _q)
         except Exception as exc:
             # The same forward/inverse raises at predict time on rows like these; keeping the spec disabled the gate for it.
-            _gate_error_reject(self, spec, rejected, RejectStage.HONEST_RMSE, f"fit/inverse raised {type(exc).__name__}: {exc}", with_score=False)
+            _reject(spec, f"fit/inverse raised {type(exc).__name__}: {exc}", error=True)
             continue
 
-        finite = np.isfinite(y_hat)
-        n_finite = int(finite.sum())
-        _led_kw = dict(base_column=getattr(spec, "base_column", ""), transform_name=getattr(spec, "transform_name", ""))
+        n_finite = int(np.isfinite(y_hat).sum())
         if n_finite < max(50, int(0.5 * y_hat.size)):
-            _r = f"non-finite inverse on holdout ({n_finite}/{y_hat.size} finite)"
-            rejected.append((spec.name, _r))
-            ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
-                          numbers={"n_finite": n_finite, "n_total": int(y_hat.size)}, **_led_kw)
+            _reject(spec, f"non-finite inverse on holdout ({n_finite}/{y_hat.size} finite)", {"n_finite": n_finite, "n_total": int(y_hat.size)})
             continue
         y_hat, pred_std = median_filled_with_std(y_hat, y_fit)  # score what predict() ships, on every eval row
         if y_eval_std > 0 and pred_std < 1e-4 * y_eval_std:
-            _r = f"collapsed inverse (pred_std={pred_std:.3g} vs y_std={y_eval_std:.3g})"
-            rejected.append((spec.name, _r))
-            ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
-                          numbers={"pred_std": pred_std, "y_eval_std": y_eval_std}, **_led_kw)
+            _reject(spec, f"collapsed inverse (pred_std={pred_std:.3g} vs y_std={y_eval_std:.3g})", {"pred_std": pred_std, "y_eval_std": y_eval_std})
             continue
         rmse_y = rmse(y_eval, y_hat)
-        if not np.isfinite(rmse_y) or rmse_y > threshold:
-            _r = f"honest y-RMSE={rmse_y:.4g} > raw {raw_rmse:.4g} x {tol:.2f}"
-            rejected.append((spec.name, _r))
-            ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
-                          numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "tol": float(tol)}, **_led_kw)
+        if record_only:  # every spec here already passed the gate; these rows only measure it, whatever the result
+            _move_rmse_stamps_to_selection(spec)
+        elif not np.isfinite(rmse_y) or rmse_y > threshold:
+            _reject(spec, f"honest y-RMSE={rmse_y:.4g} > raw {raw_rmse:.4g} x {tol:.2f}",
+                    {"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "tol": float(tol)})
             continue
-        if _no_better_than_constant(self, spec, rejected, rmse_y, const_rmse, _led_kw):
+        elif np.isfinite(const_rmse) and rmse_y >= const_rmse:
+            # The null is the constant, not the raw tiny model: on a signal-free target the raw model overfits noise and
+            # loses to the constant, so a composite "beat raw" by 2-3 standard errors while predicting nothing.
+            _reject(spec, f"honest y-RMSE={rmse_y:.4g} is no better than the constant train mean ({const_rmse:.4g})",
+                    {"rmse_y": float(rmse_y), "constant_rmse": float(const_rmse)})
             continue
-        # A reconstruction that duplicates the raw model ships a second model for nothing (see the helper).
-        _corr = _correlation_if_duplicate_of_raw(y_hat, np.asarray(_raw_pred, dtype=np.float64), rmse_y, raw_rmse)
-        if _corr is not None:
-            _r = f"reconstruction duplicates the raw model (corr={_corr:.6f}, y-RMSE={rmse_y:.6g} vs raw {raw_rmse:.6g})"
-            rejected.append((spec.name, _r))
-            ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
-                          numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "corr_with_raw": _corr}, **_led_kw)
-            continue
+        else:
+            # A reconstruction that duplicates the raw model ships a second model for nothing (see the helper).
+            _corr = _correlation_if_duplicate_of_raw(y_hat, np.asarray(_raw_pred, dtype=np.float64), rmse_y, raw_rmse)
+            if _corr is not None:
+                _reject(spec, f"reconstruction duplicates the raw model (corr={_corr:.6f}, y-RMSE={rmse_y:.6g} vs raw {raw_rmse:.6g})",
+                        {"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "corr_with_raw": _corr})
+                continue
         object.__setattr__(spec, "honest_holdout_rmse", float(rmse_y))
         object.__setattr__(spec, "honest_holdout_raw_rmse", float(raw_rmse))
         object.__setattr__(spec, "honest_holdout_rmse_gain", float(raw_rmse - rmse_y))
         object.__setattr__(spec, "honest_holdout_rmse_gain_se", _paired_rmse_gain_se(y_eval, _raw_pred, y_hat, raw_rmse, float(rmse_y)))
         survivors.append(spec)
 
+    if record_only:
+        return survivors
     if rejected:
         logger.warning("[CompositeTargetDiscovery.honest_rmse_gate] dropped %d/%d spec(s) whose y-scale honest-holdout RMSE loses to the raw-y "
                        "tiny baseline or the constant (raw RMSE=%.4g, tol=%.2f): %s", len(rejected), len(kept_specs), raw_rmse, tol,
@@ -320,19 +353,17 @@ def apply_honest_rmse_gate(
     return survivors
 
 
-def _no_better_than_constant(self: Any, spec: Any, rejected: list, rmse_y: float, const_rmse: float, led_kw: dict) -> bool:
-    """Reject (and ledger) a spec whose honest y-RMSE does not beat the constant train-mean prediction; True when rejected.
+def _move_rmse_stamps_to_selection(spec: Any) -> None:
+    """Keep the gate's own gain as ``selection_holdout_rmse_gain`` and clear the honest fields for the report pass to fill.
 
-    The null is the constant, not the raw tiny model: on a signal-free target the raw model overfits noise and loses to the
-    constant, so a composite "beat raw" by 2-3 standard errors while predicting nothing (10 noise specs on one seed).
+    Called once per spec in ``record_only`` mode, before that pass stamps the report-half numbers (or leaves them ``None``
+    when those rows cannot score the spec): whatever it writes, the number the gate decided on is no longer exported as
+    the honest one.
     """
-    if not (np.isfinite(const_rmse) and rmse_y >= const_rmse):
-        return False
-    reason = f"honest y-RMSE={rmse_y:.4g} is no better than the constant train mean ({const_rmse:.4g})"
-    rejected.append((spec.name, reason))
-    ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=reason,
-                  numbers={"rmse_y": float(rmse_y), "constant_rmse": float(const_rmse)}, **led_kw)
-    return True
+    if getattr(spec, "selection_holdout_rmse_gain", None) is None:
+        object.__setattr__(spec, "selection_holdout_rmse_gain", getattr(spec, "honest_holdout_rmse_gain", None))
+    for field in ("honest_holdout_rmse", "honest_holdout_raw_rmse", "honest_holdout_rmse_gain", "honest_holdout_rmse_gain_se"):
+        object.__setattr__(spec, field, None)
 
 
 def _fit_predict_masked(fit_predict: Any, t_fit_valid: np.ndarray, valid: np.ndarray) -> np.ndarray:

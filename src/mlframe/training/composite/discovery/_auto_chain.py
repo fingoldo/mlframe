@@ -159,6 +159,28 @@ def _registry_equivalent(residual_name: str, unary_name: str) -> Optional[str]:
             return name
     return None
 
+def _already_screened(residual_name: str, unary_name: str, already_screened: Sequence[str]) -> bool:
+    """True, and logged, when the screen already carries this composition under its registry name."""
+    existing = _registry_equivalent(residual_name, unary_name)
+    if existing is None or existing not in already_screened:
+        return False
+    logger.info("[auto_chain] %s + %s is the composition %s already carries; the screen has it, so it is not proposed again.",
+                residual_name, unary_name, existing)
+    return True
+
+
+def _chain_clears_the_bar(cr: float, valid_frac: float, best_single: float, raw_rmse: float, min_rmse_margin: float,
+                          min_valid_domain_frac: float) -> bool:
+    """Whether a chain's y-scale CV RMSE ``cr`` earns a proposal.
+
+    Beating the two single stages is not enough: all three can lose to raw y, and the chain is appended after the rerank,
+    past the raw-baseline and honest-OOF floors. It has to beat raw as well, and by a relative margin -- with several
+    chains picked on the same folds, a hair's difference is the winner's curse, not a result.
+    """
+    beats_singles = (best_single - cr) > min_rmse_margin and cr <= best_single * (1.0 - _MIN_RELATIVE_MARGIN)
+    beats_raw = bool(np.isfinite(raw_rmse)) and cr <= raw_rmse * (1.0 - _MIN_RELATIVE_MARGIN)
+    return bool(np.isfinite(cr)) and valid_frac >= min_valid_domain_frac and beats_singles and beats_raw
+
 def build_chain_transform(residual_name: str, unary_name: str) -> Transform:
     """Compose ``residual_name`` (registry bivariate) with ``unary_name`` (tail unary).
 
@@ -514,23 +536,13 @@ def discover_chains(
         rr = residual_rmse.get(res, float("inf"))
         for un in un_names:
             chain_tf = build_chain_transform(res, un)
-            existing = _registry_equivalent(res, un)
-            if existing is not None and existing in already_screened:
-                logger.info(
-                    "[auto_chain] %s + %s is the composition %s already carries; the screen has it, so it is not proposed again.",
-                    res, un, existing,
-                )
+            if _already_screened(res, un, already_screened):
                 continue
             cr, vf = _y_scale_cv_rmse(chain_tf, **cv_kw)
             ur = unary_rmse.get(un, float("inf"))
             best_single = min(rr, ur)
             margin = best_single - cr
-            # Beating the two single stages is not enough: all three can lose to raw y, and the chain is appended after the
-            # rerank, past the raw-baseline and honest-OOF floors. It has to beat raw as well, and by a relative margin --
-            # with several chains picked on the same folds, a hair's difference is the winner's curse, not a result.
-            beats_singles = margin > min_rmse_margin and cr <= best_single * (1.0 - _MIN_RELATIVE_MARGIN)
-            beats_raw = np.isfinite(raw_rmse) and cr <= raw_rmse * (1.0 - _MIN_RELATIVE_MARGIN)
-            if not (np.isfinite(cr) and vf >= min_valid_domain_frac and beats_singles and beats_raw):
+            if not _chain_clears_the_bar(cr, vf, best_single, raw_rmse, min_rmse_margin, min_valid_domain_frac):
                 continue
             mg = float("nan")
             if compute_mi_gain and np.isfinite(mi_y):

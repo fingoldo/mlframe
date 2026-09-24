@@ -317,6 +317,8 @@ class CompositeTargetDiscovery:
                 # by that floor showed a positive gain and no reason in the metadata -- the decision was made on a
                 # number nobody could see.
                 "honest_holdout_rmse_gain_se": getattr(s, "honest_holdout_rmse_gain_se", None),
+                # What the gate decided on (selection half), kept apart from the honest number so it cannot be mistaken for it.
+                "selection_holdout_rmse_gain": getattr(s, "selection_holdout_rmse_gain", None),
             }
             for s in getattr(self, "specs_", [])
         ]

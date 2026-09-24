@@ -63,6 +63,16 @@ def _reject_unscored_specs(self, kept_specs: list, agg_scores: list) -> tuple[li
     return kept, scores
 
 
+def _record_rerank_sample_time(self, train_idx_screen: np.ndarray) -> None:
+    """Keep the time key of the rerank sample as the folds will see it, on ``_rerank_sample_time_``.
+
+    A forward split over this sample is a forward split in time only when this is non-decreasing, and that is the property a
+    caller (or a test) can check after the fact; the "screen time ordered" flag says the MI screen was sorted, which is a
+    different sample.
+    """
+    time_all = getattr(self, "_time_ordering_", None)
+    self._rerank_sample_time_ = None if time_all is None else np.asarray(time_all)[train_idx_screen]
+
 def _tiny_model_rerank(
     self,
     kept_specs: list[CompositeSpec],
@@ -130,11 +140,7 @@ def _tiny_model_rerank(
     if _time_order is not None:
         sample_idx = sample_idx[_time_order]
         train_idx_screen = train_idx_screen[_time_order]
-    # The time key of the sample as the folds will see it. A forward split over this sample is a forward split in time
-    # only when this is non-decreasing, and that is the property a caller (or a test) can check after the fact; the
-    # "screen time ordered" flag says the MI screen was sorted, which is a different sample.
-    _time_all = getattr(self, "_time_ordering_", None)
-    self._rerank_sample_time_ = None if _time_all is None else np.asarray(_time_all)[train_idx_screen]
+    _record_rerank_sample_time(self, train_idx_screen)
     y_screen = y_full[train_idx_screen]
 
     # Group-aware tiny CV: when ``self._group_ids_for_rerank`` is set
