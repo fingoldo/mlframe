@@ -526,8 +526,7 @@ def test_composite_env_flags_go_through_one_parser():
 
     scope = [REPO_ROOT / "src" / "mlframe" / "training" / part for part in ("composite", "core", "reporting")]
     files = sorted(p for root in scope for p in root.rglob("*.py") if "_benchmarks" not in p.parts)
-    assert_env_flags_use_one_parser(files=files, repo_root=REPO_ROOT / "src", prefixes=("MLFRAME_",),
-                                    allowed=_ENV_FLAG_ALLOWED, min_files=200)
+    assert_env_flags_use_one_parser(files=files, repo_root=REPO_ROOT / "src", prefixes=("MLFRAME_",), allowed=_ENV_FLAG_ALLOWED, min_files=200)
 
 
 # The receivers that hold a CompositeTargetDiscoveryConfig; a bare ``cfg`` elsewhere is a calibration or conformal config.

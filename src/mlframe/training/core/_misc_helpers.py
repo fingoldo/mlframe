@@ -308,8 +308,7 @@ def _raise_if_a_model_reads_a_missing_column(missing_cols, metadata: dict) -> No
     never intersect the missing set.
     """
     needed_by = {
-        name: sorted(m for m, rec in (metadata.get("model_schemas") or {}).items()
-                     if any(e.get("name") == name for e in (rec.get("input_schema") or [])))
+        name: sorted(m for m, rec in (metadata.get("model_schemas") or {}).items() if any(e.get("name") == name for e in (rec.get("input_schema") or [])))
         for name in sorted(missing_cols)
     }
     needed_by = {name: models for name, models in needed_by.items() if models}

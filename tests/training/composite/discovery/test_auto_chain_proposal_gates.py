@@ -26,19 +26,9 @@ def _raw_is_best(n: int = 600, seed: int = 0):
     return y, base, x
 
 
-def _chain_helps(n: int = 600, seed: int = 0):
-    """A DGP the chain is for: y is base plus a heavy-tailed residual that the cube root compresses."""
-    rng = np.random.default_rng(seed)
-    x = rng.normal(size=(n, 3))
-    base = rng.uniform(10.0, 100.0, n)
-    resid = (2.0 * x[:, 0]) ** 3 + rng.standard_t(df=3, size=n)
-    return base + resid, base, x
-
-
 def _chains(y, base, x, **kwargs):
     """Run the chain search with the small settings the discovery phase uses."""
-    return discover_chains(y=y, base=base, x_matrix=x, cv_folds=3, n_estimators=25, compute_mi_gain=False,
-                           random_state=0, **kwargs)
+    return discover_chains(y=y, base=base, x_matrix=x, cv_folds=3, n_estimators=25, compute_mi_gain=False, random_state=0, **kwargs)
 
 
 def _rmse_table(monkeypatch, raw: float, single: float, chain: float):
@@ -88,16 +78,22 @@ def test_the_registry_equivalent_is_found_by_composition_not_by_name():
     assert _registry_equivalent("linear_residual", "asinh") is None
 
 
-def test_a_composition_the_screen_already_carries_is_not_proposed_again():
-    """With ``chain_linres_cbrt`` in the transform pool, the same composition is not proposed under its auto name."""
-    y, base, x = _chain_helps()
-    proposed = {c.chain_name for c in _chains(y, base, x, already_screened=["chain_linres_cbrt"])}
-    assert "chain_linear_residual_cbrt" not in proposed, proposed
+def test_a_composition_the_screen_already_carries_is_not_proposed_again(monkeypatch):
+    """With ``chain_linres_cbrt`` in the transform pool, the same composition is not proposed under its auto name.
+
+    The stand-in numbers make every chain clear the bar, so the only thing that can keep this one out is the dedup; on a
+    real DGP a chain rarely beats its best stage by the required margin, which left the old assertion checking an empty set.
+    """
+    y, base, x = _raw_is_best()
+    _rmse_table(monkeypatch, raw=3.0, single=3.0, chain=1.0)
+    carried = {c.chain_name for c in _chains(y, base, x, already_screened=["chain_linres_cbrt"])}
+    assert carried, "with every chain clearing the bar, the other compositions must still be proposed"
+    assert "chain_linear_residual_cbrt" not in carried, carried
 
 
-def test_the_same_composition_is_still_available_when_the_pool_does_not_carry_it():
-    """The dedup is about the screen's own pool: without that entry, the search may still propose the composition."""
-    y, base, x = _chain_helps()
-    names = {c.chain_name for c in _chains(y, base, x, already_screened=[])}
-    for name in names:
-        assert name.startswith("chain_")
+def test_the_same_composition_is_proposed_when_the_pool_does_not_carry_it(monkeypatch):
+    """The dedup reads the screen's own pool: without ``chain_linres_cbrt`` there, the composition is proposed."""
+    y, base, x = _raw_is_best()
+    _rmse_table(monkeypatch, raw=3.0, single=3.0, chain=1.0)
+    proposed = {c.chain_name for c in _chains(y, base, x, already_screened=[], top_k=50)}
+    assert "chain_linear_residual_cbrt" in proposed, proposed

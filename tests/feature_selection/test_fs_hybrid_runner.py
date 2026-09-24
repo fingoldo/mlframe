@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from mlframe.feature_selection._benchmarks.fs_hybrid._runner_pool import CellPool, prewarm_kernels, worker_initializer
+from mlframe.feature_selection._benchmarks.fs_hybrid._runner_pool import CellPool, prewarm_kernels
 from mlframe.feature_selection._benchmarks.fs_hybrid._tiers import SOURCES, TIERS, estimate, format_estimate, get_tier, median_cell_seconds, scenarios_for
 
 
@@ -129,19 +129,31 @@ def test_estimate_divides_by_the_worker_count() -> None:
     assert parallel.predicted_seconds == pytest.approx(serial.predicted_seconds / 4.0)
 
 
-def test_worker_initializer_pins_threads_before_numpy_would_read_them(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every BLAS reads these once at import, so setting them afterwards is silently ineffective."""
-    for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMBA_NUM_THREADS"):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+def test_worker_initializer_pins_threads_before_numpy_would_read_them() -> None:
+    """Every BLAS reads these once at import, so setting them afterwards is silently ineffective.
 
-    worker_initializer(threads=3, cpu_only=True, prewarm=False)
-
+    Run in a fresh interpreter, which is where a worker initializer runs anyway. Calling it inside the pytest worker
+    left ``NUMBA_NUM_THREADS=3`` in that process long enough for numba to launch its pool at three threads; the env
+    var was restored afterwards, numba re-read its config at the next compile, and refused to resize a launched pool.
+    Every later numba test on that xdist worker then failed with the same RuntimeError - 36 of them in one run.
+    """
     import os
+    import subprocess
+    import sys
 
-    assert os.environ["OMP_NUM_THREADS"] == "3"
-    assert os.environ["MKL_NUM_THREADS"] == "3"
-    assert os.environ["CUDA_VISIBLE_DEVICES"] == "", "a CPU worker must not contend for the one GPU"
+    script = "; ".join([
+        "import os",
+        "from mlframe.feature_selection._benchmarks.fs_hybrid._runner_pool import worker_initializer",
+        "worker_initializer(threads=3, cpu_only=True, prewarm=False)",
+        "print(os.environ['OMP_NUM_THREADS'], os.environ['MKL_NUM_THREADS'], os.environ['NUMBA_NUM_THREADS'], len(os.environ['CUDA_VISIBLE_DEVICES']))",
+    ])
+    pinned = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMBA_NUM_THREADS", "CUDA_VISIBLE_DEVICES")
+    env = {k: v for k, v in os.environ.items() if k not in pinned}
+    out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env, timeout=600, check=False)  # nosec B603 - fixed interpreter, literal script
+    assert out.returncode == 0, out.stderr[-2000:]
+    omp, mkl, nb, cuda_len = out.stdout.strip().splitlines()[-1].split(" ")
+    assert (omp, mkl, nb) == ("3", "3", "3")
+    assert cuda_len == "0", "a CPU worker must not contend for the one GPU"
 
 
 def test_prewarm_reports_whether_it_completed() -> None:

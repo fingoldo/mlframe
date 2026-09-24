@@ -69,10 +69,12 @@ def _apply_honest_holdout_stages(self, df, target_col, kept_specs, usable_featur
         from ._honest_rmse_gate import apply_honest_rmse_gate
 
         # The SELECTION half: this gate drops specs, so it must not read the rows the reported honest number comes from.
-        kept_specs = apply_honest_rmse_gate(
-            self, df, target_col, kept_specs, usable_features,
-            train_idx, getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx), y_full,
-        )
+        _select_idx = getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx)
+        kept_specs = apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _select_idx, y_full)
+        # The exported RMSE gain comes from the report half: the one above is conditioned on having passed the gate.
+        _report_idx = getattr(self, "honest_holdout_report_idx_", None)
+        if kept_specs and _report_idx is not None and _select_idx is not None and not np.array_equal(_report_idx, _select_idx):
+            apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _report_idx, y_full, record_only=True)
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "honest_rmse_gate_done")
 
@@ -265,8 +267,7 @@ def _reason_from_ledger(self, spec_name: Any) -> str:
         last = rows[-1]
         reason = str(last.get("reason") or "").strip()
         return f"rejected at the {last.get('stage')} stage" + (f": {reason}" if reason else "")
-    return ("dropped after the MI gate by a filter that records no per-spec verdict "
-            "(top_k_after_mi trim / multi-base dedup)")
+    return "dropped after the MI gate by a filter that records no per-spec verdict " "(top_k_after_mi trim / multi-base dedup)"
 
 
 def fit(
@@ -456,7 +457,7 @@ def fit(
         train_idx.size,
         self.config.mi_sample_n,
         self.config.random_state,
-        strategy=getattr(self.config, "mi_sample_strategy", 'stratified_quantile'),
+        strategy=getattr(self.config, "mi_sample_strategy", "stratified_quantile"),
         y=y_train,
         n_strata=getattr(self.config, "mi_n_strata", 10),
     )

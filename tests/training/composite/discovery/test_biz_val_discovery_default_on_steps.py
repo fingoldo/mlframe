@@ -112,8 +112,8 @@ def test_biz_val_auto_chain_default_on_ships_a_chain_spec():
     disc = _fit(df, ["base", "x1", "x2"])
     chain_specs = [s for s in disc.specs_ if s.transform_name.startswith("chain_")]
     assert chain_specs, "a heavy cube-residual target shipped no chain spec at all (the step silently no-oped)"
-    for c in disc.auto_chains_:
-        assert c.chain_name not in {"chain_linres_cbrt", "chain_linres_yj", "chain_monres_cbrt", "chain_monres_yj"}
+    pool_chains = {"chain_linres_cbrt", "chain_linres_yj", "chain_monres_cbrt", "chain_monres_yj"}
+    assert not ({c.chain_name for c in disc.auto_chains_} & pool_chains), "the search re-proposed a chain the pool already screens"
     from mlframe.training.composite.transforms import get_transform
 
     for s in chain_specs:

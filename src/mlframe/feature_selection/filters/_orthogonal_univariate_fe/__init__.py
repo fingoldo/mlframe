@@ -747,14 +747,16 @@ def hybrid_orth_mi_fe(
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     if _gpu_eng is None:
-        X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
+        # No winners: a new frame object is all the caller needs, since every later write adds a NEW column. A deep copy
+        # here duplicated the whole input just to hand it back unchanged.
+        X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     else:
         # GPU resident path: D2H ONLY the winning columns from the device candidate matrix.
         import cupy as cp
         _g_mat, _g_names = _gpu_eng
         _idx = {nm: i for i, nm in enumerate(_g_names)}
         _cols_host = {k: cp.asnumpy(_g_mat[:, _idx[k]]) for k in keep if k in _idx}
-        X_aug = pd.concat([X, pd.DataFrame(_cols_host, index=X.index)], axis=1) if _cols_host else X.copy()
+        X_aug = pd.concat([X, pd.DataFrame(_cols_host, index=X.index)], axis=1) if _cols_host else X.copy(deep=False)
     return X_aug, scores
 
 

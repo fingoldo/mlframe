@@ -3,8 +3,8 @@
 Under pandas 1.5-2.x a list-column selection plus ``concat``'s default ``copy=True`` materialised up to two transient
 copies of the whole train frame per regression target just to attach y. Passing ``copy=False`` did not fix it: on 2.x
 with copy-on-write off, which is the default and what this project runs, ``concat`` copies the block regardless. The
-new frame is built from the caller's own Series instead, which shares them; pandas 3 is zero-copy either way and the
-same assertions hold there.
+copy is kept on purpose: sharing the buffers without CoW would let a write to the discovery frame land in the train
+frame. What is pinned here is that isolation.
 """
 
 from __future__ import annotations
@@ -21,11 +21,21 @@ def _train_frame(n: int = 1000) -> pd.DataFrame:
     return pd.DataFrame({f"f{j}": rng.normal(size=n) for j in range(6)})
 
 
-def test_feature_columns_share_memory_with_the_train_frame():
-    """The discovery frame reads the caller's feature data in place instead of copying it."""
+def test_a_write_to_the_discovery_frame_never_reaches_the_train_frame():
+    """Mutation isolation is the contract, not buffer identity.
+
+    This used to assert ``np.shares_memory`` on a feature column. On pandas 2.x with copy-on-write off that cannot
+    coexist with isolation: a frame sharing the caller's buffers passes a write straight through to the caller's
+    frame, which the per-target loop would then read as a feature. So the copy stays, and what is pinned is the
+    property that matters.
+    """
     train = _train_frame()
+    before = train["f0"].to_numpy().copy()
     out = _build_disc_df_for_target(train, "y", np.arange(len(train), dtype=np.float64))
-    assert np.shares_memory(out["f0"].to_numpy(), train["f0"].to_numpy()), "the feature data was copied"
+    out["f0"] = out["f0"] + 1.0
+    out.loc[out.index[0], "f1"] = 1e9
+    np.testing.assert_array_equal(train["f0"].to_numpy(), before, err_msg="a write to the discovery frame leaked into the train frame")
+    assert train.loc[train.index[0], "f1"] != 1e9, "an in-place cell write leaked into the train frame"
 
 
 def test_the_callers_frame_is_left_without_the_target():

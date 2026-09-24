@@ -2,7 +2,9 @@
 
 Fuzz surfaced ``ValueError: Shape of passed values is (N, M), indices imply (N, K)`` (cb/mlp) when a transformer's
 ``get_feature_names_out`` returned a name count disagreeing with the transformed array width. ``_apply_extensions_pipeline``
-now falls back to positional ``ext_<i>`` names on a mismatch (mirroring the train-side ``_build_output_column_names``).
+falls back to exactly the names the train side builds in that case, ``ext_<last_step>_<i>`` (``ext_ext_<i>`` for a bare
+transformer with no steps). The earlier positional ``ext_<i>`` never matched the train side, so a model fitted on the
+train-side names was served differently named columns.
 """
 
 import numpy as np
@@ -40,7 +42,7 @@ def test_predict_ext_pipeline_survives_name_width_mismatch():
     out = _apply_extensions_pipeline(df, pipe, verbose=0)
     assert isinstance(out, pd.DataFrame)
     assert out.shape == (10, 3), out.shape
-    assert list(out.columns) == ["ext_0", "ext_1", "ext_2"]
+    assert list(out.columns) == ["ext_ext_0", "ext_ext_1", "ext_ext_2"], "predict must fall back to the train-side names"
 
 
 def test_predict_ext_pipeline_keeps_names_when_count_matches():

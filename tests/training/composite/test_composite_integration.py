@@ -99,7 +99,6 @@ def _build_minimal_fte(target_col: str = "target"):
 # ----------------------------------------------------------------------
 
 
-
 @pytest.fixture(scope="module")
 def opted_in_suite(tmp_path_factory):
     """One suite trained with discovery on, shared by every test below that only reads what that run produced.
@@ -136,6 +135,7 @@ def opted_in_suite(tmp_path_factory):
         """Keeps every record the run emits, for the tests that assert on a log line."""
 
         def emit(self, record):
+            """Keep the record for the assertions."""
             records.append(record)
 
     handler = _Collect(level=logging.INFO)
@@ -217,12 +217,7 @@ class TestCompositeIntegration:
         )
         # Whichever spec the gates ship is the subject here: the test is about the wrap, not about which transform won.
         # The spec names in the metadata are the authority, so a key is composite when the run recorded it as a spec.
-        spec_names = {
-            spec["name"]
-            for by_target in _metadata.get("composite_target_specs", {}).values()
-            for specs in by_target.values()
-            for spec in specs
-        }
+        spec_names = {spec["name"] for by_target in _metadata.get("composite_target_specs", {}).values() for specs in by_target.values() for spec in specs}
         composite_keys = [k for k in regression_models if k in spec_names]
         assert composite_keys, f"expected at least one composite-target key in models[regression], got {list(regression_models.keys())}"
         composite_entries = regression_models[composite_keys[0]]
@@ -332,12 +327,7 @@ class TestCompositeIntegration:
         )
         assert regression_metrics
         # At least one composite entry, and it has train metrics.
-        spec_names = {
-            spec["name"]
-            for by_target in metadata.get("composite_target_specs", {}).values()
-            for specs in by_target.values()
-            for spec in specs
-        }
+        spec_names = {spec["name"] for by_target in metadata.get("composite_target_specs", {}).values() for specs in by_target.values() for spec in specs}
         composite_keys = [k for k in regression_metrics if k in spec_names]
         assert composite_keys, f"no y-scale metrics for any shipped spec; metrics keys {list(regression_metrics)}, specs {spec_names}"
         per_entry_metrics = regression_metrics[composite_keys[0]]

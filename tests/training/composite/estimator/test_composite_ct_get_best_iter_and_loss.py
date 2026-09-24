@@ -211,7 +211,6 @@ class TestCbHuberEvalMatchesLoss:
             assert model.params.get("eval_metric") == loss or loss in {"", "RMSE", "MAE"}
 
 
-
 class _RecordingModel:
     """A stand-in estimator that records what ``set_params`` was called with."""
 

@@ -204,7 +204,7 @@ Config defaults that matter below: `cross_target_ensemble_strategy="nnls_stack"`
 - **Why it matters**: A mild, systematic bias in component weighting and gating.
 - **Suggested fix**: Use the existing unfitted-clone branch when the pipeline contains a supervised selector (clone and fit on the fold-train slice), at least for small n, and keep the cheap reuse for purely unsupervised steps (imputer, scaler).
 - **Test to add**: Use a pipeline with MRMR on a target where one noise feature correlates with y only in the holdout rows. Assert that the OOF RMSE of the FS component does not beat the fold-refit baseline by more than noise.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - on a CV fold (the K-fold and train-tail OOF paths) a fitted pre_pipeline that contains a supervised selection step - anything exposing get_support, which covers MRMR, RFECV, BorutaShap and their wrappers - is cloned and refit on the fold's own train rows, like an unfitted pipeline. Unsupervised pipelines (scalers, imputers) keep the cheap reuse, the external-holdout path keeps the full-train fit (its rows were never in it), and the per-fold memo shares one refit between components built on the same pipeline. test_oof_refits_supervised_selection.py: the fold holdouts of a recording selector partition the OOF rows (no fit saw its own holdout), one refit per fold for two components, no refit for a scaler or for the external path; the first two fail at HEAD
 
 ### EST-18 [P3] The five `moe_*` constructor parameters of `CompositeTargetEstimator` are never read
 

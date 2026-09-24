@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 30 | 0 | 0 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 21 | 0 | 1 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 22 | 0 | 0 | 0 | 0 |
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
-| `tests.md` | 17 | 10 | 2 | 5 | 0 | 0 |
+| `tests.md` | 17 | 15 | 2 | 0 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 19 | 20 | 2 | 0 | 0 |
-| **Total** | **179** | **138** | **32** | **8** | **1** | **0** |
+| **Total** | **179** | **144** | **32** | **2** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -110,7 +110,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P2 | `EST-14` | A streaming `update()` refit leaves the soft-shrink base range at the dead regime, and its T-clip refresh leaves out the widening to the observed range that `fit()` applies | |
 | **RESOLVED** | P3 | `EST-15` | In the default shuffled K-fold OOF, recurrent composite components run their EWMA/rolling state over gapped (train) and scattered (holdout) row sequences | contiguous OOF folds for recurrent components |
 | **RESOLVED** | P3 | `EST-16` | The per-fold transform refit drops `groups` and `sample_weight`, and falls back to the full-train params at DEBUG level | fold groups/weights via call_transform, forward with groups, WARNING fallback; grouped components no longer drop out of OOF |
-| **TODO** | P3 | `EST-17` | OOF refits reuse the entry's pre_pipeline, fitted on the full train (including supervised MRMR/RFECV selection that saw each fold's holdout y) | |
+| **RESOLVED** | P3 | `EST-17` | OOF refits reuse the entry's pre_pipeline, fitted on the full train (including supervised MRMR/RFECV selection that saw each fold's holdout y) | supervised selectors refit per CV fold; unsupervised steps and the external path keep the reuse |
 | **RESOLVED** | P3 | `EST-18` | The five `moe_*` constructor parameters of `CompositeTargetEstimator` are never read | parameters removed; the unread-parameter scanner keeps them out |
 | **RESOLVED** | P3 | `EST-19` | The `lag_predict` component that ships in CT_ENSEMBLE is never fit, so NaN lag rows at predict time are imputed with the median of the predict batch itself | fitted on train at injection; unfitted predict with a missing lag raises instead of using the batch median |
 | **RESOLVED** | P3 | `EST-20` | `predict` / `predict_quantile` change shared state without synchronisation | stats under a lock; soft_shrink_info_ per thread; 8x150 threaded test |
@@ -180,14 +180,14 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **RESOLVED** | P1 | `TST-04` | Seven tests pin behaviour that the sibling reports show is wrong, so fixing those defects turns the suite red | all 7 pinned tests now assert the corrected behaviour (4 with earlier fixes, 3 in this change) |
 | **RESOLVED** | P1 | `TST-05` | No test checks that predict is independent of how rows are batched, and the recurrent-transform tests invert over the full series, which hides every batch-state defect | batching-invariance property tests over all transforms: pointwise chunk equality, recurrent exact with warm-up prefix, known limits pinned (frac_diff memory, centred window), NaN base contained; recurrent biz test scores per test segment |
 | **RESOLVED** | P2 | `TST-06` | The discovery time-awareness tests shuffle rows correctly but assert only the `_screen_time_ordered_` flag, which is the one thing the sort changes | folds and sample order asserted against the time key; mutation-checked against the pre-DSC-05 behaviour |
-| **TODO** | P2 | `TST-07` | The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04 | |
-| **TODO** | P2 | `TST-08` | Group handling is tested only with clean string/int labels on row-random splits, and the unseen-group tests assert only finiteness | |
-| **TODO** | P2 | `TST-09` | Polars coverage is limited to four pointwise transforms and a monotone-time OOF case, which hides the polars row-misalignment bug | |
+| **RESOLVED** | P2 | `TST-07` | The "honest" discovery tests measure a hand-written harness or a non-default path, so they cannot see DSC-03 and DSC-04 | harness scoped, dead asserts removed; the fresh-row check found and fixed a DSC-03 residual |
+| **RESOLVED** | P2 | `TST-08` | Group handling is tested only with clean string/int labels on row-random splits, and the unseen-group tests assert only finiteness | estimator-level unseen-group fallback pinned to the global parameters; the rest was covered |
+| **RESOLVED** | P2 | `TST-09` | Polars coverage is limited to four pointwise transforms and a monotone-time OOF case, which hides the polars row-misalignment bug | external_val source and five transform families added; found and fixed LightGBM-inner failing on polars |
 | **RESOLVED** | P2 | `TST-10` | The CTE fuzz suite asserts only finiteness and a y-envelope that the post-inverse clip guarantees, on small-scale data, and states "found NO production bug" | oracle inner reproduces train y over nine decades of scale; found + fixed box_cox_y constant-T collapse (normalised form) |
 | **RESOLVED** | P2 | `TST-11` | Several biz_val tests have no honest baseline, compare against a baseline starved of the base column, or assert only "not worse" | honest baselines measured (grouped EWMA fixture moved to its real regime), OOF NNLS strict win via predict, noise asserts no spec, var(T) -> held-out RMSE |
-| **TODO** | P2 | `TST-12` | Targeted transform and ensemble tests use the one parameter region where the filed defect is silent | |
+| **RESOLVED** | P2 | `TST-12` | Targeted transform and ensemble tests use the one parameter region where the filed defect is silent | gaps filled for EST-05/EST-06; the rest was covered by the fixes' tests |
 | **RESOLVED** | P2 | `TST-13` | Data-dependent skips and conditional asserts let tests pass without checking anything | seeded skips pinned as preconditions; integration asserts measured; no_xdist tests now run on -n 1 CI shards |
-| **TODO** | P2 | `TST-14` | The selection-gate modules with the most leverage have no direct tests, and the cache-key tests check only the key function's own arguments | |
+| **RESOLVED** | P2 | `TST-14` | The selection-gate modules with the most leverage have no direct tests, and the cache-key tests check only the key function's own arguments | gate functions unit-tested; found and fixed a NaN-gain spec passing the MI gate |
 | **RESOLVED** | P2 | `TST-15` | Composite tests check the CTE-raw-X routing by inspecting source text, and the behavioural half fits the inner on raw features, so it cannot see EST-01 | every source-text assertion replaced by the behaviour it stood for |
 | **RESOLVED** | P3 | `TST-16` | Timing-based asserts in the composite suite can flake on the shared host | njit sentinel interleaved best-of-N; HPO ROI asserted in folds, not seconds |
 | **PARTIAL** | P3 | `TST-17` | The composite integration tests run eight independent full-suite trainings for loose assertions, and the recorded durations are contaminated | eight trainings down to three, 620 s to 45 s; .test_durations regeneration belongs to a quiet CI run |

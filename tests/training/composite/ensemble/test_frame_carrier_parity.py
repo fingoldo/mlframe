@@ -68,3 +68,30 @@ def test_row_slicers_return_the_same_rows_in_the_same_order_for_pandas_and_polar
     got_pl = np.asarray(fn(pl.from_pandas(frame), idx)["a"].to_numpy())
     np.testing.assert_array_equal(got_pd, idx.astype(float))
     np.testing.assert_array_equal(got_pl, got_pd)
+
+
+@pytest.mark.parametrize("carrier", ["pandas", "polars"])
+@pytest.mark.parametrize("order", ["monotone", "shuffled"])
+def test_the_external_holdout_rows_match_their_targets(carrier, order):
+    """``oof_holdout_source='external_val'`` predicts on the caller's val frame; the returned y is that frame's, row for row.
+
+    The K-fold and train-tail sources are covered above. This is the third source, where the holdout is a separate frame:
+    a polars val frame gathered in a different order from its targets would misalign every weight the stack fits on it.
+    """
+    rng = np.random.default_rng(3)
+    n, n_val = 200, 80
+    y = rng.normal(0.0, 10.0, n)
+    y_val = rng.normal(0.0, 10.0, n_val)
+    train = pd.DataFrame({"x": rng.normal(size=n), "y_copy": y})
+    val = pd.DataFrame({"x": rng.normal(size=n_val), "y_copy": y_val})
+    if order == "shuffled":
+        perm = rng.permutation(n_val)
+        val, y_val = val.iloc[perm].reset_index(drop=True), y_val[perm]
+    X, X_val = (pl.from_pandas(train), pl.from_pandas(val)) if carrier == "polars" else (train, val)
+    P, y_h, names = compute_oof_holdout_predictions(
+        component_models=[_Identity()], component_names=["id"], component_specs=[None], train_X=X, y_train_full=y,
+        base_train_full_per_spec={}, holdout_frac=0.3, random_state=0, external_holdout_X=X_val, external_holdout_y=y_val,
+    )
+    assert names == ["id"] and P.shape[0] == n_val
+    np.testing.assert_array_equal(y_h, y_val)
+    np.testing.assert_array_equal(P[:, 0], y_h)

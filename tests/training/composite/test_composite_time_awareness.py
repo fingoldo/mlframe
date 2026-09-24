@@ -104,9 +104,7 @@ class TestM6TimeOrdering:
         # The splitter is imported inside the scoring function, so the name to replace is sklearn's own.
         import sklearn.model_selection as _sk_ms
 
-        with _mock.patch.object(_sk_ms, "TimeSeriesSplit", _SpySplit), _mock.patch.object(
-            tiny_mod, "_tiny_cv_rmse_y_scale", _spy
-        ):
+        with _mock.patch.object(_sk_ms, "TimeSeriesSplit", _SpySplit), _mock.patch.object(tiny_mod, "_tiny_cv_rmse_y_scale", _spy):
             disc.fit(df, "y", ["lag", "feat"], np.arange(len(df)), time_ordering=ts)
 
         assert seen_rows, "the tiny rerank never ran, so nothing was checked"

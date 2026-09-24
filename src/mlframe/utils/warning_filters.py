@@ -17,14 +17,11 @@ import threading
 import warnings
 from typing import Literal
 
-#: The actions `warnings.filterwarnings` accepts; typed so a misspelt action is caught before it is installed.
-WarningAction = Literal["default", "error", "ignore", "always", "all", "module", "once"]
-
 _INSTALLED: set = set()
 _LOCK = threading.Lock()
 
 
-def install_filter_once(action: "WarningAction" = "ignore", *, message: str = "", category: type = Warning, module: str = "") -> bool:
+def install_filter_once(action: Literal["default", "error", "ignore", "always", "all", "module", "once"] = "ignore", *, message: str = "", category: type = Warning, module: str = "") -> bool:
     """Install one narrow warning filter, at most once per process; True when this call installed it.
 
     ``message`` and ``module`` are regexes matched as ``warnings.filterwarnings`` matches them.

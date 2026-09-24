@@ -93,4 +93,3 @@ def fit_on_shared_fold(x: np.ndarray, rows: np.ndarray, target: np.ndarray, *, p
     ds = _fold_dataset(x, rows, params)
     ds.set_label(np.asarray(target, dtype=np.float64))
     return lgb.train(params, ds, num_boost_round=int(n_estimators))
-

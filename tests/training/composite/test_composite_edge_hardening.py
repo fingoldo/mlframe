@@ -129,6 +129,33 @@ class TestUnseenGroups:
         assert y_hat.shape == (len(X_pred),)
         assert np.all(np.isfinite(y_hat)), "unseen-group rows must stay finite"
 
+    def test_an_unseen_group_row_is_served_with_the_global_parameters(self) -> None:
+        """An unseen row differs from the same row under its fitted group by exactly the global-minus-group parameters.
+
+        The inner's T prediction does not read the group label, so it cancels in the difference, and what is left is the
+        inverse's own parameters. Asserting only finiteness passed a fallback that returned garbage or the wrong group's
+        coefficients; this pins the fallback to the stored global alpha and beta.
+        """
+        X, y = _frame(n=240, with_group=True, n_groups=4)
+        est = CompositeTargetEstimator(
+            base_estimator=_LinearInner(), transform_name="linear_residual_grouped", base_column="base", group_column="grp",
+        ).fit(X, y)
+        p = est.fitted_params_
+        rows = X.iloc[:40].copy()
+        seen = est.predict(rows)
+        unseen_rows = rows.copy()
+        unseen_rows["grp"] = "NEVER_SEEN"
+        unseen = est.predict(unseen_rows)
+        other_label = rows.copy()
+        other_label["grp"] = "ALSO_NEVER_SEEN"
+        np.testing.assert_array_equal(est.predict(other_label), unseen, err_msg="the fallback read the unseen label")
+
+        base = rows["base"].to_numpy()
+        alpha_g = np.array([p["per_group_alphas"][g] for g in rows["grp"]])
+        beta_g = np.array([p["per_group_betas"][g] for g in rows["grp"]])
+        expected = (p["alpha_global"] - alpha_g) * base + (p["beta_global"] - beta_g)
+        np.testing.assert_allclose(unseen - seen, expected, rtol=0, atol=1e-9)
+
     def test_all_unseen_groups_does_not_crash(self) -> None:
         """All unseen groups does not crash."""
         X, y = _frame(n=160, with_group=True, n_groups=3)
@@ -261,6 +288,37 @@ class TestPandasPolarsParity:
         assert y_pd.shape == y_pl.shape
         assert np.array_equal(y_pd, y_pl), f"pandas vs polars predict diverged for '{transform_name}'"
 
+    # One transform per family, with the estimator arguments that family needs. The pointwise single-base transforms above
+    # were the only ones ever run on a polars frame, so the grouped (group column read from polars), multi-base, recurrent,
+    # unary and group-encoding paths - each with its own frame-reading code - had no parity check.
+    _FAMILY_PARITY = {
+        "linear_residual_grouped": dict(base_column="base", group_column="grp"),
+        "target_encoding_residual": dict(group_column="grp"),
+        "linear_residual_multi": dict(base_column="base", base_columns=["base", "base2"]),
+        "ewma_residual": dict(base_column="base"),
+        "cbrt_y": dict(),
+    }
+
+    @pytest.mark.parametrize("transform_name", sorted(_FAMILY_PARITY))
+    def test_point_predict_parity_across_transform_families(self, transform_name) -> None:
+        """Every transform family predicts the same numbers from a polars frame as from the pandas one."""
+        X, y = _frame(n=240, seed=5, with_group=True, n_groups=4)
+        X["base2"] = np.random.default_rng(6).normal(3.0, 1.0, len(X))
+        y = y + 0.4 * X["base2"].to_numpy()
+        kw = dict(self._FAMILY_PARITY[transform_name])
+        if "group_column" not in kw:
+            X = X.drop(columns=["grp"])  # a family without groups would hand the string labels to the inner model
+        X_pl = pl.from_pandas(X)
+
+        def _fit(frame):
+            """A fresh estimator for this family, fitted on ``frame``."""
+            return CompositeTargetEstimator(base_estimator=_LinearInner(), transform_name=transform_name, **kw).fit(frame, y)
+
+        y_pd = _fit(X).predict(X)
+        y_pl = _fit(X_pl).predict(X_pl)
+        assert np.all(np.isfinite(y_pd)), f"{transform_name}: the pandas reference itself is not finite"
+        np.testing.assert_allclose(y_pl, y_pd, rtol=0, atol=1e-9, err_msg=f"pandas vs polars predict diverged for '{transform_name}'")
+
     @pytest.mark.parametrize("transform_name", ["diff", "linear_residual"])
     def test_quantile_predict_parity(self, transform_name) -> None:
         """Quantile predict parity."""
@@ -313,6 +371,10 @@ class TestSingleAndEmpty:
         y_hat = est.predict(X_one)
         assert y_hat.shape == (1,)
         assert np.all(np.isfinite(y_hat))
+        # A single unseen row gets the same answer it gets inside a larger batch: the fallback is per row, not per batch.
+        X_batch = X.iloc[:10].copy()
+        X_batch["grp"] = "UNSEEN_SINGLE"
+        np.testing.assert_allclose(y_hat, est.predict(X_batch)[:1], rtol=0, atol=1e-12)
 
     def test_empty_frame_quantile_predict(self) -> None:
         """Empty frame quantile predict."""

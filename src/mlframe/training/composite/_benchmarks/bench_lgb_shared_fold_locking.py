@@ -51,10 +51,7 @@ def _run(mode: str, n_threads: int, rounds: int, n_rows: int, n_cols: int, n_est
         sf._CONSTRUCT_LOCK = contextlib.nullcontext()  # type: ignore[assignment]
     try:
         sf._CACHE.clear()
-        threads = [
-            threading.Thread(target=_worker, args=(i, rounds, n_rows, n_cols, n_estimators, specs, mode == "full"))
-            for i in range(n_threads)
-        ]
+        threads = [threading.Thread(target=_worker, args=(i, rounds, n_rows, n_cols, n_estimators, specs, mode == "full")) for i in range(n_threads)]
         t0 = time.perf_counter()
         for t in threads:
             t.start()

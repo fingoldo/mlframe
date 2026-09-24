@@ -146,11 +146,9 @@ def test_biz_val_honest_holdout_debiases_pure_noise_winner():
         f"honest holdout gain should be below the in-screen winner gain on noise (winner's "
         f"curse); mean honest {mean_honest:+.4f} vs mean in-screen {mean_inscreen:+.4f}"
     )
-    # The in-screen winner gain is inflated upward (positive) by the max-over-candidates.
-    assert mean_inscreen >= 0.0, f"in-screen winner gain should be inflated >=0; got {mean_inscreen:+.4f}"
-    # The honest gain is ~0 on pure noise (the true gain), NOT inflated -- and materially
-    # smaller in magnitude than the in-screen selection score.
-    assert abs(mean_honest) < 0.01, f"honest holdout gain on pure noise should be ~0; got {mean_honest:+.4f}"
+    # The honest gain is materially smaller in magnitude than the in-screen selection score. (Two absolute checks used to
+    # sit here, ``mean_inscreen >= 0`` and ``abs(mean_honest) < 0.01``; with measured means of +0.0016 and +0.0002 an
+    # "honest" value equal to the in-screen one passed both, so only the ratio and the majority below carry the claim.)
     assert (
         abs(mean_honest) < 0.6 * mean_inscreen + 1e-9
     ), f"honest gain {mean_honest:+.4f} should be materially below in-screen {mean_inscreen:+.4f} (winner's curse de-bias)"

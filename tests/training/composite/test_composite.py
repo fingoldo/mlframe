@@ -714,19 +714,23 @@ class TestPolarsInput:
         base = _extract_base(pl_df, "base")
         assert len(base) == 400 and np.all(np.isfinite(base))
 
-    def test_polars_to_pandas_then_fit_works(self) -> None:
-        """End-to-end with caller-side polars->pandas (the integration
-        pattern): fit + predict succeed and produce finite output."""
+    def test_a_polars_frame_fits_and_predicts_like_its_pandas_copy(self) -> None:
+        """Fit and predict directly on the polars frame; the result equals the same wrapper on the pandas copy.
+
+        The test this replaces converted to pandas before fitting, so it never passed a polars frame to the wrapper at all.
+        """
         df, y = _tvt_like(n=400)
-        # Caller-side conversion -- NOT auto-injected by wrapper.
         pl_df = pl.from_pandas(df)
-        df_pd = pl_df.to_pandas()
-        wrapper = CompositeTargetEstimator(
-            base_estimator=lgb.LGBMRegressor(n_estimators=30, verbose=-1),
-            transform_name="diff",
-            base_column="base",
-        )
-        wrapper.fit(df_pd, y)
-        y_hat = wrapper.predict(df_pd.head(10))
-        assert len(y_hat) == 10
-        assert np.all(np.isfinite(y_hat))
+
+        def _fitted(frame):
+            """A fresh deterministic wrapper fitted on ``frame``."""
+            return CompositeTargetEstimator(
+                base_estimator=lgb.LGBMRegressor(n_estimators=30, verbose=-1, deterministic=True, force_row_wise=True),
+                transform_name="diff",
+                base_column="base",
+            ).fit(frame, y)
+
+        y_pl = _fitted(pl_df).predict(pl_df.head(10))
+        y_pd = _fitted(df).predict(df.head(10))
+        assert len(y_pl) == 10 and np.all(np.isfinite(y_pl))
+        np.testing.assert_allclose(y_pl, y_pd, rtol=0, atol=1e-9)

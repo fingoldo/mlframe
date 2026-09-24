@@ -17,14 +17,14 @@ def test_a_second_cache_gets_its_own_fraction(monkeypatch):
 
 
 def test_the_operator_env_still_wins_over_the_configured_fraction(monkeypatch):
-    """An operator's environment fraction overrides the configured one, so moving it off os.environ removed no escape hatch."""
+    """An operator-set RAM fraction in the environment overrides the fraction the suite was configured with."""
     monkeypatch.delenv("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT", raising=False)
     monkeypatch.setenv("MLFRAME_PIPELINE_CACHE_RAM_FRACTION", "0.02")
     assert _resolve_pipeline_cache_budget(0.5) == _resolve_pipeline_cache_budget(0.02)
 
 
 def test_an_absolute_env_limit_still_wins_over_everything(monkeypatch):
-    """An absolute byte limit in the environment beats any fraction, configured or environmental."""
+    """An absolute byte limit in the environment beats every fraction, configured or not."""
     monkeypatch.setenv("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT", "123456789")
     assert _resolve_pipeline_cache_budget(0.5) == 123456789
     assert PipelineCache(verbose=False, ram_budget_fraction=0.5)._bytes_limit == 123456789
