@@ -60,3 +60,29 @@ def test_lookup_does_not_import_a_reported_package():
     before = set(sys.modules)
     package_versions()
     assert not {m for m in set(sys.modules) - before if m.split(".")[0] in ("torch", "cupy", "shap", "catboost")}
+
+
+def test_native_library_fingerprints_name_the_actual_binary():
+    """Two installs can report the same version and ship different binaries; the log must separate them."""
+    from mlframe.training._environment_report import native_library_fingerprints
+
+    fingerprints = native_library_fingerprints()
+    assert "lightgbm" in fingerprints, "lightgbm is installed here and bundles its own library"
+    entry = fingerprints["lightgbm"]
+    assert entry.endswith("B") and "lib_lightgbm" in entry
+
+
+def test_native_libraries_are_described_without_importing_them():
+    """The banner runs before the boosters are imported and must not change what the run has loaded."""
+    import sys
+
+    from mlframe.training._environment_report import native_library_fingerprints
+
+    before = set(sys.modules)
+    native_library_fingerprints()
+    assert not {m for m in set(sys.modules) - before if m.split(".")[0] in ("lightgbm", "xgboost", "catboost")}
+
+
+def test_summary_carries_the_native_libraries():
+    """They belong in the one line an operator reads out of a crashed run's log."""
+    assert "native libs --" in environment_summary()

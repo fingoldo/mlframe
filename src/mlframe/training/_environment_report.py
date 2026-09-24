@@ -43,6 +43,37 @@ GPU stacks. Order is the reporting order."""
 _IMPORT_NAMES: Dict[str, str] = {"scikit-learn": "sklearn"}
 """Distribution names whose import name differs, for the ``__version__`` fallback."""
 
+NATIVE_LIB_PACKAGES: tuple[str, ...] = ("lightgbm", "xgboost", "catboost")
+"""Packages whose real work happens in a bundled native library. Two installs can report the same version and ship
+different binaries, and a crash dump names the library but not which copy of it -- a question a production crash left
+unanswerable from the log, because the banner recorded ``lightgbm=4.6.0`` and nothing else."""
+
+
+def native_library_fingerprints() -> Dict[str, str]:
+    """``{distribution: "<file> <bytes>"}`` for each bundled native library, read from the distribution's file list.
+
+    Read through the metadata rather than by importing: the banner runs before the boosters are imported, and importing
+    them to describe them would change what the run has loaded. Size, not a hash: it separates two builds just as well
+    for a few microseconds instead of reading megabytes.
+    """
+    from importlib.metadata import PackageNotFoundError, distribution
+
+    out: Dict[str, str] = {}
+    for name in NATIVE_LIB_PACKAGES:
+        try:
+            dist = distribution(name)
+            # Only the package's own libraries, and only the shared-object names: a distribution can list thousands
+            # of files and stat-ing all of them would cost more than the rest of the banner put together.
+            files = [f for f in (dist.files or []) if str(f).lower().endswith((".dll", ".so", ".dylib")) and name in str(f).lower()]
+            biggest = max(((f, (dist.locate_file(f))) for f in files), key=lambda pair: pair[1].stat().st_size, default=None)
+            if biggest is not None:
+                out[name] = f"{biggest[0]} {biggest[1].stat().st_size}B"
+        except PackageNotFoundError:  # noqa: PERF203 -- per-package isolation: one unreadable distribution must not cost the others their line
+            continue
+        except Exception as exc:  # a package whose metadata does not list its files is simply not described
+            logger.debug("native library lookup failed for %r: %s", name, exc)
+    return out
+
 
 def package_versions() -> Dict[str, str]:
     """``{distribution name: version}`` for every reported package that is installed; absent ones are left out."""
@@ -67,7 +98,8 @@ def package_versions() -> Dict[str, str]:
 def environment_summary() -> str:
     """One line naming the interpreter, the platform and every reported package version."""
     versions = ", ".join(f"{name}={ver}" for name, ver in package_versions().items())
-    return f"python {sys.version.split()[0]} at {sys.executable}; {platform.platform()}; {versions}"
+    natives = ", ".join(f"{name}: {desc}" for name, desc in native_library_fingerprints().items())
+    return f"python {sys.version.split()[0]} at {sys.executable}; {platform.platform()}; {versions}" + (f"; native libs -- {natives}" if natives else "")
 
 
 def log_environment_versions() -> str:
