@@ -8,8 +8,8 @@
     "note": "ideal 1 correlation build per target (PRF-01): one per base context plus the unary context"
   },
   "lgb_Dataset": {
-    "measured": 54,
-    "note": "ideal: one per distinct (base matrix, fold) (PRF-07); today 18 shared-fold builds plus 18 per-spec CV fits, 9 honest-gate fits, 8 WAIC OOF fits and 1 baseline"
+    "measured": 45,
+    "note": "ideal: one per distinct (matrix, fold or fit-row set) (PRF-07); the tiny CV, the raw-y CV, the honest gate and the y-scale gate share binned datasets per (matrix, rows, thread); the rest are distinct row sets per spec (masked folds, per-base matrices) and the WAIC folds of different bases"
   },
   "yscale_predicts_per_wrapper_split": {
     "measured": 3,

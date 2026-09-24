@@ -43,7 +43,6 @@ from mlframe.utils.log_throttle import log_throttle
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array, base_arg as _base_arg
 from ._causal_lag import is_causal_base_name
-from ._screening_tiny import _build_tiny_model
 from ..transforms._call_gateway import call_transform
 from ._fold_refit import refit_transform_on_fold
 from ._yscale_scoring import median_filled_with_std
@@ -263,6 +262,37 @@ def _val_group_labels(self, val_df: Any, eval_idx: np.ndarray) -> np.ndarray | N
         logger.info("[CompositeTargetDiscovery.yscale_gate] no group labels for the val rows (%s); grouped specs cannot be scored here.", err)
         return None
 
+class _SharedTinyLgb:
+    """The gate's tiny LightGBM, fitted by row index on the shared fit matrix so every spec reuses one binned dataset.
+
+    ``fit_rows(x, rows, y)`` trains on ``x[rows]`` through ``_lgb_shared_fold.fit_on_rows`` (keyed on the matrix object and
+    the rows); ``predict`` delegates to the booster, which predicts like the sklearn wrapper's fit.
+    """
+
+    def __init__(self, params: dict, n_estimators: int) -> None:
+        self.params, self.n_estimators, self.booster_ = params, int(n_estimators), None
+
+    def fit_rows(self, x: np.ndarray, rows: np.ndarray, y: np.ndarray) -> "_SharedTinyLgb":
+        """Train on the given rows of ``x``."""
+        from ._lgb_shared_fold import fit_on_rows
+
+        self.booster_ = fit_on_rows(x, np.asarray(rows), np.asarray(y, dtype=np.float64), params=self.params, n_estimators=self.n_estimators)
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """The booster's prediction."""
+        return np.asarray(self.booster_.predict(X), dtype=np.float64)
+
+
+def _fit_model_on(model, x: np.ndarray, valid: np.ndarray | None, y: np.ndarray):
+    """Fit ``model`` on ``x`` restricted to ``valid`` (all rows when None): by row index when it supports it."""
+    if hasattr(model, "fit_rows"):
+        rows = np.arange(x.shape[0]) if valid is None else np.flatnonzero(valid)
+        return model.fit_rows(x, rows, y)
+    model.fit(x if valid is None else x[valid], y)
+    return model
+
+
 def _reconstruct_on_eval(transform, transform_name: str, params: dict, valid: np.ndarray, y_fit: np.ndarray, base_fit: np.ndarray,
                          base_eval: np.ndarray, x_fit: np.ndarray, x_eval: np.ndarray, build_model,
                          groups_fit: np.ndarray | None = None, groups_eval: np.ndarray | None = None) -> np.ndarray:
@@ -276,8 +306,7 @@ def _reconstruct_on_eval(transform, transform_name: str, params: dict, valid: np
     base_fit_v = base_fit[valid] if base_fit.ndim == 1 else base_fit[valid, :]
     g_fit = None if groups_fit is None else np.asarray(groups_fit)[valid]
     t_fit = np.asarray(call_transform(transform, "forward", y_fit[valid], base_fit_v, params, groups=g_fit), dtype=np.float64)
-    model = build_model()
-    model.fit(x_fit[valid], t_fit)
+    model = _fit_model_on(build_model(), x_fit, valid, t_fit)
     t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
 
     def _inverse(t):
@@ -413,13 +442,15 @@ def apply_yscale_holdout_gate(
     rs = int(getattr(cfg, "random_state", 42))
 
     def _tiny():
-        """A fresh tiny model with the gate's configured capacity."""
-        return _build_tiny_model("lgb", n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate, random_state=rs)
+        """A fresh tiny model with the gate's configured capacity; the specs share each fit matrix's binned dataset."""
+        from ._lgb_shared_fold import lgb_params
+
+        return _SharedTinyLgb(lgb_params(num_leaves=num_leaves, learning_rate=learning_rate, random_state=rs, deterministic=False,
+                                         num_threads=-1), n_estimators)
 
     def _fit_predict(y_target_fit: np.ndarray, valid_fit: np.ndarray | None = None) -> np.ndarray:
         """Fit a fresh tiny model on ``y_target_fit`` (optionally row-masked by ``valid_fit``, e.g. to drop out-of-domain rows for a transformed target) and predict on the shared unseen-group eval matrix ``x_eval``."""
-        model = _tiny()
-        model.fit(x_fit if valid_fit is None else x_fit[valid_fit], y_target_fit if valid_fit is None else y_target_fit[valid_fit])
+        model = _fit_model_on(_tiny(), x_fit, valid_fit, y_target_fit if valid_fit is None else y_target_fit[valid_fit])
         return np.asarray(model.predict(x_eval), dtype=np.float64)
 
     # Raw-y tiny baseline on the SAME group-disjoint split (apples-to-apples).

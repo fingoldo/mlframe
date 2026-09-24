@@ -398,7 +398,16 @@ def _tiny_cv_rmse_raw_y(
                         type(model).__name__, n_jobs, type(_njobs_err).__name__, _njobs_err,
                     )
             with _silence_tiny_model_output(family):
-                model.fit(x_clean[train_fold], y_clean[train_fold])
+                if family.lower() in ("lgb", "lightgbm") and isinstance(x_clean, np.ndarray):
+                    # The fold's binned dataset is shared with every y-scale spec fitted on this matrix and fold (same booster
+                    # as the sklearn wrapper's fit): the raw-y baseline re-binned the same rows on every call.
+                    from ._screening_tiny_perbin import _fit_fold_model
+
+                    model = _fit_fold_model(x_clean, train_fold, train_fold, y_clean[train_fold], family=family, n_estimators=n_estimators,
+                                            num_leaves=num_leaves, learning_rate=learning_rate, random_state=random_state,
+                                            deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs)
+                else:
+                    model.fit(x_clean[train_fold], y_clean[train_fold])
                 y_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
             y_hat_f64 = y_hat.astype(np.float64)
             diff = y_hat_f64 - y_clean[val_fold]
