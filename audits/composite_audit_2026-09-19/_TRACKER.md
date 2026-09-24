@@ -17,12 +17,12 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 |---|---|---|---|---|---|---|
 | `transforms.md` | 26 | 26 | 0 | 0 | 0 | 0 |
 | `discovery.md` | 30 | 30 | 0 | 0 | 0 | 0 |
-| `estimator_ensemble.md` | 22 | 21 | 0 | 1 | 0 | 0 |
+| `estimator_ensemble.md` | 22 | 22 | 0 | 0 | 0 | 0 |
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 15 | 2 | 0 | 0 | 0 |
 | `preventive_meta_tests.md` | 41 | 19 | 20 | 2 | 0 | 0 |
-| **Total** | **179** | **143** | **32** | **3** | **1** | **0** |
+| **Total** | **179** | **144** | **32** | **2** | **1** | **0** |
 
 ### `transforms.md`
 
