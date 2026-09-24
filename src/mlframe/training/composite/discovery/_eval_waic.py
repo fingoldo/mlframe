@@ -212,19 +212,29 @@ def _oof_residuals_kfold(
     if x.ndim == 1:
         x = x.reshape(-1, 1)
     finite = np.isfinite(y) & np.all(np.isfinite(x), axis=1)
-    y, x = y[finite], x[finite]
+    if not finite.all():  # keep the caller's matrix object when nothing is dropped: the shared fold datasets key on it
+        y, x = y[finite], x[finite]
     g = None if groups is None or np.asarray(groups).shape[0] != finite.shape[0] else np.asarray(groups)[finite]
     n = y.size
     if n < n_folds * 4:  # too small for an honest K-fold split.
         return [], []
 
     factory = model_factory if model_factory is not None else _default_tiny_model
+    shared = model_factory is None and _lightgbm_available()
     residuals: list[np.ndarray] = []
     train_residuals: list[np.ndarray] = []
     for tr, va in discovery_splits(n, n_folds, groups=g, time_aware=time_aware, random_state=random_state):
         try:
-            model = cast(Any, factory())
-            model.fit(x[tr], y[tr])
+            if shared:
+                # The default tiny LightGBM on a fold dataset binned once per (matrix, fold) and reused by every spec of the
+                # base with its label swapped: the per-spec fits re-binned the same rows each time. Same booster as the
+                # sklearn wrapper's own fit (the parameters below are its defaults), so the scores are unchanged.
+                from ._lgb_shared_fold import fit_on_rows
+
+                model = fit_on_rows(x, np.asarray(tr), y[tr], params=_DEFAULT_TINY_LGB_PARAMS, n_estimators=60)
+            else:
+                model = cast(Any, factory())
+                model.fit(x[tr], y[tr])
             pred = np.asarray(model.predict(x[va]), dtype=np.float64).ravel()
             pred_tr = np.asarray(model.predict(x[tr]), dtype=np.float64).ravel()
         except Exception as err:  # a single fold failing must not kill the score.
@@ -233,6 +243,21 @@ def _oof_residuals_kfold(
         residuals.append(y[va] - pred)
         train_residuals.append(y[tr] - pred_tr)
     return residuals, train_residuals
+
+
+def _lightgbm_available() -> bool:
+    """True when LightGBM imports (the default tiny model and the shared fold path need it)."""
+    try:
+        import lightgbm  # noqa: F401
+
+        return True
+    except Exception:  # the ridge / HistGB fallbacks take over
+        return False
+
+
+# The booster parameters the default ``LGBMRegressor(n_estimators=60, num_leaves=15, learning_rate=0.1, n_jobs=1,
+# verbose=-1)`` trains with, so the shared-fold path fits the same model.
+_DEFAULT_TINY_LGB_PARAMS = {"objective": "regression", "num_leaves": 15, "learning_rate": 0.1, "num_threads": 1, "verbose": -1}
 
 
 def _default_tiny_model():

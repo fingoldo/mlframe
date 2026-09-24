@@ -70,6 +70,23 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     # default, silently pinning this K-fold split to seed 0 regardless of the caller's random_state.
     rs = int(getattr(self.config, "random_state", 42) or 0)
     yb = np.asarray(y_screen, dtype=np.float64).ravel()
+    # One float64 valid-row matrix per base, shared by every spec on it: the per-spec cast copied the same (n, F) block
+    # each time, and handing every spec the same array object lets the WAIC folds reuse one binned dataset per fold.
+    import threading
+
+    _base_x: dict = {}
+    _base_x_lock = threading.Lock()
+
+    def _valid_x(base_col, base_screen, x_mat):
+        """``(valid mask, float64 X on the valid rows)`` for this base, built once."""
+        with _base_x_lock:
+            hit = _base_x.get(base_col)
+            if hit is None:
+                bb = np.asarray(base_screen, dtype=np.float64).ravel()
+                valid = np.isfinite(yb) & np.isfinite(bb)
+                hit = (valid, bb, np.ascontiguousarray(np.asarray(x_mat, dtype=np.float64)[valid]))
+                _base_x[base_col] = hit
+        return hit
 
     def _waic_for(i: int):
         """WAIC of spec ``i`` on the screen sample, or None when it cannot be scored."""
@@ -83,8 +100,7 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             return None
-        bb = np.asarray(base_screen, dtype=np.float64).ravel()
-        valid = np.isfinite(yb) & np.isfinite(bb)
+        valid, bb, xv_base = _valid_x(getattr(spec, "base_column", None), base_screen, x_mat)
         if int(valid.sum()) < 2 * n_folds:
             return None
         try:
@@ -93,12 +109,13 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             return None
-        xv = np.asarray(x_mat, dtype=np.float64)[valid]
         fin = np.isfinite(target)
-        if int(fin.sum()) < 2 * n_folds or xv.shape[0] != target.shape[0]:
+        if int(fin.sum()) < 2 * n_folds or xv_base.shape[0] != target.shape[0]:
             return None
         g = None if groups is None else np.asarray(groups)[valid][fin]  # WAIC folds follow the rerank's groups and time order
-        score = compute_transform_waic(target[fin], xv[fin], n_folds=n_folds, random_state=rs, groups=g, time_aware=time_aware)
+        all_fin = bool(fin.all())
+        score = compute_transform_waic(target if all_fin else target[fin], xv_base if all_fin else xv_base[fin], n_folds=n_folds,
+                                       random_state=rs, groups=g, time_aware=time_aware)
         if getattr(score, "valid", False) and math.isfinite(score.waic):
             return float(score.waic)
         return None
