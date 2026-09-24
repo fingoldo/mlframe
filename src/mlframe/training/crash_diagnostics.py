@@ -300,6 +300,10 @@ class Heartbeat:
         try:
             self.logger.info(self._line_fn())
             self.beats += 1
+            # Pressure can build during a run, not only before it: say so while the run can still be stopped.
+            from ._commit_headroom import check_and_warn
+
+            check_and_warn(throttle_key="heartbeat_commit_pressure")
         except Exception as e:
             self.logger.warning("heartbeat line failed: %s", e)
 
@@ -397,6 +401,11 @@ def install_crash_diagnostics(crash_dir: Optional[str] = None, all_threads: bool
                 cs["phys_total_gb"], cs["phys_avail_gb"], cs["commit_limit_gb"], cs["commit_avail_gb"], cs["pagefile_gb"],
                 _process_age_line(),
             )
+            # Those numbers were INFO among a dozen other INFO lines while a run started with 1.0 GB of commit left
+            # and died 27 minutes in. Anything actionable about them is said at WARNING, before the work begins.
+            from ._commit_headroom import check_and_warn
+
+            info["commit_pressure"] = check_and_warn()
         logger.info(
             "Crash diagnostics: faulthandler file=%s; uncaught exceptions -> log; exit line on normal exit "
             "(its absence means an abrupt kill); heartbeat every %ss.",

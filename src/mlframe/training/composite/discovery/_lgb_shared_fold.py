@@ -86,6 +86,24 @@ def _fold_dataset(x: np.ndarray, rows: np.ndarray, params: Dict[str, Any]) -> An
     return ds
 
 
+def fit_on_rows(x: np.ndarray, fit_rows: np.ndarray, target: np.ndarray, *, params: Dict[str, Any], n_estimators: int) -> Any:
+    """Train on ``x[fit_rows]`` with the dataset built under the shared construction lock; returns the booster.
+
+    The masked-fold path: a spec whose fold trains on a SUBSET of its rows must not reuse the PARENT fold's bins, which
+    were placed on more rows. It gets its own dataset, binned on exactly the rows it trains on, cached under those rows
+    so the seed repeats of the same spec reuse it. Predictions are bit-identical to the sklearn wrapper's own fit, in
+    both the default and the deterministic mode.
+
+    The wrapper constructs inside ``fit`` with no serialisation -- the second construction site, and the one a
+    production kernel died in after the cached path had been serialised.
+    """
+    import lightgbm as lgb
+
+    ds = _fold_dataset(x, fit_rows, params)
+    ds.set_label(np.asarray(target, dtype=np.float64))
+    return lgb.train(params, ds, num_boost_round=int(n_estimators))
+
+
 def fit_on_shared_fold(x: np.ndarray, rows: np.ndarray, target: np.ndarray, *, params: Dict[str, Any], n_estimators: int) -> Any:
     """Train on every row of ``x[rows]`` with ``target`` as the label; returns the booster, which predicts like the model."""
     import lightgbm as lgb
