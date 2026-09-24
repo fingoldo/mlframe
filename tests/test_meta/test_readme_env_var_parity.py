@@ -55,5 +55,14 @@ def test_no_new_undocumented_env_vars():
 
 
 def test_environment_variables_doc_is_current():
-    """docs/ENVIRONMENT_VARIABLES.md is exactly what scripts/gen_environment_variables_doc.py generates."""
-    assert README_PATH.read_text(encoding="utf-8") == _gen.render_markdown(), "run python scripts/gen_environment_variables_doc.py"
+    """docs/ENVIRONMENT_VARIABLES.md lists what scripts/gen_environment_variables_doc.py generates.
+
+    Line anchors are ignored: an edit that only moves a read inside its file should not turn this red for everyone; a new,
+    removed or re-defaulted variable, or one whose first read moved to another file, does.
+    """
+    import re
+
+    def _rows(text):
+        return re.sub(r"#L\d+\)", ")", text)
+
+    assert _rows(README_PATH.read_text(encoding="utf-8")) == _rows(_gen.render_markdown()), "run python scripts/gen_environment_variables_doc.py"
