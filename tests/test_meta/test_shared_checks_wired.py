@@ -565,6 +565,29 @@ def test_no_metric_is_scored_on_survivors_only():
     assert_no_survivorship_scoring(files=files, repo_root=REPO_ROOT, allowed={}, min_files=1000)
 
 
+# How many composite tests concede a defect in their prose and pin it with exact equality. A reading list, not a gate: the
+# phrases are common in honest edge-case tests ("degenerate input"), so only growth fails. Lower it when one is reworked.
+_CONCEDED_DEFECT_PINS_COMPOSITE = 26
+
+
+def test_conceded_defect_pins_in_the_composite_tests_do_not_grow():
+    """A new composite test that admits the behaviour is wrong and then pins it exactly has to be a ``test_known_defect_<id>``.
+
+    Seven such tests guarded four real composite defects: the fix turned them red, so the defect read as a contract.
+    """
+    from py_ci_shared.conceded_defect_pins import find_conceded_defect_pins
+
+    files = sorted((REPO_ROOT / "tests" / "training" / "composite").rglob("test_*.py"))
+    found = find_conceded_defect_pins(files, REPO_ROOT)
+    assert len(found) <= _CONCEDED_DEFECT_PINS_COMPOSITE, (
+        f"{len(found)} composite tests concede a defect and pin it (recorded {_CONCEDED_DEFECT_PINS_COMPOSITE}); rename a "
+        "deliberate pin to test_known_defect_<finding id>_..., or assert the correct behaviour: " + "; ".join(map(repr, found))
+    )
+    assert len(found) >= _CONCEDED_DEFECT_PINS_COMPOSITE, (
+        f"only {len(found)} left; lower _CONCEDED_DEFECT_PINS_COMPOSITE to {len(found)} so the drop is kept"
+    )
+
+
 def regenerate_fail_open_baseline() -> None:
     """Rewrite the fail-open baseline from the current tree, keeping every existing note. Called by `regen_baselines.py`."""
     import orjson

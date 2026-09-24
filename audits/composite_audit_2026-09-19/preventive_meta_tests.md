@@ -641,7 +641,7 @@ Per-report check: TRF 26, DSC 30, EST 22, INT 19, PRF 24, TST 17 = 138. Every fi
 - **False-positive risk**: high (the phrases are common in honest tests), which is why it only reports and does not gate.
 - **Runtime**: under 2 s.
 - **Repo**: py-ci-shared.
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED - py-ci-shared conceded_defect_pins (commit 8cebcfd, 6 unit tests, README section) lists test functions whose docstring or leading comment matches the concession phrases and whose body pins a value exactly (== , assert_array_equal, assert_allclose with zero tolerances); a test named test_known_defect_<id>_... is accepted. Wired as test_conceded_defect_pins_in_the_composite_tests_do_not_grow with a two-sided count ratchet at 26: growth fails, and a drop must be recorded. As predicted the list is noisy - most hits say 'degenerate' or 'no-op' about the input of an honest edge-case test - which is why it ratchets a count instead of failing per site. The four TST-04 pins it was built for were fixed with their defects; the dropout test it still lists documents the deployed no-refit policy (EST-03, resolved), not a defect
 
 ---
 
