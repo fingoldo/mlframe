@@ -141,7 +141,8 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
             i_idx, j_idx = torch.where(rel.unsqueeze(1) > rel.unsqueeze(0))
             if len(_ranknet_pair_cache) >= _RANKNET_PAIR_CACHE_SIZE:
                 # FIFO eviction (Python 3.7+ dict preserves insertion order).
-                _ranknet_pair_cache.pop(next(iter(_ranknet_pair_cache)))
+                # evict-ok: memo; a miss recomputes the value
+                _ranknet_pair_cache.pop(next(iter(_ranknet_pair_cache), None), None)  # tolerant: another thread may evict the same key first
             _ranknet_pair_cache[cache_key] = (i_idx, j_idx)
         else:
             i_idx, j_idx = cached

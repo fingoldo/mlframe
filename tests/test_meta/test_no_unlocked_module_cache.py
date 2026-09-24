@@ -17,6 +17,7 @@ finer-grained bug a human still has to judge) -- this only catches the "zero loc
 all" case, which is exactly the shape every one of the 3 recurrences above started as. Snapshot-style
 (baseline-diff), matching the established ``test_no_bare_except.py`` idiom.
 """
+
 from __future__ import annotations
 
 import ast
@@ -28,6 +29,7 @@ import pytest
 
 import mlframe
 
+from tests.test_meta._module_mutable_state import mutable_module_dicts
 from tests.test_meta._shared_ast_cache import parsed_ast
 
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
@@ -67,26 +69,11 @@ def _module_has_lock_construction(tree: ast.Module) -> bool:
 
 
 def _module_level_cache_names(tree: ast.Module) -> list[tuple[str, int]]:
-    """``[(name, lineno), ...]`` for every module-level (top of ``Module.body``, not nested in a
-    function/class) assignment to a ``*_CACHE`` name holding a dict-like value."""
-    out: list[tuple[str, int]] = []
-    for node in tree.body:
-        targets: list[ast.expr] = []
-        value: ast.AST | None = None
-        if isinstance(node, ast.Assign):
-            targets = node.targets
-            value = node.value
-        elif isinstance(node, ast.AnnAssign) and node.value is not None:
-            targets = [node.target]
-            value = node.value
-        else:
-            continue
-        if value is None or not _is_dict_like_cache_value(value):
-            continue
-        for t in targets:
-            if isinstance(t, ast.Name) and t.id.endswith("_CACHE"):
-                out.append((t.id, node.lineno))
-    return out
+    """``[(name, lineno), ...]`` for every module-level dict that some function mutates, whatever its name.
+
+    This used to take only ``*_CACHE`` names, so shared registries named otherwise (``_DEFERRED_HOST_FILL``,
+    mutated from several threads) were never examined; a constant lookup table nobody mutates is still skipped."""
+    return sorted(mutable_module_dicts(tree).items())
 
 
 def _build_offending_set() -> set[str]:
@@ -136,7 +123,8 @@ def test_no_new_unlocked_module_level_cache():
     if fixed:
         sys.stderr.write(
             f"\n[test_no_new_unlocked_module_level_cache] {len(fixed)} site(s) "
-            f"DRAINED:\n  " + "\n  ".join(fixed[:15])
+            f"DRAINED:\n  "
+            + "\n  ".join(fixed[:15])
             + (f"\n  ... and {len(fixed) - 15} more" if len(fixed) > 15 else "")
             + "\n  Refresh: pytest ... --refresh-unlocked-module-cache-baseline\n"
         )
@@ -146,5 +134,6 @@ def test_no_new_unlocked_module_level_cache():
             f"{len(new)} new module-level *_CACHE dict(s) in a file with no threading.Lock/RLock "
             f"anywhere -- review for a real concurrent-.fit() race (add a lock covering the whole "
             f"get-or-compute-or-evict sequence) or confirm single-threaded-only and note why:\n  "
-            + "\n  ".join(new[:30]) + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
+            + "\n  ".join(new[:30])
+            + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
         )

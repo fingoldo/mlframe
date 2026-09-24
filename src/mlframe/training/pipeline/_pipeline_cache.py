@@ -722,6 +722,7 @@ def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out, trai
         _PRE_PIPELINE_CACHE[key] = (train_out, val_out, pipeline)
         _PRE_PIPELINE_CACHE.move_to_end(key)
         while len(_PRE_PIPELINE_CACHE) > _cap:
+            # evict-ok: memo; a miss recomputes the value
             _PRE_PIPELINE_CACHE.popitem(last=False)
         # Byte-budget eviction (LRU): pop until under cap. Skipped silently when budget=0 (default) or sizing helper returns 0 on unknown carriers.
         if _max_bytes > 0 and len(_PRE_PIPELINE_CACHE) > 1:

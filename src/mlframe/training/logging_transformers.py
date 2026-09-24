@@ -209,6 +209,7 @@ def wrap_with_logging(
             # wrap a fixed set of estimator types never see eviction churn; only the
             # pathological "wrap a freshly-built type() on every call" pattern is bounded.
             while len(_PROXY_CLS_CACHE) > _PROXY_CLS_CACHE_MAX:
+                # evict-ok: a miss rebuilds the proxy class
                 _PROXY_CLS_CACHE.popitem(last=False)
 
     return ProxyCls(obj)

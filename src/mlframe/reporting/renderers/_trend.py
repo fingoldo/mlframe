@@ -64,6 +64,7 @@ def _store_fit(x: np.ndarray, y: np.ndarray, method: str, result: _Endpoints) ->
         return  # not weak-referenceable (a plain memoryview / subclass without __weakref__): skip the cache
     with _FIT_CACHE_LOCK:
         if len(_FIT_CACHE) >= _FIT_CACHE_MAX:
+            # evict-ok: memo; a miss recomputes the value
             _FIT_CACHE.pop(next(iter(_FIT_CACHE)), None)
         _FIT_CACHE[(id(x), id(y), method)] = entry
 

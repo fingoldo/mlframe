@@ -299,7 +299,9 @@ def _conditional_permutation_importance(
                         score_losses.append(np.nan)
             finally:
                 X_perm[:, j] = orig_col
-            importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else np.nan  # never a winning 0.0
+            # NaN, not 0.0, when nothing could be measured: real importances are ``baseline - score`` and routinely
+            # negative, so a neutral 0.0 outranks every feature measured to be harmful.
+            importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else np.nan
             continue
 
         # F10/F11: pass max_depth + min_samples_leaf. max_depth=None grows the tree
@@ -351,7 +353,8 @@ def _conditional_permutation_importance(
                     score_losses.append(np.nan)
         finally:
             X_perm[:, j] = orig_col
-        importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else 0.0
+        # Same as the single-feature branch: NaN when every repeat failed, never a 0.0 that outranks harmful features.
+        importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else np.nan
 
     return importances
 

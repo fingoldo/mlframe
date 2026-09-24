@@ -800,8 +800,12 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
                 _CB_VAL_POOL_CACHE.pop(key, None)
 
         # Miss: build fresh val Pool with float32-cast label.
-        while len(_CB_VAL_POOL_CACHE) >= _CB_POOL_CACHE_MAX_ENTRIES:
-            _CB_VAL_POOL_CACHE.pop(next(iter(_CB_VAL_POOL_CACHE)))
+        from ._cb_pool_budget import POOL_CACHE_LOCK
+
+        with POOL_CACHE_LOCK:
+            while len(_CB_VAL_POOL_CACHE) >= _CB_POOL_CACHE_MAX_ENTRIES:
+                # evict-ok: a miss rebuilds the val Pool
+                _CB_VAL_POOL_CACHE.pop(next(iter(_CB_VAL_POOL_CACHE)), None)
 
         try:
             _lab_build = _coerce_label_for_cb_pool(val_target)
@@ -847,7 +851,6 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
         from ._cb_pool_budget import admit_pool
 
         if admit_pool(_CB_VAL_POOL_CACHE, "val", key, val_pool):
-            _CB_VAL_POOL_CACHE[key] = val_pool
             logger.info(
                 "[cb-val-pool-reuse] miss; stored fresh val Pool (cache size=%d)",
                 len(_CB_VAL_POOL_CACHE),

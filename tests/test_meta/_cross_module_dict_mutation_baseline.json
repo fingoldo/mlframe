@@ -1,0 +1,7 @@
+[
+  "feature_selection/filters/_gpu_resident_pair_mi.py:508:_grand_fusion_block_counts:mlframe.feature_selection.filters._gpu_resident_fe:_COMBO_IDX_CACHE",
+  "feature_selection/filters/_gpu_resident_select.py:42:_radix_select_interior_edges:mlframe.feature_selection.filters._gpu_resident_select_kernels:_RADIX_INTERP_CACHE",
+  "training/composite/discovery/_auto_chain.py:218:reregister_auto_chain_transforms:mlframe.training.composite.transforms.registry:_TRANSFORMS_REGISTRY",
+  "training/composite/discovery/_opt_in_steps.py:162:_run_auto_chain:mlframe.training.composite.transforms.registry:_TRANSFORMS_REGISTRY",
+  "training/core/_setup_helpers_metadata.py:110:_finalize_and_save_metadata:mlframe.training.core._setup_helpers_pipeline_cache:_PIPELINE_JSON_ROUNDTRIP_CACHE"
+]

@@ -509,7 +509,12 @@ def _canonical_dtype_pairs(train_df) -> tuple:
     _key = (id(train_df), _ncols)
     _cached = _DTYPE_PAIRS_MEMO.get(_key)
     if _cached is not None:
-        _DTYPE_PAIRS_MEMO.move_to_end(_key)
+        # The weakref evictor can run between the get above and this line (GC fires at any bytecode) and drop the key; the value in hand
+        # is still correct, only the LRU touch is lost.
+        try:
+            _DTYPE_PAIRS_MEMO.move_to_end(_key)
+        except KeyError:
+            pass
         return _cached
     _result = _canonical_dtype_pairs_compute(train_df)
     _DTYPE_PAIRS_MEMO[_key] = _result

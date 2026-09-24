@@ -138,7 +138,8 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
     except Exception as e:
         logger.debug("val-pool cache lookup: signature failed, skipping cache reuse: %s", e)
         return None
-    for key, pool in _CB_VAL_POOL_CACHE.items():
+    # A snapshot: CatBoost fits on other threads insert and evict while this scans.
+    for key, pool in list(_CB_VAL_POOL_CACHE.items()):
         if tuple(key[:4]) != _sig:
             continue
         if _dtypes_sig is not None:

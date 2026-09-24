@@ -285,8 +285,12 @@ def _maybe_get_or_build_cb_pool(
     # Simple FIFO eviction -- unlikely to hit during normal runs (<= N
     # models x N tiers entries), but keeps the cache from growing
     # unboundedly across long-running sessions.
-    while len(_CB_POOL_CACHE) >= _CB_POOL_CACHE_MAX_ENTRIES:
-        _CB_POOL_CACHE.pop(next(iter(_CB_POOL_CACHE)))
+    from ._cb_pool_budget import POOL_CACHE_LOCK
+
+    with POOL_CACHE_LOCK:
+        while len(_CB_POOL_CACHE) >= _CB_POOL_CACHE_MAX_ENTRIES:
+            # evict-ok: a miss rebuilds the train Pool
+            _CB_POOL_CACHE.pop(next(iter(_CB_POOL_CACHE)), None)
 
     # Cast label to float32 at build time. CatBoost stores the label's
     # raw type on the Pool (Integer vs Float) and later ``Pool.set_label``
@@ -335,7 +339,6 @@ def _maybe_get_or_build_cb_pool(
     from ._cb_pool_budget import admit_pool
 
     if admit_pool(_CB_POOL_CACHE, "train", key, pool):
-        _CB_POOL_CACHE[key] = pool
         logger.info(
             "[cb-pool-reuse] miss; stored fresh Pool (cache size=%d)",
             len(_CB_POOL_CACHE),

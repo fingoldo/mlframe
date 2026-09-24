@@ -89,6 +89,7 @@ def encode_y_for_classif_mi(y: np.ndarray) -> np.ndarray:
     with _encode_memo_lock:
         _encode_memo[key] = stored
         while len(_encode_memo) > _ENCODE_MEMO_MAX_ENTRIES:
+            # evict-ok: memo; a miss recomputes the value
             _encode_memo.popitem(last=False)
     return codes
 

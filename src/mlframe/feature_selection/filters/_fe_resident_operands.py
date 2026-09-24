@@ -122,6 +122,9 @@ import weakref as _weakref
 
 _HASH_MEMO: "OrderedDict" = OrderedDict()  # id(host) -> (weakref, shape, dtype_str, hash)
 _HASH_MEMO_MAX_ENTRIES = 64
+# Callers hash outside _FE_RESIDENT_OPERANDS_LOCK (the hash is the O(n) part), so concurrent FE threads reorder and evict this
+# OrderedDict at once. This lock covers only the dict operations, never the hash itself.
+_HASH_MEMO_LOCK = threading.Lock()
 
 
 def _content_hash_memoized(host: Any) -> int:
@@ -129,22 +132,26 @@ def _content_hash_memoized(host: Any) -> int:
     Falls back to a full recompute whenever the object identity, shape, or dtype does not match the
     cached entry (a genuinely different array, or the SAME id recycled with different content)."""
     key = id(host)
-    ent = _HASH_MEMO.get(key)
-    if ent is not None:
-        ref, shape, dtype_str, h = ent
-        if ref() is host and shape == host.shape and dtype_str == host.dtype.str:
-            _HASH_MEMO.move_to_end(key)  # LRU: this identity is hot
-            return int(h)
+    with _HASH_MEMO_LOCK:
+        ent = _HASH_MEMO.get(key)
+        if ent is not None:
+            ref, shape, dtype_str, h = ent
+            if ref() is host and shape == host.shape and dtype_str == host.dtype.str:
+                _HASH_MEMO.move_to_end(key)  # LRU: this identity is hot
+                return int(h)
     h = _content_hash(host)
-    _HASH_MEMO[key] = (_weakref.ref(host), host.shape, host.dtype.str, h)
-    if len(_HASH_MEMO) > _HASH_MEMO_MAX_ENTRIES:
-        _HASH_MEMO.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
+    with _HASH_MEMO_LOCK:
+        _HASH_MEMO[key] = (_weakref.ref(host), host.shape, host.dtype.str, h)
+        if len(_HASH_MEMO) > _HASH_MEMO_MAX_ENTRIES:
+            # evict-ok: memo; a miss recomputes the value
+            _HASH_MEMO.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
     return h
 
 
 def clear_hash_memo() -> None:
     """Drop the id()-keyed hash memo (call at FE-step teardown; mirrors the other resident caches)."""
-    _HASH_MEMO.clear()
+    with _HASH_MEMO_LOCK:
+        _HASH_MEMO.clear()
 
 # content signature (shape + dtype-str + content hash)  ->  device_array. OrderedDict gives O(1) LRU: hits
 # move-to-end (hot), overflow pops the front (coldest).
@@ -228,6 +235,7 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
         g = cp.asarray(host)
         _FE_RESIDENT_OPERANDS[sig] = g
         if len(_FE_RESIDENT_OPERANDS) > _MAX_ENTRIES:
+            # evict-ok: a miss re-uploads the operand
             _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
         return g
 
@@ -347,6 +355,7 @@ def resident_qbin_codes(a: Any, nbins: int, dtype: Any, compute_fn: Any) -> Any:
     with _FE_RESIDENT_OPERANDS_LOCK:
         _FE_RESIDENT_QBIN_CODES[sig] = narrow
         if len(_FE_RESIDENT_QBIN_CODES) > _MAX_QBIN_CODE_ENTRIES:
+            # evict-ok: a miss re-bins on the device
             _FE_RESIDENT_QBIN_CODES.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
     return codes
 

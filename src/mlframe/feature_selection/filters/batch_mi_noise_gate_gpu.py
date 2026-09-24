@@ -409,6 +409,7 @@ def _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P):
             c[key] = (weakref.ref(classes_y), d_y)
             c.move_to_end(key)
             while len(c) > _DY_DEVICE_CACHE_MAX:
+                # evict-ok: a miss re-uploads y
                 c.popitem(last=False)
         except TypeError:
             c.pop(key, None)
@@ -453,6 +454,7 @@ def _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, 
             c[key] = (weakref.ref(classes_y), d_y)
             c.move_to_end(key)
             while len(c) > _DY_DEVICE_CACHE_CUPY_MAX:
+                # evict-ok: a miss re-uploads y
                 c.popitem(last=False)
         except TypeError:
             c.pop(key, None)

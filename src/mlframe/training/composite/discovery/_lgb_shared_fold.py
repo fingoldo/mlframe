@@ -82,6 +82,7 @@ def _fold_dataset(x: np.ndarray, rows: np.ndarray, params: Dict[str, Any]) -> An
     with _LOCK:
         _CACHE[key] = (weakref.ref(x), ds)
         while len(_CACHE) > _MAX_ENTRIES:
+            # evict-ok: memo; a miss recomputes the value
             _CACHE.popitem(last=False)
     return ds
 

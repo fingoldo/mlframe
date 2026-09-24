@@ -149,6 +149,7 @@ def _fp_cache_put(df: Any, fp: "ContentFingerprint", n_sample: int) -> None:
         _fingerprint_cache[key] = fp
         _fingerprint_cache.move_to_end(key)
         while len(_fingerprint_cache) > _FP_CACHE_MAX:
+            # evict-ok: memo; a miss recomputes the value
             _fingerprint_cache.popitem(last=False)
     try:
         weakref.finalize(df, _fp_cache_evict_id, key[0])

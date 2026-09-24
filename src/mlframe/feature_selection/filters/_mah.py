@@ -111,6 +111,7 @@ def _get_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
             return result  # y doesn't support weakref (unlikely for ndarray) - skip caching, still correct
         _Y_BINNING_CACHE[key] = (ref, result)
         if len(_Y_BINNING_CACHE) > _Y_BINNING_CACHE_MAX_ENTRIES:
+            # evict-ok: memo; a miss recomputes the value
             _Y_BINNING_CACHE.popitem(last=False)
         return result
 

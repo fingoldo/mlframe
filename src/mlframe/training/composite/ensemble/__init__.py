@@ -312,6 +312,7 @@ def _oof_cache_put(key: tuple, value: tuple) -> None:
             _OOF_HOLDOUT_CACHE[key] = value
             return
         if len(_OOF_HOLDOUT_CACHE) >= _OOF_HOLDOUT_CACHE_CAP:
+            # evict-ok: memo; a miss recomputes the value
             _OOF_HOLDOUT_CACHE.popitem(last=False)
         _OOF_HOLDOUT_CACHE[key] = value
 

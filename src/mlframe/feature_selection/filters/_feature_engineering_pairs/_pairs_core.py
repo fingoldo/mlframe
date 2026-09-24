@@ -222,6 +222,7 @@ def _gpu_gate_cached(kind: str, n_rows: int, n_cands: int, compute) -> bool:
     result = bool(compute(n_rows, n_cands))
     with _GPU_GATE_CACHE_LOCK:
         if key not in _GPU_GATE_CACHE and len(_GPU_GATE_CACHE) >= _GPU_GATE_CACHE_MAX:
+            # evict-ok: memo; a miss recomputes the value
             _GPU_GATE_CACHE.pop(next(iter(_GPU_GATE_CACHE)))
         _GPU_GATE_CACHE[key] = result
     return result

@@ -16,6 +16,10 @@ Deliberately coarse in the safe direction, so it stays a reviewable signal rathe
     whole get-or-compute-or-evict sequence needs judgement, and over-claiming would make this unfixable;
   * a helper that mutates under a lock held by its CALLER is a false positive - annotate and baseline it.
 
+Scope: every module-level dict that some function mutates, whatever its name, and mutations through a local alias
+(``c = _REGISTRY; c[k] = v``). It used to see only ``*_CACHE`` names and direct mutations, so ``_DEFERRED_HOST_FILL``
+in ``_gpu_resident_fe.py`` (mutated from several threads through ``c = ...``, no lock) was never examined.
+
 Baseline-diff, matching the sibling test's idiom. Refresh with::
 
     pytest tests/test_meta/test_module_cache_mutated_without_its_lock.py --refresh-cache-mutation-lock-baseline
@@ -32,6 +36,7 @@ import pytest
 
 import mlframe
 
+from tests.test_meta._module_mutable_state import build_dict_index, function_defs, imported_module_dicts, mutable_module_dicts, mutations_of
 from tests.test_meta._shared_ast_cache import parsed_ast
 
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
@@ -73,54 +78,13 @@ def _module_has_lock_construction(tree: ast.Module) -> bool:
 
 
 def _module_level_cache_names(tree: ast.Module) -> set[str]:
-    """Names of module-level ``*_CACHE`` bindings holding a dict-like value."""
-    out: set[str] = set()
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            targets, value = node.targets, node.value
-        elif isinstance(node, ast.AnnAssign) and node.value is not None:
-            targets, value = [node.target], node.value
-        else:
-            continue
-        if not _is_dict_like_cache_value(value):
-            continue
-        for t in targets:
-            if isinstance(t, ast.Name) and t.id.endswith("_CACHE"):
-                out.add(t.id)
-    return out
+    """Names of module-level dicts that some function mutates: shared mutable state, whatever it is called."""
+    return set(mutable_module_dicts(tree))
 
 
 def _mutations_of(func: ast.AST, cache_names: set[str]) -> set[str]:
-    """Names from ``cache_names`` mutated anywhere inside ``func``.
-
-    Nested functions are intentionally included: a closure mutating the cache is the same hazard, and it is
-    attributed to the enclosing definition a reviewer would actually read.
-    """
-    hit: set[str] = set()
-
-    def _base(node: ast.AST) -> str:
-        """The ``C`` in ``C[k]`` / ``C.pop(...)``, or "" when the target is not a plain name."""
-        while isinstance(node, ast.Subscript):
-            node = node.value
-        return node.id if isinstance(node, ast.Name) else ""
-
-    for node in ast.walk(func):
-        if isinstance(node, ast.Assign):
-            for t in node.targets:
-                if isinstance(t, ast.Subscript) and _base(t) in cache_names:
-                    hit.add(_base(t))
-        elif isinstance(node, ast.AugAssign):
-            if isinstance(node.target, ast.Subscript) and _base(node.target) in cache_names:
-                hit.add(_base(node.target))
-        elif isinstance(node, ast.Delete):
-            for t in node.targets:
-                if isinstance(t, ast.Subscript) and _base(t) in cache_names:
-                    hit.add(_base(t))
-        elif isinstance(node, ast.Call):
-            f = node.func
-            if isinstance(f, ast.Attribute) and f.attr in _MUTATING_METHODS and _base(f.value) in cache_names:
-                hit.add(_base(f.value))
-    return hit
+    """Alias-aware mutation finder; see ``_module_mutable_state.mutations_of``."""
+    return mutations_of(func, cache_names)
 
 
 def _has_with_block(func: ast.AST) -> bool:
@@ -160,7 +124,7 @@ def _build_offending_set() -> set[str]:
     return out
 
 
-_BLIND_CHECK_LOCKED = '''
+_BLIND_CHECK_LOCKED = """
 import threading
 _L = threading.Lock()
 _X_CACHE = {}
@@ -177,14 +141,20 @@ def unguarded(k, v):
 
 def unguarded_pop(k):
     _X_CACHE.pop(k, None)
-'''
 
-_BLIND_CHECK_NO_LOCK = '''
+_PENDING = {}
+
+def aliased(k, v):
+    c = _PENDING
+    c[k] = v
+"""
+
+_BLIND_CHECK_NO_LOCK = """
 _X_CACHE = {}
 
 def unguarded(k, v):
     _X_CACHE[k] = v
-'''
+"""
 
 
 def test_detector_is_not_blind():
@@ -194,7 +164,8 @@ def test_detector_is_not_blind():
     baseline-diff test is green precisely when it finds nothing new.
     """
     found = {(f, c) for _ln, f, c in _offending_in_tree(ast.parse(_BLIND_CHECK_LOCKED))}
-    assert found == {("unguarded", "_X_CACHE"), ("unguarded_pop", "_X_CACHE")}, found
+    # ``aliased`` is the shape that hid _DEFERRED_HOST_FILL: not a *_CACHE name, and mutated through a local alias.
+    assert found == {("unguarded", "_X_CACHE"), ("unguarded_pop", "_X_CACHE"), ("aliased", "_PENDING")}, found
 
     # A module with no lock at all belongs to the SIBLING test; this one must stay silent on it, so the
     # two baselines never double-report the same site.
@@ -223,9 +194,69 @@ def test_no_new_cache_mutation_outside_a_lock():
 
     if new:
         pytest.fail(
-            f"{len(new)} function(s) mutate a module-level *_CACHE with no lock held, in a module that "
+            f"{len(new)} function(s) mutate a module-level dict with no lock held, in a module that "
             "DOES construct one - the 'locked elsewhere, unlocked here' race. The module greps as "
             "lock-aware, so this will not be caught by reading it. Either take the existing lock across "
             "the whole get-or-compute-or-evict sequence, or confirm the caller already holds it and "
             "baseline the site with a note saying which caller:\n  " + "\n  ".join(new[:30]) + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
+        )
+
+
+_XMOD_BASELINE_PATH = Path(__file__).resolve().parent / "_cross_module_dict_mutation_baseline.json"
+
+
+def _cross_module_offending(modules: dict) -> set[str]:
+    """``{"relpath:lineno:func:origin.module:NAME"}`` for functions mutating ANOTHER module's dict with no ``with`` block.
+
+    A dict defined in one module and written from another is shared state whatever either module's own locking looks
+    like; the per-module scan above never saw it (``_CB_VAL_POOL_CACHE`` lives in ``_predict_guards`` and was evicted
+    and inserted from ``cb/_cb_pool`` with no lock). Whether the defining module has a lock is irrelevant here.
+    """
+    index = build_dict_index(modules)
+    out: set[str] = set()
+    for rel, tree in modules.items():
+        imported = imported_module_dicts(tree, rel, index)
+        if not imported:
+            continue
+        for fn in function_defs(tree):
+            if _has_with_block(fn):
+                continue
+            for local in sorted(mutations_of(fn, set(imported))):
+                out.add(f"{rel}:{fn.lineno}:{fn.name}:{imported[local]}")
+    return out
+
+
+def _all_modules() -> dict:
+    """``{rel_posix: tree}`` for every scanned module."""
+    out: dict = {}
+    for py in MLFRAME_DIR.rglob("*.py"):
+        if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS) or py.name.endswith(".py.old"):
+            continue
+        tree = parsed_ast(py)
+        if tree is not None:
+            out[py.relative_to(MLFRAME_DIR).as_posix()] = tree
+    return out
+
+
+def test_cross_module_detector_is_not_blind():
+    """An import-then-mutate of another module's dict is flagged; the same code under a ``with`` is not."""
+    owner = ast.parse("_SHARED = {}\n")
+    user = ast.parse("from ._owner import _SHARED\n\ndef put(k, v):\n    _SHARED[k] = v\n\ndef safe(k, v, lock):\n    with lock:\n        _SHARED[k] = v\n")
+    found = _cross_module_offending({"pkg/_owner.py": owner, "pkg/user.py": user})
+    assert found == {"pkg/user.py:3:put:mlframe.pkg._owner:_SHARED"}, found
+
+
+def test_no_new_cross_module_dict_mutation_outside_a_lock():
+    """No new function mutates another module's module-level dict without any ``with`` block."""
+    current = _cross_module_offending(_all_modules())
+    if _refresh_requested() or not _XMOD_BASELINE_PATH.exists():
+        _XMOD_BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip(f"cross-module dict-mutation baseline written with {len(current)} site(s)")
+    baseline = set(orjson.loads(_XMOD_BASELINE_PATH.read_bytes()))
+    new = sorted(current - baseline)
+    if new:
+        pytest.fail(
+            f"{len(new)} function(s) mutate another module's dict with no lock held. The dict is shared state across modules; "
+            "take the lock that guards it (add one in its home module if there is none), or baseline the site saying why it "
+            "is single-threaded:\n  " + "\n  ".join(new[:30])
         )

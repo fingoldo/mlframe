@@ -542,6 +542,7 @@ def _psi_heatmap_cached(test_frame: Any, ts: np.ndarray, names: Any) -> Any:
     if key is not None:
         with _PSI_CACHE_LOCK:
             while len(_PSI_CACHE) >= 8:
+                # evict-ok: memo; a miss recomputes the value
                 _PSI_CACHE.pop(next(iter(_PSI_CACHE)))
             _PSI_CACHE[key] = spec
     return spec

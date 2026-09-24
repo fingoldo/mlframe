@@ -373,6 +373,7 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
         if _y_key is not None:
             with _NEURAL_MI_CACHE_LOCK:
                 if len(_INFONET_Y_PREP_CACHE) > 8:
+                    # evict-ok: memo; a miss recomputes the value
                     _INFONET_Y_PREP_CACHE.pop(next(iter(_INFONET_Y_PREP_CACHE)))
                 _INFONET_Y_PREP_CACHE[_y_key] = yr
 
@@ -566,6 +567,7 @@ def _classify_y_kind(y: np.ndarray) -> str:
     if _key is not None:
         with _NEURAL_MI_CACHE_LOCK:
             if len(_Y_KIND_CACHE) > 8:
+                # evict-ok: memo; a miss recomputes the value
                 _Y_KIND_CACHE.pop(next(iter(_Y_KIND_CACHE)))
             _Y_KIND_CACHE[_key] = _res
     return _res

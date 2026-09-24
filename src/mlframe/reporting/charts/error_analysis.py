@@ -143,6 +143,7 @@ def _resolve_feature_matrix(
     if _weak_x is not None:
         with _MATRIX_LOCK:
             if len(_MATRIX_CACHE) >= _MATRIX_CACHE_MAX:
+                # evict-ok: memo; a miss recomputes the value
                 _MATRIX_CACHE.pop(next(iter(_MATRIX_CACHE)), None)
             _MATRIX_CACHE[_key] = (_weak_x, _result)
     return _result

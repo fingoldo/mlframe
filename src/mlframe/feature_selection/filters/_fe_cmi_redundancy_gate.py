@@ -312,6 +312,7 @@ def apply_cmi_redundancy_gate(
         if _yk is not None:
             with _Y_DENSE_MEMO_LOCK:
                 if len(_Y_DENSE_MEMO) > 8:
+                    # evict-ok: memo; a miss recomputes the value
                     _Y_DENSE_MEMO.pop(next(iter(_Y_DENSE_MEMO)))
                 _Y_DENSE_MEMO[_yk] = y_dense.copy()
     n_rows = int(y_dense.size)

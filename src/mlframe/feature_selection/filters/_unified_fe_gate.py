@@ -98,6 +98,7 @@ def _coerce_y_classes(y) -> np.ndarray:
     if _key is not None:
         with _FE_GATE_MEMO_LOCK:
             if len(_COERCE_Y_MEMO) > 8:
+                # evict-ok: memo; a miss recomputes the value
                 _COERCE_Y_MEMO.pop(next(iter(_COERCE_Y_MEMO)))
             _COERCE_Y_MEMO[_key] = _res.copy()
     return _res
@@ -246,6 +247,7 @@ def raw_mi_noise_floor(
     if _key is not None:
         with _FE_GATE_MEMO_LOCK:
             if len(_RAW_MI_FLOOR_MEMO) > 8:
+                # evict-ok: memo; a miss recomputes the value
                 _RAW_MI_FLOOR_MEMO.pop(next(iter(_RAW_MI_FLOOR_MEMO)))
             _RAW_MI_FLOOR_MEMO[_key] = _res
     return _res

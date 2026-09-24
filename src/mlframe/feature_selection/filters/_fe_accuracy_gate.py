@@ -175,6 +175,7 @@ def measure_feature_uplift(
     if _bkey is not None and _bcache is None and _base_scores:
         with _FE_GATE_MEMO_LOCK:
             if len(_BASELINE_CV_MEMO) > _BASELINE_CV_MEMO_MAXSIZE:
+                # evict-ok: memo; a miss recomputes the value
                 _BASELINE_CV_MEMO.pop(next(iter(_BASELINE_CV_MEMO)))
             _BASELINE_CV_MEMO[_bkey] = _base_scores
     return float(np.mean(deltas))
@@ -212,6 +213,7 @@ def infer_classification(y: np.ndarray) -> bool:
     if _key is not None:
         with _FE_GATE_MEMO_LOCK:
             if len(_INFER_CLS_MEMO) > 8:
+                # evict-ok: memo; a miss recomputes the value
                 _INFER_CLS_MEMO.pop(next(iter(_INFER_CLS_MEMO)))
             _INFER_CLS_MEMO[_key] = bool(_res)
     return bool(_res)

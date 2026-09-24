@@ -180,4 +180,4 @@ def test_a_failing_scorer_records_nan_rather_than_aborting_the_single_feature_br
         model.score = real_score
 
     assert imp.shape == (1,), "the failing scorer aborted the computation instead of recording NaN"
-    assert imp[0] == 0.0, f"every repeat failed, so the branch's documented fallback is 0.0; got {imp[0]}"
+    assert np.isnan(imp[0]), f"every repeat failed, so nothing was measured and the importance is NaN; got {imp[0]}"

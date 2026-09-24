@@ -46,6 +46,7 @@ def _render_adversarial_panel(*, train_frame: Any, test_frame: Any, val_frame: A
             if _adv_key is not None:
                 with _ADVERSARIAL_LOCK:
                     while len(_ADVERSARIAL_CACHE) >= 8:
+                        # evict-ok: memo; a miss recomputes the value
                         _ADVERSARIAL_CACHE.pop(next(iter(_ADVERSARIAL_CACHE)))
                     _ADVERSARIAL_CACHE[_adv_key] = spec
         if calendar:

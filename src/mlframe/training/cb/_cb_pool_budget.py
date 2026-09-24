@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,10 @@ _CB_POOL_CACHE_MAX_BYTES_DEFAULT: int = 8 * 1024 * 1024 * 1024  # 8 GiB
 # Byte totals per cache, keyed by the caller's cache label ("train" / "val"), so the two dicts -- which live
 # in different modules -- can share one helper without either owning the other's bookkeeping.
 _CACHE_SIZES: dict[str, dict[Any, int]] = {}
+# CatBoost fits can run on several threads. Every mutation of the two Pool caches and of this ledger takes this lock: admit_pool
+# walks the cache with next(iter(...)), which raises if another thread inserts between the iter and the next.
+POOL_CACHE_LOCK = threading.RLock()
+_CACHE_SIZES_LOCK = POOL_CACHE_LOCK
 
 # Types already reported as unmeasurable, so the warning fires once per type rather than per insert.
 _UNMEASURABLE_TYPES_SEEN: set[str] = set()
@@ -76,7 +81,10 @@ def estimate_pool_bytes(pool: Any) -> int:
 
 
 def admit_pool(cache: dict, label: str, key: Any, pool: Any) -> bool:
-    """Evict oldest-first until ``pool`` fits the byte ceiling, then record it; return whether to cache it.
+    """Evict oldest-first until ``pool`` fits the byte ceiling, then store and record it; return whether it was cached.
+
+    The insert happens here, under ``POOL_CACHE_LOCK``, rather than in the caller after this returns: a caller-side
+    insert raced another thread's eviction walk.
 
     Called at the INSERT site rather than before the build, because the Pool's size is not known until it
     exists. The existing entry-count eviction stays where it is, ahead of the build, where dropping an old
@@ -85,42 +93,47 @@ def admit_pool(cache: dict, label: str, key: Any, pool: Any) -> bool:
     Returns ``False`` when this Pool alone exceeds the ceiling: caching it would evict everything else and
     then be evicted itself by the next insert, so the caller should use it and not store it.
     """
-    sizes = _CACHE_SIZES.setdefault(label, {})
-    for stale in [k for k in sizes if k not in cache]:
-        sizes.pop(stale, None)
-
     nbytes = estimate_pool_bytes(pool)
-    ceiling = cb_pool_cache_max_bytes()
-    if nbytes > ceiling:
-        logger.info(
-            "[cb-pool-cache] not caching a %.2f GiB %s Pool: it alone exceeds the %.2f GiB budget.",
-            nbytes / 1024**3, label, ceiling / 1024**3,
-        )
-        return False
+    with _CACHE_SIZES_LOCK:
+        sizes = _CACHE_SIZES.setdefault(label, {})
+        for stale in [k for k in sizes if k not in cache]:
+            sizes.pop(stale, None)
 
-    while cache and sum(sizes.values()) + nbytes > ceiling:
-        oldest = next(iter(cache))
-        cache.pop(oldest, None)
-        sizes.pop(oldest, None)
-        logger.info("[cb-pool-cache] evicted the oldest %s Pool to stay under the %.2f GiB budget.", label, ceiling / 1024**3)
+        ceiling = cb_pool_cache_max_bytes()
+        if nbytes > ceiling:
+            logger.info(
+                "[cb-pool-cache] not caching a %.2f GiB %s Pool: it alone exceeds the %.2f GiB budget.",
+                nbytes / 1024**3, label, ceiling / 1024**3,
+            )
+            return False
 
-    sizes[key] = nbytes
-    return True
+        while cache and sum(sizes.values()) + nbytes > ceiling:
+            oldest = next(iter(cache))
+            cache.pop(oldest, None)
+            sizes.pop(oldest, None)
+            logger.info("[cb-pool-cache] evicted the oldest %s Pool to stay under the %.2f GiB budget.", label, ceiling / 1024**3)
+
+        sizes[key] = nbytes
+        cache[key] = pool
+        return True
 
 
 def forget_pool_bytes(label: str, key: Any) -> None:
     """Drop one entry's recorded size, for a caller that evicted it outside ``evict_for_budget``."""
-    _CACHE_SIZES.get(label, {}).pop(key, None)
+    with _CACHE_SIZES_LOCK:
+        _CACHE_SIZES.get(label, {}).pop(key, None)
 
 
 def cache_bytes(label: str) -> int:
     """Current recorded total for one cache, for tests and diagnostics."""
-    return sum(_CACHE_SIZES.get(label, {}).values())
+    with _CACHE_SIZES_LOCK:
+        return sum(_CACHE_SIZES.get(label, {}).values())
 
 
 def reset_cache_bytes(label: str | None = None) -> None:
     """Clear the size bookkeeping, for a caller that cleared the cache dict itself."""
-    if label is None:
-        _CACHE_SIZES.clear()
-    else:
-        _CACHE_SIZES.pop(label, None)
+    with _CACHE_SIZES_LOCK:
+        if label is None:
+            _CACHE_SIZES.clear()
+        else:
+            _CACHE_SIZES.pop(label, None)

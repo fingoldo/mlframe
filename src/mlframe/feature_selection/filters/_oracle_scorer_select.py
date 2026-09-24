@@ -119,6 +119,7 @@ def _cached_read_rows(store: Any) -> "list[dict]":
     rows: "list[dict]" = list(store.read_rows())
     with _ROWS_CACHE_LOCK:
         if len(_ROWS_CACHE) >= _ROWS_CACHE_MAX:
+            # evict-ok: memo; a miss recomputes the value
             _ROWS_CACHE.pop(next(iter(_ROWS_CACHE)))  # evict oldest (insertion order)
         _ROWS_CACHE[key] = rows
     return rows

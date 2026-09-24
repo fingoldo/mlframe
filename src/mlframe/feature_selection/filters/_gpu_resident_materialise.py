@@ -396,6 +396,7 @@ def register_prebuilt_operand_table(transformed_vars: np.ndarray, device_table: 
             c[key] = (weakref.ref(transformed_vars), device_table)
             c.move_to_end(key)
             while len(c) > _PREBUILT_OPERAND_TABLE_MAX:
+                # evict-ok: a miss re-uploads the operand table
                 c.popitem(last=False)
         except TypeError:
             c.pop(key, None)
@@ -447,6 +448,7 @@ def _resident_operand_table(cp, transformed_vars):
             c[key] = (weakref.ref(transformed_vars), g)
             c.move_to_end(key)
             while len(c) > _OPERAND_TABLE_CACHE_MAX:
+                # evict-ok: a miss re-uploads the operand table
                 c.popitem(last=False)
         except TypeError:
             c.pop(key, None)

@@ -890,6 +890,7 @@ def compute_feature_distribution_drift(
         if _cache_key is not None:
             with _DRIFT_INVARIANT_CACHE_LOCK:
                 if len(_DRIFT_INVARIANT_CACHE) >= _DRIFT_INVARIANT_CACHE_MAX:
+                    # evict-ok: memo; a miss recomputes the value
                     _DRIFT_INVARIANT_CACHE.pop(next(iter(_DRIFT_INVARIANT_CACHE)))
                 _DRIFT_INVARIANT_CACHE[_cache_key] = _invariant
     per_feature = _invariant["per_feature"]

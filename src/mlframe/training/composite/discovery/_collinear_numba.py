@@ -360,6 +360,7 @@ def near_collinear_keep_mask_fast(
     if _ck is not None:
         with _KEEP_MASK_CACHE_LOCK:
             if len(_KEEP_MASK_CACHE) >= _KEEP_MASK_CACHE_MAX_ENTRIES:
+                # evict-ok: memo; a miss recomputes the value
                 _KEEP_MASK_CACHE.popitem(last=False)
             _KEEP_MASK_CACHE[_ck] = keep.copy()
     return np.asarray(keep)

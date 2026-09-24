@@ -189,6 +189,7 @@ def _get_pinned_buffer(name: str, shape: tuple[int, ...], dtype: np.dtype):
         _PINNED_BUFFERS[key] = arr
         _PINNED_BUFFERS.move_to_end(key)
         while len(_PINNED_BUFFERS) > _PINNED_BUFFERS_MAX:
+            # evict-ok: pool reference only; a caller's array keeps its pinned memory alive, and a miss allocates anew
             _PINNED_BUFFERS.popitem(last=False)
         return arr
 

@@ -31,9 +31,9 @@ class _FlakyScoreModel:
 
 
 def test_single_feature_branch_survives_scorer_crash():
-    """With a single feature (p==1, the no-conditioning-set fallback path), a model.score() crash
-    must not propagate -- it must degrade to a 0.0 importance (all-NaN score_losses), matching the
-    general (p>1) branch's documented failure mode."""
+    """With a single feature (p==1, the no-conditioning-set fallback path), a model.score() crash must not propagate.
+    Every repeat failed, so nothing was measured and the importance is NaN: real importances are ``baseline - score``
+    and routinely negative, so a 0.0 would outrank every feature measured to be harmful."""
     rng = np.random.default_rng(0)
     n = 100
     X = rng.random((n, 1))
@@ -44,5 +44,19 @@ def test_single_feature_branch_survives_scorer_crash():
     importances = _conditional_permutation_importance(model, X, y, n_repeats=3)
 
     assert importances.shape == (1,)
-    assert np.isfinite(importances).all()
-    assert importances[0] == 0.0
+    assert np.isnan(importances[0]), f"an unmeasurable feature must read NaN, not {importances[0]}"
+
+
+def test_general_branch_records_nan_when_every_repeat_fails():
+    """The p>1 branch follows the same rule: every permuted score() raised, so the importance is NaN, not 0.0."""
+    rng = np.random.default_rng(0)
+    n = 200
+    X = rng.random((n, 3))
+    y = X[:, 0] + rng.random(n) * 0.1
+    model = _FlakyScoreModel()
+    model.fit(X, y)
+
+    importances = _conditional_permutation_importance(model, X, y, n_repeats=3)
+
+    assert importances.shape == (3,)
+    assert np.isnan(importances).all(), f"every repeat failed on every feature, expected all NaN, got {importances}"

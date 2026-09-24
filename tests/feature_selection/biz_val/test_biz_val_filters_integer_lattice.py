@@ -281,6 +281,10 @@ class TestIntegerLatticeTargetTypeRobustness:
             fe_conditional_gate_enable=False,
         )
         assert bool(m.fe_integer_lattice_enable) is True
+        # The 30s budget catches a hang in the lattice operator, not numba's first-call compilation, which alone took 70s in a fresh
+        # process (evaluate_gain is not disk-cached). An untimed fit on a slice of the same frame compiles the same signatures first.
+        from sklearn.base import clone
+        clone(m).fit(df.iloc[:150], y.iloc[:150])
         t0 = time.time()
         m.fit(df, y)
         assert time.time() - t0 < 30.0, "integer-lattice fit exceeded 30s wall (hang-class bug)"

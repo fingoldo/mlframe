@@ -60,6 +60,7 @@ def shared_error_prep(df: Any, y_true: Any, y_pred: Any, task: str, seed: int, b
     result = build()
     with _PREP_LOCK:
         if len(_PREP_CACHE) >= _PREP_CACHE_MAX:
+            # evict-ok: memo; a miss recomputes the value
             _PREP_CACHE.pop(next(iter(_PREP_CACHE)), None)
         _PREP_CACHE[key] = (refs, result)
     return result
