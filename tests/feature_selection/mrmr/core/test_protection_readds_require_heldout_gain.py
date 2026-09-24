@@ -110,8 +110,8 @@ class _FourierRecipe:
         self.name = "leg"
 
 
-def _run_group1_with_adaptive_leg(subsumed: bool) -> bool:
-    """Drive the protection pass with one adaptive-Fourier leg and report whether it ended up in support."""
+def _run_group1_with_adaptive_leg(subsumed: bool, *, with_estimator: bool = False):
+    """Drive the protection pass with one adaptive-Fourier leg and report whether it ended up in support (and the estimator)."""
     import pandas as pd
 
     from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._group1 import (
@@ -157,7 +157,8 @@ def _run_group1_with_adaptive_leg(subsumed: bool) -> bool:
         fe_to_pandas=lambda f: f,
         _fe_family_on=lambda *a, **k: False,
     )
-    return 1 in list(selected_vars)
+    kept = 1 in list(selected_vars)
+    return (kept, est) if with_estimator else kept
 
 
 def test_adaptive_fourier_readd_rejects_a_leg_the_selected_design_already_spans():
@@ -168,3 +169,22 @@ def test_adaptive_fourier_readd_rejects_a_leg_the_selected_design_already_spans(
 def test_adaptive_fourier_readd_still_rescues_a_leg_that_adds_signal():
     """The gate must not simply disable the protection: a leg carrying signal nothing else covers is still re-added."""
     assert _run_group1_with_adaptive_leg(subsumed=False), "the protection stopped rescuing a genuinely useful leg"
+
+def test_a_rejected_leg_is_recorded_with_the_gain_it_measured():
+    """The gate's decision has to be readable off the fitted estimator, not only from a verbose log line.
+
+    Without the record an empty adaptive-Fourier roster is ambiguous: the family may have produced nothing, or produced a
+    leg the held-out fit showed to be redundant. The kitchen-sink end-to-end test relies on telling those apart.
+    """
+    kept, est = _run_group1_with_adaptive_leg(subsumed=True, with_estimator=True)
+    assert not kept
+    record = est.protection_readd_rejections_
+    assert len(record) == 1 and record[0]["pass"] == "adaptive_fourier" and record[0]["columns"] == ["leg"], record
+    assert record[0]["heldout_r2_gain"] < record[0]["min_gain"], record
+
+
+def test_a_rescued_leg_leaves_no_rejection_record():
+    """The negative control: a leg that earns its place must not also be reported as rejected."""
+    kept, est = _run_group1_with_adaptive_leg(subsumed=False, with_estimator=True)
+    assert kept
+    assert est.protection_readd_rejections_ == []

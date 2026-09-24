@@ -36,7 +36,10 @@ def test_mdlp_categorize_keeps_synergy_operand_resolution():
     from mlframe.feature_selection.filters.discretization import categorize_dataset
     from tests.feature_selection.mrmr.biz_val.test_biz_value_mrmr_order2_maxt_floor import _wide_synergy_frame
 
-    X, y = _wide_synergy_frame(n_noise=4)
+    # n pinned: the borrowed fixture shrinks to 1600 rows under MLFRAME_FAST to keep the MRMR test it was written for
+    # cheap, and at 1600 the pair's joint MI lands at ~0.043, under a threshold calibrated at 2000. This check only
+    # discretises two columns, so the full size costs nothing. Measured at 2000: 0.054 with the refinement, 0.004 without.
+    X, y = _wide_synergy_frame(n=2000, n_noise=4)
     df = X[["x3", "x4"]].copy()
     df["y"] = y.to_numpy()
     data, cols, nbins = categorize_dataset(df=df, method="quantile", n_bins=10, dtype=np.int16, nbins_strategy="mdlp", y_for_strategy=y.to_numpy())

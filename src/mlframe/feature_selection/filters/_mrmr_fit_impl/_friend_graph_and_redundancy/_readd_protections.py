@@ -42,7 +42,13 @@ def readd_protected_columns(
     miss_ind_pre_recipes,
     verbose,
 ):
-    """Re-add the adaptive-Fourier legs and missingness indicators that still lift a held-out fit over the selected design."""
+    """Re-add the adaptive-Fourier legs and missingness indicators that still lift a held-out fit over the selected design.
+
+    Every candidate this leaves out is recorded on ``self.protection_readd_rejections_`` with the gain it measured and the
+    bar it missed. The decision used to exist only as a verbose-gated log line, so a fitted estimator could not say whether
+    a family's empty roster meant it produced nothing or produced a column the held-out fit showed to be redundant.
+    """
+    self.protection_readd_rejections_ = []
 
     # ADAPTIVE-FOURIER PROTECTION: re-add held-out-validated
     # ADAPTIVE Fourier columns the MRMR screen dropped. The adaptive detector
@@ -92,6 +98,13 @@ def readd_protected_columns(
                     candidate_values(_src_name_af, X=X, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_af),
                 )
             if _incr_af < _ADAPTIVE_FOURIER_PROTECT_MIN_INCR_R2:
+                self.protection_readd_rejections_.append({
+                    "pass": "adaptive_fourier",
+                    "source": str(_src_name_af),
+                    "columns": [str(_ln) for _ln, _ in _legs_af],
+                    "heldout_r2_gain": float(_incr_af),
+                    "min_gain": float(_ADAPTIVE_FOURIER_PROTECT_MIN_INCR_R2),
+                })
                 if verbose:
                     logger.info(
                         "MRMR adaptive-fourier protection: leaving %d leg(s) of %r out of support, held-out R^2 gain over the selected design %.5f < %.5f: %s",
@@ -149,6 +162,13 @@ def readd_protected_columns(
                 else:
                     _incr_mi = _miss_probe(_mi_vals, candidate_values(_src_mi[0], X=X, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_mi))
                 if _incr_mi < _MISS_INDICATOR_PROTECT_MIN_INCR_R2:
+                    self.protection_readd_rejections_.append({
+                        "pass": "missingness_indicator",
+                        "source": str(_src_mi[0]),
+                        "columns": [str(_mn)],
+                        "heldout_r2_gain": float(_incr_mi),
+                        "min_gain": float(_MISS_INDICATOR_PROTECT_MIN_INCR_R2),
+                    })
                     if verbose:
                         logger.info(
                             "MRMR missingness-indicator protection: leaving %r out of support, held-out R^2 gain over the selected design %.5f < %.5f",

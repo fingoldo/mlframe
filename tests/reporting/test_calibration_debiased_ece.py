@@ -154,15 +154,24 @@ def test_biz_debiased_ece_corrects_spurious_bias_on_perfectly_calibrated():
 def test_biz_debiased_ece_bin_count_stable_on_perfectly_calibrated():
     # The signature of finite-sample binning bias: standard ECE INFLATES as bins grow (each bin holds fewer samples ->
     # noisier acc_k -> larger |conf-acc|). The debiased estimator subtracts that growing variance, so it stays ~flat.
-    """Biz debiased ece bin count stable on perfectly calibrated."""
-    y, score = _perfectly_calibrated(n=20_000, seed=2)
-    std5, deb5 = _ece_pair(y, score, nbins=5)
-    std50, deb50 = _ece_pair(y, score, nbins=50)
-    assert std50 > std5 + 0.004, f"standard ECE should inflate with bins: 5->{std5:.4f} 50->{std50:.4f}"
-    deb_change = abs(deb50 - deb5)
-    std_change = std50 - std5
-    assert deb_change < std_change, f"debiased change {deb_change:.4f} should be < standard inflation {std_change:.4f}"
-    assert deb_change <= 0.01, f"debiased should be near bin-count-stable, change {deb_change:.4f}"
+    """Across seeds, the debiased estimate moves with the bin count about half as much as the standard one.
+
+    A single seed is too noisy to carry this: the debiased estimate is clamped at zero, so on perfectly calibrated data
+    its bin-count change is a small, lumpy quantity. Measured over 12 seeds at n=20k it had median 0.005 and max 0.012,
+    and on one seed it exceeded the standard inflation outright. The claim is about the typical behaviour, so the
+    median over eight seeds is what is asserted (medians there: debiased 0.005, standard 0.010).
+    """
+    deb_changes, std_changes = [], []
+    for seed in range(8):
+        y, score = _perfectly_calibrated(n=20_000, seed=seed)
+        std5, deb5 = _ece_pair(y, score, nbins=5)
+        std50, deb50 = _ece_pair(y, score, nbins=50)
+        deb_changes.append(abs(deb50 - deb5))
+        std_changes.append(std50 - std5)
+    deb_med, std_med = float(np.median(deb_changes)), float(np.median(std_changes))
+    assert std_med > 0.004, f"standard ECE should inflate with bins, median inflation {std_med:.4f}"
+    assert deb_med < 0.7 * std_med, f"debiased median change {deb_med:.4f} should stay well under the standard inflation {std_med:.4f}"
+    assert deb_med <= 0.008, f"debiased should be near bin-count-stable, median change {deb_med:.4f}"
 
 
 def test_biz_debiased_ece_does_not_mask_real_miscalibration():
