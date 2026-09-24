@@ -130,24 +130,34 @@ _DEFAULT_DATE_METHODS: Dict[str, type] = {
     "is_weekend": np.bool_,
 }
 
-# Default periods for ``add_cyclical_date_features``. ``day`` here is day-of-month (period 31);
-# ``day_of_year`` is the finer-grained annual cycle (period 365.25).
-#
-# The fixed 31 is an artefact for short months: 28 February and 1 March are calendar-adjacent but land about two thirds
-# of the circle apart. Pass ``("day", MONTH_LENGTH_PERIOD)`` to encode day-of-month against each row's own month length
-# instead. The default stays 31 because the encoding is recomputed at predict: changing it under the same column names
-# would silently re-encode a feature every already-saved model was trained on. ``day_of_year`` carries the same
-# seasonality without the artefact.
-_DEFAULT_CYCLICAL_PERIODS: Tuple[Tuple[str, float], ...] = (
-    ("hour", 24.0),
-    ("day", 31.0),
-    ("weekday", 7.0),
-    ("month", 12.0),
-    ("day_of_year", 365.25),
-)
-
 # Period marker for a day-of-month encoding against the row's actual month length (28-31), rather than a fixed 31.
 MONTH_LENGTH_PERIOD = "month_length"
+
+# Default periods for ``add_cyclical_date_features``, by encoding version. ``day`` is day-of-month; ``day_of_year`` is the
+# finer-grained annual cycle (period 365.25).
+#
+# Version 1 encoded day-of-month against a fixed 31, an artefact for short months: 28 February and 1 March are
+# calendar-adjacent but landed about two thirds of the circle apart. Version 2 (current) uses each row's own month length.
+# The encoding is recomputed at predict under the same column names, so a model records the version it was trained with
+# (suite metadata ``datetime_cyclical_version``, the extractor's ``cyclical_version``) and predict replays that version;
+# a bundle or pickle from before versioning has no record and replays version 1.
+_CYCLICAL_PERIODS_BY_VERSION: Dict[int, Tuple[Tuple[str, Union[float, str]], ...]] = {
+    1: (("hour", 24.0), ("day", 31.0), ("weekday", 7.0), ("month", 12.0), ("day_of_year", 365.25)),
+    2: (("hour", 24.0), ("day", MONTH_LENGTH_PERIOD), ("weekday", 7.0), ("month", 12.0), ("day_of_year", 365.25)),
+}
+CYCLICAL_ENCODING_VERSION = 2
+LEGACY_CYCLICAL_ENCODING_VERSION = 1
+_DEFAULT_CYCLICAL_PERIODS = _CYCLICAL_PERIODS_BY_VERSION[CYCLICAL_ENCODING_VERSION]
+
+
+def cyclical_periods_for_version(version: Optional[int]) -> Tuple[Tuple[str, Union[float, str]], ...]:
+    """The default cyclical periods of encoding ``version`` (None means the current one)."""
+    if version is None:
+        return _DEFAULT_CYCLICAL_PERIODS
+    try:
+        return _CYCLICAL_PERIODS_BY_VERSION[int(version)]
+    except (KeyError, TypeError, ValueError):
+        raise ValueError(f"unknown cyclical encoding version {version!r}; known: {sorted(_CYCLICAL_PERIODS_BY_VERSION)}") from None
 
 
 def _collect_pandas_tz(series: pd.Series) -> str:
@@ -260,6 +270,7 @@ def create_date_features(
     methods: Optional[Dict[str, type]] = None,
     add_cyclical: bool = True,
     cyclical_periods: Optional[Sequence[Tuple[str, Union[float, str]]]] = None,
+    cyclical_version: Optional[int] = None,
 ) -> Union[pd.DataFrame, pl.DataFrame]:
     """Decompose datetime columns into integer date parts (year, day, weekday, month, ...).
 
@@ -287,6 +298,10 @@ def create_date_features(
     cyclical_periods
         Iterable of ``(period_name, period_value)`` tuples consumed only when
         ``add_cyclical=True``. ``period_name`` must be a recognised method alias.
+    cyclical_version
+        Encoding version whose default periods apply when ``cyclical_periods`` is not given: None or
+        ``CYCLICAL_ENCODING_VERSION`` (2) encodes day-of-month against the row's month length, 1 against a fixed 31.
+        Predict passes the version the model was trained with.
 
     Returns
     -------
@@ -365,9 +380,14 @@ def create_date_features(
         # ``_DEFAULT_CYCLICAL_PERIODS`` and ``methods`` are keyed by the same logical part names, so a
         # direct membership test is the right check (the alias map's values are (pandas, polars) accessor
         # pairs, not comparable names).
+        # ``cyclical_version`` picks the default period table (see ``cyclical_periods_for_version``); predict passes the
+        # version the model was trained with so the replayed encoding matches.
+        _version_defaults = cyclical_periods_for_version(cyclical_version)
         _periods = cyclical_periods
         if _periods is None and _methods_explicit:
-            _periods = tuple((_name, _p) for _name, _p in _DEFAULT_CYCLICAL_PERIODS if _name in methods)
+            _periods = tuple((_name, _p) for _name, _p in _version_defaults if _name in methods)
+        elif _periods is None:
+            _periods = _version_defaults
         df = add_cyclical_date_features(
             df, cols=cols, periods=_periods,
             delete_original_cols=False,

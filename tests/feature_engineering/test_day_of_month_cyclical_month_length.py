@@ -41,3 +41,46 @@ def test_the_default_encoding_is_unchanged():
 def test_the_marker_is_rejected_for_other_parts():
     with pytest.raises(ValueError, match="day-of-month only"):
         add_cyclical_date_features(pd.DataFrame({"d": _DATES}), cols=["d"], periods=(("month", MONTH_LENGTH_PERIOD),))
+
+
+def test_default_encodes_day_against_month_length_and_legacy_version_replays_31():
+    """Version 2 (default) makes 28 Feb and 1 Mar neighbours; version 1, replayed for models fitted before versioning, keeps 31."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.feature_engineering.basic import LEGACY_CYCLICAL_ENCODING_VERSION, create_date_features
+
+    df = pd.DataFrame({"t": pd.to_datetime(["2023-02-28", "2023-03-01"])})
+
+    def gap(frame):
+        a = np.array([frame["t_day_sin"].to_numpy(), frame["t_day_cos"].to_numpy()])
+        return float(np.linalg.norm(a[:, 0] - a[:, 1]))
+
+    current = create_date_features(df, cols=["t"], methods={"day": np.int8})
+    legacy = create_date_features(df, cols=["t"], methods={"day": np.int8}, cyclical_version=LEGACY_CYCLICAL_ENCODING_VERSION)
+    assert gap(current) < 0.3  # one step of a 28-day circle
+    assert gap(legacy) > 3 * gap(current)  # day 28 of a 31-day circle vs day 1: four steps apart
+
+
+def test_predict_replays_the_version_the_model_was_fitted_with():
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.feature_engineering.basic import create_date_features
+    from mlframe.training.core.predict import _replay_suite_datetime_decomposition
+
+    df = pd.DataFrame({"t": pd.to_datetime(["2023-02-28", "2023-03-01"])})
+    meta = {"datetime_methods": {"t": {"day": "int8"}}}
+    old = _replay_suite_datetime_decomposition(df.copy(), dict(meta))
+    new = _replay_suite_datetime_decomposition(df.copy(), dict(meta, datetime_cyclical_version=2))
+    ref_old = create_date_features(df, cols=["t"], methods={"day": np.int8}, cyclical_version=1)
+    ref_new = create_date_features(df, cols=["t"], methods={"day": np.int8})
+    np.testing.assert_array_equal(old["t_day_sin"].to_numpy(), ref_old["t_day_sin"].to_numpy())
+    np.testing.assert_array_equal(new["t_day_sin"].to_numpy(), ref_new["t_day_sin"].to_numpy())
+
+
+def test_unpickled_extractor_without_a_version_replays_version_1():
+    from mlframe.training.extractors._extractors_simple import SimpleFeaturesAndTargetsExtractor
+
+    ex = SimpleFeaturesAndTargetsExtractor.__new__(SimpleFeaturesAndTargetsExtractor)
+    assert getattr(ex, "cyclical_version", 1) == 1
