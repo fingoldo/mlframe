@@ -21,8 +21,8 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | `suite_integration.md` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `performance.md` | 24 | 13 | 10 | 0 | 1 | 0 |
 | `tests.md` | 17 | 15 | 2 | 0 | 0 | 0 |
-| `preventive_meta_tests.md` | 41 | 23 | 18 | 0 | 0 | 0 |
-| **Total** | **179** | **148** | **30** | **0** | **1** | **0** |
+| `preventive_meta_tests.md` | 41 | 24 | 17 | 0 | 0 | 0 |
+| **Total** | **179** | **149** | **29** | **0** | **1** | **0** |
 
 ### `transforms.md`
 
@@ -213,7 +213,7 @@ Each report's own `- **Disposition**:` line is updated together with its row her
 | **PARTIAL** | P2 | `PMT-15` | Cache-key completeness by input perturbation, plus a code-version gate on discovery sources | discovery key inputs perturbed, spec digest, algo-version gate; auto-derived input table open |
 | **PARTIAL** | P2 | `PMT-16` | polars/pandas carrier parity over row-slicing helpers, plus an order-losing mask-filter scanner (shared) | carrier parity for OOF + row slicers (EST-07 and 4 siblings fixed); shared scanner open |
 | **PARTIAL** | P1 | `PMT-17` | Absorption and consistency on each transform's canonical DGP | canonical-DGP absorption for all 40 base transforms; fixed quantile_residual small-n; smoother/grouped legs open |
-| **PARTIAL** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | self-influence canaries (causal bases, OOF encoding, all transforms <0.1); leg c spy pending DSC-13/EST-17 |
+| **RESOLVED** | P1 | `PMT-18` | Self-influence and fit-row disjointness canaries: no row's derived value depends on its own y, and scored rows are never in the params' fit rows | legs b+c built: fit/score-disjointness spy over tiny CV, OOF and the gate fallback with canaries; test-row influence found + fixed interaction-pair MI reading off-mask rows |
 | **RESOLVED** | P2 | `PMT-19` | Null-DGP selection canaries: every selection routine picks the null on pure noise | null canaries for every selector plus a registration meta-guard; found + fixed the MoE gate choosing by noise (new z-test defaults) |
 | **RESOLVED** | P1 | `PMT-20` | Liveness registry for default-ON mechanisms: every corrective default must change something on the default path | liveness registry: every default-on knob mapped to its effect test; found dead MoE params + 3 inert defaults (fixed) |
 | **RESOLVED** | P1 | `PMT-21` | Persist-after-mutate phase order: nothing mutates a persisted model or metadata after the last save (AST) | AST persist-after-mutate over training/core; fires on the INT-02 shape |
