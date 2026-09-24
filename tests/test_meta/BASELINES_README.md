@@ -53,7 +53,7 @@ Run from the repository root. The script re-runs each meta-test in
 - `_unlocked_module_cache_baseline.json` - module-level caches mutated without a lock
 - `_unprotected_treeexplainer_baseline.json` - `shap.TreeExplainer` calls with no guard
 - `_vacuous_loop_baseline.json` - test loops whose only asserts are inside the loop, so zero iterations pass (py_ci_shared.vacuous_loop_assertions, `regen_baselines.py`)
-- `_tested_but_uncalled_baseline.json` - composite functions a test references although no production code calls them (test_tested_but_uncalled.py; edited by hand)
+- `_tested_but_uncalled_baseline.json` - composite functions a test references although no production code calls them, each mapped to why (public API, hand-run diagnostic, reference kernel); a function whose docstring speaks of a leak / guard / fix / gate needs a reason of its own (test_tested_but_uncalled.py; edited by hand)
 - `_discovery_layout_baseline.json` - C-order column reads, feature-matrix re-copies and per-resample njit loops inside discovery hot loops (test_discovery_layout_and_copies.py; edited by hand, may only shrink)
 - `_heavy_training_baseline.json` - test modules whose test functions call `train_mlframe_models_suite` directly three or more times, with the count (test_heavy_training_shares_fixture.py; edited by hand, may only shrink; the fix is a module-scoped fixture that trains once)
 - `_frame_copy_baseline.json` - frame copies in the composite and core packages: `<frame>.copy()` / `.clone()` and a concat of a column selection, minus the lines marked `# frame-copy: <reason>` (test_no_frame_copy_in_target_loops.py; edited by hand, may only shrink, currently empty)

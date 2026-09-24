@@ -34,10 +34,39 @@ def _tested_but_uncalled(blob: str) -> set[str]:
 def test_no_new_test_certifies_an_uncalled_composite_function():
     """Tested-but-uncalled composite functions are exactly the recorded ones; a fixed or wired entry must leave the list."""
     found = _tested_but_uncalled(_test_text())
-    accepted = set(orjson.loads(_ACCEPTED.read_text(encoding="utf-8")))
+    accepted = set(_accepted())
     new, stale = sorted(found - accepted), sorted(accepted - found)
     assert not new, f"tests certify composite functions no production code calls; wire them in or record why: {new}"
     assert not stale, f"these entries are called now (or untested); remove them from {_ACCEPTED.name}: {stale}"
+
+
+def _accepted() -> dict[str, str]:
+    """``{path::function: why it is tested yet uncalled}`` from the triaged record."""
+    return dict(orjson.loads(_ACCEPTED.read_text(encoding="utf-8")))
+
+
+# The reasons used for whole categories; an entry whose own docstring speaks of a leak, a guard, a fix or a gate needs a
+# reason of its own, since a template cannot say why such a function is safe to leave unwired.
+_TEMPLATE_REASONS = frozenset({"public API exported for callers; no suite path calls it", "diagnostic plot run by hand on a fitted object"})
+_GATE_WORDS = re.compile(r"leak|optimis|guard|fix|gate", re.IGNORECASE)
+
+
+def _docstring(key: str) -> str:
+    """The docstring of the function a ``path::function`` key names (empty when not found)."""
+    import ast
+
+    path, _, name = key.partition("::")
+    tree = ast.parse((_ROOT / path).read_text(encoding="utf-8"))
+    fn = next((n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name), None)
+    return (ast.get_docstring(fn) or "") if fn else ""
+
+
+def test_every_accepted_entry_carries_a_reason_and_gate_like_ones_a_specific_one():
+    """Each recorded function says why it is tested yet uncalled; one describing a leak / guard / fix / gate says it specifically."""
+    accepted = _accepted()
+    assert all(str(r).strip() for r in accepted.values()), [k for k, r in accepted.items() if not str(r).strip()]
+    generic = [k for k, r in accepted.items() if r in _TEMPLATE_REASONS and _GATE_WORDS.search(_docstring(k))]
+    assert not generic, f"these gate-like functions need a reason of their own, not a category template: {generic}"
 
 
 def test_every_gate_module_has_an_importing_test():
