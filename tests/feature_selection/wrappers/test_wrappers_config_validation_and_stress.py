@@ -190,40 +190,29 @@ class TestSkipRetrainingYContent:
     def test_skip_retraining_refits_when_y_changes_at_same_shape(self):
         """``skip_retraining_on_same_shape`` previously fingerprinted only ``(X.shape, y.shape, columns)``; two semantically different targets of the same length silently replayed whichever support_ was set first. Folding a y-content hash into the signature forces a refit when y changes."""
         rng = np.random.default_rng(0)
-        n = 200
-        # Two distinct informative signals at the same shape; if dedup-on-shape is the only mechanism, the second .fit replays the first support_.
-        X = pd.DataFrame(
-            {
-                "feat0": rng.standard_normal(n),
-                "feat1": rng.standard_normal(n),
-                "feat2": rng.standard_normal(n),
-            }
-        )
+        n = 600
+        # Two distinct informative signals at the same shape. Six columns, not three: on a three-column toy both targets
+        # keep every column, so equal supports could not tell a refit from a replay.
+        X = pd.DataFrame({f"feat{i}": rng.standard_normal(n) for i in range(6)})
         y_a = (X["feat0"] > 0).astype(int).values
-        y_b = (X["feat2"] > 0).astype(int).values
+        y_b = (X["feat5"] > 0).astype(int).values
         common = dict(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3,
-            max_refits=4,
+            max_refits=6,
             verbose=0,
             leakage_corr_threshold=None,
             skip_retraining_on_same_shape=True,
-            # Force argmax rule so two different targets actually produce different
-            # support_ on this 3-feature toy problem. Under the new default
-            # 'one_se_max' the score curve is flat enough that BOTH y_a and y_b
-            # pick all 3 features (=full support), which would mask the
-            # signature-based refit behaviour the test wants to verify.
             n_features_selection_rule="argmax",
         )
+        fresh_b = RFECV(**common).fit(X, y_b).support_.copy()
         rfecv = RFECV(**common)
         rfecv.fit(X, y_a)
         support_a = rfecv.support_.copy()
         rfecv.fit(X, y_b)
-        support_b = rfecv.support_.copy()
-        # Without the y-content fingerprint these two arrays would be identical (same signature -> early return).
-        assert not np.array_equal(
-            support_a, support_b
-        ), "RFECV.skip_retraining_on_same_shape must distinguish two semantically different targets at the same shape; got identical support_ across fits"
+        assert not np.array_equal(support_a, fresh_b), "fixture must give the two targets different supports"
+        # A replay would keep support_a; a refit reproduces what a fresh instance selects for y_b.
+        assert np.array_equal(rfecv.support_, fresh_b), "skip_retraining_on_same_shape replayed the first target's support_ for a different y"
 
 
 class TestG33_RandomStateDeterminism:
