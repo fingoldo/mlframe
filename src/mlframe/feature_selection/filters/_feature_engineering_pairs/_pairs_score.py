@@ -38,6 +38,7 @@ from ._pairs_gates import (
     _FE_MARGINAL_UPLIFT_MIN_RATIO,
     _FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO,
     _FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT,
+    _FE_JOINT_GATE_MIN_OPERAND_UPLIFT,
 )
 from ._pairs_materialise import (
     _fe_use_parallel_kernels,
@@ -935,6 +936,15 @@ def _score_one_pair(
             best_mi, pair_mi, k_eng=_k_eng, k_joint=_k_joint, k_y=_k_y, n=_n_rows,
         )
     _passes_joint_gate = _gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
+    if _passes_joint_gate:
+        _joint_gate_operand_floor = max(_operand_marginal_mi(raw_vars_pair[0]), _operand_marginal_mi(raw_vars_pair[1]))
+        if _joint_gate_operand_floor > 0.0 and best_mi <= _joint_gate_operand_floor * _FE_JOINT_GATE_MIN_OPERAND_UPLIFT:
+            _passes_joint_gate = False
+            if verbose:
+                messages.append(
+                    f"joint gate operand floor: best engineered MI={best_mi:.4f} does not beat the larger operand marginal "
+                    f"MI={_joint_gate_operand_floor:.4f}; a degraded copy of one operand, not a pair feature."
+                )
 
     # Alternative pre-warp acceptance: the joint-prevalence gate
     # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner

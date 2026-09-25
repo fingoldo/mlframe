@@ -81,11 +81,11 @@ def test_noise_gate_fallback_choice_crossover(monkeypatch):
     back to cpu when no GPU backend is available -- the pre-sweep heuristic covering the previously untested fn."""
     import mlframe.feature_selection.filters._batch_mi_noise_gate_tuning as t
 
-    monkeypatch.setattr(t, "_CUPY_AVAIL", True)
-    monkeypatch.setattr(t, "_CUDA_AVAIL", True)
+    monkeypatch.setattr(t, "cupy_available", lambda: True)
+    monkeypatch.setattr(t, "cuda_available", lambda: True)
     assert t._batch_mi_noise_gate_fallback_choice(500, 64) == "cpu"  # below both thresholds
     assert t._batch_mi_noise_gate_fallback_choice(5000, 512) == "cupy"  # large n AND K -> cupy preferred
-    monkeypatch.setattr(t, "_CUPY_AVAIL", False)
+    monkeypatch.setattr(t, "cupy_available", lambda: False)
     assert t._batch_mi_noise_gate_fallback_choice(5000, 512) == "cuda"  # cupy absent -> cuda
-    monkeypatch.setattr(t, "_CUDA_AVAIL", False)
+    monkeypatch.setattr(t, "cuda_available", lambda: False)
     assert t._batch_mi_noise_gate_fallback_choice(5000, 512) == "cpu"  # no GPU -> cpu

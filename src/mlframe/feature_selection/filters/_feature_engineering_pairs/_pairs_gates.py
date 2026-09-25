@@ -51,6 +51,15 @@ _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO: float = 0.82
 # artefact joint 0.814 (< 0.84 by 0.026) AND uplift 1.441 (< 2.0 by 0.56) - both margins >> 0.006.
 _FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO: float = 0.84
 _FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT: float = 2.0
+# OPERAND FLOOR of the primary joint-prevalence gate. The joint gate compares the engineered MI to the pair's JOINT MI only. When
+# one operand is strong and the other is noise, the joint MI is ~the strong operand's own MI, so a noise-contaminated copy of it
+# (``mul(neg(sig0),prewarp(noise8))`` keeps 0.97 of MI(sig0)) clears the 0.90 joint bar while carrying LESS than its operand alone,
+# and then displaces the clean raw column downstream. An engineered pair column earns its place only if it beats the larger
+# operand marginal by a margin wider than the binning bias: measured on the five-signal linear fixture the noise copies sit at
+# uplift 1.011 / 1.021 / 1.032 (the engineered column's finer occupied binning alone inflates its MI a few percent), while the
+# genuine pairs this module was tuned on sit at 1.36-2.32 and an additive two-signal sum at ~1.47. Same notion as the
+# marginal-uplift (1.30) and prewarp paths, at a lower bar because the joint-recovery bar already passed.
+_FE_JOINT_GATE_MIN_OPERAND_UPLIFT: float = 1.10
 
 # Pseudo-unary name for the per-operand learned pre-warp. Lives in
 # the same namespace as the real unary names (``identity``, ``sqr``, ...) so it
