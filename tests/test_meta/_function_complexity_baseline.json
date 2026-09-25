@@ -137,7 +137,7 @@
   "src/mlframe/training/composite/discovery/_fit.py::fit": 55,
   "src/mlframe/training/composite/discovery/_screening_tiny.py::_tiny_cv_rmse_raw_y": 29,
   "src/mlframe/training/composite/discovery/_screening_tiny_perbin.py::_tiny_cv_rmse_y_scale": 34,
-  "src/mlframe/training/composite/discovery/_tiny_rerank.py::_tiny_model_rerank": 72,
+  "src/mlframe/training/composite/discovery/_tiny_rerank.py::_tiny_model_rerank": 68,
   "src/mlframe/training/composite/discovery/forward_stepwise.py::forward_stepwise_multi_base": 40,
   "src/mlframe/training/composite/ensemble/__init__.py::_oof_holdout_predictions_with_rows": 66,
   "src/mlframe/training/composite/estimator/_estimator.py::CompositeTargetEstimator.fit": 34,
