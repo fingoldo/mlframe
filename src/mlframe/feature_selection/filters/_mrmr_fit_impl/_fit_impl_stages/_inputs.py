@@ -1,4 +1,4 @@
-"""Stages of ``_fit_impl``."""
+"""Input-frame preparation stages of ``_fit_impl``."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import _NULLABLE_DENSIFY_EAGER_MAX_BYTES
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
-
 # --- end imports ---
 
 
@@ -161,3 +160,69 @@ def _prepare_input_frame(self, X, verbose):
                     _nullable_num[:8],
                 )
     return X
+
+
+def _categorical_var_names(_is_polars_input, X):
+    """Names of the categorical columns of X (string, categorical, enum, boolean dtypes), read from the schema."""
+    if _is_polars_input:
+        # Polars schema-driven detection; mirrors categorize_dataset's _is_pl_cat.
+        import polars as _pl
+
+        _CAT_DTYPES_FOR_VARS = {_pl.Utf8, _pl.String, _pl.Categorical, _pl.Boolean}
+        categorical_vars_names = [name for name, dt in X.schema.items() if dt in _CAT_DTYPES_FOR_VARS or (hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum))]
+    else:
+        categorical_vars_names = X.head().select_dtypes(include=("category", "object", "string", "bool")).columns.values.tolist()
+    return categorical_vars_names
+
+
+def _inject_targets(self, y, X):
+    """Append the target column(s) to X as ``<prefix>_<i>`` so discretisation bins them with the features. Polars frames get a new
+    frame sharing buffers; a pandas frame is modified in place and registered for cleanup, so a later raise in ``fit``
+    still strips the injected columns from the caller's frame. Returns the frame, whether it is Polars, and the target names."""
+    from mlframe.feature_selection.filters.mrmr import (
+        _target_to_numpy_values,
+    )
+
+    target_prefix = self._resolve_target_prefix()
+    y_shape = y.shape
+    if len(y_shape) == 2:
+        y_shape = y_shape[1]
+    else:
+        y_shape = 1
+    target_names = [target_prefix + "_" + str(i) for i in range(y_shape)]
+
+    vals = _target_to_numpy_values(y)
+    vals = self._coerce_target_dtype(vals)
+
+    # Native Polars support - no `.to_pandas()` copy. Production frames are 100+ GB; full materialization
+    # would OOM. Use Polars-native ops when the input is pl.DataFrame.
+    _is_polars_input = False
+    try:
+        import polars as pl  # local alias; safe even if pl is already imported module-scope
+
+        _is_polars_input = isinstance(X, pl.DataFrame)
+    except ImportError:
+        pass
+
+    # Track the caller-visible pandas frame so the ``finally`` below can always drop the injected target columns even if
+    # ``fit`` raises mid-way (e.g. categorize_dataset / screen_predictors / cat-FE step). Pre-fix code dropped only on
+    # the happy path, so a raised exception left ``targ_*`` columns on the caller's frame; downstream pipelines then
+    # baked them into ``feature_names_in_`` and crashed on ``transform``.
+    _caller_pandas_frame = None
+    if _is_polars_input:
+        # Polars is immutable; with_columns returns a new frame sharing buffers with X - no data copy.
+        target_series = [pl.Series(name, vals[:, i] if vals.ndim == 2 else vals) for i, name in enumerate(target_names)]
+        X = X.with_columns(target_series)
+    else:
+        # Multilabel target (N, K): pass through unchanged so each column maps to its target_names entry.
+        # Previous .reshape(-1, 1) only worked for 1-D y; crashed on multilabel with "Must have equal len keys
+        # and value when setting with an ndarray".
+        _caller_pandas_frame = X
+        if vals.ndim == 2:
+            X.loc[:, target_names] = vals
+        else:
+            X.loc[:, target_names] = vals.reshape(-1, 1)
+        # Register cleanup with the public ``fit`` wrapper so any later raise still strips ``targ_*``.
+        self._pandas_frame_for_target_cleanup = _caller_pandas_frame
+        self._target_names_for_cleanup = list(target_names)
+    return X, _is_polars_input, target_names

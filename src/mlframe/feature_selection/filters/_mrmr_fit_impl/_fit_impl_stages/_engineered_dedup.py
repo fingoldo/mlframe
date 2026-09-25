@@ -1,4 +1,4 @@
-"""Stages of ``_fit_impl``."""
+"""Cross-stage deduplication of engineered columns in ``_fit_impl``."""
 
 from __future__ import annotations
 
@@ -139,13 +139,51 @@ def _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose):
             # other nine until a later reconciliation happened to catch it.
             for _roster_attr in FE_ROSTER_ATTRS:
                 setattr(self, _roster_attr, [c for c in (getattr(self, _roster_attr, []) or []) if c not in _eng_drop])
-            for _family in ('hybrid_orth', 'mi_greedy', 'kfold_te', 'count_enc', 'freq_enc', 'cat_num', 'miss_ind', 'miss_cnt', 'miss_pat', 'ratio', 'log_ratio', 'grouped_delta', 'lagged_diff', 'grouped_agg', 'composite_group_agg', 'grouped_quantile', 'cat_pair', 'cat_triple', 'numeric_decompose', 'modular', 'pairwise_modular', 'integer_lattice', 'row_argmax', 'conditional_gate', 'group_distance', 'rare_category', 'conditional_residual', 'conditional_dispersion', 'conditional_quantile_rank', 'ordinal_pattern', 'random_fourier', 'sir_direction', 'lof', 'mahalanobis_density', 'wavelet', 'rankgauss', 'temporal_agg',):
+            for _family in (
+                "hybrid_orth",
+                "mi_greedy",
+                "kfold_te",
+                "count_enc",
+                "freq_enc",
+                "cat_num",
+                "miss_ind",
+                "miss_cnt",
+                "miss_pat",
+                "ratio",
+                "log_ratio",
+                "grouped_delta",
+                "lagged_diff",
+                "grouped_agg",
+                "composite_group_agg",
+                "grouped_quantile",
+                "cat_pair",
+                "cat_triple",
+                "numeric_decompose",
+                "modular",
+                "pairwise_modular",
+                "integer_lattice",
+                "row_argmax",
+                "conditional_gate",
+                "group_distance",
+                "rare_category",
+                "conditional_residual",
+                "conditional_dispersion",
+                "conditional_quantile_rank",
+                "ordinal_pattern",
+                "random_fourier",
+                "sir_direction",
+                "lof",
+                "mahalanobis_density",
+                "wavelet",
+                "rankgauss",
+                "temporal_agg",
+            ):
                 _registry = getattr(recipes, _family)
                 for _c in _eng_drop.intersection(_registry):
                     _registry.pop(_c, None)
             if verbose:
                 logger.info(
-                    "MRMR.fit engineered-FE dedup: pruned %d near-duplicate " "engineered column(s) at Spearman |rho| >= 0.99: %s",
+                    "MRMR.fit engineered-FE dedup: pruned %d near-duplicate engineered column(s) at Spearman |rho| >= 0.99: %s",
                     len(_eng_drop),
                     sorted(_eng_drop),
                 )

@@ -1,4 +1,4 @@
-"""Stages of ``_fit_impl``."""
+"""Accuracy and second-pass CMI gates applied to engineered columns in ``_fit_impl``."""
 
 from __future__ import annotations
 
@@ -94,13 +94,13 @@ def _second_pass_cmi_gate(self, X, _y_np, recipes, verbose):
                                 _pre.pop(_c, None)
                     if verbose:
                         logger.info(
-                            "MRMR.fit unified second-pass CMI gate: pruned %d " "cross-mechanism redundant engineered column(s): %s",
+                            "MRMR.fit unified second-pass CMI gate: pruned %d cross-mechanism redundant engineered column(s): %s",
                             len(_eng_drop_u),
                             sorted(_eng_drop_u),
                         )
         except Exception as _u_exc:
             logger.warning(
-                "MRMR.fit unified_second_pass_gate raised %s: %s; continuing " "without the Tier-2 cross-mechanism gate.",
+                "MRMR.fit unified_second_pass_gate raised %s: %s; continuing without the Tier-2 cross-mechanism gate.",
                 type(_u_exc).__name__,
                 _u_exc,
             )
@@ -209,13 +209,13 @@ def _gate_engineered_accuracy(self, X, recipes, _y_np, verbose):
                         recipes.hybrid_orth.pop(_c, None)
                 if verbose:
                     logger.info(
-                        "MRMR.fit accuracy gate: dropped %d engineered column(s) " "adding no held-out uplift over their raw source (or MNAR " "source): %s",
+                        "MRMR.fit accuracy gate: dropped %d engineered column(s) adding no held-out uplift over their raw source (or MNAR source): %s",
                         len(_gate_drop),
                         sorted(_gate_drop),
                     )
         except Exception as _gate_exc:
             logger.warning(
-                "MRMR.fit accuracy gate raised %s: %s; continuing without the " "accuracy gate (engineered columns kept).",
+                "MRMR.fit accuracy gate raised %s: %s; continuing without the accuracy gate (engineered columns kept).",
                 type(_gate_exc).__name__,
                 _gate_exc,
             )

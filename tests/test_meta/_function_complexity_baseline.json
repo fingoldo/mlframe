@@ -46,7 +46,6 @@
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fe_stage_cascade_mid_b.py::_fe_stage_cascade_mid_b": 104,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py::_finalise_empty_support_fallback": 34,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py::_finalise_fs_results": 29,
-  "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py::_fit_impl": 150,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py::_friend_graph_and_redundancy_passes_group1": 55,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_friend_graph_and_redundancy/_group2.py::_friend_graph_and_redundancy_passes_group2": 53,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_friend_graph_and_redundancy/_group3.py::_friend_graph_and_redundancy_passes_group3": 62,
