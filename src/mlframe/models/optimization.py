@@ -183,7 +183,6 @@ def optimize_finite_onedimensional_search_space(
 
     while True:
 
-        # get_best_dummy_score(estimator=estimator,X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test)
 
         next_candidate = optimizer.suggest_candidate()
         if next_candidate is NOT_READY:

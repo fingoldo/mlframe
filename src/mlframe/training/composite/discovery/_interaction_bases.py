@@ -103,6 +103,9 @@ def score_interaction_pairs(
     train_mask
         Optional boolean row mask: the MI scores are taken on these rows only, and it is forwarded to
         ``generate_interaction_bases`` so the div eps floor is train-scale-derived too. A mask of the wrong length raises.
+    return_columns
+        When True, also return the synthesised columns, as ``(records, {synth_name -> ndarray})``, so a caller that
+        materialises the winners does not generate them a second time.
 
     Returns
     -------

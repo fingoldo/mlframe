@@ -424,11 +424,39 @@ def _oof_holdout_predictions_with_rows(
 
     Parameters
     ----------
+    component_models
+        Fitted components, in ensemble order; each is cloned and refit on the stacking rows, never modified.
+    component_names
+        One name per component, as it appears in the returned ``surviving_names``.
+    component_specs
+        Per component, the composite spec dict whose transform it was trained through, or ``None`` for a raw-target component.
+    train_X
+        Train features the components were fitted on.
+    y_train_full
+        Raw y on the train rows.
+    base_train_full_per_spec
+        Base column on the train rows, keyed by spec name, for composite components.
+    holdout_frac
+        Fraction of train held out for a single split (``kfold=1`` without an external holdout).
+    random_state
+        Seed of the shuffled split and of the K-fold assignment.
+    time_ordering
+        Per-row time key; a monotone one makes the holdout the trailing slice.
     kfold
         When > 1, perform K-fold OOF prediction instead of a single holdout slice. Each fold contributes its hold-out predictions; the concatenated (n_train, K) matrix is returned in natural row order. ``kfold=1`` preserves the legacy single-split behaviour. Random-shuffle only (time-aware K-fold remains the single-split trailing slice).
+    sample_weight
+        Per-row train weights, forwarded to each refit and to the per-fold transform refit; ``None`` for unweighted.
+    cache_key
+        Caller's identity for the component set and data; with it, a repeat call returns the cached matrices.
+    external_holdout_X
+        The suite's val features; when given, components refit on all of train and predict here instead of on a train slice.
+    external_holdout_y
+        Raw y for ``external_holdout_X``.
     external_holdout_base_per_spec
         Accepted for back-compat but UNUSED. Earlier docstrings called it REQUIRED for external-holdout composite components; that was wrong. The ``CompositeTargetEstimator`` wrapper re-extracts its base column from ``external_holdout_X`` itself at predict time, so no parallel holdout-base dict is consulted. Callers may keep passing it (it is silently ignored); new callers should omit it.
 
+    group_ids
+        Per-row groups; the outer OOF split then keeps each group in one fold (GroupKFold).
     Returns
     -------
     - ``holdout_preds_matrix``: y-scale predictions; shape ``(n_holdout, K)`` for kfold=1, ``(n_train, K)`` for kfold>1 random.

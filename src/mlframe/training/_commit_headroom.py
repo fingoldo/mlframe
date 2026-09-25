@@ -51,7 +51,7 @@ def low_headroom_message(commit_limit_gb: float, commit_avail_gb: float) -> Opti
 
 def retained_commit_message(private_commit_gb: Optional[float], rss_gb: Optional[float]) -> Optional[str]:
     """Message when THIS interpreter holds a large commit charge it is not using, else None."""
-    if not private_commit_gb or not rss_gb or private_commit_gb < RETAINED_COMMIT_WARN_GB:
+    if private_commit_gb is None or rss_gb is None or rss_gb <= 0 or private_commit_gb < RETAINED_COMMIT_WARN_GB:
         return None
     if private_commit_gb < RETAINED_COMMIT_RSS_RATIO * rss_gb:
         return None

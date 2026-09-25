@@ -772,7 +772,7 @@ def create_ts_features_parallel(
         if df is None:
             return None, None
         end_index = len(df)
-        if not end_index:
+        if end_index == 0:
             return None, None
         end_index = end_index // nrecords_per_period
 

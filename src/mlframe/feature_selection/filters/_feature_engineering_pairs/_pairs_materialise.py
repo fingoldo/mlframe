@@ -123,7 +123,6 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
             else:  # op == 8: ratio_abs = a/(|b|+1). numpy/numba promote the float64 ``1.0`` literal ->
                 # compute in float64 then cast, matching the numpy expression's last bit.
                 v = np.float32(np.float64(a) / (np.float64(abs(b)) + 1.0))
-            # np.nan_to_num(nan=0, posinf=0, neginf=0)
             if not (v == v and v != np.inf and v != -np.inf):
                 v = zero
             out[r, k] = v

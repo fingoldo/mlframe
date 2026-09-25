@@ -9,8 +9,7 @@ skip path handles it. Pre-fix this test failed with the CatBoostError; post-fix 
 
 import os
 
-_PRIOR_CUDA_ENV = {"CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES")}
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+_PRIOR_CUDA_ENV: dict = {}  # filled by the module fixture: a module-level override would run at collection and leak into earlier tests
 
 import numpy as np
 import pandas as pd
@@ -23,6 +22,8 @@ def _restore_cuda_env_after_module():
     module-level setdefault poisons every later test in the same pytest-xdist worker (see the
     identical bug fixed in test_biz_val_hybrid_cooccur_clusterrep.py, which caused a ~13-test
     GPU-dispatch failure cluster in a completely different worker)."""
+    _PRIOR_CUDA_ENV.update({"CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES")})
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
     yield
     _v = _PRIOR_CUDA_ENV["CUDA_VISIBLE_DEVICES"]
     if _v is None:

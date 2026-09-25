@@ -449,6 +449,8 @@ def discover_chains(
 
     Parameters
     ----------
+    already_screened
+        Registry names the screen already carries; a residual + unary composition equal to one of them is not proposed again.
     y
         Target, 1-D.
     base
@@ -489,6 +491,10 @@ def discover_chains(
     inner_n_jobs
         Threads per tiny-model fit; the caller runs bases in parallel and hands each base its share of the cores.
 
+    groups
+        Row groups for the CV folds, so a group's rows never sit on both sides of a split; ``None`` for plain folds.
+    time_aware
+        Use time-ordered folds (train before validation), as the rerank does on temporal data.
     Returns
     -------
     List[ChainCandidate]

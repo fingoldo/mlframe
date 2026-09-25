@@ -106,6 +106,9 @@ def iterative_zero_importance_pruning(
         at all, or tree ensembles whose native importance is biased toward high-cardinality columns - typically
         a permutation-importance or SHAP-based callable (e.g. wrapping ``sklearn.inspection.permutation_importance``).
 
+    return_trace
+        When True, return ``(surviving, trace)``: ``trace`` is a tuple of the per-round records in the order they
+        happened, for a caller that wants to see why each feature went. Default False returns the list alone.
     Returns
     -------
     list

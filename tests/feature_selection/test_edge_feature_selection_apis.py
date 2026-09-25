@@ -309,6 +309,26 @@ def test_relevancy_quantile_baseline_path():
     assert "copy" not in drop
 
 
+def test_relevancy_quantile_zero_is_honoured_not_read_as_unset(monkeypatch):
+    """``permuted_max_mi_quantile=0.0`` asks for the minimum permuted MI as the baseline. A truth test read 0.0 as "not
+    set" and silently used the maximum instead."""
+    import numpy
+
+    seen = []
+    real = numpy.nanquantile
+
+    def spy(a, q, *args, **kwargs):
+        seen.append(q)
+        return real(a, q, *args, **kwargs)
+
+    monkeypatch.setattr(numpy, "nanquantile", spy)
+    estimate_features_relevancy(
+        bins=_relevancy_bins(seed=9), target_columns=["target"], benchmark_mi_algorithms=False,
+        min_randomized_permutations=20, min_permuted_mi_evaluations=50, permuted_max_mi_quantile=0.0, verbose=0,
+    )
+    assert 0.0 in seen
+
+
 # ============================================================================================
 # structure_discovery.py -- discover_structure
 # ============================================================================================

@@ -164,8 +164,6 @@ def plot_search_state(
 
     if expected_fitness is not None:
         axExpectedFitness.plot(search_space, expected_fitness, color=expected_fitness_color, linestyle="dashed", label=acquisition_method, alpha=0.3)
-        # axExpectedFitness.plot(search_space, y_std, color=expected_fitness_color,linestyle='dashed', label='y_std')
-        # axExpectedFitness.plot(search_space, distances, color=expected_fitness_color,linestyle='dotted', label='distances')
 
     # ---------------------------------------------------------------------------------------------------------------
     # Plot the black box function, surrogate function, known points
@@ -187,7 +185,6 @@ def plot_search_state(
     axExpectedFitness.set_yticklabels([])
     axExpectedFitness.set_yticks([])
     axExpectedFitness.set_ylabel(acquisition_method, color=expected_fitness_color)
-    # axExpectedFitness.legend()
     axMain.set_xlabel(x_label)
     axMain.set_ylabel(y_label)
 
@@ -197,9 +194,6 @@ def plot_search_state(
 
     axMain.scatter(next_cand, new_y, color="red", marker="D", label="Next candidate")
 
-    # plt.xlabel(x_label)
-    # plt.ylabel(y_label)
-    # plt.title(f"Iteration #{nsteps}, mode={mode} {additional_info}")
     axMain.set_title(f"Iteration #{nsteps}, mode={mode} {additional_info}, best={best_evaluation:.6f}@{best_candidate:_}")
     axMain.legend(loc=legend_location)
     # Non-blocking show: ``plt.show()`` (default block=True) made the Qt

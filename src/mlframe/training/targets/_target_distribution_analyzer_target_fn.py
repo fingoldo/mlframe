@@ -33,7 +33,7 @@ from ._target_distribution_analyzer import (
 )
 # One kurtosis ladder across the suite: this analyzer, ``loss_recommendation`` (which sets the objective) and
 # ``regression_residual_audit`` (which advises one in the report) all read the same ceiling.
-from ..loss_recommendation import _EXCESS_KURT_HUBER_FAILS
+from ..loss_recommendation import _EXCESS_KURT_HUBER_FAILS, huber_delta_for
 from ._target_distribution_analyzer_modes import (
     _classify_target_type,
     _detect_multi_modal,
@@ -49,7 +49,7 @@ from ._target_distribution_analyzer_stats import (
 logger = logging.getLogger(__name__)
 
 
-def _apply_heavy_tail_huber_overrides(kurt: float, knob_overrides: dict, stamp_prov) -> None:
+def _apply_heavy_tail_huber_overrides(kurt: float, knob_overrides: dict, stamp_prov, huber_delta: float) -> None:
     """Robust (Huber-family) loss overrides for a heavy-tailed regression target, skipped above the Huber ceiling.
 
     Above the ceiling a bounded-influence loss stops carrying gradient (``delta*sign(r)`` vanishes when most rows sit
@@ -66,12 +66,13 @@ def _apply_heavy_tail_huber_overrides(kurt: float, knob_overrides: dict, stamp_p
     mlp_mp["loss_fn"] = "huber"  # MLP family knob; consumed at MLPTorchModel
     knob_overrides.setdefault("lgb_kwargs", {})["objective"] = "huber"
     knob_overrides.setdefault("xgb_kwargs", {})["objective"] = "reg:pseudohubererror"
-    knob_overrides.setdefault("cb_kwargs", {})["loss_function"] = "Huber:delta=1.345"
-    knob_overrides["cb_kwargs"]["eval_metric"] = "Huber:delta=1.345"
+    cb_huber = f"Huber:delta={huber_delta:.6g}"  # raw target units, from loss_recommendation.huber_delta_for
+    knob_overrides.setdefault("cb_kwargs", {})["loss_function"] = cb_huber
+    knob_overrides["cb_kwargs"]["eval_metric"] = cb_huber
     stamp_prov("mlp_kwargs", "model_params.loss_fn", "huber", "heavy_tail")
     stamp_prov("lgb_kwargs", "objective", "huber", "heavy_tail")
     stamp_prov("xgb_kwargs", "objective", "reg:pseudohubererror", "heavy_tail")
-    stamp_prov("cb_kwargs", "loss_function", "Huber:delta=1.345", "heavy_tail")
+    stamp_prov("cb_kwargs", "loss_function", cb_huber, "heavy_tail")
 
 
 def analyze_target_distribution(
@@ -204,7 +205,7 @@ def analyze_target_distribution(
         diagnostics["excess_kurtosis"] = kurt
         if kurt > _HEAVY_TAIL_EXCESS_KURT:
             pathologies.append(f"heavy_tail(excess_kurt={kurt:.1f})")
-            _apply_heavy_tail_huber_overrides(kurt, knob_overrides, _stamp_prov)
+            _apply_heavy_tail_huber_overrides(kurt, knob_overrides, _stamp_prov, huber_delta_for(y_for_stats))
 
         # Skewness (from the same standardised z as the kurtosis above; z*z*z == z2*z elementwise).
         skew = float(np.mean(_z2 * _z))

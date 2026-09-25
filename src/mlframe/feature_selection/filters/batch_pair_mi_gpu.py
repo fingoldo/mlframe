@@ -675,7 +675,7 @@ def dispatch_batch_pair_mi_chunked(
         empty = np.empty(0, dtype=np.int64)
         return empty, empty, np.empty(0, dtype=np.float64), {}
 
-    chunk_pairs = int(max_pairs_per_chunk) if max_pairs_per_chunk else _choose_pair_chunk_size(_free_ram_bytes_for_chunking())
+    chunk_pairs = int(max_pairs_per_chunk) if max_pairs_per_chunk is not None and max_pairs_per_chunk > 0 else _choose_pair_chunk_size(_free_ram_bytes_for_chunking())
     chunk_pairs = max(1, chunk_pairs)
 
     a_out: list[np.ndarray] = []

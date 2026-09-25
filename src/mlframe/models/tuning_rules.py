@@ -108,7 +108,6 @@ def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_valu
                 if check_condition(condition, params):
                     for field in rule.get("fields"):
                         if field in params:
-                            # print(f'deleted {field} field')
                             del params[field]
     if drop_if_not_rules:
         for rule in drop_if_not_rules:
@@ -116,7 +115,6 @@ def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_valu
                 if not check_condition(condition, params):
                     for field in rule.get("fields"):
                         if field in params:
-                            # print(f'deleted {field} field')
                             del params[field]
     if skip_if_values_or:
         for conditions, fields in skip_if_values_or.items():
@@ -128,10 +126,8 @@ def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_valu
             if not skip:
                 for field_cond in fields:
                     if check_condition(field_cond, params):
-                        # print(f"skip cond {condition} triggered for {field_cond}")
                         return False
                     else:
-                        # print(f'skip cond {condition} not triggered for {field_cond}')
                         pass
 
     if allow_if_values_or:
@@ -150,26 +146,21 @@ def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_valu
                 any_triggered = False
                 for field_cond in fields:
                     if check_condition(field_cond, params):
-                        # print(f"allow cond {conditions} triggered for {field_cond}, {params}")
                         any_triggered = True
                         break
                 if not any_triggered:
-                    # print(f"none of allow_if_values_or {conditions} {fields} triggered")
                     return False
 
     if allow_if_values_and:
         for conditions, fields in allow_if_values_and.items():
             skip = False
-            # print("allow_if_values_and precheck: ", conditions)
             for condition in conditions:
                 if not check_condition(condition, params):
                     skip = True
                     break
             if not skip:
-                # print("allow_if_values_and check: ", conditions)
                 for field_cond in fields:
                     if not check_condition(field_cond, params):
-                        # print(f"allow_if_values_and cond {condition} NOT triggered for {field_cond}")
                         return False
                 # (HashableDict({"posterior_sampling": True}),): [
                 # {"model_shrink_mode": "Constant"},  # Posterior Sampling requires Сonstant Model Shrink Mode

@@ -38,9 +38,7 @@ pytest.importorskip("pandas")
 # this problem -- mlframe's own gpu_globally_disabled() re-reads it live via os.environ.get() on
 # every call, with no caching -- so it alone is sufficient to force this fit onto CPU; CI runners
 # also have no GPU anyway.
-_PRIOR_CUDA_ENV = {k: os.environ.get(k) for k in ("CUDA_VISIBLE_DEVICES", "MLFRAME_DISABLE_HNSW")}
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
-os.environ.setdefault("MLFRAME_DISABLE_HNSW", "1")
+_PRIOR_CUDA_ENV: dict = {}  # filled by the module fixture: a module-level override would run at collection and leak into earlier tests
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -49,6 +47,9 @@ def _restore_cuda_env_after_module():
     module-level setdefault poisons every later test in the same pytest-xdist worker (see the
     identical bug fixed in test_biz_val_hybrid_cooccur_clusterrep.py, which caused a ~13-test
     GPU-dispatch failure cluster in a completely different worker)."""
+    _PRIOR_CUDA_ENV.update({k: os.environ.get(k) for k in ("CUDA_VISIBLE_DEVICES", "MLFRAME_DISABLE_HNSW")})
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+    os.environ.setdefault("MLFRAME_DISABLE_HNSW", "1")
     yield
     for _k, _v in _PRIOR_CUDA_ENV.items():
         if _v is None:

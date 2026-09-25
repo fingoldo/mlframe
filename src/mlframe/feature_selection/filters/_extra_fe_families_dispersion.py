@@ -594,7 +594,7 @@ def hybrid_conditional_dispersion_fe(
     winners = list(enc_df.columns)
     if mi_gate and y is not None:
         from ._unified_fe_gate import local_mi_gate
-        _gate_top_k = int(mi_gate_top_k) if mi_gate_top_k else int(top_k)
+        _gate_top_k = int(mi_gate_top_k) if mi_gate_top_k is not None and mi_gate_top_k > 0 else int(top_k)
         # DEVICE-BORN route: under STRICT-residency the enc_df matrix is the ~288 MB host->device
         # upload at this site. Rebuild the conditional-dispersion candidate matrix ON the device from the small
         # resident operand columns (the recipes carry each column's x_i/x_j/edges/bin_mean/bin_std/kind) and

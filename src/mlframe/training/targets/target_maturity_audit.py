@@ -241,8 +241,19 @@ def audit_target_maturity(
     statistic
         Per-bin statistic to trend: ``"mean"`` (default) or ``"p99"``. The upper quantile responds to censoring more
         sharply on a zero-inflated target, where most rows are 0 in every bin and the mean moves little.
-    trend_threshold, origin_ratio_threshold, min_bins, target_name
-        See the constant docstrings and :func:`audit_binned_target_maturity`.
+    trend_threshold
+        |Spearman(bin order, bin statistic)| above which the series counts as trending (``DEFAULT_MATURITY_TREND_THRESHOLD``).
+    origin_ratio_threshold
+        ``origin_ratio`` at or below which the decline reads as right-censoring (``DEFAULT_MATURITY_ORIGIN_RATIO_THRESHOLD``).
+    min_bins
+        Fewest populated bins the verdict may rest on; with fewer finite rows than ``3 * min_bins`` it is ``insufficient_data``.
+    target_name
+        Name used in the warnings only.
+
+    Returns
+    -------
+    MaturityAuditResult
+        The verdict, the trend, the origin ratio, the bin count and any warnings; see :class:`MaturityAuditResult`.
     """
     ts = np.asarray(timestamps).reshape(-1)
     yy = np.asarray(y, dtype=np.float64).reshape(-1)

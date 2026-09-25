@@ -284,7 +284,6 @@ def is_variable_truly_continuous(
                     n_unique_fracts = _count_rounded(_sorted_fract, cur_fract_digits, 0.0, 1.0)
                 else:
                     n_unique_fracts = _get_nunique(vals=np.asarray(np.round(fract_part, cur_fract_digits)), skip_vals=(0.0, 1.0))
-                # print(cur_fract_digits, n_unique_fracts, NDIGITS ** (cur_fract_digits))
                 if last_n_unique_fracts > 0:
                     if (n_unique_fracts - last_n_unique_fracts) / last_n_unique_fracts < min_fract_level_increase_perecent or n_unique_fracts < 0.3 * (
                         NDIGITS ** (cur_fract_digits)

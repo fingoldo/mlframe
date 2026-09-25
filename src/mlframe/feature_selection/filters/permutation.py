@@ -853,7 +853,7 @@ def mi_direct(
     nfailed = 0
 
     if original_mi > 0 and npermutations > 0:
-        if not max_failed:
+        if max_failed is None or max_failed <= 0:  # a feature is rejected at nfailed >= max_failed, so 0 would reject every one
             max_failed = int(npermutations * (1 - min_nonzero_confidence))
             if max_failed <= 1:
                 max_failed = 1

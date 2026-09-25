@@ -110,6 +110,38 @@ def _safe_moments(y: np.ndarray) -> tuple[int, float, float, float]:
     return n, mean, std, excess_kurt
 
 
+def _robust_residual_scale(y_target: Any) -> tuple[float, float]:
+    """``(mad, scale)`` of the finite values: the MAD, or a non-zero stand-in when the MAD is zero.
+
+    A target with more than half its rows on one value (a capped or defaulted column: 400 in 55% of hours_to_hire) has a
+    MAD of 0 while its std is in the hundreds. The mean absolute deviation from the median is then the scale, and the std
+    when that is zero too; 0.0 only for a constant or empty target.
+    """
+    try:
+        arr = np.asarray(y_target, dtype=np.float64).reshape(-1)
+    except (TypeError, ValueError):
+        return 0.0, 0.0
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return 0.0, 0.0
+    dev = np.abs(arr - np.median(arr))
+    mad = float(np.median(dev))
+    if mad > 0:
+        return mad, mad
+    mean_dev = float(dev.mean())
+    return mad, (mean_dev if mean_dev > 0 else float(arr.std()))
+
+
+def huber_delta_for_scale(scale: float) -> float:
+    """The Huber transition point in raw target units, shared by CatBoost ``delta``, LightGBM ``alpha`` and XGBoost ``huber_slope``."""
+    return max(1.0, 1.345 * scale) if scale > 0 else 1.0
+
+
+def huber_delta_for(y_target: Any) -> float:
+    """``huber_delta_for_scale`` of ``y_target``'s robust scale."""
+    return huber_delta_for_scale(_robust_residual_scale(y_target)[1])
+
+
 def recommend_boosting_regression_loss(
     y_target: Any,
     *,
@@ -199,13 +231,8 @@ def recommend_boosting_regression_loss(
         # essentially every realistic residual -> tree splits chase
         # heavy-tail outliers -> pred range blows from |T|<=50 to +340.
         # Scale to MAD(target) so XGB matches LGB/CB regimes.
-        try:
-            arr = np.asarray(y_target, dtype=np.float64).reshape(-1)
-            arr_f = arr[np.isfinite(arr)]
-            mad = float(np.median(np.abs(arr_f - np.median(arr_f))))
-        except (TypeError, ValueError):
-            mad = 0.0
-        xgb_huber_slope = max(1.0, 1.345 * mad) if mad > 0 else 1.0
+        mad, scale = _robust_residual_scale(y_target)
+        xgb_huber_slope = huber_delta_for_scale(scale)
         # CB: switch overfit detector from Iter (constant-magnitude
         # gradient stops ES at iter=1 on small-residual composite
         # targets) to IncToDec with a small p-value so tiny absolute
@@ -229,7 +256,9 @@ def recommend_boosting_regression_loss(
         # fit). Use the same MAD-calibrated threshold as XGB's huber_slope.
         _huber_delta = float(f"{xgb_huber_slope:.6g}")
         return {
-            "cb": "Huber:delta=1.345",
+            # CatBoost's delta is a raw-unit threshold too: a fixed 1.345 on a target with std 165 made Huber L1-like and the
+            # fit stopped at iteration 2.
+            "cb": f"Huber:delta={_huber_delta:.6g}",
             "lgb": "huber",
             "lgb_extra_params": {"alpha": _huber_delta},
             "xgb": "reg:pseudohubererror",

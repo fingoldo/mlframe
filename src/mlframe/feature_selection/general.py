@@ -297,7 +297,7 @@ def estimate_features_relevancy(
         _null_mean_row, p_values = analytic_mi_null_batch(raw_mi_row, n_samples, occupied_bins_per_col[: bins.shape[1]], by)
         observed_mi = np.where(np.isfinite(raw_mi_row), raw_mi_row, -np.inf)
 
-        if not permuted_max_mi_quantile:
+        if permuted_max_mi_quantile is None:
             # Wave 21 P1: nanmax so NaN-MI permutations don't poison the max.
             baseline_mi = np.nanmax(all_permuted_mis[target_name]) * min_mi_prevalence
         else:

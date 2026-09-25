@@ -161,11 +161,6 @@ def detect_expanding_window_feature_leakage(
         train window; each subsequent fold's train window expands to include all previously-validated rows).
     scoring
         sklearn scorer name; None uses the estimator's default ``.score``.
-    leak_tolerance
-        How much higher the leaky mean must be before the verdict fires, IN THE UNITS OF ``scoring``. ``None``
-        (the default) derives it from the fold scores themselves - the two-sample noise band of the difference of
-        the two means at alpha=0.05 - so the verdict travels across scorers of any scale. A fixed number was
-        unreachable on a large-scale loss and unclearable on a small-scale one. Reported back as ``leak_tolerance``.
     auto_remediate
         Opt-in (default False, output bit-identical to the pre-existing detection-only behavior when
         omitted). When True, additionally builds a leakage-safe replacement feature by stitching together
@@ -173,6 +168,11 @@ def detect_expanding_window_feature_leakage(
         ``fit_transform_fn`` fit on ONLY rows strictly before that row's fold train-cutoff -- the same
         recomputation boundary the "honest" score uses), and reports exactly which original row ranges
         were flagged as leaking.
+    leak_tolerance
+        How much higher the leaky mean must be before the verdict fires, IN THE UNITS OF ``scoring``. ``None``
+        (the default) derives it from the fold scores themselves - the two-sample noise band of the difference of
+        the two means at alpha=0.05 - so the verdict travels across scorers of any scale. A fixed number was
+        unreachable on a large-scale loss and unclearable on a small-scale one. Reported back as ``leak_tolerance``.
 
     Returns
     -------

@@ -89,7 +89,7 @@ def cpu_fe_batch_mi(
 
     if dense.size:
         Xd = X if dense.size == k else np.ascontiguousarray(X[:, dense])
-        chunk = int(max_cols_per_chunk) if max_cols_per_chunk else _cpu_col_chunk(n, dense.size, n_workers=n_workers)
+        chunk = int(max_cols_per_chunk) if max_cols_per_chunk is not None and max_cols_per_chunk > 0 else _cpu_col_chunk(n, dense.size, n_workers=n_workers)
         if chunk >= dense.size:
             out[dense] = plugin_mi_classif_batch_edge_njit(Xd, y, nbins)
         else:

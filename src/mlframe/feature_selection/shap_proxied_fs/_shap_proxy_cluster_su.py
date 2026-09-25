@@ -567,7 +567,7 @@ def _column_marginal(
     if cls.size == 0:
         return cls, np.empty(0, dtype=np.float64)
     observed_max = int(cls.max()) + 1 if cls.size else 0
-    nb = max(observed_max, int(n_bins_hint) if n_bins_hint else 0)
+    nb = max(observed_max, int(n_bins_hint) if n_bins_hint is not None else 0)
     counts = np.bincount(cls, minlength=nb).astype(np.float64)
     total = counts.sum()
     if total <= 0.0:

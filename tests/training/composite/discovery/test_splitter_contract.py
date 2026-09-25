@@ -89,16 +89,21 @@ def test_one_rerank_scores_raw_and_every_spec_under_one_fold_scheme(monkeypatch)
     from mlframe.training.composite import CompositeTargetDiscovery
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
+    from mlframe.training.composite.discovery import _screening_tiny
+
     seen: list[bool] = []
-    for name in ("_tiny_cv_rmse_raw_y", "_tiny_cv_rmse_raw_y_multiseed", "_tiny_cv_rmse_y_scale", "_tiny_cv_rmse_y_scale_multiseed"):
-        real = getattr(_tiny_rerank, name)
+    # The raw baseline is scored from _tiny_rerank; each spec through _tiny_rerank_process.score_spec, which resolves its
+    # CV function from _screening_tiny at call time.
+    for module, name in ((_tiny_rerank, "_tiny_cv_rmse_raw_y"), (_tiny_rerank, "_tiny_cv_rmse_raw_y_multiseed"),
+                         (_screening_tiny, "_tiny_cv_rmse_y_scale_multiseed")):
+        real = getattr(module, name)
 
         def _spy(*a, _real=real, **kw):
             """Record whether each rerank call asked for time-aware folds, then pass it through."""
             seen.append(bool(kw.get("time_aware", False)))
             return _real(*a, **kw)
 
-        monkeypatch.setattr(_tiny_rerank, name, _spy)
+        monkeypatch.setattr(module, name, _spy)
     rng = np.random.default_rng(0)
     n = 800
     mono = np.sort(rng.uniform(1.0, 10.0, n))
@@ -109,6 +114,7 @@ def test_one_rerank_scores_raw_and_every_spec_under_one_fold_scheme(monkeypatch)
         enabled=True, random_state=0, base_candidates=["mono", "other"], transforms=["linear_residual"], eps_mi_gain=-1.0,
         tiny_model_n_estimators=10, tiny_model_cv_folds=3, auto_chain_discovery_enabled=False, multi_base_enabled=False,
         interaction_base_discovery_enabled=False, auto_base_null_perms=0, honest_holdout_frac=0.0,
+        tiny_rerank_backend="threads",  # the spies live in this process; worker processes would not see them
     )
     CompositeTargetDiscovery(cfg).fit(df, "y", ["mono", "other", "x"], np.arange(n))
     assert seen, "the tiny rerank never ran"

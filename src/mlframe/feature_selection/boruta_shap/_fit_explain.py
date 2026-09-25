@@ -418,7 +418,6 @@ def fit(self, X, y):
         self.accepted_columns = []
 
         self.check_X()
-        # self.check_missing_values()
 
         self.features_to_remove = []
         self.hits = np.zeros(self.ncols)

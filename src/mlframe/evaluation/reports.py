@@ -563,7 +563,6 @@ def evaluate_grouped(
                 stats = rp["weighted avg"]
                 if stats:
                     res.append({by_column: position, count_col_name: qty, precision_col_name: stats["precision"], recall_col_name: stats["recall"]})
-                # res.append({'Должность':position,'Откликов':qty,'Точность':precision_score(y_test[idx], preds, average='macro'),'Полнота':recall_score(y_test[idx], preds, average='macro')})
 
     by_position = pd.DataFrame(res)
 

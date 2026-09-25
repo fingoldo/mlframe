@@ -559,7 +559,6 @@ def compare_postcalibrators(
             _seen_names[calibrator_name] = 0
 
         if not should_run(calibrator_name, include_patterns, skip_patterns):
-            # logger.info(f"Skipping calibrator: {calibrator_name} due to matching skip pattern.")
             continue
 
         _calibrator_start = timer()

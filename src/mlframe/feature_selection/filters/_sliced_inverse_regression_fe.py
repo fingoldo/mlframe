@@ -282,7 +282,7 @@ def hybrid_sir_direction_fe(
     if mi_gate:
         from ._unified_fe_gate import local_mi_gate
 
-        _gate_top_k = int(mi_gate_top_k) if mi_gate_top_k else int(top_k)
+        _gate_top_k = int(mi_gate_top_k) if mi_gate_top_k is not None and mi_gate_top_k > 0 else int(top_k)
         winners = local_mi_gate(enc_df, y, raw_X=X, top_k=_gate_top_k, reject_sink=reject_sink)
     else:
         winners = winners[: int(top_k)]

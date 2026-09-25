@@ -352,7 +352,7 @@ def hybrid_rare_category_fe(
         from ._unified_fe_gate import local_mi_gate
         winners = local_mi_gate(
             enc_df, y, raw_X=(raw_floor_X if raw_floor_X is not None else X),
-            top_k=int(mi_gate_top_k) if mi_gate_top_k else int(top_k),
+            top_k=int(mi_gate_top_k) if mi_gate_top_k is not None and mi_gate_top_k > 0 else int(top_k),
             reject_sink=reject_sink,
         )
     else:
@@ -637,7 +637,7 @@ def hybrid_conditional_residual_fe(
         from ._unified_fe_gate import local_mi_gate
         winners = local_mi_gate(
             enc_df, y, raw_X=(raw_floor_X if raw_floor_X is not None else X),
-            top_k=int(mi_gate_top_k) if mi_gate_top_k else int(top_k),
+            top_k=int(mi_gate_top_k) if mi_gate_top_k is not None and mi_gate_top_k > 0 else int(top_k),
             reject_sink=reject_sink,
         )
     else:

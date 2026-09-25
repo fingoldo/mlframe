@@ -16,6 +16,7 @@ keep working unchanged.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import numpy as np
@@ -55,6 +56,28 @@ _RMSE_FALLBACK: dict[str, tuple[str, str, str, str]] = {
 _NON_DEFAULT_LOSS_TOKENS: tuple[str, ...] = (
     "huber", "mae", "absoluteerror", "_l1", "pseudohuber", "quantile",
 )
+
+
+def _discard_stale_catboost_snapshot(params: dict[str, Any]) -> None:
+    """Delete the snapshot the degenerate fit left behind, so the RMSE refit starts fresh instead of resuming from it.
+
+    The GPU budget guard turns on ``save_snapshot`` for the whole guarded fit, and the refit runs inside it. CatBoost
+    resumes from an existing snapshot file and refuses when the loss differs ("Saved model's params are different from
+    current model's params"), which left a production target on its best_iter=2 Huber fit. The refit then writes its own
+    snapshot to the same path, so the budget still applies to it.
+    """
+    snap = params.get("snapshot_file")
+    if not (params.get("save_snapshot") and snap):
+        return
+    path = str(snap)
+    if not os.path.isabs(path):
+        path = os.path.join(str(params.get("train_dir") or "catboost_info"), path)
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        logger.warning("[loss-fallback] could not remove the stale CatBoost snapshot %s (%s); the refit may try to resume from it.", path, e)
 
 
 def _maybe_refit_on_degenerate_best_iter(
@@ -129,6 +152,8 @@ def _maybe_refit_on_degenerate_best_iter(
     # into the original model_obj so the caller's reference stays valid.
     _new_loss_params = {_loss_key: _loss_val, _metric_key: _metric_val}
     _refit_path = "set_params"
+    if _backend_prefix == "CatBoost":
+        _discard_stale_catboost_snapshot(_cur_params)
     try:
         model_obj.set_params(**_new_loss_params)
         model_obj.fit(train_df, train_target, **fit_params)

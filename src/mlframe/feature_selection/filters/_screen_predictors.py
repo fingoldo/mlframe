@@ -855,8 +855,6 @@ def screen_predictors(
                     predictors_pbar.close()
                     break
 
-        # postprocess_candidates(selected_vars)
-        # print(caching_hits_xyz, caching_hits_z, caching_hits_xz, caching_hits_yz)
         if verbose >= 2:
             logger.info("Finished.")
 

@@ -69,7 +69,7 @@ class TestRecommendation:
         residuals AND attenuates outlier influence; pure L1 / MAE is
         now reserved for the explicit ``target_quantile=0.5`` opt-in."""
         rec = recommend_boosting_regression_loss(_laplace())
-        assert rec["cb"] == "Huber:delta=1.345"
+        assert rec["cb"] == f"Huber:delta={rec['lgb_extra_params']['alpha']:.6g}"  # one raw-unit threshold for every backend
         assert rec["lgb"] == "huber"
         assert rec["xgb"] == "reg:pseudohubererror"
         assert rec["excess_kurt"] > 1.5
@@ -79,7 +79,7 @@ class TestRecommendation:
         ``(1.5, 20]`` Huber band)."""
         rec = recommend_boosting_regression_loss(_student_t(df=5.0))
         assert 1.5 < rec["excess_kurt"] <= 20.0, f"setup drift: df=5 sample kurt={rec['excess_kurt']:.2f}"
-        assert rec["cb"] == "Huber:delta=1.345"
+        assert rec["cb"] == f"Huber:delta={rec['lgb_extra_params']['alpha']:.6g}"  # one raw-unit threshold for every backend
         assert rec["lgb"] == "huber"
 
     def test_student_t_heavy_picks_rmse(self) -> None:
@@ -168,7 +168,7 @@ class TestProductionRepro:
         main[heavy_idx] *= 4.0
         rec = recommend_boosting_regression_loss(main)
         assert rec["excess_kurt"] > 1.5, f"setup failed: kurt={rec['excess_kurt']:.2f}"
-        assert rec["cb"] == "Huber:delta=1.345"
+        assert rec["cb"] == f"Huber:delta={rec['lgb_extra_params']['alpha']:.6g}"  # one raw-unit threshold for every backend
         assert rec["lgb"] == "huber"
 
 
@@ -182,3 +182,30 @@ def test_lgb_huber_alpha_scales_with_target_mad() -> None:
     assert rec["lgb"] == "huber"
     mad = float(np.median(np.abs(y - np.median(y))))
     assert abs(rec["lgb_extra_params"]["alpha"] - 1.345 * mad) < 1e-3 * mad
+
+def test_huber_delta_follows_the_target_scale_when_most_rows_share_one_value() -> None:
+    """hours_to_hire: 55% of rows at 400, std ~165, so MAD=0. The delta fell back to 1 (CatBoost's was a fixed 1.345), Huber
+    became L1-like in raw units and CatBoost stopped at iteration 2 with R2=-1.28. The delta now scales with the target."""
+    rng = np.random.default_rng(3)
+    n = 20_000
+    y = np.full(n, 400.0)
+    rest = rng.random(n) > 0.55
+    y[rest] = np.abs(rng.standard_t(4, size=rest.sum())) * 150.0
+    rec = recommend_boosting_regression_loss(y)
+    assert rec["cb"].startswith("Huber:delta="), rec["rationale"]
+    delta = float(rec["cb"].split("=")[1])
+    assert delta > 0.1 * y.std(), f"delta={delta} is not on the target's scale (std={y.std():.1f})"
+    assert rec["lgb_extra_params"]["alpha"] == pytest.approx(delta, rel=1e-5)
+    assert rec["xgb_extra_params"]["huber_slope"] == pytest.approx(delta, rel=1e-5)
+
+
+def test_heavy_tail_analyzer_gives_catboost_the_same_scaled_delta() -> None:
+    from mlframe.training.loss_recommendation import huber_delta_for
+    from mlframe.training.targets._target_distribution_analyzer_target_fn import _apply_heavy_tail_huber_overrides
+
+    y = np.r_[np.full(600, 400.0), np.linspace(0.0, 2000.0, 400)]
+    knobs: dict = {}
+    _apply_heavy_tail_huber_overrides(5.0, knobs, lambda *a: None, huber_delta_for(y))
+    assert knobs["cb_kwargs"]["loss_function"] == f"Huber:delta={huber_delta_for(y):.6g}"
+    assert huber_delta_for(y) > 100.0
+

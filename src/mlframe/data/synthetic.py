@@ -193,7 +193,6 @@ def generate_modelling_data(
         raise ValueError(f"n_unrelated_single ({n_unrelated_single}) must be >= n_unrelated_intercorrelated ({n_unrelated_intercorrelated})")
 
     generator = check_random_state(random_state)
-    # random.seed(random_state)
 
     n_features = (
         n_informative + n_singly_correlated + n_mutually_correlated + n_directly_correlated + n_unrelated_single + n_unrelated_intercorrelated + n_repeated

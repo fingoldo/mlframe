@@ -509,11 +509,9 @@ def test_no_unread_constructor_parameters():
     assert_no_unread_init_params(files=files, repo_root=REPO_ROOT, allowlist=_UNREAD_INIT_PARAMS_ALLOWED, min_files=1000)
 
 
-# Env reads in the composite scope that are deliberately not boolean flags.
-_ENV_FLAG_ALLOWED = {
-    "MLFRAME_PIPELINE_CACHE_RAM_FRACTION": "a numeric override; the test is for presence, and the value is a fraction",
-    "MLFRAME_PIPELINE_CACHE_BYTES_LIMIT": "a numeric override; the test is for presence, and the value is a byte count",
-}
+# Env reads in the composite scope that are deliberately not boolean flags. Empty: the two pipeline-cache byte/fraction
+# overrides live in training/strategies, outside the scanned scope, and the check rejects allowlist entries it never meets.
+_ENV_FLAG_ALLOWED: dict[str, str] = {}
 
 
 def test_composite_env_flags_go_through_one_parser():

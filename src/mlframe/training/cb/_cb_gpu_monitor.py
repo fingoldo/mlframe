@@ -98,7 +98,7 @@ def _log_notice_once(model_type_name: str, stripped: List[Any], es_summary: str,
         "stop, per-iteration metric capture (dropped here: %s). Native early stopping in effect: %s.%s A side-thread monitor "
         "(MLFRAME_CB_GPU_MONITOR_S, default %ds) reports progress / throughput collapse instead. [%s]",
         ", ".join(names), es_summary,
-        f" Configured time budget {budget_s / 60:.0f} min is only WARNED about (no safe native limit)." if budget_s else "",
+        f" Configured time budget {budget_s / 60:.0f} min is only WARNED about (no safe native limit)." if budget_s is not None and budget_s > 0 else "",
         int(DEFAULT_MONITOR_INTERVAL_S), model_type_name,
     )
 

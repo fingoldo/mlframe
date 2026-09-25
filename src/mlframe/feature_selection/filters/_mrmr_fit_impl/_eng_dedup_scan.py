@@ -56,15 +56,16 @@ class _RankRowBuffer:
     constants of that row: caching them on append replaces two extra passes over every row on every later comparison. Growth is doubling,
     bounded by a hard cap derived from the byte budget, and ``store`` reports exhaustion rather than raising so the caller can fall back
     to the unbatched comparison for the rest of the scan.
+
+    Parameters
+    ----------
+    n_rows
+        Length of one rank row, i.e. the number of samples.
+    hard_cap
+        The most rows that may ever be stored, from the byte budget.
     """
 
     def __init__(self, *, n_rows: int, hard_cap: int) -> None:
-        """Size the buffer's row length and its hard row cap.
-
-        Args:
-            n_rows: length of one rank row, i.e. the number of samples.
-            hard_cap: the most rows that may ever be stored, from the byte budget.
-        """
         self._n_rows = int(n_rows)
         self._hard_cap = int(hard_cap)
         self.matrix: np.ndarray | None = None

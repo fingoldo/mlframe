@@ -118,6 +118,9 @@ def greedy_backward_elimination(
     seed_base
         First ``random_state`` used when ``n_repeats > 1``; repeat ``i`` uses ``seed_base + i``. Unused when
         ``n_repeats == 1``.
+    return_trace
+        When True, return ``(surviving, trace)``: ``trace`` is a tuple of the per-step records in the order they
+        happened, for a caller that wants to see why each feature went. Default False returns the list alone.
 
     Returns
     -------

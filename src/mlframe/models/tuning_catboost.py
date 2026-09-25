@@ -53,7 +53,6 @@ class CatboostParamsOptimizer(ParamsOptimizer):
         if delete_params is None:
             delete_params = []
         # ,db_name:str=None,db_host:str=None,db_port:int=None,db_username:str=None,db_pwd:str=None,db_schema:str="public"
-        # super().init(db_name=db_name,db_host=db_host,db_port=db_port,db_usernam=db_username,db_pwd=db_pwd,db_schema=db_schema)
 
         # --per-float-feature-quantization 0:border_count=1024
 

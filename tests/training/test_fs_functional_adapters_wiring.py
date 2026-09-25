@@ -8,9 +8,6 @@ from __future__ import annotations
 
 import os
 
-_PRIOR_CUDA_ENV = {"CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES")}
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -18,12 +15,16 @@ import pytest
 
 @pytest.fixture(scope="module", autouse=True)
 def _restore_cuda_env_after_module():
-    """Undo this module's CUDA_VISIBLE_DEVICES override once its own tests finish -- an unrestored
-    module-level setdefault poisons every later test in the same pytest-xdist worker (see the
-    identical bug fixed in test_biz_val_hybrid_cooccur_clusterrep.py, which caused a ~13-test
-    GPU-dispatch failure cluster in a completely different worker)."""
+    """Hide the GPU for this module's tests only, and restore CUDA_VISIBLE_DEVICES when they finish.
+
+    The override used to be a module-level setdefault, which runs at COLLECTION: every test collected with this module
+    and run before it saw CUDA_VISIBLE_DEVICES="" (a forced-CUDA dispatch test returned the njit backend), and restoring
+    after the module could not undo that. GPU dispatch reads the variable per call, so setting it here is enough.
+    """
+    prior = os.environ.get("CUDA_VISIBLE_DEVICES")
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
     yield
-    _v = _PRIOR_CUDA_ENV["CUDA_VISIBLE_DEVICES"]
+    _v = prior
     if _v is None:
         os.environ.pop("CUDA_VISIBLE_DEVICES", None)
     else:

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def refit_transform_on_fold(
-    transform,
+    transform: Any,
     y_fold: np.ndarray,
     base_fold: np.ndarray,
     *,
@@ -49,7 +49,9 @@ def refit_transform_on_fold(
     transform
         A registry ``Transform`` (reads ``.fit``, ``.domain_check``,
         ``.domain_check_fitted``).
-    y_fold, base_fold
+    y_fold
+        Raw (un-transformed) target for THIS fold's train rows, NOT the globally-computed ``T``.
+    base_fold
         Raw (un-transformed) target / base columns for THIS fold's train rows.
         These are the exact arrays the caller must expose per fold -- the raw
         ``y`` and ``base``, NOT the globally-computed ``T``.

@@ -166,7 +166,6 @@ def make_custom_calibration_plot(
     for plot_idx, pos_label in enumerate(classes):
 
         title = f"Calibration plot for {display_labels.get(pos_label,'class '+str(pos_label))}:"
-        # fig.suptitle(title)
 
         if isinstance(probs, np.ndarray):
             prob_pos = probs[:, plot_idx]

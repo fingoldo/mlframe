@@ -502,7 +502,7 @@ def _save_figure(fig: Any, base: str, plot_outputs: Optional[str], dpi: Optional
             # Same crop and pixel density the FigureSpec renderer uses (``renderers/matplotlib.py``). These
             # images sit beside its output in one report, and a different pad or DPI shows up as a visibly
             # different text weight and a tighter crop on otherwise identical-looking charts.
-            fig.savefig(ensure_parent_dir(path), bbox_inches="tight", pad_inches=_SAVE_PAD_INCHES, **({"dpi": dpi} if dpi else {}))
+            fig.savefig(ensure_parent_dir(path), bbox_inches="tight", pad_inches=_SAVE_PAD_INCHES, **({"dpi": dpi} if dpi is not None and dpi > 0 else {}))
             written.append(path)
         except Exception as save_err:
             log_throttle(logger, "shap_panel_savefig_failed", logging.WARNING, "SHAP panel savefig failed for %s: %s", path, save_err)

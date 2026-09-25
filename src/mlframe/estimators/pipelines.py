@@ -143,7 +143,6 @@ def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: Any, cv_results: 
         # what's this paramset unique (but meaningful) hash?
         paramset_hash = get_fqn(constants)
 
-        # print(paramset_hash)
         # return
         ensure_dict_elem(cv_results, title, {})
         logger.info("Submitting CV pipeline %s", paramset_hash)
@@ -158,7 +157,6 @@ def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: Any, cv_results: 
         write_sidecar(_dump_path)
 
         compare_cv_metrics(cv_results=cv_results[title][paramset_hash], extended=False)
-        # compare_cv_metrics(cv_results=cv_results, extended=True)
     else:
         # Fix ONE block per level. Recursing on every still-unassigned block instead reached each complete
         # assignment once per ORDER in which its blocks were assigned: k! * m^k leaves for m^k distinct

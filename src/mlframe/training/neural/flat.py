@@ -340,7 +340,7 @@ def generate_mlp(
     if group_norm_kwargs is None:
         group_norm_kwargs = dict(eps=1e-5)
 
-    if not first_layer_num_neurons:
+    if first_layer_num_neurons is None or first_layer_num_neurons <= 0:
         first_layer_num_neurons = num_features
 
     # Don't modify min_layer_neurons directly; use effective_min_neurons instead.
