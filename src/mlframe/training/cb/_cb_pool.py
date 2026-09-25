@@ -26,6 +26,7 @@ from pyutilz.system import get_gpuinfo_gpu_info
 
 from ..phases import phase
 
+from ._cb_polars_text import model_text_feature_names, text_columns_as_strings
 logger = logging.getLogger(__name__)
 
 # Guards concurrent first-time probing of the GPU info cache and the CB-GPU
@@ -371,6 +372,38 @@ def _fastpath_flag_provenance(model) -> str:
     return "the installed build was pre-flagged as lacking the polars fastpath (no miss was observed on this model)"
 
 
+def _polars_schema_drift(model: Any, X: Any) -> str:
+    """Which columns of ``X`` differ in dtype from the frame the model was fitted on, for the fastpath-rejection log.
+
+    CatBoost's own message is a bare Cython "No matching signature found" that names neither the column nor the type,
+    and the fallback that follows hides the question for the rest of the run. Falls back to the predict frame's dtype
+    groups when the fit schema was not recorded.
+    """
+    try:
+        now = {str(k): str(v) for k, v in X.schema.items()}
+    except Exception:  # not a polars frame after all: nothing to compare
+        return ""
+    fit = getattr(model, "_mlframe_fit_polars_schema", None)
+    if not fit:
+        groups: dict[str, list[str]] = {}
+        for col, dtype in now.items():
+            groups.setdefault(dtype, []).append(col)
+        return "Predict-frame dtypes: " + "; ".join(f"{d} x{len(c)}" + (f" ({', '.join(c[:3])})" if len(c) <= 3 else "") for d, c in sorted(groups.items()))
+    changed = [f"{c}: {fit[c]} -> {now[c]}" for c in now if c in fit and fit[c] != now[c]]
+    missing = [c for c in fit if c not in now]
+    extra = [c for c in now if c not in fit]
+    if not (changed or missing or extra):
+        return "Every column has the dtype it was fitted with, so the rejection is inside CatBoost's polars path itself."
+    parts = []
+    if changed:
+        parts.append(f"dtype changed since fit: {', '.join(changed[:8])}" + (f" (+{len(changed) - 8} more)" if len(changed) > 8 else ""))
+    if missing:
+        parts.append(f"missing: {', '.join(missing[:8])}")
+    if extra:
+        parts.append(f"not in fit: {', '.join(extra[:8])}")
+    return "; ".join(parts) + "."
+
+
 def _predict_with_fallback(
     model: Any,
     X: Any,
@@ -481,6 +514,8 @@ def _predict_with_fallback(
             return _wrap_predict_result(fn(X_pd), method=method, classes_=getattr(model, "classes_", None))
 
     # ── 4. Normal path (with NaN guard + CB Polars fallback) ──────────
+    if _is_cb and _pl_df is not type(None) and isinstance(X, _pl_df):
+        X = text_columns_as_strings(X, model_text_feature_names(model))  # CatBoost builds a Pool from X; a Categorical text column crashes it
     try:
         with phase(method, model=_model_type, n_rows=n_rows):
             result = fn(X)
@@ -506,9 +541,10 @@ def _predict_with_fallback(
         if not (_is_cb and _pl_df is not type(None) and isinstance(X, _pl_df) and "No matching signature found" in str(e)):
             raise
         logger.warning(
-            "CatBoost %s Polars fastpath rejected the data (%s); " "converting to pandas and retrying.",
+            "CatBoost %s Polars fastpath rejected the data (%s); converting to pandas and retrying. %s",
             method,
             str(e).splitlines()[-1][:240],
+            _polars_schema_drift(model, X),
         )
         try:
             model._mlframe_polars_fastpath_broken = True
@@ -754,10 +790,8 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             rewritten.append(entry)
             continue
 
-        # Content-fingerprint via shared helper (2026-05-23): pre-fix
-        # ``id(val_df)`` cache key broke across sklearn.clone() and
-        # .iloc[...] slicing -- same id(X) bug as xgb_shim / lgb_shim /
-        # CB train Pool. Consolidated.
+        # Content-fingerprint via shared helper (2026-05-23): pre-fix ``id(val_df)`` cache key broke across sklearn.clone() and
+        # .iloc[...] slicing -- same id(X) bug as xgb_shim / lgb_shim / CB train Pool. Consolidated.
         from .._dataset_cache_fingerprint import compute_signature
         key = compute_signature(
             val_df,
@@ -815,7 +849,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
 
         try:
             val_pool = _Pool(
-                data=val_df,
+                data=text_columns_as_strings(val_df, text_features),
                 label=_lab_build,
                 cat_features=list(cat_features) or None,
                 text_features=list(text_features) or None,
@@ -832,12 +866,9 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
 
         from mlframe.training.pipeline import _full_target_content_hash
         val_pool._mlframe_last_target_sig = _full_target_content_hash(val_target)
-        # Stash a content-fingerprint on the Pool so the predict-side
-        # lookup in ``_predict_with_fallback`` can do a cols + shape +
-        # dtypes content match when ``id(val_df)`` has shifted between
-        # fit and metrics phases (2026-04-24 prod regression -- same
-        # frame, different Python object due to upstream pre_pipeline
-        # transforms).
+        # Stash a content-fingerprint on the Pool so the predict-side lookup in ``_predict_with_fallback`` can do a cols + shape +
+        # dtypes content match when ``id(val_df)`` has shifted between fit and metrics phases (2026-04-24 prod regression -- same
+        # frame, different Python object due to upstream pre_pipeline transforms).
         try:
             if hasattr(val_df, "dtypes"):
                 val_pool._mlframe_dtypes_sig = tuple(str(d) for d in val_df.dtypes)

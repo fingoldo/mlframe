@@ -16,6 +16,7 @@ import pandas as pd
 
 from mlframe.config import CATBOOST_MODEL_TYPES
 
+from ._cb_polars_text import text_columns_as_strings
 logger = logging.getLogger(__name__)
 
 # Guards concurrent first-time probing of the GPU info cache and the CB-GPU
@@ -26,6 +27,22 @@ logger = logging.getLogger(__name__)
 # acquires it again; with a plain Lock the second acquire deadlocks on the
 # very first probe (before _GPU_INFO_PROBED is True).
 _GPU_PROBE_LOCK = threading.RLock()
+
+
+def _stamp_fit_polars_schema(model: Any, train_df: Any) -> None:
+    """Remember the column dtypes a CatBoost model was fitted on, so a predict-time rejection can name what changed.
+
+    A production predict failed with CatBoost's bare "No matching signature found" and fell back to pandas; nothing in
+    the log said which column the fastpath rejected, and no synthetic frame reproduced it. Plain strings, so pickling
+    the model is unaffected.
+    """
+    schema = getattr(train_df, "schema", None)
+    if schema is None or not hasattr(train_df, "select"):
+        return
+    try:
+        model._mlframe_fit_polars_schema = {str(k): str(v) for k, v in schema.items()}
+    except (AttributeError, TypeError):  # a model that refuses attributes simply keeps the undiagnosed message
+        pass
 
 
 def _maybe_get_or_build_cb_pool(
@@ -58,6 +75,7 @@ def _maybe_get_or_build_cb_pool(
     )
     if model_type_name not in CATBOOST_MODEL_TYPES:
         return None
+    _stamp_fit_polars_schema(model, train_df)
 
     # Empty-target guard: if the caller passed a 0-length train_target
     # (e.g. RFECV inner CV fold collapsed after MRMR dropped all rows of
@@ -97,21 +115,15 @@ def _maybe_get_or_build_cb_pool(
     cat_features = _filter_to_df("cat_features")
     text_features = _filter_to_df("text_features")
     embedding_features = _filter_to_df("embedding_features")
-    # Auto-widen cat_features with category-dtype columns that are present in
-    # train_df but absent from the explicit list. CatBoost's Pool builder
-    # rejects category-dtype columns missing from ``cat_features`` with
-    # "has dtype 'category' but is not in cat_features list". The
-    # skip_categorical_encoding auto-flip path leaves cat_features narrow
-    # while the pre-pipeline converts upstream string cols to category for
-    # joint train+val codebooks; this guard reconciles the two views.
+    # Auto-widen cat_features with category-dtype columns that are present in train_df but absent from the explicit list. CatBoost's
+    # Pool builder rejects category-dtype columns missing from ``cat_features`` with "has dtype 'category' but is not in cat_features
+    # list". The skip_categorical_encoding auto-flip path leaves cat_features narrow while the pre-pipeline converts upstream string
+    # cols to category for joint train+val codebooks; this guard reconciles the two views.
     try:
         if isinstance(train_df, pd.DataFrame):
             _cat_dtype_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes) if isinstance(dt, pd.CategoricalDtype)]
-            # Any category-dtype column NOT already routed via text_features /
-            # embedding_features must appear in cat_features - otherwise CB
-            # Pool rejects it with "has dtype 'category' but is not in
-            # cat_features list". Text/embedding columns are CB-supported via
-            # their respective parameters, so we don't widen there.
+            # Any category-dtype column NOT already routed via text_features / embedding_features must appear in cat_features -
+            # otherwise CB Pool rejects it. Text/embedding columns are CB-supported via their own parameters, so no widening there.
             _missing = [c for c in _cat_dtype_cols if c not in cat_features and c not in text_features and c not in embedding_features]
             if _missing:
                 logger.info(
@@ -121,11 +133,9 @@ def _maybe_get_or_build_cb_pool(
                 )
                 cat_features = tuple(sorted(set(cat_features) | set(_missing)))
                 fit_params["cat_features"] = list(cat_features)
-            # Category-dtype columns that ARE routed to text_features must
-            # be cast back to string/object before Pool: CB's Pool builder
-            # validates dtype-vs-feature-list consistency BEFORE consulting
-            # the text_features arg, so a "category" column claimed as text
-            # still trips the cat_features mismatch.
+            # Category-dtype columns that ARE routed to text_features must be cast back to string/object before Pool: CB's Pool builder
+            # validates dtype-vs-feature-list consistency BEFORE consulting the text_features arg, so a "category" column claimed as
+            # text still trips the cat_features mismatch.
             _cat_dt_routed_as_text = [c for c in _cat_dtype_cols if c in text_features]
             if _cat_dt_routed_as_text:
                 logger.info(
@@ -311,7 +321,7 @@ def _maybe_get_or_build_cb_pool(
 
     try:
         pool = _Pool(
-            data=train_df,
+            data=text_columns_as_strings(train_df, text_features),
             label=_label_for_pool,
             weight=sample_weight,
             cat_features=list(cat_features) or None,

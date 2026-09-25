@@ -294,18 +294,24 @@ def _fast_calibration_binning_serial(y_true: np.ndarray, y_pred: np.ndarray, nbi
     return freqs_predicted, freqs_true, hits
 
 
-# cache=False: numba cannot cache a parallel=True kernel (dynamic globals from the parallel
-# reduction); the warmup pass compiles it once per process so the first big report pays no JIT.
-@numba.njit(parallel=True, cache=False, nogil=True)
 def _fast_calibration_binning_prange(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
-    """Parallel twin of ``_fast_calibration_binning_serial`` for large n.
+    """Parallel twin of ``_fast_calibration_binning_serial`` for large n; see :func:`_fast_calibration_binning_prange_kernel`."""
+    return _fast_calibration_binning_prange_kernel(y_true, y_pred, nbins, numba.get_num_threads())
 
-    Each thread reduces a contiguous slice into a private (min, max) and a private histogram,
-    then the partials are merged. Bit-identical to the serial kernel on the integer outputs
-    (hits, pockets_true); ``freqs_predicted`` differs only by FP summation order (~1e-14).
+
+# The thread count is an ARGUMENT, read by the Python wrapper above. Read inside the kernel, ``numba.get_num_threads()``
+# made numba refuse to cache it ("uses dynamic globals") -- the old comment here blamed the parallel reduction -- so
+# every process compiled it from scratch: 11-12 s per signature locally, and most of a production run's 58 s
+# ``metric_kernels`` prewarm. Cached, a fresh process loads it in 0.7 s.
+@numba.njit(parallel=True, cache=True, nogil=True)
+def _fast_calibration_binning_prange_kernel(y_true: np.ndarray, y_pred: np.ndarray, nbins: int, nth: int):
+    """Each thread reduces a contiguous slice into a private (min, max) and a private histogram, then the partials merge.
+
+    Bit-identical to the serial kernel on the integer outputs (hits, pockets_true); ``freqs_predicted`` differs only by FP
+    summation order (~1e-14). ``nth`` sets the number of slices, not the threads that run them, so any positive value is
+    correct; the wrapper passes numba's current thread count.
     """
     n = len(y_pred)
-    nth = numba.get_num_threads()
     chunk = (n + nth - 1) // nth
 
     pmin = np.empty(nth, dtype=np.float64)

@@ -37,6 +37,7 @@ from ._training_loop_refit import (  # noqa: F401  (re-exported)
     _maybe_refit_on_saturated_best_iter,
 )
 from .cb._cb_eval_weights import apply_cb_eval_sample_weights
+from .cb._cb_polars_text import cb_text_features_as_strings
 from .cb import (
     _maybe_get_or_build_cb_pool,
     _maybe_rewrite_eval_set_as_cb_pool,
@@ -339,10 +340,9 @@ def _train_model_with_fallback_unguarded(
     #     ``Pool.set_weight`` (callable);
     #   * ``CatBoostClassifier.fit(X=Pool)`` is the idiomatic native path
     #     (short-circuits rebuild in ``_build_train_pool``).
-    # XGB/LGB are not yet covered -- their sklearn wrappers don't accept
-    # pre-built DMatrix/Dataset yet (upstream FRs drafted in
-    # ``D:\Machine Learning\3rdParty\reproducers\upstream_feature_requests\``).
-    # The per-build logging is what makes their rebuild cost visible.
+    # XGB/LGB are not yet covered -- their sklearn wrappers don't accept pre-built DMatrix/Dataset yet (upstream FRs drafted in
+    # ``D:\Machine Learning\3rdParty\reproducers\upstream_feature_requests\``). The per-build logging makes their rebuild cost visible.
+    train_df = cb_text_features_as_strings(model_type_name, train_df, fit_params)  # a polars Categorical text feature crashes CatBoost
     _cb_pool = _maybe_get_or_build_cb_pool(
         model_type_name=model_type_name,
         model=model,

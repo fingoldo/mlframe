@@ -32,6 +32,16 @@ import pytest
 
 from mlframe.training.trainer import _train_model_with_fallback
 
+
+@pytest.fixture(autouse=True)
+def _direct_fit_path(monkeypatch):
+    """These tests exercise the polars -> pandas fallback of the DIRECT ``model.fit(X, y)`` call, with stub models that
+    take ``(X, y)``. They used to reach it only because building a CatBoost Pool from their frame failed: the frame
+    carries a polars Categorical TEXT feature, which CatBoost rejected -- and which occasionally corrupted memory and
+    killed the test process. Text features now reach CatBoost as strings, the Pool builds, and the trainer would call
+    ``fit(pool)``; Pool reuse is switched off here so the path under test is the one these tests were written for."""
+    monkeypatch.setattr("mlframe.training.cb._cb_pool._cb_reuse_capable", lambda: False)
+
 # ---------------------------------------------------------------------------
 # Fake CatBoost: raises Polars-style TypeError on the first fit, succeeds on
 # the second. Records every fit invocation so tests can inspect what ended

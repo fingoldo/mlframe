@@ -64,8 +64,11 @@ def apply_cb_eval_sample_weights(fit_params: dict[str, Any], model_type_name: st
             continue
         if informative and isinstance(entry, tuple) and len(entry) == 2:
             try:
+                from ._cb_polars_text import text_columns_as_strings
+
                 entry = Pool(
-                    data=entry[0], label=entry[1], weight=np.asarray(w, dtype=np.float64),
+                    data=text_columns_as_strings(entry[0], fit_params.get("text_features")),
+                    label=entry[1], weight=np.asarray(w, dtype=np.float64),
                     cat_features=list(fit_params.get("cat_features") or []) or None,
                     text_features=list(fit_params.get("text_features") or []) or None,
                     embedding_features=list(fit_params.get("embedding_features") or []) or None,
