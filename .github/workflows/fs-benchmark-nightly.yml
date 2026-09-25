@@ -68,12 +68,12 @@ jobs:
       # mlframe's `pyutilz>=1.0.0` and installs nothing: every run of this workflow failed at install and the benchmark
       # never ran. Install it the way ci.yml does, through py-ci-shared's install-pyutilz action (clone + one uv resolve).
       - name: Set up uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@a210e2911dd85df1c70d6bc5350da25ee1b28f5e  # v1.4.0
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[dev]"
