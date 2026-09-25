@@ -19,6 +19,7 @@ from mlframe.training.pipeline._per_target_supervised_fe import (
 
 
 def _frame(n=3000, seed=0):
+    """Four categorical columns and two binary targets, each driven by a different column pair."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame({k: rng.integers(0, 6, n).astype(str) for k in "abcd"})
     pairs = {}
@@ -29,6 +30,7 @@ def _frame(n=3000, seed=0):
 
 
 def _fit(df, pairs):
+    """Run the per-target supervised FE on train/val/test splits of the frame and return its metadata and frames."""
     cfg = PreprocessingExtensionsConfig(categorical_group_concat_auto_enabled=True)
     targets = [("binary", name, y) for name, y in pairs.items()]
     md: dict = {}
@@ -37,6 +39,7 @@ def _fit(df, pairs):
 
 
 def test_each_target_gets_groups_learned_from_its_own_labels():
+    """Each target's groups equal those learned from its labels alone, and differ between targets."""
     df, pairs = _frame()
     md, train, val, test = _fit(df, pairs)
     per = md[PER_TARGET_KEY]
@@ -56,6 +59,7 @@ def test_each_target_gets_groups_learned_from_its_own_labels():
 
 
 def test_replay_reproduces_every_targets_columns():
+    """Replaying on raw test rows reproduces every per-target column the fit produced."""
     df, pairs = _frame()
     md, _, _, test = _fit(df, pairs)
     replayed = replay_per_target_supervised_fe(df.iloc[2500:][list("abcd")], md, None)
@@ -65,6 +69,7 @@ def test_replay_reproduces_every_targets_columns():
 
 
 def test_a_targets_models_do_not_see_other_targets_columns_and_frames_are_restored():
+    """Inside the scope a target's frames drop other targets' columns; on exit the originals return."""
     df, pairs = _frame()
     md, train, _, _ = _fit(df, pairs)
     foreign = foreign_columns(md, "binary", "t_ab")
@@ -78,6 +83,7 @@ def test_a_targets_models_do_not_see_other_targets_columns_and_frames_are_restor
 
 
 def test_single_target_suite_has_nothing_to_scope():
+    """With no per-target state there are no foreign columns and the frames are left alone."""
     assert foreign_columns({}, "binary", "y") == []
     ctx = SimpleNamespace(metadata={}, train_df_pd=pd.DataFrame({"x": [1]}), cat_features=["x"])
     before = ctx.train_df_pd
@@ -91,12 +97,14 @@ def test_powerset_concat_stays_one_shared_fit(n_targets):
     df, pairs = _frame(n=600)
     cfg = PreprocessingExtensionsConfig(categorical_group_concat_auto_enabled=True, categorical_powerset_concat_enabled=True)
     md: dict = {}
-    train, _, _ = apply_per_target_supervised_fe(df, None, None, cfg, [("binary", n, y) for n, y in pairs.items()], None, None, None, None, None, md)
+    apply_per_target_supervised_fe(df, None, None, cfg, [("binary", n, y) for n, y in pairs.items()], None, None, None, None, None, md)
+    assert md[PER_TARGET_KEY], "no per-target state was recorded, so the loop below would check nothing"
     for entry in md[PER_TARGET_KEY].values():
         assert "categorical_powerset_concat_columns" not in entry["state"]
 
 
 def test_two_target_suite_trains_each_target_on_its_own_columns_and_predicts(tmp_path):
+    """A two-target suite trains each target on its own columns and predicts end to end."""
     pytest.importorskip("catboost")
     from mlframe.training.configs import OutputConfig
     from mlframe.training.core import predict_mlframe_models_suite, train_mlframe_models_suite

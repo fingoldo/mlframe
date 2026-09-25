@@ -120,7 +120,8 @@ def bench_e8_tonumeric_vs_asarray(n: int = 20_000, p: int = 120, nan_frac: float
     def new():
         return _tonumeric_fast_path(df)
 
-    assert np.array_equal(old(), new()), "E8: result mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
+    if not np.array_equal(old(), new()):  # an explicit raise, so `python -O` cannot drop the identity check
+        raise AssertionError("E8: result mismatch")
     t_old = _best_of(old, 10)
     t_new = _best_of(new, 10)
     return {"lever": "E8_tonumeric_vs_asarray", "n": n, "p": p, "old_ms": t_old * 1e3, "new_ms": t_new * 1e3, "speedup": t_old / t_new}

@@ -100,6 +100,7 @@ def test_not_fitted_uses_notfittederror(rel: str) -> None:
     for phrase in forbidden_phrases:
         # Allow the phrase in the NEW NotFittedError messages; forbid only with RuntimeError class.
         # Lightweight check: if phrase appears, ensure no RuntimeError on the same logical raise line.
+        assert src.strip(), f"{rel}: the source to scan is empty"
         for line_idx, line in enumerate(src.splitlines()):
             if phrase in line and "RuntimeError" in line:
                 pytest.fail(f"{rel}: line {line_idx + 1} still raises RuntimeError for a not-fitted state: {line.strip()!r}")
@@ -172,6 +173,7 @@ def test_neural_flat_validation_uses_typeerror_and_valueerror() -> None:
         'raise TypeError(f"num_classes must be None or an int',
         'raise TypeError(f"first_layer_num_neurons must be an int',
     ]
+    assert type_error_phrases, "nothing to check: the loop below would pass without running"
     for phrase in type_error_phrases:
         assert phrase in src, f"neural/flat.py: expected {phrase!r}"
     # ValueError sites for range failures (must coexist).
@@ -181,6 +183,7 @@ def test_neural_flat_validation_uses_typeerror_and_valueerror() -> None:
         'raise ValueError(f"num_classes must be >= 0',
         "raise ValueError(",  # first_layer_num_neurons range
     ]
+    assert value_error_phrases, "nothing to check: the loop below would pass without running"
     for phrase in value_error_phrases:
         assert phrase in src, f"neural/flat.py: expected ValueError site {phrase!r}"
 
@@ -210,6 +213,7 @@ def test_assertion_error_not_used_at_validation_boundary(rel: str, forbidden_ass
     """Assertion error not used at validation boundary."""
     src = _read(rel)
     # The forbidden string must NOT co-occur with raise AssertionError on the same line.
+    assert src.strip(), f"{rel}: the source to scan is empty"
     for line in src.splitlines():
         if forbidden_assertion_substring in line and "AssertionError" in line:
             pytest.fail(f"{rel}: still raises AssertionError at validation boundary; would be stripped by python -O\n  line: {line.strip()!r}")

@@ -345,6 +345,7 @@ class TestAutoPairDetection:
         )
         # Noise pairs (uncorrelated by construction) must NOT be enumerated.
         noise_names = {"noise_0", "noise_1", "noise_2"}
+        assert pairs, "nothing to check: the loop below would pass without running"
         for a, b, c in pairs:
             if a in noise_names and b in noise_names:
                 pytest.fail(

@@ -122,7 +122,7 @@ _MINIMAL_BINARY = ("mul", "add", "sub", "div", "max", "min")
 # n=100k fit (15 calls), a large slice of the ~10.5s ``cupy.get`` wall. The codes (for MI) are produced
 # RESIDENT and don't need that buffer; only a HANDFUL of host reads do.
 #   * Final survivors ALREADY recompute from raw via ``_rebuild_full_survivor_col`` (subsample path,
-#     _pairs_core.py:2218); the buffer feeds only the INTERMEDIATE subsample scoring reads in
+#     in _pairs_core.py); the buffer feeds only the INTERMEDIATE subsample scoring reads in
 #     check_prospective_fe_pairs (best-config ~1625/1749, multi-emit ~2126/2137, MI-replay ~1499).
 # Proposed win = KEEP the chunk-batch GPU-codes path, pass ``out_cand=None`` (skip the 6.7 GB D2H), route
 # the few intermediate reads through the validated recompute helper (_config_by_i / _rebuild_full_survivor_-

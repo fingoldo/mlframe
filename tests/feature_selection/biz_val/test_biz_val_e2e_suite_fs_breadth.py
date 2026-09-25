@@ -465,7 +465,6 @@ def test_biz_val_suite_mrmr_fs_isolated_from_other_stages():
     "target types use, so the per-target MRMR-FS branch is not wired into the ranker path. Independently, "
     "MRMR's MI is group-naive and the suite forces strict_groups=True under the LtR group-aware split. "
     "Full support needs (1) routing use_mrmr_fs through the LtR ranker branch and (2) group-aware MI in MRMR.",
-    strict=False,
 )
 def test_biz_val_suite_mrmr_ltr_excludes_noise():
     """MRMR feature selection through the suite on a LEARNING_TO_RANK target: the FS-branch model must

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from tests.training.composite import test_printed_advice as advice_tests
 
@@ -13,7 +12,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def test_every_composite_advice_has_a_test_that_follows_it():
     """A new message that tells the reader to act needs an entry in PRINTED_ADVICE_TESTS and the test it names; a removed one its entry gone."""
-    printed_advice = pytest.importorskip("py_ci_shared.printed_advice")
+    from py_ci_shared import printed_advice
+
     root = REPO_ROOT / "src" / "mlframe" / "training" / "composite"
     files = sorted(p for p in root.rglob("*.py") if "_benchmarks" not in p.parts)
     found = {a.key: a for a in printed_advice.find_printed_advice(files, REPO_ROOT)}

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
 
 import numpy as np
 
@@ -291,6 +292,8 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
 # (id(y_gpu), y_min) -> shifted (y - y_min) device vector. y is a fit-constant, so the shift recurs identically
 # across the per-chunk MI calls; memoize to launch it ONCE per fit (module-level -> never on a pickled instance).
 _SHIFTED_Y_CACHE: dict = {}
+# Held across the check-clear-insert below: threaded FE workers share this dict.
+_SHIFTED_Y_CACHE_LOCK = threading.Lock()
 
 
 def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None,
@@ -349,12 +352,13 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # on (id(y_gpu), y_min) otherwise so the launch happens ONCE per fit, not once per MI batch. Bit-identical.
     if y_min:
         _sk = (id(y_gpu), int(y_min))
-        _sh = _SHIFTED_Y_CACHE.get(_sk)
-        if _sh is None or _sh.shape != y_gpu.shape:
-            _sh = y_gpu - y_min
-            if len(_SHIFTED_Y_CACHE) > 8:
-                _SHIFTED_Y_CACHE.clear()
-            _SHIFTED_Y_CACHE[_sk] = _sh
+        with _SHIFTED_Y_CACHE_LOCK:
+            _sh = _SHIFTED_Y_CACHE.get(_sk)
+            if _sh is None or _sh.shape != y_gpu.shape:
+                _sh = y_gpu - y_min
+                if len(_SHIFTED_Y_CACHE) > 8:
+                    _SHIFTED_Y_CACHE.clear()
+                _SHIFTED_Y_CACHE[_sk] = _sh
         y_gpu = _sh
 
     # Per-column quantile binning via cp.percentile EDGES + searchsorted. Replaced the

@@ -68,6 +68,7 @@ class TestUnaryTransformationsPresets:
         """Medium preset superset of minimal."""
         medium = create_unary_transformations(preset="medium")
         minimal = create_unary_transformations(preset="minimal")
+        assert minimal, "nothing to check: the loop below would pass without running"
         for k in minimal:
             assert k in medium
         # A handful of well-known names that must come with the "medium" preset:
@@ -95,6 +96,7 @@ class TestUnaryTransformationsPresets:
         """Maximal preset superset of medium."""
         maximal = create_unary_transformations(preset="maximal")
         medium = create_unary_transformations(preset="medium")
+        assert medium, "nothing to check: the loop below would pass without running"
         for k in medium:
             assert k in maximal
         # Maximal-only names per the module docstring / source
@@ -163,6 +165,7 @@ class TestBinaryTransformationsPresets:
         """``medium`` is a strict superset of ``minimal`` (adds abs_diff, hypot)."""
         medium = create_binary_transformations(preset="medium")
         minimal = create_binary_transformations(preset="minimal")
+        assert minimal, "nothing to check: the loop below would pass without running"
         for k in minimal:
             assert k in medium, f"medium preset dropped minimal key '{k}'"
         for k in ("abs_diff", "hypot"):

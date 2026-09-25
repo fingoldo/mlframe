@@ -40,6 +40,7 @@ def target_key(target_type: Any, target_name: Any) -> str:
 
 
 def _suffix(target_type: Any, target_name: Any) -> str:
+    """The column-name suffix that marks a column as learned from one target's labels."""
     from pyutilz.strings import slugify
 
     return f"__target_{slugify(str(target_type).lower())}_{slugify(str(target_name))}"
@@ -48,8 +49,7 @@ def _suffix(target_type: Any, target_name: Any) -> str:
 def supervised_steps_enabled(config: Any) -> bool:
     """Whether any label-supervised composite step is configured."""
     return bool(
-        config is not None
-        and (getattr(config, "categorical_group_concat_auto_enabled", False) or getattr(config, "two_step_target_encode_columns", None))
+        config is not None and (getattr(config, "categorical_group_concat_auto_enabled", False) or getattr(config, "two_step_target_encode_columns", None))
     )
 
 
@@ -65,6 +65,7 @@ def iter_targets(target_by_type: Any) -> List[Tuple[Any, Any, np.ndarray]]:
 
 
 def _rename(df: Any, mapping: Dict[str, str]) -> Any:
+    """``df`` with the columns in ``mapping`` renamed (pandas or polars); absent columns are ignored."""
     if df is None or not mapping:
         return df
     present = {k: v for k, v in mapping.items() if k in df.columns}
@@ -74,6 +75,7 @@ def _rename(df: Any, mapping: Dict[str, str]) -> Any:
 
 
 def _drop(df: Any, cols: List[str]) -> Any:
+    """``df`` without ``cols`` (pandas or polars); absent columns are ignored."""
     if df is None or not cols:
         return df
     present = [c for c in cols if c in df.columns]
@@ -170,7 +172,7 @@ def target_scoped_frames(ctx: Any, target_type: Any, target_name: Any) -> Iterat
     if not foreign:
         yield
         return
-    saved = {a: getattr(ctx, a, None) for a in _FRAME_ATTRS + ("cat_features",)}
+    saved = {a: getattr(ctx, a, None) for a in (*_FRAME_ATTRS, "cat_features")}
     # Caches that assume every target has the same features: prepared frames and binned datasets carried across targets
     # (ctx.artifacts), and conversions keyed by id() of a frame, which a trimmed frame freed after this target could
     # hand to an unrelated frame at the same address. Each target gets fresh ones; the suite's are restored after.

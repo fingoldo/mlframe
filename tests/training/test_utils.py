@@ -1125,10 +1125,12 @@ class TestHypothesisDropColumns:
         result = drop_columns_from_dataframe(df, additional_columns_to_drop=cols_to_drop, verbose=0)
 
         # Verify dropped columns are gone
+        assert cols_to_drop, "nothing to check: the loop below would pass without running"
         for col in cols_to_drop:
             assert col not in result.columns
 
         # Verify remaining columns exist
+        assert col_names[n_to_drop:], "nothing to check: the loop below would pass without running"
         for col in col_names[n_to_drop:]:
             assert col in result.columns
 

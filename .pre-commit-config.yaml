@@ -40,17 +40,6 @@ default_language_version:
   python: python3
 
 repos:
-  # First, ahead of every ruff hook below: the blocking ruff hooks are `language: system`, so they run whatever ruff this
-  # interpreter has. This fails when that ruff, the pyproject pin and the version py-ci-shared's CI workflows run disagree.
-  - repo: local
-    hooks:
-      - id: pinned-tool-versions
-        name: "pinned tool versions (ruff) match py-ci-shared"
-        entry: python -m py_ci_shared.pinned_tool_versions
-        language: system
-        pass_filenames: false
-        always_run: true
-
   # Standard pre-commit.com baseline -- absent until 2026-07-18's architecture review, near-zero
   # cost (well under a second combined) and catches a class of bug the rest of this file's
   # Python-specific tooling structurally can't: a committed merge-conflict marker, an
@@ -319,7 +308,9 @@ repos:
         # name can mask a real error in this one, letting a broken commit land locally and only
         # fail once pushed to CI (which always runs cold). See reference_mlframe_shared_mypy_cache_dir
         # memory note for the prior (now superseded) rationale for sharing.
-        entry: python -m mypy src/mlframe --cache-dir=.mypy_cache_precommit_full
+        # mypy_gate requires mypy's own completion line and a file floor: --min-files 1500 against the 1668 files mypy checked
+        # on 2026-09-25 (about 90%), held there by tests/test_meta/test_mypy_gate_floor.py.
+        entry: python -m py_ci_shared.mypy_gate --min-files 1500 src/mlframe --cache-dir=.mypy_cache_precommit_full
         language: system
         types: [python]
         pass_filenames: false
@@ -639,7 +630,7 @@ repos:
   # runnable via `pre-commit run mypy-full-manual --hook-stage manual` for a quick changed-files-
   # only check without paying the whole-project scan) rather than deleting the hook entirely.
   - repo: https://github.com/fingoldo/py-ci-shared
-    rev: v1.0.0
+    rev: 6a8e3829678dab35e21d380292f7b34ae84c8d14  # v1.17.0  # pragma: allowlist secret
     hooks:
       - id: mypy-full-manual
         pass_filenames: true

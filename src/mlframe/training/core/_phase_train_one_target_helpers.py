@@ -276,7 +276,7 @@ def _maybe_run_feature_handling_apply(
     # the suite-internal call fell into feature_handling_apply's candidate_cat_columns=None
     # branch which previously silently dropped EVERY target_mean / WoE handler the
     # FHC was configured for (the by-dtype auto-detect now kicks in as a fallback, but
-    # the suite already knows the cat list via the convention at _phase_helpers.py:920-931
+    # the suite already knows the cat list via the convention in _phase_pandas_conversion_and_cat_prep (_phase_helpers.py)
     # and should pass it explicitly so the FHC handler chain operates on exactly the same
     # cat universe the rest of the suite uses). External direct callers of
     # feature_handling_apply still benefit from the by-dtype auto-detect when they don't

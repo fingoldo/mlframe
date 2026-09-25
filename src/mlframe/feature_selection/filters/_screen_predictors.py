@@ -405,8 +405,12 @@ def screen_predictors(
         # Capture a fresh entropy-derived seed to restore numba/cupy with on
         # finally; mathematically equivalent (from the consumer's view) to
         # "the seed they would have had if no inner seed call had fired".
-        import os as _os, struct as _struct
-        _numba_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
+        # _fresh_seed masks the draw to 32 bits: a raw 64-bit draw is >= 2**63 about half the time, which numba's int64 seed argument
+        # rejects (and numpy's legacy seeding under NUMBA_DISABLE_JIT=1 rejects anything >= 2**32); the restore below swallows that
+        # into a debug log, so the stream would silently stay where this screen left it.
+        from mlframe.utils.rng_scope import _fresh_seed
+
+        _numba_restore_seed = _fresh_seed()
         # Only capture cupy restore-seed when GPU path is actually requested.
         # Otherwise the finally block below would import cupy purely to
         # "restore" a seed that was never set, triggering cupy's Windows
@@ -415,7 +419,7 @@ def screen_predictors(
         # missing) - that recursion blows the C stack in batch pytest
         # contexts and tears down the test runner.
         if use_gpu:
-            _cp_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
+            _cp_restore_seed = _fresh_seed()
         set_numba_random_seed(random_seed)
         # The prior
         # ``try: cp.random.seed(random_seed); except NameError: pass``

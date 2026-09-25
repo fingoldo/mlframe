@@ -25,6 +25,7 @@ def test_median_anchor_matches_quantile_q05_bit_identical():
     finally:
         PR.np.median = np.median
 
+    assert len(out_new) == len(out_old) and len(out_new) > 0, "the two ensembles returned different or no outputs"
     for a, b in zip(out_new, out_old):
         if a is None and b is None:
             continue

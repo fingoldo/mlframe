@@ -141,6 +141,7 @@ def test_f6_multi_temp_cbhr_empty_side_masked_not_wrong_class_row():
     for col in neg_weight_cols:
         assert np.allclose(df[col].to_numpy(), 0.0), f"{col} should be exactly 0 (masked empty side)"
     side2_cols = [c for c in df.columns if c.endswith("_y_side2")]
+    assert side2_cols, "nothing to check: the loop below would pass without running"
     for col in side2_cols:
         assert np.allclose(df[col].to_numpy(), 0.0), f"{col}: empty side's aggregate must not leak a wrong-class y"
 

@@ -186,6 +186,7 @@ class TestDefaultRegressionPanels:
         # any of the three default figures carries that title (the decisive, not just structural, check).
         for fig in figures.values():
             for row in fig.panels:
+                assert row, "nothing to check: the loop below would pass without running"
                 for panel in row:
                     if panel is None or isinstance(panel, AnnotationPanelSpec):
                         continue

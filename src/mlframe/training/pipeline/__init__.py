@@ -219,7 +219,8 @@ def pysr_predict_column(model, df, index: int):
     """
     import numpy as _np
 
-    cols = [str(c) for c in (getattr(model, "feature_names_in_", None) if getattr(model, "feature_names_in_", None) is not None else df.columns)]
+    fitted_names = getattr(model, "feature_names_in_", None)
+    cols = [str(c) for c in (fitted_names if fitted_names is not None else df.columns)]
     X = df[cols].astype(_np.float64) if hasattr(df, "astype") else df
     return _np.asarray(model.predict(X, index=index), dtype=_np.float32)
 

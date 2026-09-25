@@ -91,6 +91,7 @@ def test_a_declared_count_that_disagrees_with_the_counted_one_is_still_recorded(
     disagreements = {name: record for name, record in arm_costs.items() if record["declared"] is not None and record["counted"] is not None and record["declared"] != record["counted"]}
 
     assert arm_costs.items()
+    assert disagreements, "the roster has no declared-vs-counted disagreement, so this contract is untested"
     for name, record in disagreements.items():
         if record["counted"] == 0 and record["declared"]:
             assert record["fits"] == record["declared"], f"{name} counted zero against a declared {record['declared']} and must publish the declaration"

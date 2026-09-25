@@ -47,4 +47,4 @@ def score_on_report_slice(est: Any, report: dict, X_search: Any, y_search: Any, 
     X_rep = X_report.iloc[:, wc] if hasattr(X_report, "iloc") else np.asarray(X_report)[:, wc]  # same column space as X_search
     loss = _honest_loss(model_template, X_search, y_search, X_rep, y_report, [int(c) for c in member_cols], est.classification,
                         resolve_metric(est.classification, est.metric))
-    report["report_holdout"] = dict(loss=float(loss), n_rows=int(len(y_report)), fraction=float(est.report_holdout_fraction), selection_optimistic=False)
+    report["report_holdout"] = dict(loss=float(loss), n_rows=len(y_report), fraction=float(est.report_holdout_fraction), selection_optimistic=False)

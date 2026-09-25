@@ -88,6 +88,7 @@ def test_recorder_fingers_each_gate_with_correct_margin():
     led = compute_fe_rejection_ledger(s)
     assert len(led) == len(cases)
     # Every gate label used is a member of the canonical public set.
+    assert len(led["gate"]) > 0, "nothing to check: the loop below would pass without running"
     for gate in led["gate"]:
         assert gate in FE_GATE_LABELS, gate
     # The recorder fingered the right gate + margin for each candidate.

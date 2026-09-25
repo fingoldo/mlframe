@@ -110,12 +110,14 @@ def test_helpers_training_configs_lgb_general_params_serial_on_darwin(monkeypatc
     # fresh object never matches what the facade was restored to). The only way back to the exact
     # pre-test state is an explicit snapshot-and-setattr restore of BOTH modules' bindings, bypassing
     # reload entirely for the restore step.
-    original_sibling_fn = h.get_training_configs
+    # The reload rebinds EVERY name in `h`, not only get_training_configs, so the whole namespace is snapshotted and put back.
+    saved_sibling = dict(h.__dict__)
     original_facade_fn = helpers_facade.get_training_configs
 
     def _restore():
-        """Put both modules' bindings back to their exact pre-test function objects."""
-        h.get_training_configs = original_sibling_fn
+        """Put both modules' bindings back to their exact pre-test objects."""
+        h.__dict__.clear()
+        h.__dict__.update(saved_sibling)
         helpers_facade.get_training_configs = original_facade_fn
 
     request.addfinalizer(_restore)

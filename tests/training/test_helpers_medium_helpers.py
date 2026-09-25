@@ -65,6 +65,7 @@ def test_chain_ensemble_introspectable_defaults() -> None:
     assert params["n_labels"] is None
     # Public signature: every constructor parameter has a default.
     sig = inspect.signature(_classif_helpers._ChainEnsemble.__init__)
+    assert len(sig.parameters) > 1, "the constructor takes no parameters besides self"
     for name, p in sig.parameters.items():
         if name == "self":
             continue

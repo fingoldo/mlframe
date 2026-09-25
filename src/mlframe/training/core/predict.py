@@ -329,7 +329,7 @@ def _combine_probs(
 def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_domains=None):
     """Cast cat_features to pandas ``category`` (or pl.Enum / pl.Categorical for polars XGB).
 
-    Extracted from the predict.py:1372 mega-try body.
+    Extracted from the former mega-try body of the predict path.
     Combines two adjacent ~40-line blocks (LGB + XGB) that share the same
     "detect-model-family-by-module + iterate cat_features + cast non-category
     to category" structure. Returns the possibly-mutated input_for_model.

@@ -67,6 +67,9 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     # The registration flag is module-level state; the contract under test is that a TRANSIENT registration
     # failure leaves it unset so a later call retries, which cannot be seen from the cache's public getter.
     "test_transient_faults_do_not_latch_a_downgrade::mlframe.feature_selection.filters._kernel_tuning",
+    # The probe's verdict is captured at import, so the test snapshots and restores the real module object by its dotted
+    # name around a re-import; there is no public handle on an import-time probe.
+    "test_transient_faults_do_not_latch_a_downgrade::mlframe.training._gpu_probe",
     # The mrmr default-scorer whitelist and the setstate legacy-default table are themselves the contract each of
     # these tests audits. The whitelist says which values the shipped default is allowed to take, and the table says
     # which fitted attributes an older pickle may arrive without; neither is reachable through the estimator's public

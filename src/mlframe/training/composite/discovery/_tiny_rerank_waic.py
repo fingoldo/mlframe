@@ -81,6 +81,7 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     def _valid_x(base_col, base_screen, x_mat):
         """``(valid mask, float64 X on the valid rows)`` for this base, built once while it is in use."""
         def build():
+            """Compute the valid-row mask, the float64 base and the float64 X on the valid rows."""
             bb = np.asarray(base_screen, dtype=np.float64).ravel()
             valid = np.isfinite(yb) & np.isfinite(bb)
             return valid, bb, np.ascontiguousarray(np.asarray(x_mat, dtype=np.float64)[valid])
@@ -143,7 +144,7 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
             to_score.extend(band)
         pos += len(band)
 
-    to_score = base_ordered(to_score, lambda i: getattr(kept_specs[i], "base_column", None))
+    to_score = base_ordered(to_score, lambda i: str(getattr(kept_specs[i], "base_column", None) or ""))
     n_jobs = max(1, min(len(to_score), cpu_count_physical()))
     if n_jobs > 1:
         results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_waic_for)(i) for i in to_score)

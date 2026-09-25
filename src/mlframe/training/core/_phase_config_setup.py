@@ -150,14 +150,14 @@ def setup_configuration(
     # explicitly preserve current behaviour.
     ranking_config: Any = None,
     # use_mlframe_ensembles default aligned to True to match the public-API default in
-    # train_mlframe_models_suite (main.py:96). Prior default was False, which would have
+    # train_mlframe_models_suite (core/_main_train_suite.py). Prior default was False, which would have
     # flipped behaviour for any caller of setup_configuration that omitted the kwarg.
-    # main.py:258 currently always passes the value explicitly so the mismatch was dormant.
+    # train_mlframe_models_suite currently always passes the value explicitly so the mismatch was dormant.
     use_mlframe_ensembles: bool = True,
     use_ordinary_models: bool = True,
     # Same silently-dropped-kwarg bug class as ``verbose`` (fixed 7479b54): the public
     # train_mlframe_models_suite accepts both of these but the value never reached ctx,
-    # so the per-target reads at _phase_train_one_target.py:1051 and :1061 always saw
+    # so the per-target reads in _phase_train_one_target.py always saw
     # the dataclass default ``None``. Threaded through here and assigned on ctx below.
     linear_model_config: Any = None,
     multilabel_dispatch_config: Any = None,

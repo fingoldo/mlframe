@@ -66,7 +66,7 @@ _LEAN_STRIP_FIELDS = frozenset({
     "val_od_idx",
     "trainset_features_stats",
     # 2026-05-21 P0 #2 follow-up: OOF preds/probs stamped on the model entry
-    # at trainer.py:955 when ``oof_n_splits >= 2``. On 4M-row regression each
+    # by train_and_evaluate_model (_trainer_train_and_evaluate.py) when ``oof_n_splits >= 2``. On 4M-row regression each
     # OOF array is ~16 MB (float32); inference-irrelevant (only consumed at
     # training time for level-1 stacking + OOF-based calibration). Without
     # them in the strip set, lean saves still leak 16-32 MB per model

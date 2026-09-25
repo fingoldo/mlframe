@@ -457,6 +457,7 @@ def _compute_pipeline_cache_key(
     return f"{strategy_cache_key}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}"
 
 
+import threading as _threading
 from collections import OrderedDict as _OrderedDict
 
 # (id, width / ncols)-keyed LRU memo for the dtype-pairs stringify. The schema of a pinned train_df is
@@ -476,6 +477,8 @@ from collections import OrderedDict as _OrderedDict
 _DTYPE_PAIRS_MEMO: "_OrderedDict[tuple, tuple]" = _OrderedDict()
 _DTYPE_PAIRS_MEMO_MAX = 32
 _DTYPE_PAIRS_MEMO_WEAKREFS: "dict[tuple, _weakref.ref]" = {}
+# Re-entrant: a weakref eviction callback can fire from GC on the same thread while the memo is being updated.
+_DTYPE_PAIRS_MEMO_LOCK = _threading.RLock()
 
 
 def _make_dtype_pairs_evictor(_key: tuple) -> "Any":
@@ -484,8 +487,9 @@ def _make_dtype_pairs_evictor(_key: tuple) -> "Any":
 
     def _on_collected(_dead_ref: "_weakref.ref") -> None:
         """Weakref callback: the frame this closed over ``_key`` for is gone -- drop its memo entries."""
-        _DTYPE_PAIRS_MEMO.pop(_key, None)
-        _DTYPE_PAIRS_MEMO_WEAKREFS.pop(_key, None)
+        with _DTYPE_PAIRS_MEMO_LOCK:
+            _DTYPE_PAIRS_MEMO.pop(_key, None)
+            _DTYPE_PAIRS_MEMO_WEAKREFS.pop(_key, None)
 
     return _on_collected
 
@@ -507,16 +511,24 @@ def _canonical_dtype_pairs(train_df) -> tuple:
     if _ncols is None:
         return _canonical_dtype_pairs_compute(train_df)
     _key = (id(train_df), _ncols)
-    _cached = _DTYPE_PAIRS_MEMO.get(_key)
-    if _cached is not None:
-        # The weakref evictor can run between the get above and this line (GC fires at any bytecode) and drop the key; the value in hand
-        # is still correct, only the LRU touch is lost.
-        try:
-            _DTYPE_PAIRS_MEMO.move_to_end(_key)
-        except KeyError:
-            pass
-        return _cached
+    with _DTYPE_PAIRS_MEMO_LOCK:
+        _cached = _DTYPE_PAIRS_MEMO.get(_key)
+        if _cached is not None:
+            # The lock is re-entrant, so the weakref evictor can still run on this thread (GC fires at any bytecode) and drop the
+            # key between the get and the touch; the value in hand is still correct, only the LRU touch is lost.
+            try:
+                _DTYPE_PAIRS_MEMO.move_to_end(_key)
+            except KeyError:
+                pass
+            return _cached
     _result = _canonical_dtype_pairs_compute(train_df)
+    with _DTYPE_PAIRS_MEMO_LOCK:
+        _store_dtype_pairs(train_df, _key, _result)
+    return _result
+
+
+def _store_dtype_pairs(train_df, _key: tuple, _result: tuple) -> None:
+    """Insert one memo entry with its eviction weakref and trim to the cap; caller holds ``_DTYPE_PAIRS_MEMO_LOCK``."""
     _DTYPE_PAIRS_MEMO[_key] = _result
     try:
         _DTYPE_PAIRS_MEMO_WEAKREFS[_key] = _weakref.ref(train_df, _make_dtype_pairs_evictor(_key))
@@ -527,7 +539,6 @@ def _canonical_dtype_pairs(train_df) -> tuple:
     if len(_DTYPE_PAIRS_MEMO) > _DTYPE_PAIRS_MEMO_MAX:
         _evicted_key, _ = _DTYPE_PAIRS_MEMO.popitem(last=False)
         _DTYPE_PAIRS_MEMO_WEAKREFS.pop(_evicted_key, None)
-    return _result
 
 
 def _canonical_dtype_pairs_compute(train_df) -> tuple:

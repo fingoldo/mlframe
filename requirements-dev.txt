@@ -55,4 +55,6 @@
 # _fail_open_handlers_baseline.json is added in the same commit.
 # Bumped 2026-09-21 from fdbed25 to d619ced: test_no_nondiscriminating_assert imports nondiscriminating_shapes (absent before d619ced).
 # Bumped 2026-09-22 from d619ced to b8aaa18: the runtime_registry_mutation and discarded_model_copy checks.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@a5f21545929963284b176143c96c42bb1de4508a
+# Bumped 2026-09-24 from a5f2154 to 6a8e382 (v1.17.0): one pin for this file, every workflow `uses:` ref, the reusable workflows'
+# py-ci-shared-ref input and the pre-commit rev; 1.17.0 fails a missing baseline, an unparsable file and an empty scan.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared@6a8e3829678dab35e21d380292f7b34ae84c8d14  # v1.17.0  # pragma: allowlist secret

@@ -1553,6 +1553,7 @@ def test_regression_cma_search_ask_tell_exceptions_are_logged():
     # No bare `except Exception:\n    break` left with nothing in between (would mean the log call is missing).
     for src, label in ((src_single, "single"), (src_batch, "batch")):
         lines = src.splitlines()
+        assert lines, f"{label}: the source to scan is empty"
         for i, line in enumerate(lines):
             if line.strip() == "except Exception:" and i + 1 < len(lines) and lines[i + 1].strip() == "break":
                 raise AssertionError(f"{label}: found an unlogged bare except-Exception/break pair")

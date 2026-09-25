@@ -373,7 +373,7 @@ def _score_one_pair(
             # ``_batch_candidates.append`` 0.2%, the ``binary_transformations.items()`` loop 0.2%, the
             # per-pair-comb ``np.errstate`` 1.0%; the replay loop / ``var_pairs_perf`` dict / recipe-name
             # building / clean-form-demotion loop are each <0.2% (sum of all Python orchestration < 2.5%).
-            # ``_safe_div`` (feature_engineering.py:738) is NOT pure-Python overhead: it IS njit-compiled
+            # ``feature_engineering._safe_div`` is NOT pure-Python overhead: it IS njit-compiled
             # in-run (4 signatures compile during the fit, incl. the float32 'A' strided-column layout this
             # path feeds it) and its 6.6s is genuine compiled float32->float64 ratio compute over 9720
             # 100k-row columns; cProfile attributes the dispatcher's call to the py_func code-object

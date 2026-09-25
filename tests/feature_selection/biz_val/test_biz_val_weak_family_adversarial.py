@@ -360,7 +360,6 @@ def test_biz_val_hybrid_redundancy_chain_keeps_both_signal_paths():
 @pytest.mark.xfail(
     reason="PROD GAP: HybridSelector keeps the redundant bridge b in a graded chain a~b~c "
     "(corr(a,b)=0.86 < default corr_thr=0.92, so b is never clustered away); measured kept 3/3 seeds.",
-    strict=False,
 )
 def test_biz_val_hybrid_redundancy_chain_drops_redundant_bridge():
     """Biz val hybrid redundancy chain drops redundant bridge."""

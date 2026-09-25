@@ -32,10 +32,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-py_ci_shared_code_audit_meta = pytest.importorskip("py_ci_shared.code_audit_meta")
-assert_no_new_code_audit_findings = py_ci_shared_code_audit_meta.assert_no_new_code_audit_findings
+from py_ci_shared.code_audit_meta import assert_no_new_code_audit_findings
 
 TESTS_DIR = Path(__file__).resolve().parent.parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_code_audit_tests_baseline.json"

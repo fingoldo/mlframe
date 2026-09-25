@@ -220,7 +220,7 @@ def _auto_detect_feature_types(
             _meta_embed_obj = set(pandas_meta.get("embedding_object_cols", []))
         else:
             _columns = list(df.columns)
-            # same dupe-column hazard as _phase_helpers.py:1114;
+            # same dupe-column hazard as the dtype map in _phase_helpers.py;
             # silently-collapsing dtype dict would feed a wrong schema-hash downstream.
             if len(set(_columns)) != len(_columns):
                 from collections import Counter as _Counter

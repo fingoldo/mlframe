@@ -185,7 +185,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@6a8e3829678dab35e21d380292f7b34ae84c8d14  # v1.17.0  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -198,7 +198,7 @@ jobs:
           sysctl -n machdep.cpu.brand_string 2>/dev/null || true
           python -c "import platform; print('python', platform.python_version(), platform.machine())"
 
-      - name: Run the three aborting tests
+      - name: Run the three aborting tests (advisory probe, records how they end and never blocks)
         env:
           # Read as $MODE rather than spliced into the script text: this repo passes every matrix value
           # through the environment so zizmor's template-injection audit has nothing to flag.

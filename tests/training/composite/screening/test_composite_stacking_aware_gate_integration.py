@@ -115,6 +115,7 @@ class TestGateFiresOnLowImprovement:
         assert "p1" in survivors_strict
         # p2 might not always be filtered depending on regression coefficients,
         # but the gate's contract: ``any w < 0.4 must be excluded`` is honored.
+        assert weights_strict, "the strict gate returned no weights to check"
         for n_w, w_val in weights_strict.items():
             if n_w in survivors_strict:
                 # Survivors normalise to sum 1 over survivors; either way the

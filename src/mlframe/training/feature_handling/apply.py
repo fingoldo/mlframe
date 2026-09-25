@@ -200,7 +200,7 @@ def feature_handling_apply(
     # restriction); cat_specs to cat_cols.
     if candidate_cat_columns is None:
         # Auto-detect by-dtype using the same convention the rest of mlframe uses
-        # (_phase_helpers.py:920-931): polars Categorical/Enum/String/Utf8 and pandas
+        # (_phase_pandas_conversion_and_cat_prep in _phase_helpers.py): polars Categorical/Enum/String/Utf8 and pandas
         # category/object/string. Exclude any column the text detector above already
         # claimed so a text-promoted column doesn't ALSO appear in the cat list -- it
         # would compute target_mean over the long-text strings as if they were a

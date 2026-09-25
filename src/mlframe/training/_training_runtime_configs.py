@@ -368,7 +368,7 @@ class TrainingControlConfig(BaseConfig):
     verbose: Union[bool, int] = False
     # default flipped False -> True. Cache loading is almost
     # always faster than retraining; the previous False default was
-    # inconsistent with train_eval.py:664 which already read the
+    # inconsistent with train_eval.py's use_cache_flag, which already read the
     # internal common_params dict with .get("use_cache", True). Making
     # both ends agree on True; users who want force-retrain pass False
     # explicitly via TrainingControlConfig (suite-level wiring deferred -

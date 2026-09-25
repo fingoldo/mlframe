@@ -165,6 +165,10 @@ def _run_auto_chain(
     x_full = np.column_stack([_extract_column_array(df, c, rows=screen_idx) for c in feat_cols])
     col_index = {c: i for i, c in enumerate(feat_cols)}
 
+    # Imported once here on the calling thread: a `from X import` inside the joblib-threaded worker below can race a
+    # partially initialised module and leave the name unbound in one fold.
+    from .._synthetic_bases import dropped_columns
+
     def _chains_for_base(base_col: str):
         """Discover chains for one base column, deriving its per-base feature matrix from the shared ``x_full`` via column deletion instead of re-gathering from the source frame."""
         # x_cols == feat_cols minus this base; empty only when the base is the sole feature.
@@ -172,8 +176,6 @@ def _run_auto_chain(
             return base_col, []
         try:
             base_screen = _extract_column_array(df, base_col, rows=screen_idx)
-            from .._synthetic_bases import dropped_columns
-
             _drop = [col_index[c] for c in dropped_columns(base_col, col_index)]  # a synthetic base drops its parents
             x_matrix = np.delete(x_full, _drop, axis=1) if _drop else x_full
             chains = discover_chains(

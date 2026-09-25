@@ -276,6 +276,7 @@ class TestMeanShiftTransform:
         selected = list(sel.get_feature_names_out())
         X_test = _build_numeric_test(seed) + 2.0
         out = _transform_quiet(sel, X_test)
+        assert selected, "nothing to check: the loop below would pass without running"
         for col in selected:
             if col not in X_test.columns:
                 # engineered recipe column, skip value comparison

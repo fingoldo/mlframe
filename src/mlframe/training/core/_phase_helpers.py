@@ -868,7 +868,7 @@ def _maybe_dispatch_to_ltr_ranker_suite(
         # raw ctx.model_name plumbed into os.path.join is a path-
         # traversal vector ("../../evil" escapes models dir; an absolute "/foo" or "C:/x"
         # eats the prefix entirely). Slugify mirrors the non-LTR sibling paths at
-        # _setup_helpers.py:852 and _phase_finalize.py:71.
+        # _setup_helpers.py and _phase_finalize.py.
         from pyutilz.strings import slugify as _slugify
         _save_dir = os.path.join(_data_dir, _models_dir, _slugify(ctx.model_name))
 

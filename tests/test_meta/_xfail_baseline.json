@@ -1,0 +1,102 @@
+{
+  "entries": {
+    "untracked-reason::feature_engineering/transformer/test_biz_val_row_attention.py::xfail reason names no external component or tracked issue: 'GO/NO-GO biz_value gate: row-attention does not deliver its multi-head random-subspace promise on it'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/biz_val/test_biz_val_e2e_suite_fs_breadth.py::xfail reason names no external component or tracked issue: 'FS GAP: suite FS mixed_features keeps too much numeric noise through the encoder path (excl_frac= , '": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/biz_val/test_biz_val_e2e_suite_fs_breadth.py::xfail reason names no external component or tracked issue: 'FS GAP: suite FS rfecv_regression keeps too many noise cols on tiny data (excl_frac= , kept noise= )'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/biz_val/test_biz_val_e2e_suite_fs_breadth.py::xfail reason names no external component or tracked issue: 'FS GAP: suite FS x LEARNING_TO_RANK. The LtR suite path returns a model-keyed ranker output (result['": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/biz_val/test_biz_val_hetero_hybrid_determinism.py::xfail reason names no external component or tracked issue: \"HybridSelector selection depends on input column order: the composed members' positional tie-breaks \"": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/biz_val/test_biz_val_imbalanced_rare_class.py::xfail reason names no external component or tracked issue: 'FS GAP: RFECV does not prune noise columns under severe imbalance -- at a 1% positive rate it select'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/biz_val/test_biz_val_mnar_missingness.py::xfail reason names no external component or tracked issue: 'FS GAP: RF-core wrappers miss MNAR without a supplied is_missing__ indicator (imputed-value AUC   ~ '": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/biz_val/test_biz_val_multicollinear_pollution.py::xfail reason names no external component or tracked issue: 'FS GAP:   collapses onto the rank-deficient surrogate and loses the x1+x2 signal (AUC  ) .3f'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/biz_val/test_biz_val_multicollinear_pollution.py::xfail reason names no external component or tracked issue: 'FS GAP:   keeps a majority of the high-VIF cluster (median  /5)'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/biz_val/test_biz_val_multicollinear_pollution.py::xfail reason names no external component or tracked issue: 'FS GAP:   leaves a rank-deficient / high-VIF subset (post max-VIF  )'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/biz_val/test_biz_val_weak_family_adversarial.py::xfail reason names no external component or tracked issue: 'PROD GAP: HybridSelector keeps the redundant bridge b in a graded chain a~b~c (corr(a,b)=0.86 < defa'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/fe/provenance/test_fe_target_aware_leak_contract.py::xfail reason names no external component or tracked issue: 'PROD BUG: OOF leak in target-aware FE family  : permuted-y engineered holdout AUC ~   >  .3f'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/mrmr/biz_val/test_biz_value_mrmr_underselection.py::xfail reason names no external component or tracked issue: 'seed= : genuine open MRMR regression (Westfall-Young FWER-null candidate-pool inflation, see this te'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/mrmr/fe/test_biz_val_mrmr_sample_weight_fe.py::xfail reason names no external component or tracked issue: 'PROD GAP: MRMR sample_weight is a fixed-size MC resample (not row duplication) and _target_encoding_'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/stability/test_selector_contract_protocol_extra.py::xfail reason names no external component or tracked issue: ': fit requires a DataFrame, rejects bare ndarray (no ndarray-fit name-injection path -- declared par'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/stability/test_selector_contract_protocol_extra.py::xfail reason names no external component or tracked issue: ': get_feature_names_out(input_features) raised on ndarray-fit instead of honouring user names (parit'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/stability/test_selector_contract_protocol_extra.py::xfail reason names no external component or tracked issue: ': ndarray-fit get_feature_names_out kept synthesized placeholders, ignored user names (declared pari'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/stability/test_selector_contract_protocol_extra.py::xfail reason names no external component or tracked issue: ': no set_output (not a _SetOutputMixin transformer -- parity gap)'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/stability/test_selector_contract_shared.py::xfail reason names no external component or tracked issue: ': DataFrame-only (declared)'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/stability/test_selector_contract_shared.py::xfail reason names no external component or tracked issue: ': no duplicate-column-name guard at fit entry (silent positional pick -- prod guard backlog)'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/stability/test_selector_contract_shared.py::xfail reason names no external component or tracked issue: ': no transform-time width validation (silent positional indexing -- prod guard backlog)'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "untracked-reason::feature_selection/stability/test_selector_contract_shared.py::xfail reason names no external component or tracked issue: ': selection depends on input column order (positional tie-break / shadow ordering -- reproducibility'": {
+      "count": 1,
+      "note": "parks the in-repo gap its own reason names (quoted in the key); remove the xfail when that gap is fixed, never widen it"
+    },
+    "xfail-not-strict::feature_selection/biz_val/test_biz_val_hetero_hybrid_determinism.py::xfail without strict=True: a fix would stay green and unnoticed": {
+      "count": 1,
+      "note": "non-strict on purpose: the column permutation drawn by the test can happen to leave the order-sensitive tie-breaks unchanged, so it can pass by chance"
+    },
+    "xfail-not-strict::feature_selection/mrmr/fe/test_biz_val_mrmr_sample_weight_fe.py::xfail without strict=True: a fix would stay green and unnoticed": {
+      "count": 1,
+      "note": "non-strict on purpose: parametrised over mechanisms and seeds, some of which replay identically without sample_weight support"
+    }
+  },
+  "gate": "xfail",
+  "schema": 1
+}

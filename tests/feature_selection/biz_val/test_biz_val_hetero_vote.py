@@ -392,6 +392,7 @@ def test_biz_val_hetero_vote_skill_weighting_rescues_blind_vetoed_signal():
         weight_by_cv_skill=False,
         random_state=0,
     )
+    assert signal, "nothing to check: the loop below would pass without running"
     for s in signal:
         assert info_eq["vote_fraction"][s] == pytest.approx(2.0 / 3.0), f"equal-weight vote_frac for {s} should be 2/3, got {info_eq['vote_fraction'][s]}"
         assert s not in set(acc_eq), f"under equal weighting {s} must be REJECTED (2/3 < 0.7)"
@@ -408,6 +409,7 @@ def test_biz_val_hetero_vote_skill_weighting_rescues_blind_vetoed_signal():
         cv_skill_floor=0.05,
         random_state=0,
     )
+    assert signal, "nothing to check: the loop below would pass without running"
     for s in signal:
         assert info_sk["vote_fraction"][s] >= 0.85, f"skill-weighted vote_frac for {s} should clear 0.85 (measured ~0.935), got {info_sk['vote_fraction'][s]}"
         assert s in set(acc_sk), f"under skill weighting {s} must be ACCEPTED (~0.935 >= 0.7)"

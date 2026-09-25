@@ -74,7 +74,8 @@ def bench_standalone(n, reps=100, trials=25):
 
     ex._KS_INLINE_ORDERED_MIN_N = 10**18; v_old = run()
     ex._KS_INLINE_ORDERED_MIN_N = 150_000; v_new = run()
-    assert v_old == v_new, (v_old, v_new)  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
+    if v_old != v_new:  # an explicit raise, so `python -O` cannot drop the identity check
+        raise AssertionError((v_old, v_new))
 
     def best():
         out = []

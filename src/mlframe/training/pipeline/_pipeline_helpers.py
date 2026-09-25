@@ -510,7 +510,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
 
     # Convert sklearn/polars "empty output" errors into
     # an empty-frame return so the downstream ``train_df.shape[1] == 0``
-    # guard at trainer.py:4515 fires cleanly. Triggered by MRMR / RFECV
+    # guard in train_and_evaluate_model (_trainer_train_and_evaluate.py) fires cleanly. Triggered by MRMR / RFECV
     # confirming 0 predictors: ``fit_transform`` returns ``(N, 0)`` which
     # crashes in either:
     #   - SimpleImputer / scaler: ``ValueError: need at least one array

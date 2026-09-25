@@ -72,6 +72,7 @@ def test_legacy_empty_pickle_matches_ctor_for_shared_keys():
     ctor = MRMR._ctor_defaults()
     overrides = set(MRMR._SETSTATE_LEGACY_OVERRIDES)
     m = _legacy_setstate_attrs()
+    assert ctor, "nothing to check: the loop below would pass without running"
     for k in ctor:
         if k in overrides or not hasattr(m, k):
             continue

@@ -9,11 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 import mlframe
-
-py_ci_shared = pytest.importorskip("py_ci_shared", reason="py-ci-shared is a dev-only git dependency")
 
 _COMPOSITE = Path(mlframe.__file__).resolve().parent / "training" / "composite"
 _BASELINE = Path(__file__).resolve().parent / "_discovery_algo_version_baseline.json"

@@ -410,8 +410,6 @@ def _tiny_cv_rmse_raw_y(
                     # The fold's binned dataset is shared with every y-scale spec fitted on this matrix and fold (same booster
                     # as the sklearn wrapper's fit): the raw-y baseline re-binned the same rows on every call. No wrapper is
                     # built on this path -- one used to be built per fold and thrown away unfitted.
-                    from ._screening_tiny_perbin import _fit_fold_model
-
                     model = _fit_fold_model(x_clean, train_fold, train_fold, y_clean[train_fold], family=family, n_estimators=n_estimators,
                                             num_leaves=num_leaves, learning_rate=learning_rate, random_state=random_state,
                                             deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs)
@@ -736,6 +734,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
 
 # per-bin RMSE + y-scale tiny-CV helpers carved to _screening_tiny_perbin.py (1k-LOC ceiling).
 from ._screening_tiny_perbin import (  # noqa: F401
+    _fit_fold_model,
     _per_bin_from_fold_preds,
     _per_bin_rmse,
     _tiny_cv_rmse_y_scale,

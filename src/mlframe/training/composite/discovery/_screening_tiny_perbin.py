@@ -200,7 +200,7 @@ def _fitted_domain_mask(transform: Any, y_train: np.ndarray, base_train: np.ndar
     pre-fit but outside the TRUE fitted domain produce a NaN T, and the non-finite guard then discards the WHOLE spec's
     rerank score -- silently dropping a spec that is perfectly valid on its real domain.
     """
-    valid = transform.domain_check(y_train, base_train)
+    valid = np.asarray(transform.domain_check(y_train, base_train), dtype=bool)
     dcf = getattr(transform, "domain_check_fitted", None)
     if dcf is not None and isinstance(fitted_params, dict):
         valid_fitted = np.asarray(dcf(y_train, base_train, fitted_params), dtype=bool)

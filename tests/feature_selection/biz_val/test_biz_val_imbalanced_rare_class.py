@@ -225,7 +225,6 @@ def test_biz_val_rfecv_recovers_signal_under_imbalance(rate):
     "at a 1% positive rate it selects 6-11 of 11 columns (8 are pure noise); "
     "the rare-class CV score barely separates signal from noise so the "
     "backward elimination cannot shrink the set. Measured nsel=[6,6,11].",
-    strict=False,
 )
 def test_biz_val_rfecv_prunes_noise_at_severe_imbalance():
     """ASPIRATIONAL: RFECV should drop the 8 noise columns and keep a compact

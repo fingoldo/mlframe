@@ -23,8 +23,6 @@ from pathlib import Path
 
 import pytest
 
-py_ci_shared = pytest.importorskip("py_ci_shared", reason="py-ci-shared is a dev-only git dependency")
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
@@ -127,10 +125,8 @@ def test_dev_requirements_git_dependencies_are_pinned_or_first_party():
     """A THIRD-PARTY git dependency must carry a full commit SHA; only the maintainer's own upstreams float."""
     from py_ci_shared.git_dependency_pins import assert_all_git_dependencies_pinned
 
-    req = REPO_ROOT / "requirements-dev.txt"
-    if not req.exists():
-        pytest.skip("no requirements-dev.txt in this repo")
-    assert_all_git_dependencies_pinned(req, allow_unpinned_url_prefixes=_FIRST_PARTY_GIT_PREFIXES)
+    # First-party upstreams are pinned too (no exemption): every py-ci-shared ref is held to one SHA by the pin test.
+    assert_all_git_dependencies_pinned(REPO_ROOT / "requirements-dev.txt")
 
 
 def test_every_from_import_resolves():
@@ -389,16 +385,66 @@ def test_no_naive_utcnow():
     assert_no_naive_utcnow(REPO_ROOT / "src")
 
 
+# Findings accepted after review, each with why 0 is not a meaningful value at that site (compared without line numbers).
+_OPTIONAL_TRUTHINESS_ACCEPTED = (
+    # a 0 s budget is no budget; the log names no budget, as with None
+    "src/mlframe/training/cb/_cb_gpu_monitor.py: `budget_s` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `budget_s is not None`.",
+    # dpi=0 is not a resolution matplotlib can save at; 0 leaves the figure's own dpi like None
+    "src/mlframe/reporting/charts/shap_panels.py: `dpi` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `dpi is not None`.",
+    # 0 rounds of patience is not a setting; unless early stopping is disabled it takes max(2, iterations // 3)
+    "src/mlframe/training/_helpers_training_configs.py: `early_stopping_rounds` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `early_stopping_rounds is not None`.",
+    # only reached when end_index was None and was replaced by len(df); 0 there is an empty frame
+    "src/mlframe/feature_engineering/timeseries.py: `end_index` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `end_index is not None`.",
+    # a 0-neuron first layer is not a network; 0 takes num_features like None
+    "src/mlframe/training/neural/flat.py: `first_layer_num_neurons` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `first_layer_num_neurons is not None`.",
+    # a chunk of 0 columns cannot make progress; 0 takes the sized default like None
+    "src/mlframe/feature_selection/filters/_fe_cpu_batch.py: `max_cols_per_chunk` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `max_cols_per_chunk is not None`.",
+    # `nfailed >= max_failed` with 0 rejects every candidate before one permutation runs; 0 takes the confidence-derived default
+    "src/mlframe/feature_selection/filters/gpu.py: `max_failed` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `max_failed is not None`.",
+    # `nfailed >= max_failed` with 0 rejects every candidate before one permutation runs; 0 takes the confidence-derived default
+    "src/mlframe/feature_selection/filters/permutation.py: `max_failed` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `max_failed is not None`.",
+    # a chunk of 0 pairs cannot make progress; 0 takes the RAM-sized default like None
+    "src/mlframe/feature_selection/filters/batch_pair_mi_gpu.py: `max_pairs_per_chunk` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `max_pairs_per_chunk is not None`.",
+    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
+    "src/mlframe/feature_selection/filters/_conditional_quantile_rank_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
+    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
+    "src/mlframe/feature_selection/filters/_extra_fe_families.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
+    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
+    "src/mlframe/feature_selection/filters/_extra_fe_families.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
+    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
+    "src/mlframe/feature_selection/filters/_extra_fe_families_dispersion.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
+    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
+    "src/mlframe/feature_selection/filters/_lof_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
+    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
+    "src/mlframe/feature_selection/filters/_mahalanobis_density_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
+    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
+    "src/mlframe/feature_selection/filters/_ordinal_pattern_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
+    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
+    "src/mlframe/feature_selection/filters/_random_fourier_features_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
+    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
+    "src/mlframe/feature_selection/filters/_sliced_inverse_regression_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
+    # max(observed_max, 0) equals observed_max, so 0 and None give the same bin count
+    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py: `n_bins_hint` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `n_bins_hint is not None`.",
+    # 0 selects the plain nanmax baseline, the same as None; a 0-quantile (the minimum) is not a noise floor
+    "src/mlframe/feature_selection/general.py: `permuted_max_mi_quantile` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `permuted_max_mi_quantile is not None`.",
+    # a 0 GB reading means nothing is retained, so there is nothing to warn about, as with no reading
+    "src/mlframe/training/_commit_headroom.py: `private_commit_gb` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `private_commit_gb is not None`.",
+    # a 0 GB RSS cannot scale the retained-commit ratio; no warning, as with no reading
+    "src/mlframe/training/_commit_headroom.py: `rss_gb` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `rss_gb is not None`.",
+)
+
+
 def test_optional_numbers_are_tested_for_none():
     """`if seed:` on an `int | None` reads 0 as absent.
 
     Two of the 32 first reported were real: `best_desired_score=0.0` never stopped the search and
     `min_relevance_gain=0.0` switched verbose candidate logging off. The rest now say `is not None`, or state
-    explicitly that 0 means disabled, so the accepted list is empty.
+    explicitly that 0 means disabled. The accepted list holds the sites a wider scan found later (conditional
+    expressions), each with the reason 0 is not a value there.
     """
     from py_ci_shared.optional_truthiness import assert_optionals_test_for_none
 
-    assert_optionals_test_for_none(files=_src_files(), repo_root=REPO_ROOT, baseline=(), min_subjects=100)
+    assert_optionals_test_for_none(files=_src_files(), repo_root=REPO_ROOT, baseline=_OPTIONAL_TRUTHINESS_ACCEPTED, min_subjects=100)
 
 
 _VACUOUS_LOOP_BASELINE = Path(__file__).resolve().parent / "_vacuous_loop_baseline.json"
@@ -412,9 +458,9 @@ def _test_files() -> list[Path]:
 def test_no_new_floorless_assert_loop():
     """A test whose only assertions sit inside a loop passes when the loop runs zero times.
 
-    The baseline is EMPTY: all 451 such loops have been given a floor, and five of them turned out to iterate zero
-    times, so the tests named after a behaviour were checking nothing. A new one fails; record it only when the
-    loop's own emptiness IS the contract, and say so.
+    All 451 such loops were given a floor, and five of them turned out to iterate zero times, so the tests named after a
+    behaviour were checking nothing. The baseline holds only loops whose emptiness is the passing case (negative scans)
+    or whose floor the scanner cannot see, each with its reason. A new one fails; record it only with such a reason.
     """
     from py_ci_shared.vacuous_loop_assertions import assert_no_new_floorless_loop
 
@@ -494,6 +540,13 @@ def test_no_discarded_model_copy():
 _UNREAD_INIT_PARAMS_ALLOWED = {
     "max_batch": "vendored infonet model (feature_selection/filters/_vendored); upstream's signature is kept verbatim",
     "num_filters": "vendored infonet model; upstream's signature is kept verbatim",
+    # Fields of plain result holders (DenoiseResult, the ensemble-selection results): stored for the caller to read, not settings.
+    "denoised": "DenoiseResult field, read by the caller of FloatPrecisionDenoiser",
+    "denominator": "DenoiseResult field, read by the caller of FloatPrecisionDenoiser",
+    "residual_score": "DenoiseResult field, read by the caller of FloatPrecisionDenoiser",
+    "removal_votes": "BackwardEliminationResult field, read by the caller of the ensemble selection",
+    "removed_order": "Backward/StepwiseEliminationResult field, read by the caller of the ensemble selection",
+    "n_picks": "CaruanaSelectionResult field, read by the caller of the ensemble selection",
 }
 
 
@@ -581,9 +634,7 @@ def test_conceded_defect_pins_in_the_composite_tests_do_not_grow():
         f"{len(found)} composite tests concede a defect and pin it (recorded {_CONCEDED_DEFECT_PINS_COMPOSITE}); rename a "
         "deliberate pin to test_known_defect_<finding id>_..., or assert the correct behaviour: " + "; ".join(map(repr, found))
     )
-    assert len(found) >= _CONCEDED_DEFECT_PINS_COMPOSITE, (
-        f"only {len(found)} left; lower _CONCEDED_DEFECT_PINS_COMPOSITE to {len(found)} so the drop is kept"
-    )
+    assert len(found) >= _CONCEDED_DEFECT_PINS_COMPOSITE, f"only {len(found)} left; lower _CONCEDED_DEFECT_PINS_COMPOSITE to {len(found)} so the drop is kept"
 
 
 def regenerate_fail_open_baseline() -> None:

@@ -76,8 +76,10 @@ def test_mah_bin_edges_and_mah_mi_equivalent_across_repeated_calls_with_same_y()
         clear_mah_y_binning_cache()
         isolated_mi.append(mah_mi(x, y, initial_k=16))
 
+    assert cached_edges and len(cached_edges) == len(isolated_edges), "no edges were computed to compare"
     for a, b in zip(cached_edges, isolated_edges):
         assert np.array_equal(a, b)
+    assert cached_mi and len(cached_mi) == len(isolated_mi), "no MI values were computed to compare"
     for a, b in zip(cached_mi, isolated_mi):
         assert a == b
 

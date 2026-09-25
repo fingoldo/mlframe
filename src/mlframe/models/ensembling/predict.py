@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 from typing import Any, Optional, cast
 
 import numpy as np
@@ -48,12 +49,15 @@ _GATE_CACHE_MAXSIZE = 16
 _FINGERPRINT_SAMPLES = 1024
 _gate_cache: "dict[tuple, tuple]" = {}
 _gate_cache_order: list = []
+# The dict and its order list must move together; concurrent callers (threaded ensembling) interleave otherwise.
+_gate_cache_lock = threading.Lock()
 
 
 def _clear_gate_cache() -> None:
     """Empty the module-level outlier-gate LRU cache and its eviction-order tracker (used by tests / callers that need a clean-slate gate computation)."""
-    _gate_cache.clear()
-    _gate_cache_order.clear()
+    with _gate_cache_lock:
+        _gate_cache.clear()
+        _gate_cache_order.clear()
 
 
 def _member_fingerprint(p) -> tuple:
@@ -134,10 +138,12 @@ def _compute_outlier_gate(
     # nowhere near this function), and pinned up to _GATE_CACHE_MAXSIZE complete member sets in memory. A
     # content fingerprint needs neither: an in-place mutation simply produces a different key and a fresh
     # computation, which is the correct answer rather than a loud one.
-    _gate_cache[key] = result
-    _gate_cache_order.append(key)
-    if len(_gate_cache_order) > _GATE_CACHE_MAXSIZE:
-        _gate_cache.pop(_gate_cache_order.pop(0), None)
+    with _gate_cache_lock:
+        if key not in _gate_cache:
+            _gate_cache_order.append(key)
+        _gate_cache[key] = result
+        if len(_gate_cache_order) > _GATE_CACHE_MAXSIZE:
+            _gate_cache.pop(_gate_cache_order.pop(0), None)
     return result
 
 

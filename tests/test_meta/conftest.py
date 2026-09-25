@@ -76,3 +76,9 @@ def pytest_addoption(parser):
     from py_ci_shared.content_hash_version_bump_gate import register_refresh_option as register_content_hash_refresh_option
 
     register_content_hash_refresh_option(parser)  # --refresh-content-hash-version-baseline
+
+    from py_ci_shared._core import register_refresh_options  # the documented consumer entry point (README, Baselines)
+    from py_ci_shared.import_cycles import REFRESH_FLAG as IMPORT_CYCLES_FLAG
+    from py_ci_shared.no_xfail_to_defer import REFRESH_FLAG as XFAIL_FLAG
+
+    register_refresh_options(parser, [IMPORT_CYCLES_FLAG, XFAIL_FLAG])  # _import_cycles_baseline.json, _xfail_baseline.json

@@ -9,6 +9,7 @@ ranker.py re-exports the public symbols.
 """
 from __future__ import annotations
 
+import threading
 from typing import cast
 
 import torch
@@ -27,6 +28,8 @@ _RANKNET_MAX_PAIRS_PER_QUERY: int = 2_000_000  # ~16MB float32 per (i,j) tensor
 _RANKNET_PAIR_CACHE_MAX_N: int = 256
 _RANKNET_PAIR_CACHE_SIZE: int = 65536
 _ranknet_pair_cache: dict = {}
+# Held across the size-check-evict-insert below: DataLoader worker threads can compute the loss concurrently.
+_ranknet_pair_cache_lock = threading.Lock()
 
 # Binary-relevance short-circuit threshold. For rel in {0, 1}, the pair set
 # {(i, j) : rel[i] > rel[j]} is exactly Cartesian product (positives x
@@ -69,7 +72,8 @@ def _binary_pair_indices(rel: torch.Tensor):
 def _ranknet_pair_cache_clear() -> None:
     """Test-only: clear the per-query pair-index cache between unit tests so
     state from a prior test can't bleed into a sibling assertion."""
-    _ranknet_pair_cache.clear()
+    with _ranknet_pair_cache_lock:
+        _ranknet_pair_cache.clear()
 
 
 def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torch.Tensor:
@@ -139,11 +143,12 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
         cached = _ranknet_pair_cache.get(cache_key)
         if cached is None:
             i_idx, j_idx = torch.where(rel.unsqueeze(1) > rel.unsqueeze(0))
-            if len(_ranknet_pair_cache) >= _RANKNET_PAIR_CACHE_SIZE:
-                # FIFO eviction (Python 3.7+ dict preserves insertion order).
-                # evict-ok: memo; a miss recomputes the value
-                _ranknet_pair_cache.pop(next(iter(_ranknet_pair_cache), None), None)  # tolerant: another thread may evict the same key first
-            _ranknet_pair_cache[cache_key] = (i_idx, j_idx)
+            with _ranknet_pair_cache_lock:
+                if len(_ranknet_pair_cache) >= _RANKNET_PAIR_CACHE_SIZE:
+                    # FIFO eviction (Python 3.7+ dict preserves insertion order).
+                    # evict-ok: memo; a miss recomputes the value
+                    _ranknet_pair_cache.pop(next(iter(_ranknet_pair_cache), None), None)
+                _ranknet_pair_cache[cache_key] = (i_idx, j_idx)
         else:
             i_idx, j_idx = cached
     else:
