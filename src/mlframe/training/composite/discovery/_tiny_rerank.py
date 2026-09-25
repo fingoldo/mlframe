@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Optional, Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -16,6 +16,7 @@ from ..spec import CompositeSpec
 from ..ensemble import _is_monotone_nondecreasing
 from ._rejection_ledger import RejectStage, ledger_append
 from ._per_base_x import PerBaseMatrices, base_ordered
+from ._tiny_rerank_process import make_spec_task, make_worker_task, rerank_backend, score_spec, score_specs_in_processes
 from ._score import Score, rank_specs
 from ._tiny_rerank_waic import _apply_waic_tiebreak
 from .screening import (
@@ -25,7 +26,6 @@ from .screening import (
     _tiny_cv_rmse_raw_y,
     _tiny_cv_rmse_raw_y_multiseed,
     _tiny_cv_rmse_y_scale,
-    _tiny_cv_rmse_y_scale_multiseed,
 )
 from ..transforms import get_transform
 from mlframe.utils.log_throttle import log_throttle
@@ -381,112 +381,26 @@ def _tiny_model_rerank(
         _tol_early = float(getattr(self.config, "raw_baseline_tolerance", 1.02))
         _early_stop_threshold = raw_baseline * _tol_early
 
-    def _rerank_one_spec(spec: CompositeSpec):
-        """Per-spec worker for the rerank loop.
+    # Everything a spec's scoring reads besides the spec itself, as values: the same task runs in this process
+    # (serial / threads) or in a worker process, through one implementation (``_tiny_rerank_process.score_spec``).
+    _task_common = dict(
+        y_screen=y_screen, families=list(families), per_bin_enabled=bool(per_bin_enabled_pre), per_bin_n_bins=per_bin_n_bins_pre or 5,
+        use_wilcoxon=bool(use_wilcoxon), n_estimators=self.config.tiny_model_n_estimators, num_leaves=self.config.tiny_model_num_leaves,
+        learning_rate=self.config.tiny_model_learning_rate, cv_folds=self.config.tiny_model_cv_folds,
+        deterministic=getattr(self.config, "deterministic_screening_models", False), n_seed_repeats=n_seed_repeats,
+        random_state=self.config.random_state, time_aware=_early_any_base_monotone, groups=_groups_screen,
+        cv_selector_mode=_cv_sel_mode, cv_selector_alpha=_cv_sel_alpha, cv_selector_confidence=_cv_sel_conf,
+        cv_selector_quantile_level=_cv_sel_qlevel, early_stop_threshold=_early_stop_threshold,
+    )
 
-        Returns a tuple ``(spec.name, family_rmses, per_seed_by_family,
-        per_bin_first_or_none)`` so the parallel reduce can rebuild
-        ``per_family_scores`` / ``_wilcoxon_per_seed_composite`` /
-        ``_per_bin_first_pass`` in spec order on the main thread.
-        """
-        if spec.name in _skip_cv_names:
-            # Honest-OOF already measured this spec and will set its score; the CV fits would be discarded.
-            return spec.name, {}, {}, None
+    def _rerank_one_spec(spec: CompositeSpec):
+        """Per-spec worker for the in-process rerank loop: ``(spec.name, family_rmses, per_seed_by_family, per_bin_first)``."""
         base_screen_local, x_matrix_local = _per_base_cache[spec.base_column]
-        transform = get_transform(spec.transform_name)
-        # Switch this spec's tiny-CV to TimeSeriesSplit when the data is
-        # temporal. Random K-fold on time-correlated rows leaks future->past,
-        # over-rating ``linres-lag1``-style specs. Prefer the EXPLICIT signal:
-        # when fit() time-ordered the screening sample (caller passed
-        # time_ordering), every spec is time-aware regardless of base shape --
-        # the canonical non-monotone lag(y) base is exactly the case the
-        # base-monotonicity heuristic (the None-time fallback) missed.
-        # The base-monotonicity heuristic is a NO-TIMESTAMP fallback only: with groups present the CV is GroupKFold
-        # regardless (no global temporal axis exists), so a merely depth/level-monotone base must NOT read as temporal
-        # -- otherwise it raises a spurious "temporal order not preserved" warning while the split is unchanged.
-        base_t_aware = _early_any_base_monotone  # the rerank-wide fold scheme (see above)
-        fam_rmses: dict[str, float] = {}
-        per_seed_by_family: dict[str, np.ndarray] = {}
-        per_bin_first_local: Optional[np.ndarray] = None
-        for family in families:
-            # Capture per-bin alongside RMSE in the SAME pass
-            # for the first family only (per-bin breakdown only checks
-            # families[0] in the legacy second pass).
-            is_first_family = family == families[0]
-            want_per_bin = bool(per_bin_enabled_pre and is_first_family)
-            if use_wilcoxon:
-                result = _tiny_cv_rmse_y_scale_multiseed(
-                    y_train=y_screen,
-                    base_train=base_screen_local,
-                    transform=transform,
-                    fitted_params=spec.fitted_params,
-                    x_train_matrix=x_matrix_local,
-                    family=family,
-                    n_estimators=self.config.tiny_model_n_estimators,
-                    num_leaves=self.config.tiny_model_num_leaves,
-                    learning_rate=self.config.tiny_model_learning_rate,
-                    cv_folds=self.config.tiny_model_cv_folds,
-                    n_jobs=_worker_fold_n_jobs,
-                    deterministic=getattr(
-                        self.config, "deterministic_screening_models", False,
-                    ),
-                    n_seed_repeats=n_seed_repeats,
-                    base_random_state=self.config.random_state,
-                    inner_n_jobs=_rerank_inner_n_jobs,
-                    return_per_seed=True,
-                    return_per_bin=want_per_bin,
-                    n_bins=per_bin_n_bins_pre or 5,
-                    time_aware=base_t_aware,
-                    groups=_groups_screen,
-                    cv_selector_mode=_cv_sel_mode,
-                    cv_selector_alpha=_cv_sel_alpha,
-                    cv_selector_confidence=_cv_sel_conf,
-                    cv_selector_quantile_level=_cv_sel_qlevel,
-                )
-                if want_per_bin:
-                    rmse, per_bin_first, per_seed = (
-                        result[0], result[1], result[-1],
-                    )
-                    per_bin_first_local = per_bin_first
-                else:
-                    rmse, per_seed = result[0], result[-1]
-                per_seed_by_family[family] = per_seed
-            else:
-                result = _tiny_cv_rmse_y_scale_multiseed(
-                    y_train=y_screen,
-                    base_train=base_screen_local,
-                    transform=transform,
-                    fitted_params=spec.fitted_params,
-                    x_train_matrix=x_matrix_local,
-                    family=family,
-                    n_estimators=self.config.tiny_model_n_estimators,
-                    num_leaves=self.config.tiny_model_num_leaves,
-                    learning_rate=self.config.tiny_model_learning_rate,
-                    cv_folds=self.config.tiny_model_cv_folds,
-                    n_jobs=_worker_fold_n_jobs,
-                    deterministic=getattr(
-                        self.config, "deterministic_screening_models", False,
-                    ),
-                    n_seed_repeats=n_seed_repeats,
-                    base_random_state=self.config.random_state,
-                    inner_n_jobs=_rerank_inner_n_jobs,
-                    return_per_bin=want_per_bin,
-                    n_bins=per_bin_n_bins_pre or 5,
-                    time_aware=base_t_aware,
-                    groups=_groups_screen,
-                    cv_selector_mode=_cv_sel_mode,
-                    cv_selector_alpha=_cv_sel_alpha,
-                    cv_selector_confidence=_cv_sel_conf,
-                    cv_selector_quantile_level=_cv_sel_qlevel,
-                    seed_early_stop_threshold=_early_stop_threshold,
-                )
-                if want_per_bin and isinstance(result, tuple):
-                    rmse, per_bin_first = result[0], result[1]
-                    per_bin_first_local = per_bin_first
-                else:
-                    rmse = result
-            fam_rmses[family] = rmse
-        return spec.name, fam_rmses, per_seed_by_family, per_bin_first_local
+        task = make_spec_task(
+            spec, get_transform(spec.transform_name), dict(_task_common, fold_n_jobs=_worker_fold_n_jobs, inner_n_jobs=_rerank_inner_n_jobs),
+            spec.name in _skip_cv_names, base_screen_local, x_matrix=x_matrix_local,
+        )
+        return score_spec(task)
 
     # ``tiny_rerank_n_jobs=0`` is the documented sentinel for "auto-pick"
     # (the branch right below this assignment). The previous ``or 1`` form
@@ -518,7 +432,14 @@ def _tiny_model_rerank(
     # the sequential rerank path (outer == 1) lets the worker parallelise CV folds across cores.
     _worker_fold_n_jobs = 1 if _rerank_n_jobs > 1 else _tiny_n_jobs_auto
     _tiny_rerank_ram_checkpoint(f"pre_parallel_loop(n_specs={len(kept_specs)}, n_families={len(families)}, rerank_n_jobs={_rerank_n_jobs}, inner_n_jobs={_rerank_inner_n_jobs}, worker_fold_n_jobs={_worker_fold_n_jobs})")
-    if _rerank_n_jobs > 1 and len(kept_specs) > 1:
+    _backend = rerank_backend(getattr(self.config, "tiny_rerank_backend", "auto"))
+    if _rerank_n_jobs > 1 and len(kept_specs) > 1 and _backend == "processes":
+        _common = dict(_task_common, fold_n_jobs=_worker_fold_n_jobs, inner_n_jobs=_rerank_inner_n_jobs)
+        _rerank_results = score_specs_in_processes(
+            [make_worker_task(s, get_transform(s.transform_name), _common, s.name in _skip_cv_names, _per_base_cache) for s in kept_specs],
+            _rerank_n_jobs,
+        )
+    elif _rerank_n_jobs > 1 and len(kept_specs) > 1:
         from joblib import Parallel as _Parallel, delayed as _delayed
 
         # Grouped by base so the bounded per-base cache gathers each base once; results go back to spec order.

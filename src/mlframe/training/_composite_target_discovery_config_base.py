@@ -548,6 +548,13 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # Set 1 to force serial.
     tiny_rerank_n_jobs: int = 0
 
+    # How a parallel rerank (``tiny_rerank_n_jobs`` resolving above 1) runs its specs. "processes" (the "auto" default)
+    # gives each spec's fits their own heap in a worker process: a production kernel died three times out of three with a
+    # heap corruption while 16 threads trained LightGBM in one process, and serialising LightGBM's dataset construction
+    # did not stop it. A worker that faults dies alone and the remaining specs are rescored serially in the kernel.
+    # "threads" keeps the old in-process pool, which starts instantly and shares the matrices without a memory map.
+    tiny_rerank_backend: str = "auto"
+
     # Force deterministic mode on the tiny models built INSIDE Phase B
     # (``_build_tiny_model``). When True, injects the well-known
     # determinism flags per family:

@@ -38,9 +38,12 @@ own lock only guards the dict, so before this the constructions ran concurrently
 
 Construction is a small share of the work it protects (about 328 ms against a 0.9 s fit at the tiny-model defaults)
 and each thread builds its fold once, so the lock costs nothing measurable: 16 threads over the production fold shape
-took 55.4 s with it against 58.9 s without (``_benchmarks/bench_lgb_shared_fold_locking.py``). Serialising
-``lgb.train`` as well was measured and rejected -- 117.5 s, 1.99x, since training is where the rerank's time goes and
-it is the part LightGBM runs in parallel safely.
+took 55.4 s with it against 58.9 s without (``_benchmarks/bench_lgb_shared_fold_locking.py``).
+
+Construction alone turned out not to be enough: the kernel died again with this lock in place, and a local repro crashed
+with threads inside ``Booster.__init__`` / ``update`` / ``predict``. ``mlframe._lightgbm_thread_safety`` now serialises
+all of LightGBM's native entry points process-wide, and the rerank gets its parallelism from worker processes instead.
+This lock stays as the narrower guard for a run that switches that off (``MLFRAME_LGB_SERIALISE=0``).
 """
 
 

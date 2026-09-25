@@ -63,6 +63,14 @@ class PerBaseMatrices(Mapping):
         """The base's screen values without gathering its matrix."""
         return self._base_screens.get(base)
 
+    def worker_inputs(self, base: str) -> tuple:
+        """``(base_screen, x_full, drop_idx)``: what a worker PROCESS needs to gather this base's matrix itself.
+
+        Handing every task a pre-gathered matrix would keep one copy per base alive at once -- the peak this class exists
+        to bound. The worker gathers its own copy and frees it with the spec; ``x_full`` crosses once, as a memory map.
+        """
+        return self._base_screens[base], self._x_full, self.drop_idx(base)
+
 
 class BoundedMemo:
     """A thread-safe ``key -> value`` memo keeping the ``capacity`` most recent values; ``get_or_build(key, build)``."""

@@ -13,8 +13,12 @@ float32, 60 rounds, 15 leaves, several specs per fold so the dataset is reused):
 violation plus a heap corruption (0xc0000374) in the production kernel.
 
 Verdict (16 threads, 3 rounds, 3 specs per fold, lightgbm 4.6.0): none 58.9 s, construct 55.4 s (0.94x, i.e. free at
-this thread count), full 117.5 s (1.99x). Serialising construction only is therefore the shipped behaviour; full
-serialisation is rejected -- it doubles the rerank to protect the part LightGBM already runs in parallel safely.
+this thread count), full 117.5 s (1.99x). Construction-only was shipped first on that cost basis.
+
+Superseded: the production kernel died again with construction serialised, and a local repro crashed with threads in
+``Booster.__init__`` / ``update`` / ``predict`` -- training is NOT safe in parallel threads in this environment. All of
+LightGBM's native entry points are now serialised process-wide (``mlframe._lightgbm_thread_safety``), and the rerank's
+parallelism comes from worker processes, where the lock is uncontended (``bench_rerank_backends.py``).
 """
 from __future__ import annotations
 

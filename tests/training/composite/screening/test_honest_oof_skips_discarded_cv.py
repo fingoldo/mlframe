@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import mlframe.training.composite.discovery._tiny_rerank as tiny_rerank
+import mlframe.training.composite.discovery._screening_tiny as screening_tiny
 from mlframe.training.composite import CompositeTargetDiscovery
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
@@ -21,16 +21,19 @@ _FEATS = ["base_full", "base_partial", "x1"]
 
 
 def _count_cv_calls(monkeypatch) -> dict:
-    """Replace the multiseed CV entry point with a counting passthrough."""
+    """Replace the multiseed CV entry point with a counting passthrough.
+
+    Patched where the rerank's per-spec scorer (``_tiny_rerank_process.score_spec``) looks it up at call time.
+    """
     seen = {"n": 0}
-    original = tiny_rerank._tiny_cv_rmse_y_scale_multiseed
+    original = screening_tiny._tiny_cv_rmse_y_scale_multiseed
 
     def counting(*args, **kwargs):
         """Count the call, then defer to the real CV."""
         seen["n"] += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tiny_rerank, "_tiny_cv_rmse_y_scale_multiseed", counting)
+    monkeypatch.setattr(screening_tiny, "_tiny_cv_rmse_y_scale_multiseed", counting)
     return seen
 
 
@@ -38,7 +41,10 @@ def _fit(groups, train_idx, df, **cfg_kwargs) -> CompositeTargetDiscovery:
     """Run a grouped discovery whose rerank ranks by honest group-OOF."""
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True, random_state=0, tiny_model_n_estimators=40,
-        base_candidates=["base_full", "base_partial"], **cfg_kwargs,
+        base_candidates=["base_full", "base_partial"],
+        # In-process: a worker process would make the calls where this test's counter cannot see them, and "no CV fit
+        # ran" would then pass for the wrong reason.
+        tiny_rerank_backend="threads", **cfg_kwargs,
     )
     disc = CompositeTargetDiscovery(cfg)
     disc._group_ids_for_rerank = groups

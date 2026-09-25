@@ -73,6 +73,13 @@ def _apply(sklearn_module: Any) -> None:
     # ``__version__`` is guaranteed to be set.
     if needs_backport(importlib.metadata.version("lightgbm")):
         patch_lgbm_model_class(sklearn_module.LGBMModel)
+    # ``lightgbm/__init__`` imports ``basic`` before ``sklearn``, so the native classes are loaded by now. Unconditional on
+    # the version: the concurrency fault is not version-specific that anyone has shown.
+    basic = sys.modules.get("lightgbm.basic")
+    if basic is not None:
+        from ._lightgbm_thread_safety import patch_lightgbm_basic
+
+        patch_lightgbm_basic(basic)
 
 
 class _PatchingLoader(importlib.abc.Loader):
