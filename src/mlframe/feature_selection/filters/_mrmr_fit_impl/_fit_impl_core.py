@@ -23,9 +23,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ._fe_roster_attrs import FE_ROSTER_ATTRS
 import pandas as pd
-from sklearn.metrics import make_scorer
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -118,7 +116,6 @@ in the sibling _helpers.py.
 
 
 from ._helpers import _mrmr_cache_bytes_total
-from .._y_encoding import encode_y_for_classif_mi
 
 def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
     """We run N selections on data subsets, and pick only features that appear in all selections"""
@@ -135,11 +132,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _replay_fitted_state,
         _target_name_signature,
         _target_to_numpy_values,
-        RFECV,
-        CatBoostClassifier,
         categorize_dataset,
         numeric_column_names,
-        compute_probabilistic_multiclass_error,
         create_binary_transformations,
         create_unary_transformations,
         screen_predictors,
@@ -147,6 +141,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     )
     # Publish the canonical fit-cache lock on the class so any other holder of ``_FIT_CACHE`` shares it. Idempotent:
     # only set on first fit, never re-bound (re-binding would split the lock identity under concurrent fits).
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._state import FEParams, FERecipes
+
+    recipes = FERecipes()  # per-family FE recipe registries of this fit (see _fit_impl_stages._state)
+    fe = FEParams()  # FE parameters resolved for this fit
     if getattr(MRMR, "_FIT_CACHE_LOCK", None) is None:
         MRMR._FIT_CACHE_LOCK = _MRMR_FIT_CACHE_LOCK
     # include_numeric NaN guard: snapshot raw NaN/inf-bearing NUMERIC columns at the VERY START of fit, before
@@ -381,26 +379,26 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     prefetch_factor = 4
 
-    fe_max_steps = self.fe_max_steps
-    fe_npermutations = self.fe_npermutations
-    fe_unary_preset = self.fe_unary_preset
-    fe_binary_preset = self.fe_binary_preset
-    fe_max_pair_features = self.fe_max_pair_features
+    fe.max_steps = self.fe_max_steps
+    fe.npermutations = self.fe_npermutations
+    fe.unary_preset = self.fe_unary_preset
+    fe.binary_preset = self.fe_binary_preset
+    fe.max_pair_features = self.fe_max_pair_features
 
-    fe_min_nonzero_confidence = self.fe_min_nonzero_confidence
-    fe_min_pair_mi = self.fe_min_pair_mi
-    fe_min_pair_mi_prevalence = self.fe_min_pair_mi_prevalence
-    fe_min_engineered_mi_prevalence = self.fe_min_engineered_mi_prevalence
-    fe_good_to_best_feature_mi_threshold = self.fe_good_to_best_feature_mi_threshold
-    fe_max_external_validation_factors = self.fe_max_external_validation_factors
-    fe_max_polynoms = self.fe_max_polynoms
-    fe_print_best_mis_only = self.fe_print_best_mis_only
-    fe_smart_polynom_iters = self.fe_smart_polynom_iters
-    fe_smart_polynom_optimization_steps = self.fe_smart_polynom_optimization_steps
-    fe_min_polynom_degree = self.fe_min_polynom_degree
-    fe_max_polynom_degree = self.fe_max_polynom_degree
-    fe_min_polynom_coeff = self.fe_min_polynom_coeff
-    fe_max_polynom_coeff = self.fe_max_polynom_coeff
+    fe.min_nonzero_confidence = self.fe_min_nonzero_confidence
+    fe.min_pair_mi = self.fe_min_pair_mi
+    fe.min_pair_mi_prevalence = self.fe_min_pair_mi_prevalence
+    fe.min_engineered_mi_prevalence = self.fe_min_engineered_mi_prevalence
+    fe.good_to_best_feature_mi_threshold = self.fe_good_to_best_feature_mi_threshold
+    fe.max_external_validation_factors = self.fe_max_external_validation_factors
+    fe.max_polynoms = self.fe_max_polynoms
+    fe.print_best_mis_only = self.fe_print_best_mis_only
+    fe.smart_polynom_iters = self.fe_smart_polynom_iters
+    fe.smart_polynom_optimization_steps = self.fe_smart_polynom_optimization_steps
+    fe.min_polynom_degree = self.fe_min_polynom_degree
+    fe.max_polynom_degree = self.fe_max_polynom_degree
+    fe.min_polynom_coeff = self.fe_min_polynom_coeff
+    fe.max_polynom_coeff = self.fe_max_polynom_coeff
 
     # Convert numpy array to DataFrame if needed
     # Record a sentinel
@@ -412,66 +410,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # misclassified real columns and silently bypassed the sklearn
     # column-drift contract for any user whose DataFrame happened to
     # use that naming (very common after ``pd.DataFrame(arr)`` + rename).
-    if isinstance(X, np.ndarray):
-        X = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(X.shape[1])])
-        self._feature_names_in_synthesized_ = True
-    else:
-        self._feature_names_in_synthesized_ = False
-
-    # EMBEDDING / FREE-TEXT PASSTHROUGH. MI discretisation needs scalar (hashable, orderable) cells; embedding-vector columns (object cells = list/ndarray) and
-    # long free-text columns violate that and would crash the discretiser or mis-bin into a useless ~N-level categorical. Detect them here and EXCLUDE them from
-    # the working frame so the screen / FE / MI never see them, but PASS THEM THROUGH to the transform output unchanged - the learnable-embedding MLP / recurrent
-    # network (and the ``_encode_emb_text_fit`` boundary encoder) are the correct consumers. ``feature_names_in_`` (set below from the full pre-narrow column list)
-    # still counts them so the sklearn ``n_features_in_`` contract matches the user's input width; the passthrough indices are re-appended to ``support_`` at
-    # fit-end. Default ON (a corrective mechanism; the legacy crash/drop was silently wrong); set ``embedding_passthrough=False`` for the legacy behaviour.
-    self._passthrough_features_ = []
-    if getattr(self, "embedding_passthrough", True) and isinstance(X, pd.DataFrame):
-        from .._mrmr_passthrough import detect_passthrough_columns
-        _emb_cols, _text_cols = detect_passthrough_columns(
-            X,
-            detect_embeddings=getattr(self, "embedding_passthrough_detect_embeddings", True),
-            detect_text=getattr(self, "embedding_passthrough_detect_text", True),
-        )
-        _passthrough = list(_emb_cols) + [c for c in _text_cols if c not in _emb_cols]
-        if _passthrough:
-            self._passthrough_features_ = _passthrough
-            # Column-subset selection shares the underlying column buffers (no row copy) - RAM-safe on 100+ GB frames. The original full column order is recovered
-            # at fit-end from ``feature_names_in_`` (built from the pre-narrow list below) so the re-appended passthrough indices land at their true positions.
-            _passthrough_set = set(_passthrough)
-            _keep_cols = [c for c in (X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)) if c not in _passthrough_set]
-            self._passthrough_full_columns_ = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
-            X = X[_keep_cols]
-            if verbose:
-                logger.info(
-                    "MRMR.fit: routing %d non-scalar column(s) THROUGH feature selection unchanged (embeddings=%s, text=%s); they bypass the MI screen and reach the estimator raw.",
-                    len(_passthrough), _emb_cols, _text_cols,
-                )
-
-    # NULLABLE-DTYPE DENSIFICATION (gaps_fe_masking-09). A pandas masked-array frame (Int64 / Float64 / boolean +
-    # pd.NA) is NOT what the screen / FE-pair numba kernels and the ``dtype.kind=="f"`` NaN guard expect:
-    # ``DataFrame.to_numpy()`` on a mixed nullable frame yields object cells holding pd.NA (NOT float64+NaN), so
-    # numeric FE families (e.g. conditional_gate) silently skip those columns and the SELECTION diverges from the
-    # dense-float64 fit. Densify masked numeric / boolean columns to float64 (pd.NA -> NaN, semantically lossless)
-    # so every downstream path is dtype-agnostic. Categorical / string extension columns are left untouched for
-    # categorize_dataset (their ``dtype.kind`` is 'O' / 'U', not in the masked numeric set). Default ON: a
-    # corrective mechanism (the legacy silent column-skip was wrong), no flag.
-    if isinstance(X, pd.DataFrame):
-        _nullable_num = [c for c in X.columns if pd.api.types.is_extension_array_dtype(X[c].dtype) and getattr(X[c].dtype, "kind", "O") in ("i", "u", "f", "b")]
-        if _nullable_num:
-            # A single ``assign`` of every nullable column materialises all the float64 arrays before building the
-            # frame (peak ~2x the nullable-column bytes); above the threshold densify one column per ``assign`` so
-            # each intermediate frame is freed and peak extra RAM stays ~one column. ``assign`` returns a new frame
-            # either way, so the caller's frame is never mutated - the densification stays RAM-safe on 100+ GB frames.
-            if len(X) * len(_nullable_num) * 8 <= _NULLABLE_DENSIFY_EAGER_MAX_BYTES:
-                X = X.assign(**{c: X[c].astype("float64") for c in _nullable_num})
-            else:
-                for _nc in _nullable_num:
-                    X = X.assign(**{_nc: X[_nc].astype("float64")})
-            if verbose:
-                logger.info(
-                    "MRMR.fit: densified %d nullable masked column(s) to float64 (NaN-preserving): %s",
-                    len(_nullable_num), _nullable_num[:8],
-                )
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._inputs import _prepare_input_frame
+    X = _prepare_input_frame(self, X, verbose)
 
     from ._fe_stage_cascade_early_a import _fe_stage_cascade_early_a
     from ._fe_stage_cascade_early_b import _fe_stage_cascade_early_b
@@ -484,94 +424,94 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # safe (no return needed); a REASSIGNMENT inside a sibling would NOT propagate back -- confirmed via a
     # systematic check that none of these are ever reassigned (only ``[key] = value`` mutated) in the two
     # early-cascade siblings below.
-    _hybrid_orth_pre_recipes: dict = {}
-    _mi_greedy_pre_recipes: dict = {}
-    _kfold_te_pre_recipes: dict = {}
-    _binned_agg_pre_recipes: dict = {}
-    _count_enc_pre_recipes: dict = {}
-    _freq_enc_pre_recipes: dict = {}
-    _cat_num_pre_recipes: dict = {}
-    _miss_ind_pre_recipes: dict = {}
-    _miss_cnt_pre_recipes: dict = {}
-    _miss_pat_pre_recipes: dict = {}
-    _ratio_pre_recipes: dict = {}
-    _log_ratio_pre_recipes: dict = {}
-    _grouped_delta_pre_recipes: dict = {}
-    _lagged_diff_pre_recipes: dict = {}
-    _cat_pair_pre_recipes: dict = {}
-    _cat_triple_pre_recipes: dict = {}
-    _numeric_decompose_pre_recipes: dict = {}
-    _temporal_agg_pre_recipes: dict = {}
-    _modular_pre_recipes: dict = {}
-    _pairwise_modular_pre_recipes: dict = {}
-    _integer_lattice_pre_recipes: dict = {}
-    _row_argmax_pre_recipes: dict = {}
-    _conditional_gate_pre_recipes: dict = {}
-    _group_distance_pre_recipes: dict = {}
-    _rare_category_pre_recipes: dict = {}
-    _conditional_residual_pre_recipes: dict = {}
-    _conditional_dispersion_pre_recipes: dict = {}
-    _conditional_quantile_rank_pre_recipes: dict = {}
-    _ordinal_pattern_pre_recipes: dict = {}
-    _random_fourier_pre_recipes: dict = {}
-    _sir_direction_pre_recipes: dict = {}
-    _lof_pre_recipes: dict = {}
-    _mahalanobis_density_pre_recipes: dict = {}
-    _wavelet_pre_recipes: dict = {}
-    _rankgauss_pre_recipes: dict = {}
-    _grouped_agg_pre_recipes: dict = {}
-    _composite_group_agg_pre_recipes: dict = {}
-    _grouped_quantile_pre_recipes: dict = {}
+    recipes.hybrid_orth: dict = {}
+    recipes.mi_greedy: dict = {}
+    recipes.kfold_te: dict = {}
+    recipes.binned_agg: dict = {}
+    recipes.count_enc: dict = {}
+    recipes.freq_enc: dict = {}
+    recipes.cat_num: dict = {}
+    recipes.miss_ind: dict = {}
+    recipes.miss_cnt: dict = {}
+    recipes.miss_pat: dict = {}
+    recipes.ratio: dict = {}
+    recipes.log_ratio: dict = {}
+    recipes.grouped_delta: dict = {}
+    recipes.lagged_diff: dict = {}
+    recipes.cat_pair: dict = {}
+    recipes.cat_triple: dict = {}
+    recipes.numeric_decompose: dict = {}
+    recipes.temporal_agg: dict = {}
+    recipes.modular: dict = {}
+    recipes.pairwise_modular: dict = {}
+    recipes.integer_lattice: dict = {}
+    recipes.row_argmax: dict = {}
+    recipes.conditional_gate: dict = {}
+    recipes.group_distance: dict = {}
+    recipes.rare_category: dict = {}
+    recipes.conditional_residual: dict = {}
+    recipes.conditional_dispersion: dict = {}
+    recipes.conditional_quantile_rank: dict = {}
+    recipes.ordinal_pattern: dict = {}
+    recipes.random_fourier: dict = {}
+    recipes.sir_direction: dict = {}
+    recipes.lof: dict = {}
+    recipes.mahalanobis_density: dict = {}
+    recipes.wavelet: dict = {}
+    recipes.rankgauss: dict = {}
+    recipes.grouped_agg: dict = {}
+    recipes.composite_group_agg: dict = {}
+    recipes.grouped_quantile: dict = {}
 
-    X, _raw_input_cols_pre_fe, _hinge_deferred_values, _hinge_deferred_recipes = _fe_stage_cascade_early_a(
-        self, X=X, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
+    X, _raw_input_cols_pre_fe, recipes.hinge_deferred_values, recipes.hinge_deferred = _fe_stage_cascade_early_a(
+        self, X=X, y=y, verbose=verbose, fe_max_steps=fe.max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
         _fe_budget_ok=_fe_budget_ok,
-        _hybrid_orth_pre_recipes=_hybrid_orth_pre_recipes, _mi_greedy_pre_recipes=_mi_greedy_pre_recipes,
+        _hybrid_orth_pre_recipes=recipes.hybrid_orth, _mi_greedy_pre_recipes=recipes.mi_greedy,
     )
     X = _fe_stage_cascade_early_b(
-        self, X=X, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
+        self, X=X, y=y, verbose=verbose, fe_max_steps=fe.max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
         _fit_entry_nan_mask=_fit_entry_nan_mask, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
-        _kfold_te_pre_recipes=_kfold_te_pre_recipes, _binned_agg_pre_recipes=_binned_agg_pre_recipes,
-        _count_enc_pre_recipes=_count_enc_pre_recipes, _freq_enc_pre_recipes=_freq_enc_pre_recipes,
-        _cat_num_pre_recipes=_cat_num_pre_recipes,
-        _miss_ind_pre_recipes=_miss_ind_pre_recipes, _miss_cnt_pre_recipes=_miss_cnt_pre_recipes,
-        _miss_pat_pre_recipes=_miss_pat_pre_recipes,
-        _ratio_pre_recipes=_ratio_pre_recipes, _log_ratio_pre_recipes=_log_ratio_pre_recipes,
-        _grouped_delta_pre_recipes=_grouped_delta_pre_recipes, _lagged_diff_pre_recipes=_lagged_diff_pre_recipes,
+        _kfold_te_pre_recipes=recipes.kfold_te, _binned_agg_pre_recipes=recipes.binned_agg,
+        _count_enc_pre_recipes=recipes.count_enc, _freq_enc_pre_recipes=recipes.freq_enc,
+        _cat_num_pre_recipes=recipes.cat_num,
+        _miss_ind_pre_recipes=recipes.miss_ind, _miss_cnt_pre_recipes=recipes.miss_cnt,
+        _miss_pat_pre_recipes=recipes.miss_pat,
+        _ratio_pre_recipes=recipes.ratio, _log_ratio_pre_recipes=recipes.log_ratio,
+        _grouped_delta_pre_recipes=recipes.grouped_delta, _lagged_diff_pre_recipes=recipes.lagged_diff,
     )
     from ._fe_stage_cascade_mid_a import _fe_stage_cascade_mid_a
 
     X = _fe_stage_cascade_mid_a(
-        self, X=X, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
+        self, X=X, y=y, verbose=verbose, fe_max_steps=fe.max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
         _fe_budget_ok=_fe_budget_ok, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
-        _cat_pair_pre_recipes=_cat_pair_pre_recipes, _cat_triple_pre_recipes=_cat_triple_pre_recipes,
-        _composite_group_agg_pre_recipes=_composite_group_agg_pre_recipes,
-        _conditional_gate_pre_recipes=_conditional_gate_pre_recipes,
-        _grouped_agg_pre_recipes=_grouped_agg_pre_recipes,
-        _grouped_quantile_pre_recipes=_grouped_quantile_pre_recipes,
-        _integer_lattice_pre_recipes=_integer_lattice_pre_recipes,
-        _modular_pre_recipes=_modular_pre_recipes,
-        _numeric_decompose_pre_recipes=_numeric_decompose_pre_recipes,
-        _pairwise_modular_pre_recipes=_pairwise_modular_pre_recipes,
-        _row_argmax_pre_recipes=_row_argmax_pre_recipes,
+        _cat_pair_pre_recipes=recipes.cat_pair, _cat_triple_pre_recipes=recipes.cat_triple,
+        _composite_group_agg_pre_recipes=recipes.composite_group_agg,
+        _conditional_gate_pre_recipes=recipes.conditional_gate,
+        _grouped_agg_pre_recipes=recipes.grouped_agg,
+        _grouped_quantile_pre_recipes=recipes.grouped_quantile,
+        _integer_lattice_pre_recipes=recipes.integer_lattice,
+        _modular_pre_recipes=recipes.modular,
+        _numeric_decompose_pre_recipes=recipes.numeric_decompose,
+        _pairwise_modular_pre_recipes=recipes.pairwise_modular,
+        _row_argmax_pre_recipes=recipes.row_argmax,
     )
     from ._fe_stage_cascade_mid_b import _fe_stage_cascade_mid_b
 
     X = _fe_stage_cascade_mid_b(
-        self, X=X, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
+        self, X=X, y=y, verbose=verbose, fe_max_steps=fe.max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
         _fe_budget_ok=_fe_budget_ok, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
-        _group_distance_pre_recipes=_group_distance_pre_recipes,
-        _rare_category_pre_recipes=_rare_category_pre_recipes,
-        _conditional_residual_pre_recipes=_conditional_residual_pre_recipes,
-        _conditional_dispersion_pre_recipes=_conditional_dispersion_pre_recipes,
-        _conditional_quantile_rank_pre_recipes=_conditional_quantile_rank_pre_recipes,
-        _ordinal_pattern_pre_recipes=_ordinal_pattern_pre_recipes,
-        _random_fourier_pre_recipes=_random_fourier_pre_recipes,
-        _sir_direction_pre_recipes=_sir_direction_pre_recipes,
-        _lof_pre_recipes=_lof_pre_recipes,
-        _mahalanobis_density_pre_recipes=_mahalanobis_density_pre_recipes,
-        _wavelet_pre_recipes=_wavelet_pre_recipes,
-        _rankgauss_pre_recipes=_rankgauss_pre_recipes,
+        _group_distance_pre_recipes=recipes.group_distance,
+        _rare_category_pre_recipes=recipes.rare_category,
+        _conditional_residual_pre_recipes=recipes.conditional_residual,
+        _conditional_dispersion_pre_recipes=recipes.conditional_dispersion,
+        _conditional_quantile_rank_pre_recipes=recipes.conditional_quantile_rank,
+        _ordinal_pattern_pre_recipes=recipes.ordinal_pattern,
+        _random_fourier_pre_recipes=recipes.random_fourier,
+        _sir_direction_pre_recipes=recipes.sir_direction,
+        _lof_pre_recipes=recipes.lof,
+        _mahalanobis_density_pre_recipes=recipes.mahalanobis_density,
+        _wavelet_pre_recipes=recipes.wavelet,
+        _rankgauss_pre_recipes=recipes.rankgauss,
     )
     # Layer 92: temporal leak-safe grouped aggregations. Carved
     # verbatim into the sibling ``_fe_stage_temporal_agg`` (Tier E partial
@@ -579,115 +519,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``_temporal_agg_pre_recipes`` explicitly, mutates self + the recipes dict
     # in place, and RETURNS the (possibly replaced) working ``X`` frame.
     from ._fe_stage_temporal_agg import _fe_stage_temporal_agg
-    X = _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes, _fe_family_on=_fe_family_on)
+    X = _fe_stage_temporal_agg(self, X, _y_np, verbose, recipes.temporal_agg, _fe_family_on=_fe_family_on)
 
     # ACCURACY GATE (2026-06-04, default ON via ``fe_accuracy_gate``). The MI-uplift gates inside the FE generators are fooled by plug-in MI's bias inflation: a Fourier / chirp / Hermite transform of a strong RAW signal earns an inflated MI estimate and out-ranks (then evicts) the raw column even when it adds NO real predictive value. The adaptive-Fourier PROTECTION block at support-finalisation then force-readds those hijackers past the MRMR screen, so they survive into support_ AND leak into ``hybrid_orth_features_`` / ``_adaptive_fourier_features_`` even when a genuine raw signal (or its is_missing__ MNAR indicator) carries the information. This gate runs a held-out multivariate linear-probe uplift check per engineered column against its raw source: a column that adds no held-out uplift over its source - or whose source is >2%-missing (MNAR fail-closed, the signal lives in the NaN pattern the probe cannot see) - is dropped here so it can neither evict the raw signal nor leak into the roster. Only orth_* engineered columns with a single resolvable raw source are gated; the is_missing__ / missingness_* indicators are exempt by construction (their recipes live in ``_miss_*_pre_recipes``, never ``_hybrid_orth_pre_recipes``, so they are never routed here). y is read only at fit; transform replays the survivors without y. Best-effort: any failure falls back to keeping the column.
-    if bool(getattr(self, "fe_accuracy_gate", True)) and isinstance(X, pd.DataFrame) and (self.hybrid_orth_features_ or []) and _hybrid_orth_pre_recipes:
-        try:
-            from .._fe_accuracy_gate import (
-                _FE_UPLIFT_MIN,
-                infer_classification,
-                keep_engineered_over_source,
-                measure_feature_uplift,
-            )
-
-            _y_for_gate = _y_np
-            _gate_seed = int(getattr(self, "random_seed", 0) or 0)
-            _gate_classif = infer_classification(_y_for_gate)
-            _hybrid_set_now = set(self.hybrid_orth_features_ or [])
-            _adaptive_set_now = set(getattr(self, "_adaptive_fourier_features_", None) or [])
-
-            def _gate_col_arr(_name):
-                """Fetch column ``_name`` from ``X`` as a float64 1-D array for the held-out linear-probe accuracy gate (unwraps a duplicate-label DataFrame slice to its first column)."""
-                _v = X[_name]
-                if isinstance(_v, pd.DataFrame):
-                    _v = _v.iloc[:, 0]
-                return np.asarray(_v.to_numpy(), dtype=np.float64)
-
-            # Resolve each engineered column to its single raw source; split into the polynomial/base columns and the adaptive-Fourier/chirp columns (the latter are gated CONDITIONALLY
-            # against their surviving base siblings, since a Fourier of x captures the SAME x**2 signal as its He2 sibling and must not dilute the support when the He2 already carries it).
-            _gate_cols: list[tuple[str, str, bool]] = []
-            for _gc in list(self.hybrid_orth_features_ or []):
-                if _gc not in X.columns:
-                    continue
-                _rec = _hybrid_orth_pre_recipes.get(_gc)
-                # No hybrid-orth recipe => not an orth_* engineered column (missingness / TE / count / etc.): exempt.
-                _src_names = tuple(getattr(_rec, "src_names", ()) or ()) if _rec is not None else ()
-                if len(_src_names) != 1:
-                    continue
-                _src = _src_names[0]
-                if _src not in X.columns or _src in _hybrid_set_now:
-                    continue
-                _is_fourier = (_gc in _adaptive_set_now) or (str(getattr(_rec, "kind", "")) == "orth_fourier")
-                _gate_cols.append((_gc, _src, _is_fourier))
-
-            _gate_drop: list[str] = []
-            _gate_drop_set: set[str] = set()
-            # Pass 1: base (non-Fourier) columns - uplift over the raw source alone (also the MNAR fail-closed for >2%-missing sources).
-            _surviving_base_by_src: dict[str, list[str]] = {}
-            for _gc, _src, _is_fourier in _gate_cols:
-                if _is_fourier:
-                    continue
-                _src_arr = _gate_col_arr(_src)
-                _eng_arr = _gate_col_arr(_gc)
-                if keep_engineered_over_source(_src_arr, _eng_arr, _y_for_gate, seed=_gate_seed):
-                    _surviving_base_by_src.setdefault(_src, []).append(_gc)
-                else:
-                    _gate_drop.append(_gc)
-                    _gate_drop_set.add(_gc)
-            # Pass 2: adaptive-Fourier / chirp columns - uplift over [raw source + surviving base siblings of that source]. A Fourier redundant with a He2 sibling (both encode x**2)
-            # adds ~0 here and is dropped; a genuine oscillation no polynomial sibling captures clears the floor and is kept. MNAR fail-closed first (the probe drops NaN rows).
-            for _gc, _src, _is_fourier in _gate_cols:
-                if not _is_fourier:
-                    continue
-                _src_arr = _gate_col_arr(_src)
-                if float(np.mean(~np.isfinite(_src_arr))) > 0.02:
-                    _gate_drop.append(_gc)
-                    _gate_drop_set.add(_gc)
-                    continue
-                _base_sibs = _surviving_base_by_src.get(_src, [])
-                _base_mat = np.column_stack([_src_arr] + [_gate_col_arr(_b) for _b in _base_sibs])
-                _eng_arr = _gate_col_arr(_gc)
-                _n = _base_mat.shape[0]
-                if _n > 5000:
-                    _rng_g = np.random.default_rng(_gate_seed)
-                    _idx_g = _rng_g.choice(_n, 5000, replace=False)
-                    _base_probe, _eng_probe, _y_probe = _base_mat[_idx_g], _eng_arr[_idx_g], _y_for_gate[_idx_g]
-                else:
-                    _base_probe, _eng_probe, _y_probe = _base_mat, _eng_arr, _y_for_gate
-                _cond_uplift = measure_feature_uplift(
-                    _base_probe, _eng_probe, _y_probe, classification=_gate_classif, seed=_gate_seed,
-                )
-                # Fail-open: None == probe could not measure (degenerate / exception);
-                # keep the candidate rather than silently dropping it. Only a genuine
-                # MEASURED sub-threshold uplift evicts.
-                if _cond_uplift is not None and _cond_uplift < _FE_UPLIFT_MIN:
-                    _gate_drop.append(_gc)
-                    _gate_drop_set.add(_gc)
-            if _gate_drop:
-                _gate_drop_set = set(_gate_drop)
-                X = X.drop(columns=[c for c in _gate_drop if c in X.columns])
-                self.hybrid_orth_features_ = [c for c in (self.hybrid_orth_features_ or []) if c not in _gate_drop_set]
-                self._adaptive_fourier_features_ = [c for c in (getattr(self, "_adaptive_fourier_features_", None) or []) if c not in _gate_drop_set]
-                # Mirror the cleanup for hinge legs: a hinge the accuracy gate
-                # drops (no held-out uplift over its raw source) must NOT be
-                # re-added by the HINGE-PROTECTION block, so prune it here too.
-                self._hinge_features_ = [c for c in (getattr(self, "_hinge_features_", None) or []) if c not in _gate_drop_set]
-                for _c in list(_hybrid_orth_pre_recipes.keys()):
-                    if _c in _gate_drop_set:
-                        _hybrid_orth_pre_recipes.pop(_c, None)
-                if verbose:
-                    logger.info(
-                        "MRMR.fit accuracy gate: dropped %d engineered column(s) " "adding no held-out uplift over their raw source (or MNAR " "source): %s",
-                        len(_gate_drop),
-                        sorted(_gate_drop),
-                    )
-        except Exception as _gate_exc:
-            logger.warning(
-                "MRMR.fit accuracy gate raised %s: %s; continuing without the " "accuracy gate (engineered columns kept).",
-                type(_gate_exc).__name__,
-                _gate_exc,
-            )
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._engineered_gates import _gate_engineered_accuracy
+    X = _gate_engineered_accuracy(self, X, recipes, _y_np, verbose)
 
     # Layer 27: cross-stage engineered-column dedup. Hybrid and
     # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
@@ -709,231 +545,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # explodes with ``Data must be 1-dimensional``. The dedup also
     # short-circuits the inner O(K^2) pairwise rank-correlation loop
     # for the trivial perfect-name-match case.
-    _eng_cols_appended_raw = list(self.hybrid_orth_features_ or []) + list(self.mi_greedy_features_ or [])
-    _eng_seen: set[str] = set()
-    _eng_cols_appended = [_c for _c in _eng_cols_appended_raw if not (_c in _eng_seen or _eng_seen.add(_c))]  # type: ignore[func-returns-value]  # intentional order-preserving-dedup idiom: set.add()'s None return is used as the falsy side of `or`
-    # ADAPTIVE-FOURIER columns are NEVER pruned by the cross-stage dedup: the
-    # held-out detector already validated the frequency, and a sin/cos pair at
-    # one frequency is not monotone-equivalent to a fixed-grid twin, so the
-    # Spearman gate would only ever drop them on a spurious near-tie. Keeping
-    # them here guarantees they remain in ``cols`` for the protection block.
-    _adaptive_fourier_keep = set(getattr(self, "_adaptive_fourier_features_", None) or [])
-    # Keep-higher-MI dedup policy: when a near-duplicate cluster spans stages, the survivor must be the column carrying the MOST information about y, NOT merely the first-appended one.
-    # The default-on univariate-basis stage writes into ``hybrid_orth_features_`` and is appended BEFORE ``mi_greedy_features_``, so a first-appended policy silently sacrifices a genuine
-    # mi_greedy ``|x|``-family signal (``log_abs(x)`` / ``sqrt_abs(x)`` / ``square(x)`` / ``abs(x)``) to a monotone-equivalent basis twin (``x__L2`` / ``x__cos1`` / ...). We score every appended
-    # engineered column once with the SAME plug-in MI scorer + quantile binning the FE stages used, then break dedup ties by higher MI, with the mi_greedy / constructor-requested column winning
-    # exact MI ties (a monotone twin bins identically, so MI is numerically equal - prefer the explicitly-requested constructor output). MI scoring is best-effort: any failure falls back to the
-    # order-preserving first-appended policy so the dedup never crashes a fit.
-    _mig_set = set(self.mi_greedy_features_ or [])
-    _eng_mi: dict[str, float] = {}
-    try:
-        from .._orthogonal_univariate_fe import _mi_classif_batch
-        _y_for_eng_mi = _y_np
-        _y_for_eng_mi = encode_y_for_classif_mi(_y_for_eng_mi)
-        if isinstance(X, pd.DataFrame) and len(_eng_cols_appended) >= 2:
-            _mi_cols = [_c for _c in _eng_cols_appended if _c in X.columns]
-            if _mi_cols:
-                _mi_mat = X[_mi_cols].to_numpy(dtype=np.float64)
-                _mi_vals = _mi_classif_batch(_mi_mat, _y_for_eng_mi, nbins=10)
-                _eng_mi = {_name: float(_v) for _name, _v in zip(_mi_cols, _mi_vals)}
-    except Exception as exc:
-        logger.debug("mrmr: engineered-MI dict computation failed; treating as empty (no engineered candidates this round): %r", exc, exc_info=True)
-        _eng_mi = {}
-
-    def _eng_dedup_prefer(cand: str, kept: str) -> bool:
-        """Return True when ``cand`` should DISPLACE the already-kept ``kept`` on a near-duplicate collision.
-
-        Only CROSS-STAGE collisions (exactly one of the pair is an mi_greedy / constructor-requested column) ever flip the survivor: within a single stage we preserve the original
-        first-appended policy byte-for-byte, so the dedup stays deterministic on the monotone-twin families a single basis stage emits (a quantile-binned MI tie between ``x__He2`` /
-        ``x__cos1`` / ``x__L2`` would otherwise reshuffle non-deterministically). Across stages we keep the column carrying more MI about y, and the explicitly-requested mi_greedy column
-        wins an exact MI tie (a monotone twin bins identically, so its MI is numerically equal - without this the default-on basis twin would silently evict the genuine ``|x|``-family signal).
-        """
-        _cand_mig = cand in _mig_set
-        _kept_mig = kept in _mig_set
-        if _cand_mig == _kept_mig:
-            return False
-        _mi_cand = _eng_mi.get(cand)
-        _mi_kept = _eng_mi.get(kept)
-        if _mi_cand is None or _mi_kept is None:
-            return False
-        if _mi_cand > _mi_kept + 1e-12:
-            return True
-        if _mi_cand >= _mi_kept - 1e-12:
-            return _cand_mig and not _kept_mig
-        return False
-
-    if len(_eng_cols_appended) >= 2 and isinstance(X, pd.DataFrame):
-        from ._eng_dedup_scan import scan_engineered_duplicates
-
-        _eng_keep, _eng_drop, _eng_arrs, _eng_ranks = scan_engineered_duplicates(X, _eng_cols_appended, _adaptive_fourier_keep, _eng_dedup_prefer)
-        if _eng_drop:
-            # Dependency-closure guard: never drop an engineered column / recipe that a
-            # SURVIVING recipe consumes via src_names (e.g. a cat_pair_cross producer
-            # feeding a modular / numeric_decompose recipe). Dropping the producer while
-            # keeping the consumer orphans the consumer's source -> KeyError at transform
-            # replay. Fixpoint over all recipe dicts so multi-level chains stay intact.
-            _all_pre_recipe_dicts = (
-                _hybrid_orth_pre_recipes, _mi_greedy_pre_recipes, _kfold_te_pre_recipes,
-                _binned_agg_pre_recipes,
-                _count_enc_pre_recipes, _freq_enc_pre_recipes, _cat_num_pre_recipes,
-                _miss_ind_pre_recipes, _miss_cnt_pre_recipes, _miss_pat_pre_recipes,
-                _ratio_pre_recipes, _log_ratio_pre_recipes, _grouped_delta_pre_recipes,
-                _lagged_diff_pre_recipes, _grouped_agg_pre_recipes,
-                _composite_group_agg_pre_recipes, _grouped_quantile_pre_recipes,
-                _cat_pair_pre_recipes, _cat_triple_pre_recipes,
-                _numeric_decompose_pre_recipes, _modular_pre_recipes,
-                _pairwise_modular_pre_recipes, _integer_lattice_pre_recipes,
-                _row_argmax_pre_recipes, _conditional_gate_pre_recipes,
-                _group_distance_pre_recipes, _rare_category_pre_recipes,
-                _conditional_residual_pre_recipes,
-                _conditional_dispersion_pre_recipes, _wavelet_pre_recipes,
-                _rankgauss_pre_recipes,
-                _temporal_agg_pre_recipes,
-                _conditional_quantile_rank_pre_recipes,
-                _ordinal_pattern_pre_recipes,
-                _random_fourier_pre_recipes,
-                _sir_direction_pre_recipes,
-                _lof_pre_recipes,
-                _mahalanobis_density_pre_recipes,
-            )
-            while True:
-                _protected = {
-                    _s for _d in _all_pre_recipe_dicts for _r in _d.values() if _r.name not in _eng_drop for _s in (getattr(_r, "src_names", ()) or ())
-                }
-                _newly = _eng_drop & _protected
-                if not _newly:
-                    break
-                _eng_drop -= _newly
-            X = X.drop(columns=list(_eng_drop))
-            self.hybrid_orth_features_ = [c for c in (self.hybrid_orth_features_ or []) if c not in _eng_drop]
-            # Mirror cleanup for hinge legs (a hinge near-duplicate of another
-            # engineered column the Spearman dedup removed must not be re-added
-            # by the HINGE-PROTECTION block).
-            self._hinge_features_ = [c for c in (getattr(self, "_hinge_features_", None) or []) if c not in _eng_drop]
-            self.mi_greedy_features_ = [c for c in (self.mi_greedy_features_ or []) if c not in _eng_drop]
-            # Layer 33: mirror the same cleanup for TE-encoded columns.
-            # Every engineered roster, from the one shared tuple. Two hand-maintained copies of this list had already drifted: this pass
-            # filtered 18 rosters while the unified-gate pass below filtered 27, so a column dropped by the Spearman dedup stayed in the
-            # other nine until a later reconciliation happened to catch it.
-            for _roster_attr in FE_ROSTER_ATTRS:
-                setattr(self, _roster_attr, [c for c in (getattr(self, _roster_attr, []) or []) if c not in _eng_drop])
-            for _c in list(_hybrid_orth_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _hybrid_orth_pre_recipes.pop(_c, None)
-            for _c in list(_mi_greedy_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _mi_greedy_pre_recipes.pop(_c, None)
-            for _c in list(_kfold_te_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _kfold_te_pre_recipes.pop(_c, None)
-            for _c in list(_count_enc_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _count_enc_pre_recipes.pop(_c, None)
-            for _c in list(_freq_enc_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _freq_enc_pre_recipes.pop(_c, None)
-            for _c in list(_cat_num_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _cat_num_pre_recipes.pop(_c, None)
-            for _c in list(_miss_ind_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _miss_ind_pre_recipes.pop(_c, None)
-            for _c in list(_miss_cnt_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _miss_cnt_pre_recipes.pop(_c, None)
-            for _c in list(_miss_pat_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _miss_pat_pre_recipes.pop(_c, None)
-            for _c in list(_ratio_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _ratio_pre_recipes.pop(_c, None)
-            for _c in list(_log_ratio_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _log_ratio_pre_recipes.pop(_c, None)
-            for _c in list(_grouped_delta_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _grouped_delta_pre_recipes.pop(_c, None)
-            for _c in list(_lagged_diff_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _lagged_diff_pre_recipes.pop(_c, None)
-            for _c in list(_grouped_agg_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _grouped_agg_pre_recipes.pop(_c, None)
-            for _c in list(_composite_group_agg_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _composite_group_agg_pre_recipes.pop(_c, None)
-            for _c in list(_grouped_quantile_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _grouped_quantile_pre_recipes.pop(_c, None)
-            for _c in list(_cat_pair_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _cat_pair_pre_recipes.pop(_c, None)
-            for _c in list(_cat_triple_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _cat_triple_pre_recipes.pop(_c, None)
-            for _c in list(_numeric_decompose_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _numeric_decompose_pre_recipes.pop(_c, None)
-            for _c in list(_modular_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _modular_pre_recipes.pop(_c, None)
-            for _c in list(_pairwise_modular_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _pairwise_modular_pre_recipes.pop(_c, None)
-            for _c in list(_integer_lattice_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _integer_lattice_pre_recipes.pop(_c, None)
-            for _c in list(_row_argmax_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _row_argmax_pre_recipes.pop(_c, None)
-            for _c in list(_conditional_gate_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _conditional_gate_pre_recipes.pop(_c, None)
-            for _c in list(_group_distance_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _group_distance_pre_recipes.pop(_c, None)
-            for _c in list(_rare_category_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _rare_category_pre_recipes.pop(_c, None)
-            for _c in list(_conditional_residual_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _conditional_residual_pre_recipes.pop(_c, None)
-            for _c in list(_conditional_dispersion_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _conditional_dispersion_pre_recipes.pop(_c, None)
-            for _c in list(_conditional_quantile_rank_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _conditional_quantile_rank_pre_recipes.pop(_c, None)
-            for _c in list(_ordinal_pattern_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _ordinal_pattern_pre_recipes.pop(_c, None)
-            for _c in list(_random_fourier_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _random_fourier_pre_recipes.pop(_c, None)
-            for _c in list(_sir_direction_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _sir_direction_pre_recipes.pop(_c, None)
-            for _c in list(_lof_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _lof_pre_recipes.pop(_c, None)
-            for _c in list(_mahalanobis_density_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _mahalanobis_density_pre_recipes.pop(_c, None)
-            for _c in list(_wavelet_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _wavelet_pre_recipes.pop(_c, None)
-            for _c in list(_rankgauss_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _rankgauss_pre_recipes.pop(_c, None)
-            for _c in list(_temporal_agg_pre_recipes.keys()):
-                if _c in _eng_drop:
-                    _temporal_agg_pre_recipes.pop(_c, None)
-            if verbose:
-                logger.info(
-                    "MRMR.fit engineered-FE dedup: pruned %d near-duplicate " "engineered column(s) at Spearman |rho| >= 0.99: %s",
-                    len(_eng_drop),
-                    sorted(_eng_drop),
-                )
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._engineered_dedup import _dedup_engineered_across_stages
+    X = _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose)
 
     # Layer 91: Tier-2 UNIFIED SECOND-PASS CMI GATE. The Layer 27
     # dedup above is UNSUPERVISED (Spearman rank-corr between engineered cousins)
@@ -947,87 +560,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # y on top of raw + earlier-selected engineered columns. Default OFF (byte-
     # identical legacy path). y is read only here at fit; transform replays the
     # surviving recipes without y.
-    if bool(getattr(self, "fe_unified_second_pass_gate", False)) and isinstance(X, pd.DataFrame):
-        try:
-            _eng_now = [c for c in (list(self.hybrid_orth_features_ or []) + list(self.mi_greedy_features_ or [])) if c in X.columns]
-            # Order-preserving unique.
-            _seen_u: set[str] = set()
-            _eng_now = [c for c in _eng_now if not (c in _seen_u or _seen_u.add(c))]  # type: ignore[func-returns-value]  # intentional order-preserving-dedup idiom: set.add()'s None return is used as the falsy side of `or`
-            if len(_eng_now) >= 2:
-                from .._unified_fe_gate import unified_second_pass_gate
-
-                _eng_now_set = set(_eng_now)
-                _raw_cols_u = [c for c in X.columns if c not in _eng_now_set]
-                _y_for_u = _y_np
-                _keep_u = set(
-                    unified_second_pass_gate(
-                        X,
-                        _y_for_u,
-                        raw_cols=_raw_cols_u,
-                        engineered_cols=_eng_now,
-                        max_keep=getattr(self, "fe_unified_second_pass_max_keep", None),
-                        min_cmi_gain=float(getattr(self, "fe_unified_second_pass_min_gain", 0.005)),
-                    )
-                )
-                _eng_drop_u = set(_eng_now) - _keep_u
-                if _eng_drop_u:
-                    # Record what the FE stages produced BEFORE this pass prunes it (see the roster-
-                    # reconciliation snapshot near the end of fit for why the pre-prune view is kept).
-                    self.hybrid_orth_candidates_ = list(
-                        dict.fromkeys(list(getattr(self, "hybrid_orth_candidates_", None) or []) + list(getattr(self, "hybrid_orth_features_", None) or []))
-                    )
-                    X = X.drop(columns=list(_eng_drop_u))
-                    for _attr in FE_ROSTER_ATTRS:
-                        setattr(self, _attr, [c for c in (getattr(self, _attr, []) or []) if c not in _eng_drop_u])
-                    # Private hinge / adaptive-fourier protection rosters are not
-                    # in the public-roster loop above; prune them explicitly so a
-                    # second-pass-dropped leg is not re-added by its protection.
-                    self._hinge_features_ = [c for c in (getattr(self, "_hinge_features_", None) or []) if c not in _eng_drop_u]
-                    self._adaptive_fourier_features_ = [c for c in (getattr(self, "_adaptive_fourier_features_", None) or []) if c not in _eng_drop_u]
-                    for _pre in (
-                        _hybrid_orth_pre_recipes, _mi_greedy_pre_recipes,
-                        _kfold_te_pre_recipes, _count_enc_pre_recipes,
-                        _freq_enc_pre_recipes, _cat_num_pre_recipes,
-                        _miss_ind_pre_recipes, _miss_cnt_pre_recipes,
-                        _miss_pat_pre_recipes, _ratio_pre_recipes,
-                        _log_ratio_pre_recipes, _grouped_delta_pre_recipes,
-                        _lagged_diff_pre_recipes, _grouped_agg_pre_recipes,
-                        _composite_group_agg_pre_recipes,
-                        _grouped_quantile_pre_recipes, _cat_pair_pre_recipes,
-                        _cat_triple_pre_recipes,
-                        _numeric_decompose_pre_recipes,
-                        _modular_pre_recipes, _pairwise_modular_pre_recipes,
-                        _integer_lattice_pre_recipes,
-                        _row_argmax_pre_recipes, _conditional_gate_pre_recipes,
-                        _group_distance_pre_recipes,
-                        _rare_category_pre_recipes,
-                        _conditional_residual_pre_recipes,
-                        _conditional_dispersion_pre_recipes,
-                        _wavelet_pre_recipes,
-                        _rankgauss_pre_recipes,
-                        _temporal_agg_pre_recipes,
-                        _conditional_quantile_rank_pre_recipes,
-                        _ordinal_pattern_pre_recipes,
-                        _random_fourier_pre_recipes,
-                        _sir_direction_pre_recipes,
-                        _lof_pre_recipes,
-                        _mahalanobis_density_pre_recipes,
-                    ):
-                        for _c in list(_pre.keys()):
-                            if _c in _eng_drop_u:
-                                _pre.pop(_c, None)
-                    if verbose:
-                        logger.info(
-                            "MRMR.fit unified second-pass CMI gate: pruned %d " "cross-mechanism redundant engineered column(s): %s",
-                            len(_eng_drop_u),
-                            sorted(_eng_drop_u),
-                        )
-        except Exception as _u_exc:
-            logger.warning(
-                "MRMR.fit unified_second_pass_gate raised %s: %s; continuing " "without the Tier-2 cross-mechanism gate.",
-                type(_u_exc).__name__,
-                _u_exc,
-            )
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._engineered_gates import _second_pass_cmi_gate
+    X = _second_pass_cmi_gate(self, X, _y_np, recipes, verbose)
 
     # Layer 23: feature_names_in_ MUST exclude hybrid-appended columns so
     # the end-of-fit ``selected_vars_names`` lookup routes hybrid names
@@ -1053,49 +587,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # duplicate-named columns, and prune the engineered roster of any
     # name that was effectively shadowed so the recipe ledger stays
     # consistent with the column actually surviving in X.
-    if isinstance(X, pd.DataFrame) and X.columns.has_duplicates:
-        # Layer 64 defense: keep only the FIRST occurrence
-        # of each duplicate-label column position in X. The engineered
-        # rosters and the recipe ledger are NOT pruned here - the
-        # recipe is what the transform path uses to re-emit the column,
-        # so dropping the name from the roster would break
-        # ``transform`` (it tries to look up the support_ name in the
-        # input X, doesn't find the recipe replay output, and raises
-        # "MRMR.transform: N/K selected columns missing from input X").
-        # The duplicate is purely a fit-time X-frame artefact (one FE
-        # stage re-emitted a column another stage already appended);
-        # the recipe replay produces a single canonical column at
-        # transform time.
-        _seen_cols: set[str] = set()
-        _keep_positions: list[int] = []
-        _shadowed_eng_names: set[str] = set()
-        _n_dropped = 0
-        for _i, _c in enumerate(_all_cols):
-            if _c in _seen_cols:
-                if _c in _engineered_names_set:
-                    _shadowed_eng_names.add(_c)
-                _n_dropped += 1
-                continue
-            _seen_cols.add(_c)
-            _keep_positions.append(_i)
-        X = X.iloc[:, _keep_positions].copy()
-        _all_cols = X.columns.tolist()
-        if verbose:
-            logger.warning(
-                "MRMR.fit: pruned %d duplicate column label(s) before "
-                "target injection; engineered names shadowed (kept "
-                "first occurrence + recipe ledger entry intact): %s",
-                _n_dropped,
-                sorted(_shadowed_eng_names),
-            )
-    # When embedding/text passthrough narrowed X above, ``_all_cols`` lacks the passthrough columns; ``feature_names_in_`` must still reflect the FULL user-facing
-    # input (passthrough columns included, in their original positions) so the sklearn ``n_features_in_`` contract matches transform's input width. The passthrough
-    # indices are re-appended to ``support_`` at fit-end so transform re-emits them.
-    _names_source = getattr(self, "_passthrough_full_columns_", None) if self._passthrough_features_ else None
-    if _names_source is not None:
-        _fni = [c for c in _names_source if c not in _engineered_names_set]
-    else:
-        _fni = [c for c in _all_cols if c not in _engineered_names_set]
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._inputs import _finalise_feature_names_in
+    X, _fni = _finalise_feature_names_in(self, X, _all_cols, _engineered_names_set, verbose)
     # ndarray (not list) to match sklearn's own feature_names_in_ contract (BaseEstimator._check_feature_names) and
     # every other MRMR fit-path assignment (_mrmr_class_fit_helpers.py); a plain list here was the one straggler
     # that made ``==`` comparisons against a list/array ambiguous for callers expecting the canonical type.
@@ -1112,37 +605,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # stays a closed-form function of x). Deleted at fit end (transient, keeps the
     # pickle slim). Non-numeric / multi-output y -> None (escalation falls back to
     # ``classes_y`` codes).
-    try:
-        _y_esc_arr = _y_np
-        if _y_esc_arr.ndim == 1 and _y_esc_arr.dtype.kind in "fiub" and len(_y_esc_arr) == len(X):
-            _y_esc_rank = np.argsort(np.argsort(_y_esc_arr, kind="stable"), kind="stable").astype(np.float64)
-            self._fe_escalation_y_rank_ = _y_esc_rank / max(len(_y_esc_rank) - 1, 1)
-        else:
-            self._fe_escalation_y_rank_ = None
-    except Exception as exc:
-        logger.debug("mrmr: FE-escalation y-rank computation failed; rank unavailable this fit: %r", exc, exc_info=True)
-        self._fe_escalation_y_rank_ = None
-
-    # PREWARP ALS RECONSTRUCTION TARGET: stash the RAW CONTINUOUS y so
-    # the pair-search rank-1 ALS warp reconstructs against the faithful continuous
-    # target rather than the coarse equal-frequency screening codes the target-rebin
-    # guard (above) produces. The guard correctly coarsens ``classes_y`` for the MI
-    # screen/gates, but a least-squares f(a)*g(b) reconstruction loses fidelity on a
-    # non-monotone product when fit to 10-bin codes (measured |corr| 0.97 -> 0.88).
-    # Unlike the escalation rank-y this is the raw VALUES (the supervised MDLP-quality
-    # signal the ALS needs; rank-y only recovered 0.88 -> 0.88 in benchmarking). Same
-    # leak-safety: a fit-time supervised target whose emitted recipe stays a
-    # closed-form function of x. Deleted at fit end (transient, keeps the pickle slim).
-    # Non-numeric / multi-output y -> None (ALS falls back to ``classes_y`` codes).
-    try:
-        _y_pw_arr = _y_np
-        if _y_pw_arr.ndim == 1 and _y_pw_arr.dtype.kind in "fiub" and len(_y_pw_arr) == len(X):
-            self._fe_prewarp_y_continuous_ = np.ascontiguousarray(_y_pw_arr, dtype=np.float64)
-        else:
-            self._fe_prewarp_y_continuous_ = None
-    except Exception as exc:
-        logger.debug("mrmr: prewarp continuous-y stash failed; ALS reconstruction target unavailable: %r", exc, exc_info=True)
-        self._fe_prewarp_y_continuous_ = None
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._inputs import _stash_fe_targets
+    _stash_fe_targets(self, _y_np, X)
 
     # ---------------------------------------------------------------------------------------------------------------
     # Temporarily inject targets
@@ -1308,7 +772,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # it, several minutes later).
     from .._joblib_safe import maybe_prewarm_polynom_loky_pool
 
-    maybe_prewarm_polynom_loky_pool(fe_smart_polynom_iters, n_jobs)
+    maybe_prewarm_polynom_loky_pool(fe.smart_polynom_iters, n_jobs)
 
     # ``cols`` is a list; per-name ``cols.index`` is an O(len(cols)) scan, so resolving every target /
     # categorical name that way is O(C*P). Build a name->index map once and reuse it for both lookups.
@@ -1400,9 +864,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         categorical_vars_names = X.head().select_dtypes(include=("category", "object", "string", "bool")).columns.values.tolist()
     categorical_vars = [_name_to_idx[col] for col in categorical_vars_names]
 
-    if fe_max_steps > 0:
-        unary_transformations = create_unary_transformations(preset=fe_unary_preset)
-        binary_transformations = create_binary_transformations(preset=fe_binary_preset)
+    if fe.max_steps > 0:
+        unary_transformations = create_unary_transformations(preset=fe.unary_preset)
+        binary_transformations = create_binary_transformations(preset=fe.binary_preset)
         # REPLAY-SAFETY (audit, 2026-06-13): exclude ops that are NOT row-wise pure functions from FE
         # pair candidates. Their value at a row depends on OTHER rows (``np.gradient``: grad1/grad2) or
         # on a whole-column statistic recomputed at apply time (``logn`` uses ``x - np.min(x)``), so a
@@ -1414,13 +878,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _FE_NON_ROWWISE_PURE = ("grad1", "grad2", "logn")
         unary_transformations = {k: v for k, v in unary_transformations.items() if k not in _FE_NON_ROWWISE_PURE}
         binary_transformations = {k: v for k, v in binary_transformations.items() if k not in _FE_NON_ROWWISE_PURE}
-        if fe_max_polynoms:
+        if fe.max_polynoms:
             # Generated polynomial coefficients are appended directly to unary_transformations under "poly_<coef>" keys;
             # no separate registry is needed. Use a seeded local Generator so the polynomial recipes are reproducible
             # across reruns with the same ``random_seed`` - prior code used the global ``np.random`` stream, breaking
             # determinism whenever any earlier suite stage advanced it.
             _poly_rng = np.random.default_rng(self.random_seed)
-            for _ in range(fe_max_polynoms):
+            for _ in range(fe.max_polynoms):
                 length = int(_poly_rng.integers(3, 9))
                 coef = np.empty(shape=length, dtype=np.float32)
                 for i in range(length):
@@ -1445,96 +909,96 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layer 23: seed engineered_recipes with hybrid orthogonal-poly recipes
     # built above (before the screening loop). The end-of-fit remap routes
     # any selected_vars_name matching a key here into _engineered_recipes_.
-    if _hybrid_orth_pre_recipes:
-        engineered_recipes.update(_hybrid_orth_pre_recipes)
+    if recipes.hybrid_orth:
+        engineered_recipes.update(recipes.hybrid_orth)
     # Layer 26: same routing pattern for MI-greedy recipes.
-    if _mi_greedy_pre_recipes:
-        engineered_recipes.update(_mi_greedy_pre_recipes)
+    if recipes.mi_greedy:
+        engineered_recipes.update(recipes.mi_greedy)
     # Layer 33: same routing pattern for K-fold target-encoded recipes.
-    if _kfold_te_pre_recipes:
-        engineered_recipes.update(_kfold_te_pre_recipes)
-    if _binned_agg_pre_recipes:
-        engineered_recipes.update(_binned_agg_pre_recipes)
+    if recipes.kfold_te:
+        engineered_recipes.update(recipes.kfold_te)
+    if recipes.binned_agg:
+        engineered_recipes.update(recipes.binned_agg)
     # Layer 34: same routing for count / frequency / cat_num residual recipes.
-    if _count_enc_pre_recipes:
-        engineered_recipes.update(_count_enc_pre_recipes)
-    if _freq_enc_pre_recipes:
-        engineered_recipes.update(_freq_enc_pre_recipes)
-    if _cat_num_pre_recipes:
-        engineered_recipes.update(_cat_num_pre_recipes)
+    if recipes.count_enc:
+        engineered_recipes.update(recipes.count_enc)
+    if recipes.freq_enc:
+        engineered_recipes.update(recipes.freq_enc)
+    if recipes.cat_num:
+        engineered_recipes.update(recipes.cat_num)
     # Layer 37: same routing for missingness indicator / count / pattern recipes.
-    if _miss_ind_pre_recipes:
-        engineered_recipes.update(_miss_ind_pre_recipes)
-    if _miss_cnt_pre_recipes:
-        engineered_recipes.update(_miss_cnt_pre_recipes)
-    if _miss_pat_pre_recipes:
-        engineered_recipes.update(_miss_pat_pre_recipes)
+    if recipes.miss_ind:
+        engineered_recipes.update(recipes.miss_ind)
+    if recipes.miss_cnt:
+        engineered_recipes.update(recipes.miss_cnt)
+    if recipes.miss_pat:
+        engineered_recipes.update(recipes.miss_pat)
     # Layer 38: same routing for ratio / log_ratio / grouped_delta / lagged_diff.
-    if _ratio_pre_recipes:
-        engineered_recipes.update(_ratio_pre_recipes)
-    if _log_ratio_pre_recipes:
-        engineered_recipes.update(_log_ratio_pre_recipes)
-    if _grouped_delta_pre_recipes:
-        engineered_recipes.update(_grouped_delta_pre_recipes)
-    if _lagged_diff_pre_recipes:
-        engineered_recipes.update(_lagged_diff_pre_recipes)
+    if recipes.ratio:
+        engineered_recipes.update(recipes.ratio)
+    if recipes.log_ratio:
+        engineered_recipes.update(recipes.log_ratio)
+    if recipes.grouped_delta:
+        engineered_recipes.update(recipes.grouped_delta)
+    if recipes.lagged_diff:
+        engineered_recipes.update(recipes.lagged_diff)
     # Layer 87: same routing for grouped multi-stat aggregate recipes.
-    if _grouped_agg_pre_recipes:
-        engineered_recipes.update(_grouped_agg_pre_recipes)
+    if recipes.grouped_agg:
+        engineered_recipes.update(recipes.grouped_agg)
     # Layer 93: same routing for composite-key grouped aggregate recipes.
-    if _composite_group_agg_pre_recipes:
-        engineered_recipes.update(_composite_group_agg_pre_recipes)
+    if recipes.composite_group_agg:
+        engineered_recipes.update(recipes.composite_group_agg)
     # Layer 88: same routing for grouped-quantile / target-aware-bin recipes.
-    if _grouped_quantile_pre_recipes:
-        engineered_recipes.update(_grouped_quantile_pre_recipes)
+    if recipes.grouped_quantile:
+        engineered_recipes.update(recipes.grouped_quantile)
     # Layer 89: same routing for cat x cat synergy-cross recipes.
-    if _cat_pair_pre_recipes:
-        engineered_recipes.update(_cat_pair_pre_recipes)
+    if recipes.cat_pair:
+        engineered_recipes.update(recipes.cat_pair)
     # Layer 94: same routing for cat x cat x cat triple synergy-cross recipes.
-    if _cat_triple_pre_recipes:
-        engineered_recipes.update(_cat_triple_pre_recipes)
-    if _numeric_decompose_pre_recipes:
-        engineered_recipes.update(_numeric_decompose_pre_recipes)
+    if recipes.cat_triple:
+        engineered_recipes.update(recipes.cat_triple)
+    if recipes.numeric_decompose:
+        engineered_recipes.update(recipes.numeric_decompose)
     # Layer 95 PART A: same routing for periodic / modular recipes.
-    if _modular_pre_recipes:
-        engineered_recipes.update(_modular_pre_recipes)
-    if _pairwise_modular_pre_recipes:
-        engineered_recipes.update(_pairwise_modular_pre_recipes)
-    if _integer_lattice_pre_recipes:
-        engineered_recipes.update(_integer_lattice_pre_recipes)
-    if _row_argmax_pre_recipes:
-        engineered_recipes.update(_row_argmax_pre_recipes)
-    if _conditional_gate_pre_recipes:
-        engineered_recipes.update(_conditional_gate_pre_recipes)
+    if recipes.modular:
+        engineered_recipes.update(recipes.modular)
+    if recipes.pairwise_modular:
+        engineered_recipes.update(recipes.pairwise_modular)
+    if recipes.integer_lattice:
+        engineered_recipes.update(recipes.integer_lattice)
+    if recipes.row_argmax:
+        engineered_recipes.update(recipes.row_argmax)
+    if recipes.conditional_gate:
+        engineered_recipes.update(recipes.conditional_gate)
     # Layer 95 PART B: same routing for per-group distribution-distance recipes.
-    if _group_distance_pre_recipes:
-        engineered_recipes.update(_group_distance_pre_recipes)
+    if recipes.group_distance:
+        engineered_recipes.update(recipes.group_distance)
     # Layer 104: rare-category / conditional-residual / rankgauss recipes.
-    if _rare_category_pre_recipes:
-        engineered_recipes.update(_rare_category_pre_recipes)
-    if _conditional_residual_pre_recipes:
-        engineered_recipes.update(_conditional_residual_pre_recipes)
-    if _conditional_dispersion_pre_recipes:
-        engineered_recipes.update(_conditional_dispersion_pre_recipes)
-    if _conditional_quantile_rank_pre_recipes:
-        engineered_recipes.update(_conditional_quantile_rank_pre_recipes)
-    if _ordinal_pattern_pre_recipes:
-        engineered_recipes.update(_ordinal_pattern_pre_recipes)
-    if _random_fourier_pre_recipes:
-        engineered_recipes.update(_random_fourier_pre_recipes)
-    if _sir_direction_pre_recipes:
-        engineered_recipes.update(_sir_direction_pre_recipes)
-    if _lof_pre_recipes:
-        engineered_recipes.update(_lof_pre_recipes)
-    if _mahalanobis_density_pre_recipes:
-        engineered_recipes.update(_mahalanobis_density_pre_recipes)
-    if _wavelet_pre_recipes:
-        engineered_recipes.update(_wavelet_pre_recipes)
-    if _rankgauss_pre_recipes:
-        engineered_recipes.update(_rankgauss_pre_recipes)
+    if recipes.rare_category:
+        engineered_recipes.update(recipes.rare_category)
+    if recipes.conditional_residual:
+        engineered_recipes.update(recipes.conditional_residual)
+    if recipes.conditional_dispersion:
+        engineered_recipes.update(recipes.conditional_dispersion)
+    if recipes.conditional_quantile_rank:
+        engineered_recipes.update(recipes.conditional_quantile_rank)
+    if recipes.ordinal_pattern:
+        engineered_recipes.update(recipes.ordinal_pattern)
+    if recipes.random_fourier:
+        engineered_recipes.update(recipes.random_fourier)
+    if recipes.sir_direction:
+        engineered_recipes.update(recipes.sir_direction)
+    if recipes.lof:
+        engineered_recipes.update(recipes.lof)
+    if recipes.mahalanobis_density:
+        engineered_recipes.update(recipes.mahalanobis_density)
+    if recipes.wavelet:
+        engineered_recipes.update(recipes.wavelet)
+    if recipes.rankgauss:
+        engineered_recipes.update(recipes.rankgauss)
     # Layer 92: same routing for temporal leak-safe aggregation recipes.
-    if _temporal_agg_pre_recipes:
-        engineered_recipes.update(_temporal_agg_pre_recipes)
+    if recipes.temporal_agg:
+        engineered_recipes.update(recipes.temporal_agg)
     # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
     self._cluster_aggregate_removals_ = []
     self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report
@@ -1965,7 +1429,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             from ._helpers import _prune_engineered_continuous_store
             _prune_engineered_continuous_store(self, cols, selected_vars)
 
-        if fe_max_steps == 0 or num_fs_steps >= fe_max_steps:
+        if fe.max_steps == 0 or num_fs_steps >= fe.max_steps:
             break
 
         if self.max_runtime_mins is not None:
@@ -2032,24 +1496,24 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             parallel_kwargs=parallel_kwargs,
             _is_polars_input=_is_polars_input,
             verbose=verbose,
-            fe_max_steps=fe_max_steps,
-            fe_npermutations=fe_npermutations,
-            fe_max_pair_features=fe_max_pair_features,
-            fe_print_best_mis_only=fe_print_best_mis_only,
-            fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-            fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
-            fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
-            fe_max_external_validation_factors=fe_max_external_validation_factors,
-            fe_min_pair_mi=fe_min_pair_mi,
-            fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
-            fe_smart_polynom_iters=fe_smart_polynom_iters,
-            fe_smart_polynom_optimization_steps=fe_smart_polynom_optimization_steps,
-            fe_min_polynom_degree=fe_min_polynom_degree,
-            fe_max_polynom_degree=fe_max_polynom_degree,
-            fe_min_polynom_coeff=fe_min_polynom_coeff,
-            fe_max_polynom_coeff=fe_max_polynom_coeff,
-            fe_unary_preset=fe_unary_preset,
-            fe_binary_preset=fe_binary_preset,
+            fe_max_steps=fe.max_steps,
+            fe_npermutations=fe.npermutations,
+            fe_max_pair_features=fe.max_pair_features,
+            fe_print_best_mis_only=fe.print_best_mis_only,
+            fe_min_nonzero_confidence=fe.min_nonzero_confidence,
+            fe_min_engineered_mi_prevalence=fe.min_engineered_mi_prevalence,
+            fe_good_to_best_feature_mi_threshold=fe.good_to_best_feature_mi_threshold,
+            fe_max_external_validation_factors=fe.max_external_validation_factors,
+            fe_min_pair_mi=fe.min_pair_mi,
+            fe_min_pair_mi_prevalence=fe.min_pair_mi_prevalence,
+            fe_smart_polynom_iters=fe.smart_polynom_iters,
+            fe_smart_polynom_optimization_steps=fe.smart_polynom_optimization_steps,
+            fe_min_polynom_degree=fe.min_polynom_degree,
+            fe_max_polynom_degree=fe.max_polynom_degree,
+            fe_min_polynom_coeff=fe.min_polynom_coeff,
+            fe_max_polynom_coeff=fe.max_polynom_coeff,
+            fe_unary_preset=fe.unary_preset,
+            fe_binary_preset=fe.binary_preset,
         )
         if fe_result is None:
             break  # FE skip: empty screening + fe_fallback_to_all=False
@@ -2065,16 +1529,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # already-completed expensive Hermite Optuna phase).
         _adaptive = bool(getattr(self, "fe_adaptive_threshold_relax", True))
         _relax_factor = float(getattr(self, "fe_adaptive_relax_factor", 0.9))
-        if n_recommended_features == 0 and _adaptive and fe_max_steps > 0 and num_fs_steps == 0:  # only on the very first FE step
+        if n_recommended_features == 0 and _adaptive and fe.max_steps > 0 and num_fs_steps == 0:  # only on the very first FE step
             # fe_min_pair_mi_prevalence may be the sentinel string "auto" (debiased-ratio mode -
             # see _step_core.py's own isinstance check) rather than a float; resolve it to that
             # same established numeric convention (1.05) just for this relaxation arithmetic, same
             # as _step_core.py/_step_pairs_rank.py already do at their own use sites. Passing "auto"
             # straight into `* _relax_factor` raised TypeError: can't multiply sequence by float.
             _pair_mi_prevalence_for_relax = (
-                1.05 if isinstance(fe_min_pair_mi_prevalence, str) and fe_min_pair_mi_prevalence.strip().lower() == "auto" else float(fe_min_pair_mi_prevalence)
+                1.05 if isinstance(fe.min_pair_mi_prevalence, str) and fe.min_pair_mi_prevalence.strip().lower() == "auto" else float(fe.min_pair_mi_prevalence)
             )
-            _relaxed_engineered = fe_min_engineered_mi_prevalence * _relax_factor
+            _relaxed_engineered = fe.min_engineered_mi_prevalence * _relax_factor
             _relaxed_pair = max(1.001, _pair_mi_prevalence_for_relax * _relax_factor)
             if verbose:
                 logger.info(
@@ -2084,7 +1548,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "pair_mi_prevalence: %.3f -> %.3f). "
                     "Skipping Hermite Optuna re-run (already cached in "
                     "_hermite_features_).",
-                    fe_min_engineered_mi_prevalence, _relaxed_engineered,
+                    fe.min_engineered_mi_prevalence, _relaxed_engineered,
                     _pair_mi_prevalence_for_relax, _relaxed_pair,
                 )
             fe_result_retry = self._run_fe_step(
@@ -2106,24 +1570,24 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 parallel_kwargs=parallel_kwargs,
                 _is_polars_input=_is_polars_input,
                 verbose=verbose,
-                fe_max_steps=fe_max_steps,
-                fe_npermutations=fe_npermutations,
-                fe_max_pair_features=fe_max_pair_features,
-                fe_print_best_mis_only=fe_print_best_mis_only,
-                fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                fe_max_steps=fe.max_steps,
+                fe_npermutations=fe.npermutations,
+                fe_max_pair_features=fe.max_pair_features,
+                fe_print_best_mis_only=fe.print_best_mis_only,
+                fe_min_nonzero_confidence=fe.min_nonzero_confidence,
                 fe_min_engineered_mi_prevalence=_relaxed_engineered,
-                fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
-                fe_max_external_validation_factors=fe_max_external_validation_factors,
-                fe_min_pair_mi=fe_min_pair_mi,
+                fe_good_to_best_feature_mi_threshold=fe.good_to_best_feature_mi_threshold,
+                fe_max_external_validation_factors=fe.max_external_validation_factors,
+                fe_min_pair_mi=fe.min_pair_mi,
                 fe_min_pair_mi_prevalence=_relaxed_pair,
                 fe_smart_polynom_iters=0,  # already ran in first pass
-                fe_smart_polynom_optimization_steps=fe_smart_polynom_optimization_steps,
-                fe_min_polynom_degree=fe_min_polynom_degree,
-                fe_max_polynom_degree=fe_max_polynom_degree,
-                fe_min_polynom_coeff=fe_min_polynom_coeff,
-                fe_max_polynom_coeff=fe_max_polynom_coeff,
-                fe_unary_preset=fe_unary_preset,
-                fe_binary_preset=fe_binary_preset,
+                fe_smart_polynom_optimization_steps=fe.smart_polynom_optimization_steps,
+                fe_min_polynom_degree=fe.min_polynom_degree,
+                fe_max_polynom_degree=fe.max_polynom_degree,
+                fe_min_polynom_coeff=fe.min_polynom_coeff,
+                fe_max_polynom_coeff=fe.max_polynom_coeff,
+                fe_unary_preset=fe.unary_preset,
+                fe_binary_preset=fe.binary_preset,
             )
             if fe_result_retry is not None:
                 data, cols, nbins, X, selected_vars, n_recommended_features = fe_result_retry
@@ -2137,7 +1601,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             break
 
         num_fs_steps += 1
-        if num_fs_steps >= fe_max_steps:
+        if num_fs_steps >= fe.max_steps:
             # CONFIRM-RESCREEN: the FE step appended engineered
             # columns and (legacy) promoted them into ``selected_vars`` BY FIAT,
             # bypassing redundancy filtering + gain accounting. Instead of
@@ -2192,45 +1656,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # X was left with the injected ``targ_<id>`` columns, which leaked into downstream sklearn pipeline
     # (imputer/scaler recorded them in feature_names_in_ and raised on transform). Fix: drop in place (pandas)
     # or rebind (polars - immutable, caller's X was never mutated).
-    if _is_polars_input:
-        X = X.drop(target_names)  # no-copy lazy op; caller's X untouched
-    else:
-        # option_context silences the conservative SettingWithCopy heuristic (fires when the caller passed a sliced
-        # view); the in-place drop reverses this function's own targ_<id> injection on the same object, no copy.
-        with pd.option_context("mode.chained_assignment", None):
-            X.drop(columns=target_names, inplace=True)  # noqa: PD002 - must mutate the caller's frame OBJECT in place (restores its original schema by identity), not rebind a local; `X = X.drop(...)` would silently stop touching the caller's actual frame
-
-    # DCD orphaned-cluster raw re-attach. A DCD AGGREGATE swap replaces the raw
-    # anchor with the (engineered, non-support_) aggregate column; when that
-    # anchor was the cluster's only selected raw column the latent disappears
-    # from the raw ``support_`` (which indexes feature_names_in_ only) even
-    # though the denoised aggregate survives in ``get_feature_names_out`` /
-    # ``transform``. Run on the FINAL ``selected_vars`` (after the confirm-
-    # rescreen loop has fully settled, so this can never perturb a subsequent
-    # re-selection) to re-attach one raw cluster member per orphaned aggregate,
-    # keeping each collapsed latent visible in BOTH the raw support and the
-    # transform output. Best-effort; never breaks fit.
-    if _dcd_state is not None and len(selected_vars):
-        try:
-            from .._dynamic_cluster_discovery import (
-                reattach_raw_representative_after_aggregate_swap as _dcd_reattach_raw,
-            )
-            _sv_list = list(selected_vars)
-            _sv_set = {int(s) for s in _sv_list}
-            _agg_indices = [
-                int(e.get("new_col_idx"))
-                for e in (getattr(_dcd_state, "swap_log", None) or [])
-                if str(e.get("branch", "aggregate")) == "aggregate" and e.get("aggregate_name") and e.get("new_col_idx") is not None
-            ]
-            for _agg_idx in _agg_indices:
-                if _agg_idx in _sv_set:
-                    _dcd_reattach_raw(_dcd_state, _agg_idx, _sv_list)
-            selected_vars = _sv_list
-        except Exception as _reattach_exc:
-            logger.warning(
-                "DCD orphaned-cluster raw re-attach failed (%s); continuing.",
-                _reattach_exc,
-            )
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _drop_temporary_targets
+    X, selected_vars = _drop_temporary_targets(_is_polars_input, X, target_names, _dcd_state, selected_vars)
 
     # ---------------------------------------------------------------------------------------------------------------
     # Friend-graph post-analysis (diagnostic; optional pruning). Built here, while ``selected_vars``,
@@ -2238,292 +1665,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # rebinds ``selected_vars`` to original-frame indices. When pruning is enabled the pruned cols-space
     # list flows through that same remap into ``support_``. Never allowed to break fit - guarded.
     # ---------------------------------------------------------------------------------------------------------------
-    from ._friend_graph_and_redundancy import _friend_graph_and_redundancy_passes
-    from .._fe_frame_ops import fe_to_pandas
-
-    selected_vars, cols, data, nbins = _friend_graph_and_redundancy_passes(
-        self,
-        X=X,
-        classes_y=classes_y,
-        cols=cols,
-        data=data,
-        nbins=nbins,
-        target_indices=target_indices,
-        y=y,
-        verbose=verbose,
-        cached_MIs=cached_MIs,
-        engineered_recipes=engineered_recipes,
-        _eng_continuous_snapshot=_eng_continuous_snapshot,
-        selected_vars=selected_vars,
-        _effective_min_relevance_gain=_effective_min_relevance_gain,
-        _hinge_deferred_recipes=_hinge_deferred_recipes,
-        _hinge_deferred_values=_hinge_deferred_values,
-        _hybrid_orth_pre_recipes=_hybrid_orth_pre_recipes,
-        _miss_ind_pre_recipes=_miss_ind_pre_recipes,
-        _persisted_dcd_state=_persisted_dcd_state,
-        _y_np=_y_np,
-        fe_to_pandas=fe_to_pandas,
-        _fe_family_on=_fe_family_on,
-    )
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _friend_graph_analysis
+    cols, data, nbins, selected_vars = _friend_graph_analysis(self, X, classes_y, cols, data, nbins, target_indices, y, verbose, cached_MIs, engineered_recipes, _eng_continuous_snapshot, selected_vars, _effective_min_relevance_gain, recipes, _persisted_dcd_state, _y_np, _fe_family_on)
     # ---------------------------------------------------------------------------------------------------------------
     # selected_vars: cols-indices -> names -> original-frame indices (categorize_dataset may rearrange cat columns).
     # ---------------------------------------------------------------------------------------------------------------
 
-    selected_vars_names = np.array(cols)[np.array(selected_vars, dtype=np.intp)]
-
-    # BUG2: the cross-fold stability vote in ``_run_fe_step`` pops a
-    # fold-unstable engineered recipe AND de-selects its column for that step, but the
-    # materialised bin-code column stays in ``cols``/``data``, so the downstream greedy
-    # screen (step>1 re-screen / final selection) re-admits it on marginal MI - it then
-    # arrives here with NO recipe and was silently DROPPED from transform output (a
-    # select-then-drop contract violation: a feature in support_/discovered MUST survive
-    # transform). The vote is authoritative, so strip every vote-rejected engineered name
-    # from the selection BEFORE finalising support_/discovered: the column never re-enters
-    # support_, get_feature_names_out, or _engineered_features_. ``selected_vars`` is filtered
-    # in lockstep (by cols-index) so the raw integer support stays consistent.
-    _vote_dropped_names = getattr(self, "_fe_stability_vote_dropped_", None)
-    if _vote_dropped_names:
-        _keep_mask = np.array([nm not in _vote_dropped_names for nm in selected_vars_names], dtype=bool)
-        if not _keep_mask.all():
-            _kept_idx_positions = np.nonzero(_keep_mask)[0]
-            selected_vars = [selected_vars[i] for i in _kept_idx_positions]
-            selected_vars_names = selected_vars_names[_keep_mask]
-            if verbose:
-                logger.info(
-                    "MRMR.fit: stripped %d cross-fold-vote-rejected engineered feature(s) from the "
-                    "final selection so they cannot re-enter support_ without a replayable recipe.",
-                    int((~_keep_mask).sum()),
-                )
-    # Tolerate FE-engineered names: screening output may include synthetic feature names not in
-    # feature_names_in_; record them in self._engineered_features_ instead of raising on the .index() lookup.
-    # Also surface matching EngineeredRecipe (built during _run_fe_step) so transform() can replay each
-    # engineered column on test data. An engineered name without a recipe (e.g. higher-order interaction
-    # whose parents are themselves engineered) is recorded by name only and dropped from transform output.
-    self._engineered_features_ = []
-    self._engineered_recipes_ = []
-    original_indices = []
-    engineered_without_recipe = []
-    # feature_names_in_ is an ndarray (sklearn convention); name -> index map built once (O(F))
-    # instead of an ``in`` test + ``.index()`` rescan per ``col`` (O(F) each) - turns the O(K*F)
-    # loop below into O(K+F).
-    _fni_idx = {nm: i for i, nm in enumerate(self.feature_names_in_)}
-    for col in selected_vars_names:
-        _fni_i = _fni_idx.get(col)
-        if _fni_i is not None:
-            original_indices.append(_fni_i)
-        else:
-            self._engineered_features_.append(col)
-            recipe = engineered_recipes.get(col)
-            if recipe is not None:
-                self._engineered_recipes_.append(recipe)
-            else:
-                engineered_without_recipe.append(col)
-    if engineered_without_recipe and verbose:
-        # Happens with fe_max_steps>1 when a higher-order interaction's parents are themselves engineered features. The recipe replay path can only
-        # reconstruct 1-deep engineering; deeper nests are recorded in self._engineered_features_ but DROPPED from transform output. Surface the cost.
-        logger.warning(
-            "MRMR.fit: %d engineered feature(s) selected without replayable recipe (nested-engineered parents at fe_max_steps=%d); they will be DROPPED from transform output: %s",
-            len(engineered_without_recipe), self.fe_max_steps, engineered_without_recipe[:8],
-        )
-    # ``selected_vars`` is downstream re-bound to the integer indices of the RAW columns only; engineered features are appended in transform() via
-    # ``_append_engineered`` using ``self._engineered_recipes_``. This split mirrors the on-disk contract: support_ indexes feature_names_in_; engineered output
-    # columns come from the recipes list. n_features_ counts BOTH (see assignment below).
-    selected_vars = original_indices
-
-    # PSEUDO-REMIX OPERAND RE-ADD. A surviving conditional-gate / binned-numeric-agg /
-    # row-argmax composite (``gate_mask__a__b`` / ``binagg_*(c|qbin(a))`` / ``argmax__a__b``) is a LOSSY
-    # threshold/binning re-mix of its raw operands: it survived because it captures the INTERACTION, but
-    # it destroys each operand's continuous value that a LINEAR downstream needs (measured: a 5-class
-    # LogReg scored macro-F1 0.62 when x2 lived ONLY inside ``gate_mask__x1__x2`` vs >0.70 with raw x2
-    # restored). The operands typically have WEAK MARGINAL MI (signal is in the joint), so the screen /
-    # marginal retention never surface them. When a CO-operand is ALREADY in the raw support (e.g. x1
-    # selected beside ``gate_mask__x1__x2``) the composite is a vouched genuine multi-source interaction,
-    # so restore the other raw operand(s). Runs here (engineered roster + raw support both final). A
-    # single-operand self-gate gets no vouch; a noise-paired gate has low joint MI and rarely survives.
-    # PASSTHROUGH RE-ATTACH. Embedding/text columns excluded from the MI screen above are re-added to the selected set so transform() emits them unchanged. Their
-    # indices are looked up in ``feature_names_in_`` (which includes them, in original order). Appended AFTER the screen so they never participate in MI/redundancy
-    # but always survive to the estimator (the learnable-embedding network + boundary encoder consume them).
-    if self._passthrough_features_:
-        _existing = set(selected_vars)
-        # Reuse the name -> index map built above (``feature_names_in_`` is fit-invariant).
-        for _pname in self._passthrough_features_:
-            _pidx = _fni_idx.get(_pname)
-            if _pidx is not None and _pidx not in _existing:
-                selected_vars.append(_pidx)
-                _existing.add(_pidx)
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _map_selected_to_original_indices
+    _fni_idx, selected_vars = _map_selected_to_original_indices(self, cols, selected_vars, verbose, engineered_recipes)
 
     # ---------------------------------------------------------------------------------------------------------------
     # additional_rfecv run
     # ---------------------------------------------------------------------------------------------------------------
 
-    if self.run_additional_rfecv_minutes:
-        """On the factors discarded by MRMR, let's run RFECV to see if any of them participate in interactions"""
-        n_unexplored = X.shape[1] - len(selected_vars)
-        if n_unexplored > 0:
-            if verbose:
-                logger.info(
-                    "Running RFECV for %s minute(s) over %s feature(s) discarded by MRMR to extract interactions...",
-                    self.run_additional_rfecv_minutes,
-                    f"{n_unexplored:_}",
-                )
-
-            from mlframe.training import get_training_configs
-
-            configs = get_training_configs(has_time=True)
-
-            params = configs.COMMON_RFECV_PARAMS.copy()
-            params["max_runtime_mins"] = self.run_additional_rfecv_minutes
-            # Wire MRMR.cv / cv_shuffle into the additional RFECV pass; pre-fix they were dead constructor params.
-            # ``params`` may already carry ``cv`` from configs.COMMON_RFECV_PARAMS; MRMR's explicit setting wins.
-            params.update(self._rfecv_cv_kwargs())
-            # Parsimony for the rescue: RFECV's recall-oriented default ('one_se_max') keeps the LARGEST subset within 1 SE, which on a
-            # noise-robust booster re-admits ~the whole discarded pool and undoes MRMR's selection. Pin the smallest-within-1-SE rule so the
-            # rescue re-adds only discarded features that genuinely lift CV. setdefault lets COMMON_RFECV_PARAMS / additional_rfecv_kwargs win.
-            params.setdefault("n_features_selection_rule", getattr(self, "additional_rfecv_selection_rule", "one_se_min"))
-            _extra_rfecv = getattr(self, "additional_rfecv_kwargs", None)
-            if _extra_rfecv:
-                params.update(_extra_rfecv)
-
-            # Classifier-vs-regressor detection. Preference order:
-            #   1) Explicit ``target_type`` attribute on self (set by the caller / harness).
-            #   2) Honest dtype + cardinality heuristic: float dtype is regression by
-            #      construction (zero-inflated targets like ``[0]*900 + [1.7, 2.4, ...]``
-            #      satisfy the legacy ratio>100 but are NOT classification). Integer
-            #      dtype with ratio>100 AND small absolute cardinality (<=64 unique
-            #      values) is classification. Everything else is regression.
-            # Pre-fix, the regression else-branch silently skipped the
-            # additional-RFECV pass entirely, so regression callers got no benefit
-            # from run_additional_rfecv_minutes. The dtype guard prevents misclassifying
-            # zero-inflated float targets. fix audit row FS-L-2.
-            _explicit_tt = getattr(self, "target_type", None)
-            if _explicit_tt is not None:
-                _tt_str = str(_explicit_tt).lower()
-                _is_classification = "classif" in _tt_str or _tt_str in ("binary", "multiclass", "multilabel")
-            else:
-                _y_arr = np.asarray(y)
-                _n_unique = len(np.unique(_y_arr))
-                _ratio = len(_y_arr) / max(1, _n_unique)
-                _is_float = _y_arr.dtype.kind == "f"
-                _is_classification = (not _is_float) and _ratio > 100 and _n_unique <= 64
-                if _ratio > 100 and _is_float:
-                    logger.warning(
-                        "MRMR.run_additional_rfecv: target is float dtype with %d unique values; "
-                        "treating as regression despite samples/unique ratio %.1f>100. Pass "
-                        "target_type='classification' explicitly to override.",
-                        _n_unique, _ratio,
-                    )
-            # order-preserving set
-            # difference. The prior ``list(set(X.columns) - set(...))``
-            # produced a HASH-SEED-DEPENDENT column order because Python's
-            # randomized string hashing reorders ``set`` iteration across
-            # processes. That order flowed into RFECV's CatBoost feature
-            # importances, whose tie-breaks then gave different
-            # ``self.support_`` across runs that differed only in
-            # ``PYTHONHASHSEED``. Concrete demo: 5/5 distinct orderings
-            # observed across seeds 0-4. Breaks the "same random_seed ->
-            # identical support_" contract for any user with
-            # ``run_additional_rfecv_minutes`` > 0.
-            # ``selected_vars`` indexes ``feature_names_in_`` (full, includes passthrough); ``X`` here is the passthrough-narrowed working frame, so map names via
-            # ``feature_names_in_`` rather than ``X.columns[...]`` (positional mismatch when passthrough is active). Passthrough columns are never in the narrowed X
-            # and never enter the RFECV rescue pool below regardless.
-            _sel_names = {self.feature_names_in_[i] for i in selected_vars}
-            # Cluster members already folded into a denoised aggregate (post-hoc cluster_aggregate 'replace' mode,
-            # _cluster_aggregate_removals_) or into a DCD PC1/mean_z swap (cluster_members_) are REPRESENTED by that
-            # aggregate. Excluding them from the rescue pool stops RFECV re-admitting the raw members and re-injecting
-            # the very redundancy the aggregation removed - only features dropped for low marginal/joint relevance get reconsidered.
-            _excluded_from_rescue = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
-            _cm = getattr(self, "cluster_members_", None)
-            if isinstance(_cm, dict):
-                for _anchor, _members in _cm.items():
-                    _excluded_from_rescue.add(_anchor)
-                    if isinstance(_members, (list, tuple, set)):
-                        _excluded_from_rescue.update(_members)
-            # Engineered FE columns (univariate basis a__T2, hybrid/pair/triplet crosses,
-            # MI-greedy) survive in X.columns but were deliberately excluded from
-            # feature_names_in_ (raw columns only, line above). They cannot be indexed
-            # into support_ via feature_names_in_.index() -> ValueError. Exclude them from
-            # the rescue pool so RFECV only reconsiders RAW discarded columns.
-            _excluded_from_rescue.update(getattr(self, "hybrid_orth_features_", None) or [])
-            _excluded_from_rescue.update(getattr(self, "mi_greedy_features_", None) or [])
-            # Raw operands the conditional-redundancy sweep judged FULLY SUBSUMED by a
-            # surviving engineered child (``_raw_redundancy_dropped_``) must NOT re-enter
-            # via the RFECV rescue pool. The n-invariant CMI verdict is authoritative: a
-            # raw whose entire y-information is captured by an admitted engineered feature
-            # (e.g. ``a`` / ``b`` in ``a**2/b`` once ``div(neg(a),sqrt(b))`` is selected)
-            # carries no independent signal, but CatBoost RFECV - which scores raw
-            # MARGINAL usefulness, blind to the engineered child's coverage - would re-admit
-            # it, resurrecting the exact redundancy the sweep removed (observed at n=2000/5000
-            # on ``y=0.30 a**2/b``: the sweep dropped a+b, RFECV re-added a). Excluding the
-            # dropped set keeps the redundancy decision consistent across both the FE-step
-            # finalisation AND the downstream RFECV rescue.
-            _excluded_from_rescue.update(getattr(self, "_raw_redundancy_dropped_", None) or set())
-            # The rescue maps pool columns back through feature_names_in_, so only raw input columns are eligible. Filtering by membership,
-            # not by per-family rosters, keeps every FE family's engineered columns out (an unary/binary pair column reached this pool and
-            # would have raised KeyError if RFECV had selected it).
-            _raw_rescue_names = set(self.feature_names_in_)
-            temp_columns = [c for c in X.columns if c in _raw_rescue_names and c not in _sel_names and c not in _excluded_from_rescue]
-
-            if not temp_columns:
-                # Every raw column is already selected or excluded (cluster members, subsumed operands, engineered columns); the
-                # count above mixes the working frame (with engineered columns) and feature_names_in_, so it can be positive here.
-                if verbose:
-                    logger.info("RFECV rescue skipped: no discarded raw column is eligible after exclusions.")
-            else:
-                if _is_classification:
-                    cb_num_rfecv = RFECV(
-                        estimator=CatBoostClassifier(**configs.CB_CLASSIF),
-                        fit_params=dict(plot=False),
-                        cat_features=categorical_vars_names,
-                        scoring=make_scorer(score_func=compute_probabilistic_multiclass_error, response_method="predict_proba", greater_is_better=False),
-                        **params,
-                    )
-                else:
-                    # Regression branch: CatBoostRegressor with the same shared params; default scoring lets
-                    # RFECV pick from the estimator (negative-MSE-like). Keeping the import local avoids
-                    # paying the CatBoostRegressor import cost when only classification is exercised.
-                    from catboost import CatBoostRegressor
-                    cb_num_rfecv = RFECV(
-                        estimator=CatBoostRegressor(**configs.CB_REGR),
-                        fit_params=dict(plot=False),
-                        cat_features=categorical_vars_names,
-                        **params,
-                    )
-                cb_num_rfecv.fit(X[temp_columns], y)
-
-                if cb_num_rfecv.n_features_ > 0:
-                    new_features = np.array(temp_columns)[cb_num_rfecv.support_]
-                    if verbose:
-                        logger.info("RFECV selected %d additional feature(s): %s", cb_num_rfecv.n_features_, new_features)
-                    # Reuse the name -> index map built above (``feature_names_in_`` is fit-invariant).
-                    for feature in new_features:
-                        selected_vars.append(_fni_idx[feature])
-                else:
-                    if verbose:
-                        logger.info("RFECV selected no additional features.")
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _run_additional_rfecv
+    _run_additional_rfecv(self, X, selected_vars, verbose, y, categorical_vars_names, _fni_idx)
 
     # ---------------------------------------------------------------------------------------------------------------
     # Assign support
     # ---------------------------------------------------------------------------------------------------------------
 
-    from ._assign_support import _assign_support
-
-    _assign_support(
-        self,
-        X=X,
-        classes_y=classes_y,
-        cols=cols,
-        data=data,
-        nbins=nbins,
-        target_indices=target_indices,
-        y=y,
-        verbose=verbose,
-        fe_max_steps=fe_max_steps,
-        cached_MIs=cached_MIs,
-        engineered_recipes=engineered_recipes,
-        predictors=predictors,
-        _eng_continuous_snapshot=_eng_continuous_snapshot,
-        selected_vars=selected_vars,
-    )
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _assign_support
+    _assign_support(self, X, classes_y, cols, data, nbins, target_indices, y, verbose, fe, cached_MIs, engineered_recipes, predictors, _eng_continuous_snapshot, selected_vars)
 
     # ---------------------------------------------------------------------------------------------------------------
     # Report FS results
