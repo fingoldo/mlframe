@@ -90,8 +90,8 @@ def test_backward_elimination_drops_a_pure_probe_before_an_informative_column() 
 
     _kept, trace = greedy_backward_elimination(LogisticRegression(max_iter=500), frame, labels, roc_auc_score, min_features=2, return_trace=True)
 
-    if trace:
-        assert trace[0].dropped not in ("c0", "c1"), f"the first removal was {trace[0].dropped!r}, one of the two informative columns"
+    assert len(trace) > 0, "the search dropped nothing, so there is no order to check"
+    assert trace[0].dropped not in ("c0", "c1"), f"the first removal was {trace[0].dropped!r}, one of the two informative columns"
 
 
 def test_pruning_still_returns_a_bare_set_by_default() -> None:
@@ -137,8 +137,10 @@ def test_pruning_trace_marks_which_round_became_the_best_set() -> None:
     _kept, trace = iterative_zero_importance_pruning(RandomForestClassifier(n_estimators=20, random_state=0), frame, labels, roc_auc_score, max_rounds=4, return_trace=True)
 
     flags: List[bool] = [round_.became_best for round_ in trace]
+    assert len(flags) > 0, "the pruning recorded no rounds"
     assert all(isinstance(flag, bool) for flag in flags)
     scores = [round_.score_after for round_ in trace]
+    assert len(scores) == len(flags)
     assert all(np.isfinite(score) for score in scores), "a round recorded a non-finite score, which no comparison can use"
 
 

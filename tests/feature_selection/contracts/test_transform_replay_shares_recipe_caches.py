@@ -46,7 +46,7 @@ def test_every_recipe_call_receives_the_same_two_caches(monkeypatch):
 
     monkeypatch.setattr(engineered_recipes, "apply_recipe", _spy)
     m.transform(X)
-    assert seen, "transform replayed no recipes"
+    assert len(seen) > 0, "transform replayed no recipes"
     assert all(c is not None and b is not None for c, b in seen), f"a recipe was replayed without the caches: {seen}"
     assert len({c for c, _ in seen}) == 1 and len({b for _, b in seen}) == 1, "the caches were not shared across the call"
 

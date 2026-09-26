@@ -38,7 +38,8 @@ def test_our_own_memory_does_not_count_against_us():
 def test_without_per_process_memory_all_used_memory_counts():
     """Windows WDDM reports no per-process VRAM; then the card's used memory is the only measure."""
     snap = _snap(util=0.0, used=7900.0, procs=[{"gpu": 0, "pid": 7320, "name": "python.exe", "mem_mb": None}])
-    assert gpu_busy_reason(snap, required_gb=1.0, own_pid=OWN) is not None
+    reason = gpu_busy_reason(snap, required_gb=1.0, own_pid=OWN)
+    assert reason is not None and "free" in reason, reason  # judged on memory: utilisation is 0%
 
 
 def test_high_utilisation_alone_is_busy_and_the_threshold_is_configurable(monkeypatch):

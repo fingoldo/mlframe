@@ -127,7 +127,9 @@ def test_the_knob_check_sees_an_all_off_test():
 @pytest.mark.parametrize("name", sorted(MECHANISMS_WITHOUT_A_KNOB))
 def test_knobless_mechanisms_are_pinned(name: str):
     """Each default-on behaviour without a knob keeps its pinning test."""
-    assert _test_source(MECHANISMS_WITHOUT_A_KNOB[name]) is not None, MECHANISMS_WITHOUT_A_KNOB[name]
+    node_id = MECHANISMS_WITHOUT_A_KNOB[name]
+    source = _test_source(node_id)
+    assert source is not None and source.lstrip().startswith(("def ", "async def ", "class ", "@")), node_id
 
 
 def test_the_honest_oof_floor_rejects_a_spec_that_loses_to_it():

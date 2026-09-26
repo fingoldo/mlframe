@@ -330,7 +330,7 @@ def test_a_deferred_dead_field_warns_when_it_is_set(qualified: str):
             warnings.simplefilter("always")
             try:
                 cls(**{field_name: probe})
-            except Exception as exc:  # this probe does not fit the field's own validation; try the next shape
+            except (ValueError, TypeError) as exc:  # this probe does not fit the field's own validation (pydantic's ValidationError is a ValueError); try the next shape
                 rejected.append(f"{probe!r}: {type(exc).__name__}")
                 continue
         messages = [str(w.message) for w in caught if issubclass(w.category, (UserWarning, DeprecationWarning))]

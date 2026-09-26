@@ -43,6 +43,6 @@ def test_operand_prewarp_fit_time_values_unchanged_by_the_clamp(basis):
     """The clamp bounds contain every fit-time axis value, so the training column equals the unclamped evaluation."""
     a, _, y = _data(1)
     spec = fit_operand_prewarp(a, a**2 + y, basis=basis, max_degree=4)
-    assert spec is not None
+    assert spec is not None and "clip" in spec["preprocess"], "the fitted spec carries no clamp, so the comparison below is trivial"
     unclamped = dict(spec, preprocess={k: v for k, v in spec["preprocess"].items() if k != "clip"})
     np.testing.assert_allclose(apply_operand_prewarp(a, spec), apply_operand_prewarp(a, unclamped), rtol=0, atol=1e-12)

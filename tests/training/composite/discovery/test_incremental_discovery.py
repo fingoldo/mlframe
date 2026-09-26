@@ -266,4 +266,5 @@ def test_default_config_detects_a_destroyed_base_relation():
     dec = discover_incremental(disc, broken, "TVT", _FEATURES)
     assert not dec.reuse, dec.reason
     base_specs = [s.name for s in disc.specs_ if s.base_column == "TVT_prev"]
+    assert len(base_specs) > 0, "discovery kept no spec on the broken base, so there is nothing to compare"
     assert all(dec.per_spec_gain[n] < 0.5 * dec.per_spec_reference_gain[n] for n in base_specs)

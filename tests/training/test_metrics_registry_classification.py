@@ -42,6 +42,7 @@ def test_kappa_metrics_registered_for_binary_and_multiclass(tt):
     reported for binary as ``Cohen_kappa``.
     """
     names = set(mr.list_registered(tt))
+    assert len(names) > 0, f"no metrics registered for {tt}"
     if tt == TargetTypes.MULTICLASS_CLASSIFICATION:
         assert {"quadratic_weighted_kappa", "weighted_kappa"} <= names, f"kappa metrics missing for {tt}: {names}"
     else:

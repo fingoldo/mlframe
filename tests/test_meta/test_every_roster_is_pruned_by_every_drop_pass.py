@@ -63,6 +63,7 @@ def test_the_shared_drop_prunes_every_roster():
 
     from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import FE_ROSTER_ATTRS, drop_from_fe_rosters
 
+    assert len(FE_ROSTER_ATTRS) > 0
     est = SimpleNamespace(**{name: ["keep_a", "gone", "keep_b"] for name in FE_ROSTER_ATTRS})
     drop_from_fe_rosters(est, {"gone"})
     assert all(getattr(est, name) == ["keep_a", "keep_b"] for name in FE_ROSTER_ATTRS)

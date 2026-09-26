@@ -68,6 +68,7 @@ def test_auto_follows_fast_search_and_is_restored(monkeypatch, knob):
 def test_auto_is_on_without_fast_search(monkeypatch):
     """Without the profile, auto means the package value, which is on for all three."""
     during, _ = _values_seen_during_fit(monkeypatch, fe_fast_search=False)
+    assert len(_KNOBS) == 3
     assert all(during[k] is True for k in _KNOBS), during
 
 
