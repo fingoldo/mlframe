@@ -182,6 +182,7 @@ def _sys_excepthook(exc_type, exc, tb, _prev=None):
     """``sys.excepthook`` replacement: log the uncaught exception with its traceback, remember it for the exit line, then chain to ``_prev``."""
     try:
         if not issubclass(exc_type, KeyboardInterrupt):
+            # unlocked-ok: one key rebound to an immutable string by the interpreter's own excepthook; read once at exit
             _UNCAUGHT["exc"] = f"{exc_type.__name__}: {exc}"
             logger.critical("Uncaught exception in main thread:\n%s", "".join(traceback.format_exception(exc_type, exc, tb)))
         else:

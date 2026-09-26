@@ -529,6 +529,7 @@ def _canonical_dtype_pairs(train_df) -> tuple:
 
 def _store_dtype_pairs(train_df, _key: tuple, _result: tuple) -> None:
     """Insert one memo entry with its eviction weakref and trim to the cap; caller holds ``_DTYPE_PAIRS_MEMO_LOCK``."""
+    # lock-held-by-caller: the only call site is inside ``with _DTYPE_PAIRS_MEMO_LOCK``
     _DTYPE_PAIRS_MEMO[_key] = _result
     try:
         _DTYPE_PAIRS_MEMO_WEAKREFS[_key] = _weakref.ref(train_df, _make_dtype_pairs_evictor(_key))

@@ -58,6 +58,7 @@ def _impute_in_place(xi: np.ndarray, fill: np.ndarray, bad: np.ndarray | None = 
 
 def _drop_dead_locked() -> None:
     """Remove the entries whose matrix has been freed; the caller holds ``_LOCK``."""
+    # lock-held-by-caller: both call sites are inside ``with _LOCK``
     for dead in [k for k, (ref, _) in _CACHE.items() if ref() is None]:
         del _CACHE[dead]
 

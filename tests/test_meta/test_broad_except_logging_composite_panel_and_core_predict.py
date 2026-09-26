@@ -90,21 +90,17 @@ def test_achievable_ceiling_model_factory_logs_on_lgb_unavailable(caplog, monkey
     assert any("lgb probe model unavailable, falling back to linear" in rec.message for rec in caplog.records)
 
 
-def test_ar_skip_recompute_lag1_ar_logs_on_failure(caplog):
+def test_ar_skip_recompute_lag1_ar_logs_on_failure(caplog, monkeypatch):
     """`_recompute_lag1_ar_per_group` must log and return None when the underlying import fails."""
     import sys
     from mlframe.training.core._ar_skip import _recompute_lag1_ar_per_group
     import numpy as np
 
-    real_mod = sys.modules.pop("mlframe.training.targets", None)
-    sys.modules["mlframe.training.targets"] = None
-    try:
-        with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._ar_skip"):
-            out = _recompute_lag1_ar_per_group(np.arange(200, dtype=np.float64), np.zeros(200, dtype=int), np.arange(200))
-    finally:
-        sys.modules.pop("mlframe.training.targets", None)
-        if real_mod is not None:
-            sys.modules["mlframe.training.targets"] = real_mod
+    # A None entry makes the import raise ImportError; block the module the function imports from (the package's
+    # shared API), not just its parent, which a cached submodule import would bypass. monkeypatch restores it.
+    monkeypatch.setitem(sys.modules, "mlframe.training.targets.shared", None)
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._ar_skip"):
+        out = _recompute_lag1_ar_per_group(np.arange(200, dtype=np.float64), np.zeros(200, dtype=int), np.arange(200))
     assert out is None
     assert any("recompute failed" in rec.message for rec in caplog.records)
 

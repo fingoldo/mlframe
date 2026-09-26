@@ -293,6 +293,7 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
     if _names is None:
         _names = []
         _PHASE_STACK.names = _names
+        # unlocked-ok: each thread writes only its own ident key (an atomic dict store); readers iterate a list() copy
         _ALL_PHASE_STACKS[threading.get_ident()] = _names
     _names.append(name)
     logger.log(level, f"[phase] {name} START {ctx_str}".rstrip())

@@ -34,6 +34,7 @@ from tests.test_meta._module_mutable_state import (
     aliases_in,
     base_name,
     build_dict_index,
+    build_reexport_index,
     function_defs,
     imported_module_dicts,
     module_level_dicts,
@@ -103,13 +104,14 @@ def test_no_eviction_drops_pending_work():
     """Every discarded eviction is a marked cache eviction, and no obligation registry discards entries, in any module."""
     modules = list(_sources())
     index = build_dict_index({rel: tree for rel, tree, _ in modules})
+    reexports = build_reexport_index({rel: tree for rel, tree, _ in modules}, index)
     foreign: dict = {}
     for rel, tree, _ in modules:
         for name, readers in silent_miss_readers(tree).items():
             foreign[f"{module_qualname(rel)}:{name}"] = readers
     problems: list[str] = []
     for rel, tree, lines in modules:
-        problems.extend(_violations(tree, lines, rel, imported_module_dicts(tree, rel, index), foreign))
+        problems.extend(_violations(tree, lines, rel, imported_module_dicts(tree, rel, index, reexports), foreign))
     if problems:
         pytest.fail(f"{len(problems)} eviction problem(s):\n  " + "\n  ".join(problems))
 
@@ -200,3 +202,14 @@ def test_detector_is_not_blind():
     assert len(found) == 1 and "cancels pending work" in found[0], found
     unmarked = _CACHE_MARKED.replace("# evict-ok: memo; a miss recomputes the value", "# trimmed")
     assert len(_violations(ast.parse(unmarked), unmarked.splitlines(), "m.py")) == 1
+
+
+def test_a_dict_imported_through_a_reexport_resolves_to_its_origin():
+    """A consumer that imports another module's dict through a re-export module (a package ``shared.py``) mutates the
+    same shared state; the alias must resolve to the dict's origin or the mutation is invisible to the gates."""
+    shared = ast.parse("from ._reg import _PENDING as PENDING  # noqa: F401\n")
+    user = ast.parse("from mlframe.pkg.shared import PENDING as _pending\n")
+    index = {"mlframe.pkg._reg": {"_PENDING"}}
+    reexports = build_reexport_index({"pkg/shared.py": shared}, index)
+    assert imported_module_dicts(user, "other/user.py", index, reexports) == {"_pending": "mlframe.pkg._reg:_PENDING"}
+    assert imported_module_dicts(user, "other/user.py", index) == {}  # what the gates saw before: nothing

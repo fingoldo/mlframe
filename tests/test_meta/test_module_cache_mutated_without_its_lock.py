@@ -36,7 +36,7 @@ import pytest
 
 import mlframe
 
-from tests.test_meta._module_mutable_state import build_dict_index, function_defs, imported_module_dicts, mutable_module_dicts, mutations_of
+from tests.test_meta._module_mutable_state import build_dict_index, build_reexport_index, function_defs, imported_module_dicts, mutable_module_dicts, mutations_of
 from tests.test_meta._shared_ast_cache import parsed_ast
 
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
@@ -213,9 +213,10 @@ def _cross_module_offending(modules: dict) -> set[str]:
     and inserted from ``cb/_cb_pool`` with no lock). Whether the defining module has a lock is irrelevant here.
     """
     index = build_dict_index(modules)
+    reexports = build_reexport_index(modules, index)
     out: set[str] = set()
     for rel, tree in modules.items():
-        imported = imported_module_dicts(tree, rel, index)
+        imported = imported_module_dicts(tree, rel, index, reexports)
         if not imported:
             continue
         for fn in function_defs(tree):

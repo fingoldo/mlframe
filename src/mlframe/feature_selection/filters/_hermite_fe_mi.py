@@ -497,6 +497,7 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
 
 _CUDA_KERNELS: dict = {}
+_CUDA_KERNELS_LOCK = threading.Lock()
 
 
 def _ensure_cuda_kernels():
@@ -509,7 +510,9 @@ def _ensure_cuda_kernels():
     if _CUDA_KERNELS or not _CUDA_AVAILABLE:
         return
     import cupy as cp
-    _CUDA_KERNELS["hermite"] = cp.RawKernel(r"""
+
+    _kernels: dict = {}
+    _kernels["hermite"] = cp.RawKernel(r"""
 extern "C" __global__
 void hermeval_kernel(const double* __restrict__ x,
                      const double* __restrict__ c,
@@ -531,7 +534,7 @@ void hermeval_kernel(const double* __restrict__ x,
     out[i] = s;
 }
 """, "hermeval_kernel")
-    _CUDA_KERNELS["legendre"] = cp.RawKernel(r"""
+    _kernels["legendre"] = cp.RawKernel(r"""
 extern "C" __global__
 void legval_kernel(const double* __restrict__ x,
                     const double* __restrict__ c,
@@ -554,7 +557,7 @@ void legval_kernel(const double* __restrict__ x,
     out[i] = s;
 }
 """, "legval_kernel")
-    _CUDA_KERNELS["chebyshev"] = cp.RawKernel(r"""
+    _kernels["chebyshev"] = cp.RawKernel(r"""
 extern "C" __global__
 void chebval_kernel(const double* __restrict__ x,
                      const double* __restrict__ c,
@@ -576,7 +579,7 @@ void chebval_kernel(const double* __restrict__ x,
     out[i] = s;
 }
 """, "chebval_kernel")
-    _CUDA_KERNELS["laguerre"] = cp.RawKernel(r"""
+    _kernels["laguerre"] = cp.RawKernel(r"""
 extern "C" __global__
 void lagval_kernel(const double* __restrict__ x,
                     const double* __restrict__ c,
@@ -599,3 +602,8 @@ void lagval_kernel(const double* __restrict__ x,
     out[i] = s;
 }
 """, "lagval_kernel")
+    # Publish all kernels in one step: a thread that saw a half-filled dict would pass the emptiness check above and
+    # then miss a kernel that was still compiling.
+    with _CUDA_KERNELS_LOCK:
+        if not _CUDA_KERNELS:
+            _CUDA_KERNELS.update(_kernels)

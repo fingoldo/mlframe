@@ -1,4 +1,10 @@
 [
   "feature_selection/filters/_neural_mi.py:470:_compute_mist_calibration:_MIST_CALIBRATION_CACHE",
-  "training/phases.py:251:phase:_ALL_PHASE_STACKS"
+  "training/composite/discovery/_lgb_shared_fold.py:68:_drop_dead_locked:_CACHE",
+  "training/composite/discovery/_ridge_shared_fold.py:59:_drop_dead_locked:_CACHE",
+  "training/composite/provenance_formulas.py:656:_register_chain_formula_locked:_TRANSFORM_DESCRIPTIONS",
+  "training/composite/provenance_formulas.py:656:_register_chain_formula_locked:_TRANSFORM_FORMULA_BUILDERS",
+  "training/core/_phase_train_one_target.py:530:_store_dtype_pairs:_DTYPE_PAIRS_MEMO_WEAKREFS",
+  "training/crash_diagnostics.py:181:_sys_excepthook:_UNCAUGHT",
+  "training/phases.py:271:phase:_ALL_PHASE_STACKS"
 ]
