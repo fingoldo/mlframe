@@ -143,11 +143,8 @@ def setup_configuration(
     # Read only to decide whether the neural import stack is worth prewarming; the suite sets ctx.recurrent_models itself.
     recurrent_models: list[str] | None = None,
     verbose: int,
-    # These get plumbed into the TrainingContext so dispatchers downstream
-    # (LTR ranker-suite, pre-pipeline builder, ensemble-builder) see the
-    # caller's intent. Defaults match the public-API defaults in
-    # train_mlframe_models_suite so older call-sites that don't pass them
-    # explicitly preserve current behaviour.
+    # These get plumbed into the TrainingContext so dispatchers downstream (LTR ranker-suite, pre-pipeline builder, ensemble-builder) see the caller's intent.
+    # Defaults match the public-API defaults in train_mlframe_models_suite so older call-sites that don't pass them explicitly preserve current behaviour.
     ranking_config: Any = None,
     # use_mlframe_ensembles default aligned to True to match the public-API default in
     # train_mlframe_models_suite (core/_main_train_suite.py). Prior default was False, which would have

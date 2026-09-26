@@ -49,10 +49,9 @@ def _assign_support_tail(
     See the module docstring for the full section this carves out.
     """
     if fe_max_steps > 0:
-        # SHARED RETENTION PREP: both retain_usable_pure_forms and retain_usable_raw_columns below
-        # independently rebuild the same numeric-dtype base_names filter, std-trim-to-max_base_features,
-        # and (same seed) row subsample from this SAME (X, y_cont) - computed once here and passed to
-        # both so the identical-seed X.iloc[_idx] draw is materialized once, not twice, per fit.
+        # SHARED RETENTION PREP: both retain_usable_pure_forms and retain_usable_raw_columns below independently rebuild the same numeric-dtype base_names
+        # filter, std-trim-to-max_base_features, and (same seed) row subsample from this SAME (X, y_cont) - computed once here and passed to both so the
+        # identical-seed X.iloc[_idx] draw is materialized once, not twice, per fit.
         _retention_prep_cache = None
         try:
             import pandas as _ret_pd
@@ -74,19 +73,15 @@ def _assign_support_tail(
                 seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
                 _prep=_retention_prep_cache,
             )
-            # ENGINEERED-SUBSUMPTION GUARD. The pure-form retention runs AFTER the post-FE
-            # engineered-vs-engineered CMI redundancy gate, so a re-attached pure form is never tested
-            # against the engineered survivors admitted BEFORE retention. When an incumbent survivor is a
-            # FUSED compound that already carries BOTH additive halves of the target (the canonical
-            # ``add(neg(mul(sqr(a),reciproc(b))),neg(mul(log(c),sin(d))))`` for y=a**2/b+log(c)*sin(d)),
-            # a re-attached pure half (``mul(log(c),sin(d))`` / ``div(sqr(a),sin(b))``) is FULLY redundant
-            # given it - the fragmentation regression (one compound PLUS several sub-fragments). Re-run
-            # the SAME n-invariant debiased-excess CMI subsumption check the S5 gate validated, conditioning
-            # each retention candidate on the INCUMBENT (pre-retention) engineered survivors, and skip any
-            # whose information collapses given them. A genuinely COMPLEMENTARY pure form (one the incumbents
-            # do not span - the case this retention pass exists to rescue) keeps a large conditional excess
-            # and is admitted; only sub-fragments of an incumbent compound are dropped. No-op (byte-identical)
-            # when there is no incumbent engineered survivor to condition on.
+            # ENGINEERED-SUBSUMPTION GUARD. The pure-form retention runs AFTER the post-FE engineered-vs-engineered CMI redundancy gate, so a re-attached pure
+            # form is never tested against the engineered survivors admitted BEFORE retention. When an incumbent survivor is a FUSED compound that already
+            # carries BOTH additive halves of the target (the canonical ``add(neg(mul(sqr(a),reciproc(b))),neg(mul(log(c),sin(d))))`` for
+            # y=a**2/b+log(c)*sin(d)), a re-attached pure half (``mul(log(c),sin(d))`` / ``div(sqr(a),sin(b))``) is FULLY redundant given it - the fragmentation
+            # regression (one compound PLUS several sub-fragments). Re-run the SAME n-invariant debiased-excess CMI subsumption check the S5 gate validated,
+            # conditioning each retention candidate on the INCUMBENT (pre-retention) engineered survivors, and skip any whose information collapses given them.
+            # A genuinely COMPLEMENTARY pure form (one the incumbents do not span - the case this retention pass exists to rescue) keeps a large conditional
+            # excess and is admitted; only sub-fragments of an incumbent compound are dropped. No-op (byte-identical) when there is no incumbent engineered
+            # survivor to condition on.
             if _retain_extra:
                 try:
                     from .._fe_retention_subsumption import retention_form_is_subsumed

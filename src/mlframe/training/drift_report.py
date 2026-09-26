@@ -147,16 +147,30 @@ def _multilabel_split_summary(arr: np.ndarray) -> dict[str, Any]:
 def _regression_split_summary(arr: np.ndarray) -> dict[str, float]:
     """Summarize one split of a regression target: count, NaN-robust mean/std/median, and 1st/99th percentiles."""
     n = int(arr.shape[0])
+    nan = float("nan")
     if n == 0:
-        return {"n": 0, "mean": float("nan"), "std": float("nan"), "median": float("nan"), "p01": float("nan"), "p99": float("nan")}
+        return {"n": 0, "mean": nan, "std": nan, "median": nan, "p01": nan, "p99": nan, "min": nan, "max": nan,
+                "atom": nan, "atom_share": 0.0, "n_below_atom": 0}
     arr = arr.astype(np.float64, copy=False)
+    median = float(np.nanmedian(arr))
+    finite = arr[np.isfinite(arr)]
+    # A value holding at least half the rows is necessarily the median: one comparison pass finds a point mass (a 0 for
+    # "no event", a filled constant) without a sort. Rows below it are what p01 hides: a target 74% zeros with a few
+    # refunds at -2.17 printed p01=0, and the zero-inflation check that needs 0 to be the minimum silently declined.
+    atom_share = float(np.count_nonzero(finite == median)) / finite.size if finite.size and np.isfinite(median) else 0.0
+    has_atom = atom_share >= 0.5
     return {
         "n": n,
         "mean": float(np.nanmean(arr)),
         "std": float(np.nanstd(arr, ddof=1)) if n > 1 else 0.0,
-        "median": float(np.nanmedian(arr)),
+        "median": median,
         "p01": float(np.nanquantile(arr, 0.01)),
         "p99": float(np.nanquantile(arr, 0.99)),
+        "min": float(finite.min()) if finite.size else nan,
+        "max": float(finite.max()) if finite.size else nan,
+        "atom": median if has_atom else nan,
+        "atom_share": atom_share if has_atom else 0.0,
+        "n_below_atom": int(np.count_nonzero(finite < median)) if has_atom else 0,
     }
 
 
@@ -425,9 +439,13 @@ def format_drift_report(report: dict[str, Any], target_name: str = "") -> str:
             s = splits.get(name)
             if s is None:
                 continue
-            lines.append(
-                f"  {name:<5} n={s['n']:>10_} mean={s['mean']:.4g} " f"std={s['std']:.4g} median={s['median']:.4g} " f"p01={s['p01']:.4g} p99={s['p99']:.4g}"
-            )
+            line = (f"  {name:<5} n={s['n']:>10_} mean={s['mean']:.4g} std={s['std']:.4g} median={s['median']:.4g} "
+                    f"p01={s['p01']:.4g} p99={s['p99']:.4g} min={s.get('min', float('nan')):.4g} max={s.get('max', float('nan')):.4g}")
+            if s.get("atom_share", 0.0) >= 0.5:
+                line += f" point_mass={s['atom']:.4g} ({s['atom_share']:.0%})"
+                if s.get("n_below_atom"):
+                    line += f", {s['n_below_atom']:_} row(s) below it"
+            lines.append(line)
     elif target_type == "multilabel_classification":
         for name in ("train", "val", "test"):
             s = splits.get(name)

@@ -78,7 +78,7 @@ def build_heldout_incr_probe(*, y_gate: Optional[np.ndarray], sel_value_cols: li
     # Seeded shuffle-then-stride, not a raw positional (idx % 3) == 0 split - the latter is not an honest i.i.d. holdout on
     # time/group/label-sorted input (this module explicitly supports sorted input elsewhere via ``groups`` / the ``temporal_agg`` FE
     # family), which can bias the held-out R^2 this gate decides on. The draw depends only on the seed and n, so it is made once.
-    perm = np.random.default_rng(int(random_seed or 0)).permutation(n)
+    perm = np.random.default_rng(0 if random_seed is None else int(random_seed)).permutation(n)
     va = np.zeros(n, dtype=bool)
     va[perm[: n // 3]] = True
     tr = ~va

@@ -119,7 +119,7 @@ def _best_iteration_of(fitted) -> int | None:
     for attr in ("best_iteration_", "best_iteration"):
         try:
             value = getattr(fitted, attr, None)
-        except Exception as exc:  # nosec B112 - xgboost raises when the model was trained without early stopping
+        except Exception as exc:  # best-effort: xgboost raises when the model was trained without early stopping; None is the answer then
             logger.debug("_best_iteration_of: %s", exc, exc_info=True)
             value = None
         if isinstance(value, (int, np.integer)) and int(value) > 0:
@@ -128,7 +128,7 @@ def _best_iteration_of(fitted) -> int | None:
     if callable(getter):
         try:
             value = getter()
-        except Exception as exc:  # nosec B112 - catboost without an eval set has no best iteration
+        except Exception as exc:  # best-effort: catboost without an eval set has no best iteration; None is the answer then
             logger.debug("_best_iteration_of: %s", exc, exc_info=True)
             value = None
         if isinstance(value, (int, np.integer)) and int(value) > 0:

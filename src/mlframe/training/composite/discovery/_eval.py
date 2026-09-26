@@ -165,7 +165,7 @@ def _bootstrap_mi_y_replicates(bootstrap_n, seed, n_screen, y_valid, x_pb_valid,
         x_rows = x_pb_valid[idx_b] if x_pb_valid is not None else x_screen_valid[idx_b]
         try:
             values[b] = _boot_mi(x_rows, y_valid[idx_b], x_pb_valid is not None, mi_kwargs, config)
-        except Exception as e:
+        except Exception as e:  # best-effort: the replicate stays NaN (never a made-up value) and the failure is returned in fails
             logger.debug("_bootstrap_mi_y_replicates: %s", e, exc_info=True)
             fails[b] = f"{type(e).__name__}: {e}"
     return values, fails

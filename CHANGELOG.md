@@ -186,6 +186,10 @@ history.
 
 ### Fixed
 
+- **The target distribution report shows `min`, `max` and a point mass with the rows below it.** A production `total_charge` was 74% zeros with a few refunds at -2.17; the report printed `p01=0` and nothing hinted at the negatives.
+- **The zero-inflation hurdle tolerates a sliver below the atom and says why it declines.** It required 0 to be the exact minimum, so those refunds silently kept `HurdleRegressor` off. Up to 0.1% of rows below the point mass now count as "no event" (`HurdleRegressor(below_zero="no_event")`, which also keeps the magnitude model on the log scale), and a declined target is logged with the reason, including a point mass at the MAXIMUM, the shape of a constant filled in for "no event".
+- **`HurdleRegressor` trains as a tree model when both halves are boosters.** It fell back to the linear strategy (scaling, one-hot) with a "No registered strategy" warning; a two-part estimator now takes the strategy its halves agree on.
+
 - **The honest RMSE gate's constant null survives a NaN target.** It was computed with `np.mean`, so one NaN fit target made it NaN and the `isfinite` guard skipped the "no better than the constant" rejection for every spec; a composite on a signal-free target could pass by beating an overfitting raw model.
 - **MRMR's fit cache never matches a fingerprint it could not compute.** A column whose cell sample could not be read, or an array parameter whose content hash failed, fell back to an empty sample or to numpy's summarised repr, so two different frames of one shape could share a fingerprint and skip the fit. Both now give a never-matching token.
 - **A retention candidate whose recipe cannot replay at fit is not retained.** It used to be kept "conservatively", shipping a column `transform()` could not produce.

@@ -258,8 +258,8 @@ def predict_mlframe_models_suite(
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=bool(verbose))
 
-    # Preserve the pre-main-pipeline frame: the fallback for models whose internal categorical handling crashes on the
-    # post-pipeline encoded form, and for polars-fastpath models trained on the raw frame. Mirrors predict_from_models.
+    # Preserve the pre-main-pipeline frame: the fallback for models whose internal categorical handling crashes on the post-pipeline encoded form, and for
+    # polars-fastpath models trained on the raw frame. Mirrors predict_from_models.
     df_pre_pipeline = df
 
     if pipeline is not None:
@@ -268,15 +268,12 @@ def predict_mlframe_models_suite(
         df = pipeline.transform(df)
         df = _sanitize_after_pipeline(df)
 
-    # Row-wise extension columns (row_summary_*/row_extreme_*, default ON) are stateless per-row
-    # functions with no fitted object to persist -- recompute them directly from the frame's own
-    # numeric columns. MUST run BEFORE the sklearn-bridge ``extensions_pipeline`` below: fit time
-    # applies them as "step 1.5" in ``apply_preprocessing_extensions``, strictly BEFORE
-    # scaler/kbins/polynomial/dim_reducer, specifically so those steps' fitted ``feature_names_in_``
-    # already includes the row-wise columns (DEFAULTS_CHANGELOG.md). Reversing the order here
-    # leaves ``extensions_pipeline.transform()`` missing exactly those columns and raises "feature
-    # names seen at fit time, yet now missing" -- this bit test_predict_extensions_pipeline_replay.py
-    # the first time this was wired in the wrong order.
+    # Row-wise extension columns (row_summary_*/row_extreme_*, default ON) are stateless per-row functions with no fitted object to persist -- recompute them
+    # directly from the frame's own numeric columns. MUST run BEFORE the sklearn-bridge ``extensions_pipeline`` below: fit time applies them as "step 1.5" in
+    # ``apply_preprocessing_extensions``, strictly BEFORE scaler/kbins/polynomial/dim_reducer, specifically so those steps' fitted ``feature_names_in_`` already
+    # includes the row-wise columns (DEFAULTS_CHANGELOG.md). Reversing the order here leaves ``extensions_pipeline.transform()`` missing exactly those columns
+    # and raises "feature names seen at fit time, yet now missing" -- this bit test_predict_extensions_pipeline_replay.py the first time this was wired in the
+    # wrong order.
     _row_wise_cfg = metadata.get("row_wise_extensions_config")
     if _row_wise_cfg is not None:
         df = _apply_row_wise_extensions(df, _row_wise_cfg, verbose=verbose)

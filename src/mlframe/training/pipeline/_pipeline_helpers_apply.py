@@ -103,11 +103,8 @@ def _apply_pre_pipeline_transforms(
     """
     if model is not None and pre_pipeline:
         t0_pre = timer()
-        # Duplicate-pipeline skip: capture input column names
-        # BEFORE transform so we can detect identity-equivalent pipelines
-        # (selected all columns, created none). Set on the pre_pipeline
-        # instance so the suite loop in core/main.py can skip redundant
-        # branches.
+        # Duplicate-pipeline skip: capture input column names BEFORE transform so we can detect identity-equivalent pipelines (selected all columns, created
+        # none). Set on the pre_pipeline instance so the suite loop in core/main.py can skip redundant branches.
         _input_cols = list(train_df.columns) if hasattr(train_df, "columns") else None
         # Row count BEFORE transform. The pre_pipeline slot is row-PRESERVING (selects columns /
         # engineers features, never rows). A resampler here breaks that: this driver returns only

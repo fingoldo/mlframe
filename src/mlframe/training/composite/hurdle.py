@@ -138,6 +138,11 @@ class HurdleRegressor(RegressorMixin, BaseEstimator):
         Folds for ``smearing="oof"``.
     random_state
         Seed for the ``smearing="oof"`` fold shuffle.
+    below_zero
+        What a row below ``zero_value`` is: ``"event"`` (default) keeps it an event, which forces
+        ``magnitude_target="log"`` down to ``"raw"``; ``"no_event"`` counts it as the point mass. The zero-inflation
+        dispatch uses ``"no_event"`` for a target with a sliver below the atom (refunds of a few cents under a 74% point
+        mass at 0), so a handful of rows neither blocks the hurdle nor costs the magnitude model its log scale.
 
     Attributes
     ----------
@@ -161,6 +166,7 @@ class HurdleRegressor(RegressorMixin, BaseEstimator):
         smearing: Smearing = "insample",
         smearing_cv: int = 5,
         random_state: Optional[int] = None,
+        below_zero: str = "event",
     ) -> None:
         self.classifier = classifier
         self.regressor = regressor
@@ -169,6 +175,7 @@ class HurdleRegressor(RegressorMixin, BaseEstimator):
         self.smearing = smearing
         self.smearing_cv = smearing_cv
         self.random_state = random_state
+        self.below_zero = below_zero
 
     # ------------------------------------------------------------------------------------------------ fit
     def fit(self, X: Any, y: Any, sample_weight: Optional[Any] = None) -> "HurdleRegressor":
@@ -184,8 +191,10 @@ class HurdleRegressor(RegressorMixin, BaseEstimator):
             raise ValueError("HurdleRegressor.fit: y contains non-finite values.")
         w = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64).reshape(-1)
 
+        if self.below_zero not in ("event", "no_event"):
+            raise ValueError(f"below_zero must be 'event' or 'no_event', got {self.below_zero!r}.")
         z = float(self.zero_value)
-        event = y_arr != z
+        event = (y_arr > z) if self.below_zero == "no_event" else (y_arr != z)
         _shape = getattr(X, "shape", None)
         if _shape is not None and len(_shape) == 2:
             self.n_features_in_ = int(_shape[1])

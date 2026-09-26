@@ -201,12 +201,29 @@ def _hgb_classes():
     return (HistGradientBoostingClassifier, HistGradientBoostingRegressor)
 
 
-def _strategy_for_estimator(estimator: Any) -> ModelPipelineStrategy:
-    """MRO-based dispatch from an estimator instance to a Strategy.
+def _strategy_of_halves(estimator: Any) -> "ModelPipelineStrategy | None":
+    """The strategy of a two-part estimator (``classifier`` + ``regressor``, as ``HurdleRegressor``) whose halves agree.
 
-    Unknown classes fall back to :class:`LinearModelStrategy` (scaler-requiring)
-    with a WARNING log line.
+    ``HurdleRegressor`` wraps two LightGBM models by default, and the linear fallback gave it a linear model's
+    preprocessing (scaling, one-hot) it does not need. A half left as None is the estimator's own default, which for
+    ``HurdleRegressor`` is HistGradientBoosting.
     """
+    if not (hasattr(estimator, "classifier") and hasattr(estimator, "regressor")):
+        return None
+    from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
+
+    halves = [
+        getattr(estimator, "classifier", None) or HistGradientBoostingClassifier(),
+        getattr(estimator, "regressor", None) or HistGradientBoostingRegressor(),
+    ]
+    if any(hasattr(h, "classifier") and hasattr(h, "regressor") for h in halves):
+        return None  # no nesting: a half that is itself two-part is not a case this resolves
+    first, second = (_known_strategy(h) for h in halves)
+    return first if first is not None and first is second else None
+
+
+def _known_strategy(estimator: Any) -> "ModelPipelineStrategy | None":
+    """The registered strategy of a single estimator, or None when it has none (no fallback, no warning)."""
     cb = _catboost_classes()
     if cb and isinstance(estimator, cb):
         return _CATBOOST_STRATEGY
@@ -218,6 +235,18 @@ def _strategy_for_estimator(estimator: Any) -> ModelPipelineStrategy:
         return _XGBOOST_STRATEGY
     if isinstance(estimator, _hgb_classes()):
         return _HGB_STRATEGY
+    return None
+
+
+def _strategy_for_estimator(estimator: Any) -> ModelPipelineStrategy:
+    """MRO-based dispatch from an estimator instance to a Strategy.
+
+    Unknown classes fall back to :class:`LinearModelStrategy` (scaler-requiring)
+    with a WARNING log line.
+    """
+    strategy = _known_strategy(estimator) or _strategy_of_halves(estimator)
+    if strategy is not None:
+        return strategy
 
     logger.warning(
         "No registered strategy for %s; defaulting to LinearModelStrategy",
