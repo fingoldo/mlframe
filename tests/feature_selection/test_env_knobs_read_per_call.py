@@ -28,7 +28,6 @@ def test_bad_numeric_value_falls_back(monkeypatch):
         ("mlframe.feature_selection.filters.evaluation", "jmim_exponent_discount_only", "MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY", "1", True),
         ("mlframe.feature_selection.filters.permutation", "null_mean_min_perms", "MLFRAME_MRMR_NULL_PERMS", "64", 64),
         ("mlframe.feature_selection.filters._ksg", "ksg_gpu_threshold", "MLFRAME_KSG_GPU_N", "1000", 1000),
-        ("mlframe.feature_selection.boruta_shap._shadow_stats", "shadow_tie_gate_fraction", "MLFRAME_BORUTA_SHADOW_TIE_GATE", "0.4", 0.4),
     ],
 )
 def test_value_set_after_import_takes_effect(monkeypatch, module, accessor, name, value, expected):

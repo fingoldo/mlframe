@@ -35,7 +35,6 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_BORUTA_AUTO_OOB_GAP` | `0.25` | [src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py](../src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py#L122) |
 | `MLFRAME_BORUTA_AUTO_PROBE_ROWS` | `2000` | [src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py](../src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py#L59) |
 | `MLFRAME_BORUTA_AUTO_PROBE_TREES` | `80` | [src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py](../src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py#L60) |
-| `MLFRAME_BORUTA_SHADOW_TIE_GATE` | `0.2` | [src/mlframe/feature_selection/boruta_shap/_shadow_stats.py](../src/mlframe/feature_selection/boruta_shap/_shadow_stats.py#L122) |
 | `MLFRAME_CALIBRATION_CMAP` | — | [src/mlframe/reporting/colors.py](../src/mlframe/reporting/colors.py#L69) |
 | `MLFRAME_CALIBRATION_RESAMPLE_MAX_BYTES` | — | [src/mlframe/calibration/policy.py](../src/mlframe/calibration/policy.py#L58) |
 | `MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD` | `2000000` | [src/mlframe/metrics/calibration/_calibration_plot.py](../src/mlframe/metrics/calibration/_calibration_plot.py#L199) |

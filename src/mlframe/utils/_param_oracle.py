@@ -430,7 +430,6 @@ from ._param_oracle_store import (  # noqa: F401
     SCHEMA_VERSION,
     _ParquetStore,
     _STORE_COLUMNS,
-    _median,
     _stable_json,
     stable_json,
 )

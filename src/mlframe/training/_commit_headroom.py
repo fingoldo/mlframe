@@ -122,8 +122,7 @@ def check_and_warn(throttle_key: Optional[str] = None) -> list[str]:
             if retained and _retained_worth_repeating(private_gb):
                 logger.warning("[commit-pressure] %s", retained)
         else:
-            for message in messages:
-                logger.warning("[commit-pressure] %s", message)
+            warn_on_commit_pressure(status["commit_limit_gb"], status["commit_avail_gb"], private_gb, rss_gb)
             if retained:
                 _retained_worth_repeating(private_gb)  # the startup report counts: the heartbeat continues from it
         return messages

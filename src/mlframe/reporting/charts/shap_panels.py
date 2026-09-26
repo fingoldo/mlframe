@@ -769,11 +769,6 @@ def shap_summary_and_dependence(
     return ShapPanelsResult(figures, paths, top_names, mean_abs, explainer_kind)
 
 
-def _safe(name: str) -> str:
-    """Filename-safe feature name (alnum / underscore / dash). Retained for sibling shap_per_instance reuse."""
-    return "".join(c if (c.isalnum() or c in "_-") else "_" for c in str(name))[:48]
-
-
 __all__ = [
     "DEFAULT_MAX_ROWS",
     "DEFAULT_TOP_K",
