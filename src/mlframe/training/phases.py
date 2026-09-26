@@ -30,7 +30,8 @@ import logging
 import threading
 from contextlib import contextmanager
 from time import perf_counter as _timer
-from typing import Any, Iterator
+from time import strftime
+from typing import Any, Callable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,25 @@ def active_phase() -> str:
 # thread-id -> that thread's live phase-name list (the SAME list object as the thread-local one). A watchdog / heartbeat thread
 # cannot read another thread's threading.local, yet it is exactly the thing that must report which step the suite was in when the process died.
 _ALL_PHASE_STACKS: dict[int, list] = {}
+
+_BREADCRUMB: "Callable[[str], None] | None" = None
+"""Writer for one line per phase entry and exit, set by ``crash_diagnostics`` while its faulthandler file is open.
+
+faulthandler cannot run Python when the process dies, so the phase a native crash happened in has to be on disk
+before it: a dump that lost its main-thread stack (several threads faulting at once) still ends under the last
+``>`` line of the thread that died."""
+
+
+def set_breadcrumb_writer(writer: "Callable[[str], None] | None") -> None:
+    """Install (or, with None, remove) the phase breadcrumb writer."""
+    global _BREADCRUMB
+    _BREADCRUMB = writer
+
+
+def _breadcrumb(line: str) -> None:
+    writer = _BREADCRUMB
+    if writer is not None:
+        writer(f"{strftime('%H:%M:%S')} [{threading.current_thread().name}] {line}")
 
 
 def all_active_phases() -> dict[str, str]:
@@ -276,6 +296,7 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
         _ALL_PHASE_STACKS[threading.get_ident()] = _names
     _names.append(name)
     logger.log(level, f"[phase] {name} START {ctx_str}".rstrip())
+    _breadcrumb(f"> {name} {ctx_str}".rstrip())
     t0 = _timer()
     # Bracket each phase with RSS sample so the registry accumulates a
     # RAM-delta column. psutil-optional; if
@@ -298,6 +319,7 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
         # Render +/-XXX MB on the DONE line only when the change is
         # >=50MB; otherwise the lines spam without information.
         ram_str = f" delta_RAM={ram_delta*1024:+.0f}MB" if abs(ram_delta) >= 0.05 else ""
+        _breadcrumb(f"< {name} {dt:.2f}s" + (f" RAISED {type(raised).__name__}" if raised is not None else ""))
         if raised is not None:
             logger.warning(f"[phase] {name} RAISED {type(raised).__name__} after {dt:.2f}s{ram_str} {ctx_str}".rstrip())
         else:

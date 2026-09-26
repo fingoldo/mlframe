@@ -21,6 +21,8 @@ import pandas as pd
 
 from pyutilz.system import compute_total_gpus_ram
 
+from ._gpu_contention import gpu_fits_now
+
 # Heavy optional deps: defer failures to first actual use so `import mlframe.training` stays cheap and does not crash when a given backend is not installed.
 try:
     import matplotlib.pyplot as plt
@@ -263,10 +265,8 @@ def configure_training_params(
     target_type: TargetTypes | None = None,
     n_classes: int | None = None,
     multilabel_dispatch_config: MultilabelDispatchConfig | None = None,
-    # TrainingBehaviorConfig field; accepted here as a no-op so the caller's
-    # ``**effective_behavior_params`` splat (train_eval.py:592) doesn't fail
-    # with 'unexpected keyword'. The cache bound is consumed in
-    # _pipeline_helpers via behavior_config attached to common_params.
+    # TrainingBehaviorConfig field; accepted here as a no-op so the caller's ``**effective_behavior_params`` splat (train_eval.py:592) doesn't fail with
+    # 'unexpected keyword'. The cache bound is consumed in _pipeline_helpers via behavior_config attached to common_params.
     pre_pipeline_cache_max: int = 4,
     # Catch-all for the rest of TrainingBehaviorConfig: train_eval.py splats every
     # behavior field as **effective_behavior_params and most of them are consumed
@@ -480,6 +480,7 @@ def configure_training_params(
             data_fits_cb_gpu_ram = (GPU_VRAM_SAFE_SATURATION_LIMIT * data_size_gb + GPU_VRAM_SAFE_FREE_LIMIT_GB) < multi_gpu_limits.get("gpus_ram_total", 0)
         else:
             data_fits_cb_gpu_ram = data_fits_gpu_ram
+        data_fits_gpu_ram, data_fits_cb_gpu_ram = gpu_fits_now(data_fits_gpu_ram, data_fits_cb_gpu_ram, data_size_gb, cb_devices)
     _t_gpu = timer() - _t0_gpu
 
     logger.info("data_fits_gpu_ram=%s, data_fits_cb_gpu_ram=%s, cb_devices=%s", data_fits_gpu_ram, data_fits_cb_gpu_ram, cb_devices)

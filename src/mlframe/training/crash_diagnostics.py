@@ -128,6 +128,21 @@ def resolve_crash_dir(crash_dir: Optional[str] = None) -> str:
     return tempfile.gettempdir()
 
 
+_BREADCRUMB_LOCK = threading.Lock()
+
+
+def _write_breadcrumb(line: str) -> None:
+    """Append one phase line to the faulthandler file (line-buffered, so it is on disk before any crash). Never raises."""
+    f = _FAULT_FILE
+    if f is None or f.closed:
+        return
+    try:
+        with _BREADCRUMB_LOCK:
+            f.write(line + "\n")
+    except (OSError, ValueError):  # best-effort: a breadcrumb that cannot be written must never break the phase it marks
+        pass
+
+
 def open_faulthandler_file(crash_dir: Optional[str] = None, all_threads: bool = True) -> Optional[str]:
     """Point faulthandler at a persistent per-process file and return its path (``None`` on failure). Idempotent."""
     global _FAULT_FILE, _FAULT_PATH
@@ -142,12 +157,16 @@ def open_faulthandler_file(crash_dir: Optional[str] = None, all_threads: bool = 
         f = open(path, "a", encoding="utf-8", buffering=1)  # must outlive this call: faulthandler keeps only the fd
         try:
             f.write(f"mlframe faulthandler file; pid={os.getpid()} started={time.strftime('%Y-%m-%d %H:%M:%S')} argv={sys.argv!r}\n")
+            f.write("'> name' / '< name' lines mark entering / leaving a training phase, per thread; a crash dump follows them.\n")
             f.flush()
             faulthandler.enable(file=f, all_threads=all_threads)
         except BaseException:
             f.close()  # the handle is only kept on success; a half-initialised one would leak and hold the file lock
             raise
         _FAULT_FILE, _FAULT_PATH = f, path
+        from .phases import set_breadcrumb_writer
+
+        set_breadcrumb_writer(_write_breadcrumb)
         return path
     except Exception as e:
         logger.warning("Could not open a persistent faulthandler file: %s", e)

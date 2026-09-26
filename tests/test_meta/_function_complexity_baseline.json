@@ -73,7 +73,7 @@
   "src/mlframe/feature_selection/filters/evaluation.py::evaluate_gain": 26,
   "src/mlframe/feature_selection/filters/feature_engineering.py::apply_gpu_unary_batched": 26,
   "src/mlframe/feature_selection/filters/friend_graph.py::build_friend_graph": 27,
-  "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py::MRMR._fit_body": 90,
+  "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py::MRMR._fit_body": 83,
   "src/mlframe/feature_selection/filters/permutation.py::mi_direct": 30,
   "src/mlframe/feature_selection/filters/polynom_pair_fe.py::run_polynom_pair_fe": 54,
   "src/mlframe/feature_selection/general.py::estimate_features_relevancy": 29,

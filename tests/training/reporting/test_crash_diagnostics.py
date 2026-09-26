@@ -163,3 +163,44 @@ def test_heartbeat_logs_a_failing_line_instead_of_dropping_it(caplog):
         hb._beat()
     assert hb.beats == 0
     assert any("probe exploded" in r.getMessage() for r in caplog.records)
+
+
+def test_phases_leave_breadcrumbs_in_the_faulthandler_file(tmp_path, monkeypatch):
+    """A native crash cannot run Python, so the phase it happened in must already be in the dump file.
+
+    The dump of a production crash had lost the main thread's stack (several threads faulted at once), and nothing
+    else in it said which training step was running."""
+    import faulthandler
+
+    from mlframe.training import phases
+
+    monkeypatch.setattr(cd, "_FAULT_FILE", None)
+    monkeypatch.setattr(cd, "_FAULT_PATH", None)
+    monkeypatch.setattr(phases, "_BREADCRUMB", None)
+    path = cd.open_faulthandler_file(str(tmp_path))
+    try:
+        with phases.phase("predict_proba", model="cb", split="test"):
+            pass
+        try:
+            with phases.phase("model.fit"):
+                raise RuntimeError("boom")
+        except RuntimeError:
+            pass
+        text = open(path, encoding="utf-8").read()  # line-buffered: already on disk, no flush needed
+    finally:
+        phases.set_breadcrumb_writer(None)
+        faulthandler.enable()
+        cd._FAULT_FILE.close()
+    assert "> predict_proba model=cb split=test" in text
+    assert "< predict_proba" in text
+    assert "> model.fit" in text and "RAISED RuntimeError" in text
+    assert "[MainThread]" in text
+
+
+def test_no_breadcrumbs_without_an_open_faulthandler_file(monkeypatch):
+    from mlframe.training import phases
+
+    monkeypatch.setattr(phases, "_BREADCRUMB", None)
+    with phases.phase("x"):
+        pass  # must not raise or write anywhere
+
