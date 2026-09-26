@@ -4,7 +4,6 @@ Integration tests for core training functionality.
 Tests the main train_mlframe_models_suite function end-to-end.
 """
 
-import importlib
 
 from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
 
@@ -199,15 +198,7 @@ class TestUnifiedTrainingLoop:
         pytest = __import__("pytest")
 
         # Check if catboost is available
-        try:
-            importlib.import_module("catboost")
-
-            has_catboost = True
-        except ImportError:
-            has_catboost = False
-
-        if not has_catboost:
-            pytest.skip("CatBoost not available - skipping mixed model test")
+        pytest.importorskip("catboost", reason="CatBoost not available - skipping mixed model test")
 
         df, _feature_names, _y = sample_regression_data
 
@@ -247,15 +238,7 @@ class TestUnifiedTrainingLoop:
         pytest = __import__("pytest")
 
         # Check if lightgbm is available
-        try:
-            importlib.import_module("lightgbm")
-
-            has_lgb = True
-        except ImportError:
-            has_lgb = False
-
-        if not has_lgb:
-            pytest.skip("LightGBM not available - skipping mixed model test")
+        pytest.importorskip("lightgbm", reason="LightGBM not available - skipping mixed model test")
 
         df, _feature_names, _y = sample_regression_data
 
@@ -1292,15 +1275,7 @@ class TestCustomTransformers:
         pytest = __import__("pytest")
 
         # Check if torch is available for MLP
-        try:
-            importlib.import_module("torch")
-
-            has_torch = True
-        except ImportError:
-            has_torch = False
-
-        if not has_torch:
-            pytest.skip("PyTorch not available - skipping MLP test")
+        pytest.importorskip("torch", reason="PyTorch not available - skipping MLP test")
 
         from sklearn.preprocessing import StandardScaler
 
@@ -1400,15 +1375,7 @@ class TestCalibration:
         """Test calibration with CatBoost classifier."""
         pytest = __import__("pytest")
 
-        try:
-            importlib.import_module("catboost")
-
-            has_catboost = True
-        except ImportError:
-            has_catboost = False
-
-        if not has_catboost:
-            pytest.skip("CatBoost not available")
+        pytest.importorskip("catboost", reason="CatBoost not available")
 
         df, _feature_names, _, _y = sample_classification_data
 
@@ -1488,15 +1455,7 @@ class TestConfidenceAnalysis:
         """Test that confidence analysis runs without errors."""
         pytest = __import__("pytest")
 
-        try:
-            importlib.import_module("catboost")
-
-            has_catboost = True
-        except ImportError:
-            has_catboost = False
-
-        if not has_catboost:
-            pytest.skip("CatBoost not available")
+        pytest.importorskip("catboost", reason="CatBoost not available")
 
         df, _feature_names, _, _y = sample_classification_data
 
@@ -2078,15 +2037,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
         """Test that RFECV feature selection runs correctly with polars-ds pipeline."""
         pytest = __import__("pytest")
 
-        try:
-            importlib.import_module("catboost")
-
-            has_catboost = True
-        except ImportError:
-            has_catboost = False
-
-        if not has_catboost:
-            pytest.skip("CatBoost not available")
+        pytest.importorskip("catboost", reason="CatBoost not available")
 
         df, _feature_names, _y = sample_regression_data
 

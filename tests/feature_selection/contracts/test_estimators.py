@@ -228,13 +228,14 @@ class TestNsbMi:
         try:
             import ndd  # noqa: F401
         except ImportError:
-            # Confirm the function surfaces a clean, actionable ImportError.
-            x = np.array([0, 1, 0, 1], dtype=np.int64)
-            y = np.array([0, 1, 0, 1], dtype=np.int64)
-            with pytest.raises(ImportError, match="ndd"):
-                nsb_mi(x, y)
+            pass
         else:
             pytest.skip("ndd is installed; ImportError path not exercised")
+        # Confirm the function surfaces a clean, actionable ImportError.
+        x = np.array([0, 1, 0, 1], dtype=np.int64)
+        y = np.array([0, 1, 0, 1], dtype=np.int64)
+        with pytest.raises(ImportError, match="ndd"):
+            nsb_mi(x, y)
 
     def test_basic_call_when_ndd_installed(self):
         """Basic call when ndd installed."""

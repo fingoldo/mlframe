@@ -149,3 +149,13 @@ def test_metrics_core_external_consumers_still_resolve():
         ICE,
         create_fairness_subgroups,
     )
+
+
+def test_show_plots_unless_agg_resolves_from_the_public_metrics_package():
+    """``_confidence_analysis.py`` does ``from mlframe.metrics import show_plots_unless_agg`` at call time; the
+    top-level package must actually carry it (it previously did not, so every confidence-analysis run with
+    ``use_shap`` plotting raised ImportError instead of just skipping the plt.show() guard)."""
+    from mlframe.metrics import show_plots_unless_agg
+    from mlframe.metrics.calibration.shared import show_plots_unless_agg as sibling
+
+    assert show_plots_unless_agg is sibling

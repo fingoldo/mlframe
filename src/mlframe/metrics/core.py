@@ -120,7 +120,7 @@ TITLE_METRIC_TOKENS: frozenset = frozenset({
 # _close_unless_interactive, show_calibration_plot, DEFAULT_TITLE_METRICS_TOKENS)
 # moved to sibling _calibration_plot.py; re-exported below.
 from .calibration import DEFAULT_TITLE_METRICS_TOKENS, render_title_metric_token, fast_calibration_binning, show_calibration_plot  # noqa: F401
-from mlframe.metrics.calibration.shared import close_unless_interactive as _close_unless_interactive  # noqa: F401
+from mlframe.metrics.calibration.shared import close_unless_interactive as _close_unless_interactive, show_plots_unless_agg  # noqa: F401
 
 # Calibration metric kernels (CMAEW, ECE, Murphy Brier-decomp,
 # fast_calibration_metrics) live in ``_calibration_metrics.py``; re-exported

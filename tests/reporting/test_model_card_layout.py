@@ -33,8 +33,8 @@ def test_no_occupied_column_is_collapsed_to_nothing(task):
     """Every column holding a panel in ANY row must keep a usable share of the width."""
     spec = _card(task)
     ratios = spec.col_width_ratios
-    if ratios is None:
-        pytest.skip("this card does not set column ratios")
+    # Both task shapes set explicit column ratios; a card that stopped doing so would leave every column unchecked here.
+    assert ratios is not None, f"the {task} card no longer sets col_width_ratios, so no column share can be checked"
 
     occupied = {c for row in spec.panels for c, panel in enumerate(row) if panel is not None}
     total = float(sum(ratios))

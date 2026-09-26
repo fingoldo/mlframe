@@ -71,14 +71,11 @@ def _variance_recovery(name: str) -> Tuple[float, float]:
     return float(np.mean([pair[0] for pair in measured])), float(np.mean([pair[1] for pair in measured]))
 
 
-@pytest.mark.parametrize("name", sorted(scenario_registry.names()))
+@pytest.mark.parametrize("name", sorted(n for n in scenario_registry.names() if not scenario_registry.get(n).varsortable))
 def test_variance_sorting_does_not_recover_the_answer_key(name: str) -> None:
     """Every bed that has not declared itself varsortable must keep the unsupervised control at chance."""
-    scenario = scenario_registry.get(name)
+    # Beds that declare varsortable=True are not parametrized here; test_declared_varsortable_beds_really_are_varsortable covers them.
     recovered, base_rate = _variance_recovery(name)
-
-    if scenario.varsortable:
-        pytest.skip(f"{name} declares varsortable=True: {scenario.varsortable_reason}")
     assert recovered <= base_rate + RECOVERY_MARGIN, f"{name}: variance sorting recovered {recovered:.3f} of the answer key against a base rate of {base_rate:.3f}, so the bed leaks its truth through column scale"
 
 
