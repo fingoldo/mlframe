@@ -88,6 +88,8 @@ dependencies = [
     "pyarrow>=25.0.0; python_version >= '3.10'",
     "pyarrow>=14.0.0; python_version < '3.10'",
     "joblib>=1.2",
+    # joblib 1.6 stopped bundling cloudpickle; the rerank worker imports the standalone package.
+    "cloudpickle>=2.0",
     "tqdm>=4.65",
     "pydantic>=2.0",
     "portalocker>=2.7",

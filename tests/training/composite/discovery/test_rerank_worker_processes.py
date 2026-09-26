@@ -64,6 +64,7 @@ def test_a_worker_gathers_its_own_base_matrix_and_matches_the_in_process_score()
 
 
 def test_processes_return_the_serial_scores_in_task_order():
+    """Scoring in worker processes returns the same scores as the serial path, in task order."""
     common, base, x = _common()
     y = common["y_screen"]
     tasks = [
@@ -93,7 +94,10 @@ def test_a_dying_worker_leaves_the_caller_alive_and_rescored_serially(caplog):
         return _gt("diff")
 
     class _Fatal:
+        """A task payload whose unpickling kills the worker process that receives it."""
+
         def __reduce__(self):
+            """Unpickle by calling a function that terminates the worker."""
             return (_die_in_a_worker, (parent,))
 
     tasks = [
@@ -111,3 +115,19 @@ def test_a_skipped_spec_does_no_work():
     """Honest-OOF measured it already: the CV fits would be discarded."""
     common, base, x = _common()
     assert score_spec(make_spec_task(_spec("s"), get_transform("diff"), common, True, base, x_matrix=x)) == ("s", {}, {}, None)
+
+
+def test_spec_blobs_round_trip_where_joblib_no_longer_vendors_cloudpickle(monkeypatch):
+    """joblib 1.6 dropped ``joblib.externals.cloudpickle`` (it depends on the standalone package); the task must still build."""
+    import sys
+
+    import joblib.externals
+
+    monkeypatch.setitem(sys.modules, "joblib.externals.cloudpickle", None)  # the old import path now raises ImportError
+    monkeypatch.delattr(joblib.externals, "cloudpickle", raising=False)
+    common, base, x = _common()
+    y = common["y_screen"]
+    task = make_spec_task(_spec("a", y=y, base=base), get_transform("diff"), common, False, base, x_matrix=x)
+    name, family_rmses, _per_seed, _per_bin = score_spec(task)
+    assert name == "a"
+    assert family_rmses and all(np.isfinite(v) for v in family_rmses.values())

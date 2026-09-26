@@ -24,6 +24,16 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _cloudpickle() -> Any:
+    """The cloudpickle module: the standalone package, which joblib>=1.6 depends on instead of vendoring it under
+    ``joblib.externals`` (the old path raises ImportError there), else the copy older joblib releases vendor."""
+    try:
+        import cloudpickle
+    except ImportError:
+        from joblib.externals import cloudpickle
+    return cloudpickle
+
+
 def make_spec_task(spec: Any, transform: Any, common: dict, skip: bool, base_screen: Any, *, x_matrix: Any = None,
                    x_full: Any = None, drop_idx: Optional[list] = None) -> dict:
     """Everything one spec's scoring needs, detached from the discovery object so it can cross a process boundary.
@@ -31,7 +41,7 @@ def make_spec_task(spec: Any, transform: Any, common: dict, skip: bool, base_scr
     Give either the base's own ``x_matrix`` (in-process modes, from the bounded per-base cache) or ``x_full`` plus the
     ``drop_idx`` a worker process uses to gather that matrix itself.
     """
-    from joblib.externals import cloudpickle
+    cloudpickle = _cloudpickle()
 
     return {
         "name": spec.name,
@@ -73,7 +83,7 @@ def score_spec(task: dict) -> tuple:
     if task["skip"]:
         # Honest-OOF already measured this spec and will set its score; the CV fits would be discarded.
         return task["name"], {}, {}, None
-    from joblib.externals import cloudpickle
+    cloudpickle = _cloudpickle()
 
     from ._screening_tiny import _tiny_cv_rmse_y_scale_multiseed
 
