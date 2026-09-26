@@ -54,9 +54,11 @@ def test_no_pass_carries_its_own_hand_written_roster_list():
 
 
 def test_the_drop_passes_iterate_the_shared_tuple():
-    """The dedup and unified-gate passes must both prune from the shared tuple."""
-    core = (_SRC / "_fit_impl_core.py").read_text(encoding="utf-8")
-    assert core.count("FE_ROSTER_ATTRS") >= 3, "the drop passes no longer read the shared roster tuple"
+    """The dedup and unified-gate passes (stages of ``_fit_impl``) must both prune from the shared tuple."""
+    stages = _SRC / "_fit_impl_stages"
+    for module in ("_engineered_dedup.py", "_engineered_gates.py"):
+        text = (stages / module).read_text(encoding="utf-8")
+        assert "for " in text and "in FE_ROSTER_ATTRS" in text, f"{module}: the drop pass no longer iterates the shared roster tuple"
 
 
 def test_the_shared_tuple_covers_what_the_passes_used_to_list():

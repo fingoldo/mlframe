@@ -5,7 +5,6 @@
   "src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py": 1924,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_core.py": 1060,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py": 1189,
-  "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py": 2543,
   "src/mlframe/feature_selection/filters/discretization/__init__.py": 1074,
   "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py": 4265,
   "src/mlframe/training/_trainer_train_and_evaluate.py": 1033,
