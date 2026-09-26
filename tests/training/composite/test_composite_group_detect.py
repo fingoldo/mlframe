@@ -5,11 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from mlframe.training.composite import (
-    _GROUP_DETECT_DEFAULT_MAX_UNIQUE,
-    _GROUP_DETECT_DEFAULT_MIN_UNIQUE,
-    detect_group_column_candidates,
-)
+from mlframe.training.composite import detect_group_column_candidates
+from mlframe.training.composite.discovery.auto_detect import _GROUP_DETECT_DEFAULT_MAX_UNIQUE, _GROUP_DETECT_DEFAULT_MIN_UNIQUE
 
 
 class TestDetectGroupColumn:

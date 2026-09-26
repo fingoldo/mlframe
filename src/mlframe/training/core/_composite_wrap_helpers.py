@@ -44,7 +44,7 @@ def train_base_values(train_df: Any, spec: dict) -> Optional[np.ndarray]:
         return None
     cols = spec_base_columns(spec)
     try:
-        from ..composite import _extract_base_matrix
+        from mlframe.training.composite.estimator import _extract_base_matrix
 
         from ..composite._synthetic_bases import is_resolvable
 

@@ -14,10 +14,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.training.composite import (
-    _linear_residual_fit,
-    bayesian_alpha_fit_bootstrap as bayesian_alpha_fit,
-)
+from mlframe.training.composite import bayesian_alpha_fit_bootstrap as bayesian_alpha_fit
+from mlframe.training.composite.transforms import _linear_residual_fit
 
 
 class TestPosteriorMean:

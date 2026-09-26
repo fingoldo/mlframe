@@ -29,15 +29,8 @@ import pytest
 pytestmark = pytest.mark.sklearn_matrix
 
 
-from mlframe.training.composite import (
-    CompositeTargetDiscovery,
-    CompositeTargetEstimator,
-    CompositeCrossTargetEnsemble,
-    _mi_to_target,
-    _tiny_cv_rmse_y_scale,
-    _tiny_cv_rmse_y_scale_multiseed,
-    get_transform,
-)
+from mlframe.training.composite import CompositeTargetDiscovery, CompositeTargetEstimator, CompositeCrossTargetEnsemble, get_transform
+from mlframe.training.composite.discovery.screening import _mi_to_target, _tiny_cv_rmse_y_scale, _tiny_cv_rmse_y_scale_multiseed
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 

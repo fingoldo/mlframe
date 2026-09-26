@@ -48,7 +48,7 @@ import pandas as pd
 from sklearn.exceptions import NotFittedError
 
 from .transforms import get_transform
-from . import _extract_groups
+from mlframe.training.composite.estimator import _extract_groups
 from mlframe.training.composite.transforms._call_gateway import call_transform
 
 # Transforms whose inverse is a PRODUCT ``y = base_factor * residual_factor``.

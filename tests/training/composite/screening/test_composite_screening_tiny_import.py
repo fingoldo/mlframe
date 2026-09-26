@@ -25,7 +25,7 @@ def test_module_level_clip_bounds_import():
     mod = importlib.import_module("mlframe.training.composite.discovery._screening_tiny")
     assert hasattr(mod, "_y_train_clip_bounds"), "module-level import of _y_train_clip_bounds missing -- the race-safe hoist regressed."
     # And the imported callable IS the canonical helper from composite_estimator.
-    from mlframe.training.composite import _y_train_clip_bounds as canonical
+    from mlframe.training.composite.estimator import _y_train_clip_bounds as canonical
 
     assert mod._y_train_clip_bounds is canonical
 

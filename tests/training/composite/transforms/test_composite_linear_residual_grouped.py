@@ -21,14 +21,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite import (
-    _linear_residual_grouped_fit,
-    _linear_residual_grouped_forward,
-    _linear_residual_grouped_inverse,
-    _linear_residual_grouped_domain,
-    _james_stein_shrinkage_factor,
-    get_transform,
-)
+from mlframe.training.composite import get_transform
+from mlframe.training.composite.transforms import _linear_residual_grouped_fit, _linear_residual_grouped_forward, _linear_residual_grouped_inverse, _linear_residual_grouped_domain, _james_stein_shrinkage_factor
 
 # ---------------------------------------------------------------------------
 # Unit: fit / forward / inverse

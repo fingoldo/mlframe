@@ -8,11 +8,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite import (
-    _linear_residual_fit,
-    _linear_residual_forward,
-    _linear_residual_inverse,
-)
+from mlframe.training.composite.transforms import _linear_residual_fit, _linear_residual_forward, _linear_residual_inverse
 from mlframe.training.composite.transforms.unary import (
     cbrt_y_fit,
     cbrt_y_forward,

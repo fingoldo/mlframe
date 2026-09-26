@@ -23,7 +23,8 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 
-from ..composite import _extract_base_matrix, get_transform
+from ..composite import get_transform
+from mlframe.training.composite.estimator import _extract_base_matrix
 from ..composite.estimator import _extract_groups
 from ..composite.transforms._call_gateway import call_transform
 from ._prediction_memo import memo_predict

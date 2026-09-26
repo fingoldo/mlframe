@@ -1252,7 +1252,7 @@ class TestIntegrationEdges:
     def test_safe_abs_corr_all_matches_safe_corr_per_column(self) -> None:
         """The vectorised path used inside _filter_features must match
         the per-column scalar path numerically (within 1e-10)."""
-        from mlframe.training.composite import _safe_corr, _safe_abs_corr_all
+        from mlframe.training.composite.discovery.screening import _safe_corr, _safe_abs_corr_all
 
         rng = np.random.default_rng(0)
         n = 5000

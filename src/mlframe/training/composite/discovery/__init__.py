@@ -37,7 +37,6 @@ from ..cache import (
 )
 from ..ensemble import (
     CompositeCrossTargetEnsemble,
-    _is_monotone_nondecreasing,
     compute_oof_holdout_predictions,
     derive_seeds,
     detect_gpu_in_use,
@@ -86,9 +85,6 @@ from ..transforms import (
     DomainViolationError,
     Transform,
     UnknownTransformError,
-    _linear_residual_fit,
-    _linear_residual_multi_fit,
-    _TRANSFORMS_REGISTRY,
     compose_target_name,
     get_transform,
     list_transforms,
@@ -614,9 +610,6 @@ from .auto_detect import (
 )
 from ..cache import (
     _DISCOVERY_SIGNATURE_SAMPLE_N,
-)
-from ..transforms.interaction_bases import (
-    _INTERACTION_OPS_DEFAULT,
 )
 
 # Dependent helper re-exports.

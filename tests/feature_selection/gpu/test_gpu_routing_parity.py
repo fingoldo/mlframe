@@ -21,11 +21,8 @@ if not _cuda_present():
     pytest.skip("cupy not available", allow_module_level=True)
 
 from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_route_bases_batched
-from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
-    _POLY_BASES,
-    basis_route_by_signal,
-    _evaluate_basis_column,
-)
+from mlframe.feature_selection.filters._orthogonal_univariate_fe import basis_route_by_signal, _evaluate_basis_column
+from mlframe.feature_selection.filters.hermite_fe import _POLY_BASES
 
 _GAP = 1e-3  # host top-2 |corr| gap below which a basis flip is a genuine tie (reported, not failed)
 _DEGREES = (2, 3)

@@ -5,11 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite import (
-    _MULTI_BASE_DEFAULT_MAX_K,
-    _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
-    forward_stepwise_multi_base,
-)
+from mlframe.training.composite import forward_stepwise_multi_base
+from mlframe.training.composite.discovery.forward_stepwise import _MULTI_BASE_DEFAULT_MAX_K, _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN
 
 
 class TestSeedBehavior:

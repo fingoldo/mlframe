@@ -26,7 +26,6 @@ from mlframe.metrics.ranking import *
 from mlframe.metrics.scoring import *
 
 # Public re-export so cross-package consumers (importance.py, _eval_helpers.py) can avoid reaching into ``mlframe.metrics.calibration`` internals directly. The underscore-prefixed source remains the implementation; the public name is the documented surface.
-from mlframe.metrics.calibration import _show_plots_unless_agg as show_plots_unless_agg
 # Public re-export of the Brier kernel so reporting consumers (model_card) import it from the package surface instead of the ``_core_auc_brier`` implementation module.
 from mlframe.metrics._core_auc_brier import fast_brier_score_loss
 # Public re-export of the NumPy-version-agnostic trapezoidal integral so reporting/charts consumers (binary.py, model_comparison.py, risk_coverage.py) import it from the package surface instead of the ``_trapezoid_shared`` implementation module.

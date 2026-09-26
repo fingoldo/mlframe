@@ -21,7 +21,6 @@ from ..transforms import (
     DomainViolationError,
     Transform,
     UnknownTransformError,
-    _TRANSFORMS_REGISTRY,
     get_transform,
 )
 

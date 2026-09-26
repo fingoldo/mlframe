@@ -88,19 +88,6 @@ from .transforms import (
     TAG_CORE,
     TAG_EXTENDED,
     TAG_REGRESSION,
-    _MAD_FLOOR_FRAC,
-    _MAD_SOFT_CAP_K,
-    _MULTI_BASE_COND_NUMBER_MAX,
-    _GROUPED_MIN_GROUP_SIZE,
-    _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
-    _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
-    _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS,
-    _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N,
-    _EWMA_RESIDUAL_DEFAULT_K,
-    _FRAC_DIFF_DEFAULT_D,
-    _FRAC_DIFF_DEFAULT_LAGS,
-    _ROLLING_QUANTILE_DEFAULT_K,
-    _TRANSFORMS_REGISTRY,
     TRANSFORMS_REGISTRY,
     TRANSFORM_NAME_SHORT,
     compose_target_name,
@@ -109,41 +96,6 @@ from .transforms import (
     is_composite_target,
     is_composite_target_name,
     list_transforms,
-    # Shared helpers used by transforms (tests import some directly).
-    _ewma_compute,
-    _frac_diff_weights,
-    _james_stein_shrinkage_factor,
-    _monotonic_residual_g,
-    _quantile_residual_assign_bins,
-    _rolling_median,
-    _row_alpha_beta,
-    # 11 transform impls (private helpers; re-exported because tests
-    # and a few internal call sites import them by name).
-    _diff_forward, _diff_inverse, _diff_fit, _diff_domain,
-    _ratio_forward, _ratio_inverse, _ratio_fit, _ratio_domain,
-    _logratio_forward, _logratio_inverse, _logratio_fit, _logratio_domain,
-    _linear_residual_forward, _linear_residual_inverse, _linear_residual_fit, _linear_residual_domain,
-    _linear_residual_multi_forward, _linear_residual_multi_inverse, _linear_residual_multi_fit, _linear_residual_multi_domain,
-    _linear_residual_grouped_forward, _linear_residual_grouped_inverse, _linear_residual_grouped_fit, _linear_residual_grouped_domain,
-    _quantile_residual_forward, _quantile_residual_inverse, _quantile_residual_fit, _quantile_residual_domain,
-    _monotonic_residual_forward, _monotonic_residual_inverse, _monotonic_residual_fit, _monotonic_residual_domain,
-    _ewma_residual_forward, _ewma_residual_inverse, _ewma_residual_fit, _ewma_residual_domain,
-    _rolling_quantile_ratio_forward, _rolling_quantile_ratio_inverse, _rolling_quantile_ratio_fit, _rolling_quantile_ratio_domain,
-    _rolling_quantile_ratio_centered_fit, _rolling_median_trailing,
-    _frac_diff_forward, _frac_diff_inverse, _frac_diff_fit, _frac_diff_domain,
-    # Grouped / robust / unary / copula extension batch.
-    _ewma_residual_grouped_forward, _ewma_residual_grouped_inverse, _ewma_residual_grouped_fit, _ewma_residual_grouped_domain,
-    _rolling_quantile_ratio_grouped_forward, _rolling_quantile_ratio_grouped_inverse, _rolling_quantile_ratio_grouped_fit, _rolling_quantile_ratio_grouped_domain,
-    _frac_diff_grouped_forward, _frac_diff_grouped_inverse, _frac_diff_grouped_fit, _frac_diff_grouped_domain,
-    _quantile_residual_grouped_forward, _quantile_residual_grouped_inverse, _quantile_residual_grouped_fit, _quantile_residual_grouped_domain,
-    _monotonic_residual_grouped_forward, _monotonic_residual_grouped_inverse, _monotonic_residual_grouped_fit, _monotonic_residual_grouped_domain,
-    _seasonal_residual_forward, _seasonal_residual_inverse, _seasonal_residual_fit, _seasonal_residual_domain,
-    _volatility_normalized_residual_forward, _volatility_normalized_residual_inverse, _volatility_normalized_residual_fit, _volatility_normalized_residual_domain,
-    _asinh_residual_multi_forward, _asinh_residual_multi_inverse, _asinh_residual_multi_fit, _asinh_residual_multi_domain,
-    _linear_residual_multi_robust_fit,
-    _nadaraya_watson_residual_forward, _nadaraya_watson_residual_inverse, _nadaraya_watson_residual_fit, _nadaraya_watson_residual_domain,
-    _gaussian_copula_residual_forward, _gaussian_copula_residual_inverse, _gaussian_copula_residual_fit, _gaussian_copula_residual_domain,
-    _group_segments,
 )
 
 # ----------------------------------------------------------------------
@@ -152,14 +104,6 @@ from .transforms import (
 # ----------------------------------------------------------------------
 from .estimator import (
     CompositeTargetEstimator,
-    _Y_CLIP_LOW_FRAC,
-    _Y_CLIP_HIGH_FRAC,
-    _y_train_clip_bounds,
-    _to_1d_numpy,
-    _extract_base,
-    _extract_groups,
-    _extract_base_matrix,
-    _is_polars_df,
     predict_quantile_ensemble,
 )
 
@@ -181,29 +125,11 @@ from .ensemble import (
     derive_seeds,
     detect_gpu_in_use,
     env_signature,
-    _is_monotone_nondecreasing,
 )
 
 # ----------------------------------------------------------------------
 # Re-export screening helpers.
 # ----------------------------------------------------------------------
-from .discovery.screening import (
-    _extract_column_array,
-    _is_numeric_column,
-    _safe_corr,
-    _safe_abs_corr_all,
-    _residualise,
-    _mi_pair_bin,
-    _mi_to_target,
-    _silence_tiny_model_output,
-    _build_tiny_model,
-    _tiny_cv_rmse_raw_y,
-    _tiny_cv_rmse_y_scale_multiseed,
-    _tiny_cv_rmse_raw_y_multiseed,
-    _per_bin_rmse,
-    _tiny_cv_rmse_y_scale,
-    _sample_indices,
-)
 
 # ----------------------------------------------------------------------
 # Re-export independent + dependent helper modules.
@@ -212,9 +138,6 @@ from .discovery.auto_detect import (
     detect_time_column_candidates,
     sort_df_by_time_column,
     detect_group_column_candidates,
-    _GROUP_DETECT_DEFAULT_MIN_UNIQUE,
-    _GROUP_DETECT_DEFAULT_MAX_UNIQUE,
-    _GROUP_DETECT_DEFAULT_MIN_SIZE_RATIO,
 )
 from .cache import (
     DiscoveryCache,
@@ -243,8 +166,6 @@ from .discovery.bayesian import (
 )
 from .discovery.forward_stepwise import (
     forward_stepwise_multi_base,
-    _MULTI_BASE_DEFAULT_MAX_K,
-    _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
 )
 from .ensemble.feature_stacking import (
     composite_predictions_as_feature,

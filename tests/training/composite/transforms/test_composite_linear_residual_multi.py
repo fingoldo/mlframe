@@ -22,13 +22,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite import (
-    _linear_residual_multi_fit,
-    _linear_residual_multi_forward,
-    _linear_residual_multi_inverse,
-    _linear_residual_multi_domain,
-    get_transform,
-)
+from mlframe.training.composite import get_transform
+from mlframe.training.composite.transforms import _linear_residual_multi_fit, _linear_residual_multi_forward, _linear_residual_multi_inverse, _linear_residual_multi_domain
 
 # ---------------------------------------------------------------------------
 # Unit: round-trip / fit / forward / inverse
