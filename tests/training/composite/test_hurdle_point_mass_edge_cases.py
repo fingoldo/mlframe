@@ -21,6 +21,7 @@ from mlframe.training.composite.hurdle import HurdleRegressor
 
 
 def _charges(n=20_000, zero_share=0.74, n_negative=0, seed=0):
+    """A zero-inflated, log-normal charges target; the first ``n_negative`` rows are set to a refund of -2.17."""
     rng = np.random.default_rng(seed)
     y = np.where(rng.random(n) < zero_share, 0.0, np.exp(rng.normal(4.0, 1.2, n)))
     y[:n_negative] = -2.17
@@ -28,11 +29,13 @@ def _charges(n=20_000, zero_share=0.74, n_negative=0, seed=0):
 
 
 def test_a_sliver_of_refunds_below_zero_still_gets_a_hurdle():
+    """A handful of rows below the zero atom is tolerated: the target still gets a hurdle, and the count is reported."""
     atom, n_below, reason = zero_inflation_verdict(_charges(n_negative=5))
     assert atom == 0.0 and n_below == 5 and reason is None
 
 
 def test_many_rows_below_the_atom_are_declined_with_the_reason():
+    """Well over the tolerance of rows below the atom declines the hurdle, with a reason naming the offending value."""
     n = 20_000
     atom, n_below, reason = zero_inflation_verdict(_charges(n=n, n_negative=int(3 * BELOW_ATOM_TOLERANCE * n)))
     assert atom is None and n_below > 0
@@ -48,10 +51,12 @@ def test_a_point_mass_at_the_maximum_is_named_as_a_likely_fill_value():
 
 
 def test_no_point_mass_means_no_verdict():
+    """A continuous target with no point mass gets no atom, no below-atom count and no reason."""
     assert zero_inflation_verdict(np.random.default_rng(2).normal(size=5_000)) == (None, 0, None)
 
 
 def test_a_declined_target_is_logged_not_silently_skipped(caplog):
+    """A zero-inflated target that is declined is logged with its name rather than dropped silently."""
     from mlframe.training._configs_base import TargetTypes
 
     targets = {TargetTypes.REGRESSION: {"total_charge": _charges(n_negative=2_000)}}
@@ -73,11 +78,13 @@ def test_below_zero_no_event_keeps_the_log_scale():
 
 
 def test_below_zero_rejects_an_unknown_mode():
+    """An unknown ``below_zero`` mode raises instead of being ignored."""
     with pytest.raises(ValueError, match="below_zero"):
         HurdleRegressor(below_zero="clip").fit(np.zeros((10, 1)), np.r_[np.zeros(5), np.ones(5)])
 
 
 def test_the_injected_hurdle_counts_below_atom_rows_as_no_event(caplog):
+    """The hurdle injected for a target with a few rows below the atom treats them as no-event, and says so in the log."""
     from types import SimpleNamespace
 
     from mlframe.training._configs_base import TargetTypes
@@ -88,7 +95,7 @@ def test_the_injected_hurdle_counts_below_atom_rows_as_no_event(caplog):
         models = _hurdle_dispatch.maybe_inject_hurdle_for_zero_inflated(
             SimpleNamespace(), {}, [], targets, None, SimpleNamespace(hurdle_for_zero_inflated=True),
         )
-    (label, est), = models
+    ((_label, est),) = models
     assert est.below_zero == "no_event"
     assert any("lie below the point mass" in r.getMessage() for r in caplog.records)
 
@@ -106,6 +113,7 @@ def test_a_hurdle_of_two_boosters_trains_as_a_tree_model():
 
 
 def test_halves_that_disagree_still_fall_back_to_linear(caplog):
+    """A hurdle whose halves are linear models is still routed to the linear strategy."""
     from sklearn.linear_model import LinearRegression, LogisticRegression
 
     from mlframe.training.strategies import _strategy_for_estimator

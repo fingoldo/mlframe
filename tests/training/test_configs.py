@@ -183,11 +183,12 @@ class TestConfigValidationEdgeCases:
         assert config.test_size == 0.0
         assert config.val_size == 0.0
 
-    def test_split_size_exactly_one(self):
-        """Test split size of exactly 1.0."""
-        # Should be allowed (all data goes to one split)
-        config = TrainingSplitConfig(test_size=1.0, val_size=0.0)
-        assert config.test_size == 1.0
+    def test_split_sizes_that_leave_no_training_rows_are_rejected(self):
+        """test_size=1.0 sends every row to the test split and leaves nothing to train on; the config rejects it rather than
+        failing later inside the split. Just under 1.0 is still accepted."""
+        with pytest.raises(ValueError, match="to leave rows for training"):
+            TrainingSplitConfig(test_size=1.0, val_size=0.0)
+        assert TrainingSplitConfig(test_size=0.9, val_size=0.0).test_size == 0.9
 
     def test_invalid_sequential_fraction_bounds(self):
         """Test sequential fraction validation."""

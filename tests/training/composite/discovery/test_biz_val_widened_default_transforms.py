@@ -87,7 +87,8 @@ def test_biz_val_widened_transforms_gaussian_copula_beats_narrow_old_list():
     assert best_new_rmse <= best_old_rmse, (
         f"the widened pool's best spec (honest y-RMSE={best_new_rmse}) must not lose to the best narrow-old-list spec " f"(honest y-RMSE={best_old_rmse})"
     )
-    assert gc_rmse == pytest.approx(best_old_rmse, rel=0.02), (
+    # One-sided: a gaussian_copula that beats the old list's best by more than 2% is the point, not a failure.
+    assert gc_rmse <= best_old_rmse * 1.02, (
         f"gaussian_copula_residual (honest y-RMSE={gc_rmse}) must stay within 2% of the best narrow-old-list spec "
         f"(honest y-RMSE={best_old_rmse}) -- a NEW transform that ships must at least match what the old list found"
     )

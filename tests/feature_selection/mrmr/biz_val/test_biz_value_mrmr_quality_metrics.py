@@ -298,36 +298,30 @@ class TestVsBaselineRanking:
 class TestFalsePositiveRate:
     """Groups tests covering TestFalsePositiveRate."""
     def test_all_noise_bounded_false_positive_rate(self):
-        """When ALL features are pure noise, MRMR may surface AT MOST
-        a small fraction of features (genuine FP rate after the
-        confirmation perm test). On 10 pure-noise features, FP rate
-        should be <= 30%.
+        """When ALL features are pure noise, MRMR surfaces at most a small fraction of them: the mean false-positive rate
+        over several independent noise sets stays <= 30%, and no set has every noise feature selected.
+
+        The rate is measured over seeds because one seed cannot measure a rate. With the production defaults
+        (``full_npermutations=3``, mnc=0.99) the 3-permutation confirmation has limited power, so a single noise set lands
+        anywhere from 0 to 5 of 10: seed 206 went from 2 to 5 when near-collapsed supervised bins started being refined
+        (717d5bc7e), while the mean over these eight sets moved only from 1.9 to 2.1. A fixed single-seed ceiling of 4
+        therefore flipped on a change that did not move the rate.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        rng = np.random.default_rng(206)
-        n = 800
-        cols = {f"noise{k}": rng.standard_normal(n) for k in range(10)}
-        X = pd.DataFrame(cols)
-        y = pd.Series(rng.integers(0, 2, n).astype(np.int64))
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            sel = MRMR(verbose=0, min_features_fallback=0).fit(X, y)
-        n_selected = len(sel.support_)
-        fallback = getattr(sel, "fallback_used_", False)
-        # Either fallback engaged, or FP count is below the documented
-        # ceiling. With default ``full_npermutations=3`` and mnc=0.99
-        # (the production defaults), 3-perm confirmation has limited
-        # statistical power and ~30-40% of pure-noise features can
-        # randomly survive. Higher full_npermutations would tighten
-        # this but trades off fit time. The ceiling assertion catches
-        # catastrophic regressions where ALL noise features surface.
-        if not fallback:
-            # The surrounding comment says ~30-40% of pure-noise features can survive at this permutation
-            # budget, so the honest ceiling is 4 of 10 -- not 9. `n_selected < 10` only fires when EVERY noise
-            # feature is selected, which is a far more catastrophic regression than the one being described, so
-            # the test tolerated a false-positive rate three times its own stated bound.
-            assert n_selected <= 4, (
-                f"all-noise: {n_selected}/10 pure-noise features selected. The documented tolerance at this "
-                "permutation budget is ~30-40%; above that the noise floor is not doing its job."
-            )
+        n, n_noise = 800, 10
+        counts = []
+        for seed in (206, 1, 2, 3, 4, 5, 6, 7):
+            rng = np.random.default_rng(seed)
+            X = pd.DataFrame({f"noise{k}": rng.standard_normal(n) for k in range(n_noise)})
+            y = pd.Series(rng.integers(0, 2, n).astype(np.int64))
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                sel = MRMR(verbose=0, min_features_fallback=0).fit(X, y)
+            if getattr(sel, "fallback_used_", False):
+                continue
+            counts.append(len(sel.support_))
+        assert counts, "every seed engaged the fallback, so nothing was measured"
+        assert max(counts) < n_noise, f"all-noise: a seed selected every noise feature; per-seed={counts}"
+        rate = sum(counts) / (len(counts) * n_noise)
+        assert rate <= 0.30, f"all-noise: mean false-positive rate {rate:.0%} above the documented ~30% at this permutation budget; per-seed={counts}"
