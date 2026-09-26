@@ -232,13 +232,13 @@ def _wide_bed(seed: int):
 
 def test_a_width_gated_arm_is_skipped_on_a_wide_bed_and_a_typo_still_stops_the_run(tmp_path) -> None:
     """The two absences differ: a wrapper past its cap is skipped, a name no roster builds is an error."""
-    import json
+    import orjson
 
     from mlframe.feature_selection._benchmarks.fs_hybrid.run_experiment import run_grid
 
     results = tmp_path / "cells.jsonl"
     run_grid(scenarios=[("wide", _wide_bed)], dataset_seeds=[0], cv_seeds=[0], results_path=str(results), arms=["greedy-backward"])
-    arms_run = {json.loads(line)["arm"] for line in results.read_text(encoding="utf-8").splitlines() if line.strip()}
+    arms_run = {orjson.loads(line)["arm"] for line in results.read_text(encoding="utf-8").splitlines() if line.strip()}
     assert "greedy-backward" not in arms_run
     assert "all-features" in arms_run, "the null hypothesis still runs, so the bed is not silently empty"
 

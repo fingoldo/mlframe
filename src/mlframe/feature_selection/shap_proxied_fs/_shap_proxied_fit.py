@@ -151,9 +151,8 @@ class ShapProxiedFitMixin:
 
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
 
-        # Optional per-stage wall-clock instrumentation for the scaling benchmark / profiling. Set
-        # ``self._stage_timings`` to a dict before calling fit and each stage's seconds land in it; a
-        # no-op otherwise (zero overhead beyond a dict lookup), so production fits are unaffected.
+        # Optional per-stage wall-clock instrumentation for the scaling benchmark / profiling. Set ``self._stage_timings`` to a dict before calling fit and each
+        # stage's seconds land in it; a no-op otherwise (zero overhead beyond a dict lookup), so production fits are unaffected.
         _timings = getattr(self, "_stage_timings", None)
 
         @contextmanager

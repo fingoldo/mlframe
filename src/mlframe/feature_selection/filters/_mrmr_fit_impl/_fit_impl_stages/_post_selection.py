@@ -61,12 +61,12 @@ def _run_additional_rfecv(self, X, selected_vars, verbose, y, categorical_vars_n
 
             params = configs.COMMON_RFECV_PARAMS.copy()
             params["max_runtime_mins"] = self.run_additional_rfecv_minutes
-            # Wire MRMR.cv / cv_shuffle into the additional RFECV pass; pre-fix they were dead constructor params.
-            # ``params`` may already carry ``cv`` from configs.COMMON_RFECV_PARAMS; MRMR's explicit setting wins.
+            # Wire MRMR.cv / cv_shuffle into the additional RFECV pass; pre-fix they were dead constructor params. ``params`` may already carry ``cv`` from
+            # configs.COMMON_RFECV_PARAMS; MRMR's explicit setting wins.
             params.update(self._rfecv_cv_kwargs())
-            # Parsimony for the rescue: RFECV's recall-oriented default ('one_se_max') keeps the LARGEST subset within 1 SE, which on a
-            # noise-robust booster re-admits ~the whole discarded pool and undoes MRMR's selection. Pin the smallest-within-1-SE rule so the
-            # rescue re-adds only discarded features that genuinely lift CV. setdefault lets COMMON_RFECV_PARAMS / additional_rfecv_kwargs win.
+            # Parsimony for the rescue: RFECV's recall-oriented default ('one_se_max') keeps the LARGEST subset within 1 SE, which on a noise-robust booster
+            # re-admits ~the whole discarded pool and undoes MRMR's selection. Pin the smallest-within-1-SE rule so the rescue re-adds only discarded features
+            # that genuinely lift CV. setdefault lets COMMON_RFECV_PARAMS / additional_rfecv_kwargs win.
             params.setdefault("n_features_selection_rule", getattr(self, "additional_rfecv_selection_rule", "one_se_min"))
             _extra_rfecv = getattr(self, "additional_rfecv_kwargs", None)
             if _extra_rfecv:
@@ -79,8 +79,7 @@ def _run_additional_rfecv(self, X, selected_vars, verbose, y, categorical_vars_n
             #      satisfy the legacy ratio>100 but are NOT classification). Integer
             #      dtype with ratio>100 AND small absolute cardinality (<=64 unique
             #      values) is classification. Everything else is regression.
-            # Pre-fix, the regression else-branch silently skipped the
-            # additional-RFECV pass entirely, so regression callers got no benefit
+            # Pre-fix, the regression else-branch silently skipped the additional-RFECV pass entirely, so regression callers got no benefit
             # from run_additional_rfecv_minutes. The dtype guard prevents misclassifying
             # zero-inflated float targets. fix audit row FS-L-2.
             _explicit_tt = getattr(self, "target_type", None)
@@ -101,20 +100,13 @@ def _run_additional_rfecv(self, X, selected_vars, verbose, y, categorical_vars_n
                         _n_unique,
                         _ratio,
                     )
-            # order-preserving set
-            # difference. The prior ``list(set(X.columns) - set(...))``
-            # produced a HASH-SEED-DEPENDENT column order because Python's
-            # randomized string hashing reorders ``set`` iteration across
-            # processes. That order flowed into RFECV's CatBoost feature
-            # importances, whose tie-breaks then gave different
-            # ``self.support_`` across runs that differed only in
-            # ``PYTHONHASHSEED``. Concrete demo: 5/5 distinct orderings
-            # observed across seeds 0-4. Breaks the "same random_seed ->
-            # identical support_" contract for any user with
-            # ``run_additional_rfecv_minutes`` > 0.
-            # ``selected_vars`` indexes ``feature_names_in_`` (full, includes passthrough); ``X`` here is the passthrough-narrowed working frame, so map names via
-            # ``feature_names_in_`` rather than ``X.columns[...]`` (positional mismatch when passthrough is active). Passthrough columns are never in the narrowed X
-            # and never enter the RFECV rescue pool below regardless.
+            # order-preserving set difference. The prior ``list(set(X.columns) - set(...))`` produced a HASH-SEED-DEPENDENT column order because Python's
+            # randomized string hashing reorders ``set`` iteration across processes. That order flowed into RFECV's CatBoost feature importances, whose
+            # tie-breaks then gave different ``self.support_`` across runs that differed only in ``PYTHONHASHSEED``. Concrete demo: 5/5 distinct orderings
+            # observed across seeds 0-4. Breaks the "same random_seed -> identical support_" contract for any user with ``run_additional_rfecv_minutes`` > 0.
+            # ``selected_vars`` indexes ``feature_names_in_`` (full, includes passthrough); ``X`` here is the passthrough-narrowed working frame, so map names
+            # via ``feature_names_in_`` rather than ``X.columns[...]`` (positional mismatch when passthrough is active). Passthrough columns are never in the
+            # narrowed X and never enter the RFECV rescue pool below regardless.
             _sel_names = {self.feature_names_in_[i] for i in selected_vars}
             # Cluster members already folded into a denoised aggregate (post-hoc cluster_aggregate 'replace' mode,
             # _cluster_aggregate_removals_) or into a DCD PC1/mean_z swap (cluster_members_) are REPRESENTED by that

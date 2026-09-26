@@ -350,16 +350,11 @@ def _validate_input_columns_against_metadata(
     if not columns:
         return df
 
-    # Augment the allowlist with columns produced by the suite-owned
-    # datetime decomposition (metadata["datetime_methods"] = {src_col:
-    # {method: dtype_name, ...}}). The raw-input snapshot is taken BEFORE
-    # the suite runs ``create_date_features``, so the derived
-    # ``<src>_<method>`` columns look "extra" to a strict set-diff and
-    # get dropped here -- which then breaks the trained pipeline that
-    # expects them. The replay step has already added them to ``df``
-    # by the time we reach this validator; treating them as allowed
-    # is the correct invariant. FTE-owned datetime expansions
-    # (``ftextractor_emitted_columns``) similarly need to count.
+    # Augment the allowlist with columns produced by the suite-owned datetime decomposition (metadata["datetime_methods"] = {src_col: {method: dtype_name,
+    # ...}}). The raw-input snapshot is taken BEFORE the suite runs ``create_date_features``, so the derived ``<src>_<method>`` columns look "extra" to a strict
+    # set-diff and get dropped here -- which then breaks the trained pipeline that expects them. The replay step has already added them to ``df`` by the time we
+    # reach this validator; treating them as allowed is the correct invariant. FTE-owned datetime expansions (``ftextractor_emitted_columns``) similarly need to
+    # count.
     _allowed = list(columns)
     _dt_methods_map = metadata.get("datetime_methods") or {}
     # ``create_date_features`` at training time also emits cyclical companions

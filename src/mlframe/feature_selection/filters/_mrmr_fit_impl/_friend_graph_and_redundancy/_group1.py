@@ -48,11 +48,10 @@ def _friend_graph_and_redundancy_passes_group1(
     """Run the friend-graph, cluster-aggregate-removal, standalone-gate-prune, interactions-order-2-drop, prefe-raw-reconsider, adaptive-fourier-readd, missingness-indicator-readd pass(es) and return ``(selected_vars, cols, data, nbins)``.
     See the package docstring for the full section this carves out."""
     self.friend_graph_ = None
-    # ``len(...)`` not truthiness: by this point ``selected_vars`` may be a numpy array (the empty-screen
-    # FE fallback rebinds it), and ``and <array>`` raises "truth value ... ambiguous". Empty list AND empty
-    # array both give len 0, so the guard reads "build the graph only when something was selected".
-    # build_friend_graph defaults OFF (diagnostic-display only); friend_graph_prune REQUIRES the graph, so auto-build
-    # it whenever pruning is on even if the diagnostic build was left off.
+    # ``len(...)`` not truthiness: by this point ``selected_vars`` may be a numpy array (the empty-screen FE fallback rebinds it), and ``and <array>`` raises
+    # "truth value ... ambiguous". Empty list AND empty array both give len 0, so the guard reads "build the graph only when something was selected".
+    # build_friend_graph defaults OFF (diagnostic-display only); friend_graph_prune REQUIRES the graph, so auto-build it whenever pruning is on even if the
+    # diagnostic build was left off.
     if (getattr(self, "build_friend_graph", False) or getattr(self, "friend_graph_prune", False)) and len(selected_vars) > 0:
         try:
             from ...friend_graph import build_friend_graph as _build_fg, prune_by_friend_graph as _prune_fg
@@ -73,8 +72,8 @@ def _friend_graph_and_redundancy_passes_group1(
                 gpu_backend=getattr(self, "friend_graph_gpu_backend", None),
             )
             if self.friend_graph_prune:
-                # Protect cluster-aggregate columns from pruning: they are correlated with all their
-                # members by construction, so the sink classifier could mis-flag them.
+                # Protect cluster-aggregate columns from pruning: they are correlated with all their members by construction, so the sink classifier could
+                # mis-flag them.
                 _ca_protect = [v for v in selected_vars if getattr(engineered_recipes.get(cols[v]), "kind", None) == "cluster_aggregate"]
                 _pruned, _reasons = _prune_fg(_fg, selected_vars, protect_indices=_ca_protect)
                 if _reasons:
@@ -93,10 +92,9 @@ def _friend_graph_and_redundancy_passes_group1(
                 _fg_exc,
             )
 
-    # Clustered-feature aggregation, replace mode: drop the aggregated cluster MEMBERS from
-    # selected_vars (cols-space) so only the denoised aggregate survives into support_. Idempotent
-    # set-difference (composes with the friend-graph prune above). The aggregate itself is an
-    # engineered name and is routed into _engineered_recipes_ by the remap below.
+    # Clustered-feature aggregation, replace mode: drop the aggregated cluster MEMBERS from selected_vars (cols-space) so only the denoised aggregate survives
+    # into support_. Idempotent set-difference (composes with the friend-graph prune above). The aggregate itself is an engineered name and is routed into
+    # _engineered_recipes_ by the remap below.
     _ca_removed = getattr(self, "_cluster_aggregate_removals_", None)
     if _ca_removed:
         _removed_set = set(_ca_removed)

@@ -154,8 +154,7 @@ def predict_mlframe_models_suite(
             - "ensemble_predictions": Combined ensemble predictions (if multiple models)
             - "metadata": Loaded metadata dict
     """
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, suite_binary_threshold, _resolve_quantile_alphas, _run_batched
     from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
@@ -179,8 +178,8 @@ def predict_mlframe_models_suite(
 
     if predict_batch_rows is not None and predict_batch_rows > 0 and len(df) > predict_batch_rows:
         _shared_metadata = _preloaded_metadata if _preloaded_metadata is not None else _load_suite_metadata(models_path, trusted_root, verbose)
-        # Dispatch to the batched-runner; the batched-runner calls this same function recursively per slice
-        # with predict_batch_rows=None so the legacy single-pass code path runs unchanged for each batch.
+        # Dispatch to the batched-runner; the batched-runner calls this same function recursively per slice with predict_batch_rows=None so the legacy
+        # single-pass code path runs unchanged for each batch.
         return _run_batched(
             lambda _d: predict_mlframe_models_suite(
                 _d, models_path,
@@ -223,11 +222,10 @@ def predict_mlframe_models_suite(
     # The training split key (TrainingSplitConfig.id_column) is not a model feature.
     df = _drop_cols_df(df, split_id_columns_from_metadata(metadata))
 
-    # Polars fastpath: decide BEFORE the eager pandas materialisation. If every loaded model is CB / XGB sklearn-API
-    # (polars-native) and the input is polars, keep the polars frame all the way through; non-native models pay a
-    # lazy conversion via ``_pandas_view_cache`` so two non-native models on the same source polars df share one view.
-    # Respect ``model_names`` filter before loading: the probe only needs to inspect models the user actually
-    # requested. Loading every .dump in the directory wasted RSS for one-model-needed inference calls.
+    # Polars fastpath: decide BEFORE the eager pandas materialisation. If every loaded model is CB / XGB sklearn-API (polars-native) and the input is polars,
+    # keep the polars frame all the way through; non-native models pay a lazy conversion via ``_pandas_view_cache`` so two non-native models on the same source
+    # polars df share one view. Respect ``model_names`` filter before loading: the probe only needs to inspect models the user actually requested. Loading every
+    # .dump in the directory wasted RSS for one-model-needed inference calls.
     _input_is_polars = isinstance(df, pl.DataFrame)
     _model_files_for_native_probe = _resolve_model_files(models_path, model_names)
     _loaded_models_cache: dict[str, Any] = {}

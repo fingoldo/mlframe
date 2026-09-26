@@ -427,14 +427,14 @@ def _run_composite_target_wrapping(
                 _inner = getattr(_entry, "model", None) or _entry
                 if not hasattr(_inner, "predict"):
                     continue
-                # Idempotency: if the entry is ALREADY a CompositeTargetEstimator (re-entry via recover_composite_y_scale_metrics), skip wrap.
-                # Double-wrap would treat y-scale predict output as if it were T-scale and invert the transform a second time, producing garbage.
+                # Idempotency: if the entry is ALREADY a CompositeTargetEstimator (re-entry via recover_composite_y_scale_metrics), skip wrap. Double-wrap would
+                # treat y-scale predict output as if it were T-scale and invert the transform a second time, producing garbage.
                 if isinstance(_inner, CompositeTargetEstimator):
                     continue
                 try:
-                    # Multi-base specs (linear_residual_multi / future multi-base transforms) carry extra base columns alongside the
-                    # primary; the builder passes the full base_columns tuple so predict() reconstructs the (n, K) base matrix matching
-                    # the K alphas in fitted_params (else it raises "base has 1 columns but fitted alphas has K entries").
+                    # Multi-base specs (linear_residual_multi / future multi-base transforms) carry extra base columns alongside the primary; the builder passes
+                    # the full base_columns tuple so predict() reconstructs the (n, K) base matrix matching the K alphas in fitted_params (else it raises "base
+                    # has 1 columns but fitted alphas has K entries").
                     _wrapper = build_composite_wrapper(
                         entry=_entry, inner=_inner, spec=_spec, y_train=_y_train_for_wrap,
                         train_df=filtered_train_df, target_name=_orig_tname, group_column=group_column,
@@ -474,10 +474,9 @@ def _run_composite_target_wrapping(
                         composite_name=_composite_name,
                         splits=(("val", filtered_val_idx, filtered_val_df), ("test", test_idx, test_df_pd)),
                     )
-            # Compute y-scale RMSE/MAE/R2 per split so composite is comparable to raw (per-target metrics were T-scale).
-            # ``skip_predict``: bypass the per-split predict + metric block; wrap step above already ran so downstream
-            # predict-path callers see y-scale predictions. Pack G watchdog on additive transforms (T-MAE == y-MAE) is
-            # the correctness gate; the y-scale numbers here would just restate what the T-scale metrics already say.
+            # Compute y-scale RMSE/MAE/R2 per split so composite is comparable to raw (per-target metrics were T-scale). ``skip_predict``: bypass the per-split
+            # predict + metric block; wrap step above already ran so downstream predict-path callers see y-scale predictions. Pack G watchdog on additive
+            # transforms (T-MAE == y-MAE) is the correctness gate; the y-scale numbers here would just restate what the T-scale metrics already say.
             if skip_predict:
                 logger.info(
                     "[CompositeTargetEstimator] composite='%s': wrap done, "

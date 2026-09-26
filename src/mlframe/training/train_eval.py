@@ -437,20 +437,13 @@ def process_model(
 
     # Check if model exists in cache.
     #
-    # Gating: historically this path loaded blindly whenever the .dump
-    # existed. Preserve that as the default (suite-level cache is expected
-    # to "just work"); callers force a retrain via
-    # ``TrainingControlConfig(use_cache=False)`` (this flag is read off the
-    # internal ``common_params`` dict that the suite assembles from the
-    # typed configs).
+    # Gating: historically this path loaded blindly whenever the .dump existed. Preserve that as the default (suite-level cache is expected to "just work");
+    # callers force a retrain via ``TrainingControlConfig(use_cache=False)`` (this flag is read off the internal ``common_params`` dict that the suite assembles
+    # from the typed configs).
     #
-    # Schema validation: when the cache does load, validate the saved
-    # model's feature list + cat_features against the current preprocessed
-    # DataFrame. A mismatch usually means preprocessing or the feature set
-    # changed between runs -- the classic symptom being a cryptic
-    # ``Unsupported data type Categorical for a numerical feature column``
-    # crash deep in CatBoost's Polars fastpath. Invalidate the stale cache
-    # and retrain rather than bubble the opaque backend error.
+    # Schema validation: when the cache does load, validate the saved model's feature list + cat_features against the current preprocessed DataFrame. A mismatch
+    # usually means preprocessing or the feature set changed between runs -- the classic symptom being a cryptic ``Unsupported data type Categorical for a
+    # numerical feature column`` crash deep in CatBoost's Polars fastpath. Invalidate the stale cache and retrain rather than bubble the opaque backend error.
     use_cache_flag = bool(common_params.get("use_cache", True))
     use_cached_model = use_cache_flag and bool(fpath and exists(fpath))
     # What this model would be trained on: a cached dump trained on anything else is stale.
@@ -461,11 +454,8 @@ def process_model(
             logger.info("Loading model from file %s", fpath)
         loaded_model: Any = load_mlframe_model(fpath)
         if loaded_model is None:
-            # Load returned None (e.g. _SafeUnpickler rejected an unsafe class,
-            # file corrupted, version skew). The loader logs the root cause;
-            # we fall back to retraining rather than attempting to use a
-            # half-loaded artifact and tripping AttributeError downstream on
-            # loaded_model.model.
+            # Load returned None (e.g. _SafeUnpickler rejected an unsafe class, file corrupted, version skew). The loader logs the root cause; we fall back to
+            # retraining rather than attempting to use a half-loaded artifact and tripping AttributeError downstream on loaded_model.model.
             logger.warning(
                 "Cached model load returned None at %s -- "
                 "retraining. (Check earlier WARN for the real cause: "

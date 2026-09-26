@@ -874,10 +874,8 @@ def compute_feature_distribution_drift(
     scores). Missing columns get 0 weight. The aggregate skips features
     with NaN z (constant features).
     """
-    # Target-invariant stats (per-feature z + drift candidates + categorical PSI)
-    # are cached on a content signature and reused across the per-target loop;
-    # only the FI-weighted aggregate below varies per target. Cache miss / an
-    # uncacheable (embedding) frame falls back to a fresh recompute.
+    # Target-invariant stats (per-feature z + drift candidates + categorical PSI) are cached on a content signature and reused across the per-target loop; only
+    # the FI-weighted aggregate below varies per target. Cache miss / an uncacheable (embedding) frame falls back to a fresh recompute.
     _cache_key = _drift_invariant_cache_key(
         train_df, val_df, test_df, feature_names, warn_threshold_z,
     )

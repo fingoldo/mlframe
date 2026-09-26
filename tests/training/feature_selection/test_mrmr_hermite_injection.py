@@ -118,6 +118,7 @@ class TestHermiteInjectionWiring:
             engineered = set(m._engineered_features_ or [])
             injected_names = {entry["name"] for entry in injected}
             # Schema check on each entry.
+            assert injected
             for entry in injected:
                 assert "name" in entry and isinstance(entry["name"], str)
                 assert "src_a" in entry and "src_b" in entry

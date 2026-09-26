@@ -151,5 +151,5 @@ try:
         cli_label="fe_maxt_permnull_floor_resident_crossover",
     )
 except Exception as e:
-    logger.debug("fe_maxt_permnull_floor_resident_crossover kernel_tuner registration failed: %s", e)
+    logger.warning("fe_maxt_permnull_floor_resident_crossover kernel_tuner registration failed: %s", e)
     _PERMNULL_SPEC = None

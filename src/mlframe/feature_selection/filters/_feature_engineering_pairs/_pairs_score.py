@@ -77,6 +77,24 @@ def _should_demote_prewarp(pw_corr, clean_corr) -> bool:
     return bool(clean_corr >= 0.0 and pw_corr < clean_corr * 1.05)
 
 
+def _beats_the_larger_operand(best_mi: float, operand_marginal_mi, raw_vars_pair, messages) -> bool:
+    """Whether the engineered MI clears ``_FE_JOINT_GATE_MIN_OPERAND_UPLIFT`` over the larger operand's own MI.
+
+    With one strong operand and one noise operand the pair joint MI is about the strong operand's own MI, so the joint
+    gate alone passed noise-degraded copies of it (uplift 1.011-1.032); genuine pairs measured 1.36-2.32. Appends the
+    reason to *messages* when rejecting and *messages* is not None.
+    """
+    floor = max(operand_marginal_mi(raw_vars_pair[0]), operand_marginal_mi(raw_vars_pair[1]))
+    if floor <= 0.0 or best_mi > floor * _FE_JOINT_GATE_MIN_OPERAND_UPLIFT:
+        return True
+    if messages is not None:
+        messages.append(
+            f"joint gate operand floor: best engineered MI={best_mi:.4f} does not beat the larger operand marginal "
+            f"MI={floor:.4f}; a degraded copy of one operand, not a pair feature."
+        )
+    return False
+
+
 def _score_one_pair(
     *,
     raw_vars_pair,
@@ -100,8 +118,8 @@ def _score_one_pair(
     _fe_chunks,
     _pair_valid_combs,
     _fe_defer_float,
-    # --- per-call hoists (env-gate / op-code table / MI tie-band): resolved ONCE by the caller
-    # (invariant for the whole ``check_prospective_fe_pairs`` call), NOT recomputed per pair ---
+    # --- per-call hoists (env-gate / op-code table / MI tie-band): resolved ONCE by the caller (invariant for the whole ``check_prospective_fe_pairs`` call),
+    # NOT recomputed per pair ---
     _gpu_mat_on,
     _op_code_arr,
     _op_code_arr_all,
@@ -187,30 +205,20 @@ def _score_one_pair(
     best_config, best_mi = None, -1.0
     this_pair_features: set = set()
     var_pairs_perf = {}
-    # Pre-warp uplift tracking: the best engineered MI achievable
-    # with ONLY the elementary library unaries (no ``prewarp`` operand) vs the
-    # best USING a prewarp operand. A 1-D engineered summary of a 2-D pair
-    # cannot retain ``fe_min_engineered_mi_prevalence`` of the 2-D JOINT MI,
-    # so on a non-monotone inner distortion (where the elementary library is
-    # representationally blind) the prewarp winner is rejected by the joint
-    # prevalence gate despite being a large, real uplift over the best the
-    # library can do. The alternative acceptance path below admits a prewarp
-    # winner when it beats the best non-prewarp engineered MI by a margin -
-    # directed (only fires where the prewarp adds representational power) and
-    # noise-safe (on linear/monotone/noise data the prewarp does not beat the
-    # elementary library, so the margin is never cleared).
+    # Pre-warp uplift tracking: the best engineered MI achievable with ONLY the elementary library unaries (no ``prewarp`` operand) vs the best USING a prewarp
+    # operand. A 1-D engineered summary of a 2-D pair cannot retain ``fe_min_engineered_mi_prevalence`` of the 2-D JOINT MI, so on a non-monotone inner
+    # distortion (where the elementary library is representationally blind) the prewarp winner is rejected by the joint prevalence gate despite being a large,
+    # real uplift over the best the library can do. The alternative acceptance path below admits a prewarp winner when it beats the best non-prewarp engineered
+    # MI by a margin - directed (only fires where the prewarp adds representational power) and noise-safe (on linear/monotone/noise data the prewarp does not
+    # beat the elementary library, so the margin is never cleared).
     best_nonprewarp_mi = -1.0
     best_nonprewarp_config = None
     best_prewarp_config, best_prewarp_mi = None, -1.0
 
-    # CRITICAL #2 dispatch: hoist path uses the shared buffer (writes into
-    # ``[:, i]``); recompute-fallback path uses a tiny 1D scratch + a
-    # config-by-i map for on-demand survivor recomputation later.
-    # CROSS-PAIR: when this pair was batched across the chunk, its survivor
-    # columns live in the wide ``_chunk_buffer`` (the config's ``i`` is the
-    # chunk-buffer column), so point ``final_transformed_vals`` at it. The chunk
-    # is materialised LAZILY: pairs are processed in chunk-plan order, so when we
-    # reach the FIRST pair of a not-yet-loaded chunk we fill the buffer + MI cache
+    # CRITICAL #2 dispatch: hoist path uses the shared buffer (writes into ``[:, i]``); recompute-fallback path uses a tiny 1D scratch + a config-by-i map for
+    # on-demand survivor recomputation later. CROSS-PAIR: when this pair was batched across the chunk, its survivor columns live in the wide ``_chunk_buffer``
+    # (the config's ``i`` is the chunk-buffer column), so point ``final_transformed_vals`` at it. The chunk is materialised LAZILY: pairs are processed in
+    # chunk-plan order, so when we reach the FIRST pair of a not-yet-loaded chunk we fill the buffer + MI cache
     # for that whole chunk in ONE batched pass. By the time the next chunk's first
     # pair arrives, all of this chunk's pairs (incl. their survivor packing, which
     # reads the buffer) have already been processed -> safe to overwrite.
@@ -936,15 +944,7 @@ def _score_one_pair(
             best_mi, pair_mi, k_eng=_k_eng, k_joint=_k_joint, k_y=_k_y, n=_n_rows,
         )
     _passes_joint_gate = _gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
-    if _passes_joint_gate:
-        _joint_gate_operand_floor = max(_operand_marginal_mi(raw_vars_pair[0]), _operand_marginal_mi(raw_vars_pair[1]))
-        if _joint_gate_operand_floor > 0.0 and best_mi <= _joint_gate_operand_floor * _FE_JOINT_GATE_MIN_OPERAND_UPLIFT:
-            _passes_joint_gate = False
-            if verbose:
-                messages.append(
-                    f"joint gate operand floor: best engineered MI={best_mi:.4f} does not beat the larger operand marginal "
-                    f"MI={_joint_gate_operand_floor:.4f}; a degraded copy of one operand, not a pair feature."
-                )
+    _passes_joint_gate = _passes_joint_gate and _beats_the_larger_operand(best_mi, _operand_marginal_mi, raw_vars_pair, messages if verbose else None)
 
     # Alternative pre-warp acceptance: the joint-prevalence gate
     # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner

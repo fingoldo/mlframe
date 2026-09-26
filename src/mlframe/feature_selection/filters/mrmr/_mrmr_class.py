@@ -348,26 +348,17 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         quantization_method: str = "quantile",
         quantization_nbins: int = 10,  # [ACCURACY-CAVEAT] <5 is too coarse for the plug-in MI; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         quantization_dtype: type = np.int32,
-        # Cap categorical column cardinality: any categorical with more than this many distinct codes folds its rare tail
-        # into one "other" bucket (top-(cap-1) by frequency kept). None (default) = uncapped. A high-cardinality categorical
-        # has sparse contingency cells so its plug-in MI/CMI is unreliable regardless (the analytic null guards on >=5
-        # expected/cell); capping DENSIFIES the cells (better MI) AND lets the whole codes matrix stay a narrow int - set
-        # to <=127 to keep the compact-codes storage int8 (4x smaller) even when legitimate high-card categoricals exist.
+        # Cap categorical column cardinality: any categorical with more than this many distinct codes folds its rare tail into one "other" bucket (top-(cap-1)
+        # by frequency kept). None (default) = uncapped. A high-cardinality categorical has sparse contingency cells so its plug-in MI/CMI is unreliable
+        # regardless (the analytic null guards on >=5 expected/cell); capping DENSIFIES the cells (better MI) AND lets the whole codes matrix stay a narrow int
+        # - set to <=127 to keep the compact-codes storage int8 (4x smaller) even when legitimate high-card categoricals exist.
         max_categorical_cardinality: int | None = None,
-        # per-feature adaptive bin chooser. Default
-        # ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the
-        # honest combined-ranking winner of the F1 leaderboard
-        # (``|err vs truth| + noise_floor``: MDLP 0.107, Sturges 0.135,
-        # quantile10 0.139, OptimalJoint 0.167, FD 0.175). MDLP is the only
-        # strategy with a TRUE zero no-signal floor, which directly improves
-        # MRMR's relevance gate against false-positive feature picks. Pass
-        # ``nbins_strategy=None`` to restore the pre-2026-05-29 fixed
-        # ``quantization_nbins`` quantile behaviour.
-        # The MRMR hot path stays exclusively on the plug-in MI njit kernel
-        # chain (mi_direct / fleuret / permutation); alternative MI estimator
-        # families (KSG, neural, copula, aggregators) live in their own
-        # modules for ad-hoc / benchmark use only and are explicitly NOT
-        # wired into MRMR.fit().
+        # per-feature adaptive bin chooser. Default ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the honest combined-ranking winner of the F1
+        # leaderboard (``|err vs truth| + noise_floor``: MDLP 0.107, Sturges 0.135, quantile10 0.139, OptimalJoint 0.167, FD 0.175). MDLP is the only strategy
+        # with a TRUE zero no-signal floor, which directly improves MRMR's relevance gate against false-positive feature picks. Pass ``nbins_strategy=None`` to
+        # restore the pre-2026-05-29 fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on the plug-in MI njit kernel chain
+        # (mi_direct / fleuret / permutation); alternative MI estimator families (KSG, neural, copula, aggregators) live in their own modules for ad-hoc /
+        # benchmark use only and are explicitly NOT wired into MRMR.fit().
         nbins_strategy: str = "mdlp",
         # ``nbins_strategy='mdlp'`` now runs significance-gated ("validated")
         # splitting by DEFAULT instead of the classic in-sample MDL threshold + depth cap -
@@ -3426,27 +3417,21 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``.
         """
         if not getattr(self, "_in_partial_fit_", False):
-            # An explicit fit() replaces the model, so a partial_fit stream restarts from its next batch; resuming the old buffer made
-            # partial_fit(A); fit(B); partial_fit(C) silently refit on A + C.
+            # An explicit fit() replaces the model, so a partial_fit stream restarts from its next batch; resuming the old buffer made partial_fit(A); fit(B);
+            # partial_fit(C) silently refit on A + C.
             for _pf_attr in ("_partial_fit_X_buffer_", "_partial_fit_y_buffer_", "_partial_fit_batch_sizes_", "_partial_fit_n_seen_", "_partial_fit_n_since_refit_"):
                 if getattr(self, _pf_attr, None) is not None:
                     setattr(self, _pf_attr, None)
-        # Row-count guard, first thing: no length-validation existed anywhere before the MI/screening
-        # pipeline, so a mismatched (X, y) reached numba-njit kernels (bounds checking compiled OUT for
-        # speed) with an out-of-bounds row index instead of a Python exception. Off the JIT-disabled
-        # fallback path this happened to raise a clean pandas ValueError from an unrelated internal
-        # column assignment deep in the pipeline (accidental, not an intentional guard); WITH jit
-        # enabled the same out-of-bounds read reached compiled code first and corrupted the process --
-        # "Windows fatal exception: access violation", reproduced live via
-        # ``test_selectors_shared.py::TestSharedDegenerateInputs::test_y_length_mismatch_raises[MRMR]``.
-        # Validating here, before anything touches a kernel, makes the failure mode a clean ValueError
-        # unconditionally (JIT on or off) instead of an accident of which code path happens to run first.
-        # A polars LazyFrame has neither .shape nor len() (row count is unknown until materialised) --
-        # duck-typed via .collect (present on LazyFrame, absent on pandas/polars-eager/ndarray) so this
-        # guard skips it without a hard polars import (polars stays an optional dependency throughout
-        # this module). The auto-collect step downstream turns it into an eager frame, and the row-count
-        # check still fires there (this guard's whole point -- reaching the mismatch as a clean
-        # ValueError before any njit kernel -- is preserved, just deferred to after collection).
+        # Row-count guard, first thing: no length-validation existed anywhere before the MI/screening pipeline, so a mismatched (X, y) reached numba-njit
+        # kernels (bounds checking compiled OUT for speed) with an out-of-bounds row index instead of a Python exception. Off the JIT-disabled fallback path
+        # this happened to raise a clean pandas ValueError from an unrelated internal column assignment deep in the pipeline (accidental, not an intentional
+        # guard); WITH jit enabled the same out-of-bounds read reached compiled code first and corrupted the process -- "Windows fatal exception: access
+        # violation", reproduced live via ``test_selectors_shared.py::TestSharedDegenerateInputs::test_y_length_mismatch_raises[MRMR]``. Validating here, before
+        # anything touches a kernel, makes the failure mode a clean ValueError unconditionally (JIT on or off) instead of an accident of which code path happens
+        # to run first. A polars LazyFrame has neither .shape nor len() (row count is unknown until materialised) -- duck-typed via .collect (present on
+        # LazyFrame, absent on pandas/polars-eager/ndarray) so this guard skips it without a hard polars import (polars stays an optional dependency throughout
+        # this module). The auto-collect step downstream turns it into an eager frame, and the row-count check still fires there (this guard's whole point --
+        # reaching the mismatch as a clean ValueError before any njit kernel -- is preserved, just deferred to after collection).
         _is_lazyframe = hasattr(X, "collect") and not hasattr(X, "shape")
         if _is_lazyframe:
             _n_rows_X = None
@@ -3455,11 +3440,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         _n_rows_y = len(y)
         if _n_rows_X is not None and _n_rows_X != _n_rows_y:
             raise ValueError(f"MRMR.fit: X has {_n_rows_X} rows but y has {_n_rows_y} -- X and y must have the same length.")
-        # groups contract check and polars validate+bridge each moved
-        # verbatim to a named helper on _MRMRFitHelpersMixin (see their docstrings for the original
-        # rationale) - zero behavior change, pure extraction. The GPU-breaker re-arm now happens in the
-        # outer ``fit()`` wrapper's ``_enter_active_fit_scope()``, gated to
-        # the 0->1 in-flight-fit transition instead of running unconditionally on every call here.
+        # groups contract check and polars validate+bridge each moved verbatim to a named helper on _MRMRFitHelpersMixin (see their docstrings for the original
+        # rationale) - zero behavior change, pure extraction. The GPU-breaker re-arm now happens in the outer ``fit()`` wrapper's ``_enter_active_fit_scope()``,
+        # gated to the 0->1 in-flight-fit transition instead of running unconditionally on every call here.
         #
         # Pre-override ctor-params snapshot (bug found while testing the re-entrancy guard): the in-object "identical refit -> skip" signature
         # (``_fit_impl_core.py``'s ``_self_params_sig``) used to be computed from ``self.get_params()``

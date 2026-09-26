@@ -197,9 +197,11 @@ def test_autoencoder_architecture_symmetry():
     mid = len(layer_sizes) // 2
     assert len(layer_sizes) >= 4, f"too few layers for two halves to compare: {layer_sizes}"
     # First half should decrease
+    assert list(range(mid - 1)), layer_sizes
     for i in range(mid - 1):
         assert layer_sizes[i + 1] <= layer_sizes[i]
     # Second half should increase
+    assert list(range(mid, len(layer_sizes) - 1)), layer_sizes
     for i in range(mid, len(layer_sizes) - 1):
         assert layer_sizes[i + 1] >= layer_sizes[i]
 

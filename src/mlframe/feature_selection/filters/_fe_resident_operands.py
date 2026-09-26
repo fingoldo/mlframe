@@ -70,7 +70,7 @@ try:
         h *= _np.uint64(0xC4CEB9FE1A85EC53)
         h ^= h >> _np.uint64(33)
         return int(h)
-except Exception as e:  # numba optional: fall through to the tobytes hash below
+except Exception as e:  # best-effort: numba optional; the tobytes fallback below is the same content hash, only slower
     logger.debug("numba unavailable, falling back to tobytes-based content hash: %s", e)
     _njit_content_hash = None
 

@@ -273,13 +273,11 @@ def apply_cmi_redundancy_gate(
 
     # DEVICE-BORN candidate-code residency (default ON under fe_gpu_strict_resident_enabled; env opt-out
     # MLFRAME_FE_GATE_RESIDENT_CANDS=0). When on, each candidate is quantile-binned ONCE on the device and its
-    # int64 codes are KEPT RESIDENT, then routed through the resident-input branches of the round-batched CMI /
-    # per-candidate CMI / conditional perm-null so the derived candidate codes never re-cross H2D (the
-    # ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` re-uploads the host-code path incurred, plus the
-    # ``qbin_x`` float that the host binner used to D2H back). The host int64 copy (``cand_bins``) is the D2H of
-    # the SAME resident partition, retained for the host-only sites (partition-dedup hashing, ``_renumber_joint``
-    # support building on admit, and the CPU fallbacks) - byte-identical to the device codes, so selection is
-    # unchanged. Falls back per-candidate to the host ``_quantile_bin`` on any cupy fault.
+    # int64 codes are KEPT RESIDENT, then routed through the resident-input branches of the round-batched CMI / per-candidate CMI / conditional perm-null so the
+    # derived candidate codes never re-cross H2D (the ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` re-uploads the host-code path incurred, plus the
+    # ``qbin_x`` float that the host binner used to D2H back). The host int64 copy (``cand_bins``) is the D2H of the SAME resident partition, retained for the
+    # host-only sites (partition-dedup hashing, ``_renumber_joint`` support building on admit, and the CPU fallbacks) - byte-identical to the device codes, so
+    # selection is unchanged. Falls back per-candidate to the host ``_quantile_bin`` on any cupy fault.
     _gate_resident = False
     if _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
         try:

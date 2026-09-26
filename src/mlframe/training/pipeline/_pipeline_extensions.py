@@ -329,57 +329,40 @@ def apply_preprocessing_extensions(
 
     When ``out_pysr_equations`` is provided AND the PySR stage runs, the dict is populated with ``{column_name: equation_str}`` so the caller can persist the mapping under ``metadata["pysr_equations"]`` for predict-time replay (column names are content-hashed so different seeds discover distinct columns; loaders need the equation -> column mapping to rebind predict-time features).
     """
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from . import PreprocessingExtensionsBundle, _build_extension_steps
-    # Lazy cross-package import: ``mlframe.training.core`` imports this function (see
-    # ``_phase_helpers_fit_pipeline.py``), so a top-level import here would risk a cycle at
-    # module-load time; by call time both packages are already fully loaded.
+    # Lazy cross-package import: ``mlframe.training.core`` imports this function (see ``_phase_helpers_fit_pipeline.py``), so a top-level import here would risk
+    # a cycle at module-load time; by call time both packages are already fully loaded.
     from mlframe.training.core import _elapsed_str
     if config is None:
         return train_df, val_df, test_df, None
     # Fastpath: zero active stages -> no work to do. Return inputs UNTOUCHED (no polars->pandas down-convert). Without this gate the function paid the full Arrow->pandas conversion on every frame even when nothing was configured, defeating the polars fastpath and risking OOM on 100+GB polars frames for a no-op call.
     if not _has_active_extension_stage(config):
         return train_df, val_df, test_df, None
-    # Second fastpath: the row-wise SUMMARY alone needs no sklearn estimator, so on polars input it can be
-    # computed natively and the whole pandas bridge skipped. Measured 5.6x faster at 400k x 85 and 6.0x at
-    # 2M rows, with every order statistic bit-identical to the numpy reference.
+    # Second fastpath: the row-wise SUMMARY alone needs no sklearn estimator, so on polars input it can be computed natively and the whole pandas bridge
+    # skipped. Measured 5.6x faster at 400k x 85 and 6.0x at 2M rows, with every order statistic bit-identical to the numpy reference.
     _t_fast, _v_fast, _s_fast, _handled = _row_wise_summary_polars_fastpath(train_df, val_df, test_df, config, verbose)
     if _handled:
         return _t_fast, _v_fast, _s_fast, None
-    # Polars input -> convert to pandas (extensions use sklearn; mixing with the polars-native fastpath
-    # would defeat the point if user opted in). Bare ``df.to_pandas()`` collapses pl.Enum / pl.Categorical
-    # columns to object-dtype and copies through pyarrow's slow path. Use Arrow split-blocks bridge
-    # (~32x throughput vs naive copy) and preserve Arrow-backed dtypes (pyarrow CategoricalDtype etc.) so
-    # downstream sklearn estimators don't see "object" where pandas Categorical was expected.
-    # The bare ``df.to_pandas()`` fallback is the slow consolidation
-    # copy path (~30x slower on wide frames; degrades pl.Enum → object). It fires only when the
-    # installed polars version predates ``split_blocks=True`` (polars < 0.20.4). Log once at WARN
-    # so operators on stale polars know they are on the slow bridge; ``logger`` is the module
-    # logger so the message goes through the project's standard logging pipeline.
+    # Polars input -> convert to pandas (extensions use sklearn; mixing with the polars-native fastpath would defeat the point if user opted in). Bare
+    # ``df.to_pandas()`` collapses pl.Enum / pl.Categorical columns to object-dtype and copies through pyarrow's slow path. Use Arrow split-blocks bridge (~32x
+    # throughput vs naive copy) and preserve Arrow-backed dtypes (pyarrow CategoricalDtype etc.) so downstream sklearn estimators don't see "object" where
+    # pandas Categorical was expected. The bare ``df.to_pandas()`` fallback is the slow consolidation copy path (~30x slower on wide frames; degrades pl.Enum →
+    # object). It fires only when the installed polars version predates ``split_blocks=True`` (polars < 0.20.4). Log once at WARN so operators on stale polars
+    # know they are on the slow bridge; ``logger`` is the module logger so the message goes through the project's standard logging pipeline.
     _fallback_warned = [False]
     def _to_pandas(df):
         """Convert a polars frame to pandas via the fast Arrow split-blocks bridge (preferring ``split_blocks=True`` for the ~32x throughput win), falling back to the slow ``df.to_pandas()`` consolidation copy (with a one-time WARN) only on polars < 0.20.4."""
         if df is None:
             return None
         if isinstance(df, pl.DataFrame):
-            # ``use_pyarrow_extension_array=True`` and
-            # ``split_blocks=True`` are MUTUALLY EXCLUSIVE in polars 1.x
-            # because the extension-array path internally passes
-            # ``split_blocks=False`` to pyarrow's ``to_pandas``, then
-            # user's explicit ``split_blocks=True`` produces a
-            # ``TypeError: got multiple values for keyword argument
-            # 'split_blocks'`` — the prior code mis-classified that as
-            # "polars version too old" and dropped BOTH optimisations,
-            # losing the 30x speedup AND the Arrow-backed dtypes.
-            # Modern polars (>=0.20.4) supports ``split_blocks`` via
-            # **kwargs; the user-visible warning was a false positive.
-            # Strategy: prefer ``split_blocks=True`` (the 30x win),
-            # accept that pl.Enum / pl.Categorical materialise as
-            # pandas ``object`` (downstream cat encoders already
-            # tolerate object-dtype string columns -- see the
-            # pandas-2.1+ ``is_string_dtype`` audit).
+            # ``use_pyarrow_extension_array=True`` and ``split_blocks=True`` are MUTUALLY EXCLUSIVE in polars 1.x because the extension-array path internally
+            # passes ``split_blocks=False`` to pyarrow's ``to_pandas``, then user's explicit ``split_blocks=True`` produces a ``TypeError: got multiple values
+            # for keyword argument 'split_blocks'`` — the prior code mis-classified that as "polars version too old" and dropped BOTH optimisations, losing the
+            # 30x speedup AND the Arrow-backed dtypes. Modern polars (>=0.20.4) supports ``split_blocks`` via **kwargs; the user-visible warning was a false
+            # positive. Strategy: prefer ``split_blocks=True`` (the 30x win), accept that pl.Enum / pl.Categorical materialise as pandas ``object`` (downstream
+            # cat encoders already tolerate object-dtype string columns -- see the pandas-2.1+ ``is_string_dtype`` audit).
             try:
                 return df.to_pandas(split_blocks=True, self_destruct=True)
             except TypeError as _err:

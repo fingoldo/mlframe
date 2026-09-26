@@ -38,9 +38,8 @@ def predict_from_models(
     return_probabilities: bool = True,
     verbose: int = 1,
     predict_batch_rows: Optional[int] = None,
-    # Fresh auxiliary events table for latent_interaction_svd replay -- the predict-time entities'
-    # own recent interaction history (unrelated to the auxiliary_events_df used at FIT time, which
-    # only shaped the frozen SVD basis). None -> latent_interaction_svd embeddings are skipped.
+    # Fresh auxiliary events table for latent_interaction_svd replay -- the predict-time entities' own recent interaction history (unrelated to the
+    # auxiliary_events_df used at FIT time, which only shaped the frozen SVD basis). None -> latent_interaction_svd embeddings are skipped.
     auxiliary_events_df: pl.DataFrame | pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """
@@ -86,8 +85,7 @@ def predict_from_models(
         print(results["ensemble_probabilities"])
         ```
     """
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _select_trained_members, _align_frame_to_schema, suite_binary_threshold, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
     from .._classif_helpers import _canonical_predict_proba_shape

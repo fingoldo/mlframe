@@ -11,7 +11,7 @@ expert, or no group ids, or no resolvable predict-time group column, the deploye
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -143,6 +143,16 @@ def _restamp_shipped_metrics(metadata: dict, target_type: Any, target_name: str,
     slot["val_selection_biased"] = True  # the gate chose its experts on val, so val is not a held-out estimate
 
 
+def _select_rows(values: Any, idx: Any, dtype: Any = None) -> Optional[np.ndarray]:
+    """``values`` flattened and taken at ``idx``; None when ``values`` is absent or cannot be indexed by ``idx``."""
+    if values is None:
+        return None
+    try:
+        return np.asarray(values, dtype=dtype).reshape(-1)[idx]
+    except (TypeError, IndexError):
+        return None
+
+
 def run_composite_moe_and_value_report(
     *,
     models: dict,
@@ -192,13 +202,8 @@ def run_composite_moe_and_value_report(
                 continue
 
             _y_full = (target_by_type or {}).get(_tt_e, {}).get(_orig_tname)
-            if _y_full is None:
-                continue
-            try:
-                _y_sel = np.asarray(_y_full, dtype=np.float64).reshape(-1)[filtered_val_idx]
-            except (TypeError, IndexError):
-                continue
-            if _y_sel.size == 0:
+            _y_sel = _select_rows(_y_full, filtered_val_idx, np.float64)
+            if _y_sel is None or _y_sel.size == 0:
                 continue
 
             _raw_shim = _first_raw_shim(models, _tt_e, _orig_tname)
@@ -206,8 +211,8 @@ def run_composite_moe_and_value_report(
                 continue
             _lag_model = _resolve_lag_model(metadata, _tt_e, _orig_tname)
 
-            # Predict the experts on the selection (val) split. A single failing expert aborts this target's
-            # gate/report (no fabricated numbers) but leaves every other target untouched.
+            # Predict the experts on the selection (val) split. A single failing expert aborts this target's gate/report (no fabricated numbers) but leaves
+            # every other target untouched.
             try:
                 _composite_sel = memo_predict(_ens_model, filtered_val_df)
                 _raw_sel = memo_predict(_raw_shim, filtered_val_df)
@@ -227,20 +232,8 @@ def run_composite_moe_and_value_report(
                 )
                 continue
 
-            _groups_sel = None
-            if _ctx_groups is not None:
-                try:
-                    _groups_sel = np.asarray(_ctx_groups).reshape(-1)[filtered_val_idx]
-                except (TypeError, IndexError):
-                    _groups_sel = None
-            _sw_sel = None
-            if isinstance(_ctx_sw, dict) and _ctx_sw:
-                _sw_raw = _ctx_sw.get(_orig_tname)
-                if _sw_raw is not None:
-                    try:
-                        _sw_sel = np.asarray(_sw_raw, dtype=np.float64).reshape(-1)[filtered_val_idx]
-                    except (TypeError, IndexError):
-                        _sw_sel = None
+            _groups_sel = _select_rows(_ctx_groups, filtered_val_idx)
+            _sw_sel = _select_rows(_ctx_sw.get(_orig_tname), filtered_val_idx, np.float64) if isinstance(_ctx_sw, dict) else None
 
             if _emit_report:
                 try:
@@ -260,15 +253,14 @@ def run_composite_moe_and_value_report(
                         _orig_tname, _rep_err,
                     )
 
-            # MoE gate wrap: needs the lag failsafe, group ids on the selection split, AND a predict-time group
-            # column present in the val frame (else the deployed gate could only route globally to lag, which
-            # is worse than the ensemble where composite wins -- so we no-op and ship the ensemble unchanged).
+            # MoE gate wrap: needs the lag failsafe, group ids on the selection split, AND a predict-time group column present in the val frame (else the
+            # deployed gate could only route globally to lag, which is worse than the ensemble where composite wins -- so we no-op and ship the ensemble
+            # unchanged).
             if not _moe_enabled or _lag_model is None or _groups_sel is None or _group_column is None:
                 continue
             if _extract_group_array(filtered_val_df, _group_column) is None:
-                # The deployed gate routes by this column at predict time, so without it there is nothing to deploy. Said once:
-                # a group column kept only as bookkeeping (an extractor's group_field is dropped from the features) left the
-                # enabled gate a silent no-op.
+                # The deployed gate routes by this column at predict time, so without it there is nothing to deploy. Said once: a group column kept only as
+                # bookkeeping (an extractor's group_field is dropped from the features) left the enabled gate a silent no-op.
                 log_throttle(
                     logger, "composite_moe_no_group_column", logging.INFO,
                     "[CompositeMoE] target='%s': group column %r is not in the feature frame, so the MoE gate cannot route at "

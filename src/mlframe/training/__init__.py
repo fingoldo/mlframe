@@ -293,20 +293,25 @@ _LAZY_IMPORTS = {
 }
 
 _cache: dict = {}
+_cache_lock = __import__("threading").Lock()
 
 
 def __getattr__(name):
     """Lazy import handler for module attributes."""
     if name in _LAZY_IMPORTS:
-        if name not in _cache:
-            module_name, attr_name = _LAZY_IMPORTS[name]
-            import importlib
+        hit = _cache.get(name)
+        if hit is not None:
+            return hit
+        with _cache_lock:  # concurrent fits resolve the same lazy name; one import, one stored object
+            if name not in _cache:
+                module_name, attr_name = _LAZY_IMPORTS[name]
+                import importlib
 
-            # Import the submodule directly, not through the package
-            full_module = f"mlframe.training.{module_name[1:]}"  # Remove leading dot and add separator
-            module = importlib.import_module(full_module)
-            _cache[name] = getattr(module, attr_name)
-        return _cache[name]
+                # Import the submodule directly, not through the package
+                full_module = f"mlframe.training.{module_name[1:]}"  # Remove leading dot and add separator
+                module = importlib.import_module(full_module)
+                _cache[name] = getattr(module, attr_name)
+            return _cache[name]
     raise AttributeError(f"module 'mlframe.training' has no attribute {name!r}")
 
 

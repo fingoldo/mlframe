@@ -42,21 +42,15 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
     ``self`` in place (``support_`` / ``n_features_`` / ``fallback_used_`` /
     ``fallback_metadata_``). Returns ``None``.
     """
-    # No RAW feature survived selection. Engineered-only support (or empty support) lacks a raw signal anchor:
-    # on a WIDE engineered candidate pool the top raw signal is frequently out-ranked by overfit-in-sample-MI
-    # engineered / high-card columns that do not generalise, leaving 0 raw features despite recoverable signal.
-    # Rescue the top-K raw feature(s) clearing the relevance floor (below); a pure-interaction fixture whose raw
-    # marginals are all ~0 stays engineered-only. Only triggers when min_features_fallback >= 1.
+    # No RAW feature survived selection. Engineered-only support (or empty support) lacks a raw signal anchor: on a WIDE engineered candidate pool the top raw
+    # signal is frequently out-ranked by overfit-in-sample-MI engineered / high-card columns that do not generalise, leaving 0 raw features despite recoverable
+    # signal. Rescue the top-K raw feature(s) clearing the relevance floor (below); a pure-interaction fixture whose raw marginals are all ~0 stays
+    # engineered-only. Only triggers when min_features_fallback >= 1.
     self.n_features_ = n_engineered_out
     _min_fb = int(getattr(self, "min_features_fallback", 0) or 0)
-    # Hoist the
-    # ``warnings.warn`` OUT of the try block. Pre-fix the warning
-    # was inside ``try:`` and the surrounding ``except Exception``
-    # caught it under ``simplefilter('error', UserWarning)`` -
-    # making the user-facing warning indistinguishable from a real
-    # fallback failure (and silently dropping it). Now the
-    # try/except scopes only the MI computation; the warning fires
-    # afterwards on the successful path.
+    # Hoist the ``warnings.warn`` OUT of the try block. Pre-fix the warning was inside ``try:`` and the surrounding ``except Exception`` caught it under
+    # ``simplefilter('error', UserWarning)`` - making the user-facing warning indistinguishable from a real fallback failure (and silently dropping it). Now the
+    # try/except scopes only the MI computation; the warning fires afterwards on the successful path.
     _fallback_msg = None
     if _min_fb >= 1 and self.n_features_in_ > 0:
         try:

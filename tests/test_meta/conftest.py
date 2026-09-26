@@ -15,6 +15,8 @@ them from sys.argv as before.
 
 from __future__ import annotations
 
+import pytest
+
 _REFRESH_FLAGS = [
     "--refresh-api-snapshot",
     "--refresh-annotation-baseline",
@@ -82,3 +84,15 @@ def pytest_addoption(parser):
     from py_ci_shared.no_xfail_to_defer import REFRESH_FLAG as XFAIL_FLAG
 
     register_refresh_options(parser, [IMPORT_CYCLES_FLAG, XFAIL_FLAG])  # _import_cycles_baseline.json, _xfail_baseline.json
+
+
+@pytest.fixture(autouse=True)
+def cleanup_memory():
+    """Override the root ``cleanup_memory``: no full ``gc.collect()`` after each meta-test.
+
+    Meta-tests allocate no GPU buffers or large frames, but the shared parse cache keeps every source file's AST alive
+    (3.7M objects after one check), so the root fixture's per-test ``gc.collect()`` walked all of them: 5.5 s of teardown
+    per test, about 7 of test_shared_checks_wired.py's 12 minutes. The cache is meant to live for the session anyway.
+    """
+    yield
+

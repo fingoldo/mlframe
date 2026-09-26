@@ -74,6 +74,7 @@ def test_processes_return_the_serial_scores_in_task_order():
     serial = [score_spec(t) for t in tasks]
     parallel = score_specs_in_processes(tasks, n_jobs=2)
     assert [r[0] for r in parallel] == ["s0", "s1", "s2"]
+    assert len(serial) == len(parallel) == 3
     for s, p in zip(serial, parallel):
         assert s[1]["lgb"] == pytest.approx(p[1]["lgb"], abs=1e-12)
 
@@ -108,7 +109,7 @@ def test_a_dying_worker_leaves_the_caller_alive_and_rescored_serially(caplog):
         results = score_specs_in_processes(tasks, n_jobs=2)
     assert [r[0] for r in results] == ["fatal", "ok"]
     assert all(np.isfinite(r[1]["lgb"]) for r in results)
-    assert any("worker process died" in r.getMessage() for r in caplog.records)
+    assert any("worker pool broke" in r.getMessage() for r in caplog.records)
 
 
 def test_a_skipped_spec_does_no_work():
@@ -131,3 +132,31 @@ def test_spec_blobs_round_trip_where_joblib_no_longer_vendors_cloudpickle(monkey
     name, family_rmses, _per_seed, _per_bin = score_spec(task)
     assert name == "a"
     assert family_rmses and all(np.isfinite(v) for v in family_rmses.values())
+
+
+def test_a_task_a_worker_cannot_unpickle_is_rescored_serially(caplog):
+    """A worker that cannot un-serialize its task (a paging-file shortage does this on Windows) broke discovery with
+    BrokenProcessPool, which the dying-worker fallback did not catch."""
+    common, base, x = _common()
+    parent = os.getpid()
+
+    def _fail_in_a_worker(parent_pid):
+        import os as _os
+
+        if _os.getpid() != parent_pid:
+            raise MemoryError("simulated: the paging file is too small")
+        from mlframe.training.composite.transforms import get_transform as _gt
+
+        return _gt("diff")
+
+    class _Unloadable:
+        def __reduce__(self):
+            return (_fail_in_a_worker, (parent,))
+
+    task = make_spec_task(_spec("unloadable", "ratio", common["y_screen"], base), get_transform("ratio"), common, False, base, x_matrix=x)
+    task["transport_probe"] = _Unloadable()  # un-pickled by loky itself when the worker receives the task
+    tasks = [task]
+    with caplog.at_level(logging.WARNING):
+        results = score_specs_in_processes(tasks, n_jobs=2)
+    assert [r[0] for r in results] == ["unloadable"]
+    assert np.isfinite(results[0][1]["lgb"])

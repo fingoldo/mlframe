@@ -276,11 +276,10 @@ def _render_post_fit_diagnostics(
     tt = (target_type or "").lower()
     task = "regression" if "regress" in tt else "classification"
     _targets_arr = np.asarray(targets) if targets is not None else None
-    # A genuinely 2-D multilabel target (n, n_labels) must be excluded from the single-target diagnostics
-    # BEFORE ravel() -- ravel() flattens it to a corrupted length-(n*n_labels) array and forces ndim back to 1,
-    # which silently defeated the previous downstream ``y_arr.ndim == 1`` guards (they always saw the post-ravel
-    # shape, never the true one). That corrupted array then reached df-paired diagnostics (row count n) and
-    # crashed/length-mismatched deep inside them instead of being skipped at the gate as intended.
+    # A genuinely 2-D multilabel target (n, n_labels) must be excluded from the single-target diagnostics BEFORE ravel() -- ravel() flattens it to a corrupted
+    # length-(n*n_labels) array and forces ndim back to 1, which silently defeated the previous downstream ``y_arr.ndim == 1`` guards (they always saw the
+    # post-ravel shape, never the true one). That corrupted array then reached df-paired diagnostics (row count n) and crashed/length-mismatched deep inside
+    # them instead of being skipped at the gate as intended.
     _multilabel = _targets_arr is not None and _targets_arr.ndim > 1 and _targets_arr.shape[1] > 1
     y_arr = _targets_arr.ravel() if _targets_arr is not None else None
     # A frame whose row count disagrees with the target cannot be aligned here -- the rows were selected by an

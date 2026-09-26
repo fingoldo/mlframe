@@ -10,7 +10,7 @@ did the same job in 45 seconds. Modules where three or more test functions call 
 from __future__ import annotations
 
 import ast
-import json
+import orjson
 from pathlib import Path
 
 from tests.test_meta._shared_ast_cache import parsed_ast
@@ -48,7 +48,7 @@ def _scan() -> dict[str, int]:
 def test_heavy_trainings_are_shared_through_a_fixture():
     """No module gains direct suite trainings beyond its recorded count; a module that drains must lower its record."""
     got = _scan()
-    recorded = json.loads(_BASELINE.read_text(encoding="utf-8"))
+    recorded = orjson.loads(_BASELINE.read_bytes())
     grew = {m: (recorded.get(m, 0), n) for m, n in got.items() if n > recorded.get(m, 0)}
     shrank = {m: (n, got.get(m, 0)) for m, n in recorded.items() if got.get(m, 0) < n}
     assert not grew, ("these modules train the full suite from more test functions than recorded; train once in a module-scoped "

@@ -243,11 +243,8 @@ def _conditional_permutation_importance(
         """Tighter discrete-vs-continuous detection than ``_is_discrete``: integer dtype is canonical discrete; for
         floats, both low unique-count AND cardinality far below the row count are required, so decile-binned
         continuous columns route to the regressor conditioning tree instead of mis-triggering the classifier."""
-        # F11: tighter discrete detection.
-        # Integer dtype is canonical discrete. For floats, require BOTH (a) low
-        # unique count AND (b) cardinality << n_rows. Decile-binned continuous
-        # variables (10 unique values across 100k rows) now correctly route to
-        # regression instead of classification.
+        # F11: tighter discrete detection. Integer dtype is canonical discrete. For floats, require BOTH (a) low unique count AND (b) cardinality << n_rows.
+        # Decile-binned continuous variables (10 unique values across 100k rows) now correctly route to regression instead of classification.
         if np.issubdtype(col.dtype, np.integer):
             return True
         try:

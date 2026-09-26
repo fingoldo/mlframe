@@ -116,6 +116,7 @@ def test_no_frozen_recipe_captures_target(fitted_mrmr_with_fe):
     mrmr, X, _Xh, _y = fitted_mrmr_with_fe
     n = len(X)
     for rec in _engineered_recipes(mrmr):
+        assert list(_engineered_recipes(mrmr)), "MRMR engineered no recipe, so no recipe was checked for a leak"
         for k, v in dict(rec.extra).items():
             if isinstance(v, np.ndarray) and v.ndim == 1 and v.size == n:
                 pytest.fail(f"recipe {rec.name!r} extra[{k!r}] is a length-n ({n}) array -- possible per-row target/feature leak into the frozen recipe")

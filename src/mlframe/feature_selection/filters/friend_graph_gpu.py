@@ -85,7 +85,7 @@ except Exception as e:
     try:
         _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
     except Exception as e2:
-        logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
+        logger.warning("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
         _CUDA_AVAIL = False
 
 # Require numba.cuda kernel compilability (not just device presence) so a cudatoolkit/NVVM

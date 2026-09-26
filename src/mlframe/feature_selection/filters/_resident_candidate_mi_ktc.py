@@ -130,5 +130,5 @@ try:
         cli_label="fe_gate_resident_candidate_mi_crossover",
     )
 except Exception as e:
-    logger.debug("fe_gate_resident_candidate_mi_crossover kernel_tuner registration failed: %s", e)
+    logger.warning("fe_gate_resident_candidate_mi_crossover kernel_tuner registration failed: %s", e)
     _RESCAND_SPEC = None

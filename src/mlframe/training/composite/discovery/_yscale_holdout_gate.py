@@ -338,6 +338,16 @@ def _fold_local_params(transform, y_fit: np.ndarray, base_fit: np.ndarray, valid
     return (fold_params, full) if int(full.sum()) >= 50 else None
 
 
+def _fit_domain_mask(transform, transform_name: str, y_fit: np.ndarray, base_fit) -> np.ndarray:
+    """The transform's domain mask on the fit rows; all-True (with a warning on failure) when the check fails or returns a misshapen mask."""
+    try:
+        valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
+    except Exception as e:
+        _warn_domain_check_failed(transform_name, e)
+        return np.ones(y_fit.shape, dtype=bool)
+    return valid if valid.shape == y_fit.shape else np.ones(y_fit.shape, dtype=bool)
+
+
 def apply_yscale_holdout_gate(
     self,
     df: Any,
@@ -388,8 +398,7 @@ def apply_yscale_holdout_gate(
     feats, val_y = list(usable_features), (None if val_y is None else np.asarray(val_y))
     _eval_df = df  # frame the eval rows are gathered from; df (train) for the fallback path
     if val_df is not None and val_y is not None and val_y.size >= 50:
-        # Preferred path: fit on TRAIN (seen wells), evaluate on the VAL frame (unseen wells);
-        # group-disjoint by construction under the group-aware split.
+        # Preferred path: fit on TRAIN (seen wells), evaluate on the VAL frame (unseen wells); group-disjoint by construction under the group-aware split.
         fit_idx = _subsample(screen_idx, cap)
         eval_idx = _subsample(np.arange(val_y.size), cap)
         # Engineered grouped causal features / bases exist only on the discovery frame; build them on val from val_y.
@@ -480,19 +489,13 @@ def apply_yscale_holdout_gate(
         base_cols = spec_base_columns(spec)
         base_fit = _base_arg(df, base_cols, fit_idx)
         base_eval = _base_arg(_eval_df, base_cols, eval_idx)
-        try:
-            valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
-            if valid.shape != y_fit.shape:
-                valid = np.ones(y_fit.shape, dtype=bool)
-        except Exception as e:
-            _warn_domain_check_failed(spec.transform_name, e)
-            valid = np.ones(y_fit.shape, dtype=bool)
+        valid = _fit_domain_mask(transform, spec.transform_name, y_fit, base_fit)
         if int(valid.sum()) < 50:
             survivors.append(spec)
             continue
-        # Two reconstructions, and the spec has to survive the worse of them: the one its shipped params give (what
-        # predict will actually do), and the one params refit on the fit groups alone give (leak-free, since on the
-        # fallback path the "unseen" holdout groups are carved out of the very rows the shipped params were fit on).
+        # Two reconstructions, and the spec has to survive the worse of them: the one its shipped params give (what predict will actually do), and the one
+        # params refit on the fit groups alone give (leak-free, since on the fallback path the "unseen" holdout groups are carved out of the very rows the
+        # shipped params were fit on).
         candidates = [(params, valid)]
         fold = _fold_local_params(transform, y_fit, base_fit, valid, _fit_groups)
         if fold is not None:

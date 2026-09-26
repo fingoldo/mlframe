@@ -83,18 +83,13 @@ def run_confidence_analysis(
     if verbose:
         logger.info("Running confidence analysis...")
 
-    # Copy (not just default-to-{}) so the iterations/early_stopping_rounds injection below never
-    # mutates a caller-supplied dict in place -- a caller reusing one shared kwargs dict across calls
-    # would otherwise see it silently polluted after the first call.
+    # Copy (not just default-to-{}) so the iterations/early_stopping_rounds injection below never mutates a caller-supplied dict in place -- a caller reusing
+    # one shared kwargs dict across calls would otherwise see it silently polluted after the first call.
     confidence_model_kwargs = dict(confidence_model_kwargs) if confidence_model_kwargs is not None else {}
 
-    # Bound the confidence model's
-    # iteration budget so the CPU fallback can't spin indefinitely.
-    # Without a cap CB defaults to iterations=1000, which on the rich
-    # feature schema typical for the suite (50+ cols) translates to
-    # 4-10+ minutes per confidence fit on CPU. The confidence regressor
-    # is best-effort diagnostic -- even 50 boosting rounds gives a
-    # serviceable feature-importance signal. Caller can override.
+    # Bound the confidence model's iteration budget so the CPU fallback can't spin indefinitely. Without a cap CB defaults to iterations=1000, which on the rich
+    # feature schema typical for the suite (50+ cols) translates to 4-10+ minutes per confidence fit on CPU. The confidence regressor is best-effort diagnostic
+    # -- even 50 boosting rounds gives a serviceable feature-importance signal. Caller can override.
     #
     # CatBoost rejects ``iterations`` co-present with any of its synonyms
     # (``n_estimators`` / ``num_boost_round`` / ``num_trees``) with

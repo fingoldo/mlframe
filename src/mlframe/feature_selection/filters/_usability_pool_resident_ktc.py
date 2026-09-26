@@ -155,5 +155,5 @@ try:
         cli_label="fe_usability_pool_combo_mi_table_resident_crossover",
     )
 except Exception as e:
-    logger.debug("fe_usability_pool_combo_mi_table_resident_crossover kernel_tuner registration failed: %s", e)
+    logger.warning("fe_usability_pool_combo_mi_table_resident_crossover kernel_tuner registration failed: %s", e)
     _POOLRES_SPEC = None

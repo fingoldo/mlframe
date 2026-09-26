@@ -309,9 +309,8 @@ def test_relevancy_quantile_baseline_path():
     assert "copy" not in drop
 
 
-def test_relevancy_quantile_zero_is_honoured_not_read_as_unset(monkeypatch):
-    """``permuted_max_mi_quantile=0.0`` asks for the minimum permuted MI as the baseline. A truth test read 0.0 as "not
-    set" and silently used the maximum instead."""
+def test_relevancy_quantile_zero_means_the_nanmax_baseline(monkeypatch):
+    """``permuted_max_mi_quantile=0`` is the nanmax baseline like ``None``: the minimum permuted MI is not a noise floor."""
     import numpy
 
     seen = []
@@ -326,7 +325,7 @@ def test_relevancy_quantile_zero_is_honoured_not_read_as_unset(monkeypatch):
         bins=_relevancy_bins(seed=9), target_columns=["target"], benchmark_mi_algorithms=False,
         min_randomized_permutations=20, min_permuted_mi_evaluations=50, permuted_max_mi_quantile=0.0, verbose=0,
     )
-    assert 0.0 in seen
+    assert 0.0 not in seen
 
 
 # ============================================================================================

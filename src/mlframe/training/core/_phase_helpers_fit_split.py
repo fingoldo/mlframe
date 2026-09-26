@@ -605,23 +605,18 @@ def _phase_auto_detect_feature_types(
 
     Mutates ``metadata`` in-place with ``columns`` and ``cat_features``.
     """
-    # Use pre-pipeline view so auto-detection sees original dtypes BEFORE the ordinal encoder converts strings to int codes.
-    # Polars: ``train_df_polars_pre`` (frame alias, always populated; polars frames are conceptually immutable through the
-    # public API so the alias is safe). Pandas: ``train_df_pandas_pre_meta`` dict, mutation-immune by construction
-    # (column names / dtype-strings / cardinality / non-null counts baked at snapshot time). Fallback to post-pipeline
-    # ``train_df`` only when both pre-views are absent (legacy callers / feature_types_first=False).
+    # Use pre-pipeline view so auto-detection sees original dtypes BEFORE the ordinal encoder converts strings to int codes. Polars: ``train_df_polars_pre``
+    # (frame alias, always populated; polars frames are conceptually immutable through the public API so the alias is safe). Pandas:
+    # ``train_df_pandas_pre_meta`` dict, mutation-immune by construction (column names / dtype-strings / cardinality / non-null counts baked at snapshot time).
+    # Fallback to post-pipeline ``train_df`` only when both pre-views are absent (legacy callers / feature_types_first=False).
     if was_polars_input:
         detect_df = train_df_polars_pre
     else:
         detect_df = train_df
-    # Auto-flip path: when ``skip_categorical_encoding`` was flipped to True
-    # because CB+ordinal+declared-cats was the requested config, the pipeline
-    # returns an empty ``cat_features`` (no encoder was fitted). The downstream
-    # CB Pool builder still needs to know which columns carry pandas
-    # ``category`` dtype - otherwise CatBoost detects them and raises
-    # "has dtype 'category' but is not in cat_features list". Recover the
-    # list from the pre-pipeline dtype snapshot (mutation-immune) when
-    # available, falling back to a live ``select_dtypes`` probe on detect_df.
+    # Auto-flip path: when ``skip_categorical_encoding`` was flipped to True because CB+ordinal+declared-cats was the requested config, the pipeline returns an
+    # empty ``cat_features`` (no encoder was fitted). The downstream CB Pool builder still needs to know which columns carry pandas ``category`` dtype -
+    # otherwise CatBoost detects them and raises "has dtype 'category' but is not in cat_features list". Recover the list from the pre-pipeline dtype snapshot
+    # (mutation-immune) when available, falling back to a live ``select_dtypes`` probe on detect_df.
     _post_flip_pandas_cats: list[str] = []
     if not was_polars_input:
         _pre_meta_dtypes = (train_df_pandas_pre_meta or {}).get("dtypes") if isinstance(train_df_pandas_pre_meta, dict) else None

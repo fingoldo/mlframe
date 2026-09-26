@@ -184,22 +184,29 @@ def test_a_string_exact_value_is_one_target_not_one_per_character():
 
 
 def test_mrmr_fit_handles_polars_input_without_inplace_mutation():
-    """MRMR.fit must accept polars input without tripping the in-place mutation
-    failure mode that the original Wave-29 fix targeted. The current
-    implementation keeps the frame in native polars (no .to_pandas() copy on
-    100+ GB frames) and uses non-mutating polars ops to inject the target
-    column for MI computation. We pin both invariants by detecting EITHER the
-    legacy pandas-coercion path OR the native-polars handling marker."""
-    src = _read("feature_selection/filters/mrmr/_mrmr_class.py")
+    """MRMR.fit accepts a polars frame and leaves it untouched: no injected target column, no changed values.
 
-    legacy_pandas_coerce = "isinstance(X, _pl_for_isinstance.DataFrame)" in src and "X = X.to_pandas()" in src
-    native_polars = "isinstance(X, pl.DataFrame)" in src
+    The Wave-29 failure was ``X[target_name] = y`` on the caller's frame. This used to be pinned by searching
+    ``_mrmr_class.py`` for an isinstance line, which broke when the fit was split into stage modules while the
+    behaviour stayed correct; the behaviour is what is tested now.
+    """
+    import warnings
 
-    assert legacy_pandas_coerce or native_polars, (
-        "Wave 29 P1 regression: MRMR.fit no longer recognises polars input. "
-        "Without either a polars->pandas coercion OR a native-polars branch, "
-        "``X[target_name] = y`` raises on polars in-place mutation."
-    )
+    import numpy as np
+    import polars as pl
+
+    from mlframe.feature_selection.filters import MRMR
+
+    rng = np.random.default_rng(0)
+    n = 600
+    X = pl.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n), "c": rng.normal(size=n)})
+    y = (X["a"].to_numpy() + 0.1 * rng.normal(size=n) > 0).astype(int)
+    before = X.clone()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fs = MRMR(random_seed=0, verbose=0).fit(X=X, y=y)
+    assert X.columns == before.columns and X.equals(before), "MRMR.fit mutated the caller's polars frame"
+    assert "a" in list(getattr(fs, "support_names_", None) or np.asarray(before.columns)[fs.support_])
 
 
 # ---- #3 boruta_shap multi-class branch revived -------------------------

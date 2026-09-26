@@ -54,13 +54,11 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMix
         optimizer: str = "auto",
         *,
         out_of_fold: bool = True,
-        # iter86: OOF-SHAP CV fold count. Lowered 5 -> 3 after a quality sweep across narrow
-        # (n=2000, p=200), C3-tier (n=2000, p=2000) and wide (n=5000, p=10000) regimes: recall stayed
-        # within 1 informative of the prior 5-fold default at all three widths (and beat it at C3),
+        # iter86: OOF-SHAP CV fold count. Lowered 5 -> 3 after a quality sweep across narrow (n=2000, p=200), C3-tier (n=2000, p=2000) and wide (n=5000,
+        # p=10000) regimes: recall stayed within 1 informative of the prior 5-fold default at all three widths (and beat it at C3),
         # while OOF-SHAP stage wall dropped 41-51% on the regimes where it dominates. Each held-out
-        # split is correspondingly larger (33% vs 20% of rows), which adds a touch of attribution
-        # noise; the mean-|phi| ranking that downstream search consumes is robust to it at the
-        # measured widths. Callers can opt back into the legacy 5-fold by passing ``n_splits=5``.
+        # split is correspondingly larger (33% vs 20% of rows), which adds a touch of attribution noise; the mean-|phi| ranking that downstream search consumes
+        # is robust to it at the measured widths. Callers can opt back into the legacy 5-fold by passing ``n_splits=5``.
         n_splits: int = 3,
         n_models: int = 1,
         min_features: int = 1,
@@ -68,33 +66,29 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMix
         top_n: int = 30,
         holdout_size: float = 0.25,
         # Share of the holdout set aside, unseen by selection, to score the chosen subset once without the winner's curse
-        # (``shap_proxy_report_["report_holdout"]``). bench-attempt-rejected as the default (2026-09-25,
-        # _benchmarks/bench_report_holdout_slice.py, 8 seeds of the biz_val bed): at 0.25 selection was unchanged (test
-        # Brier +0.00004, 6 ties / 1 better / 1 worse; 0.12 more noise columns kept), but the slice's figure was ~3x less
-        # accurate than the winner's honest_loss (mean |error| vs a 5000-row test set 0.0088 vs 0.0031, bias +0.0074 vs
-        # +0.0021): with ~190 rows it is noisy, and the winner's honest_loss came out slightly PESSIMISTIC, not optimistic,
-        # because its model trains on the search rows only. Opt in for a figure no candidate was ranked on.
+        # (``shap_proxy_report_["report_holdout"]``). bench-attempt-rejected as the default (2026-09-25, _benchmarks/bench_report_holdout_slice.py, 8 seeds of
+        # the biz_val bed): at 0.25 selection was unchanged (test Brier +0.00004, 6 ties / 1 better / 1 worse; 0.12 more noise columns kept), but the slice's
+        # figure was ~3x less accurate than the winner's honest_loss (mean |error| vs a 5000-row test set 0.0088 vs 0.0031, bias +0.0074 vs +0.0021): with ~190
+        # rows it is noisy, and the winner's honest_loss came out slightly PESSIMISTIC, not optimistic, because its model trains on the search rows only. Opt in
+        # for a figure no candidate was ranked on.
         report_holdout_fraction: float = 0.0,
         revalidate: bool = True,
         n_revalidation_models: int = 3,
         lambda_stab: float = 0.5,
-        # parsimony_tol: within_cluster_refine drops a member while the honest-loss increase stays below this. It is a
-        # RECALL-vs-PRECISION dial, NOT a one-way win, so the default is the precision-tuned 0.02 that matches this
-        # selector's native contract (exclude noise + redundant columns): on the biz_val bed 0.02 keeps 0 noise columns,
-        # whereas 0.005 admits 1-2 (it prunes less). The opposite regime holds when you optimise DOWNSTREAM AUC across
-        # models: on the fs_hybrid synthetic (3 scenarios x 2 seeds) 0.005 keeps ~11 feats / recovers 5.0/7 informative /
-        # mean AUC 0.795 vs 0.02's ~6 feats / 4.3/7 / 0.792 (0.02 over-prunes there). So callers that want max recovery
+        # parsimony_tol: within_cluster_refine drops a member while the honest-loss increase stays below this. It is a RECALL-vs-PRECISION dial, NOT a one-way
+        # win, so the default is the precision-tuned 0.02 that matches this selector's native contract (exclude noise + redundant columns): on the biz_val bed
+        # 0.02 keeps 0 noise columns, whereas 0.005 admits 1-2 (it prunes less). The opposite regime holds when you optimise DOWNSTREAM AUC across models: on
+        # the fs_hybrid synthetic (3 scenarios x 2 seeds) 0.005 keeps ~11 feats / recovers 5.0/7 informative / mean AUC 0.795 vs 0.02's ~6 feats / 4.3/7 / 0.792
+        # (0.02 over-prunes there). So callers that want max recovery
         # for a downstream model set parsimony_tol=0.005 explicitly (the fs_hybrid ShapSel wrapper and HybridSelector do);
-        # the standalone default stays 0.02 for clean, parsimonious, low-false-positive subsets. within_cluster_refine=
-        # False skips refinement entirely.
+        # the standalone default stays 0.02 for clean, parsimonious, low-false-positive subsets. within_cluster_refine= False skips refinement entirely.
         parsimony_tol: float = 0.02,
         min_selected_ratio: float = 0.0,
         trust_guard: bool = True,
         n_anchors: int | str = "auto",
-        # ``None`` is the "unset" sentinel that resolves to 0.5 at fit time. A real float (incl. an
-        # explicit 0.5) means the user pinned it, so the both-floors-set conflict guard below can
-        # detect ``spearman_floor`` + an explicit ``fidelity_floor=0.5`` instead of mistaking the
-        # explicit value for the default.
+        # ``None`` is the "unset" sentinel that resolves to 0.5 at fit time. A real float (incl. an explicit 0.5) means the user pinned it, so the
+        # both-floors-set conflict guard below can detect ``spearman_floor`` + an explicit ``fidelity_floor=0.5`` instead of mistaking the explicit value for
+        # the default.
         fidelity_floor: Optional[float] = None,
         spearman_floor: Optional[float] = None,
         run_importance_ablation: bool = True,
@@ -105,18 +99,14 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMix
         uncertainty_penalty: float = 0.0,
         interaction_aware: bool = False,
         max_interaction_features: int = 16,
-        # ``proxy_mode`` ("auto" DEFAULT | "additive" | "interaction"): how a feature SUBSET is scored
-        # by the proxy. "additive" = ``base + sum_{j in S} phi_j`` (purely additive SHAP coalition;
-        # blind to non-additive pairs - the legacy escape hatch, byte-identical to pre-auto behaviour,
-        # runs NO screen at all). "interaction" re-scores the additive candidates under
-        # ``base + sum phi_j + 2*sum_{i<j in S} Phi_ij`` (adds the off-diagonal TreeSHAP interaction
-        # values) + a gated pair sweep, so an XOR / multiplicative pair earns the joint credit the
-        # additive proxy denies it. The pairwise term is GATED to the top-``interaction_proxy_top_k``
-        # features by mean |phi| (O(k^2) memory/cost, not O(P^2)). "interaction" stays OPT-IN: bench
-        # (_benchmarks/bench_shap_interaction_proxy.py) shows it WINS the competing-XOR bed by ~+0.24
-        # honest-holdout AUC REPLICATED 3/3 seeds, but only 1/6 beds and slightly regresses one
-        # additive-redundant seed - not the majority+no-regression win a default flip requires. Tree
-        # models only; non-tree falls back to additive cleanly. REJECTED-as-default != deleted.
+        # ``proxy_mode`` ("auto" DEFAULT | "additive" | "interaction"): how a feature SUBSET is scored by the proxy. "additive" = ``base + sum_{j in S} phi_j``
+        # (purely additive SHAP coalition; blind to non-additive pairs - the legacy escape hatch, byte-identical to pre-auto behaviour, runs NO screen at all).
+        # "interaction" re-scores the additive candidates under ``base + sum phi_j + 2*sum_{i<j in S} Phi_ij`` (adds the off-diagonal TreeSHAP interaction
+        # values) + a gated pair sweep, so an XOR / multiplicative pair earns the joint credit the additive proxy denies it. The pairwise term is GATED to the
+        # top-``interaction_proxy_top_k`` features by mean |phi| (O(k^2) memory/cost, not O(P^2)). "interaction" stays OPT-IN: bench
+        # (_benchmarks/bench_shap_interaction_proxy.py) shows it WINS the competing-XOR bed by ~+0.24 honest-holdout AUC REPLICATED 3/3 seeds, but only 1/6 beds
+        # and slightly regresses one additive-redundant seed - not the majority+no-regression win a default flip requires. Tree models only; non-tree falls back
+        # to additive cleanly. REJECTED-as-default != deleted.
         #
         # "auto" (gt_08, NEW DEFAULT): closes the "default user gets zero interaction handling" gap
         # WITHOUT resurrecting the bench-rejected "interaction" flip. It ALWAYS runs the cheap

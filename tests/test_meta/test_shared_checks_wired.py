@@ -386,52 +386,7 @@ def test_no_naive_utcnow():
 
 
 # Findings accepted after review, each with why 0 is not a meaningful value at that site (compared without line numbers).
-_OPTIONAL_TRUTHINESS_ACCEPTED = (
-    # a 0 s budget is no budget; the log names no budget, as with None
-    "src/mlframe/training/cb/_cb_gpu_monitor.py: `budget_s` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `budget_s is not None`.",
-    # dpi=0 is not a resolution matplotlib can save at; 0 leaves the figure's own dpi like None
-    "src/mlframe/reporting/charts/shap_panels.py: `dpi` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `dpi is not None`.",
-    # 0 rounds of patience is not a setting; unless early stopping is disabled it takes max(2, iterations // 3)
-    "src/mlframe/training/_helpers_training_configs.py: `early_stopping_rounds` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `early_stopping_rounds is not None`.",
-    # only reached when end_index was None and was replaced by len(df); 0 there is an empty frame
-    "src/mlframe/feature_engineering/timeseries.py: `end_index` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `end_index is not None`.",
-    # a 0-neuron first layer is not a network; 0 takes num_features like None
-    "src/mlframe/training/neural/flat.py: `first_layer_num_neurons` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `first_layer_num_neurons is not None`.",
-    # a chunk of 0 columns cannot make progress; 0 takes the sized default like None
-    "src/mlframe/feature_selection/filters/_fe_cpu_batch.py: `max_cols_per_chunk` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `max_cols_per_chunk is not None`.",
-    # `nfailed >= max_failed` with 0 rejects every candidate before one permutation runs; 0 takes the confidence-derived default
-    "src/mlframe/feature_selection/filters/gpu.py: `max_failed` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `max_failed is not None`.",
-    # `nfailed >= max_failed` with 0 rejects every candidate before one permutation runs; 0 takes the confidence-derived default
-    "src/mlframe/feature_selection/filters/permutation.py: `max_failed` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `max_failed is not None`.",
-    # a chunk of 0 pairs cannot make progress; 0 takes the RAM-sized default like None
-    "src/mlframe/feature_selection/filters/batch_pair_mi_gpu.py: `max_pairs_per_chunk` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `max_pairs_per_chunk is not None`.",
-    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
-    "src/mlframe/feature_selection/filters/_conditional_quantile_rank_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
-    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
-    "src/mlframe/feature_selection/filters/_extra_fe_families.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
-    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
-    "src/mlframe/feature_selection/filters/_extra_fe_families.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
-    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
-    "src/mlframe/feature_selection/filters/_extra_fe_families_dispersion.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
-    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
-    "src/mlframe/feature_selection/filters/_lof_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
-    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
-    "src/mlframe/feature_selection/filters/_mahalanobis_density_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
-    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
-    "src/mlframe/feature_selection/filters/_ordinal_pattern_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
-    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
-    "src/mlframe/feature_selection/filters/_random_fourier_features_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
-    # a top-k of 0 keeps no candidate, so 0 is not a gate size; it falls back to top_k exactly like None
-    "src/mlframe/feature_selection/filters/_sliced_inverse_regression_fe.py: `mi_gate_top_k` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `mi_gate_top_k is not None`.",
-    # max(observed_max, 0) equals observed_max, so 0 and None give the same bin count
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py: `n_bins_hint` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `n_bins_hint is not None`.",
-    # 0 selects the plain nanmax baseline, the same as None; a 0-quantile (the minimum) is not a noise floor
-    "src/mlframe/feature_selection/general.py: `permuted_max_mi_quantile` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `permuted_max_mi_quantile is not None`.",
-    # a 0 GB reading means nothing is retained, so there is nothing to warn about, as with no reading
-    "src/mlframe/training/_commit_headroom.py: `private_commit_gb` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `private_commit_gb is not None`.",
-    # a 0 GB RSS cannot scale the retained-commit ratio; no warning, as with no reading
-    "src/mlframe/training/_commit_headroom.py: `rss_gb` is an optional number tested for TRUTH; 0 is a value a caller can mean, and this reads it as absent. Use `rss_gb is not None`.",
-)
+_OPTIONAL_TRUTHINESS_ACCEPTED: tuple = ()  # every site now says `is not None` (or `> 0` where 0 is not a usable value)
 
 
 def test_optional_numbers_are_tested_for_none():
@@ -843,7 +798,6 @@ _DECLARED_NARROWINGS: dict[str, str] = {
     r"pre-commit::check-json::exclude=\.vscode/": "VS Code settings are JSON with comments",
     r"pre-commit::end-of-file-fixer::exclude=\.secrets\.baseline$": "generated by detect-secrets, rewritten on every scan",
     r"pre-commit::trailing-whitespace::exclude=\.secrets\.baseline$": "generated by detect-secrets, rewritten on every scan",
-    r"pre-commit::detect-secrets::exclude=\.secrets\.baseline$": "the baseline lists the accepted hashes itself",
     r"pre-commit::ruff::--ignore=C901": "complexity is ratcheted by test_c901_debt_ratchet and the function-length ratchet instead",
     r"pre-commit::codespell-blocking::exclude=(^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/": _NON_PRODUCT,
     r"pre-commit::black-filtered-blocking::exclude=(^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/": _NON_PRODUCT,
@@ -857,16 +811,33 @@ _DECLARED_NARROWINGS: dict[str, str] = {
     r"pre-commit::yamllint-blocking::files=^(\.github/workflows/.*\.ya?ml|\.pre-commit-config\.yaml)$": "yamllint targets the CI and hook configs",
     r"pre-commit::zizmor-blocking::files=^\.github/workflows/.*\.ya?ml$": "zizmor audits GitHub workflows only",
     r"pre-commit::mypy-full-manual::exclude=(^|/)(legacy|_?benchmarks|profiling)/": "frozen bench/profiling scripts, not the package",
-    r"ci.yml::run::--ignore=tests/training/test_core.py": "run by the dedicated serial test-heavy-serial job on every Python version",
-    r"ci.yml::with::ignore=C901": "complexity is ratcheted by test_c901_debt_ratchet and the function-length ratchet instead",
-    r"ci.yml::with::interrogate-fail-under=100": "100 is the strictest bar, not a lowered one",
-    r"ci.yml::run::--ignore=": "a parse of mypy's --ignore-missing-imports in the consumer-position type check, not a path ignore",
-    r"deep-nightly.yml::run::--ignore=tests/training/test_core.py": "the RuntimeWarning census mirrors the per-push selection; test_core.py has its own job",
-    r"numba-coverage.yml::run::--ignore=tests/feature_selection/biz_val": "business-value fits are slow and gate outcomes, not line coverage of numba bodies",
-    r"numba-coverage.yml::run::--ignore=tests/training/test_core.py": "run by the dedicated serial test-heavy-serial job",
     r"pre-commit::mypy::files=^(src/mlframe/calibration/|src/mlframe/utils/safe_pickle\.py$|src/mlframe/system/_gpu_guard\.py$|src/mlframe/metrics/(_numba_params|rank_correlation|_core_precision_mape)\.py$)": "the strict-typed beachhead modules; pinned to pyproject's override list by test_precommit_mypy_beachhead_coverage",
     r"pyproject::[tool.ruff]::exclude": "tests use the tests ruff config via their own hook; the rest is not the shipped package",
     r"pyproject::[tool.mypy]::exclude": "frozen bench/profiling scripts, not the package",
+    'ci.yml::lint-blocking::with::interrogate-fail-under=100': '100 is the strictest bar, not a lowered one',
+    'ci.yml::ruff-blocking::with::ignore=C901': 'complexity is ratcheted by test_c901_debt_ratchet and the function-length ratchet instead',
+    'ci.yml::tests-ruff-blocking::with::ignore=C901': 'complexity is ratcheted by test_c901_debt_ratchet and the function-length ratchet instead',
+    'ci.yml::test-heavy-serial::Run tests/training/test_core.py (serial, group ${{ matrix.group }}/4)::run::-m=not slow and not gpu and not multigpu': 'hosted runners have no GPU; slow tests run in deep-nightly',
+    'ci.yml::test::Run tests::run::--ignore=tests/training/test_core.py': 'run by the dedicated serial test-heavy-serial job on every Python version',
+    'ci.yml::test::Run tests::run::-m=not slow and not gpu and not multigpu': 'hosted runners have no GPU; slow tests run in deep-nightly',
+    'deep-nightly.yml::deep::Run the deep suite::run::-m=not gpu and not multigpu': 'hosted runners have no GPU; this is the job that runs the slow tests',
+    'deep-nightly.yml::runtime-warnings::Run the per-push set with RuntimeWarning as an error::run::--ignore=tests/training/test_core.py': 'the RuntimeWarning census mirrors the per-push selection; test_core.py has its own job',
+    'deep-nightly.yml::runtime-warnings::Run the per-push set with RuntimeWarning as an error::run::-m=not slow and not gpu and not multigpu': 'mirrors the per-push selection it takes the RuntimeWarning census of',
+    'dep-floors.yml::lowest-direct::Fast test subset::run::-m=not slow and not gpu and not multigpu': 'a dependency-floor smoke run over metrics and calibration, not the suite',
+    'macos-abort-probe.yml::probe::Run the three aborting tests (advisory probe, records how they end and never blocks)::run::-m=not slow and not gpu and not multigpu': 'an informational probe of three named tests, not a gate',
+    'numba-coverage.yml::numba-disabled-coverage::Run kernel-heavy test suites with NUMBA_DISABLE_JIT=1::run::--ignore=tests/feature_selection/biz_val': 'business-value fits are slow and gate outcomes, not line coverage of numba bodies',
+    'numba-coverage.yml::numba-disabled-coverage::Run kernel-heavy test suites with NUMBA_DISABLE_JIT=1::run::--ignore=tests/training/test_core.py': 'run by the dedicated serial test-heavy-serial-numba-disabled job',
+    'numba-coverage.yml::numba-disabled-coverage::Run kernel-heavy test suites with NUMBA_DISABLE_JIT=1::run::-m=not slow and not gpu and not multigpu': 'hosted runners have no GPU; slow tests run in deep-nightly',
+    'numba-coverage.yml::test-heavy-serial-numba-disabled::Run tests/training/test_core.py (serial, group ${{ matrix.group }}/4) with NUMBA_DISABLE_JIT=1::run::-m=not slow and not gpu and not multigpu': 'hosted runners have no GPU; slow tests run in deep-nightly',
+    'pre-commit::bandit-blocking::-ll=': 'low-severity bandit classes (assert_used, subprocess import) are noise on this codebase; medium and high block',
+    'pre-commit::bandit-tests-blocking::-ll=': 'tests assert by design; medium and high still block',
+    'pre-commit::detect-secrets::exclude=(\\.secrets\\.baseline|tests/test_meta/_discovery_algo_version_baseline\\.json)$': 'the secrets baseline lists accepted hashes itself; the algo-version baseline is content hashes that read as secrets',
+    'pyproject::[tool.mypy]::ignore_missing_imports': 'third-party libraries without type stubs (catboost, lightgbm, numba...) would otherwise fail every import',
+    'pyproject::[tool.pytest.ini_options]::addopts::--ignore=benchmarks': 'bench scripts, not tests',
+    'pyproject::[tool.pytest.ini_options]::addopts::--ignore=legacy': 'frozen legacy code, not tests',
+    'pyproject::[tool.pytest.ini_options]::addopts::--ignore=profiling': 'profiling scripts, not tests',
+    'pyproject::[tool.pytest.ini_options]::testpaths': 'the test suite lives under tests/',
+    'sklearn-matrix-ci.yml::test::Composite-target test sweep::run::-m=sklearn_matrix': 'a sklearn-version matrix sweep of the marked composite tests; the full suite runs in ci.yml',
 }
 
 

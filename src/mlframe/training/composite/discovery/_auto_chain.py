@@ -416,6 +416,14 @@ def _fitted_chain_candidate(chain_tf: Transform, res: str, un: str, *, y: np.nda
     )
 
 
+def _raw_target_mi(y: np.ndarray, x_matrix: np.ndarray, mi_n_neighbors: int, random_state: int, mi_estimator: str, mi_nbins: int) -> float:
+    """MI of the features with the raw target on its finite rows, the reference a chain's MI gain is measured from; NaN under 8 rows."""
+    fy = np.isfinite(y)
+    if fy.sum() < 8:
+        return float("nan")
+    return _mi_to_target(np.asarray(x_matrix[fy], dtype=np.float64), y[fy], n_neighbors=mi_n_neighbors, random_state=random_state, estimator=mi_estimator, nbins=mi_nbins)
+
+
 def discover_chains(
     *,
     already_screened: Sequence[str] = (),
@@ -529,14 +537,7 @@ def discover_chains(
 
     residual_rmse, unary_rmse = _single_stage_rmses(res_names, un_names, cv_kw)
 
-    mi_y = float("nan")
-    if compute_mi_gain:
-        fy = np.isfinite(y)
-        if fy.sum() >= 8:
-            mi_y = _mi_to_target(
-                np.asarray(x_matrix[fy], dtype=np.float64), y[fy], n_neighbors=mi_n_neighbors,
-                random_state=random_state, estimator=mi_estimator, nbins=mi_nbins,
-            )
+    mi_y = _raw_target_mi(y, x_matrix, mi_n_neighbors, random_state, mi_estimator, mi_nbins) if compute_mi_gain else float("nan")
 
     candidates: List[ChainCandidate] = []
     for res in res_names:

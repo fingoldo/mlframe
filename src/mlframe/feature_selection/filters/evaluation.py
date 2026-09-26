@@ -164,10 +164,8 @@ def evaluate_gain(
     sink_threshold: float = -1.0,
     entropy_cache: dict | None = None,
     cached_cond_MIs: dict | None = None,
-    # JMIM joint-MI cache. Mirrors ``cached_cond_MIs`` but keyed on the
-    # multiset ``{X} u Z`` only (``arr2str(xz_combined)``); y is fixed per fit so it
-    # is not part of the key. Stores the RAW ``mi({X,Z}; y)``; the nexisting exponent
-    # is applied at READ time, exactly as the plain-CMI branch does for its cache.
+    # JMIM joint-MI cache. Mirrors ``cached_cond_MIs`` but keyed on the multiset ``{X} u Z`` only (``arr2str(xz_combined)``); y is fixed per fit so it is not
+    # part of the key. Stores the RAW ``mi({X,Z}; y)``; the nexisting exponent is applied at READ time, exactly as the plain-CMI branch does for its cache.
     cached_jmim_MIs: dict | None = None,
     # 1-element int64 array hit counter for the JMIM cache. An array
     # (not a scalar) so the @njit kernel can mutate it in place and the caller can
@@ -505,18 +503,15 @@ def evaluate_candidate(
 
     # Is this candidate any good for target 1-vs-1?
     if X in cached_confident_MIs:  # type: ignore[operator]  # caller always supplies a dict; cached_confident_MIs first - more reliable (but don't fill them here).
-        # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain.
-        # WITHIN one screen_predictors() round, a candidate only lands in cached_confident_MIs AFTER permutation
-        # confirmation, at which point its cand_idx is in added_/failed_candidates and should_skip_candidate filters it
-        # out before re-entry here. ACROSS rounds this branch is legitimately reachable (seed_caches
-        # cross-round threading): added_/failed_candidates are round-local (their cand_idx indexing is not stable
-        # across rounds, since the candidate pool changes shape), so a candidate confirmed in an earlier round is
-        # correctly re-scored here on a later round rather than treated as already-decided. This is proven
-        # equivalent by controlled A/B (seed_caches with vs without cached_confident_MIs threaded: identical
-        # selection on the canonical signal/noise fixture) - the bootstrapped gain still passes the same SU
-        # floor-scaling the else-path applies (it is already permutation-confirmed, so it does NOT re-enter the
-        # null-debiasing/significance gate - re-applying that would double-penalise). DEBUG, not WARNING: this is
-        # the expected steady-state path for a multi-round fit, not an anomaly to investigate.
+        # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain. WITHIN one screen_predictors() round, a
+        # candidate only lands in cached_confident_MIs AFTER permutation confirmation, at which point its cand_idx is in added_/failed_candidates and
+        # should_skip_candidate filters it out before re-entry here. ACROSS rounds this branch is legitimately reachable (seed_caches cross-round threading):
+        # added_/failed_candidates are round-local (their cand_idx indexing is not stable across rounds, since the candidate pool changes shape), so a candidate
+        # confirmed in an earlier round is correctly re-scored here on a later round rather than treated as already-decided. This is proven equivalent by
+        # controlled A/B (seed_caches with vs without cached_confident_MIs threaded: identical selection on the canonical signal/noise fixture) - the
+        # bootstrapped gain still passes the same SU floor-scaling the else-path applies (it is already permutation-confirmed, so it does NOT re-enter the
+        # null-debiasing/significance gate - re-applying that would double-penalise). DEBUG, not WARNING: this is the expected steady-state path for a
+        # multi-round fit, not an anomaly to investigate.
         logger.debug(
             "evaluate_candidate: confirmed candidate %s re-entered the cached_confident_MIs branch on a later round; "
             "scoring it through the SU floor-scaling guard.", X,
@@ -527,9 +522,9 @@ def evaluate_candidate(
         _gmi = get_group_mi()
         _grp_gain = float("nan")
         if _gmi is not None and X not in cached_MIs:  # type: ignore[operator]  # caller always supplies a dict
-            # Group-aware relevance: per-group I(X;Y|G) (MM-debiased) instead of the global MI. Bypasses the GPU +
-            # permutation-null path (the per-group MM debias handles the small-sample bias). Returns nan when the
-            # segments do not row-align (subsample), in which case we fall through to the global path. Default OFF.
+            # Group-aware relevance: per-group I(X;Y|G) (MM-debiased) instead of the global MI. Bypasses the GPU + permutation-null path (the per-group MM
+            # debias handles the small-sample bias). Returns nan when the segments do not row-align (subsample), in which case we fall through to the global
+            # path. Default OFF.
             _si, _off, _mr, _sw = _gmi
             _grp_gain = group_relevance_mi(
                 factors_data, X, classes_y, factors_nbins, len(freqs_y),  # type: ignore[arg-type]  # caller always supplies classes_y/freqs_y together with a group-aware config
@@ -541,27 +536,14 @@ def evaluate_candidate(
         elif X in cached_MIs:  # type: ignore[operator]
             direct_gain = cached_MIs[X]  # type: ignore[index]
         else:
-            # XOR-synergy regression fix:
-            # use UNANIMOUS-rejection baseline (require ALL perms to
-            # beat observed before rejecting). The prior
-            # ``min_nonzero_confidence=1.0`` hardcode + the
-            # ``max_failed = max(1, ...)`` floor at permutation.py:348
-            # combined to require ZERO of ``baseline_npermutations``
-            # (default 2) perms meet/exceed observed - one chance
-            # perm killed genuine synergy candidates. For order-2+
-            # tuples with high joint cardinality (5x5=25 cells), the
-            # null distribution has heavy tails and 1/2 perms beating
-            # observed is COMMON for legitimately-significant XOR-
-            # family candidates.
-            # The middle ground: ``max_failed=npermutations`` means
-            # the screen rejects ONLY when ALL baseline perms beat
-            # observed. This kills obvious-noise candidates (where
-            # nearly every shuffle matches observed because there's
-            # no signal) while letting genuinely-significant
-            # candidates (where most shuffles fall short) through to
-            # the strict confirmation test at ``full_npermutations``.
-            # Empirically this gives ~30% baseline reject rate on
-            # all-noise and >90% pass rate on signal/synergy.
+            # XOR-synergy regression fix: use UNANIMOUS-rejection baseline (require ALL perms to beat observed before rejecting). The prior
+            # ``min_nonzero_confidence=1.0`` hardcode + the ``max_failed = max(1, ...)`` floor at permutation.py:348 combined to require ZERO of
+            # ``baseline_npermutations`` (default 2) perms meet/exceed observed - one chance perm killed genuine synergy candidates. For order-2+ tuples with
+            # high joint cardinality (5x5=25 cells), the null distribution has heavy tails and 1/2 perms beating observed is COMMON for legitimately-significant
+            # XOR- family candidates. The middle ground: ``max_failed=npermutations`` means the screen rejects ONLY when ALL baseline perms beat observed. This
+            # kills obvious-noise candidates (where nearly every shuffle matches observed because there's no signal) while letting genuinely-significant
+            # candidates (where most shuffles fall short) through to the strict confirmation test at ``full_npermutations``. Empirically this gives ~30%
+            # baseline reject rate on all-noise and >90% pass rate on signal/synergy.
             _bnp = max(2, int(baseline_npermutations))
             # The relevance null must MOVE with random_seed. Left at mi_direct's default the baseline drew the
             # identical permutation for every seed, so a caller varying random_seed to probe selection stability

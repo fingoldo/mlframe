@@ -26,7 +26,7 @@ import hashlib
 from uuid import uuid4
 import logging
 from itertools import islice
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -208,31 +208,16 @@ def _mrmr_compute_x_fingerprint(X) -> str:
         # Skip cell-sampling for LazyFrame: each column read triggers a full
         # materialisation, the cost dominates the schema-only fingerprint.
         # The schema+dtype repr above is already collision-resistant enough.
-        cell_sample: tuple = ()
+        cell_sample: tuple | str = ()
         try:
             n_sample = min(_CELL_SAMPLE_POSITIONS, n_rows) if n_rows > 0 else 0
             if n_sample > 0 and hasattr(X, "columns") and not _is_lazy_polars:
                 step = max(1, n_rows // n_sample)
                 positions = [i * step for i in range(n_sample) if i * step < n_rows]
-                samples = []
-                for c in X.columns:
-                    try:
-                        col = X[c] if not hasattr(X, "schema") else X.get_column(c)
-                        # Polars Series + pandas Series both support iteration / indexing by int positions.
-                        if hasattr(col, "to_numpy"):
-                            arr = col.to_numpy()
-                        else:
-                            arr = np.asarray(col)
-                        # Bit-exact cell bytes (matches the deliberately-tightened y-side ``tobytes()``); ``repr`` of a float papered over distinct-but-near values.
-                        vals = tuple(np.asarray(arr[p]).tobytes() for p in positions if p < len(arr))
-                        samples.append((str(c), vals))
-                    except Exception as e:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                        logger.debug("_mrmr_compute_x_fingerprint: cell sample for column %r failed, using an empty sample: %s", c, e)
-                        samples.append((str(c), ()))
-                cell_sample = tuple(samples)
+                cell_sample = tuple((str(c), _column_cell_sample(X, c, positions)) for c in X.columns)
         except Exception as e:
-            logger.debug("_mrmr_compute_x_fingerprint: cell sampling failed, falling back to an empty cell_sample: %s", e)
-            cell_sample = ()
+            logger.warning("_mrmr_compute_x_fingerprint: cell sampling failed (%s); this frame will not hit the fit cache.", e)
+            cell_sample = uuid4().hex  # never matching: an empty sample keyed the frame on its shape alone
         payload = repr((cols, n_rows, dtypes_repr, cell_sample)).encode()
         return hashlib.blake2b(payload, digest_size=12).hexdigest()
     except Exception as e:
@@ -258,31 +243,48 @@ def _hashable_params_signature(params: dict) -> tuple:
     so two arrays with identical content but different sizes / abbreviation
     behaviour produced different signatures before, defeating the cache.
     """
-    items = []
-    for k, v in sorted(params.items()):
+    return tuple((k, _param_signature_component(k, v)) for k, v in sorted(params.items()))
+
+
+def _param_signature_component(k: str, v: Any) -> Any:
+    """``v`` when hashable, a content hash for a numpy array, else its repr; a never-matching token when none of those works.
+
+    CACHE-Low-2: numpy arrays are content-hashed (``tobytes`` + shape + dtype) so a copy hashes equal to the original.
+    A failure yields a never-matching token, not id(v) (an address is reused after the object is freed) and not repr() of
+    an array (numpy summarises large ones, so two different arrays could share it): the fit cache then misses, never hits
+    wrongly.
+    """
+    try:
+        hash(v)
+        return v
+    except TypeError:
+        pass
+    if isinstance(v, np.ndarray):
         try:
-            hash(v)
-            items.append((k, v))
-        except TypeError:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-            # CACHE-Low-2: content-hash numpy arrays so a copy hashes equal
-            # to the original. ``np.ndarray.tobytes`` + shape + dtype is the
-            # cheapest exact fingerprint and works for all numpy versions.
-            if isinstance(v, np.ndarray):
-                try:
-                    items.append((k, (v.tobytes(), v.shape, str(v.dtype))))
-                    continue
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
-            try:
-                items.append((k, repr(v)))
-            except Exception as e:
-                logger.debug("_hashable_params_signature: repr(%r) failed, falling back to a never-matching token: %s", k, e)
-                # A never-matching token, not id(v): an address is reused after the object is freed, so two different values could
-                # produce the same signature component. Only the repr-failure path gets it; appended unconditionally it made every
-                # signature with an unhashable parameter unique, so the fit cache never hit.
-                items.append((k, uuid4().hex))
-    return tuple(items)
+            return (v.tobytes(), v.shape, str(v.dtype))
+        except Exception as e:
+            logger.warning("_hashable_params_signature: content hash of %r failed (%s); the fit cache will not match it.", k, e)
+            return uuid4().hex
+    try:
+        return repr(v)
+    except Exception as e:  # best-effort: the fallback is a never-matching token, so a failure can only cost a cache hit
+        logger.debug("_hashable_params_signature: repr(%r) failed, falling back to a never-matching token: %s", k, e)
+        return uuid4().hex
+
+
+def _column_cell_sample(X: Any, c: Any, positions: list) -> Any:
+    """Bit-exact bytes of column ``c`` at ``positions`` (``repr`` of a float papered over distinct-but-near values).
+
+    A never-matching token when the column cannot be read: an empty sample let two frames that differ only in this column
+    share a fingerprint, and a shared fingerprint licenses MRMR to skip the fit.
+    """
+    try:
+        col = X[c] if not hasattr(X, "schema") else X.get_column(c)
+        arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
+        return tuple(np.asarray(arr[p]).tobytes() for p in positions if p < len(arr))
+    except Exception as e:
+        logger.warning("_mrmr_compute_x_fingerprint: cell sample for column %r failed (%s); this frame will not hit the fit cache.", c, e)
+        return uuid4().hex
 
 
 def _is_named_frame(arr) -> bool:

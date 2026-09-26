@@ -394,6 +394,38 @@ def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_trai
 from ._oof_external import _compute_oof_with_external_holdout  # re-exported; carved to keep this module under 1000 lines
 
 
+def _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids) -> tuple:
+    """The OOF cache key: every argument that changes the returned matrix, so two calls differing only in holdout_frac /
+    time-mode / external-holdout identity / group_ids cannot serve each other a stale entry."""
+    if group_ids is not None:
+        g = np.asarray(group_ids)
+        group_fp = (g.shape[0], hash((tuple(g[:64].tolist()), tuple(g[-64:].tolist()))))
+    else:
+        group_fp = (0, 0)
+    return (
+        cache_key, int(kfold), int(random_state), round(float(holdout_frac), 6), int(time_ordering is not None),
+        int(external_holdout_X is not None), (len(external_holdout_y) if external_holdout_y is not None else -1), group_fp,
+    )
+
+
+def _outer_oof_split(n_train: int, kfold: int, random_state: int, component_specs, group_ids, time_monotone: bool):
+    """Fold iterator of the K-fold OOF: forward-walking on monotone time, GroupKFold when groups can fill every fold,
+    else the plain splitter. Group-aware because a shuffled K-fold lets one group's rows span refit-train and holdout,
+    inflating the OOF surface the NNLS weights and the dummy-floor gate consume."""
+    idx = np.arange(n_train)
+    if time_monotone:
+        from sklearn.model_selection import TimeSeriesSplit
+
+        return TimeSeriesSplit(n_splits=kfold).split(idx)
+    if group_ids is not None:
+        g = np.asarray(group_ids)
+        if g.shape[0] == n_train and np.unique(g).size >= kfold:
+            from sklearn.model_selection import GroupKFold
+
+            return GroupKFold(n_splits=kfold).split(idx, groups=g)
+    return _plain_oof_splitter(kfold, random_state, component_specs).split(idx)
+
+
 def _oof_holdout_predictions_with_rows(
     component_models: list[Any],
     component_names: list[str],
@@ -471,25 +503,7 @@ def _oof_holdout_predictions_with_rows(
     # When the caller supplies a cache_key we look up the (key, kfold, rs) tuple. A hit is bit-identical with a previous call -- same components, X, y, fold strategy; caller semantics unchanged.
     _full_key = None
     if cache_key is not None:
-        # Include every argument that changes the returned matrix so two calls differing only in holdout_frac / time-mode / external-holdout identity / group_ids cannot serve each other a stale entry.
-        if group_ids is not None:
-            _g_fp_arr = np.asarray(group_ids)
-            _group_fp = (
-                _g_fp_arr.shape[0],
-                hash((tuple(_g_fp_arr[:64].tolist()), tuple(_g_fp_arr[-64:].tolist()))),
-            )
-        else:
-            _group_fp = (0, 0)
-        _full_key = (
-            cache_key,
-            int(kfold),
-            int(random_state),
-            round(float(holdout_frac), 6),
-            int(time_ordering is not None),
-            int(external_holdout_X is not None),
-            (len(external_holdout_y) if external_holdout_y is not None else -1),
-            _group_fp,
-        )
+        _full_key = _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids)
         _hit = _oof_cache_get(_full_key)
         if _hit is not None:
             logger.debug("compute_oof_holdout_predictions: cache HIT for key=%r", _full_key)
@@ -518,21 +532,7 @@ def _oof_holdout_predictions_with_rows(
                 "external holdout."
             )
         # Outer OOF split must be group-aware when group_ids is supplied: plain shuffled K-fold lets same-group rows span refit-train and holdout, inflating the OOF surface the NNLS weights + dummy-floor gate consume (the inner eval-carve is group-aware but the OUTER split was not). GroupKFold keeps whole groups in one fold.
-        _kf_groups = None
-        if group_ids is not None:
-            _g_arr = np.asarray(group_ids)
-            if _g_arr.shape[0] == n_train and np.unique(_g_arr).size >= int(kfold):
-                _kf_groups = _g_arr
-        if _time_monotone:
-            from sklearn.model_selection import TimeSeriesSplit
-            kf = TimeSeriesSplit(n_splits=int(kfold))
-            _kf_split = kf.split(np.arange(n_train))
-        elif _kf_groups is not None:
-            from sklearn.model_selection import GroupKFold
-            kf = GroupKFold(n_splits=int(kfold))
-            _kf_split = kf.split(np.arange(n_train), groups=_kf_groups)
-        else:
-            _kf_split = _plain_oof_splitter(int(kfold), int(random_state), component_specs).split(np.arange(n_train))
+        _kf_split = _outer_oof_split(n_train, int(kfold), int(random_state), component_specs, group_ids, _time_monotone)
         oof_preds_by_name: dict[str, np.ndarray] = {}
         survived_set: set[str] | None = None
         for fold_train_idx, fold_holdout_idx in _kf_split:

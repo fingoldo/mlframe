@@ -241,20 +241,33 @@ def test_composite_ensemble_trim_uses_lexsort() -> None:
     assert pattern in facade_src or pattern in sibling_src
 
 
+def _tied_specs():
+    """Three specs, two tied on score, in an input order that is not the name order."""
+    from types import SimpleNamespace
+
+    return [SimpleNamespace(name=n, transform_name="diff", v=v) for n, v in (("c", 1.0), ("b", 0.5), ("a", 1.0))]
+
+
 def test_composite_discovery_aggregated_score_uses_lexsort() -> None:
-    """Aggregated-score top-M rerank breaks tied RMSE ties on spec name via lexsort."""
-    # ``_tiny_model_rerank`` moved to the ``_composite_discovery_tiny_rerank.py``
-    # sibling when ``composite_discovery.py`` was split below 1k LOC.
-    src = _read("training/composite/discovery/_tiny_rerank.py")
-    assert "order = np.lexsort((_names, agg_scores))" in src
+    """The top-M rerank orders by aggregated RMSE ascending and breaks ties on spec name, whatever the input order.
+
+    It ranks through ``rank_specs`` with its default name tiebreak (the lexsort it replaced did the same); tested on
+    the behaviour rather than on the source line, which moved when the rankings were unified.
+    """
+    from mlframe.training.composite.discovery._score import Score, rank_specs
+
+    for specs in (_tied_specs(), _tied_specs()[::-1]):
+        ranked = rank_specs(specs, lambda s: Score(s.v, "y_rmse", "tiny_rerank", "tiny_consensus", s.transform_name))
+        assert [s.name for s in ranked] == ["b", "a", "c"]
 
 
 def test_composite_discovery_mi_gain_uses_secondary_name() -> None:
-    """mi_gain top-K discovery sort breaks ties on spec name."""
-    # The MI-gain top-K filter/gate step moved to the ``_filter_and_gate.py`` sibling when
-    # ``_fit.py`` was split further below the 1k-LOC threshold.
-    src = _read("training/composite/discovery/_filter_and_gate.py")
-    assert 'key=lambda s: (-s.mi_gain, getattr(s, "name", ""))' in src
+    """The mi_gain top-K sort orders by gain descending and breaks ties on spec name, whatever the input order."""
+    from mlframe.training.composite.discovery._score import Score, rank_specs
+
+    for specs in (_tied_specs(), _tied_specs()[::-1]):
+        ranked = rank_specs(specs, lambda s: Score(s.v, "mi_nats", "screen", "mi_gain", s.transform_name), descending=True)
+        assert [s.name for s in ranked] == ["a", "c", "b"]
 
 
 def test_mrmr_empty_fallback_uses_secondary_index() -> None:

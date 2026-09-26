@@ -70,8 +70,8 @@ def _friend_graph_and_redundancy_passes_group3(
                 _cf_cols_index = {c: i for i, c in enumerate(cols)}
                 _cf_sv_set = set(selected_vars)
                 _cf_sel_names = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
-                # Baseline design = intercept + continuous/binned values of the ALREADY-SELECTED columns, so a
-                # cat-FE column subsumed by a selected feature adds ~0 and is NOT re-added (no redundancy regression).
+                # Baseline design = intercept + continuous/binned values of the ALREADY-SELECTED columns, so a cat-FE column subsumed by a selected feature adds
+                # ~0 and is NOT re-added (no redundancy regression).
                 _cf_base = [np.ones(_cf_n)]
                 for _sn in dict.fromkeys(cols[i] for i in selected_vars if 0 <= i < len(cols)):
                     _cv = _eng_continuous_snapshot.get(_sn)
@@ -95,8 +95,8 @@ def _friend_graph_and_redundancy_passes_group3(
                         _cf_base.append(_cv)
 
                 if int(_cf_tr.sum()) >= 32 and int(_cf_va.sum()) >= 16:
-                    # The base design is factorised once and each candidate costs one column insert, rather than a fresh column_stack of the
-                    # full design plus an SVD per candidate. Same helper the raw floor-drop protection uses; see ``heldout_r2_scorer``.
+                    # The base design is factorised once and each candidate costs one column insert, rather than a fresh column_stack of the full design plus an
+                    # SVD per candidate. Same helper the raw floor-drop protection uses; see ``heldout_r2_scorer``.
                     _cf_r2 = heldout_r2_scorer(_cf_base, _cf_y, _cf_tr, _cf_va)
                     _cf_r2_base = _cf_r2()
                     _readd_cf = []
@@ -104,13 +104,11 @@ def _friend_graph_and_redundancy_passes_group3(
                         _cidx = _cf_cols_index.get(_cn)
                         if _cidx is None or _cidx in _cf_sv_set or _cn in _cf_sel_names:
                             continue
-                        # Prefer the full-precision continuous value (same source the baseline design above
-                        # uses for already-selected columns) over the nbins-quantized screening code: quantile
-                        # bin-edge digitization is not exactly tie-invariant across a monotone rescale of a
-                        # duplicate-heavy column (e.g. a count encoding vs its count/n frequency twin can land
-                        # in a different number of effective bins from floating-point edge-coincidence ties),
-                        # which made this R^2 probe - and hence the rescue - diverge between two info-
-                        # equivalent encodings. The raw column is still available in X at this point.
+                        # Prefer the full-precision continuous value (same source the baseline design above uses for already-selected columns) over the
+                        # nbins-quantized screening code: quantile bin-edge digitization is not exactly tie-invariant across a monotone rescale of a
+                        # duplicate-heavy column (e.g. a count encoding vs its count/n frequency twin can land in a different number of effective bins from
+                        # floating-point edge-coincidence ties), which made this R^2 probe - and hence the rescue - diverge between two info- equivalent
+                        # encodings. The raw column is still available in X at this point.
                         _cvv_raw = _eng_continuous_snapshot.get(_cn)
                         if _cvv_raw is None and _cn in X.columns:
                             try:

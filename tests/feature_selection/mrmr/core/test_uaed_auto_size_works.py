@@ -104,6 +104,8 @@ def test_mrmr_gains_pair_with_the_output_names():
     assert scored, f"fixture precondition: at least one output name must appear in the greedy log; names={names}"
     for nm, g in scored:
         assert g == by_name[nm], f"{nm!r} carries gain {g}, the screen logged {by_name[nm]}"
+    assert len(names) == len(gains)
+    assert list(zip(names, gains.tolist()))
     for nm, g in zip(names, gains.tolist()):
         if nm not in by_name:
             assert g == 0.0, f"{nm!r} was never greedy-scored, so its gain must be 0.0, not {g}"

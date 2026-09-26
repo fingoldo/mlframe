@@ -114,8 +114,8 @@ def _assign_support_tail(
                                 _cv = np.asarray(_ret_apply(_r_recipe, X), dtype=np.float64).ravel()
                                 _cv = np.nan_to_num(_cv, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
                             except Exception as exc:
-                                logger.debug("mrmr: recipe replay failed while checking form subsumption; conservatively retaining (cannot prove subsumed): %r", exc, exc_info=True)
-                                _kept_extra.append((_r_recipe, _r_name))  # cannot replay -> retain (conservative)
+                                # transform() replays with the same call, so an unreplayable recipe here would ship a column that fails at predict.
+                                logger.warning("mrmr: recipe for %r failed to replay while checking form subsumption (%r); not retained.", _r_name, exc)
                                 continue
                             if _cv.shape[0] == int(data.shape[0]) and retention_form_is_subsumed(
                                 cand_continuous=_cv, incumbent_continuous=_inc_cont,

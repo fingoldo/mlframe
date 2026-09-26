@@ -60,7 +60,7 @@ def cuda_available() -> bool:
         try:
             avail = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
         except Exception as e2:
-            logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
+            logger.warning("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
             avail = False
 
     # Device-presence alone is not enough: a GPU with a cudatoolkit/numba NVVM mismatch passes the probe above but

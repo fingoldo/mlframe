@@ -199,7 +199,7 @@ def _holdout_fit_context(self: Any, df: Any, usable_features: Sequence[str], scr
     """
     cfg = self.config
     screen_idx, holdout_idx = np.asarray(screen_idx), np.asarray(holdout_idx)
-    cap = int(getattr(cfg, "honest_rmse_gate_sample_n", 20_000))
+    cap = int(getattr(cfg, "honest_rmse_gate_sample_n", 30_000))
     rng = np.random.default_rng(int(getattr(cfg, "random_state", 42)))
 
     def _subsample(idx: np.ndarray) -> np.ndarray:
@@ -306,7 +306,7 @@ def apply_honest_rmse_gate(
 
     tol = float(getattr(cfg, "honest_rmse_gate_tolerance", 1.05))
     threshold = raw_rmse * tol
-    const_rmse = rmse(y_eval, np.full(y_eval.shape, float(np.mean(y_fit))))  # the null a spec must beat (the constant, not the raw tiny model)
+    const_rmse = rmse(y_eval, np.full(y_eval.shape, float(np.nanmean(y_fit))))  # the null a spec must beat (the constant, not the raw tiny model)
     survivors: list = []
     rejected: list[tuple[str, str]] = []
 
@@ -368,9 +368,10 @@ def apply_honest_rmse_gate(
             _reject(spec, f"honest y-RMSE={rmse_y:.4g} > raw {raw_rmse:.4g} x {tol:.2f}",
                     {"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "tol": float(tol)})
             continue
-        elif np.isfinite(const_rmse) and rmse_y >= const_rmse:
+        elif not np.isfinite(const_rmse) or rmse_y >= const_rmse:
             # The null is the constant, not the raw tiny model: on a signal-free target the raw model overfits noise and
-            # loses to the constant, so a composite "beat raw" by 2-3 standard errors while predicting nothing.
+            # loses to the constant, so a composite "beat raw" by 2-3 standard errors while predicting nothing. A null that
+            # cannot be computed is a spec that cannot show it beats it: a NaN here used to skip this check for every spec.
             _reject(spec, f"honest y-RMSE={rmse_y:.4g} is no better than the constant train mean ({const_rmse:.4g})",
                     {"rmse_y": float(rmse_y), "constant_rmse": float(const_rmse)})
             continue

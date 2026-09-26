@@ -100,5 +100,6 @@ def test_the_installed_lightgbm_is_guarded():
 
     for cls_name, methods in GUARDED_METHODS.items():
         cls = getattr(lightgbm.basic, cls_name)
+        assert methods
         for name in methods:
             assert getattr(cls.__dict__[name], "_mlframe_lgb_serialised", False), f"{cls_name}.{name} is not serialised"

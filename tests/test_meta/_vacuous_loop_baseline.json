@@ -1,8 +1,4 @@
 {
   "tests/feature_selection/fe/provenance/test_coverage_fe_mrmr_e2e_leakage_replay.py::test_no_frozen_recipe_captures_target::#1": "negative scan of each recipe's extra payload: an empty payload holds no length-n array, which is the passing case",
-  "tests/feature_selection/fe/provenance/test_coverage_fe_target_aware_leakage.py::test_recipe_carries_no_target_reference::#1": "negative scan of the recipe's extra payload: an empty payload carries no target, which is the passing case",
-  "tests/feature_selection/mrmr/core/test_uaed_auto_size_works.py::test_mrmr_gains_pair_with_the_output_names::#1": "checks the names the screen never scored; when every name was scored the loop has nothing to check, which is valid (the scored half is floored by `assert scored`)",
-  "tests/training/feature_selection/test_mrmr_hermite_injection.py::test_hermite_features_metadata_shape::#1": "the loop sits under `if injected:`, so it only runs over a non-empty list; the gate does not see the guard",
-  "tests/training/neural/test_generate_mlp.py::test_autoencoder_architecture_symmetry::#1": "range over half of layer_sizes; floored by `assert len(layer_sizes) >= 4`, which the gate cannot relate to a computed range bound",
-  "tests/training/neural/test_generate_mlp.py::test_autoencoder_architecture_symmetry::#2": "range over half of layer_sizes; floored by `assert len(layer_sizes) >= 4`, which the gate cannot relate to a computed range bound"
+  "tests/feature_selection/fe/provenance/test_coverage_fe_target_aware_leakage.py::test_recipe_carries_no_target_reference::#1": "negative scan of the recipe's extra payload: an empty payload carries no target, which is the passing case"
 }

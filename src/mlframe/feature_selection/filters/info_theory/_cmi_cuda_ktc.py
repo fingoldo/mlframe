@@ -150,5 +150,5 @@ try:
 except Exception as _cmi_spec_exc:
     # a genuine registration bug (not just a missing
     # optional dependency) permanently and silently degrades every fit to the hardcoded heuristic.
-    logger.debug("mrmr: CMI KTC spec registration failed; using the hardcoded crossover heuristic for this process: %r", _cmi_spec_exc, exc_info=True)
+    logger.warning("mrmr: CMI KTC spec registration failed; using the hardcoded crossover heuristic for this process: %r", _cmi_spec_exc, exc_info=True)
     _CMI_SPEC = None

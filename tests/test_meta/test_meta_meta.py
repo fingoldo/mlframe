@@ -133,6 +133,9 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     "test_broad_except_logging_gpu_guard_and_training_helpers::mlframe.system._gpu_guard",
     "test_broad_except_logging_gpu_guard_and_training_helpers::mlframe.training._data_helpers._normalize_multilabel_target",
     "test_broad_except_logging_gpu_guard_and_training_helpers::mlframe.training._gpu_probe",
+    # The probe runs at IMPORT and caches its verdict; re-importing the module is the only way to observe that a transient
+    # fault is not latched, so the test must name it.
+    "test_transient_faults_do_not_latch_a_downgrade::mlframe.training._gpu_probe",
     "test_broad_except_logging_gpu_guard_and_training_helpers::mlframe.training._model_factories",
     "test_broad_except_logging_gpu_guard_and_training_helpers::mlframe.training._predict_guards._recover_cb_feature_names",
     "test_broad_except_logging_gpu_guard_and_training_helpers::mlframe.training._training_loop_refit._maybe_refit_on_collapsed_predictions",

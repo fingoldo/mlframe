@@ -106,14 +106,10 @@ def _assign_support(
     """
     # ---------------------------------------------------------------------------------------------------------------
 
-    # ``selected_vars`` holds integer column indices. Force int64 dtype so an
-    # EMPTY selection (all signal folded into engineered recipes under the
-    # full-mode default -> zero raw survivors) stays an integer index array.
-    # ``np.array([])`` defaults to float64, and the ndarray transform path
-    # (``X[:, support_]`` in _mrmr_validate_transform) then raises
-    # ``IndexError: arrays used as indices must be of integer (or boolean)
-    # type`` because a float array can't index. Integer dtype makes the empty
-    # slice a valid no-op on both the DataFrame and the ndarray paths.
+    # ``selected_vars`` holds integer column indices. Force int64 dtype so an EMPTY selection (all signal folded into engineered recipes under the full-mode
+    # default -> zero raw survivors) stays an integer index array. ``np.array([])`` defaults to float64, and the ndarray transform path (``X[:, support_]`` in
+    # _mrmr_validate_transform) then raises ``IndexError: arrays used as indices must be of integer (or boolean) type`` because a float array can't index.
+    # Integer dtype makes the empty slice a valid no-op on both the DataFrame and the ndarray paths.
     #
     # NEVER-EMPTY RAW REPRESENTATIVE: when the ONLY confirmed feature(s) are engineered
     # recipes (their raw operands all judged redundant, so ``selected_vars`` is empty while

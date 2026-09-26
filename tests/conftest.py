@@ -925,6 +925,18 @@ def _reset_global_rng_state(request):
     yield
 
 
+def pytest_collection_finish(session):
+    """Move everything imports and collection created into the permanent GC generation, once.
+
+    ``cleanup_memory`` runs a full ``gc.collect()`` after every test, and a full pass walks every live object: ~460k after
+    mlframe's imports (0.14 s a pass), millions once a module's fixtures load, so the suite's 28k tests spent over an hour
+    walking objects that were never garbage. Frozen objects are skipped by every later pass; a test's own garbage,
+    including a cycle holding a large array, is still collected, so the OOM protection is unchanged.
+    """
+    gc.collect()
+    gc.freeze()
+
+
 @pytest.fixture(autouse=True)
 def cleanup_memory(request):
     """Clean up memory after each test to prevent OOM issues.

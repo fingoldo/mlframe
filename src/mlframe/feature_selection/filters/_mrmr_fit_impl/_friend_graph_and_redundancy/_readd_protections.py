@@ -29,38 +29,13 @@ _ADAPTIVE_FOURIER_PROTECT_MIN_INCR_R2 = 0.003
 _MISS_INDICATOR_PROTECT_MIN_INCR_R2 = 0.003
 
 
-def readd_protected_columns(
-    self,
-    *,
-    X,
-    cols,
-    data,
-    selected_vars,
-    _eng_continuous_snapshot,
-    _y_np,
-    hybrid_orth_pre_recipes,
-    miss_ind_pre_recipes,
-    verbose,
-):
-    """Re-add the adaptive-Fourier legs and missingness indicators that still lift a held-out fit over the selected design.
-
-    Every candidate this leaves out is recorded on ``self.protection_readd_rejections_`` with the gain it measured and the
-    bar it missed. The decision used to exist only as a verbose-gated log line, so a fitted estimator could not say whether
-    a family's empty roster meant it produced nothing or produced a column the held-out fit showed to be redundant.
-    """
-    self.protection_readd_rejections_ = []
-
-    # ADAPTIVE-FOURIER PROTECTION: re-add held-out-validated
-    # ADAPTIVE Fourier columns the MRMR screen dropped. The adaptive detector
-    # already confirmed the column's dominant frequency on a held-out slice;
-    # the screen drops it anyway because a SINGLE sin OR cos has low marginal MI
-    # (the phase is split across the two legs, so neither alone clears the
-    # relevance floor and the screen prefers a lower-MI fixed-freq twin). We
-    # re-add the index of every adaptive name that is a column in ``cols`` but
-    # absent from ``selected_vars``; its recipe is already in
-    # ``engineered_recipes`` (merged from ``hybrid_orth_pre_recipes`` above)
-    # and survives into ``self._engineered_recipes_`` via the remap below, so
-    # transform() replays the fit-time column byte-for-byte. Runs BEFORE the
+def _readd_adaptive_fourier_legs(self, *, X, cols, data, selected_vars, _eng_continuous_snapshot, _y_np, verbose, hybrid_orth_pre_recipes):
+    """Adaptive-Fourier pass of :func:`readd_protected_columns`; returns ``selected_vars`` with the re-added legs."""
+    # ADAPTIVE-FOURIER PROTECTION: re-add held-out-validated ADAPTIVE Fourier columns the MRMR screen dropped. The adaptive detector already confirmed the
+    # column's dominant frequency on a held-out slice; the screen drops it anyway because a SINGLE sin OR cos has low marginal MI (the phase is split across the
+    # two legs, so neither alone clears the relevance floor and the screen prefers a lower-MI fixed-freq twin). We re-add the index of every adaptive name that
+    # is a column in ``cols`` but absent from ``selected_vars``; its recipe is already in ``engineered_recipes`` (merged from ``hybrid_orth_pre_recipes`` above)
+    # and survives into ``self._engineered_recipes_`` via the remap below, so transform() replays the fit-time column byte-for-byte. Runs BEFORE the
     # ``selected_vars_names`` remap so the re-added index is routed correctly.
     _adaptive_fourier = getattr(self, "_adaptive_fourier_features_", None)
     if _adaptive_fourier and len(selected_vars):
@@ -74,10 +49,9 @@ def readd_protected_columns(
             ),
             random_seed=getattr(self, "random_seed", 0),
         )
-        # The legs of one adaptive frequency are judged TOGETHER, not one at a time: the phase is split across the sin and cos leg, so each
-        # leg's individual marginal is low by construction (which is why the screen dropped them) and a per-leg gate would reject the very
-        # pair this protection exists to rescue. Their JOINT lift over the selected design is the honest question, and a pair already
-        # subsumed by a surviving composite adds ~0 to it.
+        # The legs of one adaptive frequency are judged TOGETHER, not one at a time: the phase is split across the sin and cos leg, so each leg's individual
+        # marginal is low by construction (which is why the screen dropped them) and a per-leg gate would reject the very pair this protection exists to rescue.
+        # Their JOINT lift over the selected design is the honest question, and a pair already subsumed by a surviving composite adds ~0 to it.
         _adaptive_by_source: dict = {}
         for _an in _adaptive_fourier:
             _idx = _cols_index.get(_an)
@@ -126,12 +100,18 @@ def readd_protected_columns(
                     len(_readd_adaptive),
                     [cols[i] for i in _readd_adaptive],
                 )
+    return selected_vars
 
-    # MISSINGNESS-INDICATOR PROTECTION: re-add the clean ``is_missing__{col}`` indicator the MRMR screen dropped IN FAVOUR OF its raw source. Under ``nan_strategy='separate_bin'``
-    # the raw column's NaN bin already encodes the MNAR pattern, so the binned MI of the indicator and the raw source are near-identical (a true tie); the greedy screen keeps the raw column
-    # and discards the indicator as redundant. But the raw column is mostly NaN - the downstream model cannot consume the missingness signal from it, only from the standalone numeric
-    # indicator (the whole point of Layer 37). When the raw source IS selected, the indicator carries the SAME signal in a clean, model-ready form, so we re-add it. Gating on "the raw source
-    # survived the screen" keeps a pure-noise indicator (MAR column the screen never selects) out of support. The count / pattern encoders have no single raw source and are screened normally.
+
+def _readd_missingness_indicators(self, *, X, cols, data, selected_vars, _eng_continuous_snapshot, _y_np, verbose, miss_ind_pre_recipes):
+    """Missingness-indicator pass of :func:`readd_protected_columns`; returns ``selected_vars`` with the re-added indicators."""
+    # MISSINGNESS-INDICATOR PROTECTION: re-add the clean ``is_missing__{col}`` indicator the MRMR screen dropped IN FAVOUR OF its raw source. Under
+    # ``nan_strategy='separate_bin'`` the raw column's NaN bin already encodes the MNAR pattern, so the binned MI of the indicator and the raw source are
+    # near-identical (a true tie); the greedy screen keeps the raw column and discards the indicator as redundant. But the raw column is mostly NaN - the
+    # downstream model cannot consume the missingness signal from it, only from the standalone numeric indicator (the whole point of Layer 37). When the raw
+    # source IS selected, the indicator carries the SAME signal in a clean, model-ready form, so we re-add it. Gating on "the raw source survived the screen"
+    # keeps a pure-noise indicator (MAR column the screen never selects) out of support. The count / pattern encoders have no single raw source and are screened
+    # normally.
     _miss_indicators = list(getattr(self, "missingness_indicator_features_", None) or [])
     if _miss_indicators and len(selected_vars):
         _cols_index = {c: i for i, c in enumerate(cols)}
@@ -152,9 +132,9 @@ def readd_protected_columns(
                 continue
             _rec_mi = miss_ind_pre_recipes.get(_mn)
             _src_mi = tuple(getattr(_rec_mi, "src_names", ()) or ())
-            # Re-add only when the indicator's raw source survived the screen (i.e. the signal is real and the screen kept the redundant raw twin
-            # in its place) AND the indicator still lifts a held-out fit over the design we actually kept: "the source survived" is a membership
-            # test, and on a multi-signal frame a surviving composite can already carry the pattern the indicator encodes.
+            # Re-add only when the indicator's raw source survived the screen (i.e. the signal is real and the screen kept the redundant raw twin in its place)
+            # AND the indicator still lifts a held-out fit over the design we actually kept: "the source survived" is a membership test, and on a multi-signal
+            # frame a surviving composite can already carry the pattern the indicator encodes.
             if _src_mi and _src_mi[0] in _sel_names_now:
                 _mi_vals = candidate_values(_mn, X=X, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_mi)
                 if _mi_vals is None:
@@ -187,5 +167,28 @@ def readd_protected_columns(
                     len(_readd_miss),
                     [cols[i] for i in _readd_miss],
                 )
-
     return selected_vars
+
+
+def readd_protected_columns(
+    self,
+    *,
+    X,
+    cols,
+    data,
+    selected_vars,
+    _eng_continuous_snapshot,
+    _y_np,
+    hybrid_orth_pre_recipes,
+    miss_ind_pre_recipes,
+    verbose,
+):
+    """Re-add the adaptive-Fourier legs and missingness indicators that still lift a held-out fit over the selected design.
+
+    Every candidate this leaves out is recorded on ``self.protection_readd_rejections_`` with the gain it measured and the
+    bar it missed. The decision used to exist only as a verbose-gated log line, so a fitted estimator could not say whether
+    a family's empty roster meant it produced nothing or produced a column the held-out fit showed to be redundant.
+    """
+    self.protection_readd_rejections_ = []
+    selected_vars = _readd_adaptive_fourier_legs(self, selected_vars=selected_vars, hybrid_orth_pre_recipes=hybrid_orth_pre_recipes, X=X, cols=cols, data=data, _eng_continuous_snapshot=_eng_continuous_snapshot, _y_np=_y_np, verbose=verbose)
+    return _readd_missingness_indicators(self, selected_vars=selected_vars, miss_ind_pre_recipes=miss_ind_pre_recipes, X=X, cols=cols, data=data, _eng_continuous_snapshot=_eng_continuous_snapshot, _y_np=_y_np, verbose=verbose)

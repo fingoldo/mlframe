@@ -183,5 +183,5 @@ try:
         cli_label="fe_maxt_permnull_shufflegen_backend",
     )
 except Exception as e:
-    logger.debug("fe_maxt_permnull_shufflegen_backend kernel_tuner registration failed: %s", e)
+    logger.warning("fe_maxt_permnull_shufflegen_backend kernel_tuner registration failed: %s", e)
     _SHUFFLEGEN_SPEC = None

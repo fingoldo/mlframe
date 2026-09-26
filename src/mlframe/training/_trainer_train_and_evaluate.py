@@ -178,8 +178,7 @@ def train_and_evaluate_model(
         (result_namespace, train_df, val_df, test_df) where result_namespace contains
         model, predictions, metrics, and other training artifacts.
     """
-    # Lazy import of parent-resident helpers: ``.trainer`` re-imports
-    # this sibling at its bottom, so a top-level ``from .trainer
+    # Lazy import of parent-resident helpers: ``.trainer`` re-imports this sibling at its bottom, so a top-level ``from .trainer
     # import ...`` would create a hard cycle the meta-test flags.
     from .trainer import ConfidenceAnalysisConfig, FeatureImportanceConfig, OutputConfig, PredictionsContainer, _compute_oof_preds, _disable_xgboost_early_stopping_if_needed, _extract_targets_from_indices, _prepare_train_df_for_fitting, _setup_model_info_and_paths, _setup_sample_weight, _subset_dataframe, _update_model_name_after_training, _validate_infinity_and_columns, _validate_target_values, _validate_trusted_path
     from IPython.display import display as ipython_display
@@ -226,16 +225,15 @@ def train_and_evaluate_model(
 
     # Thread ``TrainingBehaviorConfig.monotonic_decline_patience`` (default 20; None disables) to the boosters:
     # for cb it travels via ``callback_params`` (consumed by ``_setup_early_stopping_callback``), for the lgb /
-    # xgb shims it is a ``.fit()`` kwarg read from ``fit_params``.
-    # A value already present in callback_params / fit_params (explicit per-call override) wins.
+    # xgb shims it is a ``.fit()`` kwarg read from ``fit_params``. A value already present in callback_params / fit_params (explicit per-call override) wins.
     _mono_beh = getattr(getattr(control, "behavior", None), "__dict__", None)
     if _mono_beh is not None and "monotonic_decline_patience" in _mono_beh:
         _mono_patience_cfg = _mono_beh["monotonic_decline_patience"]
     else:
         _mono_patience_cfg = getattr(control, "monotonic_decline_patience", 20)
     if model_category == "cb" or callback_params:
-        # Only materialise callback_params for cb (which consumes the key) or when the caller already passed
-        # one -- avoid injecting an empty callbacks kwarg into non-booster fits that previously got None.
+        # Only materialise callback_params for cb (which consumes the key) or when the caller already passed one -- avoid injecting an empty callbacks kwarg
+        # into non-booster fits that previously got None.
         callback_params = dict(callback_params or {})
         callback_params.setdefault("monotonic_decline_patience", _mono_patience_cfg)
     if model_category in ("lgb", "xgb"):
@@ -243,8 +241,8 @@ def train_and_evaluate_model(
             fit_params = {}
         fit_params.setdefault("monotonic_decline_patience", _mono_patience_cfg)
 
-    # Thread the live training-performance surfaces to the boosters' shared UniversalCallback. Same behavior-config
-    # plumbing as monotonic_decline_patience above. These only choose how the per-iteration trajectory is SURFACED
+    # Thread the live training-performance surfaces to the boosters' shared UniversalCallback. Same behavior-config plumbing as monotonic_decline_patience
+    # above. These only choose how the per-iteration trajectory is SURFACED
     # while the fit runs -- the trajectory itself is recorded on the callback either way and harvested into the run
     # metadata, so turning the log line off costs no information.
     #   live_trainperf_plot   -> progress_widget          (default True; a hard no-op outside a notebook)
@@ -256,10 +254,9 @@ def train_and_evaluate_model(
         callback_params.setdefault("progress_widget", bool(_live_plot))
         callback_params.setdefault("report_progress_to_log", bool(_live_report))
 
-    # Thread per-iteration metric-capture knobs to the boosters (meta-learning / HPO-from-early-observation). Same
-    # behavior-config plumbing as monotonic_decline_patience: cb via callback_params, lgb / xgb via fit_params.
-    # ``capture_iteration_metrics`` defaults to None in the config -> resolve to the family default (OFF for
-    # boosters, since re-predicting val every round is non-trivial; the user opts in explicitly).
+    # Thread per-iteration metric-capture knobs to the boosters (meta-learning / HPO-from-early-observation). Same behavior-config plumbing as
+    # monotonic_decline_patience: cb via callback_params, lgb / xgb via fit_params. ``capture_iteration_metrics`` defaults to None in the config -> resolve to
+    # the family default (OFF for boosters, since re-predicting val every round is non-trivial; the user opts in explicitly).
     _cap_iter_cfg = _mono_beh.get("capture_iteration_metrics") if _mono_beh is not None else getattr(control, "capture_iteration_metrics", None)
     _iter_stride_cfg = _mono_beh.get("iteration_metrics_stride", 1) if _mono_beh is not None else getattr(control, "iteration_metrics_stride", 1)
     _cap_iter_boosters = bool(_cap_iter_cfg) if _cap_iter_cfg is not None else False
@@ -358,17 +355,13 @@ def train_and_evaluate_model(
 
     if use_cache and exists(model_file_name):
         logger.info("Loading model from file %s", model_file_name)
-        # Security: verify the model path is inside a trusted root before the joblib.load (pickle).
-        # Default `trusted_root` to the model file's parent dir when not provided, preserving backward
-        # compat for the in-process trained-then-loaded flow (the trainer wrote this file itself).
-        # RESIDUAL RISK (audit2 F2): path-containment cannot catch a pickle an attacker plants AT the
-        # expected model_file_name (it's exactly where we look) -- only integrity can. safe_joblib_load
-        # below closes the RCE-gadget half (denylists eval/exec/os/subprocess/etc. reconstructors), but
-        # NOT the authenticity half: the complete fix is to write + verify a sha256 sidecar around this
-        # save/load pair via utils.safe_pickle.safe_load (fail-closed on a missing/mismatched sidecar);
-        # tracked as an owned follow-up since it needs the paired SAVE site (not in this file) to emit
-        # the sidecar first. Until then this default only blocks gross path escapes and known RCE
-        # gadgets, not a planted-at-path pickle built from an otherwise-permitted class.
+        # Security: verify the model path is inside a trusted root before the joblib.load (pickle). Default `trusted_root` to the model file's parent dir when
+        # not provided, preserving backward compat for the in-process trained-then-loaded flow (the trainer wrote this file itself). RESIDUAL RISK (audit2 F2):
+        # path-containment cannot catch a pickle an attacker plants AT the expected model_file_name (it's exactly where we look) -- only integrity can.
+        # safe_joblib_load below closes the RCE-gadget half (denylists eval/exec/os/subprocess/etc. reconstructors), but NOT the authenticity half: the complete
+        # fix is to write + verify a sha256 sidecar around this save/load pair via utils.safe_pickle.safe_load (fail-closed on a missing/mismatched sidecar);
+        # tracked as an owned follow-up since it needs the paired SAVE site (not in this file) to emit the sidecar first. Until then this default only blocks
+        # gross path escapes and known RCE gadgets, not a planted-at-path pickle built from an otherwise-permitted class.
         _root = trusted_root if trusted_root is not None else os.path.dirname(os.path.abspath(model_file_name))
         _validate_trusted_path(model_file_name, _root)
         try:

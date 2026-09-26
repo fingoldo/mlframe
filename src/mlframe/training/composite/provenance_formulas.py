@@ -13,6 +13,7 @@ registration behavior changed.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -645,6 +646,15 @@ def register_chain_provenance(chain_name: str, residual_name: str, unary_name: s
     self-describing so it appears in provenance/reports with a real formula
     instead of the opaque generic stub (and satisfies the coverage invariant
     that every registered transform has provenance)."""
+    with _CHAIN_REGISTRATION_LOCK:  # discovery can register chains from worker threads; check and both writes stay one step
+        _register_chain_formula_locked(chain_name, residual_name, unary_name)
+
+
+_CHAIN_REGISTRATION_LOCK = threading.Lock()
+
+
+def _register_chain_formula_locked(chain_name: str, residual_name: str, unary_name: str) -> None:
+    """Body of the chain-formula registration; the caller holds ``_CHAIN_REGISTRATION_LOCK``."""
     if chain_name in _TRANSFORM_FORMULA_BUILDERS:
         return
     res_desc = _TRANSFORM_DESCRIPTIONS.get(residual_name, residual_name)

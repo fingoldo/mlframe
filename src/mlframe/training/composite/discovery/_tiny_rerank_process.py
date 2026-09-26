@@ -137,12 +137,14 @@ def score_specs_in_processes(tasks: list[dict], n_jobs: int) -> list[tuple]:
     try:
         return list(Parallel(n_jobs=n_jobs, backend="loky")(delayed(score_spec)(t) for t in tasks))
     except Exception as exc:
-        from joblib.externals.loky.process_executor import TerminatedWorkerError
+        from joblib.externals.loky.process_executor import BrokenProcessPool
 
-        if not isinstance(exc, TerminatedWorkerError):
+        # BrokenProcessPool covers a worker that died (TerminatedWorkerError is its subclass) and a task a worker could not
+        # un-serialize, which a paging-file shortage on Windows produces; either way the pool is gone and the specs are not.
+        if not isinstance(exc, BrokenProcessPool):
             raise
         logger.warning(
-            "[CompositeTargetDiscovery] a rerank worker process died (%s). The kernel is unaffected; the %d spec(s) of this "
+            "[CompositeTargetDiscovery] the rerank worker pool broke (%s). The kernel is unaffected; the %d spec(s) of this "
             "rerank are rescored serially in this process, the mode that survived where 16 threads in one process did not.",
             str(exc).splitlines()[0][:200], len(tasks),
         )
