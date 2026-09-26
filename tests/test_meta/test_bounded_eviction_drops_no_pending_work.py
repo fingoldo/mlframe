@@ -122,7 +122,11 @@ def test_overflow_tests_exist_and_name_their_registry():
         rel, name = key.rsplit(":", 1)
         test_path = REPO_ROOT / test_rel
         assert test_path.exists(), f"overflow test {test_rel} for {key} is missing"
-        assert name in test_path.read_text(encoding="utf-8"), f"{test_rel} never mentions {name}"
+        test_tree = parsed_ast(test_path)
+        referenced = {n.id for n in ast.walk(test_tree) if isinstance(n, ast.Name)} | {n.attr for n in ast.walk(test_tree) if isinstance(n, ast.Attribute)}
+        referenced |= {n.value for n in ast.walk(test_tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        # The registry itself, or one of its own constants (``<NAME>_MAX`` sizes the overflow the test drives).
+        assert any(r == name or r.startswith(name + "_") for r in referenced), f"{test_rel} never refers to {name}"
         tree = parsed_ast(MLFRAME_DIR / rel)
         assert tree is not None and name in silent_miss_readers(tree), f"{key} is no longer an obligation registry; drop it from OVERFLOW_TESTS"
 
