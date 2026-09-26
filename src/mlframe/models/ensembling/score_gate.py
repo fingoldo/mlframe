@@ -41,7 +41,7 @@ def resolve_gate_target_arr(
     train_target_arr: Optional[np.ndarray] = None,
     val_target_arr: Optional[np.ndarray] = None,
     test_target_arr: Optional[np.ndarray] = None,
-    level_models_and_predictions=None,
+    level_models_and_predictions: Any = None,
 ) -> Optional[np.ndarray]:
     """The target rows that match the split the member gate scored its predictions on - which is what the blend-weight
     fit must be handed too: with the whole-frame target every member failed its length check, nothing survived, and

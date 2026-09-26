@@ -14,6 +14,7 @@ guessing at the name.
 from __future__ import annotations
 
 
+from typing import Iterable, Sequence
 def _resolve_raw(name, engineered_recipes, _seen=None) -> frozenset:
     """The raw column names behind ``name``, following engineered parents through their recipes' ``src_names``."""
     recipe = engineered_recipes.get(name) if engineered_recipes else None
@@ -30,7 +31,7 @@ def _resolve_raw(name, engineered_recipes, _seen=None) -> frozenset:
     return frozenset(out)
 
 
-def build_candidate_provenance(prospective_additions, cols, engineered_recipes, gate_map) -> tuple[dict, dict]:
+def build_candidate_provenance(prospective_additions: Iterable[str], cols: Sequence[str], engineered_recipes: dict, gate_map: dict) -> tuple[dict, dict]:
     """``(raw_sources_of, gates_of)`` for every candidate name in ``prospective_additions``.
 
     ``raw_sources_of[name]`` is the set of raw column names the candidate ultimately reads, with engineered and gate operands resolved through

@@ -29,6 +29,7 @@ column-side diagnostic.
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 from typing import Callable, Optional
 
@@ -301,7 +302,7 @@ def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_
     return degenerate
 
 
-def record_degenerate_column_audit(self, X) -> None:
+def record_degenerate_column_audit(self, X: Any) -> None:
     """Record the degenerate-column diagnostic on ``self``, and whether the audit itself managed to run.
 
     Lives here rather than on the class so ``_mrmr_class`` stays inside its LOC ceiling. The audit is diagnostic only: it removes no

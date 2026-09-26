@@ -53,12 +53,18 @@ def test_no_pass_carries_its_own_hand_written_roster_list():
     )
 
 
-def test_the_drop_passes_iterate_the_shared_tuple():
-    """The dedup and unified-gate passes (stages of ``_fit_impl``) must both prune from the shared tuple."""
-    stages = _SRC / "_fit_impl_stages"
-    for module in ("_engineered_dedup.py", "_engineered_gates.py"):
-        text = (stages / module).read_text(encoding="utf-8")
-        assert "for " in text and "in FE_ROSTER_ATTRS" in text, f"{module}: the drop pass no longer iterates the shared roster tuple"
+def test_the_shared_drop_prunes_every_roster():
+    """``drop_from_fe_rosters`` (the one implementation both drop passes call) removes a dropped column from every roster and keeps the rest in order."""
+    from types import SimpleNamespace
+
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import FE_ROSTER_ATTRS, drop_from_fe_rosters
+
+    est = SimpleNamespace(**{name: ["keep_a", "gone", "keep_b"] for name in FE_ROSTER_ATTRS})
+    drop_from_fe_rosters(est, {"gone"})
+    assert all(getattr(est, name) == ["keep_a", "keep_b"] for name in FE_ROSTER_ATTRS)
+    bare = SimpleNamespace()
+    drop_from_fe_rosters(bare, {"gone"})
+    assert all(getattr(bare, name) == [] for name in FE_ROSTER_ATTRS)
 
 
 def test_the_shared_tuple_covers_what_the_passes_used_to_list():

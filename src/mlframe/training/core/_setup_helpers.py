@@ -202,7 +202,7 @@ def tune_decision_threshold(
     return best_thr
 
 
-def member_decision_threshold(metadata: dict | None, target_type, target_name, model_name) -> float:
+def member_decision_threshold(metadata: dict | None, target_type: Any, target_name: str, model_name: str) -> float:
     """A model's own tuned threshold (``"{tt}|{tname}|{model_name}"``, stamped per member at train time), falling back
     to the target's (``"{tt}|{tname}"``) and then to the default. Members and the ensemble are tuned on their own val
     probabilities, so a member must not be labelled with a threshold fitted to the blend or to another member."""

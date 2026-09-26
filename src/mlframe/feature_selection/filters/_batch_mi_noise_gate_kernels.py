@@ -9,6 +9,7 @@ source / numerics / dispatch behavior changed by the move.
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 import math
 
@@ -70,7 +71,7 @@ def cuda_available() -> bool:
     return _CUDA_AVAIL_CACHED
 
 
-def cupy():
+def cupy() -> Any:
     """The imported ``cupy`` module, or None; imported on first use (it costs ~1.7s and a CUDA context)."""
     global _CUPY_CACHED
     if _CUPY_CACHED is None:

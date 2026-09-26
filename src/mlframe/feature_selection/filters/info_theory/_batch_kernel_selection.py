@@ -15,7 +15,7 @@ from ._batch_kernels import batch_mi_with_noise_gate, batch_mi_with_noise_gate_v
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
-# ---- batched FE-candidate MI kernel selector (F2 fused observed-MI dispatch, 2026-06-22) -------------
+# ---- batched FE-candidate MI kernel selector (F2 fused observed-MI dispatch) -------------------------
 # ``batch_mi_with_noise_gate_v2`` fuses the per-column dense-code write with the observed-MI joint
 # accumulation (one n-row pass instead of two), measured 1.18-1.21x faster than the original kernel at the
 # canonical 30k-subsample K~3888 chunk and BIT-IDENTICAL (maxdiff 0.0 on the observed MI AND the

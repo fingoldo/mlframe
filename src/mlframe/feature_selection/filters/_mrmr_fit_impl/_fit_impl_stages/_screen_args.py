@@ -39,7 +39,6 @@ def _dcd_config(self, X):
         min_cluster_size=self.dcd_min_cluster_size,
         max_cluster_size=self.dcd_max_cluster_size,
         swap_alpha=self.dcd_swap_alpha,
-        # 2026-06-03 (audit dcd-core-1/dcd-swap-null-1/2):
         # the swap null draw count, decoupled from
         # full_npermutations. getattr fallback keeps old
         # pickles (lacking the attr) loading at the 199 default.

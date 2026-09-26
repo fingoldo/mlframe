@@ -357,7 +357,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # per-feature adaptive bin chooser. Default ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the honest combined-ranking winner of the F1
         # leaderboard (``|err vs truth| + noise_floor``: MDLP 0.107, Sturges 0.135, quantile10 0.139, OptimalJoint 0.167, FD 0.175). MDLP is the only strategy
         # with a TRUE zero no-signal floor, which directly improves MRMR's relevance gate against false-positive feature picks. Pass ``nbins_strategy=None`` to
-        # restore the pre-2026-05-29 fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on the plug-in MI njit kernel chain
+        # restore the earlier fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on the plug-in MI njit kernel chain
         # (mi_direct / fleuret / permutation); alternative MI estimator families (KSG, neural, copula, aggregators) live in their own modules for ad-hoc /
         # benchmark use only and are explicitly NOT wired into MRMR.fit().
         nbins_strategy: str = "mdlp",

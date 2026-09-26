@@ -10,6 +10,7 @@ reported as NaN instead, which every consumer already handles the way this findi
 
 from __future__ import annotations
 
+from typing import Any, Optional
 import math
 
 import numpy as np
@@ -17,7 +18,7 @@ import numpy as np
 _UNDEFINED = float("nan")
 
 
-def relative_uplift(engineered_mi, baseline_mi) -> float:
+def relative_uplift(engineered_mi: float, baseline_mi: Optional[float]) -> float:
     """``engineered_mi / baseline_mi``, or NaN when the baseline is missing, non-finite or not positive."""
     if baseline_mi is None:
         return _UNDEFINED
@@ -27,7 +28,7 @@ def relative_uplift(engineered_mi, baseline_mi) -> float:
     return float(engineered_mi) / baseline
 
 
-def relative_uplift_array(engineered_mi, baseline_mi):
+def relative_uplift_array(engineered_mi: Any, baseline_mi: Any) -> np.ndarray:
     """The elementwise form of :func:`relative_uplift`, for a whole replicate of engineered columns at once."""
     baseline = np.asarray(baseline_mi, dtype=np.float64)
     usable = np.isfinite(baseline) & (baseline > 0.0)

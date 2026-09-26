@@ -46,7 +46,7 @@ def prediction_key(valid: np.ndarray) -> int:
     return hash(np.packbits(np.asarray(valid, dtype=bool)).tobytes())
 
 
-def cached_honest_prediction(self, fit_idx: np.ndarray, eval_idx: np.ndarray, spec_name: str | None = None, valid: np.ndarray | None = None):
+def cached_honest_prediction(self, fit_idx: np.ndarray, eval_idx: np.ndarray, spec_name: str | None = None, valid: np.ndarray | None = None) -> np.ndarray | None:
     """Honest-OOF's holdout prediction for ``spec_name`` (or the raw baseline when ``None``), if it was made on these rows.
 
     The honest RMSE gate fits the same tiny model on the same screen rows and predicts the same holdout rows whenever

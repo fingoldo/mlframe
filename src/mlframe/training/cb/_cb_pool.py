@@ -790,7 +790,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             rewritten.append(entry)
             continue
 
-        # Content-fingerprint via shared helper (2026-05-23): pre-fix ``id(val_df)`` cache key broke across sklearn.clone() and
+        # Content-fingerprint via shared helper: pre-fix ``id(val_df)`` cache key broke across sklearn.clone() and
         # .iloc[...] slicing -- same id(X) bug as xgb_shim / lgb_shim / CB train Pool. Consolidated.
         from .._dataset_cache_fingerprint import compute_signature
         key = compute_signature(
@@ -867,7 +867,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
         from mlframe.training.pipeline.shared import full_target_content_hash as _full_target_content_hash
         val_pool._mlframe_last_target_sig = _full_target_content_hash(val_target)
         # Stash a content-fingerprint on the Pool so the predict-side lookup in ``_predict_with_fallback`` can do a cols + shape +
-        # dtypes content match when ``id(val_df)`` has shifted between fit and metrics phases (2026-04-24 prod regression -- same
+        # dtypes content match when ``id(val_df)`` has shifted between fit and metrics phases (a production regression -- same
         # frame, different Python object due to upstream pre_pipeline transforms).
         try:
             if hasattr(val_df, "dtypes"):

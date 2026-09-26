@@ -10,6 +10,7 @@ both passes ask the same held-out question every sibling protection in this pack
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 import numpy as np
@@ -173,16 +174,16 @@ def _readd_missingness_indicators(self, *, X, cols, data, selected_vars, _eng_co
 def readd_protected_columns(
     self,
     *,
-    X,
-    cols,
-    data,
-    selected_vars,
-    _eng_continuous_snapshot,
-    _y_np,
-    hybrid_orth_pre_recipes,
-    miss_ind_pre_recipes,
-    verbose,
-):
+    X: Any,
+    cols: list,
+    data: np.ndarray,
+    selected_vars: list,
+    _eng_continuous_snapshot: dict,
+    _y_np: Any,
+    hybrid_orth_pre_recipes: dict,
+    miss_ind_pre_recipes: dict,
+    verbose: int,
+) -> Any:
     """Re-add the adaptive-Fourier legs and missingness indicators that still lift a held-out fit over the selected design.
 
     Every candidate this leaves out is recorded on ``self.protection_readd_rejections_`` with the gain it measured and the

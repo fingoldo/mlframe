@@ -3,6 +3,7 @@ Each takes the discovery instance explicitly and is imported back into ``_fit``.
 """
 from __future__ import annotations
 
+from typing import Any, Sequence
 from typing import cast
 
 import logging
@@ -61,7 +62,7 @@ def maybe_boost_mi_strata_for_heavy_tail(self, y_train: np.ndarray) -> None:
         logger.debug("heavy-tail y skew/kurt boost computation failed, leaving mi_n_strata at user-configured value: %s", e)
 
 
-def take_screen_matrix(self, df, columns, rows) -> np.ndarray:
+def take_screen_matrix(self, df: Any, columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
     """The screening feature matrix for ``rows``, reusing the one auto-base already gathered when it covers them.
 
     Auto-base draws the same screening sample and gathers the same columns before ``fit`` does; ``fit`` only reorders the

@@ -83,7 +83,7 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
     )
 
     if self.nan_strategy in ("ffill_bfill",):
-        # Legacy path retained for reproducibility of pre-2026-05-15 runs.
+        # Legacy path retained so runs from before the separate-bin NaN default stay reproducible.
         if _is_polars_input:
             _x_for_cat = X.fill_null(strategy="forward").fill_null(strategy="backward")
         else:

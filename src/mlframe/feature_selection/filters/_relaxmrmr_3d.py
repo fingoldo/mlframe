@@ -34,7 +34,10 @@ selection?", *Pattern Recognition* 53:51-62.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+
 # The estimators moved to a sibling so the parallel pair loop shares them; re-exported here because callers and tests import them
 # from this module.
 from mlframe.feature_selection.filters._relaxmrmr_kernels import (  # noqa: F401
@@ -87,6 +90,7 @@ def relax_mrmr_score(
         # treated as 0 (the term skipped), indistinguishable from alpha=0.
         raise ValueError(f"relax_mrmr_score: alpha must be >= 0; got {alpha!r}.")
     from ._bur_term import _mi_pair_njit  # reuse the 2-var plug-in MI kernel
+
     # Guard against out-of-range / -1-sentinel codes: the njit kernels index joint[x[i], y[i], z[i]] directly, so a
     # negative sentinel wraps to the last bin and an over-range code writes out of bounds (silent corruption). PID
     # hardens the same class explicitly; mirror it here.
@@ -154,7 +158,7 @@ def relax_mrmr_score(
     return float(relevance - pair_red + inter)
 
 
-def assert_relax_inputs_in_range(y, nbins_y, selected_cols, nbins_selected) -> None:
+def assert_relax_inputs_in_range(y: np.ndarray, nbins_y: int, selected_cols: Any, nbins_selected: Any) -> None:
     """Range-check the target and the selected set once, so the per-candidate score can skip re-reading columns that do not change.
 
     The kernels index their joint tables directly, so a negative sentinel wraps to the last bin and an over-range code writes out of bounds.

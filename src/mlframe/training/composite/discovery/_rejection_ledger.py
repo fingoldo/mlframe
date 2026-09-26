@@ -9,6 +9,8 @@ surfaced via the ``rejection_ledger`` property. Additive: the gates keep their l
 """
 from __future__ import annotations
 
+from typing import Callable
+import numpy as np
 import logging
 from typing import Any, Optional
 from mlframe.training.composite.transforms.shared import call_transform
@@ -90,7 +92,7 @@ def gate_error_reject(self, spec: Any, rejected: list, stage: str, reason: str, 
     )
 
 
-def spec_inverse(transform: Any, base: Any, params: Any):
+def spec_inverse(transform: Any, base: Any, params: Any) -> Callable[[np.ndarray], np.ndarray]:
     """``t -> transform.inverse(t, base, params)`` as float64, bound now (not late-bound to a loop's current spec)."""
     import functools
 

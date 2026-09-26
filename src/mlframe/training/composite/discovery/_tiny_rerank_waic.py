@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 import math
 
@@ -172,7 +173,7 @@ def _additive_in_t(spec) -> bool:
         return False
 
 
-def rmse_bands(idx: list, agg_scores, rel_tol: float) -> list:
+def rmse_bands(idx: list, agg_scores: Any, rel_tol: float) -> list:
     """Split the RMSE-ascending ``idx`` into consecutive noise bands: members within ``rel_tol`` of the band's first score."""
     bands: list = []
     j = 0

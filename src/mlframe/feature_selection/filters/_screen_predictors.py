@@ -91,7 +91,7 @@ def screen_predictors(
     extra_x_shuffling: bool = True,
     dtype: type = np.int32,
     random_seed: int | None = None,
-    # ONE shared FE subsample (2026-06-25, "score the screen on the same rows"). When supplied, the order-1 relevance SWEEP + its maxT FDR floor are computed on
+    # ONE shared FE subsample ("score the screen on the same rows"). When supplied, the order-1 relevance SWEEP + its maxT FDR floor are computed on
     # THESE rows (consistent estimator scale, and the full-n permutation work disappears); the RETURNED target encodings (classes_y / freqs_y) are recomputed at
     # FULL n so the downstream FE pipeline stays row-aligned. None -> full-n screen.
     subsample_idx: np.ndarray | None = None,
@@ -104,7 +104,7 @@ def screen_predictors(
     min_nonzero_confidence: float = 0.99,
     full_npermutations: int = 3,
     baseline_npermutations: int = 2,
-    # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation threshold (rows per occupied cell of the conditioning joint). Below it the conditional-MI
+    # Sample-size-aware Fleuret confirmation threshold (rows per occupied cell of the conditioning joint). Below it the conditional-MI
     # permutation gate is finite-sample unreliable and ``confirm_candidate`` falls back to a marginal-MI permutation test. 0.0 = always use the strict
     # conditional test (legacy). Threaded into ``ScreenContext``.
     fe_confirm_undersample_rows_per_cell: float = 5.0,

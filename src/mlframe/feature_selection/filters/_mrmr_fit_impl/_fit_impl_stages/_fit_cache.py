@@ -41,12 +41,12 @@ def _fit_signature(self, y, X):
     # ``_full_x_content_hash`` - asymmetric guarantees between the two
     # cache layers. Fold X content hash here so both layers agree.
     _x_hash_for_sig = _full_x_content_hash(X)
-    # 2026-06-10 fix: fold the selector's OWN parameter signature into the in-object skip signature.
+    # Fold the selector's OWN parameter signature into the in-object skip signature.
     # Pre-fix the signature was ``(X.shape, y.shape, y_hash, x_hash, x_cols)`` - SELECTOR PARAMS were
     # absent: refitting the same MRMR instance with changed settings (via ``set_params`` or direct
     # attribute assignment, e.g. ``selector.n_features_to_select = 3``) on identical data silently
     # replayed the prior fit, returning a selection computed under the OLD params. Same asymmetric-
-    # guarantees bug class as the 2026-05-30 X-content fix above: the process-wide ``_FIT_CACHE``
+    # guarantees bug class as the X-content fix above: the process-wide ``_FIT_CACHE``
     # below already folds ``_hashable_params_signature`` while this layer did not. ``get_params``
     # introspects ``__init__`` arg names and reads CURRENT attribute values at fit time, so params
     # changed after a previous fit are captured on the next ``fit`` call. ``deep=True`` additionally

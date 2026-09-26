@@ -621,7 +621,7 @@ def hybrid_orth_mi_fe(
     # orth-univariate basis build IS one (already default-on, parity-validated). Without this, STRICT + that opt-out would host-materialise the (n,
     # cols*bases*degrees) expansion and upload it at _orth_mi_backends._mi_classif_batch:311; with it the operands upload once and the basis is evaluated
     # on-device (line 311 is never reached for THIS family). Scope note: the orth-uni hybrid is NOT the dominant :311 H2D site - a full-fit byte-audit
-    # (2026-06-28, F2 300k strict) attributes ~78% of the :311 upload to the conditional-gate _gate_grid_mi (host-built tau-grid (n, k<=527) matrices, which
+    # (F2 300k strict) attributes ~78% of the :311 upload to the conditional-gate _gate_grid_mi (host-built tau-grid (n, k<=527) matrices, which
     # have NO device operand/basis handoff and whose residency was separately bench-rejected, see _conditional_gate_fe.cheap_row_argmax_scan). This edit closes
     # only the narrow STRICT+opt-out orth-uni residual; it is selection-equivalent and wall-neutral. Any GPU failure resets _gpu_eng -> host fallback.
     _gpu_eng = None  # (eng_matrix_cupy, names) when the GPU path produced candidates

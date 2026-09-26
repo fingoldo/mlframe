@@ -21,6 +21,10 @@ from typing import Any, Optional
 
 import numpy as np
 
+# Module level, not inside score_spec: a joblib-delayed callee's lazy ``from X import name`` races on a partially
+# initialised module across threads and leaves the local name unbound.
+from ._screening_tiny import _tiny_cv_rmse_y_scale_multiseed
+
 logger = logging.getLogger(__name__)
 
 
@@ -84,8 +88,6 @@ def score_spec(task: dict) -> tuple:
         # Honest-OOF already measured this spec and will set its score; the CV fits would be discarded.
         return task["name"], {}, {}, None
     cloudpickle = _cloudpickle()
-
-    from ._screening_tiny import _tiny_cv_rmse_y_scale_multiseed
 
     transform = cloudpickle.loads(task["transform_blob"])
     fitted_params = cloudpickle.loads(task["fitted_params_blob"])

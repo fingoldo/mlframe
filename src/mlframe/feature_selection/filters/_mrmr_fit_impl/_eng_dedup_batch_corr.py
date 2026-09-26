@@ -24,6 +24,7 @@ actually wins (see the same benchmark file for the after numbers).
 """
 from __future__ import annotations
 
+from typing import Optional
 import numba
 import numpy as np
 from numba import prange
@@ -83,12 +84,12 @@ def _one_vs_many_pearson_abs_masked_njit(a_centred, saa, mat, active, row_mean, 
     return out
 
 
-def row_mean_and_centred_ss(row: np.ndarray):
+def row_mean_and_centred_ss(row: np.ndarray) -> tuple[float, float]:
     """``(mean, centred sum-of-squares)`` of one buffer row, for the caller to cache when it appends the row."""
     return _row_mean_and_centred_ss_njit(np.asarray(row, dtype=np.float64))
 
 
-def one_vs_many_abs_corr_masked(a: np.ndarray, buf: np.ndarray, active: np.ndarray, row_mean=None, row_ss=None) -> np.ndarray:
+def one_vs_many_abs_corr_masked(a: np.ndarray, buf: np.ndarray, active: np.ndarray, row_mean: Optional[np.ndarray] = None, row_ss: Optional[np.ndarray] = None) -> np.ndarray:
     """|Pearson corr| of ``a`` (n,) against every ACTIVE row of ``buf`` (k, n), batched.
 
     Thin dtype-normalising wrapper around :func:`_one_vs_many_pearson_abs_masked_njit` so the call site doesn't have to know about the njit
