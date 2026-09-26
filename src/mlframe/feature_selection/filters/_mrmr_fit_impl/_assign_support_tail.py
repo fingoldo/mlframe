@@ -27,11 +27,6 @@ from ._helpers import _pgn_raw_budget
 logger = logging.getLogger(__name__)
 
 
-def _warn_retain_replay_failed(name: str, exc: BaseException) -> None:
-    """Throttled per-recipe WARNING: a recipe that fails to replay in the subsumption check is not retained."""
-    log_throttle(logger, f"mrmr_retain_replay_failed:{name}", logging.WARNING, "mrmr: recipe for %r failed to replay while checking form subsumption (%r); not retained.", name, exc)
-
-
 def _assign_support_tail(
     self,
     *,
@@ -117,7 +112,7 @@ def _assign_support_tail(
                                 _cv = np.nan_to_num(_cv, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
                             except Exception as exc:
                                 # transform() replays with the same call, so an unreplayable recipe here would ship a column that fails at predict.
-                                _warn_retain_replay_failed(_r_name, exc)
+                                log_throttle(logger, f"mrmr_retain_replay_failed:{_r_name}", logging.WARNING, "mrmr: recipe %r failed to replay for the subsumption check (%r); not retained.", _r_name, exc)
                                 continue
                             if _cv.shape[0] == int(data.shape[0]) and retention_form_is_subsumed(
                                 cand_continuous=_cv, incumbent_continuous=_inc_cont,
