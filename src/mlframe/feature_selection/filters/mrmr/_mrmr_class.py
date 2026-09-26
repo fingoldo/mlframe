@@ -108,8 +108,8 @@ from .._fe_rejection_ledger import populate_fe_rejection_ledger as _pop_rej
 from .._fe_family_timing import log_fe_family_summary as _log_fe_wall
 from .._fourier_detect_cap import clear_fourier_detect_cap, set_fourier_detect_cap
 from .._mrmr_validate_transform import transform as _mrmr_transform_impl
-from ..info_theory._state_and_dispatch import set_group_mi as _set_group_mi
-from ..info_theory._group_mi import prepare_group_segments as _prepare_group_segments
+from mlframe.feature_selection.filters.info_theory.shared import set_group_mi as _set_group_mi
+from mlframe.feature_selection.filters.info_theory.shared import prepare_group_segments as _prepare_group_segments
 from ..info_theory import (
     set_su_normalization,
     set_jmim_aggregator,

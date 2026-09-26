@@ -88,7 +88,7 @@ def _assign_support_tail(
             if _retain_extra:
                 try:
                     from .._fe_retention_subsumption import retention_form_is_subsumed
-                    from ..engineered_recipes._recipe_dispatch import apply_recipe as _ret_apply
+                    from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe as _ret_apply
                     _inc_names = [str(_n) for _n in (self._engineered_features_ or [])]
                     _inc_cont = []
                     for _in in _inc_names:
@@ -360,7 +360,7 @@ def _assign_support_tail(
             and selected_vars and getattr(self, "_engineered_recipes_", None)):
         try:
             from .._fe_raw_redundancy_drop import _linear_usability_keep_enabled, drop_redundant_raw_operands as _post_drop
-            from ..engineered_recipes._recipe_dispatch import apply_recipe as _post_apply
+            from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe as _post_apply
             from .._mi_greedy_cmi_fe import _quantile_bin as _post_qbin
 
             _post_raw_set = set(self.feature_names_in_)

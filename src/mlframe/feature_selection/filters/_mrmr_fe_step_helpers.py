@@ -346,7 +346,7 @@ def _gate_seeded_triples_order3(
     try:
         from ._permutation_null import pooled_triple_permutation_null_joint_mi_floor
         from .info_theory import batch_triple_mi_prange
-        from .info_theory._batch_kernels import joint_cardinality_cap
+        from mlframe.feature_selection.filters.info_theory.shared import joint_cardinality_cap
 
         _ta = np.fromiter((t[0] for t in seeded_triples), dtype=np.int64, count=len(seeded_triples))
         _tb = np.fromiter((t[1] for t in seeded_triples), dtype=np.int64, count=len(seeded_triples))

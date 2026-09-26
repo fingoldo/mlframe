@@ -18,7 +18,8 @@ import numpy as np
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
-from ..hermite_fe import _POLY_BASES, basis_route_by_moments
+from ..hermite_fe import basis_route_by_moments
+from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from .._orthogonal_shared import parse_code_deg_with_basis
 from ._orth_mi_backends import _mi_classif_batch, mi_classif_batch_chunked
 from mlframe.utils.log_throttle import log_throttle

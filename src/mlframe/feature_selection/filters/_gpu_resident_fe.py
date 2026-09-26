@@ -1075,7 +1075,7 @@ def _build_candidate_matrix(xp, a, b):
 def cpu_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20):
     """Reference CPU path: build the grid in numpy + score with the production njit batch MI. Returns
     ``(names, mi)`` - the baseline the GPU-resident path must match (ranking + values to fp round-off)."""
-    from .hermite_fe import _plugin_mi_classif_batch_njit
+    from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit
 
     a = np.ascontiguousarray(a, dtype=np.float64)
     b = np.ascontiguousarray(b, dtype=np.float64)

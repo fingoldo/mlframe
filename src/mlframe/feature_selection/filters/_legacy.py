@@ -26,7 +26,6 @@ from ._internals import (
 from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
 
 from .discretization import (
-    _discretize_array_impl,
     categorize_1d_array,
     categorize_dataset,
     create_redundant_continuous_factor,
@@ -40,6 +39,7 @@ from .discretization import (
     quantize_dig,
     quantize_search,
 )
+from mlframe.feature_selection.filters.discretization.shared import discretize_array_impl as _discretize_array_impl
 from .info_theory import (
     compute_mi_from_classes,
     conditional_mi,

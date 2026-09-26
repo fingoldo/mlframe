@@ -19,7 +19,7 @@ from ._estimator_helpers import _carry_forward_fill
 from ._routing import inner_input as _inner_input
 from ._routing import resolve_transform as get_transform
 from ._inner_frame import frame_for_inner
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

@@ -187,7 +187,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
             get_pid_synergy_bonus as _get_pid, get_cmi_perm_stop as _get_cmi,
             use_mi_miller_madow as _use_mm, get_cpt_test as _get_cpt,
         )
-        from .info_theory._state_and_dispatch import get_group_mi as _get_gmi
+        from mlframe.feature_selection.filters.info_theory.shared import get_group_mi as _get_gmi
         _gmi_snapshot = _get_gmi()
         _su_snapshot = bool(_use_su())
         _jmim_snapshot = bool(_use_jmim())

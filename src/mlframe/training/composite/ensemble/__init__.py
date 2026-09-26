@@ -29,7 +29,7 @@ from .._composite_utils import is_polars_df as _is_polars_df
 from ..estimator import CompositeTargetEstimator
 from ..post_shim import PrePipelinePredictShim, subset_to_fit_columns
 from ..transforms import UnknownTransformError, get_transform
-from ..transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 from ._oof_split import (
     _align_fit_sw,
     _carve_inner_eval_split,
@@ -61,7 +61,7 @@ def _pp_is_fitted(pp: Any) -> bool:
     pipeline-helper check to avoid an import cycle at module load).
     """
     try:
-        from ...pipeline._pipeline_helpers import _is_fitted
+        from mlframe.training.pipeline.shared import is_fitted as _is_fitted
     except ImportError:  # pragma: no cover - defensive; treat as unfitted
         return False
     return bool(_is_fitted(pp))
@@ -349,7 +349,7 @@ def _plain_oof_splitter(kfold: int, random_state: int, component_specs: Sequence
     scattered across the series, so its OOF error means nothing and its weight is biased. Contiguous blocks keep row
     adjacency for it; on unordered rows they are as good as any other partition.
     """
-    from ..discovery._splitter import make_discovery_splitter
+    from mlframe.training.composite.discovery.shared import make_discovery_splitter
 
     return make_discovery_splitter(kfold, random_state=random_state, contiguous=any(_spec_is_recurrent(sp) for sp in component_specs))[0]
 
@@ -373,7 +373,7 @@ def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_trai
     groups_train = None
     if group_column and raw_rows is not None:
         try:
-            from ..estimator import _extract_groups
+            from mlframe.training.composite.estimator.shared import extract_groups as _extract_groups
 
             groups_train = np.asarray(_extract_groups(raw_rows, group_column))
             groups_train = groups_train if valid is None else groups_train[valid]

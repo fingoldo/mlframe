@@ -33,11 +33,7 @@ from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 # (rather than at module top) to dodge the ``metrics -> core -> _ice_metric
 # -> core`` import cycle that an eager ``from . import core`` would trigger
 # (and that ``tests/test_meta/test_no_import_cycles.py`` flags as a hard fail).
-from .classification._classification_report import (
-    fast_calibration_report,
-    _ice_kernel_dispatch,
-    fast_ice_only,
-)
+from mlframe.metrics.classification.shared import fast_calibration_report, ice_kernel_dispatch as _ice_kernel_dispatch, fast_ice_only
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +82,7 @@ def _weighted_multiclass_error(probs, y_true, labels, multilabel, w, *, method, 
     """ICE under per-row weights: every component weighted (see ``_ice_kernel_weighted``), bins chosen per class like the
     unweighted metric (equal-mass bins for a rare positive class, equal-width otherwise)."""
     from .calibration import resolve_binning_strategy
-    from .classification._ice_kernel_weighted import batch_per_class_ice_weighted, bin_index
+    from mlframe.metrics.classification.shared import batch_per_class_ice_weighted, bin_index
 
     if method != "multicrit":
         raise ValueError(f"sample_weight is supported for method='multicrit' only, got {method!r}")

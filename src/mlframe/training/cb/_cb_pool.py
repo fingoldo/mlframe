@@ -571,20 +571,20 @@ def _predict_with_fallback(
 # (shared between fit-time populate in _maybe_get_or_build_cb_pool and
 # predict-time lookup in _predict_with_fallback).
 from .._predict_guards import _CB_VAL_POOL_CACHE
-from ..pipeline import (  # noqa: F401
-    _apply_pre_pipeline_transforms,
-    _extract_feature_selector,
-    _is_fitted,
-    _multilabel_target_to_1d_for_supervised_encoders,
-    _passthrough_cols_fit_transform,
-    _pipeline_signature_for_cache,
-    _pre_pipeline_cache_clear,
-    _pre_pipeline_cache_get,
-    _pre_pipeline_cache_set,
-    _prepare_test_split,
-    _PRE_PIPELINE_CACHE,
-    _PRE_PIPELINE_CACHE_LOCK,
-    _PRE_PIPELINE_CACHE_MAX,
+from mlframe.training.pipeline.shared import (  # noqa: F401
+    apply_pre_pipeline_transforms as _apply_pre_pipeline_transforms,
+    extract_feature_selector as _extract_feature_selector,
+    is_fitted as _is_fitted,
+    multilabel_target_to_1d_for_supervised_encoders as _multilabel_target_to_1d_for_supervised_encoders,
+    passthrough_cols_fit_transform as _passthrough_cols_fit_transform,
+    pipeline_signature_for_cache as _pipeline_signature_for_cache,
+    pre_pipeline_cache_clear as _pre_pipeline_cache_clear,
+    pre_pipeline_cache_get as _pre_pipeline_cache_get,
+    pre_pipeline_cache_set as _pre_pipeline_cache_set,
+    prepare_test_split as _prepare_test_split,
+    PRE_PIPELINE_CACHE as _PRE_PIPELINE_CACHE,
+    PRE_PIPELINE_CACHE_LOCK as _PRE_PIPELINE_CACHE_LOCK,
+    PRE_PIPELINE_CACHE_MAX as _PRE_PIPELINE_CACHE_MAX,
 )
 
 _CB_POOL_CACHE: dict[tuple, Any] = {}
@@ -804,7 +804,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             # address for a new allocation of matching size (same id-reuse bug class already
             # fixed for the cache KEY above); an id() collision here would silently keep a
             # stale val label on the reused Pool. See _full_target_content_hash's docstring.
-            from mlframe.training.pipeline import _full_target_content_hash, target_label_changed
+            from mlframe.training.pipeline.shared import target_label_changed, full_target_content_hash as _full_target_content_hash
             last_target_sig = getattr(cached, "_mlframe_last_target_sig", None)
             try:
                 _target_sig = _full_target_content_hash(val_target)
@@ -864,7 +864,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             rewritten.append(entry)
             continue
 
-        from mlframe.training.pipeline import _full_target_content_hash
+        from mlframe.training.pipeline.shared import full_target_content_hash as _full_target_content_hash
         val_pool._mlframe_last_target_sig = _full_target_content_hash(val_target)
         # Stash a content-fingerprint on the Pool so the predict-side lookup in ``_predict_with_fallback`` can do a cols + shape +
         # dtypes content match when ``id(val_df)`` has shifted between fit and metrics phases (2026-04-24 prod regression -- same

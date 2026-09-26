@@ -22,7 +22,8 @@ if TYPE_CHECKING:
     from . import CompositeTargetDiscovery
 
 from ..spec import CompositeSpec
-from ..transforms import _linear_residual_multi_fit, compose_target_name
+from ..transforms import compose_target_name
+from mlframe.training.composite.transforms.shared import linear_residual_multi_fit as _linear_residual_multi_fit
 from .forward_stepwise import forward_stepwise_multi_base
 from mlframe.utils.log_throttle import log_throttle
 

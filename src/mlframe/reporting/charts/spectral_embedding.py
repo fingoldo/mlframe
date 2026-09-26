@@ -58,7 +58,7 @@ def _laplacian_smallest_eigenvectors(n_nodes: int, edges, k: int = 3):
         except Exception as e:  # SciPy absent or ARPACK non-convergence -> dense fallback keeps the layout available  # nosec B110
             logger.debug("sparse ARPACK eigsh failed, falling back to dense eigh: %s", e)
 
-    from mlframe.feature_engineering.graph_spectral_features import _dense_adjacency
+    from mlframe.feature_engineering.shared import dense_adjacency as _dense_adjacency
 
     A = _dense_adjacency(n_nodes, np.asarray(edges), None)
     deg = A.sum(axis=1)

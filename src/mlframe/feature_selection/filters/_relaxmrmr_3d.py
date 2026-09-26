@@ -111,7 +111,7 @@ def relax_mrmr_score(
     # n_S == 0 early return, both of which would otherwise allocate un-capped). The 3-D I(X;Y|Z) joint is
     # (K_x, K_y, K_z) and the interaction term's composite pair joint is (K_x, K_z_i, K_z_j); guard the
     # largest of each so a high-cardinality selected set cannot OOM the dense alloc.
-    from .info_theory._batch_kernels import check_joint_cardinality
+    from mlframe.feature_selection.filters.info_theory.shared import check_joint_cardinality
 
     check_joint_cardinality(K_x, K_y, what="relax_mrmr_score")
     for _K_z in K_sel:

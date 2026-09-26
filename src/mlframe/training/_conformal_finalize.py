@@ -90,7 +90,7 @@ def split_conformal_intervals(
     if score == "normalized":
         if y_pred_cal is None:
             raise ValueError("score='normalized' requires y_pred_cal to fit the conditional sigma model")
-        from .composite.conformal import _fit_sigma_model, _sigma_for
+        from mlframe.training.composite.shared import fit_sigma_model as _fit_sigma_model, sigma_for as _sigma_for
 
         y_pred_cal = np.asarray(y_pred_cal, dtype=np.float64).reshape(-1)
         edges, sigma, sig_cal = _fit_sigma_model(y_pred_cal, abs_res)

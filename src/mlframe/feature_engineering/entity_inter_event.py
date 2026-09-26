@@ -39,7 +39,7 @@ except ImportError:  # pragma: no cover - numba is a core mlframe dependency; ex
 
 
 if _NUMBA_AVAILABLE:
-    from mlframe.core.robust_location import _median_sorted as _median_sorted_njit
+    from mlframe.core.shared import median_sorted as _median_sorted_njit
 
     @numba.njit(cache=True)
     def _group_mean_std_median_njit(values_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray) -> tuple:

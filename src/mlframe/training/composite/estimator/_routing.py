@@ -28,7 +28,7 @@ def ensure_transforms_registered(transform_names: Iterable[str] | None) -> list[
     names = [n for n in (transform_names or ()) if isinstance(n, str) and n.startswith("chain_")]
     if not names:
         return []
-    from ..discovery._auto_chain import reregister_auto_chain_transforms
+    from mlframe.training.composite.discovery.shared import reregister_auto_chain_transforms
 
     return reregister_auto_chain_transforms(names)
 
@@ -56,7 +56,7 @@ def inner_input(self: Any, X: Any, transform: Transform) -> Any:
         X_in = self._drop_columns(X_in, [self.group_column])
     pp = getattr(self, "inner_pre_pipeline_", None)
     if pp is not None:
-        from ...core._prediction_memo import memo_transform
+        from mlframe.training.core.shared import memo_transform
 
         _raw = X_in
         # Inside a composite post-processing phase the same frame reaches the same fitted pipeline from several callers.

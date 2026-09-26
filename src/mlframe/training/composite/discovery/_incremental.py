@@ -48,7 +48,7 @@ from .screening import (
     _prebin_feature_columns,
     _sample_indices,
 )
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

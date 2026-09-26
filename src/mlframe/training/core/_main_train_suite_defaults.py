@@ -20,7 +20,7 @@ def _infer_target_is_classification(values: Any) -> bool:
     integer/bool dtype + small cardinality). Float continuous columns fall through to
     regression. Object/string columns are treated as classification (label targets).
     """
-    from ..slicing._slice_helpers import _is_classification_target
+    from mlframe.training.slicing.shared import is_classification_target as _is_classification_target
 
     if isinstance(values, (pd.Series, pl.Series)):
         arr = values.to_numpy()

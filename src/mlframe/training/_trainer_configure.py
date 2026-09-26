@@ -57,22 +57,30 @@ except ImportError:  # pragma: no cover
     XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
 
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: F401
-from .pipeline import (  # noqa: F401
-    _PRE_PIPELINE_CACHE, _PRE_PIPELINE_CACHE_LOCK, _PRE_PIPELINE_CACHE_MAX,
-    _apply_pre_pipeline_transforms, _extract_feature_selector,
-    _is_fitted, _multilabel_target_to_1d_for_supervised_encoders,
-    _passthrough_cols_fit_transform, _pipeline_signature_for_cache,
-    _pre_pipeline_cache_clear, _pre_pipeline_cache_get,
-    _pre_pipeline_cache_set, _prepare_test_split,
+from mlframe.training.pipeline.shared import (  # noqa: F401
+    PRE_PIPELINE_CACHE as _PRE_PIPELINE_CACHE,
+    PRE_PIPELINE_CACHE_LOCK as _PRE_PIPELINE_CACHE_LOCK,
+    PRE_PIPELINE_CACHE_MAX as _PRE_PIPELINE_CACHE_MAX,
+    apply_pre_pipeline_transforms as _apply_pre_pipeline_transforms,
+    extract_feature_selector as _extract_feature_selector,
+    is_fitted as _is_fitted,
+    multilabel_target_to_1d_for_supervised_encoders as _multilabel_target_to_1d_for_supervised_encoders,
+    passthrough_cols_fit_transform as _passthrough_cols_fit_transform,
+    pipeline_signature_for_cache as _pipeline_signature_for_cache,
+    pre_pipeline_cache_clear as _pre_pipeline_cache_clear,
+    pre_pipeline_cache_get as _pre_pipeline_cache_get,
+    pre_pipeline_cache_set as _pre_pipeline_cache_set,
+    prepare_test_split as _prepare_test_split,
 )
-from .cb import (  # noqa: F401
-    _cached_gpu_info, _maybe_get_or_build_cb_pool,
-    _maybe_rewrite_eval_set_as_cb_pool,
-    _polars_df_has_null_in_categorical,
-    _polars_fill_null_in_categorical,
-    _polars_nullable_categorical_cols,
-    _polars_schema_diagnostic,
-    _predict_with_fallback,
+from mlframe.training.cb.shared import (  # noqa: F401
+    cached_gpu_info as _cached_gpu_info,
+    maybe_get_or_build_cb_pool as _maybe_get_or_build_cb_pool,
+    maybe_rewrite_eval_set_as_cb_pool as _maybe_rewrite_eval_set_as_cb_pool,
+    polars_df_has_null_in_categorical as _polars_df_has_null_in_categorical,
+    polars_fill_null_in_categorical as _polars_fill_null_in_categorical,
+    polars_nullable_categorical_cols as _polars_nullable_categorical_cols,
+    polars_schema_diagnostic as _polars_schema_diagnostic,
+    predict_with_fallback as _predict_with_fallback,
 )
 from ._eval_helpers import (  # noqa: F401
     _align_xgb_cat_categories, _append_split_rate_suffix,

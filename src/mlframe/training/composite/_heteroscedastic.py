@@ -49,7 +49,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from .estimator import CompositeTargetEstimator
 from .transforms import get_transform
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

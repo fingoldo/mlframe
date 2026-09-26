@@ -66,7 +66,7 @@ def _sorted_layout(
     """
     if shared is not None and "layout" in shared:
         return cast(Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], shared["layout"])
-    from mlframe.metrics.ranking import _iter_group_slices
+    from mlframe.metrics.shared import iter_group_slices as _iter_group_slices
 
     sorted_y_true, sorted_y_score, group_starts = _iter_group_slices(
         np.asarray(y_true), np.asarray(y_score, dtype=np.float64),
@@ -85,7 +85,7 @@ def _per_query_ndcg10(
     NDCG_DIST and NDCG_BY_QSIZE so the kernel runs once per figure."""
     if shared is not None and "ndcg10" in shared:
         return np.asarray(shared["ndcg10"])
-    from mlframe.metrics.ranking import _per_query_ndcg_kernel
+    from mlframe.metrics.shared import per_query_ndcg_kernel as _per_query_ndcg_kernel
 
     sorted_y_true, sorted_y_score, group_starts, _ = _sorted_layout(y_true, y_score, group_ids, shared)
     vals = _per_query_ndcg_kernel(sorted_y_true, sorted_y_score, group_starts, 10)
@@ -146,7 +146,7 @@ def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> 
     One batched kernel pass with ``eval_ks=1..max_k`` replaces the prior
     50 independent full ``ndcg_at_k`` calls (each re-sorting all groups).
     """
-    from mlframe.metrics.ranking import _summary_batched_kernel
+    from mlframe.metrics.shared import summary_batched_kernel as _summary_batched_kernel
 
     sorted_y_true, sorted_y_score, group_starts, sizes = _sorted_layout(y_true, y_score, group_ids, shared)
     n_groups = len(group_starts) - 1
@@ -261,7 +261,7 @@ def _lift_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> Li
     For each rank position 1..max_q (capped at 50), the average across queries of cumulative relevance accumulated up to that position,
     normalised by the per-query best-possible cumulative relevance at the same position.
     """
-    from mlframe.metrics.ranking import _lift_curve_kernel
+    from mlframe.metrics.shared import lift_curve_kernel as _lift_curve_kernel
 
     sorted_y_true, sorted_y_score, group_starts, sizes = _sorted_layout(y_true, y_score, group_ids, shared)
     max_k = min(int(sizes.max(initial=1)), 50)
@@ -286,7 +286,7 @@ def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -
     For each query, reciprocal of the 1-indexed rank of the first relevant doc in the score-sorted order; queries with no relevant doc
     contribute 0.
     """
-    from mlframe.metrics.ranking import _per_query_mrr_kernel
+    from mlframe.metrics.shared import per_query_mrr_kernel as _per_query_mrr_kernel
 
     from ._sampling import prebin_histogram
 

@@ -59,7 +59,7 @@ from ._phase_composite_discovery_gates import (  # noqa: F401  (re-exported)
     rank_pending_composites,
     select_composites_to_train,
 )
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 
 def run_composite_target_discovery(
@@ -501,7 +501,7 @@ def run_composite_target_discovery(
                     # _run_auto_chain during a FRESH discovery; on a cache replay that never ran, so re-register any the
                     # cached specs reference -- otherwise get_transform / predict-time inversion raises UnknownTransformError.
                     try:
-                        from ..composite.discovery._auto_chain import reregister_auto_chain_transforms
+                        from mlframe.training.composite.discovery.shared import reregister_auto_chain_transforms
                         _rereg = reregister_auto_chain_transforms([getattr(s, "transform_name", "") for s in _cached_specs])
                         if _rereg:
                             logger.info(

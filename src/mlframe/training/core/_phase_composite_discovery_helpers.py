@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from ..composite._frame_ops import append_column
+from mlframe.training.composite.shared import append_column
 from ..composite.cache import ConfigSignatureV1, compute_config_signature_v1
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def _render_composite_discovery_diagnostics(
     Discovery runs before any model exists, hence a ``composite_discovery`` leaf rather than the per-model
     ``<model>/<target_type>/<cur_target>`` tail the trained-model charts use.
     """
-    from ..composite._row_roles import note_rows
+    from mlframe.training.composite.shared import note_rows
 
     note_rows("train", "plot", "discovery_target_distribution_chart", train_idx)
     import os
@@ -140,7 +140,7 @@ def _discovery_config_signature(config: Any) -> ConfigSignatureV1:
         versions["mlframe"] = "?"
     from importlib.metadata import PackageNotFoundError, version as _dist_version
 
-    from ..composite.discovery._algo_version import DISCOVERY_ALGO_VERSION
+    from mlframe.training.composite.discovery.shared import DISCOVERY_ALGO_VERSION
 
     # The selection logic's own version: a discovery fix inside a release must invalidate warm caches.
     versions["discovery_algo"] = str(DISCOVERY_ALGO_VERSION)

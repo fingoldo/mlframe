@@ -78,7 +78,7 @@ def _make_rescand_inputs(dims: dict):
 
 def _rescand_njit(mat, y):
     """Sweep probe variant: score ``mat`` on the host exact njit batch plug-in MI (the path being gated against)."""
-    from .hermite_fe import _plugin_mi_classif_batch_njit
+    from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit
 
     return _plugin_mi_classif_batch_njit(mat, y, 20)
 

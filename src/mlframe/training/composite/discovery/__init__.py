@@ -676,4 +676,4 @@ def discover_incremental(
 # nothing references, so they are withdrawn until the arm that needs them lands; they remain public on
 # `_eval_stats` and cost one line to re-export when there is something to re-export them for.
 from ._eval_stats import bootstrap_gain_p_value
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform

@@ -711,7 +711,7 @@ def drop_redundant_raw_operands(
     # when group_aware_mi is off / no groups were supplied this fit (``get_group_mi()`` returns ``None``).
     _group_leak_names: set = set()
     try:
-        from .info_theory._state_and_dispatch import get_group_mi
+        from mlframe.feature_selection.filters.info_theory.shared import get_group_mi
 
         _gmi_payload = get_group_mi()
     except Exception as e:
@@ -719,7 +719,7 @@ def drop_redundant_raw_operands(
         _gmi_payload = None
     if _gmi_payload is not None and drop_names:
         try:
-            from .info_theory._group_mi import group_blocked_mi
+            from mlframe.feature_selection.filters.info_theory.shared import group_blocked_mi
 
             _gsi, _goff, _gmr, _gsw = _gmi_payload
             _yb_arr = np.asarray(y_binned)

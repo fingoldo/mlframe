@@ -248,7 +248,7 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
             _ = fast_aucs(y_true, y_pred)
 
             _ = fast_calibration_binning(y_true, y_pred, nbins=10)
-            from mlframe.metrics.calibration import _fast_calibration_binning_prange
+            from mlframe.metrics.calibration.shared import fast_calibration_binning_prange as _fast_calibration_binning_prange
             _ = _fast_calibration_binning_prange(y_true, y_pred, nbins=10)
             _ = fast_calibration_metrics(y_true, y_pred, nbins=10)
 
@@ -558,7 +558,7 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
     # Warm dummy_baselines kernels. The suite already calls `_warmup_numba_kernels` early in `train_mlframe_models_suite`, but that lands inside the suite wall-time; warming here shifts cost out of the user-visible timer.
     _t_base = _perf_counter()
     try:
-        from mlframe.training.baselines import _warmup_numba_kernels
+        from mlframe.training.baselines.shared import warmup_numba_kernels as _warmup_numba_kernels
 
         # Forward the gate: this call re-enters prewarm_numba_cache, and while the re-entrancy sentinel makes
         # that a no-op on the normal path, a caller reaching the body directly would otherwise re-run the

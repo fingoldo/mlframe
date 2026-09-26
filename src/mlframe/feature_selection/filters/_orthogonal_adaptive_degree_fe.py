@@ -41,7 +41,7 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from .hermite_fe import _POLY_BASES
+from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,

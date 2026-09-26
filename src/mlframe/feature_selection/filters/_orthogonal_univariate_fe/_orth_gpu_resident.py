@@ -15,7 +15,7 @@ import numpy as np
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
-from ..hermite_fe import _POLY_BASES
+from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orth_dedup import _dedup_collinear_source_cols
 from ._orth_extra_basis_fe import _is_int_as_cat_axis
 
@@ -61,8 +61,8 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     GPU). Returns ``(eng_matrix_cupy, names, scores_df)`` or ``(None, [], empty_scores)`` when no candidate.
     Raises on GPU failure so the caller falls back to the host path (never a correctness regression)."""
     import cupy as cp
-    from ..hermite_fe import _plugin_mi_classif_batch_cuda_resident
-    from ..hermite_fe._hermite_robust import _robust_axis_enabled
+    from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_cuda_resident as _plugin_mi_classif_batch_cuda_resident
+    from mlframe.feature_selection.filters.hermite_fe.shared import robust_axis_enabled as _robust_axis_enabled
     from .._fe_deadline import fe_deadline_passed
     # Lazy import (avoids a circular import: the parent package's ``__init__`` imports THIS module).
     from . import _BASIS_CODE, basis_route_by_moments, basis_route_by_signal

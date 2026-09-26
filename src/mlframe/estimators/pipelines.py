@@ -28,11 +28,11 @@ import tempfile
 
 import joblib
 
-from mlframe.utils.safe_pickle import (
-    _sha256_of_file,  # noqa: F401 -- re-exported for callers importing pipelines._sha256_of_file
+from mlframe.utils.safe_pickle import (  # noqa: F401 -- re-exported for callers importing pipelines._sha256_of_file
     verify_sidecar as _safe_pickle_verify_sidecar,
     write_sidecar,
 )
+from mlframe.utils.shared import sha256_of_file as _sha256_of_file  # noqa: F401 -- re-exported for callers importing pipelines._sha256_of_file
 
 
 def _verify_sidecar(path: str) -> bool:
@@ -62,8 +62,8 @@ mpl = _LazyModule("matplotlib")
 cm = _LazyModule("matplotlib.cm")
 plt = _LazyModule("matplotlib.pyplot")
 
-from mlframe.metrics.core import _close_unless_interactive
-from mlframe.metrics.calibration import _show_plots_unless_agg
+from mlframe.metrics.shared import close_unless_interactive as _close_unless_interactive
+from mlframe.metrics.calibration.shared import show_plots_unless_agg as _show_plots_unless_agg
 
 import pandas as pd, numpy as np
 from pyutilz.pythonlib import ensure_dict_elem

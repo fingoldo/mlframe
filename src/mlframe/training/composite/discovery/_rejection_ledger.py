@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Optional
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

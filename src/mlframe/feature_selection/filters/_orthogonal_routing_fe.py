@@ -71,7 +71,7 @@ import numpy as np
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
-from .hermite_fe import _POLY_BASES
+from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orthogonal_shared import coerce_y_classif
 from ._safe_scale import standardise
 from ._orthogonal_univariate_fe import (
@@ -117,7 +117,7 @@ def apply_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
     between fit-time and replay-time). Lazy import keeps the recipes
     module dependency-light at FE-module import time.
     """
-    from .engineered_recipes import _apply_orth_pre_transform
+    from mlframe.feature_selection.filters.engineered_recipes.shared import apply_orth_pre_transform as _apply_orth_pre_transform
     return _apply_orth_pre_transform(x, pre_transform)
 
 

@@ -193,7 +193,7 @@ from .conformal import conformal_quantile
 
 # Purged/embargoed time-series CV + base-target-leakage detection.
 from .cv import PurgedTimeSeriesSplit, make_purged_cv
-from .discovery._leakage import detect_base_target_leakage
+from mlframe.training.composite.discovery.shared import detect_base_target_leakage
 
 # Unified explainability report + composite-vs-raw meta-stacker.
 from .report import composite_report
@@ -205,7 +205,7 @@ from .hpo import optimize_composite
 from .model_card import composite_model_card
 
 # Auto temporal base engineering, bagged (epistemic) composite, survival/AFT.
-from .discovery._base_engineering import engineer_temporal_bases
+from mlframe.training.composite.discovery.shared import engineer_temporal_bases
 from .bagging import BaggedCompositeEstimator
 from .survival import CompositeSurvivalEstimator
 from .dual_direction import DualDirectionCompositeEstimator
@@ -278,7 +278,7 @@ from .additive_decomposition import AdditiveDecompositionRegressor
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
-from .discovery._stability import stability_select_specs
+from mlframe.training.composite.discovery.shared import stability_select_specs
 
 # Compositional (simplex) target composite + quantile-regression-forest distribution.
 from .simplex import CompositeSimplexEstimator, aitchison_distance

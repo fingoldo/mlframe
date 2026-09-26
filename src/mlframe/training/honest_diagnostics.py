@@ -168,14 +168,14 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0
 
             # ROC-AUC is not a mean of per-row values, but its BCa jackknife has an exact O(n log n) closed form via
             # Mann-Whitney placement values (bit-identical to re-running fast_roc_auc on n-1 rows; 159x at n=300k).
-            from mlframe.evaluation.bootstrap import _jackknife_auc as _jk_auc
+            from mlframe.evaluation.shared import jackknife_auc as _jk_auc
             _jackknife_fns = {"roc_auc": lambda yy, ss: _jk_auc(yy, ss)}
             # ECE's BCa jackknife has the same class of O(n) algebraic closed form as roc_auc's above (a sum
             # decomposable through per-bin aggregation rather than per-row mean) -- was left on the generic
             # O(max_n * n) gather path; see _jackknife_ece's docstring for the derivation and the profile that
             # caught it (15.3s/6 calls on a 2M-row combo).
             try:
-                from mlframe.evaluation.bootstrap import _jackknife_ece as _jk_ece
+                from mlframe.evaluation.shared import jackknife_ece as _jk_ece
                 _jackknife_fns["ece"] = lambda yy, pp: _jk_ece(yy, pp)
             except ImportError as exc:
                 logger.debug("honest_diagnostics: _jackknife_ece import failed (%r); ece BCa uses the generic jackknife.", exc)
@@ -196,7 +196,7 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0
                 out[_skipped_metric] = {"status": "skipped", "reason": _import_skip_reason}
         # ECE via the policy module's _ece_score (consistent with auto-pick).
         try:
-            from mlframe.calibration.policy import _ece_score
+            from mlframe.calibration.shared import ece_score as _ece_score
             metric_fns["ece"] = lambda yy, pp: _ece_score(yy, pp)
         except Exception as exc:
             logger.debug("ece metric setup failed, skipping: %s", exc)

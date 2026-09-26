@@ -37,7 +37,7 @@ if TYPE_CHECKING:
         TrainingBehaviorConfig,
         TrainingSplitConfig,
     )
-    from ..neural._recurrent_config import RecurrentConfig
+    from mlframe.training.neural.shared import RecurrentConfig
 
 
 # ``slots=True`` on @dataclass landed in Python 3.10. On 3.9 we lose the

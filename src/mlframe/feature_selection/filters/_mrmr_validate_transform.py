@@ -794,7 +794,7 @@ def _append_engineered(self, base_out, X, recipes):
         # stay byte-for-byte in sync (the all-or-nothing collision guard keeps widths equal). The
         # internal ``chained``/``_results`` replay above still keys off the RAW r.name, so replay
         # is unaffected. Build column-by-column (positional) to tolerate any duplicate display name.
-        from .engineered_recipes._recipe_name_simplify import simplified_recipe_names
+        from mlframe.feature_selection.filters.engineered_recipes.shared import simplified_recipe_names
         _disp_names = simplified_recipe_names(recipes)
         engineered_df = pd.DataFrame(
             dict(zip(range(len(_disp_names)), engineered_cols)),
@@ -811,7 +811,7 @@ def _append_engineered(self, base_out, X, recipes):
             # the pandas branch above); a prior version named these columns via the raw r.name, so a polars
             # transform's output columns disagreed with get_feature_names_out for any recipe whose display
             # name differs from its raw name.
-            from .engineered_recipes._recipe_name_simplify import simplified_recipe_names
+            from mlframe.feature_selection.filters.engineered_recipes.shared import simplified_recipe_names
             _disp_names = simplified_recipe_names(recipes)
             return base_out.with_columns([_pl.Series(nm, col) for nm, col in zip(_disp_names, engineered_cols)])
     except ImportError:

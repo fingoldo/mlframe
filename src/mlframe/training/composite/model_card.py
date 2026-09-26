@@ -197,7 +197,7 @@ def _leakage_check(estimator: Any, X: Any, y: Any, base_cols: tuple[str, ...]) -
     transform = get_transform(estimator.transform_name)
     if not transform.requires_base:
         return {"available": False, "reason": "base-free unary transform"}
-    from .discovery._leakage import detect_base_target_leakage  # local: avoid cycle
+    from mlframe.training.composite.discovery.shared import detect_base_target_leakage  # local: avoid cycle
 
     try:
         base_arr = estimator._extract_base_for_transform(X, base_cols)

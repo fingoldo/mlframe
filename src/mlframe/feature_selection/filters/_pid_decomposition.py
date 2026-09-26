@@ -216,7 +216,7 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray, K_x1: int, 
     n = x1.size
     if n == 0:
         return {"redundant": 0.0, "unique_x1": 0.0, "unique_x2": 0.0, "synergistic": 0.0, "total": 0.0}
-    from .info_theory._batch_kernels import check_joint_cardinality
+    from mlframe.feature_selection.filters.info_theory.shared import check_joint_cardinality
 
     check_joint_cardinality(K_x1, K_x2, K_y, what="pid_decomposition")
     # Validate index ranges

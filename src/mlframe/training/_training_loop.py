@@ -36,12 +36,12 @@ from ._training_loop_refit import (  # noqa: F401  (re-exported)
     _maybe_refit_on_degenerate_best_iter,
     _maybe_refit_on_saturated_best_iter,
 )
-from .cb._cb_eval_weights import apply_cb_eval_sample_weights
-from .cb._cb_polars_text import cb_text_features_as_strings
-from .cb import (
-    _maybe_get_or_build_cb_pool,
-    _maybe_rewrite_eval_set_as_cb_pool,
-    _polars_schema_diagnostic,
+from mlframe.training.cb.shared import apply_cb_eval_sample_weights
+from mlframe.training.cb.shared import cb_text_features_as_strings
+from mlframe.training.cb.shared import (
+    maybe_get_or_build_cb_pool as _maybe_get_or_build_cb_pool,
+    maybe_rewrite_eval_set_as_cb_pool as _maybe_rewrite_eval_set_as_cb_pool,
+    polars_schema_diagnostic as _polars_schema_diagnostic,
 )
 from .helpers import CB_DEFAULT_OCCURRENCE_LOWER_BOUND, compute_cb_text_processing
 from .phases import phase
@@ -277,7 +277,7 @@ from ._calibration_models import (  # noqa: F401
 
 def _train_model_with_fallback(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
     """Fit under ``CatBoostGpuFitGuard`` (GPU CatBoost: no callbacks, progress monitor, time budget / runaway stop that keeps the model; else a no-op)."""
-    from .cb._cb_gpu_budget import fit_with_cb_gpu_guard
+    from mlframe.training.cb.shared import fit_with_cb_gpu_guard
     return fit_with_cb_gpu_guard(_train_model_with_fallback_unguarded, model, model_obj, model_type_name, train_df, train_target, fit_params, verbose)
 
 

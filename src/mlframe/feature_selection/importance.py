@@ -339,7 +339,7 @@ def plot_feature_importance(
         # branch, so this helper is the safety net for the no-show
         # path. 2026-05-09 leak fix; helper unifies the detection
         # across modules.
-        from mlframe.metrics.core import _close_unless_interactive
+        from mlframe.metrics.shared import close_unless_interactive as _close_unless_interactive
         _close_unless_interactive(figs, was_shown=show_plots)
 
     return df

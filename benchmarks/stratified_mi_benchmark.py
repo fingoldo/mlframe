@@ -62,7 +62,7 @@ def make_heavy_tail_data(
 def run_one(strategy: str, n_total: int, mi_sample_n: int,
             seed: int, n_strata: int = 10,
             estimator: str = "bin") -> Dict[str, float]:
-    from mlframe.training.composite import _sample_indices, _mi_pair_bin, _mi_to_target
+    from mlframe.training.composite.discovery.screening import _sample_indices, _mi_pair_bin, _mi_to_target
     y, x_tail, x_bulk = make_heavy_tail_data(n_total, seed=seed)
     sample_idx = _sample_indices(
         n_total, mi_sample_n, random_state=seed,
@@ -95,7 +95,7 @@ def main() -> int:
                         choices=["bin", "knn"])
     args = parser.parse_args()
 
-    print(f"Heavy-tail benchmark:")
+    print("Heavy-tail benchmark:")
     print(f"  n_total       = {args.n_total:,}")
     print(f"  mi_sample_n   = {args.mi_sample_n:,}")
     print(f"  tail_frac     = {args.tail_frac}")

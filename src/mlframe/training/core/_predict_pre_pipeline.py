@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from ..cb import _predict_with_fallback
+from mlframe.training.cb.shared import predict_with_fallback as _predict_with_fallback
 from ..utils import get_pandas_view_of_polars_df
 from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
 from mlframe.utils.log_throttle import log_throttle
@@ -671,7 +671,7 @@ def _pre_pipeline_is_pure_selector(pre_pipeline) -> bool:
     it is a sklearn ``Pipeline`` whose only non-passthrough step is that
     selector. Anything ambiguous returns False (fail safe: prefer re-raise over
     serving wrong predictions)."""
-    from ..pipeline._pipeline_helpers import _extract_feature_selector, _selector_output_columns
+    from mlframe.training.pipeline.shared import extract_feature_selector as _extract_feature_selector, selector_output_columns as _selector_output_columns
 
     if pre_pipeline is None:
         return False

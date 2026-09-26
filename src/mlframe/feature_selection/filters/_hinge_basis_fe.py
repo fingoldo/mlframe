@@ -677,7 +677,7 @@ def build_hinge_basis_recipe(
 def _apply_hinge_basis(recipe, X) -> np.ndarray:
     """Replay one hinge basis column from the stored ``{tau, side}`` - a pure
     function of the source column (no y). Mirrors ``_apply_orth_spline``."""
-    from .engineered_recipes import _extract_column
+    from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_column
     if len(recipe.src_names) != 1:
         raise ValueError(f"hinge_basis recipe '{recipe.name}' must have exactly 1 " f"src_names; got {len(recipe.src_names)}")
     for key in ("tau", "side"):

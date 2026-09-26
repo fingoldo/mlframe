@@ -26,7 +26,8 @@ from typing import Optional
 import numba
 import numpy as np
 
-from mlframe.calibration.policy import DEFAULT_ECE_NBINS, _ece_score_numba_serial
+from mlframe.calibration.policy import DEFAULT_ECE_NBINS
+from mlframe.calibration.shared import ece_score_numba_serial as _ece_score_numba_serial
 from mlframe.metrics import NUMBA_NJIT_PARAMS, fast_roc_auc_unstable
 
 # _fast_brier_score_loss_seq / _fast_log_loss_binary_seq are the njit-compiled sequential kernels
@@ -34,8 +35,8 @@ from mlframe.metrics import NUMBA_NJIT_PARAMS, fast_roc_auc_unstable
 # kernel -- the public fast_brier_score_loss/fast_log_loss_binary dispatchers pick seq vs. parallel
 # at plain-Python runtime and are not njit-callable, so the private variant is the only usable one
 # here; not promotable to the public surface without misleading general callers.
-from mlframe.metrics._core_auc_brier import _fast_brier_score_loss_seq
-from mlframe.metrics._log_loss_and_separation import _fast_log_loss_binary_seq
+from mlframe.metrics.shared import fast_brier_score_loss_seq as _fast_brier_score_loss_seq
+from mlframe.metrics.shared import fast_log_loss_binary_seq as _fast_log_loss_binary_seq
 
 from ._bootstrap_jackknife import _ci_from_samples, _jackknife_auc, _jackknife_ece, _jackknife_mean_metric, _jackknife_metric
 

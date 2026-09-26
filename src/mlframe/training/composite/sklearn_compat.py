@@ -59,14 +59,14 @@ from typing import Any, Optional, Sequence
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 
-from .estimator import (
-    CompositeTargetEstimator,
-    _extract_base,
-    _extract_base_matrix,
-    _to_1d_numpy,
+from .estimator import CompositeTargetEstimator
+from mlframe.training.composite.estimator.shared import (
+    extract_base as _extract_base,
+    extract_base_matrix as _extract_base_matrix,
+    to_1d_numpy as _to_1d_numpy,
 )
 from .transforms import get_transform
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

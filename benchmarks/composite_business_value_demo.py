@@ -673,10 +673,8 @@ def feature_10_median_seeds(seed: int = 0) -> Dict:
     point estimate has std X; median-of-5-seeds estimate has std
     significantly lower because it averages over fold-split noise.
     """
-    from mlframe.training.composite import (
-        _tiny_cv_rmse_y_scale, _tiny_cv_rmse_y_scale_multiseed,
-        get_transform,
-    )
+    from mlframe.training.composite import get_transform
+    from mlframe.training.composite.discovery.screening import _tiny_cv_rmse_y_scale, _tiny_cv_rmse_y_scale_multiseed
     rng = np.random.default_rng(seed)
     n = 600  # small to amplify fold-split variance
     base = rng.normal(loc=10, scale=2, size=n)
@@ -730,7 +728,7 @@ def feature_stat1_mean_mi(seed: int = 0) -> Dict:
     """Sum vs Mean MI aggregation: sum-MI is biased by feature count.
     Demonstrate by adding redundant features to X and checking if
     mi_gain magnitude stays sensible."""
-    from mlframe.training.composite import _mi_to_target
+    from mlframe.training.composite.discovery.screening import _mi_to_target
     rng = np.random.default_rng(seed)
     n = 2000
     base = rng.normal(size=n)

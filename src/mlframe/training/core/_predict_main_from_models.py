@@ -89,15 +89,15 @@ def predict_from_models(
     # import ...`` would create a hard cycle the meta-test flags.
     from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _select_trained_members, _align_frame_to_schema, suite_binary_threshold, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
     from .._classif_helpers import _canonical_predict_proba_shape
-    from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
-    from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
-    from ..pipeline._cross_sectional_composite_fe import replay_cross_sectional_composite_fe
-    from ..pipeline._target_encoding_composite_fe import replay_target_encoding_composite_fe
-    from ..pipeline._per_target_supervised_fe import replay_per_target_supervised_fe
-    from ..pipeline._ma_crossover_composite_fe import replay_ma_crossover_composite_fe
-    from ..pipeline._latent_interaction_svd_composite_fe import replay_latent_interaction_svd_composite_fe
-    from ..pipeline._nearest_past_join_composite_fe import replay_nearest_past_join_composite_fe
-    from ..pipeline._event_proximity_decay_composite_fe import replay_event_proximity_decay_composite_fe
+    from mlframe.training.pipeline.shared import replay_categorical_composite_fe
+    from mlframe.training.pipeline.shared import replay_entity_time_composite_fe
+    from mlframe.training.pipeline.shared import replay_cross_sectional_composite_fe
+    from mlframe.training.pipeline.shared import replay_target_encoding_composite_fe
+    from mlframe.training.pipeline.shared import replay_per_target_supervised_fe
+    from mlframe.training.pipeline.shared import replay_ma_crossover_composite_fe
+    from mlframe.training.pipeline.shared import replay_latent_interaction_svd_composite_fe
+    from mlframe.training.pipeline.shared import replay_nearest_past_join_composite_fe
+    from mlframe.training.pipeline.shared import replay_event_proximity_decay_composite_fe
     # Validate inputs
     if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
         raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")

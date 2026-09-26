@@ -100,7 +100,7 @@ def compute_mtr_oof_nnls_weights(
     from sklearn.base import clone
     from scipy.optimize import nnls
 
-    from ...composite.ensemble import _maybe_pass_sample_weight
+    from mlframe.training.composite.ensemble.shared import maybe_pass_sample_weight as _maybe_pass_sample_weight
 
     try:
         y_arr = np.asarray(y_train, dtype=np.float64)
@@ -116,7 +116,7 @@ def compute_mtr_oof_nnls_weights(
         # (recorded in ``excluded``) or it emits a non-finite OOF cell (detected
         # after the stack is built). Excluded components keep a zero weight-row.
         excluded: dict[int, str] = {}
-        from ...composite.discovery._splitter import make_discovery_splitter  # the one place a shuffled discovery KFold is built
+        from mlframe.training.composite.discovery.shared import make_discovery_splitter  # the one place a shuffled discovery KFold is built
 
         kf = make_discovery_splitter(int(kfold), random_state=int(random_state))[0]
         for tr_idx, ho_idx in kf.split(np.arange(n)):

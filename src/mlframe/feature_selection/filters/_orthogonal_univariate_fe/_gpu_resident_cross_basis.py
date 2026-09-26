@@ -124,7 +124,7 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
     # robust_axis decision mirrors the host _evaluate_basis_column path (its preprocess fit runs the robust
     # heavy-tail detection iff the robust-axis env is on). Read it once for the whole matrix.
     try:
-        from ..hermite_fe._hermite_robust import _robust_axis_enabled
+        from mlframe.feature_selection.filters.hermite_fe.shared import robust_axis_enabled as _robust_axis_enabled
         robust_axis = bool(_robust_axis_enabled())
     except Exception as e:
         logger.debug("_robust_axis_enabled() check failed, defaulting to False: %s", e)

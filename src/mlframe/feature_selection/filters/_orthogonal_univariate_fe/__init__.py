@@ -54,11 +54,8 @@ import numpy as np
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
-from ..hermite_fe import (
-    _POLY_BASES,
-    basis_route_by_moments,
-    polyeval_dispatch,
-)
+from ..hermite_fe import basis_route_by_moments, polyeval_dispatch
+from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orth_mi_backends import (
     _MI_BACKEND,
     _mi_classif_batch,
@@ -253,7 +250,7 @@ def basis_route_by_signal(
     # (the verdict depends on x's values, not the basis), so memoise it for this routing sweep -> 4 sort-based
     # median+MAD probes collapse to 1 (byte-identical; the memo caches a deterministic boolean, id-keyed +
     # identity-verified, cleared at scope exit). Covers both the host and the GPU-resident orth-FE routing.
-    from ..hermite_fe._hermite_robust import heavy_tail_memo_scope
+    from mlframe.feature_selection.filters.hermite_fe.shared import heavy_tail_memo_scope
     with heavy_tail_memo_scope():
         for basis in candidate_bases:
             bcorr = 0.0
@@ -394,7 +391,7 @@ def generate_univariate_basis_features(
         # np.median caller (154 -> ~77 detects on F2). Wrapping route + build in one nesting-safe scope makes the
         # build an identity-verified cache hit on the routing detect (collision-proof: the memo returns a cached
         # verdict only when the stored array IS x). Cleared at column exit, so no cross-column ref retention.
-        from ..hermite_fe._hermite_robust import heavy_tail_memo_scope
+        from mlframe.feature_selection.filters.hermite_fe.shared import heavy_tail_memo_scope
         with heavy_tail_memo_scope():
             if basis == "auto":
                 # signal-adaptive routing (route by which basis best

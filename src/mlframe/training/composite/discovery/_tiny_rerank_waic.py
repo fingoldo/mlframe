@@ -12,7 +12,7 @@ import numpy as np
 from ..transforms import UnknownTransformError, get_transform
 from ._rejection_ledger import RejectStage, ledger_append
 from ._score import Score, rank_specs
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

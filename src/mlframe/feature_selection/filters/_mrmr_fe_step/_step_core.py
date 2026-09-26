@@ -69,7 +69,7 @@ def _free_gpu_fe_mempool() -> bool:
     # Drop the resident y/z device cache in _cmi_cuda FIRST so its device arrays carry no
     # live reference -> free_all_blocks below can actually reclaim them (a fit-scoped cache, never persisted).
     try:
-        from ..info_theory._cmi_cuda import clear_cmi_resident_cache
+        from mlframe.feature_selection.filters.info_theory.shared import clear_cmi_resident_cache
         clear_cmi_resident_cache()
     except ImportError as exc:  # the CUDA CMI module is genuinely absent
         logger.debug("mrmr: no CMI resident device cache to clear at FE-step teardown (%s)", exc)

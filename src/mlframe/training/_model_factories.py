@@ -544,20 +544,20 @@ GPU_VRAM_SAFE_FREE_LIMIT_GB: float = 0.1
 
 # Extracted modules
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: F401
-from .pipeline import (  # noqa: F401
-    _apply_pre_pipeline_transforms,
-    _extract_feature_selector,
-    _is_fitted,
-    _multilabel_target_to_1d_for_supervised_encoders,
-    _passthrough_cols_fit_transform,
-    _prepare_test_split,
+from mlframe.training.pipeline.shared import (  # noqa: F401
+    apply_pre_pipeline_transforms as _apply_pre_pipeline_transforms,
+    extract_feature_selector as _extract_feature_selector,
+    is_fitted as _is_fitted,
+    multilabel_target_to_1d_for_supervised_encoders as _multilabel_target_to_1d_for_supervised_encoders,
+    passthrough_cols_fit_transform as _passthrough_cols_fit_transform,
+    prepare_test_split as _prepare_test_split,
 )
-from .cb import (  # noqa: F401
-    _cached_gpu_info,
-    _maybe_get_or_build_cb_pool,
-    _maybe_rewrite_eval_set_as_cb_pool,
-    _polars_fill_null_in_categorical,
-    _polars_schema_diagnostic,
+from mlframe.training.cb.shared import (  # noqa: F401
+    cached_gpu_info as _cached_gpu_info,
+    maybe_get_or_build_cb_pool as _maybe_get_or_build_cb_pool,
+    maybe_rewrite_eval_set_as_cb_pool as _maybe_rewrite_eval_set_as_cb_pool,
+    polars_fill_null_in_categorical as _polars_fill_null_in_categorical,
+    polars_schema_diagnostic as _polars_schema_diagnostic,
 )
 from ._eval_helpers import (  # noqa: F401
     _align_xgb_cat_categories,

@@ -29,15 +29,8 @@ import logging
 
 import numpy as np
 
-from mlframe.reporting.charts.pdp_ice import (
-    DEFAULT_PDP_GRID,
-    DEFAULT_PDP_SAMPLE,
-    _as_2d,
-    _resolve_feature_index,
-    _subsample_idx,
-    compute_pdp,
-    compute_pdp_2d,
-)
+from mlframe.reporting.charts.pdp_ice import DEFAULT_PDP_GRID, DEFAULT_PDP_SAMPLE, compute_pdp, compute_pdp_2d
+from mlframe.reporting.charts.shared import as_2d as _as_2d, resolve_feature_index as _resolve_feature_index, subsample_idx as _subsample_idx
 
 logger = logging.getLogger(__name__)
 

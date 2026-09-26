@@ -17,7 +17,7 @@ from typing import Any, Callable, List, Optional, Sequence
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
-from ..feature_engineering.transformer._knn_helper import knn_search
+from mlframe.feature_engineering.transformer.shared import knn_search
 
 logger = logging.getLogger(__name__)
 

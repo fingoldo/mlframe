@@ -109,9 +109,9 @@ def _apply_drift_refit(self, info: dict, helper_alpha: float, helper_beta: float
     that still holds the regime the refit exists to leave behind. Returns the ``(alpha, beta)`` now in force.
     """
     from . import _soft_shrink, _y_train_clip_bounds
-    from ..discovery._t_equivalence import t_train_envelope
+    from mlframe.training.composite.discovery.shared import t_train_envelope
     from ..transforms import get_transform
-    from ..transforms._call_gateway import call_transform
+    from mlframe.training.composite.transforms.shared import call_transform
 
     y_buf = np.asarray(self._buffer_y_.contiguous(), dtype=np.float64)
     b_buf = np.asarray(self._buffer_base_.contiguous(), dtype=np.float64)

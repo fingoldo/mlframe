@@ -13,10 +13,10 @@ import numpy as np
 def _fit_signature(self, y, X):
     """Signature of this fit (shapes, X/y content hashes, column names, pre-override ctor params) for the in-object
     same-inputs skip, plus the X and y content hashes it folds in."""
-    from mlframe.feature_selection.filters.mrmr import (
-        _full_y_content_hash,
-        _full_x_content_hash,
-        _hashable_params_signature,
+    from mlframe.feature_selection.filters.mrmr.shared import (
+        full_y_content_hash as _full_y_content_hash,
+        full_x_content_hash as _full_x_content_hash,
+        hashable_params_signature as _hashable_params_signature,
     )
 
     _y_hash_for_sig = _full_y_content_hash(y)
@@ -79,11 +79,11 @@ def _fit_signature(self, y, X):
 def _fit_cache_key(self, X, y, _y_hash_for_sig, groups):
     """Content-based key of this fit in the process-wide ``MRMR._FIT_CACHE``; None when either content hash is empty or
     the key cannot be built (the fit then skips the cache rather than risk a wrong replay)."""
-    from mlframe.feature_selection.filters.mrmr import (
-        _content_array_signature,
-        _full_x_content_hash,
-        _hashable_params_signature,
-        _target_name_signature,
+    from mlframe.feature_selection.filters.mrmr.shared import (
+        content_array_signature as _content_array_signature,
+        full_x_content_hash as _full_x_content_hash,
+        hashable_params_signature as _hashable_params_signature,
+        target_name_signature as _target_name_signature,
     )
 
     try:
@@ -137,7 +137,8 @@ def _replay_from_fit_cache(self, cache_key):
     the replay see a consistent snapshot either fully before or fully after the concurrent fit's own (also locked) writes.
     """
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import _MRMR_FIT_CACHE_LOCK
-    from mlframe.feature_selection.filters.mrmr import MRMR, _replay_fitted_state
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from mlframe.feature_selection.filters.mrmr.shared import replay_fitted_state as _replay_fitted_state
 
     if cache_key is None:
         return False

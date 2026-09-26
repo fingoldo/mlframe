@@ -193,7 +193,7 @@ def _build_full_column_from_splits(
         if _split_df is None or _split_idx is None:
             continue
         if col_name not in _split_df.columns:
-            from ..composite._synthetic_bases import synthetic_column
+            from mlframe.training.composite.shared import synthetic_column
 
             # A synthetic interaction base (``a__mul__b``) lives in no frame; it is its parents' product on every split.
             col_vals = synthetic_column(_split_df, col_name)
@@ -365,7 +365,7 @@ def _validate_input_columns_against_metadata(
     # each period in ``_DEFAULT_CYCLICAL_PERIODS`` so the validator does not
     # mis-classify them as "extra" and drop them. Predict-time replay also runs
     # with default ``add_cyclical=True`` so the columns are present in the frame.
-    from mlframe.feature_engineering.basic import _DEFAULT_CYCLICAL_PERIODS
+    from mlframe.feature_engineering.shared import DEFAULT_CYCLICAL_PERIODS as _DEFAULT_CYCLICAL_PERIODS
     _cyclical_period_names = [_p for _p, _ in _DEFAULT_CYCLICAL_PERIODS]
     for _src, _methods in _dt_methods_map.items():
         _allowed.extend(f"{_src}_{_method}" for _method in _methods or {})

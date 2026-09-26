@@ -256,7 +256,7 @@ def _resolve_lag_column(self, X) -> str | None:
     ``base_column`` when it carries a causal-lag suffix (the common AR composite case where base == y_prev),
     so no target name is needed. Import is lazy to avoid an estimator<->discovery import cycle.
     """
-    from ..discovery._causal_lag import detect_causal_lag_column, CAUSAL_LAG_SUFFIXES
+    from mlframe.training.composite.discovery.shared import detect_causal_lag_column, CAUSAL_LAG_SUFFIXES
     for attr in ("target_name_", "_target_name", "target_column", "target_name"):
         tname = getattr(self, attr, None)
         if tname:

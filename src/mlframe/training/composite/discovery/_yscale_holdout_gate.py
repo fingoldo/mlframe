@@ -29,7 +29,7 @@ are materialised; no frame copy.
 """
 from __future__ import annotations
 
-from ..estimator._smearing import smeared_prediction
+from mlframe.training.composite.estimator.shared import smeared_prediction
 from ._spec_shared import spec_base_columns, rmse
 from ._grouped_causal_bases import grouped_causal_bases_for_frame
 
@@ -43,7 +43,7 @@ from mlframe.utils.log_throttle import log_throttle
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array, base_arg as _base_arg
 from ._causal_lag import is_causal_base_name
-from ..transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 from ._fold_refit import refit_transform_on_fold
 from ._yscale_scoring import median_filled_with_std
 from ._rejection_ledger import RejectStage, ledger_append

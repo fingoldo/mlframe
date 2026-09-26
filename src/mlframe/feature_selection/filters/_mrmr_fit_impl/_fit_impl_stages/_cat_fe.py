@@ -79,7 +79,7 @@ def _run_categorical_fe(
         # dependent); only a stored map can reproduce those codes at transform. The map is built ONCE per distinct source
         # column from the raw ``_x_for_cat`` frame and shared across recipes referencing that column.
         if cat_fe_state.recipes and not _is_polars_input and hasattr(_x_for_cat, "columns"):
-            from mlframe.feature_selection.filters.engineered_recipes._recipe_extract import build_category_code_map as _build_cat_code_map
+            from mlframe.feature_selection.filters.engineered_recipes.shared import build_category_code_map as _build_cat_code_map
 
             # ``categorize_dataset`` factorises ALL categorical columns as ONE block and applies the NaN +1
             # shift to the WHOLE block when ANY column in it has a NaN. So even a NaN-FREE categorical source
@@ -142,7 +142,7 @@ def _run_categorical_fe(
 def _collect_numeric_raw_values(self, cat_fe_cfg, categorical_vars, target_indices, cols, _include_numeric_input_nan_cols, X, _num_raw_values):
     """Collect raw numeric input values keyed by data-column index for the cat-FE numeric candidate pool."""
     if cat_fe_cfg.enable and getattr(cat_fe_cfg, "include_numeric", False):
-        from mlframe.feature_selection.filters.engineered_recipes._recipe_extract import _extract_column as _extract_col_for_num
+        from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_col_for_num
 
         _cat_idx_set = set(int(c) for c in categorical_vars)
         _tgt_idx_set = set(int(t) for t in target_indices)

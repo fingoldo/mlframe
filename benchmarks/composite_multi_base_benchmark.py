@@ -31,10 +31,8 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from mlframe.training.composite import (
-    _linear_residual_fit,
-    forward_stepwise_multi_base,
-)
+from mlframe.training.composite import forward_stepwise_multi_base
+from mlframe.training.composite.transforms import _linear_residual_fit
 
 _OUT_PATH = Path(__file__).parent / "composite_multi_base_benchmark_results.json"
 
@@ -55,7 +53,7 @@ def _single_base_holdout_rmse(y: np.ndarray, base: np.ndarray) -> float:
 def _multi_base_holdout_rmse(y: np.ndarray, base_matrix: np.ndarray) -> float:
     """Same metric as single-base but with the (n, K) base matrix."""
     from sklearn.model_selection import KFold
-    from mlframe.training.composite import _linear_residual_multi_fit
+    from mlframe.training.composite.transforms import _linear_residual_multi_fit
     kf = KFold(n_splits=3, shuffle=True, random_state=42)
     rmses = []
     for train_idx, val_idx in kf.split(np.arange(y.size)):

@@ -42,7 +42,7 @@ except ImportError:
     _HAS_NUMBA = False
 
 try:
-    from ..metrics._numba_params import NUMBA_NJIT_PARAMS
+    from mlframe.metrics.shared import NUMBA_NJIT_PARAMS
 except ImportError:
     NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
 

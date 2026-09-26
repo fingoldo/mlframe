@@ -288,7 +288,7 @@ def _alpha_drift_stats_for_spec(self, df, spec, train_idx, half, y_train_for_dri
         # _linear_residual_fit_batched pays the per-call dispatch ONCE
         # instead of two lstsq/SVD launches. Bit-identical to applying the
         # scalar closed-form per half (see the batched solver's contract).
-        from ..transforms.linear import _linear_residual_fit_batched
+        from mlframe.training.composite.transforms.shared import linear_residual_fit_batched as _linear_residual_fit_batched
         _alphas, _betas = _linear_residual_fit_batched(
             [np.asarray(base_h1), np.asarray(base_h2)],
             [np.asarray(y_train_for_drift[:half]), np.asarray(y_train_for_drift[half:])],

@@ -82,7 +82,7 @@ def bur_term(x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarray,
     _assert_codes_in_range(y, int(nbins_y), "bur_term y")
     for _j, _c in enumerate(selected_cols):
         _assert_codes_in_range(_c, int(nbins_selected[_j]), "bur_term selected_col")
-    from .info_theory._batch_kernels import check_joint_cardinality
+    from mlframe.feature_selection.filters.info_theory.shared import check_joint_cardinality
 
     x_int = x_cand.astype(np.int64)
     y_int = y.astype(np.int64)

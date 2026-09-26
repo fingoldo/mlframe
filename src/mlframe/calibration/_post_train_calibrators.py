@@ -287,7 +287,7 @@ def train_postcalibrators(
         # could shift across mlframe versions; predict-time uses getattr
         # blindly.
         try:
-            from ..training.io import _write_save_meta_sidecar as _wsms
+            from mlframe.training.shared import write_save_meta_sidecar as _wsms
             _wsms(calib_fpath, durable=False)
         except Exception as _meta_e:  # best-effort: the calibrator itself is already saved; the sidecar is optional metadata
             log_throttle(

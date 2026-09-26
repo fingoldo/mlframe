@@ -48,8 +48,8 @@ import pandas as pd
 from sklearn.exceptions import NotFittedError
 
 from .transforms import get_transform
-from mlframe.training.composite.estimator import _extract_groups
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.estimator.shared import extract_groups as _extract_groups
+from mlframe.training.composite.transforms.shared import call_transform
 
 # Transforms whose inverse is a PRODUCT ``y = base_factor * residual_factor``.
 # Value is the NEUTRAL residual T whose inverse yields the pure base factor

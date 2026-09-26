@@ -19,7 +19,7 @@ from .screening import (
     _mi_to_target_prebinned,
 )
 from ..transforms import compose_target_name
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

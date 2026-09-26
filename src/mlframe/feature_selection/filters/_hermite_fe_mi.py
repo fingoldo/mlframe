@@ -39,7 +39,7 @@ except ImportError:
 # ``_bind_parent_kernels()`` at its module bottom and every public dispatcher calls it before invoking a
 # kernel, so the global is always bound before first use regardless of import order.
 try:
-    from .hermite_fe import _quantile_bin_njit
+    from mlframe.feature_selection.filters.hermite_fe.shared import quantile_bin_njit as _quantile_bin_njit
 except ImportError:
     _quantile_bin_njit = None  # bound by _bind_parent_kernels() before the first kernel call
 
@@ -48,7 +48,7 @@ def _bind_parent_kernels() -> None:
     """Bind the parent-resident ``_quantile_bin_njit`` global if a sibling-first import deferred it."""
     global _quantile_bin_njit
     if _quantile_bin_njit is None:
-        from .hermite_fe import _quantile_bin_njit as _qb
+        from mlframe.feature_selection.filters.hermite_fe.shared import quantile_bin_njit as _qb
 
         _quantile_bin_njit = _qb
 
@@ -216,7 +216,7 @@ def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> fl
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _quantile_bin_numpy
+    from mlframe.feature_selection.filters.hermite_fe.shared import quantile_bin_numpy as _quantile_bin_numpy
     x_binned = _quantile_bin_numpy(x, n_bins)
     return float(_plugin_mi_from_binned_njit(
         x_binned, np.asarray(y, dtype=np.int64), n_bins,
@@ -428,7 +428,7 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _CUDA_AVAILABLE, _plugin_mi_classif_cuda
+    from mlframe.feature_selection.filters.hermite_fe.shared import CUDA_AVAILABLE as _CUDA_AVAILABLE, plugin_mi_classif_cuda as _plugin_mi_classif_cuda
     from ._gpu_policy import gpu_globally_disabled
     forced = os.environ.get("MLFRAME_MI_BACKEND", "")
     if forced == "njit":
@@ -459,7 +459,7 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _CUDA_AVAILABLE, _plugin_mi_classif_batch_njit
+    from mlframe.feature_selection.filters.hermite_fe.shared import CUDA_AVAILABLE as _CUDA_AVAILABLE, plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit
     from ._gpu_policy import gpu_globally_disabled
     forced = os.environ.get("MLFRAME_MI_BACKEND", "")
     if forced == "njit":
@@ -504,7 +504,7 @@ def _ensure_cuda_kernels():
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _CUDA_AVAILABLE
+    from mlframe.feature_selection.filters.hermite_fe.shared import CUDA_AVAILABLE as _CUDA_AVAILABLE
     global _CUDA_KERNELS
     if _CUDA_KERNELS or not _CUDA_AVAILABLE:
         return

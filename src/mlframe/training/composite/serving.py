@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 
-from .transforms.simple import _diff_inverse as _inv_diff
+from mlframe.training.composite.transforms.shared import diff_inverse as _inv_diff
 
 __all__ = [
     "SERVING_SPEC_VERSION",

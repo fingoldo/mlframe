@@ -896,12 +896,3 @@ def _relevance_from_dense(
     if mi_xy < 0.0:
         mi_xy = 0.0
     return 2.0 * mi_xy / denom
-
-
-# The batched FE-candidate MI kernel selector lives in _batch_kernel_selection.py (1k-LOC budget); re-exported here.
-from ._batch_kernel_selection import (  # noqa: E402,F401
-    _BATCH_MI_KERNEL_CODE_VERSION,
-    _batch_mi_kernel_fallback_choice,
-    _run_batch_mi_kernel_sweep,
-    select_batch_mi_kernel,
-)

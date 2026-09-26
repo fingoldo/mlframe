@@ -525,8 +525,8 @@ def run_distribution_analyzer_and_estimator_injection(
     Returns ``(hyperparams_config, train_df, val_df, test_df, mlframe_models)``.
     """
     from ._main_train_suite_target_distribution import _run_target_distribution_analyzer
-    from ..composite._estimator_dispatch import maybe_inject_distribution_driven_estimator
-    from ..composite._hurdle_dispatch import maybe_inject_hurdle_for_zero_inflated
+    from mlframe.training.composite.shared import maybe_inject_distribution_driven_estimator
+    from mlframe.training.composite.shared import maybe_inject_hurdle_for_zero_inflated
 
     hyperparams_config, train_df, val_df, test_df = _run_target_distribution_analyzer(
         enable_target_distribution_analyzer=enable_target_distribution_analyzer,
@@ -632,7 +632,7 @@ def begin_suite_process_state(verbose: int, suite_module: Any) -> None:
     """Process-level setup at the start of every suite call: the logging level, the module-global patches, and fresh registries."""
     from ..feature_handling.fingerprint import reset_session as reset_fh_session
     from ..phases import reset_phase_registry
-    from ..reporting._reporting_regression._sensor_ledger import clear_sensor_trips
+    from mlframe.training.reporting.shared import clear_sensor_trips
     from .utils import _ensure_logging_visible
 
     # Map the 0/1/2 verbose contract to a logging level once at entry so

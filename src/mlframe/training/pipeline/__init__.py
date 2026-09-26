@@ -141,7 +141,7 @@ def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: in
         projected_upper = n_features**config.polynomial_degree
         if projected_upper > config.memory_safety_max_features:
             # Exact count for the diagnostic only (no behavioural change vs legacy formula).
-            from mlframe.training.feature_handling.polynomial import _projected_output_cols
+            from mlframe.training.feature_handling.shared import projected_output_cols as _projected_output_cols
             projected_exact = _projected_output_cols(
                 n_features,
                 config.polynomial_degree,

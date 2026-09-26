@@ -52,7 +52,7 @@ import numpy as np
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
-from .hermite_fe import _POLY_BASES
+from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
@@ -621,7 +621,7 @@ def _apply_orth_diff_basis(recipe, X) -> np.ndarray:
     reference is captured at fit time. The diff is ALWAYS ``X[col_a] -
     X[col_b]`` so train/test orientation parity holds.
     """
-    from .engineered_recipes import _extract_column, _eval_orth_basis_column
+    from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_column, eval_orth_basis_column as _eval_orth_basis_column
     if len(recipe.src_names) != 2:
         raise ValueError(f"orth_diff_basis recipe '{recipe.name}' must have exactly 2 " f"src_names; got {len(recipe.src_names)}")
     for key in ("basis", "degree"):

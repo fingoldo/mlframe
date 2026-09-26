@@ -56,7 +56,7 @@ def _preserve_global_numpy_rng_state(seed: int | None):
     # about half the time. Because this restore is best-effort (it must not mask whatever the block itself
     # did), that exception went to a debug log and the stream stayed exactly where the block left it -- this
     # scope silently doing nothing on roughly half its calls.
-    from mlframe.utils.rng_scope import _fresh_seed
+    from mlframe.utils.shared import fresh_seed as _fresh_seed
 
     _numba_restore_seed = _fresh_seed()
     _cp_restore_seed = _fresh_seed()

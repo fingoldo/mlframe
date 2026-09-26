@@ -120,7 +120,7 @@ def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, tar
         _needed = [str(getattr(_spec, "base_column", "") or "")]
         _needed += [str(_c) for _c in (getattr(_spec, "extra_base_columns", ()) or ())]
         # A synthetic interaction base (``a__mul__b``) is rebuilt from its parents wherever the parents are present.
-        from ..composite._synthetic_bases import parse_synthetic
+        from mlframe.training.composite.shared import parse_synthetic
 
         _missing = [_c for _c in _needed if _c and _c not in available and parse_synthetic(_c, available) is None]
         if _missing:
@@ -237,7 +237,7 @@ def rank_pending_composites(pending: list) -> list:
     Each tier is ranked in its own unit (a fraction of RMSE, or nats); one sort over both ranked a fraction against nats,
     i.e. arbitrarily across targets. A non-finite gain sorts last in its tier.
     """
-    from mlframe.training.composite.discovery._score import Score, rank_specs
+    from mlframe.training.composite.discovery.shared import Score, rank_specs
 
     rmse_tier = [p for p in pending if p.get("rmse_gain")]
     mi_tier = [p for p in pending if not p.get("rmse_gain")]

@@ -75,7 +75,7 @@ def train_naive_mae(y_train: Any, seasonality: int) -> Optional[float]:
 
     Computed on TRAIN only, so the test-split MASE stays an honest out-of-sample ratio.
     """
-    from mlframe.metrics.regression._regression_extras import _naive_mae_kernel
+    from mlframe.metrics.regression.shared import naive_mae_kernel as _naive_mae_kernel
 
     try:
         arr = np.ascontiguousarray(np.asarray(y_train, dtype=np.float64).reshape(-1))
@@ -156,7 +156,7 @@ def clip_predictions_to_train_envelope(
     )
     # Recorded, not just logged: a clipped prediction means the model left the range its own training data covers,
     # which the persisted artefact and the suite-end verdict both need to know about.
-    from .reporting._reporting_regression._sensor_ledger import record_sensor_trip
+    from mlframe.training.reporting.shared import record_sensor_trip
 
     record_sensor_trip(
         model_label, "envelope_clip", str(split_label),

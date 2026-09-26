@@ -42,7 +42,7 @@ from pyutilz.parallel import cpu_count_physical
 
 from ..spec import CompositeSpec
 from ..transforms import compose_target_name
-from ..transforms.registry import _TRANSFORMS_REGISTRY
+from mlframe.training.composite.transforms.shared import TRANSFORMS_REGISTRY as _TRANSFORMS_REGISTRY
 from .screening import _extract_column_array, _sample_indices
 from ._region_adaptive import fit_region_adaptive
 from ._auto_chain import discover_chains

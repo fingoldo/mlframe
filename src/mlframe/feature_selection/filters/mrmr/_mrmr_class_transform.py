@@ -106,7 +106,7 @@ class _MRMRTransformMixin:
         if _cache is not None and _cache[0] is _current_recipes:
             engineered_names = _cache[1]
         else:
-            from ..engineered_recipes._recipe_name_simplify import simplified_recipe_names
+            from mlframe.feature_selection.filters.engineered_recipes.shared import simplified_recipe_names
             _adv_recipes = [r for r in _current_recipes if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")]
             # Value-preserving DISPLAY canonicalisation (e.g. abs(div(sqr(a),neg(b))) -> abs(div(sqr(a),b)));
             # transform() names its engineered columns through the SAME helper so widths/names stay in sync.

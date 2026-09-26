@@ -87,7 +87,7 @@ def _warn_if_model_tripped_sensors(model: object, file: str) -> None:
     was flagged four times. Repeating the verdict at the point of persistence puts it where the decision is made.
     """
     try:
-        from .reporting._reporting_regression._sensor_ledger import sensor_trips_for
+        from mlframe.training.reporting.shared import sensor_trips_for
 
         name = getattr(model, "model_name", None) or type(model).__name__
         trips = sensor_trips_for(name)

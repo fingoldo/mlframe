@@ -353,7 +353,7 @@ def _origin_from_rosters(name: str, mrmr_self: Any, roster_sets: Optional[list[t
 
 def _greedy_rank_index(predictors: Iterable[Any]) -> dict[str, int]:
     """Map each predictor-log entry's simplified name to its FIRST index, built once per report instead of re-simplifying the log per name."""
-    from .engineered_recipes._recipe_name_simplify import simplify_fe_name
+    from mlframe.feature_selection.filters.engineered_recipes.shared import simplify_fe_name
 
     index: dict[str, int] = {}
     for idx, entry in enumerate(predictors or ()):
@@ -408,7 +408,7 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
     # lookup ``prov[prov.feature_name == out_name]`` misses (observed for the clean additive composite
     # whose ``neg(b)`` inside an ``abs`` canonicalises away in the output but not here). Apply the SAME
     # per-name simplifier; it is idempotent + safe on raw column names (returns them unchanged).
-    from .engineered_recipes._recipe_name_simplify import simplify_fe_name
+    from mlframe.feature_selection.filters.engineered_recipes.shared import simplify_fe_name
     engineered_recipes = getattr(mrmr_self, "_engineered_recipes_", None) or ()
     for recipe in engineered_recipes:
         _nm = getattr(recipe, "name", None)
@@ -458,7 +458,7 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
     # below resolves on the simplified ``final_names`` - keying by the RAW recipe name would miss
     # every simplified column (e.g. ``abs(div(sqr(a),neg(b)))`` -> ``abs(div(sqr(a),b))``) and
     # mis-tag it ``engineered_unknown``. ``simplify_fe_name`` is idempotent + safe on raw names.
-    from .engineered_recipes._recipe_name_simplify import simplify_fe_name
+    from mlframe.feature_selection.filters.engineered_recipes.shared import simplify_fe_name
 
     recipe_by_name = {simplify_fe_name(str(getattr(r, "name", ""))): r for r in produced_recipes if getattr(r, "name", None) is not None}
     recipe_by_name.update({simplify_fe_name(str(getattr(r, "name", ""))): r for r in engineered_recipes if getattr(r, "name", None) is not None})
@@ -553,7 +553,7 @@ def get_unlabeled_recipe_kinds(mrmr_self: Any) -> dict[str, int]:
         return out
     # Index every recipe (survivor + produced ledger) by SIMPLIFIED name, as compute_fe_provenance does: the provenance frame holds simplified
     # names, so a raw-name key misses every column whose name canonicalises and reports it as "<no-recipe>".
-    from .engineered_recipes._recipe_name_simplify import simplify_fe_name
+    from mlframe.feature_selection.filters.engineered_recipes.shared import simplify_fe_name
 
     recipe_by_name: dict[str, Any] = {}
     for attr in ("_produced_recipes_", "_engineered_recipes_"):

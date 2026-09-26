@@ -25,10 +25,10 @@ from os.path import join, isfile, isdir, splitext
 
 from pyutilz.system import tqdmu
 
-from mlframe.utils.safe_pickle import (
-    _sha256_of_file,  # noqa: F401 -- re-exported for callers importing predict._sha256_of_file
+from mlframe.utils.safe_pickle import (  # noqa: F401 -- re-exported for callers importing predict._sha256_of_file
     verify_sidecar as _safe_pickle_verify_sidecar,
 )
+from mlframe.utils.shared import sha256_of_file as _sha256_of_file  # noqa: F401 -- re-exported for callers importing predict._sha256_of_file
 from mlframe.utils.log_throttle import log_throttle
 from mlframe.training.io import safe_joblib_load
 

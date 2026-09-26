@@ -31,7 +31,7 @@ def _apply_orth_quadruplet_cross(recipe: "EngineeredRecipe", X: Any) -> np.ndarr
     Stateless given the stored bases + degrees; no y reference.
     """
     # Lazy import to avoid a circular dependency with ``engineered_recipes``.
-    from .engineered_recipes import _eval_orth_basis_column, _extract_column
+    from mlframe.feature_selection.filters.engineered_recipes.shared import eval_orth_basis_column as _eval_orth_basis_column, extract_column as _extract_column
 
     if len(recipe.src_names) != 4:
         raise ValueError(f"orth_quadruplet_cross recipe '{recipe.name}' must have exactly 4 " f"src_names; got {len(recipe.src_names)}")
@@ -87,7 +87,8 @@ def build_orth_quadruplet_cross_recipe(
     ``basis_i^{deg_a}(preprocess(X[a])) * basis_j^{deg_b}(preprocess(X[b]))
        * basis_k^{deg_c}(preprocess(X[c])) * basis_l^{deg_d}(preprocess(X[d]))``.
     """
-    from .engineered_recipes import EngineeredRecipe, _freeze_preprocess_params
+    from .engineered_recipes import EngineeredRecipe
+    from mlframe.feature_selection.filters.engineered_recipes.shared import freeze_preprocess_params as _freeze_preprocess_params
 
     extra = {
         "basis_i": str(basis_i),

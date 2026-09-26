@@ -403,7 +403,7 @@ def screen_predictors(
         # _fresh_seed masks the draw to 32 bits: a raw 64-bit draw is >= 2**63 about half the time, which numba's int64 seed argument
         # rejects (and numpy's legacy seeding under NUMBA_DISABLE_JIT=1 rejects anything >= 2**32); the restore below swallows that
         # into a debug log, so the stream would silently stay where this screen left it.
-        from mlframe.utils.rng_scope import _fresh_seed
+        from mlframe.utils.shared import fresh_seed as _fresh_seed
 
         _numba_restore_seed = _fresh_seed()
         # Only capture cupy restore-seed when GPU path is actually requested.

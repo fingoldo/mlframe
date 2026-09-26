@@ -32,8 +32,8 @@ from .info_theory import (
     get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop, get_cpt_test,
 )
 from .permutation import mi_direct
-from .info_theory._state_and_dispatch import get_group_mi
-from .info_theory._group_mi import group_relevance_mi
+from mlframe.feature_selection.filters.info_theory.shared import get_group_mi
+from mlframe.feature_selection.filters.info_theory.shared import group_relevance_mi
 from mlframe.utils.env_flags import env_flag, env_float
 from mlframe.utils.log_throttle import log_throttle
 

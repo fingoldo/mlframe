@@ -104,7 +104,7 @@ def _identity_prewarp_spec(x: np.ndarray) -> dict | None:
     ``apply_operand_prewarp`` exactly like any learned warp). An affine map of the mate
     keeps the product's MI/correlation structure intact while staying on the standard
     ``prewarp`` recipe path (no new pseudo-unary needed)."""
-    from .hermite_fe import _POLY_BASES
+    from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
     bi = _POLY_BASES[_IDENTITY_BASIS]
     xf = _finite_filled(x)
     if float(np.std(xf)) < 1e-12:
@@ -165,10 +165,9 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
     # - ``warm_start_als_seed`` (3 lstsq/ALS x 4 bases, ~0.95s/call) + the 8 single-operand
     # ``fit_basis_coef_robust`` solves (~0.52s/call); skipping bases or the single baseline
     # changes the pairness-guard verdict and is NOT selection-safe."""
-    from .hermite_fe import (
-        _POLY_BASES, build_basis_matrix, fit_pair_prewarp_als, warm_start_als_seed,
-    )
-    from .hermite_fe._hermite_robust import fit_basis_coef_robust
+    from .hermite_fe import build_basis_matrix, fit_pair_prewarp_als, warm_start_als_seed
+    from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
+    from mlframe.feature_selection.filters.hermite_fe.shared import fit_basis_coef_robust
     xa = _finite_filled(x_a)
     xb = _finite_filled(x_b)
     n = xa.size
@@ -250,7 +249,7 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
         # on that identical column. Wrapping the per-basis probe in one nesting-safe, identity-verified scope
         # collapses the ~5 detects/operand to 1 (bit-identical: the memo returns a cached verdict only when the
         # stored array IS x_tr). Cleared at operand exit, so no cross-operand ref retention.
-        from .hermite_fe._hermite_robust import heavy_tail_memo_scope
+        from mlframe.feature_selection.filters.hermite_fe.shared import heavy_tail_memo_scope
         with heavy_tail_memo_scope():
             for _sb_basis in _ESCALATION_POLY_BASES:
                 try:

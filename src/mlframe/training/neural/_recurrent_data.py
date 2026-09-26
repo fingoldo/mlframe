@@ -11,7 +11,7 @@ from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 
 from lightning.pytorch import LightningDataModule
 
-from .base import _ensure_numpy
+from mlframe.training.neural.base.shared import ensure_numpy as _ensure_numpy
 from ._recurrent_config import InputMode  # noqa: F401  # re-exported for callers
 
 

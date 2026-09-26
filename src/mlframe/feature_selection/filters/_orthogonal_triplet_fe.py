@@ -50,7 +50,8 @@ from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
-from .hermite_fe import basis_route_by_moments, _POLY_BASES
+from .hermite_fe import basis_route_by_moments
+from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis, noise_aware_floor as _noise_aware_floor
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,

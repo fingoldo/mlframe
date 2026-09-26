@@ -48,9 +48,9 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 
-from ..composite.discovery._causal_lag import causal_lag_predict_rmse, detect_causal_lag_column
-from ..composite.discovery._screening_tiny import _build_tiny_model
-from ..composite.discovery.screening import _extract_column_array, _is_numeric_column
+from mlframe.training.composite.discovery.shared import causal_lag_predict_rmse, detect_causal_lag_column
+from mlframe.training.composite.discovery.shared import build_tiny_model as _build_tiny_model
+from mlframe.training.composite.discovery.shared import extract_column_array as _extract_column_array, is_numeric_column as _is_numeric_column
 from ._ar_skip import _recompute_lag1_ar_per_group
 
 logger = logging.getLogger(__name__)

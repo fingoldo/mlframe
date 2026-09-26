@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from ..transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

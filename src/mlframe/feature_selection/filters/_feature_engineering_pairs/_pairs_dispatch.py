@@ -161,7 +161,7 @@ def _dispatch_batch_mi_with_noise_gate_impl(
     # GPU twin is unaffected (it has its own device kernels). Failure -> original ``batch_mi_kernel``.
     _cpu_kernel = batch_mi_kernel
     try:
-        from ..info_theory._batch_kernels import select_batch_mi_kernel
+        from mlframe.feature_selection.filters.info_theory.shared import select_batch_mi_kernel
         _cpu_kernel = select_batch_mi_kernel(int(n), int(K))
     except Exception as e:
         _module_logger.debug("select_batch_mi_kernel failed, using the default batch_mi_kernel: %s", e)

@@ -56,7 +56,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 import numpy as np
 
 from ..transforms import TRANSFORMS_REGISTRY, Transform
-from ..transforms.nonlinear import _make_chain_transform
+from mlframe.training.composite.transforms.shared import make_chain_transform as _make_chain_transform
 from ..transforms.unary import (
     cbrt_y_fit as _cbrt_fit,
     cbrt_y_forward as _cbrt_fwd,
@@ -74,7 +74,7 @@ from ._screening_tiny import _build_tiny_model
 from ._yscale_scoring import median_filled_predictions
 from .screening import _mi_to_target
 from ._score import Score, rank_specs
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +227,7 @@ def reregister_auto_chain_transforms(transform_names: Iterable[str] | None) -> l
     Transform via :func:`build_chain_transform`, and registers it + its provenance. Non-chain / already-registered /
     unparseable names are skipped. Returns the names actually re-registered.
     """
-    from ..transforms.registry import _TRANSFORMS_REGISTRY
+    from mlframe.training.composite.transforms.shared import TRANSFORMS_REGISTRY as _TRANSFORMS_REGISTRY
     from ..provenance import register_chain_provenance
     done: list[str] = []
     for nm in {n for n in (transform_names or []) if isinstance(n, str)}:

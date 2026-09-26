@@ -26,7 +26,7 @@ import numpy as np
 if TYPE_CHECKING:
     from . import CompositeTargetDiscovery
 
-from ..estimator import _extract_groups
+from mlframe.training.composite.estimator.shared import extract_groups as _extract_groups
 from ..spec import CompositeSpec
 from mlframe.utils.log_throttle import log_throttle
 
@@ -49,7 +49,7 @@ def _group_val_rows(val_df: Any, val_y: Any, group_col: str, group_val: Any) -> 
     mask = np.asarray(g) == group_val
     if not mask.any():
         return None, None
-    from ..ensemble._oof_split import _slice_rows
+    from mlframe.training.composite.ensemble.shared import slice_rows as _slice_rows
 
     return _slice_rows(val_df, mask), np.asarray(val_y)[mask]
 

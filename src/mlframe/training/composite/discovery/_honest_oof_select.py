@@ -21,7 +21,7 @@ group-internal CV-RMSE rather than auto-killing the spec.
 """
 from __future__ import annotations
 
-from ..estimator._smearing import smeared_prediction
+from mlframe.training.composite.estimator.shared import smeared_prediction
 from ._spec_shared import spec_base_columns, rmse
 
 import logging
@@ -36,7 +36,7 @@ from ._causal_lag import causal_lag_predict_rmse, detect_causal_lag_column
 from .screening import _extract_column_array, base_arg as _base_arg
 from ._screening_tiny import _build_tiny_model
 from ._yscale_scoring import median_filled_with_std
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

@@ -87,7 +87,7 @@ def bayesian_alpha_fit(
     if n < 4:
         # Degenerate: no posterior to compute. Mirror the legacy degenerate
         # contract so swapping implementations is safe.
-        from mlframe.training.composite.transforms import _linear_residual_fit
+        from mlframe.training.composite.transforms.shared import linear_residual_fit as _linear_residual_fit
         params = _linear_residual_fit(y_f, base_f)
         return {
             "alpha_mean": params["alpha"],
@@ -119,7 +119,7 @@ def bayesian_alpha_fit(
             raise np.linalg.LinAlgError("non-finite pseudo-inverse")
     except np.linalg.LinAlgError:
         # Degenerate design (constant base). Return a wide-but-finite posterior.
-        from mlframe.training.composite.transforms import _linear_residual_fit
+        from mlframe.training.composite.transforms.shared import linear_residual_fit as _linear_residual_fit
         params = _linear_residual_fit(y_f, base_f)
         return {
             "alpha_mean": params["alpha"],
@@ -264,7 +264,7 @@ def bayesian_alpha_fit_bootstrap(
     - ``ci_level``: float.
     """
     # Lazy-import composite-internal helper to break the import cycle.
-    from mlframe.training.composite.transforms import _linear_residual_fit
+    from mlframe.training.composite.transforms.shared import linear_residual_fit as _linear_residual_fit
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
     n = y_f.size

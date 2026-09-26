@@ -335,7 +335,7 @@ def _stamp_composite_estimator_recommendation(ctx: "TrainingContext") -> None:
     pathologies = report.get("pathologies")
     if not pathologies:
         return
-    from ..composite._estimator_dispatch import recommend_composite_estimator
+    from mlframe.training.composite.shared import recommend_composite_estimator
 
     rec = recommend_composite_estimator(pathologies)
     if rec is not None:

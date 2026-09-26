@@ -45,7 +45,7 @@ from . import (  # noqa: F401 - _is_polars_df: unused in this module, re-exporte
 # The fitted-from-spec / fit / predict / predict_invert paths all use these, so
 # they must be imported alongside the parent helpers above.
 from ..transforms import get_transform, DomainViolationError
-from ..transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 from ._inner_frame import frame_for_inner
 
 logger = logging.getLogger(__name__)

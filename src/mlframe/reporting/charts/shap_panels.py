@@ -536,7 +536,7 @@ def _close_figs(figs: List[Any]) -> None:
         return
     try:
         from mlframe.metrics import show_plots_unless_agg
-        from mlframe.metrics.calibration import _close_unless_interactive
+        from mlframe.metrics.calibration.shared import close_unless_interactive as _close_unless_interactive
         was_shown = show_plots_unless_agg()
         _close_unless_interactive(figs, was_shown=was_shown)
     except Exception:

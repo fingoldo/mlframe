@@ -35,7 +35,7 @@ from __future__ import annotations
 import numba
 import numpy as np
 
-from mlframe.core.robust_location import _median_sorted as _median_sorted_njit
+from mlframe.core.shared import median_sorted as _median_sorted_njit
 from mlframe.utils.env_flags import env_int
 
 # Robust bounds = median +/- _ROBUST_AXIS_K * (1.4826*MAD). MAD is contamination-proof up to ~50% of the column, so the

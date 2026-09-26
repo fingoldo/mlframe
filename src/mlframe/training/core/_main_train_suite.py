@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
     from ..feature_handling.config import FeatureHandlingConfig
-    from ..neural._recurrent_config import RecurrentConfig
+    from mlframe.training.neural.shared import RecurrentConfig
     # Config classes appear ONLY in this facade's parameter annotations (strings under
     # ``from __future__ import annotations``), never at runtime -- keep them type-only.
     from ..configs import (
@@ -63,7 +63,7 @@ from ._main_train_suite_encoding import (
     _encode_string_multiclass_target,
 )
 from ._phase_helpers_fit_pipeline import extensions_with_split_seed
-from ..pipeline._per_target_supervised_fe import target_scoped_frames
+from mlframe.training.pipeline.shared import target_scoped_frames
 from ._main_train_suite_polars_gate import any_pipeline_stage_requested, needs_polars_pre_clone
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df, mirror_split_outputs_to_ctx  # noqa: F401
 from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification  # noqa: F401

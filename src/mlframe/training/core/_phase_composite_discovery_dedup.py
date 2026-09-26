@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from ..composite.discovery._t_equivalence import DEFAULT_R2_TOL, find_equivalent_composite_specs, t_train_envelope
+from mlframe.training.composite.discovery.shared import DEFAULT_R2_TOL, find_equivalent_composite_specs, t_train_envelope
 
 logger = logging.getLogger("mlframe.training.core._phase_composite_discovery")
 

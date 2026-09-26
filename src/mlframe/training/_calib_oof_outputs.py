@@ -14,9 +14,9 @@ from typing import Any, Optional, Tuple
 import numpy as np
 
 from mlframe.config import CATBOOST_MODEL_TYPES
-from .pipeline import _prepare_test_split
+from mlframe.training.pipeline.shared import prepare_test_split as _prepare_test_split
 from ._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
-from .cb import _predict_with_fallback
+from mlframe.training.cb.shared import predict_with_fallback as _predict_with_fallback
 from ._eval_helpers import run_confidence_analysis
 
 logger = logging.getLogger("mlframe.training.trainer")
@@ -32,7 +32,7 @@ def _apply_row_wise_extensions(*args, **kwargs):
     because pytest's collection happens to load ``training.core`` first. By the time this is called the
     package is fully initialised.
     """
-    from .core._predict_pre_pipeline import _apply_row_wise_extensions as _impl
+    from mlframe.training.core.shared import apply_row_wise_extensions as _impl
 
     return _impl(*args, **kwargs)
 

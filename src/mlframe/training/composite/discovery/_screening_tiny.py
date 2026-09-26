@@ -36,7 +36,7 @@ import numpy as np
 # it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module level so there
 # is no circular-dep concern. Kept at module level here (not only in the carved ``_screening_tiny_perbin``
 # sibling) so the race-safe hoist holds for importers of this parent module too.
-from ..estimator import _y_train_clip_bounds  # noqa: F401
+from mlframe.training.composite.estimator.shared import y_train_clip_bounds as _y_train_clip_bounds  # noqa: F401
 from ._splitter import make_discovery_splitter
 
 logger = logging.getLogger(__name__)

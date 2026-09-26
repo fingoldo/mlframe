@@ -26,7 +26,7 @@ def apply_row_wise_steps(train, val, test, config, verbose: int, out_row_wise_re
     predict rebuilds float64 arrays). Without the reference predict re-ranks within the serving batch, where a single
     row is its own median and every extremality score is 0.0.
     """
-    from mlframe.training.core import _elapsed_str
+    from mlframe.training.core.shared import elapsed_str as _elapsed_str
 
     # Row-wise summary stats / top-k extreme columns (step 1.5). Purely additive, generic per-row
     # aggregates over the already-numeric column subset -- no dataset-specific column names or entity

@@ -48,17 +48,13 @@ def test_trainer_side_clear_actually_scrubs_live_cache():
     ), f"trainer-side clear didn't scrub live cache; pre-fix bug regression. Live cache still has: {dict(_cb_pool._CB_POOL_CACHE)}"
 
 
-def test_phase_config_setup_imports_from_cb_pool():
-    """The fix routes the import through _cb_pool directly. Verify the source
-    file does NOT contain the stale ``from mlframe.training.trainer import _CB_POOL_CACHE``
-    pattern -- if a future refactor reintroduces it, this test fails."""
-    import pathlib
+def test_phase_config_setup_clears_the_live_cache():
+    """Suite setup clears the cache it imports from ``mlframe.training.cb.shared``; that object must BE the live train-side
+    Pool cache in ``_cb_pool`` (pre-fix, setup cleared a dead stub in trainer.py and the live cache kept stale Pools)."""
+    from mlframe.training.cb import _cb_pool
+    from mlframe.training.cb.shared import CB_POOL_CACHE
 
-    # Derive path from installed package; previous hardcoded D:/ path
-    # raised FileNotFoundError on any other machine.
-    import mlframe as _mlframe
-
-    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core" / "_phase_config_setup.py").read_text(encoding="utf-8")
-    assert (
-        "from mlframe.training.cb import _CB_POOL_CACHE" in src
-    ), "_phase_config_setup.py must import _CB_POOL_CACHE from the cb package (the live cache), not from trainer (which was the dead-stub source pre-fix)."
+    assert CB_POOL_CACHE is _cb_pool._CB_POOL_CACHE
+    _cb_pool._CB_POOL_CACHE[("test_key",)] = "live_value"
+    CB_POOL_CACHE.clear()
+    assert not _cb_pool._CB_POOL_CACHE

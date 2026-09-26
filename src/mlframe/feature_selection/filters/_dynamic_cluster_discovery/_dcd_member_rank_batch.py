@@ -22,7 +22,7 @@ import numpy as np
 from numba import prange
 
 from ..info_theory import mi
-from ..info_theory._cmi_cuda import _cpu_cmi_loop_parallel
+from mlframe.feature_selection.filters.info_theory.shared import cpu_cmi_loop_parallel as _cpu_cmi_loop_parallel
 
 __all__ = ["batched_member_relevance"]
 

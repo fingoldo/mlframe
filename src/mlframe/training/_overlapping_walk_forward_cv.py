@@ -15,7 +15,7 @@ from typing import Iterator, Optional, Sequence, Tuple
 
 import numpy as np
 
-from mlframe.training.targets import _max_abs_lag_autocorr
+from mlframe.training.targets.shared import max_abs_lag_autocorr as _max_abs_lag_autocorr
 
 
 def _resolve_adaptive_gap(

@@ -13,7 +13,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from ..spec import CompositeSpec
-from ..ensemble import _is_monotone_nondecreasing
+from mlframe.training.composite.ensemble.shared import is_monotone_nondecreasing as _is_monotone_nondecreasing
 from ._rejection_ledger import RejectStage, ledger_append
 from ._per_base_x import PerBaseMatrices, base_ordered
 from ._tiny_rerank_process import make_spec_task, make_worker_task, rerank_backend, score_spec, score_specs_in_processes

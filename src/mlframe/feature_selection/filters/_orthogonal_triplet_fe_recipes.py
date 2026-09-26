@@ -30,7 +30,7 @@ def _apply_orth_triplet_cross(recipe: "EngineeredRecipe", X: Any) -> np.ndarray:
     # Lazy import to avoid a circular dependency: ``engineered_recipes`` imports
     # this module at its tail, and this module imports the basis evaluator + extractor
     # from there. Importing at call time decouples module-load order.
-    from .engineered_recipes import _eval_orth_basis_column, _extract_column
+    from mlframe.feature_selection.filters.engineered_recipes.shared import eval_orth_basis_column as _eval_orth_basis_column, extract_column as _extract_column
 
     if len(recipe.src_names) != 3:
         raise ValueError(f"orth_triplet_cross recipe '{recipe.name}' must have exactly 3 " f"src_names; got {len(recipe.src_names)}")
@@ -79,7 +79,8 @@ def build_orth_triplet_cross_recipe(
       basis_j^{deg_b}(preprocess(X[b])) *
       basis_k^{deg_c}(preprocess(X[c]))``.
     """
-    from .engineered_recipes import EngineeredRecipe, _freeze_preprocess_params
+    from .engineered_recipes import EngineeredRecipe
+    from mlframe.feature_selection.filters.engineered_recipes.shared import freeze_preprocess_params as _freeze_preprocess_params
 
     extra = {
         "basis_i": str(basis_i),

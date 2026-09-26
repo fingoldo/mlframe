@@ -50,7 +50,7 @@ def test_fallback_still_used_when_it_is_complete():
     def _fn(df):
         """Record the frame it was called with and return a stand-in prediction array."""
         calls.append(df)
-        if list(df.columns) != ["a", "b"] or df["a"].dtype == object:
+        if list(df.columns) != ["a", "b"] or not pd.api.types.is_numeric_dtype(df["a"]):  # pandas 3 infers str, not object
             raise TypeError("ufunc 'isnan' not supported for the input types")
         return df["a"].to_numpy() + df["b"].to_numpy()
 

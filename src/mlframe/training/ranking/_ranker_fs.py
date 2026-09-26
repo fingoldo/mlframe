@@ -436,7 +436,7 @@ def group_aware_mrmr_select(
     rel_map = group_aware_relevance(cols, arr, y, np.asarray(groups), bins=bins)
     rel = np.array([rel_map[c] for c in cols], dtype=np.float64)
 
-    from mlframe.feature_selection.filters.group_aware import _su_redundancy_matrix
+    from mlframe.feature_selection.filters.shared import su_redundancy_matrix as _su_redundancy_matrix
     red = _su_redundancy_matrix(X_df[cols], nbins=nbins)  # (n_features, n_features) SU in [0, 1]
 
     n = len(cols)
@@ -546,7 +546,7 @@ def _run_wrapper_selectors(X_df, y_arr, groups, fsc, rfecv_models, target_type, 
         )
         rfecv_models_params = {"cb_rfecv": cb_rfecv, "lgb_rfecv": lgb_rfecv, "xgb_rfecv": xgb_rfecv}
 
-    from ..core._setup_helpers_pre_pipelines import _build_pre_pipelines
+    from mlframe.training.core.shared import build_pre_pipelines as _build_pre_pipelines
 
     pre_pipelines, _names = _build_pre_pipelines(
         use_ordinary_models=False, rfecv_models=rfecv_models, rfecv_models_params=rfecv_models_params,

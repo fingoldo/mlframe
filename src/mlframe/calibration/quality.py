@@ -548,7 +548,7 @@ def plot_pit_diagram(
         render_and_save(spec, outputs, base)
     else:
         from mlframe.reporting.renderers import get_renderer
-        from mlframe.metrics.calibration import _close_unless_interactive, _show_plots_unless_agg
+        from mlframe.metrics.calibration.shared import close_unless_interactive as _close_unless_interactive, show_plots_unless_agg as _show_plots_unless_agg
         renderer = get_renderer("matplotlib")
         fig = renderer.render(spec)
         was_shown = _show_plots_unless_agg()

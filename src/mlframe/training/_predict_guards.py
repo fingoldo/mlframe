@@ -165,7 +165,7 @@ def _recover_cb_feature_names(model: Any) -> tuple[list[str], list[str]]:
     Delegates to the CatBoost module's implementation. This was a second copy of the same body, already
     drifted in its log message, and a fix to the introspection would have reached only one of them.
     """
-    from .cb._cb_pool import _recover_cb_feature_names as _recover
+    from mlframe.training.cb.shared import recover_cb_feature_names as _recover
 
     return _recover(model)
 

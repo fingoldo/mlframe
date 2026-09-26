@@ -77,8 +77,8 @@ from ._batch_kernels import (
     batch_pair_mi_prange,
     batch_triple_mi_perm_batched,
     batch_triple_mi_prange,
-    select_batch_mi_kernel,
 )
+from ._batch_kernel_selection import select_batch_mi_kernel
 
 __all__ = [
     "merge_vars",

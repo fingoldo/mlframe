@@ -356,7 +356,7 @@ def setup_configuration(
         _heavy_will_run = _heavy_libs_needed(mlframe_models, recurrent_models, reporting_config)
         if dummy_baselines_config.enabled:
             try:
-                from ..baselines import _warmup_numba_kernels
+                from mlframe.training.baselines.shared import warmup_numba_kernels as _warmup_numba_kernels
                 _warmup_numba_kernels(include_feature_selection=_fs_will_run, include_heavy_libs=_heavy_will_run)
             except Exception as e:  # nosec B110 - optional dependency import guard
                 logger.debug("numba kernel warm-up failed, first real call will pay JIT cost: %s", e)
@@ -485,7 +485,7 @@ def setup_configuration(
         # and silently succeeded WITHOUT clearing the live cache. The val-side _CB_VAL_POOL_CACHE
         # is re-exported from _predict_guards via trainer.py:71 and its clear was correct.
         try:
-            from mlframe.training.cb import _CB_POOL_CACHE
+            from mlframe.training.cb.shared import CB_POOL_CACHE as _CB_POOL_CACHE
             from mlframe.training.cb import reset_cache_bytes
             from mlframe.training.trainer import _CB_VAL_POOL_CACHE
             _CB_POOL_CACHE.clear()
