@@ -147,6 +147,7 @@ def test_anchor_is_positive_and_repeatable_within_an_order_of_magnitude() -> Non
     """
     readings = [measure_anchor() for _ in range(3)]
 
+    assert len(readings) == 3
     assert all(reading.anchor_s > 0.0 for reading in readings)
     assert all(reading.anchor_version == ANCHOR_VERSION for reading in readings)
     fastest, slowest = min(r.anchor_s for r in readings), max(r.anchor_s for r in readings)

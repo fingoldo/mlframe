@@ -64,7 +64,7 @@ def test_the_rescue_fit_sees_only_the_allowed_columns(frame, monkeypatch):
     _est, widths = _rescued_estimator(frame, allowed, monkeypatch)
     # Asserted: this fixture and configuration exist to make the rescue fire, so an empty record means it silently stopped running and
     # the width contract below was never examined.
-    assert widths, "the rescue GBM never fit, so no design width was observed"
+    assert len(widths) > 0, "the rescue GBM never fit, so no design width was observed"
     assert all(w == len(allowed) for w in widths), f"the rescue fit on {widths} columns, expected {len(allowed)}"
 
 

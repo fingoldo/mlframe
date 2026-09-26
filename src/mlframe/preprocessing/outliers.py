@@ -90,15 +90,7 @@ except ImportError:
     prange = range
     numba = None
 
-    def njit(*args, **kwargs):  # pragma: no cover
-        """Fallback ``numba.njit`` stub used when numba is unavailable: returns the function unmodified (or a passthrough decorator when called with keyword options), so the module still imports and runs in pure Python."""
-        def wrap(fn):
-            """Passthrough decorator returned by the ``njit`` fallback when invoked with options (e.g. ``@njit(parallel=True)``); returns ``fn`` unchanged."""
-            return fn
-
-        if args and callable(args[0]):
-            return args[0]
-        return wrap
+    from mlframe._numba_fallback import njit
 
 
 def compute_outlier_detector_score(detector, X) -> np.ndarray:

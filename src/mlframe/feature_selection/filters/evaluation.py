@@ -958,5 +958,5 @@ def evaluate_candidate(
 from ._evaluation_driver import (
     _prefill_cond_MIs_gpu,  # noqa: F401 - re-exported for _confirm_predictor.py
     evaluate_candidates,  # noqa: F401 - re-exported for _mrmr_class.py / mrmr/__init__.py / _confirm_predictor.py / _legacy.py
+    find_best_partial_gain,  # noqa: F401 - re-exported for _confirm_predictor.py / _legacy.py / mrmr/__init__.py
 )
-from ._evaluation_partial_gain import find_best_partial_gain  # noqa: F401 - carved to keep this module under 1k LOC; public name unchanged

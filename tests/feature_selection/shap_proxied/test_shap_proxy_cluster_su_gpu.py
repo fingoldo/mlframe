@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
-    _resolve_gpu_min_features,
+    GPU_MIN_FEATURES,
     _should_route_su_gpu,
     cluster_correlated_features_su,
     cluster_su_gpu_available,
@@ -75,11 +75,9 @@ def test_gpu_available_helper_does_not_raise():
     assert cluster_su_gpu_available() == result
 
 
-def test_resolve_gpu_min_features_default():
-    """Default GPU width threshold is 500 (kernel_tuning_cache override otherwise)."""
-    value = _resolve_gpu_min_features()
-    assert isinstance(value, int)
-    assert value >= 1
+def test_gpu_min_features_default():
+    """The GPU pairwise-SU path starts at 500 features by default."""
+    assert GPU_MIN_FEATURES == 500
 
 
 def test_should_route_su_gpu_gate_blocks_when_no_gpu(monkeypatch):

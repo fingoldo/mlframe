@@ -107,7 +107,7 @@ def test_a_dying_worker_leaves_the_caller_alive_and_rescored_serially(caplog):
     ]
     with caplog.at_level(logging.WARNING):
         results = score_specs_in_processes(tasks, n_jobs=2)
-    assert [r[0] for r in results] == ["fatal", "ok"]
+    assert len(results) == 2 and [r[0] for r in results] == ["fatal", "ok"]
     assert all(np.isfinite(r[1]["lgb"]) for r in results)
     assert any("worker pool broke" in r.getMessage() for r in caplog.records)
 

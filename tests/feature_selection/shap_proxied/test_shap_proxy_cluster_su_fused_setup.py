@@ -110,8 +110,8 @@ def test_fused_setup_with_nbins_hints():
     assert const[2], "f2 is constant (all zeros)"
 
     # Probabilities normalize over the realized bins, padded bins stay 0.
-    assert math.isclose(freqs[offsets[0] + 0], 0.5), f"f0 bin0 should be 0.5"
-    assert math.isclose(freqs[offsets[0] + 1], 0.5), f"f0 bin1 should be 0.5"
+    assert math.isclose(freqs[offsets[0] + 0], 0.5), "f0 bin0 should be 0.5"
+    assert math.isclose(freqs[offsets[0] + 1], 0.5), "f0 bin1 should be 0.5"
     assert freqs[offsets[0] + 2] == 0.0, "f0 padded bin should be 0"
     assert freqs[offsets[0] + 3] == 0.0, "f0 padded bin should be 0"
     assert freqs[offsets[0] + 4] == 0.0, "f0 padded bin should be 0"

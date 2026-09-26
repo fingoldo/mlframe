@@ -32,7 +32,7 @@ def test_combine_probs_median_matches_np_quantile_legacy_oracle():
     # path's clip-before-reduce matches our shipped clip-before-median.
     legacy_clipped = np.clip(stacked, 0.0, 1.0)
     legacy = np.quantile(legacy_clipped, 0.5, axis=0)
-    assert np.allclose(new, legacy, atol=1e-12), f"median path must match the legacy np.quantile(0.5) result at fp64 epsilon"
+    assert np.allclose(new, legacy, atol=1e-12), "median path must match the legacy np.quantile(0.5) result at fp64 epsilon"
 
 
 def test_combine_probs_median_2d_shape():

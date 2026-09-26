@@ -27,6 +27,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # name -> why it is still a copy. Every entry is a consolidation candidate, tracked in
 # audits/full_audit_2026-09-05/_TRACKER.md; none of them is a judged-legitimate duplicate.
 KNOWN_DUPLICATE_GROUPS = {
+    # NOT A COPY -- typing.overload stubs: two annotation-only declarations plus the implementation share one name by
+    # design, so the scanner reads them as three variants of one function.
+    "refine_near_collapsed_supervised_edges": "DELIBERATE: @overload typing stubs of the one implementation",
     # DELIBERATE -- trainer's pickers read USE_*_SHIM from THEIR OWN module, which is what makes
     # `monkeypatch.setattr(trainer, "USE_LGB_DATASET_REUSE_SHIM", False)` flip dispatch. Delegating to the
     # factory would silently detach that documented toggle; pinned by

@@ -20,7 +20,6 @@
   "src/mlframe/feature_selection/filters/_dynamic_cluster_discovery/_dcd_swap.py::evaluate_swap_candidate::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
   "src/mlframe/feature_selection/filters/_dynamic_cluster_discovery/_dcd_swap.py::evaluate_swap_candidate::quiet_substitution#2": "pre-existing, recorded when the check was wired; not yet triaged",
   "src/mlframe/feature_selection/filters/_evaluation_driver.py::find_best_partial_gain::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
-  "src/mlframe/feature_selection/filters/_evaluation_partial_gain.py::find_best_partial_gain::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged [moved with the function]",
   "src/mlframe/feature_selection/filters/_extra_fe_families.py::_auto_detect_cat_cols::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
   "src/mlframe/feature_selection/filters/_extra_fe_families_dispersion.py::_dual_uplift_filter::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
   "src/mlframe/feature_selection/filters/_extra_fe_families_dispersion.py::_dual_uplift_filter::quiet_substitution#2": "pre-existing, recorded when the check was wired; not yet triaged",

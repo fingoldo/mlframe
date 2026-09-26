@@ -104,7 +104,7 @@ def main() -> None:
     rng = np.random.default_rng(0)
     sizes = [50_000, 200_000, 405_000, 1_000_000]
     lams = np.linspace(-1.8, 3.8, 12).tolist()
-    print(f"# Iter-47 _yj_forward bench (median of 3, 12-lambda Brent-like sweep)\n")
+    print("# Iter-47 _yj_forward bench (median of 3, 12-lambda Brent-like sweep)\n")
     print(f"{'n':>10}  {'cur (ms)':>10}  {'where (ms)':>10}  {'nb-ser (ms)':>12}  {'nb-par (ms)':>12}")
     for n in sizes:
         y = rng.standard_normal(n).astype(np.float64)

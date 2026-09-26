@@ -140,7 +140,7 @@ def test_layernorm_on_input_loses_to_batchnorm_or_standardscaler():
     params_D = _base_params({})
     r2_D = _fit_and_score(params_D, X_tr, y_tr, X_te, y_te, seed=0)
 
-    print(f"\nF-03 biz_value: heterogeneous-scale tabular regression R^2")
+    print("\nF-03 biz_value: heterogeneous-scale tabular regression R^2")
     print(f"  A) use_layernorm=True (forced, pre-fix default): R^2 = {r2_A:+.4f}")
     print(f"  B) use_batchnorm=True                          : R^2 = {r2_B:+.4f}")
     print(f"  C) StandardScaler upstream                     : R^2 = {r2_C:+.4f}")
@@ -199,7 +199,7 @@ def test_layernorm_off_single_feature_does_not_degenerate():
     params_off = _base_params({"use_layernorm": False, "use_batchnorm": False})
     r2_off = _fit_and_score(params_off, X_tr, y_tr, X_te, y_te, seed=0)
 
-    print(f"\nF-12 single-feature degeneracy:")
+    print("\nF-12 single-feature degeneracy:")
     print(f"  use_layernorm=True : R^2 = {r2_ln:+.4f}")
     print(f"  use_layernorm=False: R^2 = {r2_off:+.4f}")
 
@@ -247,7 +247,7 @@ def test_layernorm_is_ok_on_homogeneous_scale_features():
     params_off = _base_params({"use_layernorm": False, "use_batchnorm": False})
     r2_off = _fit_and_score(params_off, X_tr, y_tr, X_te, y_te, seed=0)
 
-    print(f"\nLN-is-OK-on-homogeneous-features:")
+    print("\nLN-is-OK-on-homogeneous-features:")
     print(f"  use_layernorm=True : R^2 = {r2_on:+.4f}")
     print(f"  use_layernorm=False: R^2 = {r2_off:+.4f}")
     print(f"  gap                : {r2_off - r2_on:+.4f}")

@@ -98,19 +98,18 @@ def _take_rows(X: Any, mask: np.ndarray) -> Any:
     return np.asarray(X)[mask]
 
 
-def _n_rows(X: Any) -> int:
-    """Row count for any frame or array-like."""
-    shape = getattr(X, "shape", None)
-    return int(shape[0]) if shape is not None else len(X)
+from mlframe.utils.frame_rows import n_rows as _n_rows
 
 
 def _default_classifier() -> Any:
+    """The event classifier used when none is given: a default HistGradientBoostingClassifier."""
     from sklearn.ensemble import HistGradientBoostingClassifier
 
     return HistGradientBoostingClassifier()
 
 
 def _default_regressor() -> Any:
+    """The event-only regressor used when none is given: a default HistGradientBoostingRegressor."""
     from sklearn.ensemble import HistGradientBoostingRegressor
 
     return HistGradientBoostingRegressor()

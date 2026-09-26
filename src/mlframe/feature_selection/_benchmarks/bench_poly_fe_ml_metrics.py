@@ -343,7 +343,7 @@ def main():
 
     datasets = list(_DATASETS) if args.datasets == "all" else args.datasets.split(",")
 
-    print(f"\n=== Polynomial-pair FE -- ML metrics bench ===")
+    print("\n=== Polynomial-pair FE -- ML metrics bench ===")
     print(f"  model={args.model}, n_splits={args.n_splits}, top_k={args.top_k}, " f"n_trials={args.n_trials}, max_degree={args.max_degree}")
     print(f"  datasets: {', '.join(datasets)}\n")
 

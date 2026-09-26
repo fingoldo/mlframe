@@ -92,4 +92,4 @@ def test_e2e_no_wrong_answer_cache_hit():
     # Post-fix: it must MISS so a fresh CMI computation runs.
     assert (
         key2 not in cache
-    ), f"X=[1] Z=[2,3,4] must NOT hit a cache populated by X=[1,2] Z=[3,4]; these are different conditional MI queries with different values."
+    ), "X=[1] Z=[2,3,4] must NOT hit a cache populated by X=[1,2] Z=[3,4]; these are different conditional MI queries with different values."

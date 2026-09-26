@@ -81,7 +81,7 @@ def _bench():
             cross = n
             break
     print(f"\ncuda-beats-njit_par crossover @this HW: {cross}")
-    print(f"source _CUDA_THRESHOLD default = 500000")
+    print("source _CUDA_THRESHOLD default = 500000")
     return rows, cross
 
 

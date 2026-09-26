@@ -242,7 +242,7 @@ class TestMLPMultilabelEndToEnd:
                     inner = getattr(ns, "model", None)
                     if inner is not None:
                         cls_name = type(inner).__name__
-                        assert cls_name != "MultiOutputClassifier", f"MLP got wrapped in MultiOutputClassifier despite supports_native_multilabel=True"
+                        assert cls_name != "MultiOutputClassifier", "MLP got wrapped in MultiOutputClassifier despite supports_native_multilabel=True"
 
 
 # ----------------------------------------------------------------------------

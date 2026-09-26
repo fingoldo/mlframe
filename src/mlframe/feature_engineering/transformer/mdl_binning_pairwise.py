@@ -17,16 +17,7 @@ try:
 except ImportError:  # pragma: no cover
     _HAS_NUMBA = False
 
-    def njit(*args, **kwargs):
-        """No-op numba.njit shim used when numba is unavailable: returns the function unchanged."""
-
-        def wrap(fn):
-            """Identity decorator (numba absent): returns ``fn`` as-is."""
-            return fn
-
-        if args and callable(args[0]):
-            return args[0]
-        return wrap
+    from mlframe._numba_fallback import njit
 
 
 logger = logging.getLogger(__name__)

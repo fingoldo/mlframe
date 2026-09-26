@@ -197,7 +197,7 @@ def main():
         if best is None or comp > best[1]:
             best = (a, comp)
     print(f"\nbest alpha by composite (keep+drop+sep): {best[0]} (composite={best[1]:.4f})")
-    print(f"current default: 0.05")
+    print("current default: 0.05")
 
 
 if __name__ == "__main__":

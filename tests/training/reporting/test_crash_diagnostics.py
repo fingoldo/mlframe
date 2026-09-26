@@ -200,7 +200,12 @@ def test_phases_leave_breadcrumbs_in_the_faulthandler_file(tmp_path, monkeypatch
 def test_no_breadcrumbs_without_an_open_faulthandler_file(monkeypatch):
     from mlframe.training import phases
 
+    from mlframe.training import crash_diagnostics
+
+    written = []
+    monkeypatch.setattr(crash_diagnostics, "_write_breadcrumb", written.append)
     monkeypatch.setattr(phases, "_BREADCRUMB", None)
     with phases.phase("x"):
-        pass  # must not raise or write anywhere
+        pass  # must not raise
+    assert written == [], written
 

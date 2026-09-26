@@ -81,8 +81,10 @@ def test_patching_twice_wraps_nothing_the_second_time():
 def test_the_lock_is_reentrant():
     """lgb.train builds its datasets from inside Booster.__init__: the same thread re-enters the lock."""
     with LGB_NATIVE_LOCK:
-        with LGB_NATIVE_LOCK:
-            pass
+        # A non-reentrant lock would deadlock here; the timeout turns that into a failure instead of a hang.
+        reacquired = LGB_NATIVE_LOCK.acquire(timeout=5)
+        assert reacquired, "the same thread could not re-enter LGB_NATIVE_LOCK"
+        LGB_NATIVE_LOCK.release()
 
 
 def test_the_switch_turns_it_off(monkeypatch):

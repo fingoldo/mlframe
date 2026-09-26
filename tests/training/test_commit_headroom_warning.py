@@ -27,7 +27,8 @@ class TestSystemHeadroom:
 
     def test_a_large_limit_is_judged_on_its_own_scale(self):
         """5% of a huge page file is more than the flat bar, so a proportionally thin margin still fires."""
-        assert low_headroom_message(1000.0, 40.0) is not None
+        message = low_headroom_message(1000.0, 40.0)
+        assert message is not None and "only 40.0 GB of commit left against a 1000.0 GB limit" in message, message
 
     def test_ample_headroom_is_silent(self):
         """No warning when there is room to work."""

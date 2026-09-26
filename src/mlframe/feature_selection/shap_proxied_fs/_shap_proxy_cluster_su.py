@@ -47,15 +47,14 @@ def _resolve_parallel_min_features(default: int = 50) -> int:
     return default
 
 
-def _resolve_gpu_min_features(default: int = 500) -> int:
-    """Smallest feature count at which the GPU pairwise SU path is preferred over the CPU prange kernel.
+GPU_MIN_FEATURES: int = 500
+"""Smallest feature count at which the GPU pairwise SU path is preferred over the CPU prange kernel.
 
-    Below this width the cupy/CUDA launch overhead + onehot-pack allocation dwarfs even the
-    parallel CPU kernel's wall (~0.14s at f=500 / n_bins=10 / n=1500 on iter69's bench).
+Below this width the cupy/CUDA launch overhead + onehot-pack allocation dwarfs even the
+parallel CPU kernel's wall (~0.14s at f=500 / n_bins=10 / n=1500 on iter69's bench).
 
-    A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
-    API - removed as dead, always-``default``-returning code."""
-    return default
+A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
+API - removed as dead, always-``default``-returning code."""
 
 
 _GPU_AVAILABLE_CACHE: bool | None = None
@@ -140,7 +139,7 @@ def _should_route_su_gpu(
     """
     if not cluster_su_gpu_available():
         return False
-    gmin = gpu_min_features if gpu_min_features is not None else _resolve_gpu_min_features()
+    gmin = gpu_min_features if gpu_min_features is not None else GPU_MIN_FEATURES
     if n_features < int(gmin):
         return False
     onehot_bytes = int(n_features) * int(max_n_bins) * int(n_samples) * 4

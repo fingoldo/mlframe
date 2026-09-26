@@ -59,14 +59,7 @@ from ._numeric_decompose_fe import _numeric_cols, score_decompose_by_bootstrap_m
 try:
     from numba import njit
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
-    def njit(*args, **kwargs):  # no-op fallback so the module imports
-        """Fallback ``numba.njit`` stub used when numba is unavailable: returns the function unmodified (or a passthrough decorator when called with keyword options), so the module still imports and runs in pure Python."""
-        if len(args) == 1 and callable(args[0]):
-            return args[0]
-        def deco(fn):
-            """Passthrough decorator returned by the ``njit`` fallback when invoked with options (e.g. ``@njit(cache=True)``); returns ``fn`` unchanged."""
-            return fn
-        return deco
+    from mlframe._numba_fallback import njit
 
 
 # op codes for the fused kernel: 0=mod, 1=sin, 2=cos

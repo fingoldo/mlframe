@@ -193,7 +193,7 @@ def test_biz_val_mrmr_n_workers_threading_no_crash_no_regression():
     ), f"n_workers=4 support set must be within 1 feature of n_workers=1; got 1={sorted(set_1)}, 4={sorted(set_4)}"
     # Top-3 must be identical (the strongest signal features have
     # large enough gain margin that thread ordering doesn't shuffle them).
-    assert set(int(i) for i in sel_1.support_[:3]) == set(int(i) for i in sel_4.support_[:3]), f"top-3 supports differ across n_workers values"
+    assert set(int(i) for i in sel_1.support_[:3]) == set(int(i) for i in sel_4.support_[:3]), "top-3 supports differ across n_workers values"
 
 
 # ---------------------------------------------------------------------------

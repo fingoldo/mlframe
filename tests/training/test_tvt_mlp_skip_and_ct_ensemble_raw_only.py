@@ -280,7 +280,7 @@ class TestSlidingWindowGrMatchBatchedAgreesWithLoop:
             elif name == "tvt":
                 import numpy as np
 
-                assert (x[m] == y[m]).all(), f"selected tvt differs"
+                assert (x[m] == y[m]).all(), "selected tvt differs"
             else:
                 import numpy as np
 

@@ -69,10 +69,8 @@ def test_quantile_columns_are_ordered_on_every_row(name: str):
     est, X = _fitted(name)
     X_pred = X.iloc[:40].copy()
     X_pred.loc[X_pred.index[:10], "base"] = -50.0  # below any train base, and below -c for centered_ratio
-    try:
-        q = np.asarray(est.predict_quantile(X_pred, _ALPHAS))
-    except NotImplementedError:
-        pytest.skip(f"{name}: predict_quantile is not supported by contract")
+    # _QUANTILE_OK already excludes the transforms that raise by contract, so a NotImplementedError here is a regression.
+    q = np.asarray(est.predict_quantile(X_pred, _ALPHAS))
     finite = np.all(np.isfinite(q), axis=1)
     assert np.all(np.diff(q[finite], axis=1) >= -1e-12), f"{name}: crossed quantiles on {int((np.diff(q[finite], axis=1) < 0).any(axis=1).sum())} rows"
 

@@ -78,6 +78,7 @@ def test_no_arm_recovers_a_column_that_is_informative_only_on_the_holdout(arm_na
 
     result = roster[arm_name]().run(x_train, y_train)
     names = [str(column) for column in x_train.columns]
+    assert len(np.asarray(result.support)) == len(names), f"{arm_name} returned a support of the wrong width"
     selected = {names[index] for index, keep in enumerate(np.asarray(result.support, dtype=bool)) if keep}
 
     genuine = {f"s{i}" for i in range(3)}

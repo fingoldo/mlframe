@@ -229,7 +229,7 @@ class TestCatFEEnabled:
         # categories; restoring the assertion forces the failure to surface.
         assert mrmr._cat_fe_state_.recipes, (
             "cat-FE on XOR(x1,x2) target with min_interaction_information=0.1 should produce >=1 recipe; "
-            f"got 0. Inspect _cat_fe_state_ on the fitted MRMR for diagnostic detail."
+            "got 0. Inspect _cat_fe_state_ on the fitted MRMR for diagnostic detail."
         )
         recipe = mrmr._cat_fe_state_.recipes[0]
 

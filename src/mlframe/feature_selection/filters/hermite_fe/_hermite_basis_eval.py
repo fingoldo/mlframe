@@ -13,14 +13,7 @@ from mlframe._numba_parallel_guard import parallel_kernel_entry
 try:
     from numba import njit, prange
 except ImportError:  # pragma: no cover
-    def njit(*args, **kwargs):
-        """No-op ``@njit`` fallback when numba isn't installed: returns the function unchanged (supports both bare ``@njit`` and ``@njit(cache=True, ...)`` call forms), so the decorated kernels still run as plain Python/numpy."""
-        if len(args) == 1 and callable(args[0]):
-            return args[0]
-        def deco(fn):
-            """Identity decorator returned for the ``@njit(...)`` call form."""
-            return fn
-        return deco
+    from mlframe._numba_fallback import njit
 
     def prange(n):
         """No-op ``prange`` fallback: degrades parallel loops to a plain sequential ``range`` when numba isn't installed."""

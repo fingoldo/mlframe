@@ -423,7 +423,7 @@ def test_biz_val_stratified_anchors_preserve_recovery_at_6k_no_catastrophic_spea
     print(f"\n[iter14 stratified-anchor biz_val] uniform leg at width={width}", flush=True)
     sp_u, mode_u, rec_u = _fit(stratified=False)
     print(f"[iter14] uniform: spearman={sp_u:.3f} mode={mode_u} recovery={rec_u}/{n_informative}", flush=True)
-    print(f"[iter14] stratified leg", flush=True)
+    print("[iter14] stratified leg", flush=True)
     sp_s, mode_s, rec_s = _fit(stratified=True)
     print(f"[iter14] stratified: spearman={sp_s:.3f} mode={mode_s} recovery={rec_s}/{n_informative}", flush=True)
 
@@ -595,7 +595,7 @@ def test_biz_val_zipf_cardinality_preserves_recovery_no_catastrophic_spearman_dr
     print(f"\n[iter15 zipf-cardinality biz_val] uniform leg at width={width}", flush=True)
     sp_u, mode_u, rec_u = _fit("uniform")
     print(f"[iter15] uniform card: spearman={sp_u:.3f} mode={mode_u} recovery={rec_u}/{n_informative}", flush=True)
-    print(f"[iter15] zipf leg", flush=True)
+    print("[iter15] zipf leg", flush=True)
     sp_z, mode_z, rec_z = _fit("zipf")
     print(f"[iter15] zipf card:    spearman={sp_z:.3f} mode={mode_z} recovery={rec_z}/{n_informative}", flush=True)
 

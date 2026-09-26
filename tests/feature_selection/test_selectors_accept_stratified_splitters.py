@@ -55,7 +55,7 @@ def test_zero_importance_pruning_accepts_a_stratified_splitter(bed: tuple) -> No
         LogisticRegression(max_iter=200), X, y, accuracy_score, cv=_stratified(), max_rounds=3,
         importance_fn=lambda model, frame, target: np.abs(np.asarray(model.coef_)).ravel(),
     )
-    assert result is not None
+    assert len(result) >= 1 and set(result) <= set(X.columns), result
 
 
 def test_stochastic_bandit_selection_accepts_a_stratified_splitter(bed: tuple) -> None:

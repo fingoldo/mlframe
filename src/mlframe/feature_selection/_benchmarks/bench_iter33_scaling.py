@@ -47,7 +47,6 @@ logger = logging.getLogger(__name__)
 import time
 import warnings
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -202,9 +201,9 @@ def main(argv=None):
         if r["preflight_recommendation"] is not None:
             print(f"  preflight_recommendation={r['preflight_recommendation']}")
         if r["profile"] is not None:
-            print(f"  cProfile top 10 by tottime:")
+            print("  cProfile top 10 by tottime:")
             print_cprofile(r["profile"], n=10, sort="tottime")
-            print(f"  cProfile top 10 by cumulative:")
+            print("  cProfile top 10 by cumulative:")
             print_cprofile(r["profile"], n=10, sort="cumulative")
         if r["total"] > args.per_config_cap_s:
             print(f"  [WARN] {name} exceeded soft cap {args.per_config_cap_s:.0f}s " f"({r['total']:.1f}s)", flush=True)

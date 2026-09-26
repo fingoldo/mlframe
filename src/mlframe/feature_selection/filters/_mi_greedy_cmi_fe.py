@@ -63,14 +63,7 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
         """Serial ``range`` stand-in used when numba is unavailable so parallel loops still run correctly, just single-threaded."""
         return range(*a)
 
-    def njit(*args, **kwargs):  # no-op fallback so the module imports
-        """No-op decorator stand-in for ``numba.njit`` when numba is unavailable; returns the function unmodified so the module still imports and runs (slower, pure Python)."""
-        if len(args) == 1 and callable(args[0]):
-            return args[0]
-        def deco(fn):
-            """Identity decorator applied when ``njit`` is called with arguments (e.g. ``@njit(cache=True)``)."""
-            return fn
-        return deco
+    from mlframe._numba_fallback import njit
 
 from mlframe.utils.log_throttle import log_throttle
 

@@ -217,7 +217,7 @@ def print_summary(results_dicts):
         print(f"{est:<24} {np.nanmean(errs):>14.4f} {np.nanmean(rts):>12.2f} " f"{len(rs):>8}")
     # Per-signal.
     signals = sorted({r["signal"] for r in results_dicts})
-    print(f"\nPer-signal mean |error| vs truth:")
+    print("\nPer-signal mean |error| vs truth:")
     print(f"{'estimator':<24}" + "".join(f"{s:>12}" for s in signals))
     print("-" * 110)
     for est in by_est:
@@ -231,7 +231,7 @@ def print_summary(results_dicts):
         print(f"{est:<24}" + "".join(f"{v:>12.4f}" for v in row))
     # Per-K.
     Ks = sorted({r["K"] for r in results_dicts})
-    print(f"\nPer-K (number of y classes) mean |error|:")
+    print("\nPer-K (number of y classes) mean |error|:")
     print(f"{'estimator':<24}" + "".join(f'{("K=" + str(k)):>10}' for k in Ks))
     print("-" * 110)
     for est in by_est:

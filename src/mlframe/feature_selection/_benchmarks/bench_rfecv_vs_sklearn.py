@@ -241,7 +241,7 @@ def main(seeds: tuple[int, ...] = (0, 1, 2), out_dir: Optional[Path] = None) -> 
     out_dir.mkdir(parents=True, exist_ok=True)
 
     rows: list[dict] = []
-    print(f"# h2h benchmark: mlframe RFECV vs sklearn.RFECV")
+    print("# h2h benchmark: mlframe RFECV vs sklearn.RFECV")
     print(f"# {len(PROBLEMS)} problems x ~3 estimators x {len(seeds)} seeds")
     print(f"# CatBoost available: {HAS_CATBOOST}")
     print()

@@ -152,7 +152,8 @@ def test_the_region_adaptive_fit_refuses_a_candidate_of_another_t_scale():
     y, base, _ = _data()
     with pytest.raises(ValueError, match="additive in T"):
         fit_region_adaptive(y, base, candidates=("linear_residual", "logratio"))
-    assert fit_region_adaptive(y, base) is not None
+    spec = fit_region_adaptive(y, base)  # the default candidates are all additive in T, so the fit goes through
+    assert len(spec.region_transforms) >= 1 and "logratio" not in spec.region_transforms, spec.region_transforms
 
 
 def test_the_scaled_twin_reconstructs_the_same_y():

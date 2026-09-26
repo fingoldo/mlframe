@@ -210,11 +210,11 @@ def main():
         top_raw1 = [c for c in top20 if raw_map[c] <= 1]
         top_pm1 = [c for c in top20 if pm_map[c] <= 1]
         top_q1 = [c for c in top20 if q10_map[c] <= 1]
-        lines.append(f"\n### madelon lgbm-top20 informative features -- bin counts")
+        lines.append("\n### madelon lgbm-top20 informative features -- bin counts")
         lines.append(f"  top20 RAW-MDLP collapsed-to-1bin : {len(top_raw1)}/20  {top_raw1}")
         lines.append(f"  top20 PROD-mdlp collapsed-to-1bin: {len(top_pm1)}/20  {top_pm1}")
         lines.append(f"  top20 quantile10 collapsed-to-1bin: {len(top_q1)}/20  {top_q1}")
-        lines.append(f"  per-feature (col: raw_mdlp / prod_mdlp / q10 bins):")
+        lines.append("  per-feature (col: raw_mdlp / prod_mdlp / q10 bins):")
         for c in top20:
             lines.append(f"    {c:8s}: raw={raw_map[c]:3d}  prod={pm_map[c]:3d}  q10={q10_map[c]:3d}")
         for ln in lines[-25:]:

@@ -22,14 +22,7 @@ try:
     _NUMBA_AVAILABLE = True
 except ImportError:
     _NUMBA_AVAILABLE = False
-    def njit(*args, **kwargs):
-        """Fallback no-op stand-in for ``numba.njit`` when numba is not installed - accepts and ignores any decorator kwargs (``fastmath``, ``cache``, ...) and returns the wrapped function unchanged, so the eval kernels below still run (as plain CPython) rather than raising ImportError."""
-        if len(args) == 1 and callable(args[0]):
-            return args[0]
-        def deco(fn):
-            """Identity decorator used when ``njit(...)`` was called with kwargs only (no bare function argument) - returns ``fn`` unmodified."""
-            return fn
-        return deco
+    from mlframe._numba_fallback import njit
 
 
 # ---------------------------------------------------------------------------

@@ -346,20 +346,20 @@ def main():
         print(f"  train wall: {train_wall:.1f}s  status: {status}")
         print(train_prof[:6000])
         if predict_wall > 0 or predict_prof:
-            print(f"\n--- PREDICT phase (same input frame, predict_from_models) ---")
+            print("\n--- PREDICT phase (same input frame, predict_from_models) ---")
             print(f"  predict wall: {predict_wall:.1f}s")
             print(predict_prof[:6000])
         if save_wall > 0 or save_prof:
             _mb = save_total_bytes / (1024.0 * 1024.0)
-            print(f"\n--- SAVE phase (dill + zstd, tempdir) ---")
+            print("\n--- SAVE phase (dill + zstd, tempdir) ---")
             print(f"  save wall: {save_wall:.2f}s  models_saved={save_n_models}  total_bytes_on_disk={_mb:.2f} MB")
             print(save_prof[:6000])
         if load_wall > 0 or load_prof:
-            print(f"\n--- LOAD phase (load_mlframe_suite from tempdir) ---")
+            print("\n--- LOAD phase (load_mlframe_suite from tempdir) ---")
             print(f"  load wall: {load_wall:.2f}s  models_loaded={load_n_models}")
             print(load_prof[:6000])
         if predict_loaded_wall > 0 or predict_loaded_prof:
-            print(f"\n--- PREDICT-LOADED phase (predict_from_models on disk-roundtripped suite) ---")
+            print("\n--- PREDICT-LOADED phase (predict_from_models on disk-roundtripped suite) ---")
             print(f"  predict_loaded wall: {predict_loaded_wall:.2f}s  parity={parity_status}")
             print(predict_loaded_prof[:6000])
 

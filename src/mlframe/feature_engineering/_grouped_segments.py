@@ -19,16 +19,7 @@ try:
 except ImportError:
     HAS_NUMBA = False
 
-    def njit(*args, **kwargs):  # no-op fallback so the module imports without numba
-        """No-op decorator stand-in for ``numba.njit`` when numba is unavailable, so the module still imports and runs (slower, pure Python)."""
-
-        def wrap(fn):
-            """Identity decorator applied when ``njit`` is called with arguments (e.g. ``@njit(cache=True)``)."""
-            return fn
-
-        if args and callable(args[0]):
-            return args[0]
-        return wrap
+    from mlframe._numba_fallback import njit
 
 
 __all__ = ["iter_group_segments", "HAS_NUMBA", "njit"]

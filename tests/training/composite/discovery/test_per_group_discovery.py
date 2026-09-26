@@ -274,5 +274,5 @@ def test_a_group_delegate_gets_its_groups_val_rows_and_the_rerank_grouping(monke
     parent._group_ids_for_rerank = np.arange(n) % 7
     parent._hint_strengths_pct = [12.0]
     run_per_group_discovery(parent, df, "y", ["b"], np.arange(n), None, None, None, val_df, val_y)
-    assert sorted(s[0] for s in seen) == [{"A"}, {"B"}], seen
+    assert len(seen) == 2 and sorted(s[0] for s in seen) == [{"A"}, {"B"}], seen
     assert all(s[1] == n // 2 and s[2] and s[3] == [12.0] for s in seen), seen

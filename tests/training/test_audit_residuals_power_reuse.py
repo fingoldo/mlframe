@@ -39,8 +39,8 @@ def test_skew_kurt_match_z_pow_oracle():
     z = (residuals - mean) / std
     legacy_skew = float(np.mean(z**3))
     legacy_kurt = float(np.mean(z**4) - 3.0)
-    assert abs(audit.skew - legacy_skew) < 1e-10, f"skew via z*z2 must match z**3 oracle at fp64 epsilon"
-    assert abs(audit.excess_kurt - legacy_kurt) < 1e-10, f"excess_kurt via z2*z2 must match z**4-3 oracle at fp64 epsilon"
+    assert abs(audit.skew - legacy_skew) < 1e-10, "skew via z*z2 must match z**3 oracle at fp64 epsilon"
+    assert abs(audit.excess_kurt - legacy_kurt) < 1e-10, "excess_kurt via z2*z2 must match z**4-3 oracle at fp64 epsilon"
 
 
 def test_percentile_pair_matches_two_separate_calls():

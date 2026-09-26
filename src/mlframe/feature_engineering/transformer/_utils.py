@@ -21,16 +21,7 @@ try:
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
     prange = range
 
-    def njit(*args, **kwargs):  # no-op fallback so the module imports
-        """Stand-in for ``numba.njit`` when numba is missing: returns the function/decorator unmodified so callers keep working, just without JIT speedup."""
-        if len(args) == 1 and callable(args[0]):
-            return args[0]
-
-        def deco(fn):
-            """Identity decorator matching numba's ``@njit(...)(fn)`` call shape."""
-            return fn
-
-        return deco
+    from mlframe._numba_fallback import njit
 
 logger = logging.getLogger(__name__)
 

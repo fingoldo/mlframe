@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 from mlframe.training import crash_diagnostics as cd
 
 
@@ -11,7 +9,7 @@ def test_stop_then_restart():
     hb = cd.start_heartbeat(3600)
     assert hb is not None and hb.alive
     cd.stop_heartbeat()
-    time.sleep(0.2)
+    hb.stop(join=True, timeout=5.0)  # stop_heartbeat only signals; wait for the thread instead of sleeping a guess
     assert not hb.alive
     hb2 = cd.start_heartbeat(3600)
     assert hb2 is not None and hb2.alive and hb2 is not hb
