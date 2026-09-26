@@ -410,13 +410,11 @@ def _apply_pre_pipeline_transforms(
                         _PRE_PIPELINE_CACHE[_cache_key_entry] = (train_df, val_df, pre_pipeline)
                         _PRE_PIPELINE_CACHE.move_to_end(_cache_key_entry)
                         while len(_PRE_PIPELINE_CACHE) > _cap:
-                            # evict-ok: a miss refits the pre-pipeline on the same frames; nothing is pending on the entry
-                            _PRE_PIPELINE_CACHE.popitem(last=False)
+                            _PRE_PIPELINE_CACHE.popitem(last=False)  # evict-ok: a miss refits the pre-pipeline on the same frames; nothing is pending
                         if _PRE_PIPELINE_CACHE_MAX_BYTES > 0 and len(_PRE_PIPELINE_CACHE) > 1:
                             _total = sum(_approx_entry_bytes(v) for v in _PRE_PIPELINE_CACHE.values())
                             while _total > _PRE_PIPELINE_CACHE_MAX_BYTES and len(_PRE_PIPELINE_CACHE) > 1:
-                                # evict-ok: a miss refits the pre-pipeline on the same frames; nothing is pending on the entry
-                                _, _evicted = _PRE_PIPELINE_CACHE.popitem(last=False)
+                                _, _evicted = _PRE_PIPELINE_CACHE.popitem(last=False)  # evict-ok: a miss refits the pre-pipeline on the same frames
                                 _total -= _approx_entry_bytes(_evicted)
                 except Exception as _cache_err:
                     logger.debug(

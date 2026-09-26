@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import warnings
 
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -115,11 +117,26 @@ def test_no_frozen_recipe_captures_target(fitted_mrmr_with_fe):
     fit-summary constants (lookups, edges, scalars, small basis params)."""
     mrmr, X, _Xh, _y = fitted_mrmr_with_fe
     n = len(X)
-    for rec in _engineered_recipes(mrmr):
-        assert list(_engineered_recipes(mrmr)), "MRMR engineered no recipe, so no recipe was checked for a leak"
-        for k, v in dict(rec.extra).items():
-            if isinstance(v, np.ndarray) and v.ndim == 1 and v.size == n:
-                pytest.fail(f"recipe {rec.name!r} extra[{k!r}] is a length-n ({n}) array -- possible per-row target/feature leak into the frozen recipe")
+    recipes = list(_engineered_recipes(mrmr))
+    assert len(recipes) > 0, "MRMR engineered no recipe, so no recipe was checked for a leak"
+
+    def _entries(rec):
+        """Every stored value of a recipe as ``(path, value)``: each dataclass field, and the items of any dict-valued one (``extra``)."""
+        for field in dataclasses.fields(rec):
+            value = getattr(rec, field.name)
+            yield field.name, value
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    yield f"{field.name}[{key!r}]", item
+
+    scanned = 0
+    for rec in recipes:
+        for path, value in _entries(rec):
+            scanned += 1
+            if isinstance(value, np.ndarray) and value.ndim == 1 and value.size == n:
+                pytest.fail(f"recipe {rec.name!r} {path} is a length-n ({n}) array -- possible per-row target/feature leak into the frozen recipe")
+    # Every recipe has named fields, so this floor holds even when ``extra`` is empty (numeric pair recipes keep their parameters in fields).
+    assert scanned >= len(recipes), "the scan examined fewer values than there are recipes"
 
 
 def test_transform_before_refit_on_new_data_stable(fitted_mrmr_with_fe):

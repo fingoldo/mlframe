@@ -1,4 +1,1 @@
-{
-  "tests/feature_selection/fe/provenance/test_coverage_fe_mrmr_e2e_leakage_replay.py::test_no_frozen_recipe_captures_target::#1": "negative scan of each recipe's extra payload: an empty payload holds no length-n array, which is the passing case",
-  "tests/feature_selection/fe/provenance/test_coverage_fe_target_aware_leakage.py::test_recipe_carries_no_target_reference::#1": "negative scan of the recipe's extra payload: an empty payload carries no target, which is the passing case"
-}
+{}

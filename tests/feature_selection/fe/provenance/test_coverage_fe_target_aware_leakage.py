@@ -92,7 +92,9 @@ def test_recipe_carries_no_target_reference(fit_recipe, fit_data):
     X, _y = fit_data
     _name, _payload, rec, _enc_df = fit_recipe
     n = len(X)
-    for k, v in dict(rec.extra).items():
+    payload = dict(rec.extra)
+    assert len(payload) > 0, "the recipe carries no extra payload, so the scan below examines nothing"
+    for k, v in payload.items():
         if isinstance(v, np.ndarray) and v.size == n:
             pytest.fail(f"extra[{k!r}] is a length-n array -- possible y/OOF leak")
     # The OOF assignment (the only y-touched artefact) must NOT be in the recipe.

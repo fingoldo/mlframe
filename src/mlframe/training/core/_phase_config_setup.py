@@ -486,8 +486,7 @@ def setup_configuration(
             from mlframe.training.cb import reset_cache_bytes
             from mlframe.training.trainer import _CB_VAL_POOL_CACHE
             _CB_POOL_CACHE.clear()
-            # unlocked-ok: suite setup, before any worker starts; nothing else touches the val-pool cache yet
-            _CB_VAL_POOL_CACHE.clear()
+            _CB_VAL_POOL_CACHE.clear()  # unlocked-ok: suite setup, before any worker starts; nothing else touches the val-pool cache yet
             reset_cache_bytes()
         except (ImportError, AttributeError) as _cache_clear_err:
             # Narrow: only the cases that mean "the cache module isn't importable / the symbol
