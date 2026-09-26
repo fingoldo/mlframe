@@ -71,6 +71,18 @@ def _default_true_knobs() -> set[str]:
     return cfg | est
 
 
+def _test_node(node_id: str) -> ast.AST | None:
+    """The test function (or class) node a ``path::name`` node id names, or None when it does not exist."""
+    path, name = node_id.split("::", 1)
+    file = _ROOT / path
+    if not file.exists():
+        return None
+    for node in ast.walk(ast.parse(file.read_text(encoding="utf-8"))):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
+            return node
+    return None
+
+
 def _test_source(node_id: str) -> str | None:
     """Source of the test function (or class) a ``path::name`` node id names, or None when it does not exist."""
     path, name = node_id.split("::", 1)
@@ -128,8 +140,8 @@ def test_the_knob_check_sees_an_all_off_test():
 def test_knobless_mechanisms_are_pinned(name: str):
     """Each default-on behaviour without a knob keeps its pinning test."""
     node_id = MECHANISMS_WITHOUT_A_KNOB[name]
-    source = _test_source(node_id)
-    assert source is not None and source.lstrip().startswith(("def ", "async def ", "class ", "@")), node_id
+    node = _test_node(node_id)
+    assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == node_id.split("::", 1)[1], node_id
 
 
 def test_the_honest_oof_floor_rejects_a_spec_that_loses_to_it():
