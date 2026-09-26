@@ -1,17 +1,7 @@
 [
   "calibration/test_calibration_plot_layout.py::os.environ.setdefault('MPLBACKEND', 'Agg')",
   "feature_selection/mrmr/biz_val/test_biz_value_mrmr_sufficient_summary.py::os.environ.setdefault('TQDM_DISABLE', '1')",
-  "feature_selection/mrmr/core/test_mrmr_smooth_interaction_underselection.py::os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')",
-  "feature_selection/mrmr/core/test_mrmr_smooth_interaction_underselection.py::os.environ.setdefault('MLFRAME_DISABLE_HNSW', '1')",
   "feature_selection/stability/test_hybrid_selector_deep.py::os.environ.setdefault('TQDM_DISABLE', '1')",
   "feature_selection/test_wide_data_scalability.py::os.environ.setdefault(_v, '4')",
-  "reporting/test_confusion_matrix_plot.py::os.environ.setdefault('MPLBACKEND', 'Agg')",
-  "training/test_fs_empty_selection_and_observability.py::os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')",
-  "training/test_fs_functional_adapters_wiring.py::os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')",
-  "training/test_fs_integration_rfecv_shap_proxied_wiring.py::os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')",
-  "training/test_fs_integration_wiring_audit.py::os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')",
-  "training/test_mi_bin_nbins_default_reject.py::os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')",
-  "training/test_mi_bin_nbins_default_reject.py::os.environ.setdefault('MLFRAME_KEEP_BROKEN_CUPY', '1')",
-  "training/test_mi_bin_nbins_default_reject.py::os.environ.setdefault('MLFRAME_NO_CUDA_AUTOCONFIG', '1')",
-  "training/test_train_model_zero_feature_skip.py::os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')"
+  "reporting/test_confusion_matrix_plot.py::os.environ.setdefault('MPLBACKEND', 'Agg')"
 ]
