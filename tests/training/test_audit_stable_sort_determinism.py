@@ -63,6 +63,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
@@ -172,50 +173,32 @@ def _has_stable_kind(src: str, base: str, count: int = 1) -> bool:
     return (stable_hits + merge_hits) >= count
 
 
-def test_metrics_core_uses_stable_argsort() -> None:
-    """ROC/PR/NDCG argsort-by-score sites use a stable (or dispatcher-routed) kind."""
-    # When ``metrics/core.py`` was split into siblings, the sites this sensor
-    # pins moved: ``np.argsort(y_score`` lives in ``_core_auc_brier.py``
-    # (the fast_roc_auc / fast_aucs kernels + the central
-    # ``_argsort_desc_for_metrics`` dispatcher), per-group AUC scans live
-    # in ``_auc_per_group.py``, the ``-y_p`` argsort lives in the
-    # classification-report binning helper in ``_classification_report.py``.
-    # The batch ICE/AUC kernel's ``-y_pred_NK`` argsort was later carved out
-    # of ``_classification_report.py`` into its own sibling, ``_ice_kernel.py``.
-    # Concatenate all module sources so the count assertions still pin the
-    # post-fix totals.
-    src = (
-        _read("metrics/core.py")
-        + _read("metrics/_core_auc_brier.py")
-        + _read("metrics/_auc_per_group.py")
-        + _read("metrics/classification/_classification_report.py")
-        + _read("metrics/classification/_ice_kernel.py")
-    )
-    # The pre-fix shape was 3 inline ``np.argsort(y_score, kind="stable")``
-    # call-sites; the refactor consolidated them into ONE stable-sort
-    # branch inside ``_argsort_desc_for_metrics`` plus per-callsite uses
-    # of the dispatcher. Accept EITHER shape:
-    #   * 3+ inline stable/mergesort sites (the legacy pattern), OR
-    #   * 1 stable branch inside _argsort_desc_for_metrics + 2+ uses of
-    #     that dispatcher (the post-consolidation pattern).
-    _inline_stable = src.count('np.argsort(y_score, kind="stable")') + src.count('np.argsort(y_score, kind="mergesort")')
-    _dispatch_uses = src.count("_argsort_desc_for_metrics")
-    assert _inline_stable >= 3 or (_inline_stable >= 1 and _dispatch_uses >= 2), (
-        f"y_score sort determinism: need either >=3 inline stable argsorts "
-        f"or >=1 stable dispatcher + >=2 dispatcher uses; got inline={_inline_stable}, "
-        f"dispatcher refs={_dispatch_uses}"
-    )
-    # group_y_score sites (now split across _auc_per_group.py: one stable,
-    # one mergesort variant).
-    assert _has_stable_kind(src, "np.argsort(group_y_score", count=1)
-    # The old y_p site at the end of the fast_numba_aucs body was hoisted out to the caller in
-    # _classification_report.py's batch ICE/AUC kernel as `np.argsort(-y_pred_NK, axis=0)`
-    # (deliberately unstable/quicksort, not stable/mergesort): that kernel's docstring proves the
-    # walk only accumulates at tie-run boundaries, so it's provably invariant to within-tie order
-    # -- a stable sort there would just be wasted work, not a correctness requirement. Re-framed
-    # 2026-07-13 per the "validated improvement changed the contract" rule rather than asserting
-    # a now-nonexistent stable-kind call.
-    assert src.count("np.argsort(-y_pred_NK, axis=0)") >= 1
+def test_metrics_core_uses_stable_argsort(monkeypatch) -> None:
+    """ROC/PR AUC (overall and per group) on heavily tied scores do not depend on row order.
+
+    The metric kernels accumulate only at tie-run boundaries, so the default unstable argsort is
+    exact; the MLFRAME_METRICS_STABLE_SORT=1 opt-in must still give the stable descending order."""
+    from sklearn.metrics import roc_auc_score
+
+    from mlframe.metrics._auc_per_group import fast_aucs_per_group
+    from mlframe.metrics._core_auc_brier import _argsort_desc_for_metrics, fast_aucs
+
+    rng = np.random.default_rng(1)
+    n = 400
+    score = rng.integers(0, 5, n).astype(float) / 4  # five distinct values: every score is tied
+    y = (rng.random(n) < 0.3 + 0.4 * score).astype(np.int64)
+    groups = rng.integers(0, 3, n)
+
+    base = fast_aucs(y, score)
+    base_grouped = fast_aucs_per_group(y, score, groups)
+    assert base[0] == pytest.approx(roc_auc_score(y, score))
+    for _ in range(5):
+        perm = rng.permutation(n)
+        assert fast_aucs(y[perm], score[perm]) == base
+        assert fast_aucs_per_group(y[perm], score[perm], groups[perm]) == base_grouped
+
+    monkeypatch.setenv("MLFRAME_METRICS_STABLE_SORT", "1")
+    np.testing.assert_array_equal(_argsort_desc_for_metrics(score), np.argsort(score, kind="stable")[::-1])
 
 
 def test_metrics_ranking_uses_stable_argsort() -> None:

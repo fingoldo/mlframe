@@ -24,25 +24,38 @@ from pathlib import Path
 
 class TestTScaleCompositeReportSkip:
     """Groups tests covering t scale composite report skip."""
-    def test_source_skip_path_present(self) -> None:
-        """Source-grep sensor: skip block + MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS
-        env-var opt-out are wired into report_regression_model_perf
-        (which lives in _reporting_regression.py)."""
-        from mlframe.training.reporting import _reporting_regression as rep
+    @staticmethod
+    def _render(tmp_path: Path, model_name: str) -> Path:
+        """Runs the regression reporter with a chart file requested; returns the chart path."""
+        import numpy as np
 
-        src = Path(rep.__file__).read_text(encoding="utf-8")
-        # Skip message body changed 2026-05-27 to point at the wrap-pass
-        # y-scale chart explicitly; sensor accepts either phrasing.
-        assert "T-scale chart skipped here" in src or "T-scale report skipped (composite target)" in src
-        assert "MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS" in src
-        # The skip must short-circuit BEFORE the chart figure block
-        # builds. Signature: detection on ``MTRESID`` substring near
-        # the chart-block start, return preds_arr, None early.
-        idx_signature = src.index('"MTRESID" in _model_name_str')
-        # ``return preds_arr, None`` after the log line marks the
-        # early-return path.
-        idx_return = src.index("return preds_arr, None", idx_signature)
-        assert idx_return > idx_signature
+        from mlframe.training.reporting._reporting_regression import report_regression_model_perf
+
+        rng = np.random.default_rng(0)
+        targets = rng.normal(size=200)
+        preds = targets + rng.normal(scale=0.2, size=200)
+        chart = tmp_path / "chart.png"
+        report_regression_model_perf(
+            targets=targets, columns=["x"], model_name=model_name, model=None, preds=preds,
+            print_report=False, show_perf_chart=False, plot_file=str(chart), metrics={},
+        )
+        return chart
+
+    def test_source_skip_path_present(self, tmp_path, monkeypatch, caplog) -> None:
+        """A T-scale (``MTRESID``) report writes no chart and logs the skip; the
+        MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS opt-out and a y-scale label both still render it."""
+        import logging
+
+        monkeypatch.delenv("MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS", raising=False)
+        with caplog.at_level(logging.INFO):
+            skipped = self._render(tmp_path / "t", "cb MTRESID=y-cbrt-x")
+        assert not skipped.exists()
+        assert any("T-scale chart skipped here" in r.getMessage() for r in caplog.records)
+
+        assert self._render(tmp_path / "y", "cb MTTR=y-cbrt-x").exists()
+
+        monkeypatch.setenv("MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS", "1")
+        assert self._render(tmp_path / "kept", "cb MTRESID=y-cbrt-x").exists()
 
     def test_opt_in_env_var_keyword(self) -> None:
         """Opt-out env var name is stable and matches the prefix

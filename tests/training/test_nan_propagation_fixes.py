@@ -43,6 +43,7 @@ from __future__ import annotations
 
 
 import numpy as np
+import pytest
 
 # ---- Site 1: boruta_shap shadow threshold -------------------------------
 
@@ -142,21 +143,29 @@ def test_get_binning_edges_all_nan_column_returns_degenerate_not_raise():
 # ---- Site 4: RFECV winner-picker (2 sites) ------------------------------
 
 
-def test_rfecv_winner_picker_skips_nan_candidates():
-    """Source-level guard: both argmax sites in the RFECV wrappers package
-    mask out NaN candidates before picking the winner."""
-    import pathlib
-    import mlframe as _mlframe
+@pytest.mark.parametrize("rule", ["one_se_max", "one_se_min"])
+def test_rfecv_winner_picker_skips_nan_candidates(rule):
+    """Both RFECV winner pickers ignore an all-NaN-folds candidate. ``np.argmax`` returns the NaN slot
+    (N=1 here), which made the NaN band pick that never-evaluated N; the finite best is N=2."""
+    from types import SimpleNamespace
 
-    # Fit body + submodule helpers all live under wrappers/rfecv/; concat every
-    # submodule so the sensor catches the pattern regardless of which one owns it.
-    _rfecv = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "wrappers" / "rfecv"
-    src = "\n".join(p.read_text(encoding="utf-8") for p in _rfecv.glob("*.py"))
-    # Post-fix: both sites use a finite-mask filter before argmax.
-    occurrences = src.count("_finite_mask = np.isfinite(")
-    assert occurrences >= 2, f"Wave 21 P0 regression: expected >= 2 _finite_mask filters in the rfecv sibling source; got {occurrences}."
-    # Pre-fix raw shape MUST be gone:
-    assert "best_mean_idx = nz_idx[np.argmax(mean_arr[nz_idx])]" not in src, "Pre-fix raw np.argmax on potentially-NaN cv_mean_perf reappeared."
+    from sklearn.linear_model import LogisticRegression
+
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv._diagnostics import n_features_one_se_
+
+    nfeatures, means, stds = [0, 1, 2, 3], [0.5, np.nan, 0.8, 0.7], [0.0, 0.01, 0.01, 0.2]
+
+    rfecv = RFECV(estimator=LogisticRegression(), n_features_selection_rule=rule)
+    rfecv.feature_names_in_ = ["a", "b", "c"]
+    rfecv.n_features_in_ = 3
+    rfecv.selected_features_ = {1: [0], 2: [0, 1], 3: [0, 1, 2]}
+    rfecv.feature_importances_ = {}
+    rfecv.select_optimal_nfeatures_(checked_nfeatures=nfeatures, cv_mean_perf=means, cv_std_perf=stds, smooth_perf=0)
+    assert rfecv.n_features_ == 2
+
+    fitted = SimpleNamespace(cv_results_={"nfeatures": nfeatures, "cv_mean_perf": means, "cv_std_perf": stds}, n_features_=99)
+    assert n_features_one_se_(fitted, rule.rsplit("_", 1)[1]) == 2
 
 
 # ---- Site 5: fe_baselines best-baseline picker --------------------------

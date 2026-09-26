@@ -116,40 +116,22 @@ def test_composite_env_signature_drift_warns_when_supplied(caplog, monkeypatch):
     assert any("env signature drift" in rec.message for rec in caplog.records), f"expected env-skew WARN; got: {[r.message for r in caplog.records]}"
 
 
-def test_validator_wired_at_both_predict_entry_points():
-    """Source-level guard that the validator is called at BOTH
-    metadata-load sites in predict.py (the suite-predict path AND the
-    predict_from_models path). Pre-fix only the suite-predict path
-    existed; predict_from_models loaded metadata with no checks."""
-    import pathlib
-    import mlframe as _mlframe
+@pytest.mark.parametrize("loader", ["load_mlframe_suite", "_load_suite_metadata"])
+def test_validator_wired_at_both_predict_entry_points(tmp_path, loader):
+    """Both metadata-load sites (``load_mlframe_suite`` and the suite-predict loader) must run the
+    version-envelope validator: a bundle stamped with a future schema_version is refused by each.
+    Pre-fix only the suite-predict path validated; the other loaded metadata with no checks."""
+    import joblib
 
-    # After the 2026-05-21 monolith split, the two entry points moved to
-    # ``_predict_main.py``; the 2026-05-22 sub-split further moved each
-    # into its own ``_predict_main_from_models.py`` /
-    # ``_predict_main_suite.py`` sibling. Concat all five files so the
-    # source-pattern sensor still matches both call sites + the helper
-    # definition that stayed in parent.
-    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    src = "\n".join(
-        (_core / nm).read_text(encoding="utf-8")
-        for nm in (
-            "predict.py",
-            "_predict_main.py",
-            "_predict_main_from_models.py",
-            "_predict_main_suite.py",
-        )
-        if (_core / nm).exists()
-    )
-    # The validator name must appear at LEAST twice in call positions
-    # (def + 2 call sites = 3 total occurrences).
-    occurrences = src.count("_validate_metadata_version_envelope")
-    assert occurrences >= 3, (
-        f"Wave 19 P0 #2 regression: _validate_metadata_version_envelope "
-        f"appears {occurrences} times; expected >= 3 (one def + 2 call "
-        f"sites). The second predict entry point at predict_from_models "
-        f"must also call the validator."
-    )
+    from mlframe.training.core import _predict_main_suite, predict
+
+    joblib.dump({"schema_version": 99}, tmp_path / "metadata.joblib")
+    load = {
+        "load_mlframe_suite": lambda: predict.load_mlframe_suite(str(tmp_path)),
+        "_load_suite_metadata": lambda: _predict_main_suite._load_suite_metadata(str(tmp_path), None, 0),
+    }[loader]
+    with pytest.raises(ValueError, match="unsupported schema_version=99"):
+        load()
 
 
 def test_non_dict_metadata_does_not_crash():

@@ -9,6 +9,8 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
+import pytest
+
 
 def _read(rel: str) -> str:
     """Read a module source file from the mlframe src tree.
@@ -107,25 +109,52 @@ def test_codep110_fingerprint_cache_attr_on_ctx():
     assert ctx._model_input_fingerprint_cache == {}
 
 
-def test_codep110_fingerprint_call_outside_weight_loop():
-    """compute_cached_model_input_fingerprint should be invoked at most once per (strategy, pre_pipeline),
-    BEFORE the weight-schema iteration starts.
+def _fingerprint_calls_for(tmp_path, monkeypatch, weight_schemas) -> int:
+    """Trains one small lgb suite with ``weight_schemas`` and counts input-fingerprint computations."""
+    import numpy as np
+    import pandas as pd
 
-    We detect this by source-pattern: the call must appear before ``for weight_name, weight_values``.
-    ``_phase_train_one_target.py`` was later split into ``_phase_train_one_target_body.py`` (this
-    invariant's real home now) plus sibling helper modules -- the fingerprint computation itself
-    moved into ``compute_cached_model_input_fingerprint`` (``_phase_train_one_target_cache_helpers.py``),
-    which the body module calls once, threading the raw ``compute_model_input_fingerprint`` callable
-    through as a kwarg rather than calling it directly by name.
-    """
-    src = _read("training/core/_phase_train_one_target_body.py")
-    # Find the first occurrence of each
-    fp_idx = src.find("compute_cached_model_input_fingerprint(")
-    weight_loop_idx = src.find("for weight_name, weight_values")
-    assert fp_idx != -1 and weight_loop_idx != -1
-    assert fp_idx < weight_loop_idx, "CODE-P1-10 regression: the fingerprint is still computed inside the weight loop"
-    # And only once in this module
-    assert src.count("compute_cached_model_input_fingerprint(") == 1, "CODE-P1-10 regression: the fingerprint should be computed exactly once"
+    pytest.importorskip("lightgbm")
+    from mlframe.training import OutputConfig
+    from mlframe.training.core import _phase_train_one_target_body as body
+    from mlframe.training.core import train_mlframe_models_suite
+    from tests.training.shared import SimpleFeaturesAndTargetsExtractor
+
+    calls = []
+    real = body.compute_cached_model_input_fingerprint
+
+    def _spy(**kwargs):
+        """Counts the call, then fingerprints for real."""
+        calls.append(kwargs["pre_pipeline_name"])
+        return real(**kwargs)
+
+    monkeypatch.setattr(body, "compute_cached_model_input_fingerprint", _spy)
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"a": rng.normal(size=300), "b": rng.normal(size=300)})
+    df["target"] = df["a"] + rng.normal(scale=0.1, size=300)
+    name = "fp_" + "_".join(weight_schemas)
+    train_mlframe_models_suite(
+        df=df,
+        target_name="t",
+        model_name=name,
+        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True, weight_schemas=list(weight_schemas)),
+        mlframe_models=["lgb"],
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        output_config=OutputConfig(data_dir=str(tmp_path / name), models_dir="models"),
+        verbose=0,
+        hyperparams_config={"iterations": 10},
+    )
+    return len(calls)
+
+
+def test_codep110_fingerprint_call_outside_weight_loop(tmp_path, monkeypatch):
+    """The model-input fingerprint is computed once per (strategy, pre_pipeline), before the
+    weight-schema loop: three weighting schemas cost exactly as many fingerprint calls as one."""
+    one = _fingerprint_calls_for(tmp_path, monkeypatch, ["uniform"])
+    three = _fingerprint_calls_for(tmp_path, monkeypatch, ["uniform", "recency", "flat"])
+    assert one >= 1
+    assert three == one, f"CODE-P1-10 regression: {three} fingerprint calls for 3 weight schemas vs {one} for 1"
 
 
 # ---------- CODE-P1-8: phase-runner namespace consolidation ----------
@@ -185,13 +214,13 @@ def test_codep112_train_recurrent_models_reads_from_ctx():
     closing = src.index("\n    )", call_idx) if "\n    )" in src[call_idx:] else len(src)
     block = src[call_idx:closing]
     # heuristic: line containing recurrent_models= passes ctx.recurrent_models
-    rec_line = [l for l in block.splitlines() if "recurrent_models=" in l and "ctx" not in l.split("=")[0]]
+    rec_line = [line for line in block.splitlines() if "recurrent_models=" in line and "ctx" not in line.split("=")[0]]
     if rec_line:
         # Either it reads from ctx or there is no recurrent_models= line at all.
         assert len(rec_line) > 0
-        for l in rec_line:
+        for line in rec_line:
             assert (
-                "ctx.recurrent_models" in l
+                "ctx.recurrent_models" in line
             ), "CODE-P1-12 regression: train_recurrent_models() still receives the closed-over param instead of reading ctx.recurrent_models at call time"
 
 
@@ -220,7 +249,7 @@ def test_codelow2_no_redundant_slug_assignment():
     is the canonical write; any subsequent ``ctx.slug_to_original_target_name = local_dict`` would be a no-op."""
     src = _read("training/core/_phase_train_one_target.py")
     # There should be NO line that reassigns ctx.slug_to_original_target_name in this module.
-    bad = [l for l in src.splitlines() if "ctx.slug_to_original_target_name =" in l]
+    bad = [line for line in src.splitlines() if "ctx.slug_to_original_target_name =" in line]
     assert not bad, f"CODE-LOW-2 regression: redundant assignment to ctx.slug_to_original_target_name still present: {bad}"
 
 

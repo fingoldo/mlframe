@@ -140,53 +140,81 @@ def test_gpu_dispatcher_consults_kernel_tuning_cache(rel, marker, site):
     )
 
 
-def test_wave23_falls_back_to_source_default_when_cache_unavailable():
-    """The cache-lookup pattern at each site MUST be wrapped in a
-    try/except that falls back to the pre-wave-23 default. Otherwise
-    a missing pyutilz.performance.kernel_tuning.cache module would break
-    every GPU-dispatching call site."""
-    import mlframe as _mlframe
+_WAVE23_SITE_MODULES = (
+    "mlframe.feature_selection.filters.gpu",
+    "mlframe.feature_selection.filters.batch_pair_mi_gpu",
+    "mlframe.metrics._gpu_metrics",
+    "mlframe.feature_selection.filters._cat_confirm_permutation_tuning",
+    "mlframe.feature_selection.filters._feature_engineering_pairs._pairs_dispatch",
+    "mlframe.feature_selection.filters._unary_elementwise_tuning",
+    "mlframe.feature_engineering.transformer.random_features",
+)
 
-    root = pathlib.Path(_mlframe.__file__).resolve().parent
-    # Pin the wrapping shape at each of the 6 sites that introduced
-    # the lookup-with-fallback pattern (the polyeval site uses a named
-    # helper which itself has the try/except).
-    sites = [
-        "feature_selection/filters/gpu.py",
-        "feature_selection/filters/batch_pair_mi_gpu.py",
-        # ``metrics/core.py`` was split; the RMSE GPU dispatcher lives in
-        # the ``_gpu_metrics`` sibling now.
-        "metrics/_gpu_metrics.py",
-        # ``cat_interactions.py`` was split; the perm-kernel @kernel_tuner
-        # registration lives in the ``_cat_confirm_permutation_tuning`` sibling now.
-        "feature_selection/filters/_cat_confirm_permutation_tuning.py",
-        # ``feature_engineering.py`` was split, then ``_feature_engineering_pairs`` itself was carved into a subpackage;
-        # the batched-MI GPU dispatch + KernelTuningCache.get_or_tune lookup now lives in the ``_pairs_dispatch`` submodule.
-        "feature_selection/filters/_feature_engineering_pairs/_pairs_dispatch.py",
-        "feature_selection/filters/_unary_elementwise_tuning.py",
-        "feature_engineering/transformer/random_features.py",
-    ]
-    for rel in sites:
-        src = (root / rel).read_text(encoding="utf-8")
-        # Every lookup site MUST be inside a try/except so the cache
-        # being missing doesn't break the dispatcher. Accept either the
-        # direct pyutilz import OR the project-local _kernel_tuning shim
-        # that wraps pyutilz's cache with named project semantics OR the
-        # new @kernel_tuner registry import (post-migration sites register
-        # a spec and consult it via the get_or_tune orchestrator).
-        has_direct = "from pyutilz.performance.kernel_tuning.cache import KernelTuningCache" in src
-        has_shim = "from ._kernel_tuning import get_kernel_tuning_cache" in src
-        has_pkg_shim = "from .._kernel_tuning import get_kernel_tuning_cache" in src
-        has_uplevel_shim = "from .._kernel_tuning_cache.dispatch import" in src
-        has_bench_dispatch = "from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import" in src
-        has_registry = "from pyutilz.performance.kernel_tuning.registry import kernel_tuner" in src
-        assert has_direct or has_shim or has_pkg_shim or has_uplevel_shim or has_bench_dispatch or has_registry, (
-            f"{rel}: kernel_tuning_cache integration missing -- expected "
-            f"either the direct pyutilz import OR the project-local "
-            f"_kernel_tuning shim OR the _benchmarks.kernel_tuning_cache "
-            f"dispatch helper. The lookup path was removed?"
-        )
-        assert "except Exception" in src, f"{rel}: the cache lookup must have a try/except fallback; missing pyutilz module would otherwise break dispatch."
+_BROKEN_CACHE_SNIPPET = """
+import importlib
+from pyutilz.performance.kernel_tuning import cache as _cache
+
+
+class _BrokenCache:
+    def __init__(self, *a, **k):
+        raise RuntimeError("kernel tuning cache unavailable")
+
+    @classmethod
+    def load_or_create(cls, *a, **k):
+        raise RuntimeError("kernel tuning cache unavailable")
+
+    @classmethod
+    def get_or_tune(cls, *a, **k):
+        raise RuntimeError("kernel tuning cache unavailable")
+
+
+_cache.KernelTuningCache = _BrokenCache
+for _name in {modules!r}:
+    importlib.import_module(_name)
+print("IMPORTED", len({modules!r}))
+"""
+
+
+class _BrokenKernelTuningCache:
+    """Stands in for a KernelTuningCache whose every entry point raises (missing or corrupt sidecar)."""
+
+    def __init__(self, *args, **kwargs):
+        raise RuntimeError("kernel tuning cache unavailable")
+
+    @classmethod
+    def load_or_create(cls, *args, **kwargs):
+        """Raises like a corrupt sidecar would."""
+        raise RuntimeError("kernel tuning cache unavailable")
+
+
+def test_wave23_falls_back_to_source_default_when_cache_unavailable(monkeypatch):
+    """With the kernel tuning cache raising on every use, each GPU-dispatching site still imports
+    (its @kernel_tuner registration falls back) and the RMSE dispatcher still returns the exact
+    RMSE on its source-default block size. A missing or corrupt cache must never break dispatch."""
+    import subprocess
+    import sys
+
+    import numpy as np
+
+    proc = subprocess.run(
+        [sys.executable, "-c", _BROKEN_CACHE_SNIPPET.format(modules=_WAVE23_SITE_MODULES)],
+        capture_output=True, text=True, timeout=600, check=False,
+    )
+    assert proc.returncode == 0 and f"IMPORTED {len(_WAVE23_SITE_MODULES)}" in proc.stdout, proc.stderr[-3000:]
+
+    from mlframe.metrics import _gpu_metrics
+
+    if not _gpu_metrics._is_numba_cuda_available():
+        pytest.skip("numba.cuda unavailable: the RMSE cache lookup is only reached on the numba.cuda path")
+    import cupy as cp
+    from pyutilz.performance.kernel_tuning import cache as _cache
+
+    monkeypatch.setattr(_cache, "KernelTuningCache", _BrokenKernelTuningCache)
+    rng = np.random.default_rng(0)
+    actual = rng.normal(size=5000)
+    predicted = actual[:, None] + rng.normal(scale=[0.1, 0.5, 1.0], size=(5000, 3))
+    got = cp.asnumpy(_gpu_metrics.gpu_multiple_rmse_scores(actual, predicted))
+    np.testing.assert_allclose(got, np.sqrt(np.mean((actual[:, None] - predicted) ** 2, axis=0)), rtol=1e-9)
 
 
 def test_wave23_smoke_imports():
