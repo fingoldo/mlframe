@@ -693,7 +693,7 @@ def report_regression_model_perf(
                     # block=False (not plt.ion()) so the process-global interactive flag is not leaked into the user session.
                     plt.show(block=False)
                 # Leak fix: close unless interactive (Jupyter inline).
-                from mlframe.metrics.core import _close_unless_interactive
+                from mlframe.metrics.shared import close_unless_interactive as _close_unless_interactive
                 _close_unless_interactive(fig, was_shown=show_perf_chart)
 
     if print_report:

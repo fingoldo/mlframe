@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
-from ...feature_selection.varying_size_top_k_subsets import _cluster_anchors
+from mlframe.feature_selection.shared import cluster_anchors as _cluster_anchors
 from .ensemble.feature_stacking import composite_oof_predictions
 from mlframe.utils.log_throttle import log_throttle
 

@@ -35,7 +35,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from .core._misc_helpers import _entry_metric
+from mlframe.training.core.shared import entry_metric as _entry_metric
 from .metrics_registry import metric_name_higher_is_better
 
 logger = logging.getLogger(__name__)

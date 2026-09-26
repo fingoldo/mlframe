@@ -13,7 +13,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from ..spec import CompositeSpec
-from ..ensemble import _is_monotone_nondecreasing
+from mlframe.training.composite.ensemble.shared import is_monotone_nondecreasing as _is_monotone_nondecreasing
 from ._rejection_ledger import RejectStage, ledger_append
 from ._per_base_x import PerBaseMatrices, base_ordered
 from ._tiny_rerank_process import make_spec_task, make_worker_task, rerank_backend, score_spec, score_specs_in_processes
@@ -252,9 +252,7 @@ def _tiny_model_rerank(
     # One fold scheme for raw-y and every spec (per-spec schemes made the threshold and Wilcoxon compare different fold RMSEs).
     _early_any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or (
         _groups_screen is None
-        and any(
-            _is_monotone_nondecreasing(_base_arr) for spec in kept_specs if (_base_arr := _per_base_cache.base_screen(spec.base_column)) is not None
-        )
+        and any(_is_monotone_nondecreasing(_base_arr) for spec in kept_specs if (_base_arr := _per_base_cache.base_screen(spec.base_column)) is not None)
     )
     if _require_raw_baseline:
         x_full = _x_full
@@ -384,7 +382,7 @@ def _tiny_model_rerank(
     # Everything a spec's scoring reads besides the spec itself, as values: the same task runs in this process
     # (serial / threads) or in a worker process, through one implementation (``_tiny_rerank_process.score_spec``).
     _task_common = dict(
-        y_screen=y_screen, families=list(families), per_bin_enabled=bool(per_bin_enabled_pre), per_bin_n_bins=per_bin_n_bins_pre or 5,
+        y_screen=y_screen, families=list(families), per_bin_enabled=bool(per_bin_enabled_pre), per_bin_n_bins=per_bin_n_bins_pre if per_bin_n_bins_pre is not None else 5,
         use_wilcoxon=bool(use_wilcoxon), n_estimators=self.config.tiny_model_n_estimators, num_leaves=self.config.tiny_model_num_leaves,
         learning_rate=self.config.tiny_model_learning_rate, cv_folds=self.config.tiny_model_cv_folds,
         deterministic=getattr(self.config, "deterministic_screening_models", False), n_seed_repeats=n_seed_repeats,

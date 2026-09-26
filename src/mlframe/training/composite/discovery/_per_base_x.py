@@ -30,6 +30,17 @@ class PerBaseMatrices(Mapping):
         self._built: OrderedDict = OrderedDict()
         self._lock = threading.Lock()
 
+    def __getstate__(self) -> dict:
+        """Pickle without the lock (live runtime state) and without the built matrices (rebuilt on demand)."""
+        state = self.__dict__.copy()
+        state.pop("_lock", None)
+        state["_built"] = OrderedDict()
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
+
     def drop_idx(self, base: str) -> list:
         """Column indices of ``x_full`` that ``base``'s matrix leaves out."""
         return [self._col_index[c] for c in dropped_columns(base, self._col_index)]
@@ -80,7 +91,15 @@ class BoundedMemo:
         self._values: OrderedDict = OrderedDict()
         self._lock = threading.Lock()
 
+    def __getstate__(self) -> dict:
+        """Pickle as an empty memo of the same capacity: the lock is live runtime state and the values rebuild on demand."""
+        return {"_capacity": self._capacity}
+
+    def __setstate__(self, state: dict) -> None:
+        type(self).__init__(self, state["_capacity"])
+
     def get_or_build(self, key: Any, build: Callable[[], Any]) -> Any:
+        """The value cached under ``key``, building and caching it on a miss; the oldest entry goes once over capacity."""
         with self._lock:
             hit = self._values.get(key)
             if hit is None:

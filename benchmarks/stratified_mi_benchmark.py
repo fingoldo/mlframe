@@ -59,10 +59,8 @@ def make_heavy_tail_data(
     return y[perm], x_tail[perm], x_bulk[perm]
 
 
-def run_one(strategy: str, n_total: int, mi_sample_n: int,
-            seed: int, n_strata: int = 10,
-            estimator: str = "bin") -> Dict[str, float]:
-    from mlframe.training.composite import _sample_indices, _mi_pair_bin, _mi_to_target
+def run_one(strategy: str, n_total: int, mi_sample_n: int, seed: int, n_strata: int = 10, estimator: str = "bin") -> Dict[str, float]:
+    from mlframe.training.composite.discovery.screening import _sample_indices, _mi_pair_bin, _mi_to_target
     y, x_tail, x_bulk = make_heavy_tail_data(n_total, seed=seed)
     sample_idx = _sample_indices(
         n_total, mi_sample_n, random_state=seed,
@@ -91,11 +89,10 @@ def main() -> int:
     parser.add_argument("--reps", type=int, default=20)
     parser.add_argument("--n_strata", type=int, default=10)
     parser.add_argument("--tail_frac", type=float, default=0.01)
-    parser.add_argument("--estimator", type=str, default="bin",
-                        choices=["bin", "knn"])
+    parser.add_argument("--estimator", type=str, default="bin", choices=["bin", "knn"])
     args = parser.parse_args()
 
-    print(f"Heavy-tail benchmark:")
+    print("Heavy-tail benchmark:")
     print(f"  n_total       = {args.n_total:,}")
     print(f"  mi_sample_n   = {args.mi_sample_n:,}")
     print(f"  tail_frac     = {args.tail_frac}")
@@ -108,12 +105,7 @@ def main() -> int:
         mi_bulks: List[float] = []
         for rep in range(args.reps):
             t0 = time.perf_counter()
-            r = run_one(strategy=strategy,
-                        n_total=args.n_total,
-                        mi_sample_n=args.mi_sample_n,
-                        seed=rep,
-                        n_strata=args.n_strata,
-                        estimator=args.estimator)
+            r = run_one(strategy=strategy, n_total=args.n_total, mi_sample_n=args.mi_sample_n, seed=rep, n_strata=args.n_strata, estimator=args.estimator)
             times.append(time.perf_counter() - t0)
             mi_tails.append(r["mi_tail"])
             mi_bulks.append(r["mi_bulk"])

@@ -168,7 +168,7 @@ def _select_rows(df: Any, idx: np.ndarray) -> Any:
 
 def _extract_target(df: Any, target_col: str, idx: np.ndarray) -> np.ndarray:
     """1-D float target array for the given rows (no whole-frame pull)."""
-    from .discovery.screening import _extract_column_array
+    from mlframe.training.composite.discovery.shared import extract_column_array as _extract_column_array
 
     y = _extract_column_array(df, target_col, rows=idx)
     return np.asarray(y, dtype=np.float64).reshape(-1)

@@ -1,8 +1,8 @@
 {
   "entries": {
-    "import-cycle::mlframe.feature_engineering | mlframe.feature_engineering.categorical_powerset_concat | mlframe.feature_engineering.variance_gated_pairwise_diff | mlframe.feature_selection | mlframe.feature_selection.cascade_select | mlframe.feature_selection.cascade_select_stability | mlframe.feature_selection.drop_noninformative_vs_reference | mlframe.feature_selection.filters | mlframe.feature_selection.filters._legacy | mlframe.feature_selection.filters._mrmr_fingerprints | mlframe.feature_selection.filters._mrmr_tree_rescue | mlframe.feature_selection.filters.mrmr | mlframe.feature_selection.filters.mrmr._mrmr_class | mlframe.feature_selection.general | mlframe.feature_selection.wrappers | mlframe.feature_selection.wrappers.rfecv | mlframe.feature_selection.wrappers.rfecv._fit | mlframe.feature_selection.wrappers.rfecv._mbh_optimizer | mlframe.models | mlframe.models.ensembling | mlframe.models.ensembling.base | mlframe.models.ensembling.flavour_policy | mlframe.models.ensembling.predict | mlframe.models.ensembling.process_method | mlframe.models.ensembling.quality_gate | mlframe.models.ensembling.score": {
+    "import-cycle::mlframe.feature_engineering | mlframe.feature_engineering.categorical_powerset_concat | mlframe.feature_engineering.variance_gated_pairwise_diff | mlframe.feature_selection | mlframe.feature_selection.cascade_select | mlframe.feature_selection.cascade_select_stability | mlframe.feature_selection.drop_noninformative_vs_reference | mlframe.feature_selection.filters | mlframe.feature_selection.filters._legacy | mlframe.feature_selection.filters._mrmr_fingerprints | mlframe.feature_selection.filters._mrmr_tree_rescue | mlframe.feature_selection.filters.mrmr | mlframe.feature_selection.filters.mrmr._mrmr_class | mlframe.feature_selection.filters.shared | mlframe.feature_selection.general | mlframe.feature_selection.wrappers | mlframe.feature_selection.wrappers.rfecv | mlframe.feature_selection.wrappers.rfecv._fit | mlframe.feature_selection.wrappers.rfecv._mbh_optimizer | mlframe.models | mlframe.models.ensembling | mlframe.models.ensembling.base | mlframe.models.ensembling.flavour_policy | mlframe.models.ensembling.predict | mlframe.models.ensembling.process_method | mlframe.models.ensembling.quality_gate | mlframe.models.ensembling.score": {
       "count": 1,
-      "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"
+      "note": ""
     },
     "import-cycle::mlframe.feature_selection.filters._feature_engineering_pairs | mlframe.feature_selection.filters._feature_engineering_pairs._pairs_chunks | mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core | mlframe.feature_selection.filters._feature_engineering_pairs._pairs_score | mlframe.feature_selection.filters.feature_engineering": {
       "count": 1,
@@ -12,9 +12,9 @@
       "count": 1,
       "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"
     },
-    "import-cycle::mlframe.feature_selection.filters._hermite_fe_mi | mlframe.feature_selection.filters.hermite_fe": {
+    "import-cycle::mlframe.feature_selection.filters._hermite_fe_mi | mlframe.feature_selection.filters.hermite_fe | mlframe.feature_selection.filters.hermite_fe.shared": {
       "count": 1,
-      "note": "hermite_fe/_classification_extras split: @njit kernels reference the parent's njit helpers, and numba cannot compile a function-level import"
+      "note": ""
     },
     "import-cycle::mlframe.feature_selection.filters.discretization | mlframe.feature_selection.filters.discretization._discretization_cuda": {
       "count": 1,
@@ -23,10 +23,6 @@
     "import-cycle::mlframe.metrics.classification._classification_extras | mlframe.metrics.classification._classification_extras_blocks": {
       "count": 1,
       "note": "hermite_fe/_classification_extras split: @njit kernels reference the parent's njit helpers, and numba cannot compile a function-level import"
-    },
-    "import-cycle::mlframe.training.composite | mlframe.training.composite.attribution | mlframe.training.composite.model_card": {
-      "count": 1,
-      "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"
     },
     "import-cycle::mlframe.training.composite.discovery._screening_tiny | mlframe.training.composite.discovery._screening_tiny_perbin": {
       "count": 1,

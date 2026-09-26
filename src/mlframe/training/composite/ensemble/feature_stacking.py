@@ -141,7 +141,7 @@ def composite_oof_predictions(
     elif time_aware:
         kf = TimeSeriesSplit(n_splits=int(n_splits))
     else:
-        from ..discovery._splitter import make_discovery_splitter  # the one place a shuffled discovery KFold is built
+        from mlframe.training.composite.discovery.shared import make_discovery_splitter  # the one place a shuffled discovery KFold is built
 
         kf = make_discovery_splitter(int(n_splits), random_state=int(random_state))[0]
     indices = np.arange(n)

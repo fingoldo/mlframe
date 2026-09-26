@@ -10,6 +10,7 @@ both passes ask the same held-out question every sibling protection in this pack
 
 from __future__ import annotations
 
+from typing import Any, cast
 import logging
 
 import numpy as np
@@ -68,7 +69,7 @@ def _readd_adaptive_fourier_legs(self, *, X, cols, data, selected_vars, _eng_con
                 _incr_af = float("inf")
             else:
                 _incr_af = _af_probe(
-                    np.column_stack(_leg_vals_af),
+                    np.column_stack(cast(list[np.ndarray], _leg_vals_af)),  # every entry checked non-None above
                     candidate_values(_src_name_af, X=X, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_af),
                 )
             if _incr_af < _ADAPTIVE_FOURIER_PROTECT_MIN_INCR_R2:
@@ -173,16 +174,16 @@ def _readd_missingness_indicators(self, *, X, cols, data, selected_vars, _eng_co
 def readd_protected_columns(
     self,
     *,
-    X,
-    cols,
-    data,
-    selected_vars,
-    _eng_continuous_snapshot,
-    _y_np,
-    hybrid_orth_pre_recipes,
-    miss_ind_pre_recipes,
-    verbose,
-):
+    X: Any,
+    cols: list,
+    data: np.ndarray,
+    selected_vars: list,
+    _eng_continuous_snapshot: dict,
+    _y_np: Any,
+    hybrid_orth_pre_recipes: dict,
+    miss_ind_pre_recipes: dict,
+    verbose: int,
+) -> Any:
     """Re-add the adaptive-Fourier legs and missingness indicators that still lift a held-out fit over the selected design.
 
     Every candidate this leaves out is recorded on ``self.protection_readd_rejections_`` with the gain it measured and the

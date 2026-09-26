@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 import math
 
@@ -12,7 +13,7 @@ import numpy as np
 from ..transforms import UnknownTransformError, get_transform
 from ._rejection_ledger import RejectStage, ledger_append
 from ._score import Score, rank_specs
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,7 @@ def _additive_in_t(spec) -> bool:
         return False
 
 
-def rmse_bands(idx: list, agg_scores, rel_tol: float) -> list:
+def rmse_bands(idx: list, agg_scores: Any, rel_tol: float) -> list:
     """Split the RMSE-ascending ``idx`` into consecutive noise bands: members within ``rel_tol`` of the band's first score."""
     bands: list = []
     j = 0

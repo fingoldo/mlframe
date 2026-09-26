@@ -94,6 +94,7 @@ def drain_memo_caches() -> MemoDrain:
         # it is the only safe way to drain the fit cache while another thread could be mid-fit.
         fit_cleared = int(module.MRMR.clear_fit_cache())
     except Exception as exc:
+        logger.debug("drain_memo_caches: %s", exc, exc_info=True)
         return MemoDrain(attempted=True, verified=False, fit_entries_cleared=None, identity_entries_cleared=None, reason=f"clear_fit_cache() failed: {type(exc).__name__}: {exc}")
 
     try:
@@ -107,6 +108,7 @@ def drain_memo_caches() -> MemoDrain:
                 identity_cleared = len(cache)
                 cache.clear()
     except Exception as exc:
+        logger.debug("drain_memo_caches: %s", exc, exc_info=True)
         return MemoDrain(attempted=True, verified=False, fit_entries_cleared=fit_cleared, identity_entries_cleared=None, reason=f"identity fingerprint cache could not be cleared: {type(exc).__name__}: {exc}")
 
     residual = _residual_sizes(module)

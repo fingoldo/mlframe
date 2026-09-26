@@ -8,6 +8,7 @@ budget unchanged.
 
 from __future__ import annotations
 
+from typing import Any, Optional
 import logging
 
 import numpy as np
@@ -15,7 +16,7 @@ import numpy as np
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
-def apply_learned_fe_budgets(self, X, loaded_budgets, quota_snapshot: dict) -> None:
+def apply_learned_fe_budgets(self, X: Any, loaded_budgets: Optional[dict], quota_snapshot: dict) -> None:
     """Scale the per-family quotas on ``self`` by the loaded (or equal-split) budget and record the pre-fit state the post-fit
     update needs. Every original quota value is written into ``quota_snapshot`` so the caller's ``finally`` can restore it."""
     try:

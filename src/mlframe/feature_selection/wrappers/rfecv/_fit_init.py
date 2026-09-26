@@ -65,7 +65,7 @@ def _current_params_signature(self) -> object:
         # Lazy import: ``filters`` (its ``_mrmr_fingerprints``) top-level imports ``wrappers`` (RFECV), so a
         # module-level import here would create a hard import cycle; at call time it is cache-free. The public
         # ``filters`` surface lazily re-exports the symbol via ``__getattr__`` (no extra cycle at package init).
-        from mlframe.feature_selection.filters import _hashable_params_signature
+        from mlframe.feature_selection.filters.shared import hashable_params_signature as _hashable_params_signature
 
         return _hashable_params_signature(self.get_params(deep=True))
     except Exception as exc:

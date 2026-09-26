@@ -33,7 +33,7 @@ def _reconstruct_t_train(transform: Any, name: str, y_train: np.ndarray, finite:
         return None
     if getattr(transform, "requires_groups", False) and (groups_train is None or np.asarray(groups_train).shape[0] != n):
         return None
-    from ..transforms._call_gateway import call_transform
+    from mlframe.training.composite.transforms.shared import call_transform
 
     y_fin = y_train[finite]
     base = np.zeros_like(y_fin) if not transform.requires_base else np.asarray(base_train)[finite]

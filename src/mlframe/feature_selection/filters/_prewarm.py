@@ -325,10 +325,8 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
     # call from inside the prange body; prewarming the outer ``discretize_2d_array`` only triggers them via the parallel-fanout at runtime, which numba may not
     # preserve in the disk cache cleanly.
     try:
-        from .discretization import (
-            _discretize_array_impl, quantize_search, quantize_dig,
-            discretize_uniform, digitize, get_binning_edges,
-        )
+        from .discretization import quantize_search, quantize_dig, discretize_uniform, digitize, get_binning_edges
+        from mlframe.feature_selection.filters.discretization.shared import discretize_array_impl as _discretize_array_impl
         _arr1d = cont[:, 0]
         for _disc_dtype in (np.int8, np.int16, np.int32):
             try:

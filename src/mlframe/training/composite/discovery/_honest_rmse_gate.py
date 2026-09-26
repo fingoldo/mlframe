@@ -48,7 +48,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from ..estimator._smearing import N_SMEAR_QUANTILES, SMEARED_TRANSFORMS, smeared_inverse
+from mlframe.training.composite.estimator.shared import N_SMEAR_QUANTILES, SMEARED_TRANSFORMS, smeared_inverse
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array
 from ._yscale_scoring import median_filled_with_std
@@ -56,7 +56,7 @@ from ._rejection_ledger import RejectStage, ledger_append
 from .._row_roles import note_rows
 from ._rejection_ledger import gate_error_reject as _gate_error_reject
 from ._rejection_ledger import spec_inverse
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

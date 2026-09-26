@@ -10,6 +10,7 @@ from mlframe.utils.env_flags import env_float, env_int
 
 
 def test_bad_numeric_value_falls_back(monkeypatch):
+    """A value that is not a number, is NaN or is below the minimum falls back to the default."""
     monkeypatch.setenv("MLFRAME_TEST_KNOB", "auto")
     assert env_int("MLFRAME_TEST_KNOB", 7) == 7
     assert env_float("MLFRAME_TEST_KNOB", 0.5) == 0.5
@@ -28,10 +29,10 @@ def test_bad_numeric_value_falls_back(monkeypatch):
         ("mlframe.feature_selection.filters.evaluation", "jmim_exponent_discount_only", "MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY", "1", True),
         ("mlframe.feature_selection.filters.permutation", "null_mean_min_perms", "MLFRAME_MRMR_NULL_PERMS", "64", 64),
         ("mlframe.feature_selection.filters._ksg", "ksg_gpu_threshold", "MLFRAME_KSG_GPU_N", "1000", 1000),
-        ("mlframe.feature_selection.boruta_shap._shadow_stats", "shadow_tie_gate_fraction", "MLFRAME_BORUTA_SHADOW_TIE_GATE", "0.4", 0.4),
     ],
 )
 def test_value_set_after_import_takes_effect(monkeypatch, module, accessor, name, value, expected):
+    """A knob set after the module was imported is still honoured: it is read on every call."""
     fn = getattr(importlib.import_module(module), accessor)
     monkeypatch.delenv(name, raising=False)
     default = fn()
@@ -40,6 +41,7 @@ def test_value_set_after_import_takes_effect(monkeypatch, module, accessor, name
 
 
 def test_unparseable_value_does_not_break_the_import():
+    """A bad knob value at import time does not stop the module importing; the default is used."""
     code = "import mlframe.feature_selection.filters._ksg as k; import mlframe.feature_selection.filters.evaluation as e; print(k.ksg_gpu_threshold(), e.mrmr_null_signif_alpha())"
     import os
 
@@ -81,6 +83,7 @@ _NUMERIC_KNOB_MODULES = {
 
 
 def test_no_module_fails_to_import_on_a_bad_numeric_knob():
+    """Every module with a numeric knob still imports when all of them hold junk."""
     import os
 
     import mlframe
@@ -94,6 +97,7 @@ def test_no_module_fails_to_import_on_a_bad_numeric_knob():
 
 
 def test_boruta_auto_thresholds_are_read_per_call(monkeypatch):
+    """BorutaShap's auto-dispatch thresholds follow the environment at call time."""
     import numpy as np
 
     from mlframe.feature_selection.boruta_shap._auto_dispatch import resolve_auto_importance_measure

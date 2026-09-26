@@ -42,7 +42,6 @@ UNGUARDED: set[str] = {
     "test_no_bare_pickle_load.py",
     "test_no_cast_in_compiled_functions.py",
     "test_no_fe_family_enabled_without_budget.py",
-    "test_no_import_cycles.py",
     "test_no_inbound_edge_to_benchmarking.py",
     "test_no_lazy_from_import_under_joblib_delayed.py",
     "test_no_module_level_logging_disable.py",

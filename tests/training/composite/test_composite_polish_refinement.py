@@ -24,11 +24,9 @@ import pytest
 pytestmark = pytest.mark.sklearn_matrix
 
 
-from mlframe.training.composite import (
-    CompositeTargetEstimator,
-    _linear_residual_fit,
-    _sample_indices,
-)
+from mlframe.training.composite import CompositeTargetEstimator
+from mlframe.training.composite.transforms import _linear_residual_fit
+from mlframe.training.composite.discovery.screening import _sample_indices
 
 # ----------------------------------------------------------------------
 # Prometheus hook

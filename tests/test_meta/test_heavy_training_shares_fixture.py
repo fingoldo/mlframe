@@ -9,6 +9,8 @@ did the same job in 45 seconds. Modules where three or more test functions call 
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 import ast
 import orjson
 from pathlib import Path
@@ -33,7 +35,9 @@ def direct_suite_trainings(tree: ast.Module) -> list[str]:
 def _scan() -> dict[str, int]:
     """``{module: n direct suite trainings}`` for every test module at or over the threshold."""
     found = {}
-    for path in sorted(_TESTS_DIR.rglob("test_*.py")):
+    _files = sorted(_TESTS_DIR.rglob("test_*.py"))
+    assert_scanned_enough(len(_files), str(_TESTS_DIR), minimum=20)
+    for path in _files:
         if "__pycache__" in path.parts:
             continue
         tree = parsed_ast(path)

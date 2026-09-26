@@ -127,16 +127,12 @@ def basis_term_value(term: "BasisTerm", columns: Mapping[str, np.ndarray], rng: 
     Args:
         term: The declared term.
         columns: Realised columns, which must contain every column the term names.
-
-    Returns:
-        The weighted values, one per row.
-
-    Args:
-        term: The declared term.
-        columns: Realised columns, which must contain every column the term names.
         rng: Stream for the one kind that needs a draw, ``group_effect``. Required for it, because a
             per-level effect drawn from an unnamed generator would differ between two runs of the same
             spec and the bed would stop being reproducible.
+
+    Returns:
+        The weighted values, one per row.
 
     Raises:
         KeyError: If the term names a column the dataset does not have.

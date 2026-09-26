@@ -22,7 +22,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from .discovery._point_mass_gate import MIN_ROWS_FOR_POINT_MASS_CHECK, POINT_MASS_FRACTION_THRESHOLD
+from mlframe.training.composite.discovery.shared import MIN_ROWS_FOR_POINT_MASS_CHECK, POINT_MASS_FRACTION_THRESHOLD
 
 logger = logging.getLogger(__name__)
 

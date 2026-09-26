@@ -23,7 +23,7 @@ from sklearn.base import BaseEstimator
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
-from .base import _ensure_numpy
+from mlframe.training.neural.base.shared import ensure_numpy as _ensure_numpy
 from ._recurrent_cat_embeddings import _RecurrentCatEmbeddingMixin
 from ._recurrent_config import RNNType, InputMode, RecurrentConfig
 from ._recurrent_data import RecurrentDataset, recurrent_collate_fn

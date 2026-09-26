@@ -45,7 +45,9 @@ import numpy as np
 import numba
 from numba import njit
 
-from .discretization import _knuth_bin_edges, _bayesian_blocks_bin_edges
+from mlframe.feature_selection.filters.discretization.shared import (
+    knuth_bin_edges as _knuth_bin_edges, bayesian_blocks_bin_edges as _bayesian_blocks_bin_edges,
+)
 from .supervised_binning import mdlp_bin_edges
 from ._mdlp_validated_split import edges_fayyad_irani_validated
 

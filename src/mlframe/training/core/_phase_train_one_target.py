@@ -448,7 +448,7 @@ def _compute_pipeline_cache_key(
             _dtype_suffix = ""
     _target_suffix = ""
     if pre_pipeline_name and (target_name is not None or train_target is not None):
-        from ..pipeline._pipeline_cache import _full_target_content_hash
+        from mlframe.training.pipeline.shared import full_target_content_hash as _full_target_content_hash
 
         _target_hash = _full_target_content_hash(train_target) if train_target is not None else ""
         _target_suffix = f"_tgt{hashlib.blake2b((str(target_name) + _target_hash).encode(), digest_size=8).hexdigest()}"
@@ -529,6 +529,7 @@ def _canonical_dtype_pairs(train_df) -> tuple:
 
 def _store_dtype_pairs(train_df, _key: tuple, _result: tuple) -> None:
     """Insert one memo entry with its eviction weakref and trim to the cap; caller holds ``_DTYPE_PAIRS_MEMO_LOCK``."""
+    # lock-held-by-caller: the only call site is inside ``with _DTYPE_PAIRS_MEMO_LOCK``
     _DTYPE_PAIRS_MEMO[_key] = _result
     try:
         _DTYPE_PAIRS_MEMO_WEAKREFS[_key] = _weakref.ref(train_df, _make_dtype_pairs_evictor(_key))

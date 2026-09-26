@@ -23,9 +23,10 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 
-from ..composite import _extract_base_matrix, get_transform
-from ..composite.estimator import _extract_groups
-from ..composite.transforms._call_gateway import call_transform
+from ..composite import get_transform
+from mlframe.training.composite.estimator.shared import extract_base_matrix as _extract_base_matrix
+from mlframe.training.composite.estimator.shared import extract_groups as _extract_groups
+from mlframe.training.composite.transforms.shared import call_transform
 from ._prediction_memo import memo_predict
 
 # The parent module's logger name: these lines predate the split, and log filters select them by that name.
@@ -68,7 +69,7 @@ def _watchdog_extract_base(split_df: Any, base_columns: tuple[str, ...]) -> np.n
 
 def _inside_fit_range(params: dict, base: np.ndarray) -> np.ndarray:
     """Rows whose every base column lies inside the range captured at fit: the soft base shrink leaves these untouched."""
-    from ..composite.estimator._soft_shrink import BASE_FIT_RANGE_KEY
+    from mlframe.training.composite.estimator.shared import BASE_FIT_RANGE_KEY
 
     rng = params.get(BASE_FIT_RANGE_KEY) if isinstance(params, dict) else None
     b2 = base.reshape(-1, 1) if base.ndim == 1 else base
@@ -99,8 +100,8 @@ def _check_base_read(wrapper: Any, split_df: Any, base: np.ndarray, composite_na
 def _check_additive(wrapper: Any, transform: Any, params: dict, split_df: Any, y_split: np.ndarray, base: Any, groups: Any,
                     composite_name: str, split_name: str) -> None:
     """y-MAE must equal T-MAE for an additive-in-T transform, with the true T from the split's real y and base."""
-    from ..composite.estimator._predict import _apply_t_clip
-    from ..composite.estimator._routing import inner_input
+    from mlframe.training.composite.estimator.shared import apply_t_clip as _apply_t_clip
+    from mlframe.training.composite.estimator.shared import inner_input
 
     t_true = np.asarray(call_transform(transform, "forward", y_split, base, params, groups=groups), dtype=np.float64)
     t_hat = np.asarray(wrapper.estimator_.predict(inner_input(wrapper, split_df, transform)), dtype=np.float64).reshape(-1)

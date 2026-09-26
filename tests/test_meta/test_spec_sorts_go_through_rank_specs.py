@@ -8,6 +8,8 @@ RMSE. A bare ``sorted(..., key=...)``, ``.sort(key=...)`` or ``np.lexsort`` bypa
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 import ast
 from pathlib import Path
 
@@ -36,7 +38,9 @@ def keyed_sorts(source: str) -> set[str]:
     stack: list[str] = []
 
     class Visitor(ast.NodeVisitor):
+        """Records the enclosing function of every keyed sort."""
         def visit_FunctionDef(self, node):
+            """Track the enclosing function name while visiting its body."""
             stack.append(node.name)
             self.generic_visit(node)
             stack.pop()
@@ -44,6 +48,7 @@ def keyed_sorts(source: str) -> set[str]:
         visit_AsyncFunctionDef = visit_FunctionDef
 
         def visit_Call(self, node):
+            """Record a keyed ``sorted``/``.sort`` or an ``np.lexsort`` call."""
             f, kw = node.func, {k.arg for k in node.keywords}
             if ((isinstance(f, ast.Name) and f.id == "sorted" and "key" in kw) or (isinstance(f, ast.Attribute) and f.attr == "sort" and "key" in kw)
                     or (isinstance(f, ast.Attribute) and f.attr == "lexsort")):
@@ -55,11 +60,15 @@ def keyed_sorts(source: str) -> set[str]:
 
 
 def _scanned_files() -> list[Path]:
+    """The composite discovery modules and core composite phases whose sorts are checked."""
     discovery = [p for p in (_TRAINING / "composite" / "discovery").glob("*.py") if p.name != "_score.py"]
-    return sorted(discovery + list((_TRAINING / "core").glob("_phase_composite*.py")))
+    files = sorted(discovery + list((_TRAINING / "core").glob("_phase_composite*.py")))
+    assert_scanned_enough(len(files), "composite discovery + core phases", minimum=30)
+    return files
 
 
 def test_every_keyed_sort_is_rank_specs_or_listed():
+    """Every keyed sort of specs goes through rank_specs, or is listed with the reason it does not rank specs."""
     hits = {(p.name, fn) for p in _scanned_files() for fn in keyed_sorts(p.read_text(encoding="utf-8"))}
     unlisted = sorted(hits - set(ALLOWED))
     assert not unlisted, f"route these through discovery._score.rank_specs, or list them with the reason they do not rank specs: {unlisted}"
@@ -68,6 +77,7 @@ def test_every_keyed_sort_is_rank_specs_or_listed():
 
 
 def test_the_scan_sees_each_sort_shape():
+    """The scan finds sorted(key=), .sort(key=) and np.lexsort, and ignores a plain sorted()."""
     src = '''
 def a(specs):
     return sorted(specs, key=lambda s: s.mi_gain)

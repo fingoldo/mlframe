@@ -709,7 +709,7 @@ class TestPolarsInput:
         pl_df = pl.from_pandas(df)
         # Verify the wrapper's polars-aware helpers don't crash on
         # base-column extraction or row subsetting.
-        from mlframe.training.composite import _extract_base
+        from mlframe.training.composite.estimator import _extract_base
 
         base = _extract_base(pl_df, "base")
         assert len(base) == 400 and np.all(np.isfinite(base))

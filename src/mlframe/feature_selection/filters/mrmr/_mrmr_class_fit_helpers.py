@@ -20,7 +20,7 @@ from sklearn.base import clone
 
 from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import seed_empty_fe_rosters
 
-from ..info_theory._cmi_cuda import reset_cmi_gpu_circuit_breaker
+from mlframe.feature_selection.filters.info_theory.shared import reset_cmi_gpu_circuit_breaker
 from ..permutation import reset_mi_direct_gpu_circuit_breaker
 from .._permutation_null_pair_resident import reset_pair_maxt_gpu_circuit_breaker
 from .._permutation_null_resident import reset_order1_maxt_gpu_circuit_breaker

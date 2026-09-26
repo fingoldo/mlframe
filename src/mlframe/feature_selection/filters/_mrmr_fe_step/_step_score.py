@@ -609,7 +609,7 @@ def materialise_and_finalise_fe_candidates(
                     # ``quantization_dtype=int8`` config, exactly the bug ``_safe_code_dtype`` exists to
                     # prevent everywhere else it's used (``discretize_array``/``discretize_2d_quantile_batch``/
                     # ``discretize_2d_array``).
-                    from ..discretization import _safe_code_dtype
+                    from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
                     _safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
                     new_vals = np.empty(shape=(len(X), _n_forms), dtype=_safe_dtype)
                     for j in range(_n_forms):
@@ -933,7 +933,7 @@ def materialise_and_finalise_fe_candidates(
                     # value into a narrow-dtype buffer silently downcasts it back, wrapping codes negative
                     # for quantization_nbins > 127 under quantization_dtype=int8 (same bug already fixed
                     # above at the unary/binary materialize block via _safe_code_dtype).
-                    from ..discretization import _safe_code_dtype
+                    from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
                     _esc_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
                     _esc_new_codes: np.ndarray = np.empty(
                         shape=(len(X), len(_esc_admitted)), dtype=_esc_safe_dtype,
@@ -1041,7 +1041,7 @@ def materialise_and_finalise_fe_candidates(
                 # Same narrow-preallocation bug/fix as the escalation-materialize block above:
                 # pre-widen to _safe_code_dtype so discretize_array's internally-widened return value
                 # isn't silently downcast back on assignment.
-                from ..discretization import _safe_code_dtype
+                from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
                 _fz_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
                 _fz_codes: np.ndarray = np.empty(shape=(len(X), len(_fused)), dtype=_fz_safe_dtype)
                 for _jf, _fc in enumerate(_fused):

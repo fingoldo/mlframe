@@ -13,10 +13,10 @@ import numpy as np
 def _fit_signature(self, y, X):
     """Signature of this fit (shapes, X/y content hashes, column names, pre-override ctor params) for the in-object
     same-inputs skip, plus the X and y content hashes it folds in."""
-    from mlframe.feature_selection.filters.mrmr import (
-        _full_y_content_hash,
-        _full_x_content_hash,
-        _hashable_params_signature,
+    from mlframe.feature_selection.filters.mrmr.shared import (
+        full_y_content_hash as _full_y_content_hash,
+        full_x_content_hash as _full_x_content_hash,
+        hashable_params_signature as _hashable_params_signature,
     )
 
     _y_hash_for_sig = _full_y_content_hash(y)
@@ -41,12 +41,12 @@ def _fit_signature(self, y, X):
     # ``_full_x_content_hash`` - asymmetric guarantees between the two
     # cache layers. Fold X content hash here so both layers agree.
     _x_hash_for_sig = _full_x_content_hash(X)
-    # 2026-06-10 fix: fold the selector's OWN parameter signature into the in-object skip signature.
+    # Fold the selector's OWN parameter signature into the in-object skip signature.
     # Pre-fix the signature was ``(X.shape, y.shape, y_hash, x_hash, x_cols)`` - SELECTOR PARAMS were
     # absent: refitting the same MRMR instance with changed settings (via ``set_params`` or direct
     # attribute assignment, e.g. ``selector.n_features_to_select = 3``) on identical data silently
     # replayed the prior fit, returning a selection computed under the OLD params. Same asymmetric-
-    # guarantees bug class as the 2026-05-30 X-content fix above: the process-wide ``_FIT_CACHE``
+    # guarantees bug class as the X-content fix above: the process-wide ``_FIT_CACHE``
     # below already folds ``_hashable_params_signature`` while this layer did not. ``get_params``
     # introspects ``__init__`` arg names and reads CURRENT attribute values at fit time, so params
     # changed after a previous fit are captured on the next ``fit`` call. ``deep=True`` additionally
@@ -79,11 +79,11 @@ def _fit_signature(self, y, X):
 def _fit_cache_key(self, X, y, _y_hash_for_sig, groups):
     """Content-based key of this fit in the process-wide ``MRMR._FIT_CACHE``; None when either content hash is empty or
     the key cannot be built (the fit then skips the cache rather than risk a wrong replay)."""
-    from mlframe.feature_selection.filters.mrmr import (
-        _content_array_signature,
-        _full_x_content_hash,
-        _hashable_params_signature,
-        _target_name_signature,
+    from mlframe.feature_selection.filters.mrmr.shared import (
+        content_array_signature as _content_array_signature,
+        full_x_content_hash as _full_x_content_hash,
+        hashable_params_signature as _hashable_params_signature,
+        target_name_signature as _target_name_signature,
     )
 
     try:
@@ -137,7 +137,8 @@ def _replay_from_fit_cache(self, cache_key):
     the replay see a consistent snapshot either fully before or fully after the concurrent fit's own (also locked) writes.
     """
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import _MRMR_FIT_CACHE_LOCK
-    from mlframe.feature_selection.filters.mrmr import MRMR, _replay_fitted_state
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from mlframe.feature_selection.filters.mrmr.shared import replay_fitted_state as _replay_fitted_state
 
     if cache_key is None:
         return False

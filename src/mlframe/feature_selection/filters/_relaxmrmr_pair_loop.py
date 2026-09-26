@@ -12,6 +12,8 @@ called, so the arithmetic is unchanged.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 from numba import get_thread_id, njit, prange
 
@@ -65,7 +67,7 @@ def _serial_pair_sum(x_int, y_int, sel_int, K_sel, K_x, K_y, cmi_y_mm, marg_mm, 
     return inter
 
 
-def pair_interaction_sum(x_int, y_int, sel_int, K_sel, K_x, K_y, cmi_y_mm, marg_mm, min_rows_per_cell) -> float:
+def pair_interaction_sum(x_int: np.ndarray, y_int: np.ndarray, sel_int: Sequence[np.ndarray], K_sel: Sequence[int] | np.ndarray, K_x: int, K_y: int, cmi_y_mm: np.ndarray, marg_mm: np.ndarray, min_rows_per_cell: float) -> float:
     """Sum the 3-way interaction term over every pair of selected features, parallel once there is enough work to be worth it."""
     n_S = len(sel_int)
     if n_S < 2:

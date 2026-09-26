@@ -120,11 +120,10 @@ def compute_pair_mis_and_floor(
     """Compute pair MIs + the order-2 maxT floor for the FE candidate pool. ``cached_MIs`` mutated in place."""
     # Lazy import: ``.mrmr`` re-imports this package at its bottom for method binding -> a top-level
     # ``from ..mrmr import ...`` here would create a hard import cycle (see _step_core).
-    from ..mrmr import (
-        _lazy_chunks,
-        _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS,
-        compute_pairs_mis,
-        tqdmu,
+    from ..mrmr import compute_pairs_mis, tqdmu
+    from mlframe.feature_selection.filters.mrmr.shared import (
+        lazy_chunks as _lazy_chunks,
+        MRMR_BATCH_PRECOMPUTE_MIN_PAIRS as _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS,
     )
 
     # ENGINEERED-OPERAND FEED-FORWARD CAP. At FE step k>1 the operand

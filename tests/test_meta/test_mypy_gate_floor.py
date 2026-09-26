@@ -8,6 +8,8 @@ below is every `.py` under src/mlframe outside the excluded benchmark/profiling 
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 import re
 from pathlib import Path
 
@@ -21,4 +23,5 @@ def test_precommit_mypy_runs_through_mypy_gate_with_a_floor_sized_from_the_tree(
     floors = [int(m) for m in _FLOOR.findall((REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))]
     assert len(floors) == 1, f"expected one mypy_gate --min-files hook over src/mlframe, found {floors}"
     measured = sum(1 for p in (REPO_ROOT / "src" / "mlframe").rglob("*.py") if not _EXCLUDED & set(p.parts))
+    assert_scanned_enough(measured, "src/mlframe")
     assert 0.85 * measured <= floors[0] <= measured, f"--min-files {floors[0]} is not within 85-100% of {measured} source files; re-measure"

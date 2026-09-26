@@ -59,7 +59,7 @@ def gpu_fe_batch_mi(
     # (``_hermite_fe_mi`` imports ``hermite_fe`` at its top; ``hermite_fe`` re-imports ``_hermite_fe_mi`` at
     # its bottom). A cold direct ``from .._hermite_fe_mi import`` partially-initialises it and raises; going
     # through the package runs its full __init__ first, so the re-exported name is bound. See _fe_edge_mi.
-    from ..hermite_fe import _plugin_mi_classif_batch_cuda_resident
+    from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_cuda_resident as _plugin_mi_classif_batch_cuda_resident
     from .._gpu_resident_fe import _gpu_k_chunk
 
     dev_ctx = cp.cuda.Device(device) if device is not None else cp.cuda.Device()

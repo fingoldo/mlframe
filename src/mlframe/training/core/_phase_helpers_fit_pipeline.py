@@ -278,7 +278,7 @@ def _phase_fit_pipeline(
         # ``create_date_features`` expects {accessor: np_dtype}. Per-method width comes from the canonical ``_DEFAULT_DATE_METHODS`` map so wide fields are
         # never silently truncated: year needs int32, and day_of_year (1..366) needs int16 -- a flat int8 wraps day_of_year (pandas: silent mod-256; polars:
         # strict-cast crash mid-pipeline). Unmapped methods default to int16 (covers every date field bar year).
-        from mlframe.feature_engineering.basic import _DEFAULT_DATE_METHODS
+        from mlframe.feature_engineering.shared import DEFAULT_DATE_METHODS as _DEFAULT_DATE_METHODS
 
         _dt_methods = {m: _DEFAULT_DATE_METHODS.get(m, np.int16) for m in sorted(_configured_methods)}
         if verbose:
@@ -420,7 +420,7 @@ def _phase_fit_pipeline(
 
     # More than one target: the label-supervised composite steps are fitted per target (``_per_target_supervised_fe``);
     # the suite-level blocks below then run only their unsupervised parts.
-    from ..pipeline._per_target_supervised_fe import apply_per_target_supervised_fe, iter_targets, supervised_steps_enabled
+    from mlframe.training.pipeline.shared import apply_per_target_supervised_fe, iter_targets, supervised_steps_enabled
 
     _per_target_targets = iter_targets(target_by_type) if supervised_steps_enabled(preprocessing_extensions) and hasattr(target_by_type, "items") else []
     _per_target_mode = len(_per_target_targets) > 1
@@ -463,7 +463,7 @@ def _phase_fit_pipeline(
         getattr(preprocessing_extensions, "categorical_powerset_concat_enabled", False)
         or getattr(preprocessing_extensions, "categorical_group_concat_auto_enabled", False)
     ):
-        from ..pipeline._categorical_composite_fe import apply_categorical_composite_fe
+        from mlframe.training.pipeline.shared import apply_categorical_composite_fe
 
         train_df, val_df, test_df = apply_categorical_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, _y_for_composite, metadata, verbose=verbose,
@@ -474,7 +474,7 @@ def _phase_fit_pipeline(
     if preprocessing_extensions is not None and (
         getattr(preprocessing_extensions, "state_duration_columns", None) or getattr(preprocessing_extensions, "recency_aggregation_columns", None)
     ):
-        from ..pipeline._entity_time_composite_fe import apply_entity_time_composite_fe
+        from mlframe.training.pipeline.shared import apply_entity_time_composite_fe
 
         train_df, val_df, test_df = apply_entity_time_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, group_ids, timestamps,
@@ -484,7 +484,7 @@ def _phase_fit_pipeline(
     # Cross-sectional-neighbor FE -- column-declaration-driven (snapshot key is a frame column, not
     # a side-array), same pre-encoding point.
     if preprocessing_extensions is not None and getattr(preprocessing_extensions, "cross_sectional_neighbors_snapshot_col", None):
-        from ..pipeline._cross_sectional_composite_fe import apply_cross_sectional_composite_fe
+        from mlframe.training.pipeline.shared import apply_cross_sectional_composite_fe
 
         train_df, val_df, test_df = apply_cross_sectional_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, metadata=metadata, verbose=verbose,
@@ -493,7 +493,7 @@ def _phase_fit_pipeline(
     # Two-step recency-weighted target encoding -- needs group_ids AND train-only y (real fit-time
     # state: a per-entity lookup table persisted onto metadata for val/test/predict).
     if preprocessing_extensions is not None and getattr(preprocessing_extensions, "two_step_target_encode_columns", None):
-        from ..pipeline._target_encoding_composite_fe import apply_target_encoding_composite_fe
+        from mlframe.training.pipeline.shared import apply_target_encoding_composite_fe
 
         train_df, val_df, test_df = apply_target_encoding_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, group_ids, timestamps, _y_for_composite,
@@ -503,7 +503,7 @@ def _phase_fit_pipeline(
     # MA-crossover FE -- no rolling-MA step of its own in the suite; computed here from declared
     # numeric columns before feeding the underlying pairwise-crossover function.
     if preprocessing_extensions is not None and getattr(preprocessing_extensions, "ma_crossover_columns", None):
-        from ..pipeline._ma_crossover_composite_fe import apply_ma_crossover_composite_fe
+        from mlframe.training.pipeline.shared import apply_ma_crossover_composite_fe
 
         train_df, val_df, test_df = apply_ma_crossover_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, group_ids, timestamps,
@@ -513,7 +513,7 @@ def _phase_fit_pipeline(
     # SVD latent-interaction embeddings -- needs a SEPARATE auxiliary events table, not columns on
     # train/val/test. Real fit-time state (the fitted TF-IDF/SVD basis) persisted onto metadata.
     if preprocessing_extensions is not None and getattr(preprocessing_extensions, "latent_interaction_svd_row_entity", None):
-        from ..pipeline._latent_interaction_svd_composite_fe import apply_latent_interaction_svd_composite_fe
+        from mlframe.training.pipeline.shared import apply_latent_interaction_svd_composite_fe
 
         train_df, val_df, test_df = apply_latent_interaction_svd_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, auxiliary_events_df, group_ids,
@@ -523,7 +523,7 @@ def _phase_fit_pipeline(
     # Nearest-past as-of join -- needs the SAME SEPARATE auxiliary events table, no fit-time state
     # (the backward as-of match is inherently leak-safe by construction).
     if preprocessing_extensions is not None and getattr(preprocessing_extensions, "nearest_past_join_on", None):
-        from ..pipeline._nearest_past_join_composite_fe import apply_nearest_past_join_composite_fe
+        from mlframe.training.pipeline.shared import apply_nearest_past_join_composite_fe
 
         train_df, val_df, test_df = apply_nearest_past_join_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, auxiliary_events_df, metadata=metadata, verbose=verbose,
@@ -533,7 +533,7 @@ def _phase_fit_pipeline(
     # from timestamps (captured before the earlier datetime-column-decomposition phase), not a
     # train/val/test column.
     if preprocessing_extensions is not None and getattr(preprocessing_extensions, "event_proximity_decay_event_dates", None):
-        from ..pipeline._event_proximity_decay_composite_fe import apply_event_proximity_decay_composite_fe
+        from mlframe.training.pipeline.shared import apply_event_proximity_decay_composite_fe
 
         train_df, val_df, test_df = apply_event_proximity_decay_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, timestamps,

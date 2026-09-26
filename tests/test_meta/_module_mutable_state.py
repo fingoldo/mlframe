@@ -143,11 +143,15 @@ def _resolve_from(node: ast.ImportFrom, qualname: str, is_package: bool) -> str:
     return ".".join(base + ([node.module] if node.module else []))
 
 
-def imported_module_dicts(tree: ast.Module, rel_posix: str, dict_index: dict[str, set[str]]) -> dict[str, str]:
+def imported_module_dicts(
+    tree: ast.Module, rel_posix: str, dict_index: dict[str, set[str]], reexports: "dict[str, dict[str, str]] | None" = None
+) -> dict[str, str]:
     """``{local_name: "origin.module:NAME"}`` for names this module imports that are another module's module-level dict.
 
     A dict defined in one module and mutated or evicted in another is the same shared state; the per-module scans
-    missed it (``_CB_VAL_POOL_CACHE`` is defined in ``_predict_guards`` and evicted in ``cb/_cb_pool``).
+    missed it (``_CB_VAL_POOL_CACHE`` is defined in ``_predict_guards`` and evicted in ``cb/_cb_pool``). A dict imported
+    through a re-export module (a package's ``shared.py``: ``from ._registry import _REG as REG``) resolves to its origin
+    through ``reexports`` (see :func:`build_reexport_index`), so the alias does not hide the mutation.
     """
     qual = module_qualname(rel_posix)
     is_pkg = rel_posix.endswith("__init__.py")
@@ -155,12 +159,29 @@ def imported_module_dicts(tree: ast.Module, rel_posix: str, dict_index: dict[str
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             src = _resolve_from(node, qual, is_pkg)
-            names = dict_index.get(src)
-            if not names:
-                continue
+            names = dict_index.get(src) or set()
+            forwarded = (reexports or {}).get(src) or {}
             for a in node.names:
                 if a.name in names:
                     out[a.asname or a.name] = f"{src}:{a.name}"
+                elif a.name in forwarded:
+                    out[a.asname or a.name] = forwarded[a.name]
+    return out
+
+
+def build_reexport_index(modules: dict[str, ast.Module], dict_index: dict[str, set[str]]) -> dict[str, dict[str, str]]:
+    """``{module_qualname: {exported_name: "origin.module:NAME"}}`` for module-level imports that re-export another module's dict."""
+    out: dict[str, dict[str, str]] = {}
+    for rel, tree in modules.items():
+        qual = module_qualname(rel)
+        is_pkg = rel.endswith("__init__.py")
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom):
+                src = _resolve_from(node, qual, is_pkg)
+                names = dict_index.get(src) or set()
+                for a in node.names:
+                    if a.name in names:
+                        out.setdefault(qual, {})[a.asname or a.name] = f"{src}:{a.name}"
     return out
 
 

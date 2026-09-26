@@ -19,11 +19,12 @@ except ImportError:  # pragma: no cover
 from sklearn.base import clone
 
 from .._composite_utils import is_polars_df as _is_polars_df
-from ..estimator import CompositeTargetEstimator, _extract_groups
+from ..estimator import CompositeTargetEstimator
+from mlframe.training.composite.estimator.shared import extract_groups as _extract_groups
 from ..transforms import get_transform
 from ._oof_split import _align_fit_sw, _carve_inner_eval_split
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger("mlframe.training.composite.ensemble")
 

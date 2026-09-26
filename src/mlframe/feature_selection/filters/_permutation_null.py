@@ -616,7 +616,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     # The permutation-BATCHED variant computes each pair's joint encoding + x-marginal ONCE and reuses them across
     # all K shuffles (only the (joint, y_perm) contingency re-runs per shuffle) - ~1.71x, bit-identical.
     from .info_theory import batch_pair_mi_perm_batched
-    from .info_theory._batch_kernels import joint_cardinality_cap
+    from mlframe.feature_selection.filters.info_theory.shared import joint_cardinality_cap
 
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
     pb = np.ascontiguousarray(pair_b, dtype=np.int64)
@@ -710,7 +710,7 @@ def pooled_triple_permutation_null_joint_mi_floor(
     # code/marginal out of the K-shuffle loop; mirror that here with the order-3 sibling
     # (the raw dense-renumbered triple code is likewise invariant under a y-permutation).
     from .info_theory import batch_triple_mi_perm_batched
-    from .info_theory._batch_kernels import joint_cardinality_cap
+    from mlframe.feature_selection.filters.info_theory.shared import joint_cardinality_cap
 
     ta = np.ascontiguousarray(triple_a, dtype=np.int64)
     tb = np.ascontiguousarray(triple_b, dtype=np.int64)

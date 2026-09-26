@@ -490,7 +490,7 @@ def _finalise_fs_results(
     # raw-feature gate's own fallback. No-op - and therefore byte-identical - when group_aware_mi is off
     # / no groups were supplied this fit (``get_group_mi()`` returns ``None``).
     try:
-        from ..info_theory._state_and_dispatch import get_group_mi as _get_group_mi_final
+        from mlframe.feature_selection.filters.info_theory.shared import get_group_mi as _get_group_mi_final
         _gmi_final_payload = _get_group_mi_final()
     except Exception as e:
         logger.debug("get_group_mi_final() failed: %s", e)
@@ -498,8 +498,8 @@ def _finalise_fs_results(
     _eng_recipes_final = getattr(self, "_engineered_recipes_", None) or []
     if _gmi_final_payload is not None and _eng_recipes_final:
         try:
-            from ..info_theory._group_mi import group_blocked_mi as _group_blocked_mi_final
-            from ..info_theory._group_mi import group_relevance_mi as _group_relevance_mi_final
+            from mlframe.feature_selection.filters.info_theory.shared import group_blocked_mi as _group_blocked_mi_final
+            from mlframe.feature_selection.filters.info_theory.shared import group_relevance_mi as _group_relevance_mi_final
 
             _cols_idx_f = {nm: i for i, nm in enumerate(cols)}
             _gsi_f, _goff_f, _gmr_f, _gsw_f = _gmi_final_payload
@@ -521,7 +521,7 @@ def _finalise_fs_results(
                     # the SAME recompute + discretise the retention pass itself uses, then group-block
                     # directly (a single already-discretised column needs no ``merge_vars`` combination).
                     try:
-                        from ..engineered_recipes._recipe_dispatch import apply_recipe as _apply_recipe_final
+                        from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe as _apply_recipe_final
                         from ..discretization import discretize_array as _discretize_array_final
 
                         _cv_f = np.asarray(_apply_recipe_final(_recipe, X), dtype=np.float64).ravel()

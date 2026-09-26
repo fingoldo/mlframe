@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def find_best_partial_gain(
     partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list, skip_indices: tuple = (),
-    dcd_state=None,
+    dcd_state: Any = None,
 ) -> Tuple[float, Any]:
     """Find the highest-scoring already-evaluated-but-not-yet-confirmed candidate in ``partial_gains`` (used to redirect the confirmation loop to the next-best option when the current top candidate fails confirmation), excluding failed/added/skip_indices candidates and any candidate DCD has since pruned."""
     # a DCD-pruned candidate must NOT be returned as a

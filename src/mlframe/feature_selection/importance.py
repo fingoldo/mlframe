@@ -305,10 +305,10 @@ def plot_feature_importance(
                 except Exception as e:
                     logger.debug("IPython inline display failed, falling back to plt.show(): %s", e)
                     # Fall back to plt.show on any import / display error.
-                    from mlframe.metrics import show_plots_unless_agg
+                    from mlframe.metrics.calibration.shared import show_plots_unless_agg
                     show_plots_unless_agg()
             else:
-                from mlframe.metrics import show_plots_unless_agg
+                from mlframe.metrics.calibration.shared import show_plots_unless_agg
                 show_plots_unless_agg()
             # 2026-05-26 Jupyter double-render fix: after
             # ``IPython.display.display(fig)`` the kernel has already
@@ -339,7 +339,7 @@ def plot_feature_importance(
         # branch, so this helper is the safety net for the no-show
         # path. 2026-05-09 leak fix; helper unifies the detection
         # across modules.
-        from mlframe.metrics.core import _close_unless_interactive
+        from mlframe.metrics.shared import close_unless_interactive as _close_unless_interactive
         _close_unless_interactive(figs, was_shown=show_plots)
 
     return df

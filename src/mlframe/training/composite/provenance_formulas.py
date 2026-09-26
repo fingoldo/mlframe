@@ -655,6 +655,7 @@ _CHAIN_REGISTRATION_LOCK = threading.Lock()
 
 def _register_chain_formula_locked(chain_name: str, residual_name: str, unary_name: str) -> None:
     """Body of the chain-formula registration; the caller holds ``_CHAIN_REGISTRATION_LOCK``."""
+    # lock-held-by-caller: the only call site is inside ``with _CHAIN_REGISTRATION_LOCK``
     if chain_name in _TRANSFORM_FORMULA_BUILDERS:
         return
     res_desc = _TRANSFORM_DESCRIPTIONS.get(residual_name, residual_name)

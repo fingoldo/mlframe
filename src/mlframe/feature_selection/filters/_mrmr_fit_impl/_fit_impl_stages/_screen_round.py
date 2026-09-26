@@ -51,7 +51,6 @@ def _attach_dcd_results(self, _dcd_state, X, data, cols, nbins):
             self.cluster_hierarchy_ = {}
     else:
         self.cluster_hierarchy_ = None
-    # 2026-05-30 Wave 9.1 fix (loop iter 1, agent-found bug):
     # When DCD's ``commit_swap`` extended ``factors_data`` inside screen
     # with PC1 aggregate columns, the swap targets land in ``selected_vars``
     # at indices >= len(nbins) here - the outer-scope ``data/cols/nbins``

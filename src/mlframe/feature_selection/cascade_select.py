@@ -24,7 +24,7 @@ from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 
-from .filters._boruta import boruta_select
+from mlframe.feature_selection.filters.shared import boruta_select
 from .forward_select import forward_select
 
 

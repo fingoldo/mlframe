@@ -139,8 +139,10 @@ def _write_breadcrumb(line: str) -> None:
     try:
         with _BREADCRUMB_LOCK:
             f.write(line + "\n")
-    except (OSError, ValueError):  # best-effort: a breadcrumb that cannot be written must never break the phase it marks
-        pass
+    except (OSError, ValueError) as exc:  # best-effort: a breadcrumb that cannot be written must never break the phase it marks
+        from mlframe.utils.log_throttle import log_throttle
+
+        log_throttle(logger, "crash_breadcrumb_write_failed", logging.DEBUG, "faulthandler breadcrumb write failed: %s", exc)
 
 
 def open_faulthandler_file(crash_dir: Optional[str] = None, all_threads: bool = True) -> Optional[str]:
@@ -182,6 +184,7 @@ def _sys_excepthook(exc_type, exc, tb, _prev=None):
     """``sys.excepthook`` replacement: log the uncaught exception with its traceback, remember it for the exit line, then chain to ``_prev``."""
     try:
         if not issubclass(exc_type, KeyboardInterrupt):
+            # unlocked-ok: one key rebound to an immutable string by the interpreter's own excepthook; read once at exit
             _UNCAUGHT["exc"] = f"{exc_type.__name__}: {exc}"
             logger.critical("Uncaught exception in main thread:\n%s", "".join(traceback.format_exception(exc_type, exc, tb)))
         else:

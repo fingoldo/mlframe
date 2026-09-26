@@ -13,6 +13,8 @@ moment to check that every read of it carries a default.
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 import ast
 import pathlib
 import sys
@@ -34,7 +36,9 @@ def _assigned_fitted_attrs() -> set:
     """Every ``self.<name>_ = ...`` assignment across the estimator's own packages, by attribute name."""
     names: set = set()
     for package in _PACKAGES:
-        for path in sorted((_SRC / package).rglob("*.py")):
+        _files = sorted((_SRC / package).rglob("*.py"))
+        assert_scanned_enough(len(_files), str(_SRC / package), minimum=1)
+        for path in _files:
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Assign):

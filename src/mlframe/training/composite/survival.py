@@ -58,7 +58,7 @@ from typing import Any
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
-from .estimator import _extract_base
+from mlframe.training.composite.estimator.shared import extract_base as _extract_base
 
 logger = logging.getLogger(__name__)
 

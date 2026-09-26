@@ -15,16 +15,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite import (
-    _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
-    _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
-    _quantile_residual_assign_bins,
-    _quantile_residual_domain,
-    _quantile_residual_fit,
-    _quantile_residual_forward,
-    _quantile_residual_inverse,
-    get_transform,
-)
+from mlframe.training.composite import get_transform
+from mlframe.training.composite.transforms import _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N, _QUANTILE_RESIDUAL_DEFAULT_N_BINS, _quantile_residual_assign_bins, _quantile_residual_domain, _quantile_residual_fit, _quantile_residual_forward, _quantile_residual_inverse
 
 # ---------------------------------------------------------------------------
 # Unit: fit + bin assignment
@@ -189,7 +181,7 @@ class TestBizValueQuantileResidualOnHeteroscedasticDGP:
         qr_params = _quantile_residual_fit(y, base, n_bins=10, min_bin_n=50)
         T_qr = _quantile_residual_forward(y, base, qr_params)
         # Linear residual (single-base OLS).
-        from mlframe.training.composite import _linear_residual_fit, _linear_residual_forward
+        from mlframe.training.composite.transforms import _linear_residual_fit, _linear_residual_forward
 
         lr_params = _linear_residual_fit(y, base)
         T_lr = _linear_residual_forward(y, base, lr_params)

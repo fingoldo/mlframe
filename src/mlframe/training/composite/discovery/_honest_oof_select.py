@@ -21,12 +21,12 @@ group-internal CV-RMSE rather than auto-killing the spec.
 """
 from __future__ import annotations
 
-from ..estimator._smearing import smeared_prediction
+from mlframe.training.composite.estimator.shared import smeared_prediction
 from ._spec_shared import spec_base_columns, rmse
 
 import logging
 import threading
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 import numpy as np
 from pyutilz.parallel import cpu_count_physical
@@ -36,7 +36,7 @@ from ._causal_lag import causal_lag_predict_rmse, detect_causal_lag_column
 from .screening import _extract_column_array, base_arg as _base_arg
 from ._screening_tiny import _build_tiny_model
 from ._yscale_scoring import median_filled_with_std
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def prediction_key(valid: np.ndarray) -> int:
     return hash(np.packbits(np.asarray(valid, dtype=bool)).tobytes())
 
 
-def cached_honest_prediction(self, fit_idx: np.ndarray, eval_idx: np.ndarray, spec_name: str | None = None, valid: np.ndarray | None = None):
+def cached_honest_prediction(self, fit_idx: np.ndarray, eval_idx: np.ndarray, spec_name: str | None = None, valid: np.ndarray | None = None) -> np.ndarray | None:
     """Honest-OOF's holdout prediction for ``spec_name`` (or the raw baseline when ``None``), if it was made on these rows.
 
     The honest RMSE gate fits the same tiny model on the same screen rows and predicts the same holdout rows whenever
@@ -58,11 +58,11 @@ def cached_honest_prediction(self, fit_idx: np.ndarray, eval_idx: np.ndarray, sp
     if not cache or not np.array_equal(cache["fit_idx"], fit_idx) or not np.array_equal(cache["eval_idx"], eval_idx):
         return None
     if spec_name is None:
-        return cache["raw"]
+        return cast(np.ndarray | None, cache["raw"])
     hit = cache["specs"].get(spec_name)
     if hit is None or valid is None or hit[0] != prediction_key(valid):
         return None
-    return hit[1]
+    return cast(np.ndarray, hit[1])
 
 
 def _raw_baseline_prediction(new_model, x_fit, y_fit, x_eval):

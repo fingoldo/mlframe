@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 
-from .transforms.simple import _diff_inverse as _inv_diff
+from mlframe.training.composite.transforms.shared import diff_inverse as _inv_diff
 
 __all__ = [
     "SERVING_SPEC_VERSION",
@@ -288,7 +288,7 @@ def _split_synthetic_name(name: str):
         token = f"__{op}__"
         i = name.find(token)
         if i > 0 and i + len(token) < len(name):
-            return name[:i], op, name[i + len(token):]
+            return name[:i], op, name[i + len(token) :]
     return None
 
 

@@ -15,14 +15,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite import (
-    _monotonic_residual_fit,
-    _monotonic_residual_forward,
-    _monotonic_residual_inverse,
-    _monotonic_residual_domain,
-    _monotonic_residual_g,
-    get_transform,
-)
+from mlframe.training.composite import get_transform
+from mlframe.training.composite.transforms import _monotonic_residual_fit, _monotonic_residual_forward, _monotonic_residual_inverse, _monotonic_residual_domain, _monotonic_residual_g
 
 
 class TestFit:

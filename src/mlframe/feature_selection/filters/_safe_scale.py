@@ -70,7 +70,7 @@ def silverman_bandwidth(values: Any, xp: Any = np) -> Optional[float]:
     return float(1.06 * std * (max(n, 1) ** (-1.0 / 5.0)))
 
 
-def guarded_scale(scale, magnitude, xp=np):
+def guarded_scale(scale: Any, magnitude: Any, xp: Any = np) -> Any:
     """``scale`` itself when it is resolvable against the data's own ``magnitude``, else ``1.0``.
 
     Divisors for an axis (a standard deviation, a min-max span) are guarded rather than padded: a genuinely tiny but real scale divides by

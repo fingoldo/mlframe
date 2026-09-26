@@ -17,7 +17,7 @@ def _build_fe_transformations(self, fe, verbose):
 
     unary_transformations = create_unary_transformations(preset=fe.unary_preset)
     binary_transformations = create_binary_transformations(preset=fe.binary_preset)
-    # REPLAY-SAFETY (audit, 2026-06-13): exclude ops that are NOT row-wise pure functions from FE
+    # REPLAY-SAFETY: exclude ops that are NOT row-wise pure functions from FE
     # pair candidates. Their value at a row depends on OTHER rows (``np.gradient``: grad1/grad2) or
     # on a whole-column statistic recomputed at apply time (``logn`` uses ``x - np.min(x)``), so a
     # recipe built on them silently produces DIFFERENT values on a row-slice / test frame

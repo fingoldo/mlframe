@@ -34,7 +34,10 @@ selection?", *Pattern Recognition* 53:51-62.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+
 # The estimators moved to a sibling so the parallel pair loop shares them; re-exported here because callers and tests import them
 # from this module.
 from mlframe.feature_selection.filters._relaxmrmr_kernels import (  # noqa: F401
@@ -75,6 +78,8 @@ def relax_mrmr_score(
             ``K_x * K_i * K_j * K_y`` cells for ``I(X; Z_i, Z_j | Y)``, holds at least this many rows per cell. Below that the
             estimate is dominated by sampling bias no plug-in correction removes (measured: -0.37 "interaction" on fully
             independent data at n=2000 with 10-level columns), so the pair's term is undefined and left out.
+        selected_prechecked: the caller already range-checked ``y`` and ``selected_cols`` (via
+            ``assert_relax_inputs_in_range``), so the per-candidate call skips re-reading columns that do not change.
 
     Returns: scalar score with full 3-way correction; higher = better.
 
@@ -87,6 +92,7 @@ def relax_mrmr_score(
         # treated as 0 (the term skipped), indistinguishable from alpha=0.
         raise ValueError(f"relax_mrmr_score: alpha must be >= 0; got {alpha!r}.")
     from ._bur_term import _mi_pair_njit  # reuse the 2-var plug-in MI kernel
+
     # Guard against out-of-range / -1-sentinel codes: the njit kernels index joint[x[i], y[i], z[i]] directly, so a
     # negative sentinel wraps to the last bin and an over-range code writes out of bounds (silent corruption). PID
     # hardens the same class explicitly; mirror it here.
@@ -111,7 +117,7 @@ def relax_mrmr_score(
     # n_S == 0 early return, both of which would otherwise allocate un-capped). The 3-D I(X;Y|Z) joint is
     # (K_x, K_y, K_z) and the interaction term's composite pair joint is (K_x, K_z_i, K_z_j); guard the
     # largest of each so a high-cardinality selected set cannot OOM the dense alloc.
-    from .info_theory._batch_kernels import check_joint_cardinality
+    from mlframe.feature_selection.filters.info_theory.shared import check_joint_cardinality
 
     check_joint_cardinality(K_x, K_y, what="relax_mrmr_score")
     for _K_z in K_sel:
@@ -154,7 +160,7 @@ def relax_mrmr_score(
     return float(relevance - pair_red + inter)
 
 
-def assert_relax_inputs_in_range(y, nbins_y, selected_cols, nbins_selected) -> None:
+def assert_relax_inputs_in_range(y: np.ndarray, nbins_y: int, selected_cols: Any, nbins_selected: Any) -> None:
     """Range-check the target and the selected set once, so the per-candidate score can skip re-reading columns that do not change.
 
     The kernels index their joint tables directly, so a negative sentinel wraps to the last bin and an over-range code writes out of bounds.

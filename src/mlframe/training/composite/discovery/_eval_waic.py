@@ -251,7 +251,8 @@ def _lightgbm_available() -> bool:
         import lightgbm  # noqa: F401
 
         return True
-    except Exception:  # the ridge / HistGB fallbacks take over
+    except Exception as exc:  # the ridge / HistGB fallbacks take over
+        logger.debug("_lightgbm_available: %s", exc, exc_info=True)
         return False
 
 

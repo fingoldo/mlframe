@@ -646,7 +646,7 @@ class _DMatrixReuseMixin:
         # ``monotonic_decline_patience`` consecutive rounds since the best. Only attached when
         # eval sets exist, the caller hasn't already supplied one, and it isn't disabled (None).
         if monotonic_decline_patience is not None and evals and not any(getattr(cb, "_is_mlframe_monotonic_decline", False) for cb in callbacks):
-            from .callbacks.monotonic_decline import _make_xgb_monotonic_callback
+            from mlframe.training.callbacks.shared import make_xgb_monotonic_callback as _make_xgb_monotonic_callback
             _mono_cb = _make_xgb_monotonic_callback(patience=monotonic_decline_patience)
             if _mono_cb is not None:
                 callbacks.append(_mono_cb)

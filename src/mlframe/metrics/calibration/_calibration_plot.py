@@ -428,7 +428,7 @@ def _quantile_binning_kernel(y_true: np.ndarray, y_pred: np.ndarray, edges: np.n
 _QUANTILE_BINNING_MAX_BASE_RATE = 0.10
 
 
-def resolve_binning_strategy(y_true, strategy: str = "auto") -> str:
+def resolve_binning_strategy(y_true: Any, strategy: str = "auto") -> str:
     """Resolve ``"auto"`` to ``"uniform"`` / ``"quantile"``; any other value passes through.
 
     Exposed so every ICE path resolves identically: the metric used to be pinned to uniform while the report resolved

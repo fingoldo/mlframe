@@ -59,11 +59,16 @@ from numba import njit, prange
 # Using the SERIAL versions (not _parallel) - we already parallelise OVER
 # pairs at the outer kernel layer via prange; nested parallel kernels
 # inside prange bodies oversubscribe and slow down.
-from .hermite_fe import (
-    _hermeval_njit, _legval_njit, _chebval_njit, _lagval_njit,
+from mlframe.feature_selection.filters.hermite_fe.shared import (
+    hermeval_njit as _hermeval_njit,
+    legval_njit as _legval_njit,
+    chebval_njit as _chebval_njit,
+    lagval_njit as _lagval_njit,
 )
 from ._hermite_fe_mi import _plugin_mi_classif_njit, _plugin_mi_regression_njit
-from .hermite_fe import _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit
+from mlframe.feature_selection.filters.hermite_fe.shared import (
+    plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit, plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit,
+)
 
 logger = logging.getLogger(__name__)
 

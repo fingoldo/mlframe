@@ -20,7 +20,7 @@ import polars as pl
 from ..extractors import FeaturesAndTargetsExtractor
 from ..io import load_mlframe_model
 from .._fixed_splits import split_id_columns_from_metadata
-from ..cb import _predict_with_fallback
+from mlframe.training.cb.shared import predict_with_fallback as _predict_with_fallback
 from ..utils import get_pandas_view_of_polars_df
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
@@ -146,6 +146,8 @@ def predict_mlframe_models_suite(
             this size instead of one pass (bounds peak memory on very large predict frames).
         auxiliary_events_df: Fresh auxiliary events table for ``latent_interaction_svd`` replay --
             see :func:`predict_from_models`.
+        _preloaded_metadata: Internal: a metadata dict the caller already loaded for ``models_path``, so the suite
+            is not read from disk twice. Not part of the public contract.
 
     Returns:
         Dict with:
@@ -157,15 +159,15 @@ def predict_mlframe_models_suite(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, suite_binary_threshold, _resolve_quantile_alphas, _run_batched
-    from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
-    from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
-    from ..pipeline._cross_sectional_composite_fe import replay_cross_sectional_composite_fe
-    from ..pipeline._target_encoding_composite_fe import replay_target_encoding_composite_fe
-    from ..pipeline._per_target_supervised_fe import replay_per_target_supervised_fe
-    from ..pipeline._ma_crossover_composite_fe import replay_ma_crossover_composite_fe
-    from ..pipeline._latent_interaction_svd_composite_fe import replay_latent_interaction_svd_composite_fe
-    from ..pipeline._nearest_past_join_composite_fe import replay_nearest_past_join_composite_fe
-    from ..pipeline._event_proximity_decay_composite_fe import replay_event_proximity_decay_composite_fe
+    from mlframe.training.pipeline.shared import replay_categorical_composite_fe
+    from mlframe.training.pipeline.shared import replay_entity_time_composite_fe
+    from mlframe.training.pipeline.shared import replay_cross_sectional_composite_fe
+    from mlframe.training.pipeline.shared import replay_target_encoding_composite_fe
+    from mlframe.training.pipeline.shared import replay_per_target_supervised_fe
+    from mlframe.training.pipeline.shared import replay_ma_crossover_composite_fe
+    from mlframe.training.pipeline.shared import replay_latent_interaction_svd_composite_fe
+    from mlframe.training.pipeline.shared import replay_nearest_past_join_composite_fe
+    from mlframe.training.pipeline.shared import replay_event_proximity_decay_composite_fe
     # Validate inputs
     if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
         raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")

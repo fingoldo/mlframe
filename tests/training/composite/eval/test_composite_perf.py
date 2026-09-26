@@ -31,11 +31,8 @@ import pytest
 pytestmark = pytest.mark.sklearn_matrix
 
 
-from mlframe.training.composite import (
-    CompositeTargetDiscovery,
-    _mi_pair_bin,
-    _mi_to_target,
-)
+from mlframe.training.composite import CompositeTargetDiscovery
+from mlframe.training.composite.discovery.screening import _mi_pair_bin, _mi_to_target
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 # ----------------------------------------------------------------------
@@ -186,7 +183,7 @@ class TestDeterministicScreeningModels:
 
     def test_lightgbm_deterministic_kwargs(self) -> None:
         """Lightgbm deterministic kwargs."""
-        from mlframe.training.composite import _build_tiny_model
+        from mlframe.training.composite.discovery.screening import _build_tiny_model
 
         m = _build_tiny_model(
             "lightgbm",
@@ -203,7 +200,7 @@ class TestDeterministicScreeningModels:
 
     def test_lightgbm_non_deterministic_default(self) -> None:
         """Lightgbm non deterministic default."""
-        from mlframe.training.composite import _build_tiny_model
+        from mlframe.training.composite.discovery.screening import _build_tiny_model
 
         m = _build_tiny_model(
             "lightgbm",
@@ -222,7 +219,7 @@ class TestDeterministicScreeningModels:
     def test_xgboost_deterministic_uses_hist(self) -> None:
         """Xgboost deterministic uses hist."""
         pytest.importorskip("xgboost")
-        from mlframe.training.composite import _build_tiny_model
+        from mlframe.training.composite.discovery.screening import _build_tiny_model
 
         m = _build_tiny_model(
             "xgboost",
@@ -238,7 +235,7 @@ class TestDeterministicScreeningModels:
     def test_catboost_deterministic_uses_plain(self) -> None:
         """Catboost deterministic uses plain."""
         pytest.importorskip("catboost")
-        from mlframe.training.composite import _build_tiny_model
+        from mlframe.training.composite.discovery.screening import _build_tiny_model
 
         m = _build_tiny_model(
             "catboost",
@@ -254,7 +251,7 @@ class TestDeterministicScreeningModels:
 
     def test_linear_unaffected(self) -> None:
         """Linear unaffected."""
-        from mlframe.training.composite import _build_tiny_model
+        from mlframe.training.composite.discovery.screening import _build_tiny_model
 
         m_det = _build_tiny_model(
             "linear",

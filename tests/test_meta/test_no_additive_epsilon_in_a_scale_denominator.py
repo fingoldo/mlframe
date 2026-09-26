@@ -11,6 +11,8 @@ The fix is always the same shape: compare the scale against the data's own magni
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 import ast
 import pathlib
 import re
@@ -46,7 +48,9 @@ def _offending_divisions(tree: ast.AST):
 def test_no_additive_epsilon_in_a_scale_denominator():
     """AST-walk the package and fail on any padded scale divisor, naming every site."""
     offences = []
-    for path in sorted(_SRC.rglob("*.py")):
+    _files = sorted(_SRC.rglob("*.py"))
+    assert_scanned_enough(len(_files), str(_SRC), minimum=50)
+    for path in _files:
         if any(part in _OUT_OF_SCOPE for part in path.parts):
             continue
         try:

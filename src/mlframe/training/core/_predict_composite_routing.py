@@ -120,7 +120,7 @@ def register_spec_transforms(metadata: Any) -> list[str]:
             names.extend(_spec_transform_names(specs))
     if not names:
         return []
-    from ..composite.estimator._routing import ensure_transforms_registered
+    from mlframe.training.composite.estimator.shared import ensure_transforms_registered
 
     return ensure_transforms_registered(names)
 

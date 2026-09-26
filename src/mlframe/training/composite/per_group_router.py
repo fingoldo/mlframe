@@ -23,7 +23,8 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
-from .estimator import CompositeTargetEstimator, _extract_groups
+from .estimator import CompositeTargetEstimator
+from mlframe.training.composite.estimator.shared import extract_groups as _extract_groups
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)

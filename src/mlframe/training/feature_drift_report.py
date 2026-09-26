@@ -707,7 +707,7 @@ def _drift_invariant_cache_key(
     ids; the per-target loop persists the same frame object across targets).
     """
     try:
-        from .pipeline._pipeline_cache import _content_fingerprint_for_cache
+        from mlframe.training.pipeline.shared import content_fingerprint_for_cache as _content_fingerprint_for_cache
     except Exception as exc:
         logger.debug("drift: content-fingerprint helper import failed; drift cache disabled: %r", exc, exc_info=True)
         return None

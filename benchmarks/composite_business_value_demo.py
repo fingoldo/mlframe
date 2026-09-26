@@ -102,15 +102,12 @@ def _train_predict_rmse(
 
     disc = CompositeTargetDiscovery(cfg)
     try:
-        disc.fit(df=df, target_col=target_col, feature_cols=feature_cols,
-                 train_idx=train_idx)
+        disc.fit(df=df, target_col=target_col, feature_cols=feature_cols, train_idx=train_idx)
     except Exception:
-        return (raw_rmse, raw_rmse, None) if return_picked \
-            else (raw_rmse, raw_rmse)
+        return (raw_rmse, raw_rmse, None) if return_picked else (raw_rmse, raw_rmse)
 
     if not disc.specs_:
-        return (raw_rmse, raw_rmse, None) if return_picked \
-            else (raw_rmse, raw_rmse)
+        return (raw_rmse, raw_rmse, None) if return_picked else (raw_rmse, raw_rmse)
 
     spec = disc.specs_[0]
     transform = get_transform(spec.transform_name)
@@ -118,15 +115,13 @@ def _train_predict_rmse(
     base_test_arr = df[spec.base_column].to_numpy()[test_idx]
     valid = transform.domain_check(y_train, base_train_arr)
     if valid.sum() < 50:
-        return (raw_rmse, raw_rmse, spec.transform_name + "_invalid") \
-            if return_picked else (raw_rmse, raw_rmse)
+        return (raw_rmse, raw_rmse, spec.transform_name + "_invalid") if return_picked else (raw_rmse, raw_rmse)
     t_train = transform.forward(
         y_train[valid], base_train_arr[valid], spec.fitted_params,
     )
     x_no_base = [c for c in numeric_cols if c != spec.base_column]
     if not x_no_base:
-        return (raw_rmse, raw_rmse, spec.transform_name + "_nox") \
-            if return_picked else (raw_rmse, raw_rmse)
+        return (raw_rmse, raw_rmse, spec.transform_name + "_nox") if return_picked else (raw_rmse, raw_rmse)
     inner_c = LGBMRegressor(
         n_estimators=200, num_leaves=31, learning_rate=0.05,
         random_state=seed, verbosity=-1,
@@ -137,11 +132,7 @@ def _train_predict_rmse(
     t_hat = inner_c.predict(df_lgbm[x_no_base].to_numpy()[test_idx])
     y_hat = transform.inverse(t_hat, base_test_arr, spec.fitted_params)
     finite = np.isfinite(y_hat - y_test)
-    composite_rmse = (
-        float(np.sqrt(mean_squared_error(
-            y_test[finite], y_hat[finite])))
-        if finite.any() else raw_rmse
-    )
+    composite_rmse = float(np.sqrt(mean_squared_error(y_test[finite], y_hat[finite]))) if finite.any() else raw_rmse
     picked = f"{spec.transform_name}__{spec.base_column}"
     if return_picked:
         return raw_rmse, composite_rmse, picked
@@ -198,8 +189,7 @@ def feature_1_regime_gate(seed: int = 0) -> Dict:
     )
     return {
         "feature": "#1 regime-aware gate",
-        "scenario": "logratio is wrong on top base quintile (heavy "
-                    "tail injection); global gate too lenient",
+        "scenario": "logratio is wrong on top base quintile (heavy " "tail injection); global gate too lenient",
         "metric": "(picked spec, test RMSE)",
         "raw_rmse": raw_on,
         "off": f"{picked_off}, RMSE={comp_off:.2f}",
@@ -239,8 +229,7 @@ def feature_2_permutation_null(seed: int = 0) -> Dict:
         # noise (same noise distribution), gain ~ 0, all candidates
         # rejected -> discovery returns no specs (correct).
         n = 250
-        feat_data = {f"noise_{c}": rng.normal(size=n)
-                     for c in ["a", "b", "c", "d", "e", "f", "g", "h"]}
+        feat_data = {f"noise_{c}": rng.normal(size=n) for c in ["a", "b", "c", "d", "e", "f", "g", "h"]}
         feat_data["x1"] = rng.normal(size=n)
         feat_data["y"] = rng.normal(size=n)  # independent of all
         df = pd.DataFrame(feat_data)
@@ -262,11 +251,9 @@ def feature_2_permutation_null(seed: int = 0) -> Dict:
         )
         from mlframe.training.composite import CompositeTargetDiscovery
         d_off = CompositeTargetDiscovery(cfg_off)
-        d_off.fit(df, target_col="y", feature_cols=feat,
-                  train_idx=train_idx)
+        d_off.fit(df, target_col="y", feature_cols=feat, train_idx=train_idx)
         d_on = CompositeTargetDiscovery(cfg_on)
-        d_on.fit(df, target_col="y", feature_cols=feat,
-                 train_idx=train_idx)
+        d_on.fit(df, target_col="y", feature_cols=feat, train_idx=train_idx)
         if d_off.specs_:
             pure_noise_picks_off += 1
         if d_on.specs_:
@@ -279,14 +266,8 @@ def feature_2_permutation_null(seed: int = 0) -> Dict:
             f"filter should reject all. {n_reps} reps."
         ),
         "metric": "false-positive rate (specs returned on pure noise)",
-        "off": (
-            f"OFF (no null): {pure_noise_picks_off}/{n_reps} false "
-            f"specs"
-        ),
-        "on": (
-            f"ON (null filter): {pure_noise_picks_on}/{n_reps} false "
-            f"specs"
-        ),
+        "off": (f"OFF (no null): {pure_noise_picks_off}/{n_reps} false " f"specs"),
+        "on": (f"ON (null filter): {pure_noise_picks_on}/{n_reps} false " f"specs"),
         "verdict": (
             f"OFF: {pure_noise_picks_off}/{n_reps} false-positives "
             f"({pure_noise_picks_off/n_reps*100:.0f}%); "
@@ -328,9 +309,7 @@ def feature_4_wrapper_aware(seed: int = 0) -> Dict:
         "metric": "test RMSE (composite vs raw)",
         "raw_rmse": raw, "composite_rmse": comp,
         "verdict": (
-            f"composite {comp:.3f} vs raw {raw:.3f}: "
-            f"{'composite wins' if comp < raw else 'raw wins'} "
-            "(wrapper y-clip ensures predictions stay bounded)"
+            f"composite {comp:.3f} vs raw {raw:.3f}: " f"{'composite wins' if comp < raw else 'raw wins'} " "(wrapper y-clip ensures predictions stay bounded)"
         ),
     }
 
@@ -369,9 +348,7 @@ def feature_5_ensemble_default(seed: int = 0) -> Dict:
         auto_base_top_k=2,  # both bases survive
     )
     disc = CompositeTargetDiscovery(cfg)
-    disc.fit(df, target_col="y",
-             feature_cols=["base_a", "base_b", "x1"],
-             train_idx=train_idx)
+    disc.fit(df, target_col="y", feature_cols=["base_a", "base_b", "x1"], train_idx=train_idx)
     y_train_arr = df["y"].to_numpy()[train_idx]
     y_test_arr = df["y"].to_numpy()[test_idx]
     all_features = ["base_a", "base_b", "x1"]
@@ -423,10 +400,7 @@ def feature_5_ensemble_default(seed: int = 0) -> Dict:
             "metric": "test RMSE",
             "verdict": "no specs survived",
         }
-    rmses = [
-        float(np.sqrt(mean_squared_error(y_test_arr, p)))
-        for p in test_preds_per_spec
-    ]
+    rmses = [float(np.sqrt(mean_squared_error(y_test_arr, p))) for p in test_preds_per_spec]
     best_single_rmse = float(min(rmses))
     # Comprehensive ensemble shootout: 8 strategies. Each takes the
     # train_preds matrix to learn weights, evaluates on the test
@@ -470,9 +444,7 @@ def feature_5_ensemble_default(seed: int = 0) -> Dict:
     strategies["inverse_variance"] = test_mat @ inv_var
 
     # 6. Softmax over -RMSE (Bayesian-Model-Averaging-style).
-    bma_logits = -np.array(component_train_rmse) / max(
-        float(np.std(component_train_rmse)), 1e-9
-    )
+    bma_logits = -np.array(component_train_rmse) / max(float(np.std(component_train_rmse)), 1e-9)
     bma_w = np.exp(bma_logits - bma_logits.max())
     bma_w = bma_w / bma_w.sum()
     strategies["bma_softmax"] = test_mat @ bma_w
@@ -488,9 +460,7 @@ def feature_5_ensemble_default(seed: int = 0) -> Dict:
         strategies["oof_weighted"] = test_mat @ oof_w_ens.weights
     else:
         # Single best fallback fired.
-        strategies["oof_weighted"] = test_preds_per_spec[
-            int(np.argmin(component_train_rmse))
-        ]
+        strategies["oof_weighted"] = test_preds_per_spec[int(np.argmin(component_train_rmse))]
 
     # 8. linear_stack (Ridge regression on train predictions).
     try:
@@ -528,12 +498,8 @@ def feature_5_ensemble_default(seed: int = 0) -> Dict:
     strategies["best_single_by_train"] = test_preds_per_spec[best_idx]
 
     # Compute test RMSE per strategy + improvement vs best_single_test.
-    rmses_by_strategy = {
-        name: float(np.sqrt(mean_squared_error(y_test_arr, p)))
-        for name, p in strategies.items()
-    }
-    sorted_strategies = sorted(rmses_by_strategy.items(),
-                                key=lambda t: t[1])
+    rmses_by_strategy = {name: float(np.sqrt(mean_squared_error(y_test_arr, p))) for name, p in strategies.items()}
+    sorted_strategies = sorted(rmses_by_strategy.items(), key=lambda t: t[1])
     winner_name, winner_rmse = sorted_strategies[0]
     return {
         "feature": "#5 cross-target ensemble strategy shootout (10 algos)",
@@ -547,10 +513,7 @@ def feature_5_ensemble_default(seed: int = 0) -> Dict:
         "verdict": (
             f"best_single={best_single_rmse:.4f}; "
             "ranked: "
-            + ", ".join(
-                f"{n}={r:.4f}({(best_single_rmse - r)/best_single_rmse*100:+.1f}%)"
-                for n, r in sorted_strategies[:5]
-            )
+            + ", ".join(f"{n}={r:.4f}({(best_single_rmse - r)/best_single_rmse*100:+.1f}%)" for n, r in sorted_strategies[:5])
             + f"; WINNER: {winner_name}"
         ),
     }
@@ -599,8 +562,7 @@ def feature_7_spatial_demoter(seed: int = 0) -> Dict:
     )
     return {
         "feature": "#7 time-index / spatial demoter",
-        "scenario": "base_time monotone w/ row order; x1 is the real "
-                    "structural feature",
+        "scenario": "base_time monotone w/ row order; x1 is the real " "structural feature",
         "metric": "(picked base, test RMSE)",
         "off": f"{picked_off}, RMSE={comp_off:.3f}",
         "on": f"{picked_on}, RMSE={comp_on:.3f}",
@@ -673,10 +635,8 @@ def feature_10_median_seeds(seed: int = 0) -> Dict:
     point estimate has std X; median-of-5-seeds estimate has std
     significantly lower because it averages over fold-split noise.
     """
-    from mlframe.training.composite import (
-        _tiny_cv_rmse_y_scale, _tiny_cv_rmse_y_scale_multiseed,
-        get_transform,
-    )
+    from mlframe.training.composite import get_transform
+    from mlframe.training.composite.discovery.screening import _tiny_cv_rmse_y_scale, _tiny_cv_rmse_y_scale_multiseed
     rng = np.random.default_rng(seed)
     n = 600  # small to amplify fold-split variance
     base = rng.normal(loc=10, scale=2, size=n)
@@ -712,8 +672,7 @@ def feature_10_median_seeds(seed: int = 0) -> Dict:
     std_median = float(np.std(median_rmses))
     return {
         "feature": "#10 median-of-seeds gate",
-        "scenario": f"small n={n}, heavy noise; tiny CV-RMSE stability "
-                    "across 10 random_state values",
+        "scenario": f"small n={n}, heavy noise; tiny CV-RMSE stability " "across 10 random_state values",
         "metric": "std of estimator (lower = more stable)",
         "off": f"single-seed std={std_single:.4f}",
         "on": f"median-of-5 std={std_median:.4f}",
@@ -730,7 +689,7 @@ def feature_stat1_mean_mi(seed: int = 0) -> Dict:
     """Sum vs Mean MI aggregation: sum-MI is biased by feature count.
     Demonstrate by adding redundant features to X and checking if
     mi_gain magnitude stays sensible."""
-    from mlframe.training.composite import _mi_to_target
+    from mlframe.training.composite.discovery.screening import _mi_to_target
     rng = np.random.default_rng(seed)
     n = 2000
     base = rng.normal(size=n)
@@ -815,30 +774,19 @@ def feature_stat4_wilcoxon(seed: int = 0) -> Dict:
         )
         from mlframe.training.composite import CompositeTargetDiscovery
         d_t = CompositeTargetDiscovery(cfg_t)
-        d_t.fit(df, target_col="y", feature_cols=["base", "x1"],
-                train_idx=train_idx)
+        d_t.fit(df, target_col="y", feature_cols=["base", "x1"], train_idx=train_idx)
         d_w = CompositeTargetDiscovery(cfg_w)
-        d_w.fit(df, target_col="y", feature_cols=["base", "x1"],
-                train_idx=train_idx)
+        d_w.fit(df, target_col="y", feature_cols=["base", "x1"], train_idx=train_idx)
         if d_t.specs_:
             threshold_accepts += 1
         if d_w.specs_:
             wilcoxon_accepts += 1
     return {
         "feature": "stat #4 Wilcoxon gate",
-        "scenario": (
-            f"TRUE NEGATIVE: y depends only on x1, base is noise. "
-            f"Composite shouldn't pass any gate. {n_reps} reps."
-        ),
+        "scenario": (f"TRUE NEGATIVE: y depends only on x1, base is noise. " f"Composite shouldn't pass any gate. {n_reps} reps."),
         "metric": "Type-I error rate (false-positive accepts)",
-        "off": (
-            f"threshold-gate accepted {threshold_accepts}/{n_reps} "
-            f"({threshold_accepts/n_reps*100:.0f}%)"
-        ),
-        "on": (
-            f"Wilcoxon-gate accepted {wilcoxon_accepts}/{n_reps} "
-            f"({wilcoxon_accepts/n_reps*100:.0f}%)"
-        ),
+        "off": (f"threshold-gate accepted {threshold_accepts}/{n_reps} " f"({threshold_accepts/n_reps*100:.0f}%)"),
+        "on": (f"Wilcoxon-gate accepted {wilcoxon_accepts}/{n_reps} " f"({wilcoxon_accepts/n_reps*100:.0f}%)"),
         "verdict": (
             f"threshold {threshold_accepts}/{n_reps} false-positives "
             f"vs Wilcoxon {wilcoxon_accepts}/{n_reps} "
@@ -872,8 +820,7 @@ def feature_stat6_alpha_drift(seed: int = 0) -> Dict:
         base_candidates=["base"],
     )
     disc = CompositeTargetDiscovery(cfg_on)
-    disc.fit(df, target_col="y", feature_cols=["base", "x1"],
-             train_idx=train_idx)
+    disc.fit(df, target_col="y", feature_cols=["base", "x1"], train_idx=train_idx)
     flags = getattr(disc, "_alpha_drift_flags", {})
     return {
         "feature": "stat #6 alpha-drift detection",
@@ -882,10 +829,9 @@ def feature_stat6_alpha_drift(seed: int = 0) -> Dict:
         "off": "no detection (silently fits average alpha)",
         "on": (f"{flags}" if flags else "no drift detected (failure mode)"),
         "verdict": (
-            f"detected drift on {len(flags)} spec(s); "
-            "alpha first/second half divergence z="
-            f"{next(iter(flags.values()))['z_score']:.2f}"
-            if flags else "no drift detected (likely needs larger drift)"
+            f"detected drift on {len(flags)} spec(s); " "alpha first/second half divergence z=" f"{next(iter(flags.values()))['z_score']:.2f}"
+            if flags
+            else "no drift detected (likely needs larger drift)"
         ),
     }
 
@@ -914,10 +860,7 @@ def feature_stat8_bootstrap_mi(seed: int = 0) -> Dict:
     def _bin_mi_njit_mean(X, yv):
         # Mean MI across columns via own njit bin estimator.
         n_feat = X.shape[1]
-        return float(np.mean([
-            _plugin_mi_regression_njit(X[:, j].copy(), yv, 16)
-            for j in range(n_feat)
-        ]))
+        return float(np.mean([_plugin_mi_regression_njit(X[:, j].copy(), yv, 16) for j in range(n_feat)]))
 
     def _knn_mi_mean(X, yv):
         return float(np.mean(mutual_info_regression(
@@ -973,9 +916,7 @@ def feature_stat8_bootstrap_mi(seed: int = 0) -> Dict:
 
     return {
         "feature": "stat #8 MI estimator + permutation null",
-        "scenario": (
-            "noise (true MI=0) vs signal (y depends on x[:,0]), n=1000"
-        ),
+        "scenario": ("noise (true MI=0) vs signal (y depends on x[:,0]), n=1000"),
         "metric": "MI gain vs null + per-estimator wall-time",
         "noise_results": res_noise,
         "signal_results": res_signal,
@@ -1003,25 +944,23 @@ def feature_stat8_bootstrap_mi(seed: int = 0) -> Dict:
 
 
 FEATURES: Dict[str, Callable] = {
-    "regime_gate":       feature_1_regime_gate,
-    "permutation_null":  feature_2_permutation_null,
-    "wrapper_aware":     feature_4_wrapper_aware,
-    "ensemble_default":  feature_5_ensemble_default,
-    "spatial_demoter":   feature_7_spatial_demoter,
+    "regime_gate": feature_1_regime_gate,
+    "permutation_null": feature_2_permutation_null,
+    "wrapper_aware": feature_4_wrapper_aware,
+    "ensemble_default": feature_5_ensemble_default,
+    "spatial_demoter": feature_7_spatial_demoter,
     "variance_stabilise": feature_8_variance_stabilise,
-    "median_seeds":      feature_10_median_seeds,
-    "mean_mi":           feature_stat1_mean_mi,
-    "wilcoxon":          feature_stat4_wilcoxon,
-    "alpha_drift":       feature_stat6_alpha_drift,
-    "bootstrap_mi":      feature_stat8_bootstrap_mi,
+    "median_seeds": feature_10_median_seeds,
+    "mean_mi": feature_stat1_mean_mi,
+    "wilcoxon": feature_stat4_wilcoxon,
+    "alpha_drift": feature_stat6_alpha_drift,
+    "bootstrap_mi": feature_stat8_bootstrap_mi,
 }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--feature", choices=list(FEATURES.keys()),
-                        default=None,
-                        help="Run only one feature (default: all)")
+    parser.add_argument("--feature", choices=list(FEATURES.keys()), default=None, help="Run only one feature (default: all)")
     args = parser.parse_args()
     selected = [args.feature] if args.feature else list(FEATURES.keys())
 
@@ -1054,12 +993,7 @@ def main() -> int:
     print("| feature | scenario | metric | verdict |")
     print("|---|---|---|---|")
     for r in results:
-        print(
-            f"| {r.get('feature', '?')} "
-            f"| {r.get('scenario', '?')} "
-            f"| {r.get('metric', '?')} "
-            f"| {r.get('verdict', '?')} |"
-        )
+        print(f"| {r.get('feature', '?')} " f"| {r.get('scenario', '?')} " f"| {r.get('metric', '?')} " f"| {r.get('verdict', '?')} |")
     out_path = "benchmarks/composite_business_value_demo_results.json"
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)

@@ -535,8 +535,8 @@ def _close_figs(figs: List[Any]) -> None:
     if plt is None or not figs:
         return
     try:
-        from mlframe.metrics import show_plots_unless_agg
-        from mlframe.metrics.calibration import _close_unless_interactive
+        from mlframe.metrics.calibration.shared import show_plots_unless_agg
+        from mlframe.metrics.calibration.shared import close_unless_interactive as _close_unless_interactive
         was_shown = show_plots_unless_agg()
         _close_unless_interactive(figs, was_shown=was_shown)
     except Exception:
@@ -767,11 +767,6 @@ def shap_summary_and_dependence(
         _close_figs(leaked or figures)
 
     return ShapPanelsResult(figures, paths, top_names, mean_abs, explainer_kind)
-
-
-def _safe(name: str) -> str:
-    """Filename-safe feature name (alnum / underscore / dash). Retained for sibling shap_per_instance reuse."""
-    return "".join(c if (c.isalnum() or c in "_-") else "_" for c in str(name))[:48]
 
 
 __all__ = [

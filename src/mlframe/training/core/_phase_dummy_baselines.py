@@ -10,7 +10,7 @@ from ..composite.transforms import composite_target_names, is_composite_target
 from ..evaluation import report_model_perf
 from ..phases import phase
 from .utils import _augment_with_dropped_high_card_cols
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

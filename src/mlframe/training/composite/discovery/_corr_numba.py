@@ -39,6 +39,7 @@ across seeds plus a constant / degenerate column.
 """
 from __future__ import annotations
 
+from typing import Callable
 import logging
 
 import numpy as np
@@ -192,7 +193,7 @@ def safe_abs_corr_all_dispatch(
     return np.asarray(out)
 
 
-def abs_corr_all_no_copy(y: np.ndarray, X: np.ndarray, *, reference_fn) -> np.ndarray:
+def abs_corr_all_no_copy(y: np.ndarray, X: np.ndarray, *, reference_fn: Callable[[np.ndarray, np.ndarray], np.ndarray]) -> np.ndarray:
     """``|corr(y, X[:, j])|`` by the kernel on ``X`` as given: no float64, contiguous or centred copy of the matrix.
 
     The kernel promotes every element to float64 before it is summed, so a float32 or strided ``X`` gives the same numbers

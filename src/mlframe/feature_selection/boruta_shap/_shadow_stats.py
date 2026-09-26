@@ -111,15 +111,8 @@ def _column_tie_fraction(values: np.ndarray) -> float:
 
 # Tie fraction above which a rank/argsort-based shadow kernel would bias shadow MI low (ties broken positionally).
 # The shipped value-permutation kernel is tie-agnostic and ignores this; it exists so any future fast argsort path
-# can gate on the SAME measured predicate. Exposed as a module constant + override env var (no hardcoded magic).
-SHADOW_TIE_GATE_FRACTION = 0.20  # the default; shadow_tie_gate_fraction() applies the env override on every call
-
-
-def shadow_tie_gate_fraction() -> float:
-    """``MLFRAME_BORUTA_SHADOW_TIE_GATE`` in [0, 1], read on every call; ``SHADOW_TIE_GATE_FRACTION`` when unset or invalid."""
-    from mlframe.utils.env_flags import env_float
-
-    return env_float("MLFRAME_BORUTA_SHADOW_TIE_GATE", SHADOW_TIE_GATE_FRACTION, minimum=0.0, maximum=1.0)
+# can gate on the SAME measured predicate (no hardcoded magic in such a path).
+SHADOW_TIE_GATE_FRACTION = 0.20
 
 
 def create_shadow_features(self):

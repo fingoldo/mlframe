@@ -5,7 +5,7 @@ from __future__ import annotations
 # --- imports (managed) ---
 import numpy as np
 import pandas as pd
-from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import FE_ROSTER_ATTRS
+from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import drop_from_fe_rosters
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
 
@@ -95,7 +95,6 @@ _PRUNED_FAMILIES: tuple[str, ...] = (
 """Recipe registries a pruned column is removed from (``binned_agg`` is not pruned here)."""
 
 
-
 def _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose):
     """Cross-stage dedup of engineered columns, keeping the member of a near-duplicate cluster with the most information about y."""
     _eng_cols_appended_raw = list(self.hybrid_orth_features_ or []) + list(self.mi_greedy_features_ or [])
@@ -177,8 +176,7 @@ def _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose):
             # Layer 33: mirror the same cleanup for TE-encoded columns. Every engineered roster, from the one shared tuple. Two hand-maintained copies of this
             # list had already drifted: this pass filtered 18 rosters while the unified-gate pass below filtered 27, so a column dropped by the Spearman dedup
             # stayed in the other nine until a later reconciliation happened to catch it.
-            for _roster_attr in FE_ROSTER_ATTRS:
-                setattr(self, _roster_attr, [c for c in (getattr(self, _roster_attr, []) or []) if c not in _eng_drop])
+            drop_from_fe_rosters(self, _eng_drop)
             for _family in _PRUNED_FAMILIES:
                 _registry = getattr(recipes, _family)
                 for _c in _eng_drop.intersection(_registry):

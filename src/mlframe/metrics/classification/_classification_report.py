@@ -24,18 +24,13 @@ import pandas as pd
 import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
-from ..calibration._calibration_plot import (
-    DEFAULT_TITLE_METRICS_TOKENS,
-    calibration_binning,
-    render_title_metric_token,
-    show_calibration_plot,
-)
+from mlframe.metrics.calibration.shared import DEFAULT_TITLE_METRICS_TOKENS, calibration_binning, render_title_metric_token, show_calibration_plot
 from .._auc_per_group import (
     fast_aucs_per_group_optimized,
     compute_mean_aucs_per_group,
     group_sizes_of,
 )
-from ..calibration._calibration_metrics import (
+from mlframe.metrics.calibration.shared import (
     calibration_metrics_from_freqs,
     compute_brier_decomposition_debiased,
     compute_ece_and_brier_decomposition,

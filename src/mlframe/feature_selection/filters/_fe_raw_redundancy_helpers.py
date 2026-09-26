@@ -204,7 +204,7 @@ def _subexpr_continuous(recipe, raw_X) -> Optional[np.ndarray]:
         return None
     try:
         import dataclasses as _dc
-        from .engineered_recipes._recipe_dispatch import apply_recipe
+        from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe
         _r = recipe
         if getattr(_r, "quantization", None) is not None:
             _r = _dc.replace(_r, quantization=None)

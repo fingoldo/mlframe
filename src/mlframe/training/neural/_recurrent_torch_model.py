@@ -94,7 +94,7 @@ __all__ = [
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-from .base import _ensure_numpy  # noqa: F401  shared with _recurrent_data
+from mlframe.training.neural.base.shared import ensure_numpy as _ensure_numpy  # noqa: F401  shared with _recurrent_data
 from ._recurrent_config import RNNType, InputMode, RecurrentConfig
 from ._recurrent_data import RecurrentDataset, recurrent_collate_fn, RecurrentDataModule
 from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSequenceEncoder, MLPHead

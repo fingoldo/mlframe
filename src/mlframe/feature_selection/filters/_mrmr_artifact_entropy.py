@@ -11,6 +11,7 @@ and with it the last bits of every reported ``H(X)`` and ``SU``, for no gain, si
 
 from __future__ import annotations
 
+from typing import Sequence, cast
 import numpy as np
 from numba import njit, prange
 
@@ -28,9 +29,9 @@ def _column_histograms_njit(data, col_indices, width):
     return out
 
 
-def column_histograms(data, col_indices, width: int):
+def column_histograms(data: np.ndarray, col_indices: Sequence[int], width: int) -> np.ndarray:
     """Bin counts for the given columns of the binned matrix, as an ``(n_cols, width)`` integer array."""
     cols = np.ascontiguousarray(np.asarray(col_indices, dtype=np.int64))
     if cols.size == 0:
         return np.zeros((0, int(width)), dtype=np.int64)
-    return _column_histograms_njit(np.ascontiguousarray(data), cols, int(width))
+    return cast(np.ndarray, _column_histograms_njit(np.ascontiguousarray(data), cols, int(width)))

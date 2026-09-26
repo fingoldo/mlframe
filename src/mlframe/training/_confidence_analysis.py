@@ -456,8 +456,8 @@ def run_confidence_analysis(
         # Guard plt.show() against the non-interactive Agg backend (CI / pytest / headless scripts
         # pin Agg); plt.show() on Agg emits the "FigureCanvasAgg is non-interactive" warning and
         # renders nothing. Always close every figure the beeswarm opened so none leak in the registry.
-        from mlframe.metrics import show_plots_unless_agg
-        from mlframe.metrics.calibration import _close_unless_interactive
+        from mlframe.metrics.calibration.shared import show_plots_unless_agg
+        from mlframe.metrics.calibration.shared import close_unless_interactive as _close_unless_interactive
         _was_shown = show_plots_unless_agg()
         _new_figs = [plt.figure(_num) for _num in plt.get_fignums() if _num not in _figs_before]
         _close_unless_interactive(_new_figs or fig, was_shown=_was_shown)

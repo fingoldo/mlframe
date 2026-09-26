@@ -55,7 +55,7 @@ def showcase_features_and_targets(
 
     if in_jupyter:
         from IPython.display import display
-        from ..reporting import _style_with_caption
+        from mlframe.training.reporting.shared import style_with_caption as _style_with_caption
 
         display(_style_with_caption(non_floats, "Non-float32 dtypes"))
 
@@ -113,7 +113,7 @@ def showcase_features_and_targets(
 
                 # Show only on an interactive backend, then always close so the per-target
                 # histograms do not accumulate toward the "More than 20 figures" warning.
-                from mlframe.metrics.calibration import _close_unless_interactive, _show_plots_unless_agg
+                from mlframe.metrics.calibration.shared import close_unless_interactive as _close_unless_interactive, show_plots_unless_agg as _show_plots_unless_agg
                 _hist_shown = _show_plots_unless_agg()
                 _close_unless_interactive(_hist_fig, was_shown=_hist_shown)
 

@@ -266,7 +266,7 @@ def confirm_recipes_cross_fold(
     # Pre-extract per-source RAW column codes per fold is wasteful; instead bin
     # the fold's source operand on demand. Cache the full-frame raw column float
     # values once per source name so each fold only re-bins its slice.
-    from .engineered_recipes._recipe_extract import _extract_column
+    from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_column
 
     _raw_col_cache: dict = {}
 

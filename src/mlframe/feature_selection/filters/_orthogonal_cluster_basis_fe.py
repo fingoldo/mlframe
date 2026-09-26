@@ -75,7 +75,7 @@ import numpy as np
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
-from .hermite_fe import _POLY_BASES
+from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._cluster_aggregate import uf_find
 from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
@@ -752,7 +752,7 @@ def _apply_orth_cluster_basis(recipe, X) -> np.ndarray:
     the same aggregator so train/test orientation parity holds row-by-
     row.
     """
-    from .engineered_recipes import _extract_column
+    from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_column
     if len(recipe.src_names) < 2:
         raise ValueError(f"orth_cluster_basis recipe '{recipe.name}' must have >=2 " f"src_names (cluster members); got {len(recipe.src_names)}")
     for key in ("basis", "degree", "aggregator"):

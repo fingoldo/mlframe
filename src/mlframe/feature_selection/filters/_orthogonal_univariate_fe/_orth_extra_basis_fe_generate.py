@@ -170,7 +170,7 @@ def generate_extra_basis_features(
         cols = _dedup_collinear_source_cols(
             X, list(cols), corr_threshold=dedup_corr_threshold,
         )
-    from ..engineered_recipes import _bspline_basis_values  # local import
+    from mlframe.feature_selection.filters.engineered_recipes.shared import bspline_basis_values as _bspline_basis_values  # local import
     out_cols: dict = {}
     meta: dict = {}
     fourier_freqs = tuple(float(f) for f in fourier_freqs)

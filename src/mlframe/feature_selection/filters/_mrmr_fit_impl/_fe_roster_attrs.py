@@ -73,6 +73,16 @@ def seed_empty_fe_rosters(estimator: Any) -> None:
     estimator._gate_col_src_vars_ = {}
 
 
+def drop_from_fe_rosters(estimator: Any, drop: "set[str]") -> None:
+    """Remove the columns in ``drop`` from every FE roster on ``estimator`` (order preserved; a missing roster stays absent-as-empty).
+
+    The one implementation every drop pass uses: two hand-maintained copies of this loop once drifted (one pass pruned 18
+    rosters, the other 27), so a dropped column lingered in nine rosters until a later reconciliation caught it.
+    """
+    for name in FE_ROSTER_ATTRS:
+        setattr(estimator, name, [c for c in (getattr(estimator, name, []) or []) if c not in drop])
+
+
 def reconcile_fe_rosters(estimator: Any) -> None:
     """Keep, in each FE roster, only the columns in ``estimator._engineered_features_`` (the engineered columns that reach the output).
 

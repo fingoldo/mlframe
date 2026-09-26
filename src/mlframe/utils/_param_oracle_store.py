@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from typing import Any, Sequence
+from typing import Any
 
 import orjson
 
@@ -183,15 +183,3 @@ def _weighted_median(pairs: "list[tuple[float, int]]") -> float:
         if seen >= half:
             return float(value)
     return float(ordered[-1][0])
-
-
-def _median(vals: Sequence[float]) -> float:
-    """Median of ``vals``, or ``nan`` if empty."""
-    s = sorted(vals)
-    n = len(s)
-    if n == 0:
-        return float("nan")
-    mid = n // 2
-    if n % 2:
-        return float(s[mid])
-    return float((s[mid - 1] + s[mid]) / 2.0)

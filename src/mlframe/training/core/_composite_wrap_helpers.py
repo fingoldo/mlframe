@@ -22,7 +22,7 @@ def fitted_pre_pipeline(entry: Any) -> Any:
     if pp is None:
         return None
     try:
-        from ..pipeline._pipeline_helpers import _is_fitted
+        from mlframe.training.pipeline.shared import is_fitted as _is_fitted
     except ImportError:  # pragma: no cover - the helper ships with mlframe
         return None
     try:
@@ -44,9 +44,9 @@ def train_base_values(train_df: Any, spec: dict) -> Optional[np.ndarray]:
         return None
     cols = spec_base_columns(spec)
     try:
-        from ..composite import _extract_base_matrix
+        from mlframe.training.composite.estimator.shared import extract_base_matrix as _extract_base_matrix
 
-        from ..composite._synthetic_bases import is_resolvable
+        from mlframe.training.composite.shared import is_resolvable
 
         if not all(is_resolvable(train_df, c) for c in cols):
             return None
@@ -101,7 +101,7 @@ def _train_groups(train_df: Any, group_column: Optional[str]) -> Any:
     """The train rows' group labels of a grouped spec (for its exact T-clip envelope), or None when unavailable."""
     if not group_column or train_df is None:
         return None
-    from ..composite.estimator import _extract_groups
+    from mlframe.training.composite.estimator.shared import extract_groups as _extract_groups
 
     try:
         return np.asarray(_extract_groups(train_df, group_column))

@@ -384,7 +384,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
         if fe_gpu_strict_enabled(n=int(X.shape[0]), p=int(X.shape[1]) if X.ndim > 1 else 1):
             import cupy as cp
 
-            from ..hermite_fe import _plugin_mi_classif_batch_cuda_resident
+            from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_cuda_resident as _plugin_mi_classif_batch_cuda_resident
 
             # RESIDENT-INPUT fast path: a device-born caller may hand an ALREADY-RESIDENT cupy candidate matrix
             # (built on device from the resident raw operands) - use it as-is so it never re-crosses H2D at this

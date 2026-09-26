@@ -94,7 +94,7 @@ def jmim_score(x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarra
     _assert_codes_in_range(y, int(nbins_y), "jmim_score y")
     for _j, _c in enumerate(selected_cols):
         _assert_codes_in_range(_c, int(nbins_selected[_j]), "jmim_score selected_col")
-    from .info_theory._batch_kernels import check_joint_cardinality
+    from mlframe.feature_selection.filters.info_theory.shared import check_joint_cardinality
 
     # The empty-S fallback still allocates a (K_x * 1, K_y) dense joint, so cap it too -- guarding only the
     # per-selected-column joints would leave the first-feature path un-capped.

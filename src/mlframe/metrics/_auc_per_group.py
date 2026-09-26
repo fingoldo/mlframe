@@ -15,6 +15,7 @@ What lives here:
 """
 from __future__ import annotations
 
+from typing import Any
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -200,7 +201,7 @@ def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.n
     return group_aucs
 
 
-def group_sizes_of(group_ids) -> Optional[dict]:
+def group_sizes_of(group_ids: Any) -> Optional[dict]:
     """``{group_id: n_rows}`` for ``compute_mean_aucs_per_group``'s row weighting; None when there are no group ids."""
     if group_ids is None:
         return None
@@ -224,6 +225,7 @@ def compute_mean_aucs_per_group(group_aucs: dict, group_sizes: Optional[dict] = 
     weights = None if group_sizes is None else np.array([float(group_sizes.get(k, 0)) for k in keys], dtype=np.float64)
 
     def _mean(values):
+        """Mean of the finite per-group values, weighted when weights are given; NaN when none is finite."""
         valid = ~np.isnan(values)
         if not np.any(valid):
             return np.nan

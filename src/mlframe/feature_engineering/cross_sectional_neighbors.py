@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from .transformer._knn_helper import knn_search
+from mlframe.feature_engineering.transformer.shared import knn_search
 
 
 def _snapshot_stats_for_k(

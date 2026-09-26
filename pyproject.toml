@@ -613,6 +613,7 @@ markers = [
     "linux_only: skip on non-Linux",
     "fast: fast subset (select with '-m fast'). Every new ML feature ships with a representative subset marked @pytest.mark.fast so the full code path runs in <15s total.",
     "slow_only: only runs when --slow flag is passed",
+    "perf: a timing-race test, opted out of the single-shot timing gate (run it deliberately; it is contention-sensitive)",
     "no_xdist: cannot run under pytest-xdist parallelism",
     "requires_xgb: requires xgboost",
     "requires_cb: requires catboost",

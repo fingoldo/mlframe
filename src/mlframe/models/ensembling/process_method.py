@@ -120,7 +120,7 @@ def _process_single_ensemble_method(
     # not threads), so each fork has its own Python interpreter -- no shared
     # import state to race against. Safe to keep lazy here.
     from mlframe.training import train_and_evaluate_model  # joblib-import-race-ok
-    from mlframe.training.trainer import _build_configs_from_params  # joblib-import-race-ok
+    from mlframe.training.shared import build_configs_from_params as _build_configs_from_params  # joblib-import-race-ok
 
     # 2026-05-13 (bug fix): val_preds / test_preds may be ``None`` when the
     # corresponding split metric computation was disabled at suite level

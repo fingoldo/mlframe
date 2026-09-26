@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 
-from .base import _ensure_numpy
+from mlframe.training.neural.base.shared import ensure_numpy as _ensure_numpy
 
 try:
     import xxhash as _xxhash  # module-top for hot cache-key path

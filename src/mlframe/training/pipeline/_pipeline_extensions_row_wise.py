@@ -5,6 +5,7 @@ Carved out of ``_pipeline_extensions.py`` (over the 900-line house limit), the w
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 from timeit import default_timer as timer
 from typing import Dict, Optional
@@ -15,7 +16,7 @@ import pandas as pd
 logger = logging.getLogger("mlframe.training.pipeline._pipeline_extensions")
 
 
-def apply_row_wise_steps(train, val, test, config, verbose: int, out_row_wise_replay: Optional[dict] = None):
+def apply_row_wise_steps(train: Any, val: Any, test: Any, config: Any, verbose: int, out_row_wise_replay: Optional[dict] = None) -> tuple:
     """Run the row-wise steps on train/val/test and return ``(train, val, test, n_columns_before)``.
 
     ``out_row_wise_replay``, when given, receives what predict needs to reproduce these columns exactly:
@@ -26,7 +27,7 @@ def apply_row_wise_steps(train, val, test, config, verbose: int, out_row_wise_re
     predict rebuilds float64 arrays). Without the reference predict re-ranks within the serving batch, where a single
     row is its own median and every extremality score is 0.0.
     """
-    from mlframe.training.core import _elapsed_str
+    from mlframe.training.core.shared import elapsed_str as _elapsed_str
 
     # Row-wise summary stats / top-k extreme columns (step 1.5). Purely additive, generic per-row
     # aggregates over the already-numeric column subset -- no dataset-specific column names or entity

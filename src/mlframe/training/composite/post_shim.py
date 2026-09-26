@@ -136,7 +136,7 @@ class PrePipelinePredictShim(BaseEstimator):
         if self.pre_pipeline is None:
             return X
         try:
-            from ..core._prediction_memo import memo_transform
+            from mlframe.training.core.shared import memo_transform
 
             pp = self.pre_pipeline
             return memo_transform(pp, X, lambda: pp.transform(subset_to_fit_columns(X, pp)))

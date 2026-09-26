@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import threading
 from typing import Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 _TRIPS: dict[str, list[dict[str, Any]]] = {}
 _LOCK = threading.Lock()
@@ -27,8 +30,8 @@ def record_sensor_trip(model_name: Any, sensor: str, branch: str, **details: Any
         entry = {"sensor": sensor, "branch": branch, **details}
         with _LOCK:
             _TRIPS.setdefault(key, []).append(entry)
-    except Exception:  # nosec B110 -- a ledger write can never be worth failing a fit over
-        pass
+    except Exception as exc:  # nosec B110 -- a ledger write can never be worth failing a fit over
+        logger.debug("record_sensor_trip: %s", exc, exc_info=True)
 
 
 def sensor_trips_for(model_name: Any) -> list[dict[str, Any]]:

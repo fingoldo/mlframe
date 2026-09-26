@@ -37,7 +37,6 @@ from ..cache import (
 )
 from ..ensemble import (
     CompositeCrossTargetEnsemble,
-    _is_monotone_nondecreasing,
     compute_oof_holdout_predictions,
     derive_seeds,
     detect_gpu_in_use,
@@ -86,9 +85,6 @@ from ..transforms import (
     DomainViolationError,
     Transform,
     UnknownTransformError,
-    _linear_residual_fit,
-    _linear_residual_multi_fit,
-    _TRANSFORMS_REGISTRY,
     compose_target_name,
     get_transform,
     list_transforms,
@@ -615,9 +611,6 @@ from .auto_detect import (
 from ..cache import (
     _DISCOVERY_SIGNATURE_SAMPLE_N,
 )
-from ..transforms.interaction_bases import (
-    _INTERACTION_OPS_DEFAULT,
-)
 
 # Dependent helper re-exports.
 from .forward_stepwise import (
@@ -683,4 +676,4 @@ def discover_incremental(
 # nothing references, so they are withdrawn until the arm that needs them lands; they remain public on
 # `_eval_stats` and cost one line to re-export when there is something to re-export them for.
 from ._eval_stats import bootstrap_gain_p_value
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform

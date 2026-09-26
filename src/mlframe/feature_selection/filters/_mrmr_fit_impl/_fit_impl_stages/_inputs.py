@@ -179,9 +179,7 @@ def _inject_targets(self, y, X):
     """Append the target column(s) to X as ``<prefix>_<i>`` so discretisation bins them with the features. Polars frames get a new
     frame sharing buffers; a pandas frame is modified in place and registered for cleanup, so a later raise in ``fit``
     still strips the injected columns from the caller's frame. Returns the frame, whether it is Polars, and the target names."""
-    from mlframe.feature_selection.filters.mrmr import (
-        _target_to_numpy_values,
-    )
+    from mlframe.feature_selection.filters.mrmr.shared import target_to_numpy_values as _target_to_numpy_values
 
     target_prefix = self._resolve_target_prefix()
     y_shape = y.shape

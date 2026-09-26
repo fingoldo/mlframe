@@ -262,7 +262,7 @@ class CompositeDriftMonitor:
 
     def _build_sketch(self, reference: Any, y_reference: Any) -> Dict[str, Any]:
         """Build the sketch from a reference batch (no row retention -- knots only)."""
-        from .estimator import _extract_base
+        from mlframe.training.composite.estimator.shared import extract_base as _extract_base
 
         base_knots: Dict[str, np.ndarray] = {}
         for col in self._base_columns():
@@ -316,7 +316,7 @@ class CompositeDriftMonitor:
         """
         sketch = self.ensure_sketch(reference=reference, y_reference=y_reference)
         signals: Dict[str, Dict[str, Any]] = {}
-        from .estimator import _extract_base
+        from mlframe.training.composite.estimator.shared import extract_base as _extract_base
 
         # (1) base-column distribution drift (PSI + KS per column).
         for col, knots in sketch["base_knots"].items():

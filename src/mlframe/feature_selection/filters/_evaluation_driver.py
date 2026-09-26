@@ -118,7 +118,7 @@ def _prefill_cond_MIs_gpu(
         return 0
 
     try:
-        from .info_theory._cmi_cuda import conditional_mi_batched_dispatch
+        from mlframe.feature_selection.filters.info_theory.shared import conditional_mi_batched_dispatch
 
         # Order-1 single-var candidates only; collect their column indices.
         cand_indices = []

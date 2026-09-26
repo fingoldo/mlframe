@@ -9,6 +9,8 @@ audits/full_audit_2026-09-20/complexity_refactor.md; a refactor that lowers one 
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 from pathlib import Path
 
 import pytest
@@ -23,10 +25,13 @@ LIMIT = 25
 
 def _src_files() -> list[Path]:
     """Production modules, minus frozen bench copies (the same set the function-length ratchet measures)."""
-    return sorted(p for p in (REPO_ROOT / "src").rglob("*.py") if "_benchmarks" not in p.parts and "_cpx36_baseline" not in p.parts)
+    files = sorted(p for p in (REPO_ROOT / "src").rglob("*.py") if "_benchmarks" not in p.parts and "_cpx36_baseline" not in p.parts)
+    assert_scanned_enough(len(files), "src")
+    return files
 
 
 def test_functions_do_not_get_more_complex(request):
+    """No function grows more complex than its baseline, and new ones stay under the limit."""
     from py_ci_shared.function_complexity import assert_complexity_does_not_grow
 
     assert_complexity_does_not_grow(_src_files(), REPO_ROOT, BASELINE, limit=LIMIT, min_functions=5000, request=request)

@@ -40,7 +40,7 @@ def precompute_hermite_pair_basis(
 
     Returns ``(z_a, preprocess_a, z_b, preprocess_b, identity_baseline)``.
     """
-    from .hermite_fe import _POLY_BASES
+    from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 
     from ._hermite_fe_optimise import _baseline_mi_pair
     if basis not in _POLY_BASES:
@@ -153,7 +153,7 @@ def optimise_hermite_pair(
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import HermiteResult, _BASIS_BUILDERS, _CUDA_AVAILABLE, _CUDA_THRESHOLD, _DEFAULT_BIN_FUNCS, _L2_PENALTY_SATURATION_DEFAULT, _NJIT_FUNCS, _NJIT_PAR_FUNCS, _PAR_THRESHOLD, _POLY_BASES, _canonical_seeds, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit, build_basis_matrix, warm_start_als_seed
+    from mlframe.feature_selection.filters.hermite_fe.shared import HermiteResult, build_basis_matrix, warm_start_als_seed, BASIS_BUILDERS as _BASIS_BUILDERS, CUDA_AVAILABLE as _CUDA_AVAILABLE, CUDA_THRESHOLD as _CUDA_THRESHOLD, DEFAULT_BIN_FUNCS as _DEFAULT_BIN_FUNCS, L2_PENALTY_SATURATION_DEFAULT as _L2_PENALTY_SATURATION_DEFAULT, NJIT_FUNCS as _NJIT_FUNCS, NJIT_PAR_FUNCS as _NJIT_PAR_FUNCS, PAR_THRESHOLD as _PAR_THRESHOLD, POLY_BASES as _POLY_BASES, canonical_seeds as _canonical_seeds, l2_normalize_pair as _l2_normalize_pair, l2_penalty_value as _l2_penalty_value, plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit, plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit
     # Sister-sibling import: ``_baseline_mi_pair``, ``_eval_coef_pair``,
     # ``_run_cma_search`` stayed in ``_hermite_fe_optimise``. Sister-to-sister
     # is cycle-free because the parent imports each sibling at its bottom
@@ -777,7 +777,7 @@ def optimise_hermite_pair(
     # dependence but preserve the binning bias) and reject when the real MI does not clear the null p95 by ``noise_floor_perm_ratio``.
     if noise_floor_perm_ratio > 0.0 and noise_floor_n_perms > 0 and mi_estimator == "plugin":
         try:
-            from .hermite_fe import _plugin_mi_classif_njit, _plugin_mi_regression_njit
+            from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_njit as _plugin_mi_classif_njit, plugin_mi_regression_njit as _plugin_mi_regression_njit
             # Run the noise-floor null on a STRIDED subsample of the operands (cap 30k). The permutation p95 is a COARSE
             # floor (compared against a 1.5x ratio), well-estimated on ~30k, while mi_real + the 50 shuffles on the FULL
             # n were the dominant per-pair cost at large n (measured: per-pair 12.5s@100k -> 68s@1M, ~all of it here) -
@@ -809,7 +809,7 @@ def optimise_hermite_pair(
                     # call per the from-binned kernel's own bench) is identical every permutation: bin ONCE and reuse.
                     # Bit-identical to ``mi_fn(comb, yp)`` because ``_plugin_mi_from_binned_njit(_quantile_bin_njit(comb), y)``
                     # is byte-for-byte ``_plugin_mi_classif_njit(comb, y)`` (same histogram + plug-in MI, only the binning is hoisted).
-                    from .hermite_fe import _plugin_mi_from_binned_njit, _quantile_bin_njit as _qbin
+                    from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_from_binned_njit as _plugin_mi_from_binned_njit, quantile_bin_njit as _qbin
                     _comb_binned = _qbin(comb, plugin_n_bins)
                     for _p in range(int(noise_floor_n_perms)):
                         yp = np.ascontiguousarray(y_perm_src[rng_null.permutation(nlen)])

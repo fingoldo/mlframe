@@ -150,7 +150,7 @@ def _column_perm_pvalue(feat_col, yb, nbins: int, n_perm: int, seed: int) -> flo
     reported p-value resolves below ~0.01. Returns ``nan`` when disabled (``n_perm<=0``) or the column is degenerate."""
     if int(n_perm) <= 0:
         return float("nan")
-    from .filters._pairwise_modular_fe import _mi
+    from mlframe.feature_selection.filters.shared import mi as _mi
 
     col = np.ascontiguousarray(np.asarray(feat_col, dtype=np.float64))
     yb = np.asarray(yb)
@@ -162,7 +162,7 @@ def _column_perm_pvalue(feat_col, yb, nbins: int, n_perm: int, seed: int) -> flo
     # Through the canonical helper so `MLFRAME_MRMR_ADDONE_PVALUE` reaches this site too. This function
     # also SHADOWS the canonical `_perm_pvalue` name with a different signature, which is why the drift was
     # easy to miss on a grep.
-    from .filters.permutation import _perm_pvalue as _canonical_perm_pvalue
+    from mlframe.feature_selection.filters.shared import perm_pvalue as _canonical_perm_pvalue
 
     return _canonical_perm_pvalue(ge, int(n_perm))
 
@@ -189,7 +189,7 @@ def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
     turn every ``responded`` hit into a :class:`DiscoveredRelation`, escalating to the best modulus found and
     attaching a deeper permutation p-value. Returns ``[]`` when the integer-column budget (``max_int_cols``) is
     exceeded or there are no integer columns."""
-    from .filters._pairwise_modular_fe import cheap_modular_scan, escalate_modulus, _is_integer_col, apply_pairwise_modular
+    from mlframe.feature_selection.filters.shared import cheap_modular_scan, escalate_modulus, is_integer_col as _is_integer_col, apply_pairwise_modular
 
     int_cols = [c for c in names_ok if _is_integer_col(np.asarray(X[c]))]
     if len(int_cols) > int(max_int_cols) or len(int_cols) < 1:
@@ -214,8 +214,8 @@ def _lattice_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
     """Run the cheap integer-lattice scan (``gcd`` / ``lcm`` / ``bitwise_and`` over column pairs) and turn every
     ``responded`` hit into a :class:`DiscoveredRelation`. Returns ``[]`` when the integer-column budget is exceeded
     or fewer than 2 integer-eligible columns are present (lattice ops need a pair)."""
-    from .filters._integer_lattice_fe import cheap_integer_lattice_scan, apply_integer_lattice
-    from .filters._pairwise_modular_fe import _is_integer_col
+    from mlframe.feature_selection.filters.shared import cheap_integer_lattice_scan, apply_integer_lattice
+    from mlframe.feature_selection.filters.shared import is_integer_col as _is_integer_col
 
     int_cols = [c for c in names_ok if _is_integer_col(np.asarray(X[c]))]
     if len(int_cols) > int(max_int_cols) or len(int_cols) < 2:
@@ -236,7 +236,7 @@ def _argmax_relations(X, y, names_ok, nbins, seed, n_perm):
     """Run the cheap row-argmax scan (which of several columns is largest per row) and turn every ``responded``
     hit into a :class:`DiscoveredRelation`. Carries its own internal relevance-pruned budget (no ``max_int_cols``
     guard needed here, unlike the modular/lattice scans)."""
-    from .filters._conditional_gate_fe import cheap_row_argmax_scan, apply_row_argmax
+    from mlframe.feature_selection.filters.shared import cheap_row_argmax_scan, apply_row_argmax
 
     out = []
     for h in cheap_row_argmax_scan(X, y, names_ok, nbins=nbins, seed=seed):
@@ -254,7 +254,7 @@ def _gate_relations(X, y, names_ok, nbins, seed, n_perm):
     """Run the cheap conditional-gate scan (regime switch ``c>tau ? a : b`` / masked interaction ``1[c>tau]*a``) and
     turn every ``responded`` hit into a :class:`DiscoveredRelation`, labelling it ``gate_select`` or ``gate_mask``
     per the detector's reported mode."""
-    from .filters._conditional_gate_fe import cheap_conditional_gate_scan, apply_conditional_gate
+    from mlframe.feature_selection.filters.shared import cheap_conditional_gate_scan, apply_conditional_gate
 
     out = []
     for h in cheap_conditional_gate_scan(X, y, names_ok, nbins=nbins, seed=seed):
@@ -336,7 +336,7 @@ def discover_structure(
     >>> rel.kind, rel.columns, bool(rel.mi > 0.5)
     ('gcd', ('price', 'quantity'), True)
     """
-    from .filters._fe_accuracy_gate import class_mi_fe_applicable, bin_y_for_class_mi
+    from mlframe.feature_selection.filters.shared import class_mi_fe_applicable, bin_y_for_class_mi
 
     import pandas as pd
 
@@ -359,7 +359,7 @@ def discover_structure(
     yb = bin_y_for_class_mi(y_arr.ravel(), nbins=nbins)
     names = [str(c) for c in X.columns]
 
-    from .filters._pairwise_modular_fe import _is_integer_col
+    from mlframe.feature_selection.filters.shared import is_integer_col as _is_integer_col
 
     n_int = sum(1 for c in X.columns if _is_integer_col(np.asarray(X[c])))
 

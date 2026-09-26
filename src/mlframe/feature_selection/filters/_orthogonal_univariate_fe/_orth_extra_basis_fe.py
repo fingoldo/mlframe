@@ -20,7 +20,9 @@ import numba
 import numpy as np
 from numba import prange
 
-from ..hermite_fe import _detect_heavy_tail, _robust_axis_enabled, _robust_lo_hi
+from mlframe.feature_selection.filters.hermite_fe.shared import (
+    detect_heavy_tail as _detect_heavy_tail, robust_axis_enabled as _robust_axis_enabled, robust_lo_hi as _robust_lo_hi,
+)
 from ._fourier_core_cycles import core_span, freq_is_tail_aliased
 
 logger = logging.getLogger(__name__)
@@ -58,7 +60,7 @@ def _fit_spline_for_col(x: np.ndarray, n_inner_knots: int):
     held (knots baked into the recipe, replay reads only knots/lo/hi), but moot.
     Don't add fe_spline_knot_strategy="supervised". (D:/Temp/item7_supervised_knots_findings.md)
     """
-    from ..engineered_recipes import _bspline_basis_values, _fit_spline_knots  # noqa: F401
+    from mlframe.feature_selection.filters.engineered_recipes.shared import bspline_basis_values as _bspline_basis_values, fit_spline_knots as _fit_spline_knots  # noqa: F401
     knots, lo, hi = _fit_spline_knots(x, n_inner_knots, degree=3)
     # Number of cubic B-spline basis functions = len(knots) - degree - 1.
     n_basis = len(knots) - 3 - 1

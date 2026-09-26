@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import logging
 
+from mlframe.utils.log_throttle import log_throttle
+
 import numpy as np
 
 from ._helpers import _pgn_raw_budget
@@ -88,7 +90,7 @@ def _assign_support_tail(
             if _retain_extra:
                 try:
                     from .._fe_retention_subsumption import retention_form_is_subsumed
-                    from ..engineered_recipes._recipe_dispatch import apply_recipe as _ret_apply
+                    from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe as _ret_apply
                     _inc_names = [str(_n) for _n in (self._engineered_features_ or [])]
                     _inc_cont = []
                     for _in in _inc_names:
@@ -115,7 +117,10 @@ def _assign_support_tail(
                                 _cv = np.nan_to_num(_cv, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
                             except Exception as exc:
                                 # transform() replays with the same call, so an unreplayable recipe here would ship a column that fails at predict.
-                                logger.warning("mrmr: recipe for %r failed to replay while checking form subsumption (%r); not retained.", _r_name, exc)
+                                log_throttle(
+                                    logger, f"mrmr_retain_replay_failed:{_r_name}", logging.WARNING,
+                                    "mrmr: recipe for %r failed to replay while checking form subsumption (%r); not retained.", _r_name, exc,
+                                )
                                 continue
                             if _cv.shape[0] == int(data.shape[0]) and retention_form_is_subsumed(
                                 cand_continuous=_cv, incumbent_continuous=_inc_cont,
@@ -360,7 +365,7 @@ def _assign_support_tail(
             and selected_vars and getattr(self, "_engineered_recipes_", None)):
         try:
             from .._fe_raw_redundancy_drop import _linear_usability_keep_enabled, drop_redundant_raw_operands as _post_drop
-            from ..engineered_recipes._recipe_dispatch import apply_recipe as _post_apply
+            from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe as _post_apply
             from .._mi_greedy_cmi_fe import _quantile_bin as _post_qbin
 
             _post_raw_set = set(self.feature_names_in_)

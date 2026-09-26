@@ -127,7 +127,7 @@ class DiagnosticsBudget:
     def _record_skip(self, name: str, reason: str) -> None:
         """Write one dropped diagnostic into ``charts["skipped"]`` when a charts dict was given."""
         if isinstance(self.charts, dict):
-            from mlframe.reporting.diagnostics_dispatch import _record_skipped
+            from mlframe.reporting.shared import record_skipped as _record_skipped
 
             _record_skipped(self.charts, name, reason)
 

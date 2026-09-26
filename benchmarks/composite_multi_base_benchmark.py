@@ -31,10 +31,8 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from mlframe.training.composite import (
-    _linear_residual_fit,
-    forward_stepwise_multi_base,
-)
+from mlframe.training.composite import forward_stepwise_multi_base
+from mlframe.training.composite.transforms import _linear_residual_fit
 
 _OUT_PATH = Path(__file__).parent / "composite_multi_base_benchmark_results.json"
 
@@ -55,7 +53,7 @@ def _single_base_holdout_rmse(y: np.ndarray, base: np.ndarray) -> float:
 def _multi_base_holdout_rmse(y: np.ndarray, base_matrix: np.ndarray) -> float:
     """Same metric as single-base but with the (n, K) base matrix."""
     from sklearn.model_selection import KFold
-    from mlframe.training.composite import _linear_residual_multi_fit
+    from mlframe.training.composite.transforms import _linear_residual_multi_fit
     kf = KFold(n_splits=3, shuffle=True, random_state=42)
     rmses = []
     for train_idx, val_idx in kf.split(np.arange(y.size)):
@@ -91,7 +89,7 @@ def _make_scenario(name: str, n: int = 2000, seed: int = 0) -> Dict[str, Any]:
         return {"y": y, "candidates": {"b1": b1, "b2": b2, "b3": b3, **b_noise}, "seeds": ["b1"], "expected_added": 2}
     if name == "S4_collinear_pool":
         b1 = rng.normal(loc=10.0, scale=2.0, size=n)
-        b1_dup = b1 + 0.001 * rng.normal(size=n)   # near-clone of b1
+        b1_dup = b1 + 0.001 * rng.normal(size=n)  # near-clone of b1
         b_noise = {f"noise_{i}": rng.normal(size=n) for i in range(3)}
         y = 0.5 * b1 + rng.normal(scale=0.3, size=n)
         return {"y": y, "candidates": {"b1": b1, "b1_dup": b1_dup, **b_noise}, "seeds": ["b1"], "expected_added": 0}
@@ -99,14 +97,13 @@ def _make_scenario(name: str, n: int = 2000, seed: int = 0) -> Dict[str, Any]:
         b1 = rng.normal(loc=10.0, scale=2.0, size=n)
         b_weak = rng.normal(loc=0.0, scale=1.0, size=n)
         b_noise = {f"noise_{i}": rng.normal(size=n) for i in range(5)}
-        y = 0.5 * b1 + 0.05 * b_weak + rng.normal(scale=0.3, size=n)   # weak signal in b_weak
-        return {"y": y, "candidates": {"b1": b1, "b_weak": b_weak, **b_noise}, "seeds": ["b1"], "expected_added": 0}   # weak gain may or may not clear 2%
+        y = 0.5 * b1 + 0.05 * b_weak + rng.normal(scale=0.3, size=n)  # weak signal in b_weak
+        return {"y": y, "candidates": {"b1": b1, "b_weak": b_weak, **b_noise}, "seeds": ["b1"], "expected_added": 0}  # weak gain may or may not clear 2%
     raise ValueError(f"Unknown scenario {name}")
 
 
 def run_benchmark() -> Dict[str, Any]:
-    scenarios = ["S1_single_dominant", "S2_two_orthogonal", "S3_three_orthogonal",
-                 "S4_collinear_pool", "S5_partial_pool"]
+    scenarios = ["S1_single_dominant", "S2_two_orthogonal", "S3_three_orthogonal", "S4_collinear_pool", "S5_partial_pool"]
     results: List[Dict[str, Any]] = []
     for sc_name in scenarios:
         sc = _make_scenario(sc_name)
@@ -151,9 +148,7 @@ def run_benchmark() -> Dict[str, Any]:
         "geo_mean_gain_on_positive_scenarios_pct": geo_mean_gain,
         "no_harm_on_negative_scenarios": no_harm,
         "decision_auto_promote": auto_promote,
-        "decision_rule": (
-            "auto-promote iff (geo_mean_gain on S2/S3 > 5%) AND (S1/S4 added 0 extra bases)."
-        ),
+        "decision_rule": ("auto-promote iff (geo_mean_gain on S2/S3 > 5%) AND (S1/S4 added 0 extra bases)."),
     }
     return summary
 

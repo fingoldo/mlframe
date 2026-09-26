@@ -101,7 +101,7 @@ def forward_stepwise_multi_base(
     """
     from sklearn.model_selection import TimeSeriesSplit  # lazy
     # Lazy-import composite-internal transforms to break the import cycle (composite.py re-exports this module at the bottom; importing at module top would deadlock).
-    from .. import _linear_residual_multi_fit
+    from mlframe.training.composite.transforms.shared import linear_residual_multi_fit as _linear_residual_multi_fit
     y = np.asarray(y_train, dtype=np.float64).reshape(-1)
     if y.size < 4:
         return list(seed_bases or []), []

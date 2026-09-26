@@ -151,13 +151,13 @@ def _validate_string_params(self):
 
 def _validate_hybrid_orth_string_params(self) -> None:
     """Raise ValueError on an unrecognised hybrid-orth basis / kernel / aggregator / scorer string, listing the accepted values."""
-    from .mrmr._mrmr_param_constants import (
-        _VALID_FE_HYBRID_ORTH_BASES,
-        _VALID_FE_HYBRID_ORTH_CLUSTER_BASIS_AGGREGATORS,
-        _VALID_FE_HYBRID_ORTH_ENSEMBLE_AGGREGATORS,
-        _VALID_FE_HYBRID_ORTH_ENSEMBLE_SCORERS,
-        _VALID_FE_HYBRID_ORTH_HSIC_KERNELS,
-        _VALID_FE_HYBRID_ORTH_META_FORCE_SCORERS,
+    from mlframe.feature_selection.filters.mrmr.shared import (
+        VALID_FE_HYBRID_ORTH_BASES as _VALID_FE_HYBRID_ORTH_BASES,
+        VALID_FE_HYBRID_ORTH_CLUSTER_BASIS_AGGREGATORS as _VALID_FE_HYBRID_ORTH_CLUSTER_BASIS_AGGREGATORS,
+        VALID_FE_HYBRID_ORTH_ENSEMBLE_AGGREGATORS as _VALID_FE_HYBRID_ORTH_ENSEMBLE_AGGREGATORS,
+        VALID_FE_HYBRID_ORTH_ENSEMBLE_SCORERS as _VALID_FE_HYBRID_ORTH_ENSEMBLE_SCORERS,
+        VALID_FE_HYBRID_ORTH_HSIC_KERNELS as _VALID_FE_HYBRID_ORTH_HSIC_KERNELS,
+        VALID_FE_HYBRID_ORTH_META_FORCE_SCORERS as _VALID_FE_HYBRID_ORTH_META_FORCE_SCORERS,
     )
 
     for name, valid in (

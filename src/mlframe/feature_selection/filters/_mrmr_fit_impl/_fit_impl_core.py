@@ -121,13 +121,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # method binding -> any top-level ``from .mrmr import ...`` here would
     # create a hard import cycle that ``tests/test_meta/test_no_import_cycles.py``
     # flags. Python's module cache makes repeat imports cheap.
-    from ..mrmr import (
-        MRMR,
-        _hashable_params_signature,
-        numeric_column_names,
-        screen_predictors,
-        sort_dict_by_value,
-    )
+    from ..mrmr import MRMR, numeric_column_names, screen_predictors, sort_dict_by_value
+    from mlframe.feature_selection.filters.mrmr.shared import hashable_params_signature as _hashable_params_signature
     # Publish the canonical fit-cache lock on the class so any other holder of ``_FIT_CACHE`` shares it. Idempotent:
     # only set on first fit, never re-bound (re-binding would split the lock identity under concurrent fits).
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._state import ROUTED_RECIPE_FAMILIES, FEParams, FERecipes

@@ -56,9 +56,9 @@ def _mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool, mi_estimator:
         return 0.0
     if mi_estimator == "plugin":
         # Lazy-import to avoid circular dep.
-        from .hermite_fe import (
-            _plugin_mi_classif_njit,
-            _plugin_mi_regression_njit,
+        from mlframe.feature_selection.filters.hermite_fe.shared import (
+            plugin_mi_classif_njit as _plugin_mi_classif_njit,
+            plugin_mi_regression_njit as _plugin_mi_regression_njit,
         )
         x_njit = np.ascontiguousarray(x, dtype=np.float64)
         if discrete_target:
@@ -111,9 +111,9 @@ def score_trivial_baselines(
         return {}
     if mi_estimator == "plugin":
         # Lazy-import to break circular dep.
-        from .hermite_fe import (
-            _plugin_mi_classif_batch_njit,
-            _plugin_mi_regression_batch_njit,
+        from mlframe.feature_selection.filters.hermite_fe.shared import (
+            plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit,
+            plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit,
         )
         X_batch = np.ascontiguousarray(
             np.column_stack(valid_cols), dtype=np.float64,
@@ -245,9 +245,9 @@ def best_trivial_pair(
     if not valid_cols:
         return None
     if mi_estimator == "plugin":
-        from .hermite_fe import (
-            _plugin_mi_classif_batch_njit,
-            _plugin_mi_regression_batch_njit,
+        from mlframe.feature_selection.filters.hermite_fe.shared import (
+            plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit,
+            plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit,
         )
         X_batch = np.ascontiguousarray(
             np.column_stack(valid_cols), dtype=np.float64,

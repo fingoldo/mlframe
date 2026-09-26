@@ -70,7 +70,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_regression_batch_njit
+    from mlframe.feature_selection.filters.hermite_fe.shared import L2_PENALTY_SATURATION_DEFAULT as _L2_PENALTY_SATURATION_DEFAULT, l2_normalize_pair as _l2_normalize_pair, l2_penalty_value as _l2_penalty_value, plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit
     if l2_penalty_saturation is None:
         l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
     if direction_only:
@@ -160,7 +160,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
         X_rows = np.ascontiguousarray(np.stack(cols, axis=0), dtype=np.float64)
     X_batch = X_rows.T  # (n, K_valid) view for the ksg legs below; plugin uses the rows form directly
     if mi_estimator == "plugin":
-        from .hermite_fe import _plugin_mi_classif_batch_rows_njit
+        from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_rows_njit as _plugin_mi_classif_batch_rows_njit
         if discrete_target:
             mi_arr = _plugin_mi_classif_batch_rows_njit(X_rows, y_njit, plugin_n_bins)
         else:
@@ -229,7 +229,7 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     polyeval (cheap numba calls), this is the bulk of the speedup vs
     Optuna's per-trial sequential evaluation.
     """
-    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_rows_njit, _plugin_mi_regression_batch_njit
+    from mlframe.feature_selection.filters.hermite_fe.shared import L2_PENALTY_SATURATION_DEFAULT as _L2_PENALTY_SATURATION_DEFAULT, l2_normalize_pair as _l2_normalize_pair, l2_penalty_value as _l2_penalty_value, plugin_mi_classif_batch_rows_njit as _plugin_mi_classif_batch_rows_njit, plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit
     if l2_penalty_saturation is None:
         l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
 
@@ -378,7 +378,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
 
     Same signature + return contract as ``_run_cma_search`` for drop-in
     replacement via ``optimizer="cma_batch"``."""
-    from .hermite_fe import _l2_normalize_pair
+    from mlframe.feature_selection.filters.hermite_fe.shared import l2_normalize_pair as _l2_normalize_pair
     import cma
     dim = ca_size + cb_size
     if popsize is None:
@@ -528,7 +528,7 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     Same return contract as ``_run_cma_search`` so the dispatcher can
     drop it in via ``optimizer="random_batch"``.
     """
-    from .hermite_fe import _l2_normalize_pair
+    from mlframe.feature_selection.filters.hermite_fe.shared import l2_normalize_pair as _l2_normalize_pair
     # Was `seed if seed > 0 else 1`, silently substituting 1
     # for seed<=0 (including the valid seed=0) - sibling RNGs in this same call chain
     # (_hermite_fe_optimise_pair.py's multi-fidelity subsample / noise-floor null) correctly keep seed=0 as
@@ -671,7 +671,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _l2_normalize_pair
+    from mlframe.feature_selection.filters.hermite_fe.shared import l2_normalize_pair as _l2_normalize_pair
     import cma
     dim = ca_size + cb_size
     if popsize is None:
@@ -804,7 +804,7 @@ def _baseline_mi_pair(x_a, x_b, y, *, discrete_target: bool, n_neighbors: int = 
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _plugin_mi_classif_njit, _plugin_mi_regression_njit
+    from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_njit as _plugin_mi_classif_njit, plugin_mi_regression_njit as _plugin_mi_regression_njit
     if mi_estimator == "plugin":
         # Plug-in is 1-D-x by design; use max(MI(x_a, y), MI(x_b, y)) as a lower bound on the true joint MI.
         # Conservative gate (under-estimates baseline so engineered features clear it more easily); for the
@@ -862,7 +862,7 @@ def optimise_pair_multimode(
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import HermiteResult, _CUDA_AVAILABLE, _CUDA_THRESHOLD, _DEFAULT_BIN_FUNCS, _NJIT_FUNCS, _NJIT_PAR_FUNCS, _PAR_THRESHOLD, _POLY_BASES, _canonical_seeds
+    from mlframe.feature_selection.filters.hermite_fe.shared import HermiteResult, CUDA_AVAILABLE as _CUDA_AVAILABLE, CUDA_THRESHOLD as _CUDA_THRESHOLD, DEFAULT_BIN_FUNCS as _DEFAULT_BIN_FUNCS, NJIT_FUNCS as _NJIT_FUNCS, NJIT_PAR_FUNCS as _NJIT_PAR_FUNCS, PAR_THRESHOLD as _PAR_THRESHOLD, POLY_BASES as _POLY_BASES, canonical_seeds as _canonical_seeds
     # Forced CMA-ES because diverse top-M needs a bag of evaluations, which CMA's population gives naturally;
     # Optuna's TPE samples are less diverse early-on (coupled by the multivariate prior).
     if bin_funcs is None:

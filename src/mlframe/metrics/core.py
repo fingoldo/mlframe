@@ -119,13 +119,8 @@ TITLE_METRIC_TOKENS: frozenset = frozenset({
 # calibration plot rendering (render_title_metric_token, fast_calibration_binning,
 # _close_unless_interactive, show_calibration_plot, DEFAULT_TITLE_METRICS_TOKENS)
 # moved to sibling _calibration_plot.py; re-exported below.
-from .calibration import (  # noqa: F401
-    DEFAULT_TITLE_METRICS_TOKENS,
-    render_title_metric_token,
-    fast_calibration_binning,
-    _close_unless_interactive,
-    show_calibration_plot,
-)
+from .calibration import DEFAULT_TITLE_METRICS_TOKENS, render_title_metric_token, fast_calibration_binning, show_calibration_plot  # noqa: F401
+from mlframe.metrics.calibration.shared import close_unless_interactive as _close_unless_interactive  # noqa: F401
 
 # Calibration metric kernels (CMAEW, ECE, Murphy Brier-decomp,
 # fast_calibration_metrics) live in ``_calibration_metrics.py``; re-exported
@@ -151,15 +146,15 @@ from ._auc_per_group import (  # noqa: F401
 )
 
 # Classification + calibration report block moved to _classification_report.py.
-from .classification._classification_report import (  # noqa: F401
+from mlframe.metrics.classification.shared import (  # noqa: F401
     format_classification_report,
-    _compute_pr_recall_f1_metrics_seq,
-    _compute_pr_recall_f1_metrics_par,
+    compute_pr_recall_f1_metrics_seq as _compute_pr_recall_f1_metrics_seq,
+    compute_pr_recall_f1_metrics_par as _compute_pr_recall_f1_metrics_par,
     compute_pr_recall_f1_metrics,
     CalibrationReport,
     fast_calibration_report,
-    _batch_per_class_ice_kernel,
-    _batch_per_class_ice_kernel_serial,
+    batch_per_class_ice_kernel as _batch_per_class_ice_kernel,
+    batch_per_class_ice_kernel_serial as _batch_per_class_ice_kernel_serial,
     fast_ice_only,
     predictions_time_instability,
 )
@@ -183,18 +178,22 @@ from .calibration import integral_calibration_error_from_metrics  # noqa: F401
 # Regression metrics live in ``_regression_metrics.py``; re-exported below to keep
 # ``from mlframe.metrics.core import fast_*`` imports stable. See sibling for SSOT.
 from .regression import (  # noqa: F401
-    _fast_mae_seq, _fast_mae_par, _fast_mse_seq, _fast_mse_par,
-    _fast_max_error_seq, _fast_r2_score_seq, _fast_r2_score_par,
-    _fast_r2_variance_seq,
-    _fast_mae_weighted_seq, _fast_mae_weighted_par,
-    _fast_mse_weighted_seq, _fast_mse_weighted_par,
-    _fast_r2_score_weighted_seq, _fast_r2_score_weighted_par,
-    _aggregate_multioutput, _to_2d,
-    fast_mean_absolute_error, fast_mean_squared_error,
-    fast_root_mean_squared_error, fast_max_error, fast_r2_score,
-    _fused_regression_pass1_seq, _fused_regression_pass1_par,
-    _fused_regression_pass2_seq, _fused_regression_pass2_par,
+    fast_mean_absolute_error,
+    fast_mean_squared_error,
+    fast_root_mean_squared_error,
+    fast_max_error,
+    fast_r2_score,
     fast_regression_metrics_block,
+)
+from mlframe.metrics.regression.shared import (  # noqa: F401
+    fast_mae_seq as _fast_mae_seq, fast_mae_par as _fast_mae_par, fast_mse_seq as _fast_mse_seq, fast_mse_par as _fast_mse_par,
+    fast_max_error_seq as _fast_max_error_seq, fast_r2_score_seq as _fast_r2_score_seq, fast_r2_score_par as _fast_r2_score_par,
+    fast_r2_variance_seq as _fast_r2_variance_seq, fast_mae_weighted_seq as _fast_mae_weighted_seq, fast_mae_weighted_par as _fast_mae_weighted_par,
+    fast_mse_weighted_seq as _fast_mse_weighted_seq, fast_mse_weighted_par as _fast_mse_weighted_par,
+    fast_r2_score_weighted_seq as _fast_r2_score_weighted_seq, fast_r2_score_weighted_par as _fast_r2_score_weighted_par,
+    aggregate_multioutput as _aggregate_multioutput, to_2d as _to_2d, fused_regression_pass1_seq as _fused_regression_pass1_seq,
+    fused_regression_pass1_par as _fused_regression_pass1_par, fused_regression_pass2_seq as _fused_regression_pass2_seq,
+    fused_regression_pass2_par as _fused_regression_pass2_par,
 )
 
 # Binary log-loss + probability-separation kernels live in
@@ -234,7 +233,8 @@ from ._core_numba_warmup import (  # noqa: F401
 # audit batch. Re-exported here so historical
 # ``from mlframe.metrics.core import ks_statistic`` style imports resolve
 # at module scope.
-from .classification._classification_extras import (  # noqa: F401
+# Tier 2 additions:
+from mlframe.metrics.classification.shared import (  # noqa: F401
     ks_statistic,
     matthews_corrcoef_binary,
     cohen_kappa_binary,
@@ -252,7 +252,6 @@ from .classification._classification_extras import (  # noqa: F401
     fast_binary_confusion_metrics_block,
     fast_binary_probability_metrics_block,
     fast_multiclass_confusion_metrics_block,
-    # Tier 2 additions:
     hosmer_lemeshow_test,
     accuracy_ratio,
 )

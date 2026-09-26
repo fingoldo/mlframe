@@ -119,12 +119,8 @@ except ImportError:
         return np.average(output_errors, weights=multioutput)
 
 
-from .reporting import (  # noqa: F401
-    _canonical_multilabel_y,
-    report_model_perf,
-    report_regression_model_perf,
-    report_probabilistic_model_perf,
-)
+from .reporting import report_model_perf, report_regression_model_perf, report_probabilistic_model_perf
+from mlframe.training.reporting.shared import canonical_multilabel_y as _canonical_multilabel_y  # noqa: F401
 # Feature-importance helpers (~550 lines: 5 internal extractors + 2 public
 # entry points) carved into sibling ``_feature_importances.py`` to drop
 # this file below the 1k-LOC monolith threshold. Re-exported here so

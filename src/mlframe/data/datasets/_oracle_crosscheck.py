@@ -91,19 +91,6 @@ def exact_joint(codes: np.ndarray, true_prob: np.ndarray) -> Tuple[np.ndarray, n
     return joint, levels
 
 
-def _mutual_information(joint: np.ndarray) -> float:
-    """Return `I(X;Y)` in nats from an exact joint, with zero-probability cells contributing nothing.
-
-    Used only to check the two-argument form of the comparison itself; the quantity actually cross-checked
-    is the oracle's own `_exact_mi_independent`, which is what the benchmark publishes.
-    """
-    px = joint.sum(axis=1, keepdims=True)
-    py = joint.sum(axis=0, keepdims=True)
-    outer = px * py
-    mask = (joint > 0.0) & (outer > 0.0)
-    return float((joint[mask] * np.log(joint[mask] / outer[mask])).sum())
-
-
 def mutual_information_via_dit(joint: np.ndarray) -> float:
     """Return `I(X;Y)` in nats for the same joint, computed by `dit` rather than by this package.
 

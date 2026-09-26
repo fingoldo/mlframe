@@ -12,6 +12,9 @@ import hashlib
 from typing import Any, Mapping, Optional
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 # The ``common_params`` arrays the fit reads besides the feature frame.
 _FIT_ARRAYS = ("target", "train_target", "val_target", "train_idx", "val_idx", "sample_weight")
@@ -36,7 +39,8 @@ def _stable(value: Any, depth: int = 0) -> str:
     if hasattr(value, "get_params"):
         try:
             return type(value).__qualname__ + _stable(value.get_params(deep=False), depth + 1)
-        except Exception:  # an estimator whose get_params fails is identified by its class alone
+        except Exception as exc:  # an estimator whose get_params fails is identified by its class alone
+            logger.debug("_stable: %s", exc, exc_info=True)
             return type(value).__qualname__
     return type(value).__qualname__
 

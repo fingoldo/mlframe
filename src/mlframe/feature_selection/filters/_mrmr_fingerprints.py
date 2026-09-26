@@ -42,10 +42,10 @@ from mlframe._dtype_canon import canonicalise_dtype
 # suppression comment rather than re-deleted - see CLAUDE.md's project-wide-rewrite-without-review incident.
 from mlframe.feature_selection.wrappers import RFECV  # noqa: F401
 
-from mlframe.feature_engineering.numerical import (  # noqa: F401 -- re-exported for mrmr/__init__.py
-    _astropy_histogram,
-    _resolve_astropy_histogram,
-    histogram,
+from mlframe.feature_engineering.numerical import histogram  # noqa: F401 -- re-exported for mrmr/__init__.py
+from mlframe.feature_engineering.shared import (  # noqa: F401 -- re-exported for mrmr/__init__.py
+    astropy_histogram as _astropy_histogram,
+    resolve_astropy_histogram as _resolve_astropy_histogram,
 )
 
 if TYPE_CHECKING:

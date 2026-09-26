@@ -206,8 +206,8 @@ def get_training_configs(
 
     _cb_in_scope = enabled_models is None or any(_is_cb(m) for m in enabled_models)
     if has_gpu and _cb_in_scope:
-        from .cb import _cb_gpu_usable as _cb_gpu_probe
-        _cb_task = "GPU" if _cb_gpu_probe() else "CPU"
+        from mlframe.training.cb.shared import cb_gpu_usable as _cb_gpu_usable
+        _cb_task = "GPU" if _cb_gpu_usable() else "CPU"
     else:
         _cb_task = "CPU"
     CB_GENERAL_PARAMS = dict(

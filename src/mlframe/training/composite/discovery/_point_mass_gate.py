@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import numpy as np
 
-CURVED_Y_COMPRESSORS = frozenset({"log_y", "cbrt_y", "box_cox_y", "signed_power_y", "yeo_johnson_y"})
+from ._skew_gate import RIGHT_TAIL_COMPRESSORS
+
+CURVED_Y_COMPRESSORS = RIGHT_TAIL_COMPRESSORS | {"yeo_johnson_y"}
 """Unary y-transforms with a curved (convex) inverse. Unlike the left-skew gate, ``yeo_johnson_y`` IS included: its
 lambda fit does nothing about a point mass, which is a problem of concentration rather than of tail direction."""
 

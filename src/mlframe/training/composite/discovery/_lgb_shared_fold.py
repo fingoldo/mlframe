@@ -16,17 +16,16 @@ matrix, so a freed matrix whose ``id`` is reused can never hit a stale dataset.
 from __future__ import annotations
 
 import threading
-import weakref
-from collections import OrderedDict
 from typing import Any, Dict
 
 import numpy as np
 
+from ._matrix_keyed_cache import MatrixKeyedCache
+
 _MAX_ENTRIES = 64
 """Datasets kept across all threads; the oldest go first. Each holds one fold's binned rows only (about 1.3 MB at the defaults)."""
 
-_CACHE: "OrderedDict[tuple, tuple[Any, Any]]" = OrderedDict()
-_LOCK = threading.Lock()
+_CACHE = MatrixKeyedCache(_MAX_ENTRIES)
 
 _CONSTRUCT_LOCK = threading.Lock()
 """Serialises ``Dataset.construct()`` across every thread in the process.
@@ -65,16 +64,9 @@ def lgb_params(*, num_leaves: int, learning_rate: float, random_state: int, dete
     return params
 
 
-def _drop_dead_locked() -> None:
-    """Remove the entries whose matrix has been freed; the caller holds ``_LOCK``."""
-    for dead in [k for k, (ref, _) in _CACHE.items() if ref() is None]:
-        del _CACHE[dead]
-
-
 def prune_dead() -> None:
     """Drop the entries whose matrix has been freed, so a finished phase leaves nothing of its folds resident."""
-    with _LOCK:
-        _drop_dead_locked()
+    _CACHE.prune_dead()
 
 
 def _fold_dataset(x: np.ndarray, rows: np.ndarray, params: Dict[str, Any]) -> Any:
@@ -85,23 +77,14 @@ def _fold_dataset(x: np.ndarray, rows: np.ndarray, params: Dict[str, Any]) -> An
         threading.get_ident(), id(x), x.shape, hash(np.ascontiguousarray(rows).tobytes()),
         tuple(sorted((k, v) for k, v in params.items() if k != "num_threads")),
     )
-    with _LOCK:
-        hit = _CACHE.get(key)
-        if hit is not None and hit[0]() is x:
-            _CACHE.move_to_end(key)
-            return hit[1]
+    hit = _CACHE.get(key, x)
+    if hit is not None:
+        return hit
     # Only the binned rows are reused -- no subset, no re-construction -- so the raw feature copy is released once built.
     _raw = x[rows]  # materialised outside the lock: the copy is plain numpy and needs no serialisation
     with _CONSTRUCT_LOCK:
         ds = lgb.Dataset(_raw, label=np.zeros(rows.shape[0]), params=params, free_raw_data=True).construct()
-    with _LOCK:
-        # An entry whose matrix is gone can never hit again (a new matrix at the same id fails the weakref check), so
-        # it goes now rather than when the LRU reaches it: the rerank gathers per-base matrices on demand and drops them.
-        _drop_dead_locked()
-        _CACHE[key] = (weakref.ref(x), ds)
-        while len(_CACHE) > _MAX_ENTRIES:
-            # evict-ok: memo; a miss recomputes the value
-            _CACHE.popitem(last=False)
+    _CACHE.put(key, x, ds)
     return ds
 
 

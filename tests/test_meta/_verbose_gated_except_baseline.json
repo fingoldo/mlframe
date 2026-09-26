@@ -1,3 +1,7 @@
 [
-  "feature_selection/filters/_fe_gpu_strict.py:189"
+  "training/composite/discovery/_honest_rmse_gate.py:351",
+  "training/composite/discovery/_yscale_holdout_gate.py:183",
+  "training/composite/discovery/_yscale_holdout_gate.py:345",
+  "training/composite/discovery/_yscale_holdout_gate.py:506",
+  "training/core/_composite_wrap_watchdog.py:165"
 ]

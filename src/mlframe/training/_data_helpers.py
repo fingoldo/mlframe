@@ -717,7 +717,7 @@ def _attach_eval_row_attributes(
         return
     if sample_weight_val is not None:
         sw_list: list[Any] = [sample_weight_val, *(shard.sample_weight for shard in shards)]
-        from .cb._cb_eval_weights import CB_EVAL_WEIGHTS_KEY
+        from mlframe.training.cb.shared import CB_EVAL_WEIGHTS_KEY
 
         fit_params[{"xgb": "sample_weight_eval_set", "lgb": "eval_sample_weight", "cb": CB_EVAL_WEIGHTS_KEY}[model_category]] = sw_list
     if base_margin_val is not None and model_category == "xgb":

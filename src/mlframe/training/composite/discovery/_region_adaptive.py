@@ -51,8 +51,8 @@ from typing import Any, Sequence
 import numpy as np
 
 # Reuse the registry transforms verbatim (fit/forward/inverse), no new Transform.
-from ..transforms.registry import _TRANSFORMS_REGISTRY
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import TRANSFORMS_REGISTRY as _TRANSFORMS_REGISTRY
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 

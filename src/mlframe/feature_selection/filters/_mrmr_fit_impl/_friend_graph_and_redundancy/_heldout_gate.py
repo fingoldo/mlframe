@@ -12,6 +12,7 @@ own view of the selected set.
 
 from __future__ import annotations
 
+from typing import Any, Callable, Optional, Sequence
 import logging
 
 import numpy as np
@@ -22,7 +23,7 @@ from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundan
 logger = logging.getLogger(__name__)
 
 
-def selected_design_columns(*, X, cols, selected_vars, eng_continuous_snapshot, y_ref) -> list:
+def selected_design_columns(*, X: Any, cols: Sequence[str], selected_vars: Sequence[int], eng_continuous_snapshot: dict, y_ref: Optional[np.ndarray]) -> list:
     """Continuous values of the currently-selected columns (engineered from the snapshot, raw from ``X``): the baseline the candidate must beat."""
     out: list = []
     if y_ref is None or not isinstance(X, pd.DataFrame):
@@ -43,7 +44,7 @@ def selected_design_columns(*, X, cols, selected_vars, eng_continuous_snapshot, 
     return out
 
 
-def coerce_gate_target(y_np, n_rows: int):
+def coerce_gate_target(y_np: Any, n_rows: int) -> Optional[np.ndarray]:
     """``y`` as a finite float64 vector of ``n_rows``, or None when it cannot serve as a regression target for the probe."""
     try:
         y_vec = np.asarray(y_np, dtype=np.float64).reshape(-1)
@@ -55,7 +56,7 @@ def coerce_gate_target(y_np, n_rows: int):
     return None
 
 
-def build_heldout_incr_probe(*, y_gate, sel_value_cols, random_seed):
+def build_heldout_incr_probe(*, y_gate: Optional[np.ndarray], sel_value_cols: list, random_seed: Optional[int]) -> Callable[..., float]:
     """Return ``probe(candidate_vals, src_vals=None) -> float``, the held-out R^2 gain of adding the candidate to the selected design.
 
     Everything that does not depend on the candidate is done once here: the split, the validation target and its centred sum of squares, and
@@ -115,7 +116,7 @@ def build_heldout_incr_probe(*, y_gate, sel_value_cols, random_seed):
     return _heldout_incr_over_selected
 
 
-def candidate_values(name, *, X, eng_continuous_snapshot, y_ref):
+def candidate_values(name: str, *, X: Any, eng_continuous_snapshot: dict, y_ref: Optional[np.ndarray]) -> Optional[np.ndarray]:
     """Continuous values of one candidate column by name, or None when it cannot be scored against ``y_ref``."""
     values = eng_continuous_snapshot.get(name)
     if values is None and isinstance(X, pd.DataFrame) and name in X.columns:

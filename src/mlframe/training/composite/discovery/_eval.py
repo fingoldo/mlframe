@@ -19,7 +19,7 @@ from .screening import (
     _mi_to_target_prebinned,
 )
 from ..transforms import compose_target_name
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +166,7 @@ def _bootstrap_mi_y_replicates(bootstrap_n, seed, n_screen, y_valid, x_pb_valid,
         try:
             values[b] = _boot_mi(x_rows, y_valid[idx_b], x_pb_valid is not None, mi_kwargs, config)
         except Exception as e:
+            logger.debug("_bootstrap_mi_y_replicates: %s", e, exc_info=True)
             fails[b] = f"{type(e).__name__}: {e}"
     return values, fails
 

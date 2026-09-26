@@ -330,7 +330,7 @@ def _account_panel_render(metrics: Any, target_type: Any, rendered_tag: Any, pan
         # run needs to count how many reports dropped a whole panel set.
         charts.setdefault("panel_exceptions", []).extend(panel_failures)
     else:
-        from mlframe.reporting.diagnostics_dispatch import _record_skipped
+        from mlframe.reporting.shared import record_skipped as _record_skipped
 
         _record_skipped(charts, f"{which}_panels", "no panel grid applies to this target type")
 

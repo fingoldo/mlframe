@@ -334,7 +334,7 @@ def apply_preprocessing_extensions(
     from . import PreprocessingExtensionsBundle, _build_extension_steps
     # Lazy cross-package import: ``mlframe.training.core`` imports this function (see ``_phase_helpers_fit_pipeline.py``), so a top-level import here would risk
     # a cycle at module-load time; by call time both packages are already fully loaded.
-    from mlframe.training.core import _elapsed_str
+    from mlframe.training.core.shared import elapsed_str as _elapsed_str
     if config is None:
         return train_df, val_df, test_df, None
     # Fastpath: zero active stages -> no work to do. Return inputs UNTOUCHED (no polars->pandas down-convert). Without this gate the function paid the full Arrow->pandas conversion on every frame even when nothing was configured, defeating the polars fastpath and risking OOM on 100+GB polars frames for a no-op call.
@@ -646,7 +646,7 @@ def apply_preprocessing_extensions(
         and n_features > 0
     ):
         assert _byte_cap is not None  # guaranteed by the ``_byte_cap not in (None, 0)`` check above
-        from mlframe.training.feature_handling.polynomial import _projected_output_cols
+        from mlframe.training.feature_handling.shared import projected_output_cols as _projected_output_cols
         _n_samples = train.shape[0]
         _eff_degree = int(config.polynomial_degree)
         _eff_interaction = bool(config.polynomial_interaction_only)

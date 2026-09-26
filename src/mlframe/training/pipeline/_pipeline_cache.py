@@ -15,6 +15,7 @@ What lives here:
 """
 from __future__ import annotations
 
+from typing import Any
 import hashlib
 import logging
 import os
@@ -451,7 +452,7 @@ def _full_x_content_hash(arr) -> str:
         return ""
 
 
-def target_label_changed(last_signature, new_signature) -> bool:
+def target_label_changed(last_signature: Any, new_signature: Any) -> bool:
     """Whether a cached Pool's label must be swapped before it is reused.
 
     An empty signature means ``_full_target_content_hash`` could not hash that target, never that the target is

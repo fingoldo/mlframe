@@ -12,8 +12,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from ...composite._row_roles import note_rows
-from ...composite.discovery._splitter import make_discovery_splitter
+from mlframe.training.composite.shared import note_rows
+from mlframe.training.composite.discovery.shared import make_discovery_splitter
 
 _N_SPLITS = 5
 

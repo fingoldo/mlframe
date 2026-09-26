@@ -14,12 +14,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from mlframe.training.composite import (
-    CompositeSpec,
-    CompositeTargetDiscovery,
-    _linear_residual_multi_fit,
-    forward_stepwise_multi_base,
-)
+from mlframe.training.composite import CompositeSpec, CompositeTargetDiscovery, forward_stepwise_multi_base
+from mlframe.training.composite.transforms import _linear_residual_multi_fit
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 

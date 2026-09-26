@@ -102,7 +102,7 @@ def curated_fe_pipelines(
     """
     from sklearn.pipeline import Pipeline
 
-    from .transformer._suite_adapter import ShortlistTransformerAdapter
+    from mlframe.feature_engineering.transformer.shared import ShortlistTransformerAdapter
 
     allow = _allowlist()
     chosen = list(names) if names is not None else list(CURATED_FE_NAMES)

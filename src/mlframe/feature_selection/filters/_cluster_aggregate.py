@@ -301,7 +301,7 @@ def _derive_weights(Z: np.ndarray, method: str, svd_cache: dict | None = None):
 
 def _continuous_cols(X, names: Sequence[str]) -> np.ndarray:
     """Extract ``names`` columns from ``X`` as a float64 matrix with NaN/inf sanitized to 0.0, for distance/correlation-based cluster discovery."""
-    from .engineered_recipes import _extract_column
+    from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_column
 
     cols = [np.nan_to_num(np.asarray(_extract_column(X, n), dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0) for n in names]
     return np.column_stack(cols)

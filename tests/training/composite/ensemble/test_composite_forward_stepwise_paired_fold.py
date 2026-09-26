@@ -217,7 +217,7 @@ class TestA20BufferBitIdentity:
         )
         # Reconstruct the reference fold RMSEs for the FINAL kept set via an independent column_stack
         # + the same OLS, and confirm they match the buffer-path values bit-for-bit.
-        from mlframe.training.composite import _linear_residual_multi_fit
+        from mlframe.training.composite.transforms import _linear_residual_multi_fit
 
         splitter = KFold(n_splits=4, shuffle=True, random_state=42)
         base_matrix = np.column_stack([cands[c] for c in kept])

@@ -199,7 +199,7 @@ def _prepared_error_inputs(
 
     def _build():
         """The preparation itself, run only on a cache miss."""
-        from mlframe.reporting.charts.error_analysis import _per_row_error
+        from mlframe.reporting.charts.shared import per_row_error as _per_row_error
 
         loss = _per_row_error(yt, yp, task=task)
         loss_finite = np.where(np.isfinite(loss), loss, -np.inf)

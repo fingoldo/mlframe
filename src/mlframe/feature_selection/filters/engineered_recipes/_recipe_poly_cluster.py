@@ -37,7 +37,7 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
             )
 
     # Lazy imports to avoid circular dependency (hermite_fe -> mrmr -> recipes).
-    from ..hermite_fe import _POLY_BASES, _DEFAULT_BIN_FUNCS
+    from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES, DEFAULT_BIN_FUNCS as _DEFAULT_BIN_FUNCS
 
     basis = recipe.extra["basis"]
     bin_func_name = recipe.extra["bin_func_name"]

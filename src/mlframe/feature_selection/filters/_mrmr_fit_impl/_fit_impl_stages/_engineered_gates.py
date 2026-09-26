@@ -5,7 +5,7 @@ from __future__ import annotations
 # --- imports (managed) ---
 import numpy as np
 import pandas as pd
-from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import FE_ROSTER_ATTRS
+from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import drop_from_fe_rosters
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 
 # --- end imports ---
@@ -43,8 +43,7 @@ def _second_pass_cmi_gate(self, X, _y_np, recipes, verbose):
                         dict.fromkeys(list(getattr(self, "hybrid_orth_candidates_", None) or []) + list(getattr(self, "hybrid_orth_features_", None) or []))
                     )
                     X = X.drop(columns=list(_eng_drop_u))
-                    for _attr in FE_ROSTER_ATTRS:
-                        setattr(self, _attr, [c for c in (getattr(self, _attr, []) or []) if c not in _eng_drop_u])
+                    drop_from_fe_rosters(self, _eng_drop_u)
                     # Private hinge / adaptive-fourier protection rosters are not
                     # in the public-roster loop above; prune them explicitly so a
                     # second-pass-dropped leg is not re-added by its protection.

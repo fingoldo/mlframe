@@ -121,7 +121,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
     # tentative starts as a plain list (set difference at fit entry), then TentativeRoughFix() rebinds it to an ndarray for boolean-mask filtering.
     tentative: "list | np.ndarray"
     # Set in _fit_explain.py's fit() (``self.X = X.copy()``) - a different module in this cross-file
-    # mixin pattern, invisible to mypy without this class-level annotation (found 2026-07-18: a
+    # mixin pattern, invisible to mypy without this class-level annotation (a
     # `self.X = self.X.drop(...)` self-referential assignment in __init__.py can't infer self.X's
     # type without it).
     X: pd.DataFrame
@@ -498,8 +498,8 @@ class BorutaShap(TransformerMixin, BaseEstimator):
         if train_or_test.lower() == "test":
             # keeping the same naming convenetion as to not add complexit later on
             # One fixed partition unless ``resample_holdout_per_trial``. Redrawing per trial answers a real concern - with one
-            # holdout, features are removed adaptively on one partition's evidence - but bench-attempt-rejected as the default
-            # (2026-09-24): on test_biz_val_boruta_auto_beats_gini_on_noisy_replicated it made 'auto' lose to gini on 2 of 3
+            # holdout, features are removed adaptively on one partition's evidence - but
+            # bench-attempt-rejected (2026-09-24) as the default: on test_biz_val_boruta_auto_beats_gini_on_noisy_replicated it made 'auto' lose to gini on 2 of 3
             # seeds (held-out AUC deltas -0.003 / -0.108 / -0.007) while the fixed holdout passes.
             _base_seed = self.random_state
             _trial = int(getattr(self, "_current_trial_", 0) or 0)

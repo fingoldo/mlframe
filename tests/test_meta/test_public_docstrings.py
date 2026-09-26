@@ -95,9 +95,9 @@ def test_no_new_undocumented_public_symbols():
             f"{len(fixed)} symbol(s) DRAINED — they now have docstrings:\n  "
             + "\n  ".join(fixed[:15])
             + (f"\n  ... and {len(fixed) - 15} more" if len(fixed) > 15 else "")
-            + f"\n  Refresh baseline to lock in: pytest "
-            f"tests/test_meta/test_public_docstrings.py "
-            f"--refresh-docstring-baseline\n"
+            + "\n  Refresh baseline to lock in: pytest "
+            "tests/test_meta/test_public_docstrings.py "
+            "--refresh-docstring-baseline\n"
         )
 
     if new:

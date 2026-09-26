@@ -31,8 +31,8 @@ import numpy as np
 # the second thread -- the lazy import silently raised NameError, the outer ``except Exception`` swallowed
 # it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module level so there
 # is no circular-dep concern.
-from ..estimator._smearing import smeared_prediction
-from ..estimator import _y_train_clip_bounds
+from mlframe.training.composite.estimator.shared import smeared_prediction
+from mlframe.training.composite.estimator.shared import y_train_clip_bounds as _y_train_clip_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ from ._screening_tiny import (
 from ._fold_refit import refit_transform_on_fold
 from ._lgb_shared_fold import fit_on_rows, fit_on_shared_fold, lgb_params
 from ._ridge_shared_fold import fit_ridge_on_shared_fold
-from mlframe.training.composite.transforms._call_gateway import call_transform
+from mlframe.training.composite.transforms.shared import call_transform
 
 
 def _per_bin_rmse(

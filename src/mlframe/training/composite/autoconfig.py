@@ -47,9 +47,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .discovery._structural_hints import structural_affinity_scores
+from mlframe.training.composite.discovery.shared import structural_affinity_scores
 from .discovery.auto_detect import detect_time_column_candidates
-from .discovery.screening import _extract_column_array, _is_numeric_column
+from mlframe.training.composite.discovery.shared import extract_column_array as _extract_column_array, is_numeric_column as _is_numeric_column
 
 logger = logging.getLogger(__name__)
 
