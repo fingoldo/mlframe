@@ -99,7 +99,7 @@ def _sufficient_summary_reached(self, data, nbins, cols, selected_vars, target_i
         nbins=nbins,
         cols=cols,
         selected_vars=selected_vars,
-        target_indices=target_indices,  # type: ignore[arg-type]
+        target_indices=target_indices,
         X=X,
         y=y,
         verbose=verbose,

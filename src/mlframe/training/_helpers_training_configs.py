@@ -175,7 +175,7 @@ def get_training_configs(
 
     # None = disabled (don't pass to model fit at all); 0 = auto (iterations // 3); int = as-is.
     early_stopping_disabled = early_stopping_rounds is None
-    if not early_stopping_disabled and early_stopping_rounds <= 0:
+    if early_stopping_rounds is not None and early_stopping_rounds <= 0:
         early_stopping_rounds = max(2, iterations // 3)
 
     def neg_ovr_roc_auc_score(*args, **kwargs):

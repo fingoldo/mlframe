@@ -437,7 +437,6 @@ def _materialise_knob_columns(*, factors_data, X, y, factors_nbins, dtype, selec
     return out
 
 
-
 _GATE_FAILED_MSG = (
     "%s failed for candidate %s (%s: %s); the candidate is excluded from this round rather than ranked un-gated beside "
     "gated ones. Further failures of this gate are counted, not logged."
@@ -960,4 +959,4 @@ from ._evaluation_driver import (
     _prefill_cond_MIs_gpu,  # noqa: F401 - re-exported for _confirm_predictor.py
     evaluate_candidates,  # noqa: F401 - re-exported for _mrmr_class.py / mrmr/__init__.py / _confirm_predictor.py / _legacy.py
 )
-from ._evaluation_partial_gain import find_best_partial_gain  # noqa: E402,F401 - carved to keep this module under 1k LOC; public name unchanged
+from ._evaluation_partial_gain import find_best_partial_gain  # noqa: F401 - carved to keep this module under 1k LOC; public name unchanged

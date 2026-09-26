@@ -899,7 +899,7 @@ def _relevance_from_dense(
 
 
 # The batched FE-candidate MI kernel selector lives in _batch_kernel_selection.py (1k-LOC budget); re-exported here.
-from ._batch_kernel_selection import (  # noqa: E402,F401
+from ._batch_kernel_selection import (  # noqa: F401
     _BATCH_MI_KERNEL_CODE_VERSION,
     _batch_mi_kernel_fallback_choice,
     _run_batch_mi_kernel_sweep,

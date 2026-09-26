@@ -5,6 +5,8 @@ Methods are bound onto the ``BorutaShap`` class in the package ``__init__`` so `
 
 from __future__ import annotations
 
+from typing import Any
+
 from mlframe.utils.misc import get_pipeline_last_element
 from pyutilz.system import tqdmu
 
@@ -28,7 +30,6 @@ import warnings
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 
 def _uses_held_out_split(self) -> bool:
@@ -614,6 +615,14 @@ def explain(self):
     # SHAP background must be the TRAIN slice - self.X_boruta = [self.X | shadow] and self.X was set in fit() from the caller-supplied X (train) via X.copy(). The shadow half is randomized from self.X column-wise so it stays train-distribution-aligned. Both invariants must hold for SHAP TreeExplainer (tree_path_dependent feature_perturbation) to produce attributions on the same distribution the surrogate model was trained on; mixing val/test rows here would let SHAP interpolate against held-out distribution and inflate borderline features' importance.
     # The unsampled basis IS the fitted slice by construction above. The assert that used to stand here compared the
     # basis against ``self.X``, the full frame, so in 'test' mode it compared the full frame with itself and could not fire.
+    # What must hold in both modes is that ``X_boruta`` is ``[X | shadow]`` over the same rows: extra rows there are held-out
+    # rows leaking into the fit and the explanation background.
+    _xb: Any = getattr(self, "X_boruta", None)
+    _x: Any = getattr(self, "X", None)
+    if hasattr(_xb, "shape") and hasattr(_x, "shape"):
+        assert int(_xb.shape[0]) == int(
+            _x.shape[0]
+        ), f"SHAP background row count {int(_xb.shape[0])} != train row count {int(_x.shape[0])}: X_boruta must be [X | shadow] over the train rows"
     if hasattr(_fit_frame, "shape") and hasattr(basis, "shape"):
         _n_train = int(_fit_frame.shape[0])
         _n_basis = int(basis.shape[0])

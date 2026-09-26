@@ -371,24 +371,30 @@ class TestOtherContract:
         rfecv.fit(X, y)
         assert isinstance(rfecv.cv_, StratifiedKFold), f"Expected StratifiedKFold auto-resolved for classifier; got {type(rfecv.cv_).__name__}"
 
-    def test_sample_weight_doubling_equivalent_to_row_duplication(self):
-        """sklearn test_rfe_with_sample_weight: sample_weight=2 == row-duplicated fit.
+    def test_uniform_sample_weight_acts_as_the_estimators_own_rescaling(self):
+        """sklearn test_rfe_with_sample_weight, adapted to a cross-validated selector.
 
-        Loose equivalence: same n_features_ on equivalent data.
+        sklearn compares weight 2 with duplicated rows on plain RFE. Under CV that is not an equivalence: every duplicated row
+        lands in both a train fold and a validation fold, so the validation score is measured partly on training rows, and the
+        duplicated fit selected 2 features where the weighted one selected 6. What does hold: LogisticRegression multiplies its
+        loss by the weights and leaves the penalty alone, so a uniform weight w is exactly C scaled by w. RFECV must therefore
+        select with weight w what it selects unweighted around C=w; if it dropped the weights it would select the C=1 set,
+        which differs at w=7.5 on this fixture.
         """
         rng = np.random.default_rng(0)
         n, p = 120, 6
         X = rng.normal(size=(n, p))
         y = (X[:, 0] > 0).astype(int)
-        # Run 1: weighted (every row weight=2)
-        rfecv1 = RFECV(estimator=LogisticRegression(max_iter=200), cv=3, max_refits=3, random_state=0)
-        rfecv1.fit(X, y, sample_weight=np.full(n, 2.0))
-        # Run 2: row-doubled
-        rfecv2 = RFECV(estimator=LogisticRegression(max_iter=200), cv=3, max_refits=3, random_state=0)
-        rfecv2.fit(np.vstack([X, X]), np.concatenate([y, y]))
-        # Selected support might differ slightly due to fold-stratification randomness,
-        # but n_features_ should be within ±2 on this small problem.
-        assert abs(rfecv1.n_features_ - rfecv2.n_features_) <= 2, f"weighted vs duplicated: n_features {rfecv1.n_features_} vs {rfecv2.n_features_}"
+
+        def support(C, **fit):
+            """Fit a small RFECV around LogisticRegression(C) and return its selected-feature mask."""
+            rfecv = RFECV(estimator=LogisticRegression(C=C, max_iter=200), cv=3, max_refits=3, random_state=0)
+            rfecv.fit(X, y, **fit)
+            return rfecv.support_.tolist()
+
+        assert support(1.0) != support(7.5), "fixture must be sensitive to C, or it cannot tell weights from no weights"
+        for w in (2.0, 7.5):
+            assert support(1.0, sample_weight=np.full(n, w)) == support(w), f"uniform weight {w} did not act as C={w}"
 
     def test_extra_fit_params_passthrough(self):
         """sklearn test_RFE_fit_score_params: arbitrary fit_param flows to estimator.fit."""

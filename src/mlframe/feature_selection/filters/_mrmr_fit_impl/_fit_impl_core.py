@@ -142,14 +142,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # silently clip to the top bin (train/serve skew). Captured here so a downstream in-place impute (e.g. the GPU
     # categorize path that is active when the harness sets CUDA_PATH) cannot erase the NaN before the candidate
     # scan and defeat the guard.
-    _include_numeric_input_nan_cols = set()
+    _include_numeric_input_nan_cols: set = set()
     # Hoisted ONCE (y is never reassigned in _fit_impl): the as-numpy target was re-materialised
     # 53x across the FE/screen stages. Same array (read-only consumers); behavior-preserving.
     _y_np = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
     # Per-column boolean NaN mask snapshot at fit entry, before any in-place impute (the include_numeric / binned_numeric_agg cat-FE path GPU-categorizes
     # and imputes X in place when CUDA_PATH is set). The missingness-FE family (is_missing__/missingness_count/missingness_pattern) derives its signal
     # from where the input was NaN; it runs AFTER that impute, so it must read this snapshot, not the live (now-finite) X, or the signal is silently erased.
-    _fit_entry_nan_mask = {}
+    _fit_entry_nan_mask: dict = {}
     # Both consumers of this snapshot are opt-in and default OFF (missingness-FE family below, and cat-FE's
     # include_numeric branch far downstream): skip the per-column float64-cast + isfinite scan entirely when
     # neither will ever read it, rather than paying it on every fit regardless. Mirrors each consumer's own gate
@@ -287,44 +287,44 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # safe (no return needed); a REASSIGNMENT inside a sibling would NOT propagate back -- confirmed via a
     # systematic check that none of these are ever reassigned (only ``[key] = value`` mutated) in the two
     # early-cascade siblings below.
-    recipes.hybrid_orth: dict = {}
-    recipes.mi_greedy: dict = {}
-    recipes.kfold_te: dict = {}
-    recipes.binned_agg: dict = {}
-    recipes.count_enc: dict = {}
-    recipes.freq_enc: dict = {}
-    recipes.cat_num: dict = {}
-    recipes.miss_ind: dict = {}
-    recipes.miss_cnt: dict = {}
-    recipes.miss_pat: dict = {}
-    recipes.ratio: dict = {}
-    recipes.log_ratio: dict = {}
-    recipes.grouped_delta: dict = {}
-    recipes.lagged_diff: dict = {}
-    recipes.cat_pair: dict = {}
-    recipes.cat_triple: dict = {}
-    recipes.numeric_decompose: dict = {}
-    recipes.temporal_agg: dict = {}
-    recipes.modular: dict = {}
-    recipes.pairwise_modular: dict = {}
-    recipes.integer_lattice: dict = {}
-    recipes.row_argmax: dict = {}
-    recipes.conditional_gate: dict = {}
-    recipes.group_distance: dict = {}
-    recipes.rare_category: dict = {}
-    recipes.conditional_residual: dict = {}
-    recipes.conditional_dispersion: dict = {}
-    recipes.conditional_quantile_rank: dict = {}
-    recipes.ordinal_pattern: dict = {}
-    recipes.random_fourier: dict = {}
-    recipes.sir_direction: dict = {}
-    recipes.lof: dict = {}
-    recipes.mahalanobis_density: dict = {}
-    recipes.wavelet: dict = {}
-    recipes.rankgauss: dict = {}
-    recipes.grouped_agg: dict = {}
-    recipes.composite_group_agg: dict = {}
-    recipes.grouped_quantile: dict = {}
+    recipes.hybrid_orth = {}
+    recipes.mi_greedy = {}
+    recipes.kfold_te = {}
+    recipes.binned_agg = {}
+    recipes.count_enc = {}
+    recipes.freq_enc = {}
+    recipes.cat_num = {}
+    recipes.miss_ind = {}
+    recipes.miss_cnt = {}
+    recipes.miss_pat = {}
+    recipes.ratio = {}
+    recipes.log_ratio = {}
+    recipes.grouped_delta = {}
+    recipes.lagged_diff = {}
+    recipes.cat_pair = {}
+    recipes.cat_triple = {}
+    recipes.numeric_decompose = {}
+    recipes.temporal_agg = {}
+    recipes.modular = {}
+    recipes.pairwise_modular = {}
+    recipes.integer_lattice = {}
+    recipes.row_argmax = {}
+    recipes.conditional_gate = {}
+    recipes.group_distance = {}
+    recipes.rare_category = {}
+    recipes.conditional_residual = {}
+    recipes.conditional_dispersion = {}
+    recipes.conditional_quantile_rank = {}
+    recipes.ordinal_pattern = {}
+    recipes.random_fourier = {}
+    recipes.sir_direction = {}
+    recipes.lof = {}
+    recipes.mahalanobis_density = {}
+    recipes.wavelet = {}
+    recipes.rankgauss = {}
+    recipes.grouped_agg = {}
+    recipes.composite_group_agg = {}
+    recipes.grouped_quantile = {}
 
     X, _raw_input_cols_pre_fe, recipes.hinge_deferred_values, recipes.hinge_deferred = _fe_stage_cascade_early_a(
         self, X=X, y=y, verbose=verbose, fe_max_steps=fe.max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,

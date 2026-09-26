@@ -11,7 +11,7 @@ expert, or no group ids, or no resolvable predict-time group column, the deploye
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 
@@ -148,7 +148,7 @@ def _select_rows(values: Any, idx: Any, dtype: Any = None) -> Optional[np.ndarra
     if values is None:
         return None
     try:
-        return np.asarray(values, dtype=dtype).reshape(-1)[idx]
+        return cast(np.ndarray, np.asarray(values, dtype=dtype).reshape(-1)[idx])
     except (TypeError, IndexError):
         return None
 
