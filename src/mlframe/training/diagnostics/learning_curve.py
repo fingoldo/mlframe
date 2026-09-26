@@ -129,11 +129,7 @@ class LearningCurveConfig:
     score_repeats: int = 1  # >1 re-fits each size on reshuffled prefixes to get a cheap std band
 
 
-def _n_rows(X: Any) -> int:
-    """Row count for pandas / polars / ndarray without materialising anything."""
-    if hasattr(X, "shape") and X.shape is not None:
-        return int(X.shape[0])
-    return len(X)
+from mlframe.utils.frame_rows import n_rows as _n_rows  # noqa: E402
 
 
 def _take_rows(X: Any, idx: np.ndarray) -> Any:

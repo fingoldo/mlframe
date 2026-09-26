@@ -474,11 +474,11 @@ class TestDefaultThresholdPinned:
 
         m = MRMR()
         assert int(m.dcd_cluster_size_threshold) == 4, (
-            f"Layer 42 keeps dcd_cluster_size_threshold default at 4 "
-            f"pending the post-swap aggregate -> _engineered_recipes_ "
-            f"wiring. See the docstring on the parameter for the full "
-            f"trade-off; flipping the default in isolation drops "
-            f"support_ on the canonical 3-feature redundancy fixture."
+            "Layer 42 keeps dcd_cluster_size_threshold default at 4 "
+            "pending the post-swap aggregate -> _engineered_recipes_ "
+            "wiring. See the docstring on the parameter for the full "
+            "trade-off; flipping the default in isolation drops "
+            "support_ on the canonical 3-feature redundancy fixture."
         )
 
     def test_default_fit_n_swaps_zero_on_3_dups(self):

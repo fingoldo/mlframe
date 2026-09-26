@@ -180,21 +180,21 @@ def main():
             sub = {"regime": regime}
 
             # Baseline (pre-iter66): no disk cache, cold only.
-            print(f"  baseline cold ...", flush=True)
+            print("  baseline cold ...", flush=True)
             sub["baseline_cold"] = _run_subprocess(python_exe, baseline_src, regime, cache_dir=None, warm=False)
             print(f"    -> {sub['baseline_cold'].get('total_s', sub['baseline_cold'].get('error'))!s}")
 
             # After-state (iter86): cold, no cache.
-            print(f"  after cold (no cache) ...", flush=True)
+            print("  after cold (no cache) ...", flush=True)
             sub["after_cold"] = _run_subprocess(python_exe, after_src, regime, cache_dir=None, warm=False)
             print(f"    -> {sub['after_cold'].get('total_s', sub['after_cold'].get('error'))!s}")
 
             # After-state: warm cache pair (miss then hit) -- isolates cache-hit warm path.
-            print(f"  after warm-cache miss ...", flush=True)
+            print("  after warm-cache miss ...", flush=True)
             sub["after_warm_miss"] = _run_subprocess(python_exe, after_src, regime, cache_dir=cache_dir, warm=False)
             print(f"    -> {sub['after_warm_miss'].get('total_s', sub['after_warm_miss'].get('error'))!s}")
 
-            print(f"  after warm-cache hit ...", flush=True)
+            print("  after warm-cache hit ...", flush=True)
             sub["after_warm_hit"] = _run_subprocess(python_exe, after_src, regime, cache_dir=cache_dir, warm=True)
             print(f"    -> {sub['after_warm_hit'].get('total_s', sub['after_warm_hit'].get('error'))!s}")
 

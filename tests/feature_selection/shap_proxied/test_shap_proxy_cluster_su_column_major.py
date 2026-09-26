@@ -97,7 +97,7 @@ def test_parity_column_major_matches_serial():
         use_parallel=True,
         parallel_min_features=10,
     )
-    assert np.array_equal(serial, parallel), f"column-major kernel diverges from serial loop at width=120 (threshold=0.35)"
+    assert np.array_equal(serial, parallel), "column-major kernel diverges from serial loop at width=120 (threshold=0.35)"
 
 
 def test_column_major_speedup_vs_row_major_reference():

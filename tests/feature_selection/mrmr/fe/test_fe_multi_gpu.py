@@ -55,7 +55,7 @@ def test_cpsat_not_worse_than_greedy():
     ms_cpsat = _makespan(cpsat, works, speeds)
     assert ms_cpsat <= ms_greedy + 1e-9, f"CP-SAT {ms_cpsat} should be <= greedy {ms_greedy}"
     assert ms_cpsat == pytest.approx(6.0), f"CP-SAT must hit the optimal makespan 6, got {ms_cpsat}"
-    assert ms_greedy == pytest.approx(7.0), f"this instance pins greedy's 7 (the 4/3-1/3m gap)"
+    assert ms_greedy == pytest.approx(7.0), "this instance pins greedy's 7 (the 4/3-1/3m gap)"
 
 
 def test_device_profile_speed_is_proportional():

@@ -125,7 +125,7 @@ def test_collinear_small_n(seed):
     n_sig_kept = sum(c.startswith("sig") for c in kept)
     # measured: nkept 5-8 of 16 across seeds; at least one true signal always retained.
     assert len(kept) <= 11, f"kept {len(kept)}/{n_all} too many (measured worst 8); collinear pruning failed"
-    assert n_sig_kept >= 1, f"no true signal retained among collinear copies (measured >=1)"
+    assert n_sig_kept >= 1, "no true signal retained among collinear copies (measured >=1)"
 
 
 def test_collinear_medium_n():

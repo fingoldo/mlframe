@@ -238,9 +238,9 @@ class TestUnifiedTrainingLoop:
 
         # Verify both model types are present
         model_names = [m.model_name if hasattr(m, "model_name") else str(m) for m in trained_models]
-        print(f"\n[SUCCESS] UNIFIED TRAINING LOOP VALIDATED!")
+        print("\n[SUCCESS] UNIFIED TRAINING LOOP VALIDATED!")
         print(f"   Trained models: {model_names}")
-        print(f"   Linear + Tree models trained through SAME code path!")
+        print("   Linear + Tree models trained through SAME code path!")
 
     def test_train_mixed_linear_and_lgb(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test unified training with linear + LightGBM models."""
@@ -4065,7 +4065,7 @@ class TestTextAndEmbeddingFeatures:
 
         # With only 5 unique text values (< threshold=50), text_feat should NOT be in text_features
         text_feats = metadata.get("text_features", [])
-        assert "text_feat" not in text_feats, f"text_feat should stay categorical (5 unique < threshold 50), but found in text_features"
+        assert "text_feat" not in text_feats, "text_feat should stay categorical (5 unique < threshold 50), but found in text_features"
 
     def test_user_declared_polars_categorical_not_promoted_to_text(self, temp_data_dir, common_init_params):
         """Columns the user explicitly marked as pl.Categorical must stay

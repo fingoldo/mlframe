@@ -94,7 +94,7 @@ def main():
     out_dir.mkdir(exist_ok=True)
     out_file = out_dir / "profile_n_way_mrmr_order3.txt"
     with open(out_file, "w", encoding="utf-8") as f:
-        f.write(f"# MRMR cProfile, interactions_max_order=3, n=2000, p=10\n")
+        f.write("# MRMR cProfile, interactions_max_order=3, n=2000, p=10\n")
         f.write(f"# wall (no profiler): {walls[3]:.2f}s\n")
         f.write(f"# wall (with profiler): {wall_with_prof:.2f}s\n")
         f.write(f"# profiler overhead: +{overhead_pct:.0f}%\n\n")

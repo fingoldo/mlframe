@@ -52,14 +52,7 @@ try:
 except ImportError:
     _NUMBA_AVAILABLE = False
     # No-op decorators so the file imports without numba.
-    def njit(*args, **kwargs):
-        """No-numba fallback: return the function unchanged (bare-decorator form) or a pass-through decorator (parametrized form)."""
-        if len(args) == 1 and callable(args[0]):
-            return args[0]
-        def deco(fn):
-            """Pass-through decorator used when ``njit`` is called with arguments but numba is unavailable."""
-            return fn
-        return deco
+    from mlframe._numba_fallback import njit
     def prange(n):
         """No-numba fallback: plain ``range``."""
         return range(n)

@@ -266,7 +266,7 @@ def main():
     print(f"    best PAIR trivial:    {pair_best[0] if pair_best else '-':>12s}  mi={pair_mi:.4f}")
     print(f"    best TRIPLET trivial: {triplet_top[0]:>12s}  mi={triplet_top[1]:.4f}  " f"(uplift x{triplet_top[1]/max(pair_mi, 1e-9):.2f})")
     # Show top-3
-    print(f"    top-3 triplets:")
+    print("    top-3 triplets:")
     for k, v in list(triplet_scores.items())[:3]:
         print(f"      {k:>15s}  {v:.4f}")
 

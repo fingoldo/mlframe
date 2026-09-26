@@ -108,7 +108,7 @@ class TestKSGLNC:
         mi = ksg_lnc_mi(x, y, k=5)
         mksg = mixed_ksg_mi(x, y, k=5)
         # On binary y, LNC falls back to Mixed-KSG to avoid noise inflation.
-        assert abs(mi - mksg) < 0.10, f"LNC binary fallback diverged from Mixed-KSG"
+        assert abs(mi - mksg) < 0.10, "LNC binary fallback diverged from Mixed-KSG"
 
 
 class TestFastMI:

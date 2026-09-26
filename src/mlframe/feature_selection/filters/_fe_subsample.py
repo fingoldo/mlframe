@@ -32,15 +32,7 @@ try:
 except ImportError:  # pragma: no cover - numba is a hard dep in this repo but stay safe
     _HAVE_NUMBA = False
 
-    def njit(*args, **kwargs):
-        """No-op stand-in for ``numba.njit`` when numba is unavailable: returns the function unchanged so the decorated kernels still run (as plain Python) instead of raising at import time."""
-        def _wrap(fn):
-            """Identity wrapper matching ``njit``'s call-with-kwargs-then-decorate form."""
-            return fn
-
-        if len(args) == 1 and callable(args[0]) and not kwargs:
-            return args[0]
-        return _wrap
+    from mlframe._numba_fallback import njit
 
 # Number of quantile bins for the regression-target stratification. Ten bins preserve both tails
 # (top/bottom decile) without over-fragmenting the proportional per-bin allocation at small size.

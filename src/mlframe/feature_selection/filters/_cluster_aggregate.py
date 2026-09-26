@@ -315,8 +315,8 @@ def uf_find(x: int, parent: list) -> int:
     return x
 
 
-def _connected_components(n: int, edges: list) -> list:
-    """Union-find connected components over ``edges`` (list of (a,b) into 0..n-1).
+def _connected_components(n: int, edges: "list[tuple[int, int]]") -> "list[list[int]]":
+    """Union-find connected components over ``edges`` (list of (a,b) into 0..n-1); only components of 2+ nodes are returned.
 
     2026-06-03 bench-attempt-rejected (bench_community_vs_single_linkage): replacing
     this single-linkage CC with modularity/Louvain community detection gives NO win.
@@ -331,7 +331,7 @@ def _connected_components(n: int, edges: list) -> list:
         ra, rb = uf_find(a, parent), uf_find(b, parent)
         if ra != rb:
             parent[rb] = ra
-    comps: dict = {}
+    comps: "dict[int, list[int]]" = {}
     for i in range(n):
         comps.setdefault(uf_find(i, parent), []).append(i)
     return [c for c in comps.values() if len(c) > 1]

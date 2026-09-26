@@ -33,15 +33,7 @@ try:
 except ImportError:
     _HAS_NUMBA = False
 
-    def njit(*args, **kwargs):  # pragma: no cover
-        """No-op stand-in for ``numba.njit`` when numba isn't installed: returns the function unchanged, supporting both bare-decorator and decorator-with-args call forms."""
-        def wrap(fn):
-            """Identity wrapper returning ``fn`` unchanged."""
-            return fn
-
-        if args and callable(args[0]):
-            return args[0]
-        return wrap
+    from mlframe._numba_fallback import njit
 
 
 @njit(cache=True)

@@ -114,7 +114,7 @@ class TestPipelineCacheKeyInvariants:
 
         assert not colliding_triples, (
             "pipeline_cache key collision between a polars-native and a "
-            f"pandas-consuming strategy — this is the 2026-04-23 bug class:\n" + "\n".join(f"  {a!r} ↔ {b!r} share key {k!r}" for a, b, k in colliding_triples)
+            "pandas-consuming strategy — this is the 2026-04-23 bug class:\n" + "\n".join(f"  {a!r} ↔ {b!r} share key {k!r}" for a, b, k in colliding_triples)
         )
 
     def test_known_tree_strategy_trio_produces_distinct_keys(self):

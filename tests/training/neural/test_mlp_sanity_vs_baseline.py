@@ -168,7 +168,7 @@ def test_mlp_regressor_matches_linear_baseline_on_linear_data(
     preds_lin = reg_lin.predict(linear_regression_data_scaled["X_test"])
     r2_lin = r2_score(linear_regression_data_scaled["y_test"], preds_lin)
 
-    print(f"\nSanity baseline (linear data, standardised X):")
+    print("\nSanity baseline (linear data, standardised X):")
     print(f"  PytorchLightningRegressor R^2 = {r2_mlp:+.4f}")
     print(f"  sklearn LinearRegression  R^2 = {r2_lin:+.4f}")
     print(f"  gap                            = {r2_lin - r2_mlp:+.4f}")

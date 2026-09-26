@@ -64,14 +64,7 @@ from mlframe.utils.log_throttle import log_throttle
 try:
     from numba import njit
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
-    def njit(*args, **kwargs):  # no-op fallback so the module imports
-        """No-op stand-in for ``numba.njit`` when numba isn't installed, supporting both bare-decorator and decorator-with-args call forms."""
-        if len(args) == 1 and callable(args[0]):
-            return args[0]
-        def deco(fn):
-            """Identity wrapper returning ``fn`` unchanged."""
-            return fn
-        return deco
+    from mlframe._numba_fallback import njit
 
 
 @njit(cache=True)

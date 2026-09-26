@@ -131,7 +131,7 @@ def main(argv=None):
             print_stage_table(r["stage_timings"], r["total"])
             print(f"  recall: {r['recall'][0]}/{r['recall'][1]}", flush=True)
             if do_p:
-                print(f"  cProfile top 10 by tottime:")
+                print("  cProfile top 10 by tottime:")
                 print_top_cprofile(r["profile"], 10)
 
     # Summary

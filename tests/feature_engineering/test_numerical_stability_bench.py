@@ -254,7 +254,7 @@ def test_bench_skew_sign_flips_on_hard():
     _, _, n_skew, n_kurt, _ = naive_moments_two_pass_seq(arr)
     _, _, w_skew, w_kurt, _ = welford_moments_seq(arr)
     print()
-    print(f"hard catastrophic case (1e9 + N(0, 1e-5)):")
+    print("hard catastrophic case (1e9 + N(0, 1e-5)):")
     print(f"  ref_skew={ref_skew:.6e} ref_kurt={ref_kurt:.6e}")
     print(f"  naive_skew={n_skew:.6e} naive_kurt={n_kurt:.6e}")
     print(f"  welford_skew={w_skew:.6e} welford_kurt={w_kurt:.6e}")

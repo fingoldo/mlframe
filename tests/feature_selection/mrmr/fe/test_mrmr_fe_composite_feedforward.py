@@ -260,7 +260,7 @@ def test_fe_max_steps_2_discovers_additive_composite_of_two_engineered():
     Xt = fs.transform(df_test)
     assert comp in list(Xt.columns)
     col = np.asarray(Xt[comp], dtype=np.float64)
-    assert np.isfinite(col).all(), f"composite transform column has non-finite values"
+    assert np.isfinite(col).all(), "composite transform column has non-finite values"
     y_test_det = at**2 / bt + np.log(ct) * np.sin(dt_)
     from scipy.stats import spearmanr
 

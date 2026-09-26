@@ -114,7 +114,7 @@ def test_fix3a_default_deep_true_preserves_behaviour():
     # The kwarg should still exist and accept False.
     explicit_shallow = get_df_memory_consumption(df, deep=False)
     if explicit_shallow == explicit_deep:
-        pytest.skip(f"Installed pyutilz get_df_memory_consumption ignores the deep kwarg; upgrade to differentiate.")
+        pytest.skip("Installed pyutilz get_df_memory_consumption ignores the deep kwarg; upgrade to differentiate.")
     assert explicit_shallow < explicit_deep
 
 

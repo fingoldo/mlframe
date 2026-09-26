@@ -58,7 +58,7 @@ def test_biz_val_recommend_diversity_additions_surfaces_knn_top_pick():
 
     shortlist = recommend_diversity_additions(oof_preds, individual_scores, y, _log_loss, correlation_threshold=0.85, higher_score_is_better=True)
 
-    assert len(shortlist) >= 1, f"expected at least one recommended diversity addition, got empty shortlist"
+    assert len(shortlist) >= 1, "expected at least one recommended diversity addition, got empty shortlist"
     assert shortlist[0]["model"] == "knn", f"expected KNN ranked first (largest genuine blend improvement), got {shortlist[0]['model']}"
     assert shortlist[0]["recommended_rank"] == 1
     # Measured ablation_improvement=0.0115 (seed=0, n=2000) -- threshold set ~13% below the measured value.

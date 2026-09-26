@@ -76,7 +76,7 @@ from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
-from ._cluster_aggregate import uf_find
+from ._cluster_aggregate import _connected_components
 from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
@@ -109,25 +109,6 @@ def _cluster_col_name(anchor: str, aggregator: str, basis: str, degree: int) -> 
     """
     code = _BASIS_CODE.get(basis, basis)
     return f"cluster_{anchor}__agg_{aggregator}__{code}{int(degree)}"
-
-
-def _connected_components(n: int, edges: list[tuple[int, int]]) -> list[list[int]]:
-    """Union-find connected components over n nodes given an edge list.
-
-    Returns components of length >= 2 (singletons - nodes with no edges -
-    are silently dropped because we only want true clusters).
-    """
-    parent = list(range(n))
-
-    for a, b in edges:
-        ra, rb = uf_find(a, parent), uf_find(b, parent)
-        if ra != rb:
-            parent[rb] = ra
-
-    comps: dict[int, list[int]] = {}
-    for i in range(n):
-        comps.setdefault(uf_find(i, parent), []).append(i)
-    return [c for c in comps.values() if len(c) >= 2]
 
 
 def detect_clusters_by_correlation(

@@ -52,12 +52,7 @@ logger = logging.getLogger(__name__)
 from ._composite_utils import is_polars_df as _is_polars_df
 
 
-def _n_rows(X: Any) -> int:
-    """Row count across pandas / polars / ndarray / list-of-rows."""
-    shape = getattr(X, "shape", None)
-    if shape is not None:
-        return int(shape[0])
-    return len(X)
+from mlframe.utils.frame_rows import n_rows as _n_rows  # noqa: E402
 
 
 def _take_rows(X: Any, idx: np.ndarray) -> Any:

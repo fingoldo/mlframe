@@ -366,7 +366,7 @@ class TestLearnedRecommender:
         assert learned != rules_fresh, "learned recommender failed to override the cold-start rules."
         assert (
             learned["fe_hybrid_orth_enable"] is True
-        ), f"learned recommender did not pick the empirically-best flag-set A; got {{k: v for k, v in learned.items() if v}}."
+        ), "learned recommender did not pick the empirically-best flag-set A; got {k: v for k, v in learned.items() if v}."
 
     def test_fit_observe_is_stat_only(self, tmp_path):
         """The learned store must persist ONLY scalar fingerprint stats + the

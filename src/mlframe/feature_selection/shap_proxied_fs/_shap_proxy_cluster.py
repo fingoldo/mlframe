@@ -134,17 +134,16 @@ def _edges_blocked(Z, threshold, edge_cap, block, use_gpu):
     return np.concatenate(ei_parts), np.concatenate(ej_parts)
 
 
-def _resolve_gpu_min_features(default: int = 2000) -> int:
-    """Smallest feature count at which the GPU dense path is preferred over CPU.
+GPU_MIN_FEATURES: int = 2000
+"""Smallest feature count at which the GPU dense path is preferred over CPU.
 
-    Below this width the cold cupy/CUDA load + NVRTC kernel compile (~17s on the dev box) dwarfs
-    even a single-threaded CPU `Z.T @ Z` on the bench (~0.3s at f=704/n=10000, ~50ms multithreaded).
-    The blocked CPU path picks up >`max_dense_features`.
+Below this width the cold cupy/CUDA load + NVRTC kernel compile (~17s on the dev box) dwarfs
+even a single-threaded CPU `Z.T @ Z` on the bench (~0.3s at f=704/n=10000, ~50ms multithreaded).
+The blocked CPU path picks up >`max_dense_features`.
 
-    A cache-tuned override was attempted here via the non-existent ``kernel_tuning_cache.get(key,
-    default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` -
-    removed as dead, always-``default``-returning code."""
-    return default
+A cache-tuned override was attempted here via the non-existent ``kernel_tuning_cache.get(key,
+default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` -
+removed as dead, always-``default``-returning code."""
 
 
 def cluster_correlated_features(
@@ -192,7 +191,7 @@ def cluster_correlated_features(
     # tiny relative to the GPU cold-init cost. Forced GPU (`use_gpu=True` explicit) honours the
     # caller and skips this check.
     if gpu and use_gpu == "auto":
-        gmin = gpu_min_features if gpu_min_features is not None else _resolve_gpu_min_features()
+        gmin = gpu_min_features if gpu_min_features is not None else GPU_MIN_FEATURES
         if f < gmin:
             gpu = False
 

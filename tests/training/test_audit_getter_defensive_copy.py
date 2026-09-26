@@ -97,7 +97,7 @@ def test_composite_discovery_filter_drops_isolates_inner_dicts():
     snapshot[1]["value"] = 999.0
     fresh = disc.filter_drops()
     assert fresh[0]["reason"] == "low_corr", f"Wave 26 P1 regression: filter_drops() leaked inner dict; fresh[0]['reason']={fresh[0]['reason']!r}."
-    assert fresh[1]["value"] == 0.0, f"Wave 26 P1 regression: filter_drops() leaked second inner dict."
+    assert fresh[1]["value"] == 0.0, "Wave 26 P1 regression: filter_drops() leaked second inner dict."
 
 
 def test_composite_discovery_report_and_filter_drops_return_fresh_outer_list():
