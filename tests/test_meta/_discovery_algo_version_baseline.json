@@ -1,11 +1,12 @@
 {
-  "content_hash": "11ab440320df5e64",
+  "content_hash": "e23f2589f4d0b2f0",
   "hash_format": 2,
   "history": {
     "4": "f677dbf5c6b04deb",
     "5": "df32f1b0bf17a449",
     "6": "7a7d72df1f93b922",
-    "7": "11ab440320df5e64"
+    "7": "11ab440320df5e64",
+    "8": "e23f2589f4d0b2f0"
   },
-  "version": 7
+  "version": 8
 }
