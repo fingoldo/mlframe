@@ -10,6 +10,9 @@ violation inside ``Pool.__init__`` in about one run in four.
 from __future__ import annotations
 
 from typing import Any, Iterable, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 _CATEGORICAL_DTYPE_NAMES = ("Categorical", "Enum")
 
@@ -36,7 +39,8 @@ def model_text_feature_names(model: Any) -> list[str]:
     try:
         indices = list(model.get_text_feature_indices() or [])
         names = list(getattr(model, "feature_names_", None) or [])
-    except Exception:  # not a fitted CatBoost model: nothing to protect
+    except Exception as exc:  # not a fitted CatBoost model: nothing to protect
+        logger.debug("model_text_feature_names: %s", exc, exc_info=True)
         return []
     return [names[i] for i in indices if 0 <= i < len(names)]
 

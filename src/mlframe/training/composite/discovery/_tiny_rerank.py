@@ -384,7 +384,7 @@ def _tiny_model_rerank(
     # Everything a spec's scoring reads besides the spec itself, as values: the same task runs in this process
     # (serial / threads) or in a worker process, through one implementation (``_tiny_rerank_process.score_spec``).
     _task_common = dict(
-        y_screen=y_screen, families=list(families), per_bin_enabled=bool(per_bin_enabled_pre), per_bin_n_bins=per_bin_n_bins_pre or 5,
+        y_screen=y_screen, families=list(families), per_bin_enabled=bool(per_bin_enabled_pre), per_bin_n_bins=per_bin_n_bins_pre if per_bin_n_bins_pre is not None else 5,
         use_wilcoxon=bool(use_wilcoxon), n_estimators=self.config.tiny_model_n_estimators, num_leaves=self.config.tiny_model_num_leaves,
         learning_rate=self.config.tiny_model_learning_rate, cv_folds=self.config.tiny_model_cv_folds,
         deterministic=getattr(self.config, "deterministic_screening_models", False), n_seed_repeats=n_seed_repeats,

@@ -13,11 +13,11 @@ the two agree to 2e-8. The cache holds only the column means and the F x F facto
 from __future__ import annotations
 
 import threading
-import weakref
-from collections import OrderedDict
 from typing import Any, cast
 
 import numpy as np
+
+from ._matrix_keyed_cache import MatrixKeyedCache
 
 _MAX_ENTRIES = 64
 """Factorisations kept across all threads; the oldest go first. Each is two length-F vectors and one F x F factor."""
@@ -25,8 +25,7 @@ _MAX_ENTRIES = 64
 _ALPHA = 1.0
 """The Ridge penalty ``_build_tiny_model('linear', ...)`` uses."""
 
-_CACHE: "OrderedDict[tuple, tuple[Any, Any]]" = OrderedDict()
-_LOCK = threading.Lock()
+_CACHE = MatrixKeyedCache(_MAX_ENTRIES)
 
 
 class _RidgeFoldModel:
@@ -56,17 +55,9 @@ def _impute_in_place(xi: np.ndarray, fill: np.ndarray, bad: np.ndarray | None = 
     return xi
 
 
-def _drop_dead_locked() -> None:
-    """Remove the entries whose matrix has been freed; the caller holds ``_LOCK``."""
-    # lock-held-by-caller: both call sites are inside ``with _LOCK``
-    for dead in [k for k, (ref, _) in _CACHE.items() if ref() is None]:
-        del _CACHE[dead]
-
-
 def prune_dead() -> None:
     """Drop the entries whose matrix has been freed, so a finished phase leaves nothing of its folds resident."""
-    with _LOCK:
-        _drop_dead_locked()
+    _CACHE.prune_dead()
 
 
 def _fold_factor(x: np.ndarray, rows: np.ndarray) -> tuple[np.ndarray, np.ndarray, Any]:
@@ -74,11 +65,9 @@ def _fold_factor(x: np.ndarray, rows: np.ndarray) -> tuple[np.ndarray, np.ndarra
     from scipy.linalg import cho_factor
 
     key = (threading.get_ident(), id(x), x.shape, hash(np.ascontiguousarray(rows).tobytes()))
-    with _LOCK:
-        hit = _CACHE.get(key)
-        if hit is not None and hit[0]() is x:
-            _CACHE.move_to_end(key)
-            return cast(tuple, hit[1])
+    hit = _CACHE.get(key, x)
+    if hit is not None:
+        return cast(tuple, hit)
     # One float64 copy of the fold, imputed and centred in place: the where-copy, the imputed copy and the centred copy were
     # three more fold-sized float64 arrays at once (29 MB of a 122 MB rerank peak at 4k x 240), for the same numbers.
     xc = np.asarray(x[rows], dtype=np.float64)  # x[rows] is already a fresh copy
@@ -95,14 +84,7 @@ def _fold_factor(x: np.ndarray, rows: np.ndarray) -> tuple[np.ndarray, np.ndarra
     del xc
     gram[np.diag_indices_from(gram)] += _ALPHA
     entry = (fill, mu, cho_factor(gram))
-    with _LOCK:
-        # An entry whose matrix is gone can never hit again (a new matrix at the same id fails the weakref check), so
-        # it goes now rather than when the LRU reaches it: the rerank gathers per-base matrices on demand and drops them.
-        _drop_dead_locked()
-        _CACHE[key] = (weakref.ref(x), entry)
-        while len(_CACHE) > _MAX_ENTRIES:
-            # evict-ok: memo; a miss recomputes the value
-            _CACHE.popitem(last=False)
+    _CACHE.put(key, x, entry)
     return entry
 
 

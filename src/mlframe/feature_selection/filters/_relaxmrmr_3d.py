@@ -78,6 +78,8 @@ def relax_mrmr_score(
             ``K_x * K_i * K_j * K_y`` cells for ``I(X; Z_i, Z_j | Y)``, holds at least this many rows per cell. Below that the
             estimate is dominated by sampling bias no plug-in correction removes (measured: -0.37 "interaction" on fully
             independent data at n=2000 with 10-level columns), so the pair's term is undefined and left out.
+        selected_prechecked: the caller already range-checked ``y`` and ``selected_cols`` (via
+            ``assert_relax_inputs_in_range``), so the per-candidate call skips re-reading columns that do not change.
 
     Returns: scalar score with full 3-way correction; higher = better.
 

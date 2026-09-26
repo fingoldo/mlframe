@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import logging
 
+from mlframe.utils.log_throttle import log_throttle
+
 import numpy as np
 
 from ._helpers import _pgn_raw_budget
@@ -115,7 +117,10 @@ def _assign_support_tail(
                                 _cv = np.nan_to_num(_cv, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
                             except Exception as exc:
                                 # transform() replays with the same call, so an unreplayable recipe here would ship a column that fails at predict.
-                                logger.warning("mrmr: recipe for %r failed to replay while checking form subsumption (%r); not retained.", _r_name, exc)
+                                log_throttle(
+                                    logger, f"mrmr_retain_replay_failed:{_r_name}", logging.WARNING,
+                                    "mrmr: recipe for %r failed to replay while checking form subsumption (%r); not retained.", _r_name, exc,
+                                )
                                 continue
                             if _cv.shape[0] == int(data.shape[0]) and retention_form_is_subsumed(
                                 cand_continuous=_cv, incumbent_continuous=_inc_cont,

@@ -65,6 +65,7 @@ def apply_base_leakage_guard(
         except Exception as e:
             # A leakage guard that keeps whatever it cannot check is off for exactly the bases it fails on; a base that cannot
             # be read as a numeric column cannot serve as a composite base either.
+            logger.debug("apply_base_leakage_guard: %s", e, exc_info=True)
             dropped.append((_bcand, f"leakage check failed ({type(e).__name__}: {e})"))
             continue
         if _leak.get("is_leaky"):

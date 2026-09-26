@@ -166,6 +166,7 @@ def _bootstrap_mi_y_replicates(bootstrap_n, seed, n_screen, y_valid, x_pb_valid,
         try:
             values[b] = _boot_mi(x_rows, y_valid[idx_b], x_pb_valid is not None, mi_kwargs, config)
         except Exception as e:
+            logger.debug("_bootstrap_mi_y_replicates: %s", e, exc_info=True)
             fails[b] = f"{type(e).__name__}: {e}"
     return values, fails
 

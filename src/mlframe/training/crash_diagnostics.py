@@ -139,8 +139,10 @@ def _write_breadcrumb(line: str) -> None:
     try:
         with _BREADCRUMB_LOCK:
             f.write(line + "\n")
-    except (OSError, ValueError):  # best-effort: a breadcrumb that cannot be written must never break the phase it marks
-        pass
+    except (OSError, ValueError) as exc:  # best-effort: a breadcrumb that cannot be written must never break the phase it marks
+        from mlframe.utils.log_throttle import log_throttle
+
+        log_throttle(logger, "crash_breadcrumb_write_failed", logging.DEBUG, "faulthandler breadcrumb write failed: %s", exc)
 
 
 def open_faulthandler_file(crash_dir: Optional[str] = None, all_threads: bool = True) -> Optional[str]:

@@ -381,7 +381,8 @@ def _polars_schema_drift(model: Any, X: Any) -> str:
     """
     try:
         now = {str(k): str(v) for k, v in X.schema.items()}
-    except Exception:  # not a polars frame after all: nothing to compare
+    except Exception as exc:  # not a polars frame after all: nothing to compare
+        logger.warning("_polars_schema_drift: predict frame has no polars schema to compare (%s); the drift line is omitted", exc)
         return ""
     fit = getattr(model, "_mlframe_fit_polars_schema", None)
     if not fit:

@@ -146,6 +146,8 @@ def predict_mlframe_models_suite(
             this size instead of one pass (bounds peak memory on very large predict frames).
         auxiliary_events_df: Fresh auxiliary events table for ``latent_interaction_svd`` replay --
             see :func:`predict_from_models`.
+        _preloaded_metadata: Internal: a metadata dict the caller already loaded for ``models_path``, so the suite
+            is not read from disk twice. Not part of the public contract.
 
     Returns:
         Dict with:
