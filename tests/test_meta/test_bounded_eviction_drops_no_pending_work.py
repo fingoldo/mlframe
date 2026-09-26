@@ -20,6 +20,8 @@ Three checks:
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 import ast
 from pathlib import Path
 
@@ -51,7 +53,9 @@ OVERFLOW_TESTS = {
 
 def _sources():
     """Yield ``(relpath, tree, lines)`` for every scanned module under ``src/mlframe``."""
-    for py in sorted(MLFRAME_DIR.rglob("*.py")):
+    _files = sorted(MLFRAME_DIR.rglob("*.py"))
+    assert_scanned_enough(len(_files), "src/mlframe")
+    for py in _files:
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
             continue
         tree = parsed_ast(py)

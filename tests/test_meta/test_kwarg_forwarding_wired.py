@@ -7,6 +7,8 @@ restored the scanners report exactly them; here they must report nothing beyond 
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -36,7 +38,9 @@ ALLOWED = {
 
 def _files():
     """Every source file under src/mlframe/training except the benchmarks."""
-    return sorted(p for p in (REPO_ROOT / "src" / "mlframe" / "training").rglob("*.py") if "_benchmarks" not in p.parts)
+    files = sorted(p for p in (REPO_ROOT / "src" / "mlframe" / "training").rglob("*.py") if "_benchmarks" not in p.parts)
+    assert_scanned_enough(len(files), "src/mlframe/training", minimum=200)
+    return files
 
 
 def test_wrappers_forward_what_they_wrap():

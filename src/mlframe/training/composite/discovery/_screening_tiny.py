@@ -72,6 +72,7 @@ def _cached_kfold_splits(n_rows: int, cv_folds: int, random_state: int):
     with _KFOLD_SPLIT_CACHE_LOCK:
         _KFOLD_SPLIT_CACHE[key] = splits
         while len(_KFOLD_SPLIT_CACHE) > _KFOLD_SPLIT_CACHE_MAX:
+            # evict-ok: the splits are a pure function of the key; a miss rebuilds the identical list
             _KFOLD_SPLIT_CACHE.popitem(last=False)
     return splits
 
@@ -170,7 +171,7 @@ def cap_inner_n_jobs(model: Any, outer_n_jobs: int) -> None:
         return
     try:
         keys = [k for k in model.get_params(deep=True) if k == "n_jobs" or k.endswith("__n_jobs")]
-    except Exception as exc:  # an estimator that cannot list its params cannot be capped either; nothing to warn about
+    except Exception as exc:  # best-effort: an estimator that cannot list its params cannot be capped either; nothing to warn about
         logger.debug("cannot list params of %s to cap n_jobs: %s", type(model).__name__, exc)
         return
     if not keys:

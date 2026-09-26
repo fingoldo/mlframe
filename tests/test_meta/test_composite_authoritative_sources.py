@@ -8,6 +8,8 @@ Both are structural, so both are checked here by AST rather than by a test per c
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 import ast
 from pathlib import Path
 
@@ -41,7 +43,9 @@ def slot_writes(tree: ast.Module) -> list[int]:
 def _scan(finder) -> dict[str, list[int]]:
     """``{relative path: lines}`` over the training package, skipping benchmarks."""
     hits = {}
-    for path in sorted(_TRAINING.rglob("*.py")):
+    _files = sorted(_TRAINING.rglob("*.py"))
+    assert_scanned_enough(len(_files), "src/mlframe/training", minimum=200)
+    for path in _files:
         if "_benchmarks" in path.parts:
             continue
         tree = parsed_ast(path)
@@ -105,7 +109,9 @@ def transform_builds(tree: ast.Module) -> list[tuple[int, set[str]]]:
 def _adapter_findings(root: Path) -> tuple[list[str], dict[str, set[str]]]:
     """Builds outside the allowed modules, and each wrapped function's set of building modules."""
     outside, sites = [], {}
-    for path in sorted(root.rglob("*.py")):
+    _files = sorted(root.rglob("*.py"))
+    assert_scanned_enough(len(_files), str(root), minimum=1)
+    for path in _files:
         rel = path.relative_to(root).as_posix()
         if "_benchmarks" in path.parts:
             continue

@@ -11,6 +11,8 @@ way: adding a ``Parallel(...)`` to a module that consults the deadline, without 
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 import pathlib
 import re
 
@@ -25,7 +27,9 @@ _CARRIES = re.compile(r"DeadlineCarrying|fe_deadline_scope|current_fe_deadline|_
 def _modules_that_dispatch_and_check():
     """Every filters module that both fans out to joblib and consults the FE deadline."""
     out = []
-    for path in sorted(_SRC.rglob("*.py")):
+    _files = sorted(_SRC.rglob("*.py"))
+    assert_scanned_enough(len(_files), str(_SRC), minimum=50)
+    for path in _files:
         if "_benchmarks" in path.parts or path.name == "_fe_deadline.py":
             continue
         text = path.read_text(encoding="utf-8")

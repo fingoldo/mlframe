@@ -10,6 +10,8 @@ Both passes read ``FE_ROSTER_ATTRS`` now, which is the tuple the package already
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 import ast
 import pathlib
 
@@ -42,7 +44,9 @@ def _literal_roster_tuples(path: pathlib.Path):
 def test_no_pass_carries_its_own_hand_written_roster_list():
     """A second copy of the roster list is how the two passes drifted; there must not be one."""
     offenders = []
-    for path in sorted(_SRC.rglob("*.py")):
+    _files = sorted(_SRC.rglob("*.py"))
+    assert_scanned_enough(len(_files), str(_SRC), minimum=30)
+    for path in _files:
         if path.name == "_fe_roster_attrs.py":
             continue  # the one place the list is allowed to live
         for lineno, names in _literal_roster_tuples(path):

@@ -135,9 +135,9 @@ def test_no_new_unannotated_public_functions():
             f"{len(fixed)} function(s) DRAINED — now fully annotated:\n  "
             + "\n  ".join(fixed[:15])
             + (f"\n  ... and {len(fixed) - 15} more" if len(fixed) > 15 else "")
-            + f"\n  Refresh baseline to lock in: pytest "
-            f"tests/test_meta/test_public_annotations.py "
-            f"--refresh-annotation-baseline\n"
+            + "\n  Refresh baseline to lock in: pytest "
+            "tests/test_meta/test_public_annotations.py "
+            "--refresh-annotation-baseline\n"
         )
 
     if new:

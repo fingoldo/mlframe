@@ -20,6 +20,8 @@ A workflow may be exempt, but it must SAY it is, by name and with a reason, in `
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -48,7 +50,9 @@ PUSH_EXEMPT: Dict[str, str] = {
 
 def _workflow_files() -> List[Path]:
     """Return every workflow file, sorted, so a failure names the same file on every machine."""
-    return sorted(WORKFLOWS.glob("*.yml"))
+    files = sorted(WORKFLOWS.glob("*.yml"))
+    assert_scanned_enough(len(files), ".github/workflows", minimum=5)
+    return files
 
 
 def _triggers(path: Path) -> Dict[str, Any]:

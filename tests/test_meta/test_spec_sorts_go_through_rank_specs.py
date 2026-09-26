@@ -8,6 +8,8 @@ RMSE. A bare ``sorted(..., key=...)``, ``.sort(key=...)`` or ``np.lexsort`` bypa
 
 from __future__ import annotations
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 import ast
 from pathlib import Path
 
@@ -56,7 +58,9 @@ def keyed_sorts(source: str) -> set[str]:
 
 def _scanned_files() -> list[Path]:
     discovery = [p for p in (_TRAINING / "composite" / "discovery").glob("*.py") if p.name != "_score.py"]
-    return sorted(discovery + list((_TRAINING / "core").glob("_phase_composite*.py")))
+    files = sorted(discovery + list((_TRAINING / "core").glob("_phase_composite*.py")))
+    assert_scanned_enough(len(files), "composite discovery + core phases", minimum=30)
+    return files
 
 
 def test_every_keyed_sort_is_rank_specs_or_listed():
