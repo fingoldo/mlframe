@@ -161,7 +161,7 @@ def _build_pre_pipelines(
             # via configure_training_params) rather than through ``registry._instantiate_rfecv``, so the
             # registry's default-ON wrap never reached the suite RFECV path. Apply it HERE so the documented
             # "cluster-medoid is DEFAULT-ON for the suite's RFECV" actually holds: wrap the prebuilt (and now
-            # suite-overridden) RFECV in GroupAwareMRMR(expand=True). The GroupAwareMRMR.min_reduction guard
+            # suite-overridden) RFECV in GroupAwareMRMR, keeping each selected cluster's medoid. The GroupAwareMRMR.min_reduction guard
             # makes this a no-op (bare RFECV on full X) on near-uncorrelated data, so it only acts where genuine
             # correlated redundancy exists. Multi-seed validated SAFE (OOS AUC delta >= -0.01).
             _selector_obj = _rfecv_instance
@@ -171,7 +171,7 @@ def _build_pre_pipelines(
                     _rfecv_instance,
                     corr_threshold=float(rfecv_cluster_corr_threshold),
                     corr_method=str(rfecv_cluster_corr_method),
-                    expand=True,
+                    expand=False,
                     min_reduction=float(rfecv_cluster_min_reduction),
                 )
             # Suite-internal markers stamped on the OUTER object that enters pre_pipelines (the wrapper when

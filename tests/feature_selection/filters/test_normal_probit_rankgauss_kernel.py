@@ -15,6 +15,7 @@ from scipy.stats import norm
 from mlframe.feature_selection.filters._fastmi import _probit
 from mlframe.feature_selection.filters._extra_fe_families import _rank_to_gauss
 from mlframe.training.composite.transforms.unary import (
+    _qn_clip_eps,
     quantile_normal_y_fit,
     quantile_normal_y_forward,
     quantile_normal_y_inverse,
@@ -51,7 +52,9 @@ def test_quantile_normal_forward_inverse_bit_identical(n):
 
     # forward == norm.ppf reference
     q = np.interp(y.astype(np.float64), knots_y, knots_q)
-    eps = 1.0 / (2.0 * len(knots_q))
+    # The clip bound is the tail mass beyond the extreme knots (the knot-count eps collapsed the tail rows); the reference
+    # uses the same bound, so this still pins that ndtri is bit-identical to norm.ppf.
+    eps = _qn_clip_eps(knots_q)
     q = np.clip(q, eps, 1.0 - eps)
     assert np.array_equal(quantile_normal_y_forward(y, params), norm.ppf(q))
 

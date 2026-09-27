@@ -286,7 +286,7 @@ def _validate_inputs(self, X, y):
     except ValueError:
         raise  # re-raise our own ValueError
     except Exception as exc:
-        logger.warning("MRMR.fit: the constant-target check failed (%s: %s); a single-valued y was NOT rejected", type(exc).__name__, exc)
+        logger.warning("MRMR.fit: the constant-target check failed (%s: %s); a single-valued y was NOT rejected", type(exc).__name__, exc, exc_info=True)
     return X
 
 

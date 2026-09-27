@@ -339,10 +339,10 @@ class TestDuplicateColumnNames:
         y = (sig + 0.3 * rng.standard_normal(n) > 0).astype(int)
         X = pd.DataFrame(np.c_[sig, sig + 1e-6 * rng.standard_normal(n), rng.standard_normal(n), rng.standard_normal(n)])
         X.columns = ["s", "s", "n", "n"]
-        sel = GroupAwareMRMR(_FakeInner(k=1), corr_threshold=0.9, corr_method="pearson", min_reduction=0.0)
+        sel = GroupAwareMRMR(_FakeInner(k=1), corr_threshold=0.9, corr_method="pearson", min_reduction=0.0, expand=True)
         sel.fit(X, y)
         assert len(sel.support_) > 0
-        # The selected signal cluster expands to BOTH duplicate-named members.
+        # With expand=True the selected signal cluster expands to BOTH duplicate-named members.
         assert 0 in sel.support_ and 1 in sel.support_
         assert sel.transform(X).shape[1] == len(sel.support_)
 

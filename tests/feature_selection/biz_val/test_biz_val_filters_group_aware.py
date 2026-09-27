@@ -100,8 +100,9 @@ def test_biz_val_group_aware_min_reduction_gates_medoid_bypass():
     """min_reduction is the bypass gate: below it the wrapper fits inner on FULL X (reduced_=False); above it uses medoids (reduced_=True)."""
     X, y = _collinear_signal_frame()
     # Same data + threshold; only min_reduction flips. Achieved reduction is ~0.43.
-    high_gate = GroupAwareMRMR(_TopKByCorr(k=1), corr_threshold=0.9, min_reduction=0.9).fit(X, y)
-    low_gate = GroupAwareMRMR(_TopKByCorr(k=1), corr_threshold=0.9, min_reduction=0.05).fit(X, y)
+    # expand=True so the engaged path is visible in the support size (the default keeps only the medoid).
+    high_gate = GroupAwareMRMR(_TopKByCorr(k=1), corr_threshold=0.9, min_reduction=0.9, expand=True).fit(X, y)
+    low_gate = GroupAwareMRMR(_TopKByCorr(k=1), corr_threshold=0.9, min_reduction=0.05, expand=True).fit(X, y)
 
     assert high_gate.reduced_ is False, "min_reduction above achieved reduction must bypass the medoid path"
     assert low_gate.reduced_ is True, "min_reduction below achieved reduction must engage the medoid path"

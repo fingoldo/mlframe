@@ -116,9 +116,10 @@ def _instantiate_rfecv(**kwargs):
     # hurts - with ~1.4-1.9x wall-clock on genuinely correlated data. The
     # GroupAwareMRMR guard bypasses the medoid path (running the bare RFECV on
     # full X) whenever the clustering eliminates < cluster_min_reduction of the
-    # features, so it is a no-op on near-uncorrelated data. expand=True keeps
-    # whole clusters (AUC-safe: a selected medoid drags in its members, so a
-    # signal that lives in a non-medoid member is never dropped). Set
+    # features, so it is a no-op on near-uncorrelated data. Only the medoid of
+    # each selected cluster is kept: returning the whole cluster handed back the
+    # near-copies the wrap removes, and medoids matched it on OOS AUC across 21
+    # dataset-seed runs incl. a signal-in-a-non-medoid case (bench_group_aware_expand_vs_medoids). Set
     # ``cluster_reduce=False`` to get the bare RFECV.
     cluster_reduce = bool(kwargs.pop("cluster_reduce", True))
     corr_threshold = float(kwargs.pop("cluster_corr_threshold", 0.9))
@@ -134,7 +135,7 @@ def _instantiate_rfecv(**kwargs):
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
     return GroupAwareMRMR(
         base, corr_threshold=corr_threshold, corr_method=corr_method,
-        expand=True, min_reduction=min_reduction,
+        expand=False, min_reduction=min_reduction,
     )
 
 
@@ -162,7 +163,7 @@ def _instantiate_boruta_shap(**kwargs):
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
     return GroupAwareMRMR(
         base, corr_threshold=corr_threshold, corr_method=corr_method,
-        expand=True, min_reduction=min_reduction,
+        expand=False, min_reduction=min_reduction,
     )
 
 

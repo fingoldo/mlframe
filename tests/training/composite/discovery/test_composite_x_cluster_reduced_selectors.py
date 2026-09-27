@@ -52,10 +52,10 @@ class TestRegistryClusterReducedSelectorsEndToEnd:
         names = list(sel.get_feature_names_out())
         assert len(names) == len(sel.support_) >= 1
         assert set(names).issubset(set(X.columns))
-        # expand=True: if any cluster member is selected, ALL members are kept.
+        # The registry keeps only the medoid of a selected cluster: at most one of its near-copies reaches the output.
         cluster = {f"c{i}" for i in range(5)}
         kept_cluster = cluster & set(names)
-        assert kept_cluster in (set(), cluster), f"cluster expansion must be all-or-nothing; got {sorted(kept_cluster)}"
+        assert len(kept_cluster) <= 1, f"the registry wrap must keep at most the medoid of the cluster; got {sorted(kept_cluster)}"
         return names
 
     def test_registry_rfecv_wrap_then_composite_regression(self):

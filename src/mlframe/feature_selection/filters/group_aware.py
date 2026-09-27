@@ -9,8 +9,8 @@ Two-step approach:
 1. ``cluster_features_by_correlation(X, threshold=0.9, ...)`` - greedy clustering: every pair with ``|corr| > threshold`` ends in the
    same cluster (single-linkage on the correlation graph). Returns a ``cluster_id`` per feature.
 2. ``GroupAwareMRMR(estimator, ...).fit(X, y)`` - runs mRMR on the per-cluster medoids (the feature with highest mean abs-corr to its
-   cluster mates), then expands the support to all members of any selected cluster. ``cluster_assignments_`` and ``selected_clusters_``
-   are exposed for inspection.
+   cluster mates) and keeps the medoid of each selected cluster (``expand=True`` returns every member instead).
+   ``cluster_assignments_`` and ``selected_clusters_`` are exposed for inspection.
 
 For users with **explicit** group structure (one-hot expansions where the operator knows ``group_name -> column_list``), prefer
 ``RFECV(feature_groups=...)`` - it has a more thorough all-or-nothing voting protocol. This module is for **discovered** groups via
@@ -272,20 +272,25 @@ def _cluster_medoids(
 class GroupAwareMRMR(TransformerMixin, BaseEstimator):
     """Wraps an mRMR-family estimator with correlation pre-clustering.
 
-    .fit fits the inner estimator on cluster medoids; .transform / .support_ expand to all cluster members of any selected medoid.
+    .fit fits the inner estimator on cluster medoids; .transform / .support_ keep the medoid of each selected cluster.
+
+    ``expand`` (default False): True returns every member of a selected cluster instead. Returning the whole cluster hands the
+    caller back the near-copies the wrapper exists to remove (max VIF 510 on the multicollinear-pollution fixture); medoids
+    only matched it on OOS AUC over 21 dataset-seed runs (mean -0.0001, worst -0.0028, including the signal-in-a-non-medoid
+    risk case) with a 20% smaller support (``_benchmarks/bench_group_aware_expand_vs_medoids.py``).
 
     Attributes after fit:
     * ``cluster_assignments_`` - per-original-feature cluster id.
     * ``cluster_medoid_indices_`` - per-cluster representative index (in original-feature space).
     * ``selected_clusters_`` - ids of clusters whose medoid mRMR kept.
-    * ``support_`` - expanded set of all original-feature indices belonging to any selected cluster.
+    * ``support_`` - the medoids of the selected clusters (every member of them when ``expand=True``).
     """
     def __init__(
         self,
         estimator,
         corr_threshold: float = 0.9,
         corr_method: str = "spearman",
-        expand: bool = True,
+        expand: bool = False,
         min_reduction: float = 0.05,
     ):
         self.estimator = estimator

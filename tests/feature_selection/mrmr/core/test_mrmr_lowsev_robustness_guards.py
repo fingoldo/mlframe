@@ -156,8 +156,9 @@ def test_constant_y_scan_logs_unexpected_failure(monkeypatch, caplog):
         """Helper that boom."""
         raise RuntimeError("injected scan failure")
 
-    monkeypatch.setattr(VT.np, "unique", _boom)
+    # The constant-target check counts values with pd.unique (hashing, so unorderable targets are counted too).
+    monkeypatch.setattr(VT.pd, "unique", _boom)
     with caplog.at_level(logging.DEBUG, logger=VT.logger.name):
         m._validate_inputs(df, y)  # swallowed + logged, no raise
-    assert any("validation scan failed" in r.message for r in caplog.records)
+    assert any("constant-target check failed" in r.message for r in caplog.records)
     assert any(r.exc_info is not None for r in caplog.records)

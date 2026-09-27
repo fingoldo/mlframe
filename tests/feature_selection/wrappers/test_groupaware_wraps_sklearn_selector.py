@@ -35,6 +35,7 @@ def test_wraps_boolean_mask_selector_and_expands_cluster():
         RFECV(LogisticRegression(max_iter=500), cv=3, min_features_to_select=1),
         corr_threshold=0.7,
         corr_method="pearson",
+        expand=True,  # this test pins the mapping back through a boolean mask, then the expansion
     ).fit(X, y)
 
     names = list(X.columns)
