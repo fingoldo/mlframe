@@ -1028,8 +1028,40 @@ def cleanup_memory(request):
             print(f"[MEM] After: {mem_after:.0f} MB (delta: {mem_after - mem_before:+.0f} MB)")
 
 
+_PREVIOUS_TEST: list = [None]
+
+
 @pytest.fixture(autouse=True)
-def _hang_watchdog(request):
+def _restore_closed_standard_streams(request):
+    """Start every test with usable ``sys.stdout``/``sys.stderr``, and name the test that left one closed.
+
+    A library helper that swaps a standard stream for a devnull or capture object and restores it later can put back an
+    object that is closed by then, typically a ``capsys`` CaptureIO from an earlier test on the same xdist worker. After
+    that, every print to the stream raises "I/O operation on closed file"; the hang watchdog prints at setup, so every
+    later test on the worker errored before running (13 of 23 in one rerun). The stream is reset to the real one and the
+    test that ran before is named, so the leak is visible instead of silently cascading.
+    """
+    import sys
+    import warnings as _warnings
+
+    for _name, _real in (("stdout", sys.__stdout__), ("stderr", sys.__stderr__)):
+        _stream = getattr(sys, _name)
+        if getattr(_stream, "closed", False) and _real is not None:
+            setattr(sys, _name, _real)
+            _warnings.warn(f"sys.{_name} was left closed (a {type(_stream).__name__}) after {_PREVIOUS_TEST[0]}; reset to the real stream", stacklevel=1)
+    _PREVIOUS_TEST[0] = request.node.nodeid
+    _before = (sys.stdout, sys.stderr)
+    yield
+    # This fixture is set up before any capsys/capfd the test requests, so it is torn down after they restore the streams:
+    # anything other than the setup objects here was left behind by the test itself (or by a helper it ran).
+    _leaked = [n for n, s, b in (("stdout", sys.stdout, _before[0]), ("stderr", sys.stderr, _before[1])) if s is not b]
+    if _leaked:
+        sys.stdout, sys.stderr = _before
+        pytest.fail(f"test left sys.{', sys.'.join(_leaked)} replaced; a helper restored a stale stream or never restored it", pytrace=False)
+
+
+@pytest.fixture(autouse=True)
+def _hang_watchdog(request, _restore_closed_standard_streams):
     """Arm a stack-dump timer for the duration of each test; see ``tests/_hang_watchdog.py``."""
     from tests import _hang_watchdog
 

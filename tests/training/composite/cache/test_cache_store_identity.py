@@ -163,7 +163,7 @@ def test_the_discovery_cache_signature_carries_the_algo_version_and_imports_no_b
         "import sys\n"
         "from mlframe.training.configs import CompositeTargetDiscoveryConfig\n"
         "from mlframe.training.core._phase_composite_discovery_helpers import _discovery_config_signature\n"
-        "import mlframe.training.composite.discovery._algo_version as av\n"
+        "import mlframe.training.composite.discovery.shared as av\n"
         # Evict the boosters the imports above loaded, so only an import made BY the signature call shows up.
         "for m in ('catboost', 'lightgbm', 'xgboost'):\n"
         "    sys.modules.pop(m, None)\n"

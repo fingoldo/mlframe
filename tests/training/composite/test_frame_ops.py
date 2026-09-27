@@ -15,13 +15,17 @@ def _frame(n: int = 200) -> pd.DataFrame:
     return pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n)})
 
 
-def test_the_existing_pandas_columns_are_shared_not_copied():
-    """The point of the helper: the result's old columns are the source's buffers."""
+def test_writing_to_the_result_never_reaches_the_callers_frame():
+    """The result is isolated from the source. Sharing the source's buffers was tried and dropped: on pandas 2.x without
+    copy-on-write a frame that shares them lets a write to the result land in the caller's frame, so ``append_column``
+    pays pandas' block copy instead (pandas 3, where CoW is always on, shares lazily and stays isolated)."""
     df = _frame()
+    before = df.copy()
     out = append_column(df, "p", np.ones(len(df)))
     assert list(out.columns) == ["a", "b", "p"]
-    for col in ("a", "b"):
-        assert np.shares_memory(out[col].to_numpy(), df[col].to_numpy()), col
+    out.iloc[0, 0] = -999
+    out.loc[:, "b"] = 0
+    pd.testing.assert_frame_equal(df, before)
 
 
 def test_the_source_frame_is_left_alone():

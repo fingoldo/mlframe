@@ -32,6 +32,7 @@ from mlframe.feature_selection.filters.info_theory._cmi_cuda import cupy_availab
 from mlframe.feature_selection.filters import evaluation as _eval_mod
 import mlframe.feature_selection.filters._confirm_predictor as _confirm_mod
 import mlframe.feature_selection.filters.info_theory._cmi_cuda as _cmi_cuda
+import mlframe.feature_selection.filters.info_theory.shared as _it_shared
 
 _HAS_GPU = cupy_available()
 
@@ -101,6 +102,8 @@ def _run(monkeypatch, gpu_on: bool, count: bool = True):
             return _orig_dispatch(*a, **k)
 
         monkeypatch.setattr(_cmi_cuda, "conditional_mi_batched_dispatch", _counting_dispatch)
+        # The pre-fill now imports the dispatch through info_theory.shared, which holds its own binding.
+        monkeypatch.setattr(_it_shared, "conditional_mi_batched_dispatch", _counting_dispatch)
 
         # Wrap the helper as imported into the SERIAL module to count slots written by the serial path.
         _orig_prefill = _confirm_mod._prefill_cond_MIs_gpu

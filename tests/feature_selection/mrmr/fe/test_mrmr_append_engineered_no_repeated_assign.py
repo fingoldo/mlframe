@@ -32,7 +32,7 @@ def _make_recipes(n, resolved_via_apply=None):
     return [SimpleNamespace(name=f"eng_{i}", kind="unary_binary", src_names=("a",), extra={"chain_lookups": None}, verbose=0) for i in range(n)]
 
 
-def _fake_apply_recipe(recipe, chained):
+def _fake_apply_recipe(recipe, chained, col_cache=None, basis_cache=None):
     # Deterministic column derived from the recipe name + the (unmutated) source column, so a test
     # can verify BOTH correctness and that ``chained["a"]`` still holds the ORIGINAL values.
     """Fake apply recipe."""

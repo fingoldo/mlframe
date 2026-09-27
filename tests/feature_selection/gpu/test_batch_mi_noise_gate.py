@@ -283,7 +283,7 @@ def test_sweep_uses_kernel_choice_as_the_decision_key(monkeypatch):
     Spies on the real sweep_backend_grid call to verify the decision_key it's invoked with, so this
     fails pre-fix (result_key was passed, decision_key wasn't -- or the call needed 2 tries) and passes
     post-fix (decision_key="kernel_choice" passed directly, first try)."""
-    from mlframe.feature_selection.filters.info_theory import _batch_kernels as bk
+    from mlframe.feature_selection.filters.info_theory import _batch_kernel_selection as bk
     import pyutilz.dev.benchmarking as _bench
 
     calls = []

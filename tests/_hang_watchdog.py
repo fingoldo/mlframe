@@ -21,8 +21,10 @@ def arm(node_id: str) -> None:
     """Start the traceback-dump timer for one test. A value of ``0`` disables the watchdog entirely."""
     if HANG_WATCHDOG_SECONDS <= 0:
         return
-    print(f"[hang-watchdog] arming {HANG_WATCHDOG_SECONDS}s for {node_id}", file=sys.stderr)
-    faulthandler.dump_traceback_later(HANG_WATCHDOG_SECONDS, exit=False, file=sys.stderr)
+    # A stream a leaky helper left closed must not turn every later test into a setup error: fall back to the real one.
+    stream = sys.stderr if not getattr(sys.stderr, "closed", False) else sys.__stderr__
+    print(f"[hang-watchdog] arming {HANG_WATCHDOG_SECONDS}s for {node_id}", file=stream)
+    faulthandler.dump_traceback_later(HANG_WATCHDOG_SECONDS, exit=False, file=stream)
 
 
 def disarm() -> None:

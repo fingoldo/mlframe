@@ -179,6 +179,7 @@ NULL_CANARIES = {
 }
 # Functions the name/argmin heuristic matches that do not choose among candidates by a score, with the reason.
 _NOT_SELECTION = {
+    "discovery/_tiny_rerank_process.py::_cloudpickle": "imports the cloudpickle module; 'pick' is in the name, no candidate is chosen",
     "_calibration_binning.py::top_label_calibration_bins": "argmax picks the top label of each probability row, not a candidate",
     "_estimator_dispatch.py::_pick_base_column": "resolves which configured column holds the base; no score involved",
     "conformal_classification.py::_aps_true_label_scores": "argmax locates the true label's rank in a sorted row",

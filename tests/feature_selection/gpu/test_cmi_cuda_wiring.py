@@ -27,6 +27,7 @@ from mlframe.feature_selection.filters import MRMR
 from mlframe.feature_selection.filters.info_theory._cmi_cuda import cupy_available
 from mlframe.feature_selection.filters import evaluation as _eval_mod
 import mlframe.feature_selection.filters.info_theory._cmi_cuda as _cmi_cuda
+import mlframe.feature_selection.filters.info_theory.shared as _it_shared
 
 _HAS_GPU = cupy_available()
 
@@ -96,6 +97,8 @@ def _run(monkeypatch, gpu_on: bool, count_dispatch: bool = True):
 
         # Patch the symbol the pre-fill imports lazily (module attribute).
         monkeypatch.setattr(_cmi_cuda, "conditional_mi_batched_dispatch", _counting_dispatch)
+        # The pre-fill now imports the dispatch through info_theory.shared, which holds its own binding.
+        monkeypatch.setattr(_it_shared, "conditional_mi_batched_dispatch", _counting_dispatch)
 
     X, y = _make_frame()
     MRMR._FIT_CACHE.clear()
@@ -182,6 +185,7 @@ def test_prefill_dispatches_only_cache_missing_pairs(monkeypatch):
     import mlframe.feature_selection.filters.info_theory._cmi_cuda as _cmi_mod
 
     monkeypatch.setattr(_cmi_mod, "conditional_mi_batched_dispatch", _spy_dispatch)
+    monkeypatch.setattr(_it_shared, "conditional_mi_batched_dispatch", _spy_dispatch)
 
     def _key(c, z):
         """Helper that key."""
