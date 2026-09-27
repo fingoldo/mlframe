@@ -105,6 +105,28 @@ def _splits_to_drop(arr: np.ndarray, rows: TargetRows, cfg: Any, is_classificati
     return drop, notes
 
 
+def _time_windows(ctx: Any, rows: TargetRows) -> dict:
+    """``{split: "first/last"}`` timestamps of this target's labelled rows per split (empty without timestamps)."""
+    from ._target_row_scope import split_time_window
+
+    windows = {split: split_time_window(getattr(ctx, "timestamps", None), idx) for split, idx in rows.idx.items()}
+    return {split: window for split, window in windows.items() if window is not None}
+
+
+def _censoring_notes(ctx: Any, rows: TargetRows) -> "list[str]":
+    """A note per holdout whose labelled share is under half of train's: the labels there are censored (not known yet)."""
+    train_share = rows.labelled_share("train_idx")
+    notes = []
+    for split in ("val_idx", "test_idx"):
+        share = rows.labelled_share(split)
+        if train_share and share is not None and share < 0.5 * train_share:
+            notes.append(
+                f"{split[:-4]} has {share:.0%} labelled rows against {train_share:.0%} in train: labels there look censored (outcomes "
+                "not known yet), so its metrics describe the labelled minority, not the split"
+            )
+    return notes
+
+
 def rows_for_target(ctx: Any, target_type: Any, name: str, values: Any, metadata: dict, cache: dict) -> "tuple[Optional[TargetRows], Any, bool]":
     """``(rows, working target, train it)`` for one target; ``rows`` is None for a fully labelled one (nothing changes).
 
@@ -146,6 +168,8 @@ def rows_for_target(ctx: Any, target_type: Any, name: str, values: Any, metadata
     if n_test is not None and rows.n_total.get("test_idx") and n_test < cfg.min_labelled_test_rows:
         record["low_n"] = True
         notes.append(f"test has {n_test} labelled row(s) < min_labelled_test_rows={cfg.min_labelled_test_rows}: its test metrics are low_n")
+    notes.extend(_censoring_notes(ctx, rows))
+    record["time_window"] = _time_windows(ctx, rows)
     if notes:
         logger.warning("%s/%s: %s.", target_type, name, "; ".join(notes))
     entry[key] = {**record, "signature": rows.signature, "dropped_splits": sorted(rows.dropped), "notes": notes}

@@ -165,10 +165,34 @@ def _narrowed_fields(ctx: Any, rows: TargetRows) -> dict[str, Any]:
         out["_dropped_high_card_data"] = {
             col: {k: (_take(v, by_split[k]) if v is not None and by_split.get(k) is not None else v) for k, v in parts.items()} for col, parts in dropped.items()
         }
+    out.update(_narrowed_details(ctx, rows))
     for name, split in (("train_df_size_bytes_cached", "train_idx"), ("val_df_size_bytes_cached", "val_idx")):
         size, share = getattr(ctx, name, None), rows.labelled_share(split)
         if size is not None and share is not None:
             out[name] = int(size * share)
+    return out
+
+
+def split_time_window(timestamps: Any, idx: Optional[np.ndarray]) -> Optional[str]:
+    """``first/last`` timestamp of the rows ``idx`` picks, formatted as the split details are; None without timestamps or rows."""
+    if timestamps is None or idx is None or len(idx) == 0:
+        return None
+    from .._splitting_helpers import fmt_ts
+
+    picked = pd.Series(np.asarray(timestamps)[np.asarray(idx)])
+    return f"{fmt_ts(picked.min())}/{fmt_ts(picked.max())}"
+
+
+def _narrowed_details(ctx: Any, rows: TargetRows) -> dict[str, Any]:
+    """The split detail strings (time window) for this target's labelled rows, with how many of the split they are."""
+    out: dict[str, Any] = {}
+    for split in ("train", "val", "test"):
+        key = f"{split}_idx"
+        if key not in rows.idx:
+            continue
+        window = split_time_window(getattr(ctx, "timestamps", None), rows.idx[key])
+        count = f"labelled {rows.n_labelled[key]:_}/{rows.n_total[key]:_}"
+        out[f"{split}_details"] = f"{window} {count}" if window else count
     return out
 
 

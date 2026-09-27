@@ -222,3 +222,16 @@ def test_a_split_left_with_no_labelled_row_has_no_frame_and_comes_back_whole():
     with target_row_scope(ctx, build_target_rows(mask, splits_of(ctx))):
         assert ctx.test_idx.size == 0 and ctx.test_df_pd is None and ctx.test_df_polars is None
     assert ctx.test_df_pd is full_test and ctx.test_df_polars is not None
+
+
+def test_split_details_and_the_record_describe_the_labelled_rows_and_flag_censored_holdouts():
+    """A target whose newest outcomes are not known yet: its test window and counts are its own, and it is flagged."""
+    ctx = _ctx()
+    ctx.timestamps = pd.date_range("2024-01-01", periods=N, freq="D").to_numpy()
+    y = np.arange(N, dtype=float)
+    y[15:18] = np.nan  # 1 of 4 test rows labelled, all of train
+    rows, _, train_it, record = _decide(ctx, y)
+    assert train_it and record["time_window"]["test_idx"] == "2024-01-15/2024-01-15"
+    assert any("censored" in note for note in record["notes"])
+    with target_row_scope(ctx, rows):
+        assert ctx.test_details == "2024-01-15/2024-01-15 labelled 1/4"

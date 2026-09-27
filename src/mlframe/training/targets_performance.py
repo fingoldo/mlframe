@@ -138,6 +138,9 @@ def _entry_name(entry: Any) -> str:
 
 
 LEAD_COLUMNS = ("target_name", "target_type", "best_model", "n_models", "primary_metric", "primary_value", "scale")
+#: Present only when a target trained on its labelled rows (target_null_policy="drop_rows"): how many rows of the split
+#: its metrics come from, and whether that is under min_labelled_test_rows. Context, never a metric to compare.
+ROW_SCOPE_COLUMNS = ("labelled_rows", "low_n")
 
 
 def _composite_target_names(metadata: Mapping[str, Any]) -> set:
@@ -164,6 +167,19 @@ def _y_scale_row(metadata: Mapping[str, Any], target_type: str, target_name: str
     higher = bool(metric_name_higher_is_better(key))
     best_name, best = min(scored, key=lambda t: (-t[1][key] if higher else t[1][key]) if key in t[1] else float("inf"))
     return {"best_model": str(best_name or ""), "primary_metric": key, "primary_value": best.get(key, float("nan")), "scale": "y", **best}
+
+
+def _add_row_scope_columns(rows: List[Dict[str, Any]], metadata: Mapping, split: str) -> None:
+    """Stamp each row of a target trained on its labelled rows with their count in ``split`` and its low_n flag."""
+    records = metadata.get("target_rows") or {}
+    if not records:
+        return
+    for row in rows:
+        record = records.get(f"{row['target_type']}/{row['target_name']}")
+        if record is None:
+            continue
+        row["labelled_rows"] = (record.get("n_labelled") or {}).get(f"{split}_idx")
+        row["low_n"] = bool(record.get("low_n", False))
 
 
 def targets_performance_frame(
@@ -207,14 +223,16 @@ def targets_performance_frame(
             if np.isfinite(value):
                 row[metric] = float(value)
         rows.append(row)
+    _add_row_scope_columns(rows, metadata or {}, split)
 
     lead = list(LEAD_COLUMNS)
     if not rows:
         return pd.DataFrame(columns=[*lead, "split"])
 
     frame = pd.DataFrame(rows)
-    metric_cols = sorted(c for c in frame.columns if c not in lead)
-    frame = frame[[*lead, *metric_cols]]
+    scope_cols = [c for c in ROW_SCOPE_COLUMNS if c in frame.columns]
+    metric_cols = sorted(c for c in frame.columns if c not in lead and c not in scope_cols)
+    frame = frame[[*lead, *scope_cols, *metric_cols]]
     frame.insert(len(lead), "split", split)
 
     known = [c for c in metric_cols if metric_name_higher_is_better(c) is not None]
@@ -310,7 +328,7 @@ def compare_targets_performance(
             per_run_metrics[label] = {
                 str(k): float(v)
                 for k, v in values.items()
-                if k not in LEAD_COLUMNS and isinstance(v, (int, float)) and not isinstance(v, bool) and np.isfinite(v)
+                if k not in LEAD_COLUMNS and k not in ROW_SCOPE_COLUMNS and isinstance(v, (int, float)) and not isinstance(v, bool) and np.isfinite(v)
             }
         shared = set.intersection(*(set(m) for m in per_run_metrics.values())) if per_run_metrics else set()
         for metric in sorted(shared):
