@@ -55,9 +55,10 @@ from .utils import (
 from . import _phase_runners as pr
 
 
-from ._main_train_suite_encoding import (
+from ._main_train_suite_encoding import (  # noqa: F401  (_encode_string_multiclass_target re-exported for callers of this facade)
     SuiteResult,
     _assert_suite_return_shape,
+    _encode_string_multiclass_target,
 )
 from ._phase_helpers_fit_pipeline import extensions_with_split_seed
 from ._main_train_suite_target_loop import train_every_target

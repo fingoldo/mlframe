@@ -188,6 +188,8 @@ history.
 
 ### Fixed
 
+- A string multiclass target with missing labels no longer stops the suite (`np.unique` could not order `None` against strings): classes come from the labelled values and a missing label stays missing.
+- The time-series dummy baselines (naive, seasonal naive, drift) are skipped for a target missing more than 5% of its train labels: the last P values of the compacted series are not the last P time steps. `ts_diagnostics` says why.
 - Composite discovery's grouped causal bases (expanding and trailing target mean of earlier rows in a group) skip rows without a label; one such row used to turn every later row of its group NaN, so the base lost its coverage. `DISCOVERY_ALGO_VERSION` 9.
 - BaselineDiagnostics, PySR symbolic FE and the opt-in `output_config.run_diagnostics` fit on the labelled train rows. With unlabelled rows kept, the regression diagnostic skipped itself as a "degenerate target" and the binary one could put NaN into its init score.
 - The target distribution analyzer no longer reports a lag autocorrelation when fewer than 90% of rows are labelled: lags of the compacted series span unknown gaps.

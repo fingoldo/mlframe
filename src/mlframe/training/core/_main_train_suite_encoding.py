@@ -98,7 +98,15 @@ def _encode_string_multiclass_target(
         arr = np.asarray(target_values)
     if arr.ndim != 1 or arr.dtype.kind not in ("O", "U", "S"):
         return target_values
-    classes_ = np.unique(arr)
-    codes = np.searchsorted(classes_, arr).astype(np.int64)
+    missing = pd.isna(arr)
+    if not missing.any():
+        classes_ = np.unique(arr)
+        codes = np.searchsorted(classes_, arr).astype(np.int64)
+    else:
+        # A missing label is not a class (np.unique cannot even order None against strings): classes come from the
+        # labelled values, and a missing label stays missing as a NaN code for the per-target row narrowing.
+        classes_ = np.unique(arr[~missing])
+        codes = np.full(arr.shape[0], np.nan)
+        codes[~missing] = np.searchsorted(classes_, arr[~missing])
     metadata.setdefault("target_label_classes", {})[target_name] = list(classes_)
     return codes
