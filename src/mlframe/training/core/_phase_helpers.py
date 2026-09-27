@@ -786,8 +786,9 @@ def _phase_load_and_preprocess(
         logger.info("  preprocess_dataframe done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_preproc))
         logger.info("  PHASE 1 total: %s", _elapsed_str(t0_phase1))
 
-    # Before any target trains: under the default policy a target with missing labels is refused here, naming every one.
-    apply_target_null_policy(target_by_type, getattr(ctx.behavior_config, "target_null_policy", "raise"))
+    # Under the default policy (drop_rows) this only logs; under "raise" a target with missing labels is refused here,
+    # before any target trains, naming every one. The getattr fallback mirrors TrainingBehaviorConfig's own default.
+    apply_target_null_policy(target_by_type, getattr(ctx.behavior_config, "target_null_policy", "drop_rows"))
     ctx.df = df
     ctx.target_by_type = target_by_type
     ctx.group_ids_raw = group_ids_raw

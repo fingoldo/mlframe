@@ -86,9 +86,9 @@ class TrainingBehaviorConfig(BaseConfig):
         catch) will still terminate -- for true isolation use subprocess
         training, which this flag does NOT provide.
     target_null_policy : {"raise", "drop_rows"}
-        What a target with missing labels (NaN / null) does. ``"raise"`` refuses it before any training, naming every
-        such target. ``"drop_rows"`` trains and scores each target on its labelled rows only, keeping the one split
-        shared by all targets: rows without that target's label leave its train, val, test and calib.
+        What a target with missing labels (NaN / null) does. ``"drop_rows"`` (default) trains and scores each target
+        on its labelled rows only, keeping the one split shared by all targets: rows without that target's label leave
+        its train, val, test and calib. ``"raise"`` refuses it before any training instead, naming every such target.
     min_labelled_train_rows, min_labelled_val_rows, min_labelled_test_rows, min_labelled_calib_rows : int
         Under ``"drop_rows"``, the fewest labelled rows a target needs in each split. Too few train rows skips the
         target; too few val rows trains it without a val split (no early stopping); too few test rows marks its test
@@ -135,7 +135,7 @@ class TrainingBehaviorConfig(BaseConfig):
     enable_crash_reporting: bool = True
     # Default False: silently skipping a failed model is a semantic shift that users must opt into explicitly.
     continue_on_model_failure: bool = False
-    target_null_policy: Literal["raise", "drop_rows"] = "raise"
+    target_null_policy: Literal["raise", "drop_rows"] = "drop_rows"
     min_labelled_train_rows: int = Field(default=100, ge=1)
     min_labelled_val_rows: int = Field(default=50, ge=1)
     min_labelled_test_rows: int = Field(default=50, ge=1)

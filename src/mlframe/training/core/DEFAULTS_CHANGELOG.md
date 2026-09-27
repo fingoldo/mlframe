@@ -467,3 +467,23 @@ LightGBM/XGBoost) — a clean negative result, not a gap.
   transform isn't starved by four targets each keeping a mediocre one; verified directly (a 2-target
   synthetic with cap=1 keeps the higher-honest-gain target's spec, not whichever target discovery visited
   first).
+
+## Flipped to default-ON (2026-09-27)
+
+- **`TrainingBehaviorConfig.target_null_policy`**: default changed from `"raise"` to `"drop_rows"`. A target
+  whose labels contain NaN/null/None now trains and is scored on its labelled rows only (the suite's one
+  split, narrowed per target -- see `metadata["target_rows"]`) instead of refusing the whole suite before any
+  target trains. Set `target_null_policy="raise"` to restore the previous behaviour.
+
+  Why: the whole point of building per-target row narrowing (`_target_row_scope`, `_target_row_decisions`,
+  group-major training by shared row mask) was to make a target with missing labels usable out of the box --
+  shipping it opt-in only would have left every existing caller who happens to have such a target still
+  hitting the old refusal, with no reason to ever discover the new flag. Verified against the naive
+  alternative (one suite call per target on that target's labelled-row subset): the in-suite run is faster
+  (185s vs 207s wall on a 50k x 30 synthetic, same peak commit) since the split and preprocessing are shared
+  across targets instead of recomputed per target, with matching metrics on both sides
+  (`mlframe.training.core._benchmarks.bench_target_nulls`).
+
+  A target with infinite (`+-inf`) labels is refused before training under EVERY policy, `"raise"` and
+  `"drop_rows"` alike -- inf is almost never a genuine missing-label sentinel, and silently dropping those
+  rows would train on a non-randomly-biased subset (whichever computation produced the inf) without saying so.

@@ -46,9 +46,9 @@ def test_counts_name_each_target():
     assert counts == {("regression", "a"): (1, 2)}
 
 
-def test_the_suite_fails_before_training_any_target(tmp_path, monkeypatch):
-    """A suite whose target has missing labels fails before any model trains, not partway through."""
-    from mlframe.training.configs import OutputConfig
+def test_the_suite_fails_before_training_any_target_under_the_raise_policy(tmp_path, monkeypatch):
+    """Under target_null_policy='raise', a suite whose target has missing labels fails before any model trains."""
+    from mlframe.training.configs import OutputConfig, TrainingBehaviorConfig
     from mlframe.training.core import _phase_runners
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
@@ -62,5 +62,30 @@ def test_the_suite_fails_before_training_any_target(tmp_path, monkeypatch):
             df=df, target_name="t", model_name="m",
             features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(regression_targets=["clean", "gappy"]),
             mlframe_models=["ridge"], use_ordinary_models=True, use_mlframe_ensembles=False,
+            behavior_config=TrainingBehaviorConfig(target_null_policy="raise"),
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"), verbose=0,
         )
+
+
+def test_the_suite_trains_the_gappy_target_on_its_labelled_rows_by_default(tmp_path):
+    """Default policy is drop_rows: the suite trains both targets instead of failing before any of them start."""
+    from mlframe.training.configs import OutputConfig, TargetTypes
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
+
+    rng = np.random.default_rng(0)
+    n = 300
+    df = pd.DataFrame({"f": rng.normal(size=n), "clean": rng.normal(size=n), "gappy": rng.normal(size=n)})
+    df.loc[:9, "gappy"] = np.nan
+    models, metadata = train_mlframe_models_suite(
+        df=df, target_name="t", model_name="m",
+        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(regression_targets=["clean", "gappy"]),
+        mlframe_models=["ridge"], use_ordinary_models=True, use_mlframe_ensembles=False,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"), verbose=0,
+    )
+    assert "regression/gappy" in metadata["target_rows"]
+    assert "regression/clean" not in metadata.get("target_rows", {})
+    for name in ("clean", "gappy"):
+        entries = models[TargetTypes.REGRESSION][name]
+        entry = entries[0] if isinstance(entries, list) else entries
+        assert entry.metrics.get("test"), f"{name} was not trained"

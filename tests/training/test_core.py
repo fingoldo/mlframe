@@ -5,7 +5,7 @@ Tests the main train_mlframe_models_suite function end-to-end.
 """
 
 
-from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
+from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig, TrainingBehaviorConfig
 
 
 import pytest
@@ -922,8 +922,8 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
 
-    def test_nan_in_target_column(self, temp_data_dir, common_init_params):
-        """Test that NaN values in regression target raise a clear ValueError."""
+    def test_nan_in_target_column_raises_under_the_raise_policy(self, temp_data_dir, common_init_params):
+        """Test that NaN values in regression target raise a clear ValueError under target_null_policy='raise'."""
         np.random.seed(42)
         n_samples = 100
         df = pd.DataFrame(
@@ -948,9 +948,43 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
                 reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
+                behavior_config=TrainingBehaviorConfig(target_null_policy="raise"),
                 output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
+
+    def test_nan_in_target_column_trains_on_labelled_rows_by_default(self, temp_data_dir, common_init_params):
+        """Default policy is drop_rows: a target with NaN labels trains and scores on its labelled rows instead of raising."""
+        np.random.seed(42)
+        n_samples = 400
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(n_samples),
+                "feature_1": np.random.randn(n_samples),
+                "target": np.random.randn(n_samples),
+            }
+        )
+        # Add NaN to target: enough labelled rows left to clear min_labelled_train_rows (default 100).
+        df.loc[10:60, "target"] = np.nan
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="nan_target_default",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            reporting_config=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
+            verbose=0,
+        )
+        assert "regression/target" in metadata["target_rows"]
+        entries = models[TargetTypes.REGRESSION]["target"]
+        entry = entries[0] if isinstance(entries, list) else entries
+        assert entry.metrics.get("test"), "the target with NaN labels was not trained under the default policy"
 
     def test_infinity_in_target_column(self, temp_data_dir, common_init_params):
         """Test that infinity values in regression target raise a clear ValueError."""
