@@ -71,8 +71,11 @@ def test_group_aware_demotion_strips_engineered_features_with_zero_within_group_
     control_recipes = list(control._engineered_recipes_ or [])
     assert control_recipes, "fixture must produce at least one engineered survivor for this test to be meaningful"
 
+    # The final demotion pass (_finalise.py) lazily re-imports group_relevance_mi from info_theory.shared on every
+    # call, so patching shared's attribute reaches it; _group_mi.group_relevance_mi (the pre-refactor patch target)
+    # and evaluation.py's module-level import (a separate, earlier candidate-scoring call site) do not.
     monkeypatch.setattr(
-        "mlframe.feature_selection.filters.info_theory._group_mi.group_relevance_mi",
+        "mlframe.feature_selection.filters.info_theory.shared.group_relevance_mi",
         lambda *a, **kw: 0.0,
     )
     demoted = _fit(X, y, groups, group_aware_mi=True)
@@ -95,8 +98,11 @@ def test_group_aware_demotion_keeps_mrmr_gains_aligned(monkeypatch):
     control = _fit(X, y, groups, group_aware_mi=True)
     assert list(control._engineered_recipes_ or []), "fixture must produce >=1 engineered survivor for demotion to bite"
 
+    # The final demotion pass (_finalise.py) lazily re-imports group_relevance_mi from info_theory.shared on every
+    # call, so patching shared's attribute reaches it; _group_mi.group_relevance_mi (the pre-refactor patch target)
+    # and evaluation.py's module-level import (a separate, earlier candidate-scoring call site) do not.
     monkeypatch.setattr(
-        "mlframe.feature_selection.filters.info_theory._group_mi.group_relevance_mi",
+        "mlframe.feature_selection.filters.info_theory.shared.group_relevance_mi",
         lambda *a, **kw: 0.0,
     )
     m = _fit(X, y, groups, group_aware_mi=True)
