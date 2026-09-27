@@ -373,6 +373,7 @@ def _run_composite_target_wrapping(
     plot_file: str | None = None,
     reporting_config: Any = None,
     group_column: str | None = None,
+    split_args_by_target: dict | None = None,
 ) -> dict[tuple, np.ndarray]:
     """Wrap T-scale inner models in CompositeTargetEstimator so predict() returns y-scale; record y-scale RMSE/MAE/R2 per split.
 
@@ -384,7 +385,12 @@ def _run_composite_target_wrapping(
     ``skip_predict=True`` (Pack): skip the 3-split predict() calls used to compute y-scale RMSE/MAE/R2 metrics. The wrap step (replacing each entry's inner with ``CompositeTargetEstimator``) still runs so downstream predict-path consumers see y-scale predictions; only the metric computation block is bypassed. Pack G watchdog (additive transforms: T-MAE == y-MAE) already covers the correctness check, so the y-scale metrics are redundant when watchdog is on -- skipping them saves up to ~30 predict() calls on multi-million-row frames per composite target.
     """
     _train_pred_cache: dict[tuple, np.ndarray] = {}
-    _train_frame_key = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
+    # A target trained on its labelled rows (see _target_row_post) is wrapped and scored on them: each iteration takes
+    # its splits from here, the full ones for a fully labelled target.
+    _full_splits = dict(
+        filtered_train_idx=filtered_train_idx, filtered_train_df=filtered_train_df, filtered_val_idx=filtered_val_idx,
+        filtered_val_df=filtered_val_df, test_idx=test_idx, test_df_pd=test_df_pd,
+    )
     for _tt_w, _by_name in (models or {}).items():
         if not isinstance(_by_name, dict):
             continue
@@ -399,6 +405,10 @@ def _run_composite_target_wrapping(
             if _composite_name not in _name_to_spec:
                 continue
             _orig_tname, _spec = _name_to_spec[_composite_name]
+            _s = {**_full_splits, **{k: v for k, v in ((split_args_by_target or {}).get((str(_tt_w), str(_orig_tname))) or {}).items() if k in _full_splits}}
+            filtered_train_idx, filtered_train_df, filtered_val_idx = _s["filtered_train_idx"], _s["filtered_train_df"], _s["filtered_val_idx"]
+            filtered_val_df, test_idx, test_df_pd = _s["filtered_val_df"], _s["test_idx"], _s["test_df_pd"]
+            _train_frame_key = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
             # y_train for wrapping is the ORIGINAL y (not T) at the train rows the wrapper saw at fit time.
             _y_full = target_by_type.get(_tt_w, {}).get(_orig_tname)
             if _y_full is None:

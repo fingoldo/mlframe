@@ -182,6 +182,16 @@ def run_composite_post_processing(
     full-data row indices; the cross-target ensemble builder subsets them by ``filtered_train_idx`` so the honest
     OOF split can be time-aware, weighted, and group-aware. Returns updated (models, metadata).
     """
+    # A target trained on its labelled rows only is wrapped, ensembled and gated on those rows too: its split frames and
+    # indices are narrowed once here and shared by every step below (the wrap pass caches predictions by frame identity).
+    from ._target_row_post import split_args_by_target, target_key
+
+    _full_split_args = dict(
+        filtered_train_df=filtered_train_df, filtered_val_df=filtered_val_df, test_df_pd=test_df_pd, train_df_pd=train_df_pd,
+        val_df_pd=val_df_pd, filtered_train_idx=filtered_train_idx, filtered_val_idx=filtered_val_idx, test_idx=test_idx,
+        train_idx=train_idx, val_idx=val_idx,
+    )
+    _args_by_target = split_args_by_target(ctx, target_by_type, metadata, _full_split_args)
     # Composite-target wrapping: T-scale inner models get wrapped so predict() returns y-scale.
     composite_specs_by_target_type = metadata.get("composite_target_specs", {}) or {}
     # Train-prediction cache (key = id(wrapper)) populated by the wrapping block and reused by the cross-target ensemble block.
@@ -210,6 +220,7 @@ def run_composite_post_processing(
             plot_file=plot_file,
             reporting_config=reporting_config,
             group_column=getattr(composite_target_discovery_config, "group_column", None),
+            split_args_by_target=_args_by_target,
         )
 
     # Discovery may have been auto-enabled for a heavy-tail target on a config that still reads enabled=False here (the
@@ -269,6 +280,7 @@ def run_composite_post_processing(
                 )
                 continue
             for _orig_tname, _spec_list in _tt_specs.items():
+                _split_args = _args_by_target.get(target_key(_tt_e, _orig_tname), _full_split_args)
                 _build_cross_target_ensemble_for_target(
                     _tt_e=_tt_e,
                     _orig_tname=_orig_tname,
@@ -280,16 +292,7 @@ def run_composite_post_processing(
                     composite_target_discovery_config=composite_target_discovery_config,
                     target_name=target_name,
                     model_name=model_name,
-                    filtered_train_df=filtered_train_df,
-                    filtered_val_df=filtered_val_df,
-                    test_df_pd=test_df_pd,
-                    filtered_train_idx=filtered_train_idx,
-                    filtered_val_idx=filtered_val_idx,
-                    test_idx=test_idx,
-                    train_df_pd=train_df_pd,
-                    val_df_pd=val_df_pd,
-                    train_idx=train_idx,
-                    val_idx=val_idx,
+                    **_split_args,
                     reporting_config=reporting_config,
                     plot_file=plot_file,
                     _train_pred_cache=_train_pred_cache,
@@ -311,6 +314,7 @@ def run_composite_post_processing(
             filtered_train_idx=filtered_train_idx,
             filtered_val_idx=filtered_val_idx,
             ctx=ctx, test_df=test_df_pd, test_idx=test_idx,
+            split_args_by_target=_args_by_target,
         )
     except Exception as _moe_err:
         logger.warning(

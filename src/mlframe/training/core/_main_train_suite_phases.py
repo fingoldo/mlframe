@@ -366,7 +366,14 @@ def run_recurrent_finalize_and_composite_post(
     """
     from ..utils import log_phase, log_ram_usage
 
-    models = pr_module.train_recurrent_models(
+    from ._target_row_post import train_recurrent_by_rows
+
+    # A target with missing labels trains its recurrent models on its labelled rows, like its other models in the loop.
+    models = train_recurrent_by_rows(
+        ctx,
+        pr_module.train_recurrent_models,
+        target_by_type,
+        getattr(ctx, "metadata", None),
         models=ctx.models,
         recurrent_models=ctx.recurrent_models,
         recurrent_config=recurrent_config,
@@ -377,7 +384,6 @@ def run_recurrent_finalize_and_composite_post(
         train_df_pd=train_df_pd,
         val_df_pd=val_df_pd,
         test_df_pd=test_df_pd,
-        target_by_type=target_by_type,
         train_idx=train_idx,
         val_idx=val_idx,
         test_idx=test_idx,

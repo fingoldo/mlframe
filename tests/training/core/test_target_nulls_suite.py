@@ -195,3 +195,48 @@ def test_a_right_censored_target_trains_without_test_rows_and_logs_nothing_faili
         if r.levelno >= logging.WARNING and r.name not in unrelated and any(w in r.getMessage().lower() for w in ("failed", "raised", "empty"))
     ]
     assert not bad, bad
+
+
+def test_the_cross_target_ensemble_of_a_target_with_gaps_is_built_on_its_labelled_rows(tmp_path, common_init_params, monkeypatch):
+    """Post-loop steps work per original target on split arguments; a target with gaps must get its labelled rows there."""
+    from mlframe.training.core import _phase_composite_post as post
+    from mlframe.training.core import _phase_composite_post_xt_ensemble as xt
+
+    seen = {}
+    real_build = xt._build_cross_target_ensemble_for_target
+
+    def spy_build(**kwargs):
+        seen.setdefault("xt", {})[kwargs["_orig_tname"]] = (np.asarray(kwargs["filtered_train_idx"]), np.asarray(kwargs["filtered_val_idx"]))
+        return real_build(**kwargs)
+
+    monkeypatch.setattr(xt, "_build_cross_target_ensemble_for_target", spy_build)
+    real_wrap = post._run_composite_target_wrapping
+
+    def spy_wrap(**kwargs):
+        seen["wrap_keys"] = set(kwargs.get("split_args_by_target") or {})
+        return real_wrap(**kwargs)
+
+    monkeypatch.setattr(post, "_run_composite_target_wrapping", spy_wrap)
+    df = _frame(3)
+    models, meta = train_mlframe_models_suite(
+        df=df,
+        target_name="t",
+        model_name="m",
+        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(regression_targets=["y_full", "y_part"], columns_to_drop={"row_id"}),
+        mlframe_models=["lgb"],
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False, target_null_policy="drop_rows"),
+        composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=True),
+        reporting_config=common_init_params,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        verbose=0,
+    )
+    labelled = df["y_part"].notna().to_numpy()
+    assert "y_part" in seen.get("xt", {}), "the cross-target ensemble step never ran for the target with gaps"
+    train_rows, val_rows = seen["xt"]["y_part"]
+    assert train_rows.size and labelled[train_rows].all() and labelled[val_rows].all()
+    full_train, _ = seen["xt"]["y_full"]
+    assert train_rows.size < full_train.size
+    assert ("regression", "y_part") in seen["wrap_keys"] and ("regression", "y_full") not in seen["wrap_keys"]
+    assert "_CT_ENSEMBLE__y_part" in models[TargetTypes.REGRESSION], "no ensemble was built for the target with gaps"

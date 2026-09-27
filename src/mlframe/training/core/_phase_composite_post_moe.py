@@ -164,6 +164,7 @@ def run_composite_moe_and_value_report(
     filtered_train_idx,
     filtered_val_idx,
     ctx: Any = None, test_df: Any = None, test_idx: Any = None,
+    split_args_by_target: dict | None = None,
 ) -> None:
     """Emit the composite VALUE report and (flag-gated) wrap deployed ensembles through a MoE selection gate.
 
@@ -188,12 +189,19 @@ def run_composite_moe_and_value_report(
 
     _ctx_groups = getattr(ctx, "group_ids", None) if ctx is not None else None
     _ctx_sw = getattr(ctx, "sample_weights", None) if ctx is not None else None
+    # A target trained on its labelled rows is gated on them too (see _target_row_post); others use the full splits.
+    _full = dict(filtered_train_df=filtered_train_df, filtered_val_df=filtered_val_df, filtered_val_idx=filtered_val_idx, test_df_pd=test_df, test_idx=test_idx)
 
     for _tt_e, _by_name in list((models or {}).items()):
         for _key in list(_by_name.keys()):
             if not str(_key).startswith("_CT_ENSEMBLE__"):
                 continue
             _orig_tname = str(_key)[len("_CT_ENSEMBLE__") :]
+            _s = {**_full, **{k: v for k, v in ((split_args_by_target or {}).get((str(_tt_e), _orig_tname)) or {}).items() if k in _full}}
+            filtered_train_df, filtered_val_df, filtered_val_idx = _s["filtered_train_df"], _s["filtered_val_df"], _s["filtered_val_idx"]
+            test_df, test_idx = _s["test_df_pd"], _s["test_idx"]
+            if filtered_val_df is None or filtered_val_idx is None:
+                continue  # no labelled val row for this target: nothing to select on
             _entries = _by_name.get(_key) or []
             if not _entries:
                 continue

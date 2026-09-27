@@ -188,6 +188,7 @@ history.
 
 ### Fixed
 
+- Under `target_null_policy="drop_rows"`, the steps after the target loop work on each target's labelled rows as its models did: composite wrapping, the cross-target ensemble, the MoE gate and the recurrent models. They took the suite's full split indices, so a target with gaps was ensembled, gated and scored with NaN labels in its rows.
 - A string multiclass target with missing labels no longer stops the suite (`np.unique` could not order `None` against strings): classes come from the labelled values and a missing label stays missing.
 - The time-series dummy baselines (naive, seasonal naive, drift) are skipped for a target missing more than 5% of its train labels: the last P values of the compacted series are not the last P time steps. `ts_diagnostics` says why.
 - Composite discovery's grouped causal bases (expanding and trailing target mean of earlier rows in a group) skip rows without a label; one such row used to turn every later row of its group NaN, so the base lost its coverage. `DISCOVERY_ALGO_VERSION` 9.
