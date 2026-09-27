@@ -10,6 +10,7 @@ out (no model can predict that class; scoring them would only measure its absenc
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any, Optional
 
 import numpy as np
@@ -32,11 +33,11 @@ def _as_array(values: Any) -> np.ndarray:
     return to_numpy() if callable(to_numpy) else np.asarray(values)
 
 
-def _first(counts: dict, *splits: str) -> Optional[int]:
+def _first(counts: Mapping[str, int], *splits: str) -> Optional[int]:
     """The count of the first split present: the outlier-filtered train/val when outlier detection ran, else the split."""
     for split in splits:
         if split in counts:
-            return counts[split]
+            return int(counts[split])
     return None
 
 
@@ -54,7 +55,7 @@ def working_target(values: Any, mask: np.ndarray, target_type: Any, name: str) -
     filled = np.array(arr, dtype=np.float64, copy=True)
     fill = 0.0 if filled.ndim > 1 else float(labelled_unique(arr)[0])
     filled[np.isnan(filled)] = fill
-    cast = {name: filled}
+    cast: dict[str, Any] = {name: filled}
     intize_targets(cast)  # the smallest integer dtype, as the extractor gives a fully labelled class column
     return cast[name]
 

@@ -154,7 +154,7 @@ def _narrowed_fields(ctx: Any, rows: TargetRows) -> dict[str, Any]:
         out["outlier_detection_result"] = {**od_result, **{k: out[k] for k in od_masks if k in out}}
     dropped = getattr(ctx, "_dropped_high_card_data", None)
     if dropped:
-        by_split = {"train": train_pos, "val": val_pos, "test": rows.pos.get("test_idx")}
+        by_split: dict[str, Any] = {"train": train_pos, "val": val_pos, "test": rows.pos.get("test_idx")}
         out["_dropped_high_card_data"] = {
             col: {k: (_take(v, by_split[k]) if v is not None and by_split.get(k) is not None else v) for k, v in parts.items()} for col, parts in dropped.items()
         }

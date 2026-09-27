@@ -443,7 +443,10 @@ class TestCrossBasisHierarchyActivation:
             kwargs.pop(k, None)
         m = _make_mrmr(**kwargs).fit(X, y)
         orth = list(getattr(m, "hybrid_orth_features_", None) or [])
-        assert orth, "hybrid_orth_features_ empty after L21-L78 all-on fit; FE compose did not append any orthogonal-basis columns"
+        # An orthogonal-basis column survives either on its own (hybrid_orth_features_) or as an operand of a selected compound:
+        # with strongest-first dedup the compound add(sign(x3*x4*x5__He1_He1_He1), x1*x2__He1_He1) replaces the standalone copy.
+        in_compounds = [str(f) for f in m.get_feature_names_out() if "__He" in str(f) and str(f) not in orth]
+        assert orth or in_compounds, "no orthogonal-basis column survived after the L21-L78 all-on fit, standalone or inside a compound"
 
         def n_star(s):
             """Count '*' occurrences in the source-name segment of an engineered column label."""
