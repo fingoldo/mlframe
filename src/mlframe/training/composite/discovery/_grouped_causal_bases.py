@@ -63,8 +63,20 @@ def _grouped_lag_impl(y_sorted, offsets, k, fill_group):
     return out
 
 
+def _first_labelled(y_sorted, lo, hi):
+    """The group's first non-NaN value, or NaN when it has none."""
+    for j in range(lo, hi):
+        if not np.isnan(y_sorted[j]):
+            return y_sorted[j]
+    return np.nan
+
+
 def _grouped_expanding_impl(y_sorted, offsets, fill_group):
-    """Per-group expanding (strictly-prior) mean via an O(n) running sum, no per-row rescan; first row per group uses ``fill_group``/NaN."""
+    """Per-group expanding (strictly-prior) mean via an O(n) running sum, no per-row rescan; a row with no prior value uses ``fill_group``/NaN.
+
+    A row without a label (NaN) is encoded from the labelled rows before it but adds nothing to later rows: summing it
+    made every later row of its group NaN.
+    """
     n = y_sorted.shape[0]
     out = np.empty(n, dtype=np.float64)
     n_groups = offsets.shape[0] - 1
@@ -73,15 +85,17 @@ def _grouped_expanding_impl(y_sorted, offsets, fill_group):
         hi = offsets[g + 1]
         if hi <= lo:
             continue
-        first = y_sorted[lo]
+        first = _first_labelled(y_sorted, lo, hi)
         run_sum = 0.0
+        count = 0
         for j in range(lo, hi):
-            pos = j - lo
-            if pos == 0:
+            if count == 0:
                 out[j] = first if fill_group else np.nan
             else:
-                out[j] = run_sum / pos
-            run_sum += y_sorted[j]
+                out[j] = run_sum / count
+            if not np.isnan(y_sorted[j]):
+                run_sum += y_sorted[j]
+                count += 1
     return out
 
 
@@ -97,7 +111,11 @@ def _grouped_trailing_impl(y_sorted, offsets, window, fill_group):
         hi = offsets[g + 1]
         if hi <= lo:
             continue
-        first = y_sorted[lo]
+        first = _first_labelled(y_sorted, lo, hi)
+        # The window holds the last ``window`` LABELLED values; ``buf`` keeps them in order so the oldest can leave.
+        buf = np.empty(hi - lo, dtype=np.float64)
+        head = 0
+        tail = 0
         win_sum = 0.0
         count = 0
         for j in range(lo, hi):
@@ -105,14 +123,19 @@ def _grouped_trailing_impl(y_sorted, offsets, window, fill_group):
                 out[j] = first if fill_group else np.nan
             else:
                 out[j] = win_sum / count
-            win_sum += y_sorted[j]
-            count += 1
-            if count > window:
-                win_sum -= y_sorted[j - window]
-                count -= 1
+            if not np.isnan(y_sorted[j]):
+                buf[tail] = y_sorted[j]
+                tail += 1
+                win_sum += y_sorted[j]
+                count += 1
+                if count > window:
+                    win_sum -= buf[head]
+                    head += 1
+                    count -= 1
     return out
 
 
+_first_labelled = _njit(_first_labelled)
 _grouped_lag_kernel = _njit(_grouped_lag_impl)
 _grouped_expanding_kernel = _njit(_grouped_expanding_impl)
 _grouped_trailing_kernel = _njit(_grouped_trailing_impl)

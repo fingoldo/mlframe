@@ -188,6 +188,9 @@ history.
 
 ### Fixed
 
+- Composite discovery's grouped causal bases (expanding and trailing target mean of earlier rows in a group) skip rows without a label; one such row used to turn every later row of its group NaN, so the base lost its coverage. `DISCOVERY_ALGO_VERSION` 9.
+- BaselineDiagnostics, PySR symbolic FE and the opt-in `output_config.run_diagnostics` fit on the labelled train rows. With unlabelled rows kept, the regression diagnostic skipped itself as a "degenerate target" and the binary one could put NaN into its init score.
+- The target distribution analyzer no longer reports a lag autocorrelation when fewer than 90% of rows are labelled: lags of the compacted series span unknown gaps.
 - Ordered target encoding (`ordered_target_encode`, `ordered_target_encode_batch`, and the two-step encoding built on them) with rows that have no label: such a row used to make the prior NaN, so the whole train column came out NaN and every per-entity lookup 0.0, silently. A row without a label is now encoded from the labelled rows before it and adds nothing to later rows; with every row labelled the output is unchanged bit for bit.
 - Two charts no longer emit numpy warnings on empty input: the composite MI-gain chart for a spec without a gain, and the error-bias panel for an error group with no rows.
 - The automatic categorical-group search (`categorical_group_concat_auto_enabled`) scores a regression target with `mutual_info_regression`; `mutual_info_classif` refused it, so the step failed and was skipped on every regression target. Rows without a label are left out of the search.

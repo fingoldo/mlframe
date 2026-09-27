@@ -167,8 +167,15 @@ def _apply_pysr_fe(
     # Caller can pin via PreprocessingExtensionsConfig.pysr_sample_size when memory is tight (each row
     # is ~26 floats * 4 bytes = ~100B in pandas; 4M rows = ~400 MB after the polars->pandas copy at
     # bruteforce.py:_run_pysr_feature_engineering).
+    # PySR fits on the labelled rows: a row without a label has no y to regress on. The subset is its own frame, so the
+    # temp target column below never touches the caller's.
+    y_fit = np.asarray(y_train).ravel()
+    labelled = ~pd.isna(y_fit)
+    fit_df = train_df
+    if not labelled.all():
+        fit_df, y_fit = train_df.loc[labelled].copy(), y_fit[labelled]
     _sample_override = getattr(config, "pysr_sample_size", None)
-    sample_n = min(len(train_df), int(_sample_override)) if _sample_override is not None else len(train_df)
+    sample_n = min(len(fit_df), int(_sample_override)) if _sample_override is not None else len(fit_df)
     # Log when pool is large enough to noticeably affect memory; users can opt to cap via the config.
     if sample_n > 1_000_000:
         logger.info(
@@ -181,7 +188,7 @@ def _apply_pysr_fe(
     # Inject y_train as a temporary column (bruteforce expects target as a column in the DataFrame). Caller already feeds the local ``train`` frame from ``apply_preprocessing_extensions._to_pandas`` so this isn't visible to caller code; the ``finally`` block below removes the temp column on any exit path.
     #
     # The injection MUST live INSIDE the try block. The pre-fix shape did the assignment one line before ``try:``, leaving a narrow leak window: an exception fired between injection and try entry (e.g. ``int(getattr(config, "random_seed", 42))`` on a malformed config value) bypassed the ``finally`` and the temp target column leaked back to the caller's frame as a fake numeric feature.
-    existing_y = train_df.columns.tolist()
+    existing_y = fit_df.columns.tolist()
     while temp_target_col in existing_y:
         temp_target_col = "_" + temp_target_col
 
@@ -190,10 +197,10 @@ def _apply_pysr_fe(
     try:
         _pysr_seed = getattr(config, "random_seed", None)
         pysr_random_state = int(_pysr_seed) if _pysr_seed is not None else 42
-        train_df[temp_target_col] = np.asarray(y_train).ravel()
+        fit_df[temp_target_col] = y_fit
         _column_was_injected = True
         model = run_pysr_feature_engineering(
-            df=train_df,
+            df=fit_df,
             target_col=temp_target_col,
             sample_size=sample_n,
             encode_categoricals=False,
@@ -210,7 +217,7 @@ def _apply_pysr_fe(
         # Wrap drop in try/except so a pandas KeyError chain on a corrupted MultiIndex column or a read-only frame doesn't mask the in-flight exception (errors="ignore" covers the missing-column case but not deeper pandas-internal failures). Skip the drop when injection itself failed -- nothing to remove.
         if _column_was_injected:
             try:
-                train_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")  # noqa: PD002 -- must mutate the caller's train_df object in place; a rebind here would not propagate outside this function
+                fit_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")  # noqa: PD002 -- must mutate the caller's train_df object in place (fit_df IS it when every row is labelled); a rebind would not propagate outside this function
             except Exception as _drop_err:
                 logger.debug("pipeline: temp_target_col drop failed in finally: %s", _drop_err)
 

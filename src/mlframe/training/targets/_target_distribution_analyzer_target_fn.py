@@ -49,6 +49,10 @@ from ._target_distribution_analyzer_stats import (
 logger = logging.getLogger(__name__)
 
 
+
+# Below this share of labelled rows the lag autocorrelation of the compacted target is not measured (see its use).
+MIN_LABELLED_SHARE_FOR_AUTOCORR = 0.9
+
 def _apply_heavy_tail_huber_overrides(kurt: float, knob_overrides: dict, stamp_prov, huber_delta: float) -> None:
     """Robust (Huber-family) loss overrides for a heavy-tailed regression target, skipped above the Huber ceiling.
 
@@ -240,7 +244,12 @@ def analyze_target_distribution(
         # can't supply explicit timestamps.
         ar = float("nan")
         ar_source = None
-        if has_time_axis:
+        # Autocorrelation needs neighbouring rows to be neighbours: with many unlabelled rows dropped, lag 1 of the
+        # compacted series spans unknown gaps, so the estimate is not measured at all below this share of labelled rows.
+        labelled_share = n / y.size if y.size else 1.0
+        if labelled_share < MIN_LABELLED_SHARE_FOR_AUTOCORR:
+            diagnostics["autocorr_skipped_labelled_share"] = float(labelled_share)
+        elif has_time_axis:
             # E5.1: scan lags 1/2/3/5 and take the strongest |autocorr|. Long-memory
             # series can hit lag-2/3 strongly with weak lag-1 -- both shapes feed
             # the same MLP-LayerNorm collapse mode the AR detector exists to flag.

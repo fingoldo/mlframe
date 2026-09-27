@@ -546,6 +546,24 @@ def run_distribution_analyzer_and_estimator_injection(
     return hyperparams_config, train_df, val_df, test_df, mlframe_models
 
 
+
+def _labelled_train_view(train_df: Any, y: Any, group_ids: Any) -> tuple:
+    """``(train_df, y, group_ids)`` restricted to the rows that carry a label; unchanged when every row does.
+
+    ``group_ids`` is sliced only when it is aligned to ``train_df`` (same length); a full-length array is left as is.
+    """
+    import numpy as np
+    import pandas as pd
+
+    y = np.asarray(y)
+    labelled = ~pd.isna(y)
+    if labelled.all() or train_df is None or len(train_df) != len(y):
+        return train_df, y, group_ids
+    rows = np.flatnonzero(labelled)
+    subset = train_df.iloc[rows] if hasattr(train_df, "iloc") else train_df[rows]
+    groups = group_ids[labelled] if group_ids is not None and len(group_ids) == len(y) else group_ids
+    return subset, y[labelled], groups
+
 def run_optional_diagnostics_and_composite_discovery(
     *, output_config: Any, target_by_type: Any, target_name: Any, filtered_train_idx: Any,
     filtered_train_df: Any, filtered_val_df: Any, test_df: Any, cat_features: Any, group_ids: Any,
@@ -578,6 +596,9 @@ def run_optional_diagnostics_and_composite_discovery(
         except Exception as e:
             logger.debug("diagnostics: could not derive y for target %r: %s", target_name, e)
 
+        _diag_train, _diag_groups = filtered_train_df, group_ids
+        if _diag_y is not None:  # a row without a label has no y to diagnose; its features and group id leave with it
+            _diag_train, _diag_y, _diag_groups = _labelled_train_view(filtered_train_df, _diag_y, group_ids)
         _diagnostics_kwargs = (output_config.diagnostics_kwargs if output_config is not None else None) or {}
         _diag_results: dict = {}
         for _diag_name in _run_diagnostics:
@@ -587,12 +608,12 @@ def run_optional_diagnostics_and_composite_discovery(
                 continue
             try:
                 _diag_results[_diag_name] = _diag_fn(
-                    train_df=filtered_train_df,
+                    train_df=_diag_train,
                     val_df=filtered_val_df,
                     test_df=test_df,
                     target_col=target_name,
                     cat_features=cat_features,
-                    group_ids=group_ids,
+                    group_ids=_diag_groups,
                     y=_diag_y,
                     **_diagnostics_kwargs.get(_diag_name, {}),
                 )
