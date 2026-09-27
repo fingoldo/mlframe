@@ -25,13 +25,29 @@ from ._extractors_dtype_helpers import (
 logger = logging.getLogger("mlframe.training.extractors")
 
 
-def _polars_missing_count(s: "pl.Series") -> int:
-    """Nulls plus float NaN. ``null_count()`` alone misses NaN, and ``NaN >= t`` is True in polars, so a NaN row of a
-    classification column passed the guard and became the positive class under a lower threshold."""
-    n = int(s.null_count())
-    if s.dtype.is_float():
-        n += int(s.is_nan().sum() or 0)
-    return n
+def _missing_label_mask(col_data: "Union[pd.Series, pl.Series]") -> Optional[np.ndarray]:
+    """Rows of a classification source column without a label, or ``None`` when every row has one.
+
+    Nulls plus float NaN: polars ``null_count()`` misses NaN, and ``NaN >= t`` is True in polars, so a NaN row used to
+    become the positive class under a lower threshold.
+    """
+    if isinstance(col_data, pd.Series):
+        missing = col_data.isna().to_numpy()
+    else:
+        missing = col_data.is_null().to_numpy()
+        if col_data.dtype.is_float():
+            missing |= col_data.is_nan().fill_null(False).to_numpy()
+    return missing if missing.any() else None
+
+
+def _binary_target(comparison: "Union[pd.Series, pl.Series]", missing: Optional[np.ndarray]) -> Any:
+    """A 0/1 target from a boolean comparison: int8 when every row is labelled, else float32 with NaN on missing rows."""
+    if missing is None:
+        return comparison.astype(np.int8) if isinstance(comparison, pd.Series) else comparison.cast(pl.Int8)
+    values = comparison.to_numpy() if isinstance(comparison, pd.Series) else comparison.fill_null(False).to_numpy()
+    out = values.astype(np.float32)
+    out[missing] = np.nan
+    return out
 
 
 class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
@@ -183,8 +199,6 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             KeyError: If a required target column is not found in the DataFrame.
         """
         target_by_type: Dict[TargetTypes, Dict[str, Any]] = {}
-        is_pandas = isinstance(df, pd.DataFrame)
-        is_polars = isinstance(df, pl.DataFrame)
         if self.columns_to_drop is None:
             self.columns_to_drop = set()
         df_columns = set(df.columns)
@@ -194,42 +208,23 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             for col in self.classification_targets:
                 if col not in df_columns:
                     raise KeyError(f"Classification target column '{col}' not found in DataFrame. Available: {list(df.columns)[:10]}...")
-                # Wave 50 (2026-05-20): the prior fillna(0) silently labelled NaN rows as
-                # the positive class when thresh_val<=0 (common for residual / mean-centered
-                # targets) and identical-to-real-0 rows otherwise. Raise honestly instead;
-                # callers must drop NaN targets explicitly upstream.
-                if is_pandas:
-                    if df[col].isna().any():
-                        raise ValueError(
-                            f"Classification target '{col}' contains NaN; drop or impute upstream "
-                            "(silent fillna(0) was changed in wave-50 to surface this honestly)."
-                        )
-                    col_data = df[col]
-                else:
-                    if _polars_missing_count(df[col]) > 0:
-                        raise ValueError(
-                            f"Classification target '{col}' contains nulls; drop or impute upstream "
-                            "(silent fill_null(0) was changed in wave-50 to surface this honestly)."
-                        )
-                    col_data = df[col]
+                # A missing source label stays missing in every target derived from it: a fillna(0) used to label those
+                # rows as the positive class when thresh_val<=0 and as a real 0 otherwise. The suite decides what to do
+                # with rows without a label.
+                col_data = df[col]
+                missing = _missing_label_mask(col_data)
 
                 # Process lower thresholds
                 if self.classification_lower_thresholds and col in self.classification_lower_thresholds:
                     thresh_val = self.classification_lower_thresholds[col]
                     target_name = f"{col}_above_{thresh_val}"
-                    if is_pandas:
-                        targets[target_name] = (col_data >= thresh_val).astype(np.int8)
-                    elif is_polars:
-                        targets[target_name] = (col_data >= thresh_val).cast(pl.Int8)
+                    targets[target_name] = _binary_target(col_data >= thresh_val, missing)
 
                 # Process upper thresholds
                 if self.classification_upper_thresholds and col in self.classification_upper_thresholds:
                     thresh_val = self.classification_upper_thresholds[col]
                     target_name = f"{col}_below_{thresh_val}"
-                    if is_pandas:
-                        targets[target_name] = (col_data <= thresh_val).astype(np.int8)
-                    elif is_polars:
-                        targets[target_name] = (col_data <= thresh_val).cast(pl.Int8)
+                    targets[target_name] = _binary_target(col_data <= thresh_val, missing)
 
                 # Process exact values
                 if self.classification_exact_values and col in self.classification_exact_values:
@@ -245,10 +240,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
 
                     for val in exact_vals:
                         target_name = f"{col}_eq_{val}"
-                        if is_pandas:
-                            targets[target_name] = (col_data == val).astype(np.int8)
-                        elif is_polars:
-                            targets[target_name] = (col_data == val).cast(pl.Int8)
+                        targets[target_name] = _binary_target(col_data == val, missing)
 
                 # Default: use column as-is. Don't pre-cast to int8 here -- intize_targets()
                 # below promotes int8/16/32/64 based on actual value range, so multiclass labels

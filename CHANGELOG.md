@@ -186,6 +186,7 @@ history.
 
 ### Fixed
 
+- `SimpleFeaturesAndTargetsExtractor` keeps a missing classification label missing: every target derived from the column is NaN on that row (float32; int8 as before when every row is labelled), and an as-is class column stays float with NaN. It used to refuse the whole column. The suite still refuses targets with missing labels before training, naming each.
 - A target with missing labels now fails before any training, naming every such target with its count. A regression target with NaN labels used to fail inside its first model fit, after every earlier target had already trained.
 - A polars float classification target with NaN labels is refused like one with nulls. NaN is not null in polars, so the guard passed and NaN became the positive class.
 - The unsupervised pre-screen runs once, before the first target. With per-target supervised columns the target scope restored the pre-screen frames on exit while the screen stayed marked as done, so every later target trained on the columns the screen had dropped. The scope also keeps the pandas view cache an `OrderedDict` and drops `calib_df` with the other screened frames.

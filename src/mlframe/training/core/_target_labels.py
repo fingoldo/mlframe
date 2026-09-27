@@ -34,6 +34,14 @@ def label_mask(values: Any) -> Optional[np.ndarray]:
     return np.asarray(~missing, dtype=bool)
 
 
+def labelled_unique(values: Any) -> np.ndarray:
+    """Distinct labels of a target, missing ones excluded. ``np.unique`` counts NaN as a class of its own, so a target
+    with {0, NaN} looked like two classes."""
+    arr = np.asarray(values)
+    missing = pd.isna(arr)
+    return np.unique(arr[~missing]) if missing.any() else np.unique(arr)
+
+
 def missing_label_counts(target_by_type: dict) -> "dict[tuple[Any, str], tuple[int, int]]":
     """``{(target type, name): (rows without a label, rows)}`` for every target that has missing labels."""
     out: dict = {}

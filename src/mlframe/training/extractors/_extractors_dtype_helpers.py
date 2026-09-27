@@ -104,6 +104,22 @@ def _safe_int_cast_numpy(arr: np.ndarray, target_name: str) -> np.ndarray:
     return arr.astype(_dtype, copy=False)
 
 
+def _labelled_class_values(arr: np.ndarray, missing: np.ndarray, target_name: str) -> np.ndarray:
+    """A class column with missing labels, kept float so they stay NaN; its labelled values must still be integers.
+
+    An object column (string labels) is returned as is: the suite encodes its labelled values later.
+    """
+    if arr.dtype.kind == "O":
+        return arr
+    labelled = arr[~missing]
+    if not np.isfinite(labelled).all() or not np.all(np.equal(np.mod(labelled, 1), 0)):
+        raise ValueError(
+            f"target {target_name!r}: numeric target contains non-integer or infinite labels; "
+            f"cannot safely treat it as classes. Use a regression target type."
+        )
+    return arr.astype(np.float64, copy=False)
+
+
 def intize_targets(targets: Dict[str, Union[pd.Series, pl.Series, np.ndarray]]) -> None:
     """Convert target values to the smallest signed-int numpy dtype that preserves every value.
 
@@ -117,6 +133,9 @@ def intize_targets(targets: Dict[str, Union[pd.Series, pl.Series, np.ndarray]]) 
     Args:
         targets: Dictionary mapping target names to target arrays/series.
 
+    A target with missing labels (NaN / null / None) is not cast: it stays float with NaN where the label is missing, so
+    the suite can tell those rows apart, and only its labelled values have to be integers.
+
     Raises:
         TypeError: If target is not a supported type (pd.Series, pl.Series, np.ndarray).
         ValueError: If a numeric target contains fractional / non-finite values
@@ -124,15 +143,19 @@ def intize_targets(targets: Dict[str, Union[pd.Series, pl.Series, np.ndarray]]) 
     """
     for target_name, target in targets.copy().items():
         if isinstance(target, np.ndarray):
-            targets[target_name] = _safe_int_cast_numpy(target, target_name)
-        elif isinstance(target, pl.Series):
+            arr = target
+        elif isinstance(target, (pl.Series, pd.Series)):
             # to_numpy first (zero-copy on contiguous numeric), then route through the
             # numpy-side range-aware cast so polars + pandas paths share one promotion table.
-            targets[target_name] = _safe_int_cast_numpy(target.to_numpy(), target_name)
-        elif isinstance(target, pd.Series):
-            targets[target_name] = _safe_int_cast_numpy(target.to_numpy(), target_name)
+            # A polars integer column with nulls comes back as float with NaN.
+            arr = target.to_numpy()
         else:
             raise TypeError(f"Unsupported target type for '{target_name}': {type(target).__name__}")
+        missing = pd.isna(arr) if arr.dtype.kind in "fO" else None
+        if missing is not None and missing.any():
+            targets[target_name] = _labelled_class_values(arr, missing, target_name)
+        else:
+            targets[target_name] = _safe_int_cast_numpy(arr, target_name)
 
 
 def get_sample_weights_by_recency(

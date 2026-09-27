@@ -69,16 +69,13 @@ def _read(rel: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_extractors_classification_target_rejects_nan() -> None:
-    """The classification-target NaN-rejection lives in sibling
-    _extractors_simple.py after the extractors monolith split; concat
-    so the source sensor matches the post-carve layout."""
-    src = _read("training/extractors.py")
-    _sib = MLFRAME_ROOT / "training" / "_extractors_simple.py"
-    if _sib.exists():
-        src += "\n" + _sib.read_text(encoding="utf-8")
-    assert "Classification target" in src
-    assert "drop or impute upstream" in src
+def test_a_missing_classification_label_is_refused_before_training() -> None:
+    """The extractor keeps a missing label missing; the suite refuses the target before any model trains, naming it."""
+    from mlframe.training.configs import TargetTypes
+    from mlframe.training.core._target_labels import raise_on_missing_labels
+
+    with pytest.raises(ValueError, match="y_bin_above_0.5: target contains 1 NaN/null label"):
+        raise_on_missing_labels({TargetTypes.BINARY_CLASSIFICATION: {"y_bin_above_0.5": np.array([1.0, np.nan, 0.0], dtype=np.float32)}})
 
 
 def test_pd_ordinal_encoder_default_uses_minus_one() -> None:
@@ -197,8 +194,8 @@ def test_median_fill_leaves_non_numeric_columns_alone() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_extractors_classification_nan_raises() -> None:
-    """NaN classification target must raise, not silently coerce to class 0."""
+def test_extractors_classification_nan_stays_missing() -> None:
+    """A NaN classification label must stay NaN in the derived target, not be coerced to class 0 or 1."""
     import pandas as pd
     from mlframe.training import extractors as _ext_mod
 
@@ -210,8 +207,10 @@ def test_extractors_classification_nan_raises() -> None:
         classification_targets=["y_bin"],
         classification_lower_thresholds={"y_bin": 0.5},
     )
-    with pytest.raises(ValueError, match="contains NaN"):
-        ext.transform(df)
+    targets = ext.transform(df)[1]
+    y = np.asarray(next(iter(targets.values()))["y_bin_above_0.5"], dtype=np.float64)
+    assert np.isnan(y[1])
+    np.testing.assert_array_equal(y[[0, 2]], [1.0, 0.0])
 
 
 def test_pd_ordinal_encoder_default_encodes_missing_as_minus_one() -> None:
