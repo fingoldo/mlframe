@@ -81,6 +81,7 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     # with it, so the audit has to read BOTH modules or it under-counts. The private modules are the surface
     # under audit here, exactly like the parent module already whitelisted for this test.
     "test_log_only_except_reports_and_phase_composite_best_effort::mlframe.training.pipeline._pipeline_extensions_pysr",
+    "test_log_only_except_reports_and_phase_composite_best_effort::mlframe.training.pipeline._pipeline_extensions_row_wise",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.data_valuation._propagate_gpu_ktc",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.training._eval_helpers._append_split_rate_suffix",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.training._feature_importances._captum_integrated_gradients_importance",

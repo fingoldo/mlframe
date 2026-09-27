@@ -59,15 +59,23 @@ def zero_inflation_verdict(y: Any) -> "tuple[Optional[float], int, Optional[str]
     n_below = int(np.count_nonzero(arr < atom))
     n_above = int(np.count_nonzero(arr > atom))
     if n_above == 0:
-        return None, n_below, (
-            f"{frac:.0%} of rows sit at {atom:g}, which is the target's MAXIMUM: a hurdle models an event above a floor, so "
-            f"this is not one. A constant filled in for \"no event\" looks exactly like this; model the event and the "
-            f"value given the event separately instead."
+        return (
+            None,
+            n_below,
+            (
+                f"{frac:.0%} of rows sit at {atom:g}, which is the target's MAXIMUM: a hurdle models an event above a floor, so "
+                f'this is not one. A constant filled in for "no event" looks exactly like this; model the event and the '
+                f"value given the event separately instead."
+            ),
         )
     if n_below > BELOW_ATOM_TOLERANCE * arr.size:
-        return None, n_below, (
-            f"{frac:.0%} of rows sit at {atom:g}, but {n_below:_} row(s) ({n_below / arr.size:.2%}, minimum {float(arr.min()):g}) "
-            f"lie below it, more than the {BELOW_ATOM_TOLERANCE:.1%} a hurdle's \"no event\" floor tolerates."
+        return (
+            None,
+            n_below,
+            (
+                f"{frac:.0%} of rows sit at {atom:g}, but {n_below:_} row(s) ({n_below / arr.size:.2%}, minimum {float(arr.min()):g}) "
+                f'lie below it, more than the {BELOW_ATOM_TOLERANCE:.1%} a hurdle\'s "no event" floor tolerates.'
+            ),
         )
     return atom, n_below, None
 
@@ -104,6 +112,7 @@ def _scan_zero_inflation(target_by_type: Any, train_idx: Any) -> "tuple[dict[flo
 
     by_atom: dict[float, list[str]] = {}
     below: dict[float, dict[str, int]] = {}
+    not_hurdled: list[str] = []
     for name, y in ((target_by_type or {}).get(TargetTypes.REGRESSION) or {}).items():
         y_full = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y).reshape(-1)
         try:
@@ -116,7 +125,9 @@ def _scan_zero_inflation(target_by_type: Any, train_idx: Any) -> "tuple[dict[flo
             if n_below:
                 below.setdefault(atom, {})[str(name)] = n_below
         elif reason is not None:
-            logger.warning("[hurdle] no HurdleRegressor for %s: %s", name, reason)
+            not_hurdled.append(f"{name}: {reason}")
+    if not_hurdled:
+        logger.warning("[hurdle] no HurdleRegressor for %s", "; ".join(not_hurdled))
     return by_atom, below
 
 
@@ -142,12 +153,6 @@ def maybe_inject_hurdle_for_zero_inflated(
         clf, reg = _default_hurdle_halves()
         below_rows = below.get(atom, {})
         est = HurdleRegressor(classifier=clf, regressor=reg, zero_value=atom, random_state=0, below_zero="no_event" if below_rows else "event")
-        if below_rows:
-            logger.warning(
-                "[hurdle] %s: %s row(s) lie below the point mass at %g; the hurdle counts them as \"no event\". Check the source "
-                "if they should not exist (negative amounts are usually refunds or corrections).",
-                ", ".join(sorted(below_rows)), ", ".join(f"{v:_}" for _, v in sorted(below_rows.items())), atom,
-            )
         est._mlframe_only_targets = frozenset(names)
         label = "hurdle" if len(by_atom) == 1 else f"hurdle_at_{atom:g}"
         new_models.append((label, est))
@@ -156,6 +161,12 @@ def maybe_inject_hurdle_for_zero_inflated(
             "[hurdle] %d regression target(s) sit on a point mass at %g for at least %.0f%% of train rows (%s); training a "
             "HurdleRegressor (classifier for the event, regressor for its magnitude) alongside the requested models for them.",
             len(names), atom, 100 * ZERO_INFLATION_FRACTION_THRESHOLD, ", ".join(sorted(names)[:8]),
+        )
+    if below:
+        logger.warning(
+            '[hurdle] %s row(s) lie below the point mass; the hurdle counts them as "no event". Check the source if they should not '
+            "exist (negative amounts are usually refunds or corrections).",
+            "; ".join(f"{name}: {n:_} below {atom:g}" for atom, rows in below.items() for name, n in sorted(rows.items())),
         )
     register_injected_models(ctx, new_models)
     return new_models

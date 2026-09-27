@@ -79,6 +79,14 @@ def _detector_requires_fit_predict(outlier_detector: Any) -> bool:
     return hasattr(outlier_detector, "fit_predict") and not hasattr(outlier_detector, "predict")
 
 
+def _labelled_unique(values: np.ndarray) -> np.ndarray:
+    """Distinct values of a target slice, missing labels excluded. ``np.unique`` counts NaN as a class of its own, so
+    a target left with {0, NaN} after outlier removal still looked like two classes and the guard against losing the
+    minority class never fired."""
+    missing = pd.isna(values)
+    return np.unique(values[~missing]) if missing.any() else np.unique(values)
+
+
 def _apply_outlier_detection_global(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame | None,
@@ -176,7 +184,7 @@ def _apply_outlier_detection_global(
                     _arr_post = np.asarray(_y_post)
                     _flat_pre = _arr_pre.flatten() if _arr_pre.ndim > 1 else _arr_pre
                     _flat_post = _arr_post.flatten() if _arr_post.ndim > 1 else _arr_post
-                    if len(np.unique(_flat_pre)) >= 2 and len(np.unique(_flat_post)) < 2:
+                    if len(_labelled_unique(_flat_pre)) >= 2 and len(_labelled_unique(_flat_post)) < 2:
                         _od_destroys_classes = True
                         log_throttle(
                             logger, "outliers_od_destroys_classes_train", logging.ERROR,
@@ -187,8 +195,8 @@ def _apply_outlier_detection_global(
                             "unsupervised OD to flag the rare class as outliers. "
                             "Skipping OD filter for train; original train_df retained.",
                             _tn,
-                            len(np.unique(_flat_pre)),
-                            len(np.unique(_flat_post)),
+                            len(_labelled_unique(_flat_pre)),
+                            len(_labelled_unique(_flat_post)),
                         )
                         break
                 except (IndexError, KeyError, ValueError, TypeError, AttributeError) as _exc:
@@ -245,7 +253,7 @@ def _apply_outlier_detection_global(
                     _arr_post = np.asarray(_y_post)
                     _flat_pre = _arr_pre.flatten() if _arr_pre.ndim > 1 else _arr_pre
                     _flat_post = _arr_post.flatten() if _arr_post.ndim > 1 else _arr_post
-                    if len(np.unique(_flat_pre)) >= 2 and len(np.unique(_flat_post)) < 2:
+                    if len(_labelled_unique(_flat_pre)) >= 2 and len(_labelled_unique(_flat_post)) < 2:
                         log_throttle(
                             logger, "outliers_od_destroys_classes_val", logging.ERROR,
                             "Outlier detection would eliminate the entire minority "
@@ -253,8 +261,8 @@ def _apply_outlier_detection_global(
                             "unique=%d). Skipping OD filter for val; original "
                             "val_df retained for evaluation.",
                             _tn,
-                            len(np.unique(_flat_pre)),
-                            len(np.unique(_flat_post)),
+                            len(_labelled_unique(_flat_pre)),
+                            len(_labelled_unique(_flat_post)),
                         )
                         # All-True mask so downstream polars filter is a no-op.
                         val_kept = len(val_df)

@@ -82,6 +82,23 @@ def test_a_targets_models_do_not_see_other_targets_columns_and_frames_are_restor
     assert ctx.train_df_pd is train and set(foreign) <= set(ctx.cat_features)
 
 
+def test_the_scope_keeps_the_pandas_view_cache_an_ordered_dict():
+    """The pandas-view cache evicts with ``OrderedDict.popitem(last=False)``; a plain ``{}`` swapped in for the target
+    raised TypeError the first time the cache went over its count or byte budget inside a scoped target."""
+    from collections import OrderedDict
+
+    df, pairs = _frame()
+    md, train, _, _ = _fit(df, pairs)
+    ctx = SimpleNamespace(metadata=md, train_df_pd=train, val_df_pd=None, test_df_pd=None, train_df_polars=None, val_df_polars=None,
+                          test_df_polars=None, filtered_train_df=None, filtered_val_df=None, cat_features=list(train.columns),
+                          _pandas_view_cache=OrderedDict(a=1, b=2))
+    with target_scoped_frames(ctx, "binary", "t_ab"):
+        assert isinstance(ctx._pandas_view_cache, OrderedDict) and not ctx._pandas_view_cache
+        ctx._pandas_view_cache["x"] = 1
+        ctx._pandas_view_cache.popitem(last=False)
+    assert list(ctx._pandas_view_cache) == ["a", "b"]
+
+
 def test_single_target_suite_has_nothing_to_scope():
     """With no per-target state there are no foreign columns and the frames are left alone."""
     assert foreign_columns({}, "binary", "y") == []

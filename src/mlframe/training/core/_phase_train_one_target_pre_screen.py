@@ -130,6 +130,7 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
                 "filtered_train_df", "filtered_val_df",
                 "train_df_pd", "val_df_pd", "test_df_pd",
                 "train_df_polars", "val_df_polars", "test_df_polars",
+                "calib_df",  # the calibration slice is predicted on with the same models; it must lose the same columns
             )
             _staged: dict[str, object] = {}
             for _frame_attr in _frame_attrs:

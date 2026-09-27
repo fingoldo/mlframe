@@ -25,6 +25,15 @@ from ._extractors_dtype_helpers import (
 logger = logging.getLogger("mlframe.training.extractors")
 
 
+def _polars_missing_count(s: "pl.Series") -> int:
+    """Nulls plus float NaN. ``null_count()`` alone misses NaN, and ``NaN >= t`` is True in polars, so a NaN row of a
+    classification column passed the guard and became the positive class under a lower threshold."""
+    n = int(s.null_count())
+    if s.dtype.is_float():
+        n += int(s.is_nan().sum() or 0)
+    return n
+
+
 class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     """Simple extractor for common regression and classification targets.
 
@@ -197,7 +206,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                         )
                     col_data = df[col]
                 else:
-                    if df[col].null_count() > 0:
+                    if _polars_missing_count(df[col]) > 0:
                         raise ValueError(
                             f"Classification target '{col}' contains nulls; drop or impute upstream "
                             "(silent fill_null(0) was changed in wave-50 to surface this honestly)."

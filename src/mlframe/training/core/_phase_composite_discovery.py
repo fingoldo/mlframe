@@ -62,6 +62,29 @@ from ._phase_composite_discovery_gates import (  # noqa: F401  (re-exported)
 from mlframe.training.composite.transforms.shared import call_transform
 
 
+def composite_t_full(transform: Any, spec: Any, y_arr: np.ndarray, base_full: np.ndarray, filtered_train_idx: Any) -> "tuple[np.ndarray, np.ndarray]":
+    """``(T for every row, T before imputation)`` of one composite spec, with its train-fitted parameters.
+
+    A row where ``y`` is valid but the base violates the transform's domain gets the train median of T, so val/test
+    rows still have a value to score. A row where ``y`` itself is missing keeps a missing T: filling it made up a
+    composite label the per-target loop would then train on.
+    """
+    valid = transform.domain_check(y_arr, base_full)
+    t_full = np.full(y_arr.shape[0], np.nan, dtype=np.float64)
+    if valid.any():
+        # Multi-base specs pass the row-filtered 2-D base slice; single-base stays 1-D.
+        base_for_forward = base_full[valid, :] if base_full.ndim == 2 else base_full[valid]
+        t_full[valid] = call_transform(transform, "forward", y_arr[valid], base_for_forward, spec.fitted_params)
+    t_raw = t_full.copy()  # un-imputed: charts and the dedup must not see the fill value
+    if not np.all(np.isfinite(t_full)):
+        t_train = t_full[filtered_train_idx]
+        t_train = t_train[np.isfinite(t_train)]
+        if t_train.size > 0:
+            t_full[~np.isfinite(t_full)] = float(np.median(t_train))
+        t_full[~np.isfinite(np.asarray(y_arr, dtype=np.float64))] = np.nan
+    return t_full, t_raw
+
+
 def run_composite_target_discovery(
     *,
     composite_target_discovery_config,
@@ -763,19 +786,7 @@ def run_composite_target_discovery(
                     _base_full = np.column_stack(_base_cols)
                 else:
                     _base_full = _base_primary
-                _valid = _transform.domain_check(_y_arr, _base_full)
-                _ct_t_full = np.full(_y_arr.shape[0], np.nan, dtype=np.float64)
-                if _valid.any():
-                    # For multi-base, _base_full is 2-D — pass the
-                    # row-filtered 2-D slice; for single-base it stays 1-D.
-                    _base_for_forward = _base_full[_valid, :] if _base_full.ndim == 2 else _base_full[_valid]
-                    _ct_t_full[_valid] = call_transform(_transform, "forward", _y_arr[_valid], _base_for_forward, _spec.fitted_params)
-                _t_by_spec_for_charts[_spec.name] = _ct_t_full.copy()  # un-imputed: charts and the dedup must not see the fill value
-                if not np.all(np.isfinite(_ct_t_full)):
-                    _t_train_for_median = _ct_t_full[filtered_train_idx]
-                    _t_train_for_median = _t_train_for_median[np.isfinite(_t_train_for_median)]
-                    if _t_train_for_median.size > 0:
-                        _ct_t_full[~np.isfinite(_ct_t_full)] = float(np.median(_t_train_for_median))
+                _ct_t_full, _t_by_spec_for_charts[_spec.name] = composite_t_full(_transform, _spec, _y_arr, _base_full, filtered_train_idx)
                 # Not written to target_by_type yet -- buffered so the max_total_composite_targets budget
                 # (spent across ALL base targets, not per-target) can pick the best-scoring specs seen so
                 # far across the WHOLE run once every target's own discovery has finished. See the

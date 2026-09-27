@@ -36,7 +36,10 @@ def test_no_occupied_column_is_collapsed_to_nothing(task):
     # Both task shapes set explicit column ratios; a card that stopped doing so would leave every column unchecked here.
     assert ratios is not None, f"the {task} card no longer sets col_width_ratios, so no column share can be checked"
 
+    n_columns = max(len(row) for row in spec.panels)
+    assert len(ratios) == n_columns, f"{len(ratios)} column ratios for a {n_columns}-column {task} card"
     occupied = {c for row in spec.panels for c, panel in enumerate(row) if panel is not None}
+    assert occupied, f"the {task} card places no panel at all, so no column share is checked"
     total = float(sum(ratios))
     for c in sorted(occupied):
         share = float(ratios[c]) / total

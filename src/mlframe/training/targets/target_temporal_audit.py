@@ -543,7 +543,7 @@ def audit_targets_over_time(
 
         sub = pd.DataFrame({
             "bin_start": agg["bin_start"].values,
-            "n_obs": agg["n_obs"].values,
+            "n_obs": agg[f"n_obs__{alias}"].values if f"n_obs__{alias}" in agg.columns else agg["n_obs"].values,
             "target_rate": agg[alias].values,
         })
         results[name] = _audit_from_agg(

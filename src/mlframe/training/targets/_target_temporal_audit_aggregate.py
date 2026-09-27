@@ -177,14 +177,20 @@ def _aggregate_by_time_polars_multi(
 
     bin_expr = pl.col(timestamp_col).dt.truncate(_POLARS_BIN_TRUNCATE[granularity])
     rate_exprs = [_polars_rate_expr(col, ttype, alias) for (col, ttype, alias) in target_specs]
+    # Each target's own labelled-row count per bin: targets missing labels on different rows share one pass, and the
+    # shared pl.len() counted every row, unlabelled ones included, into each target's bin sizes.
+    count_exprs = [pl.col(col).is_not_null().sum().alias(f"n_obs__{alias}") for (col, _ttype, alias) in target_specs]
     select_cols = [timestamp_col, *{spec[0] for spec in target_specs}]
+    # A float NaN is a missing label, not a value: polars keeps NaN distinct from null, so ``NaN > 0`` counted a missing
+    # binary label as positive and a NaN regression value made the whole bin's mean NaN.
+    df = df.with_columns([pl.col(c).fill_nan(None) for c in select_cols[1:] if df.schema[c].is_float()])
 
     from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
     # Arrow-backed split-blocks bridge -- same rationale as the single-target variant
     # above; multi-target aggregates have wider output columns so the saving
     # (avoided per-column consolidation copy) compounds.
     agg = _get_pandas_view(
-        df.select(select_cols).with_columns(bin_expr.alias("__bin")).group_by("__bin").agg(pl.len().alias("n_obs"), *rate_exprs).sort("__bin")
+        df.select(select_cols).with_columns(bin_expr.alias("__bin")).group_by("__bin").agg(pl.len().alias("n_obs"), *count_exprs, *rate_exprs).sort("__bin")
     )
     agg = agg.rename(columns={"__bin": "bin_start"})
     agg["bin_start"] = pd.to_datetime(agg["bin_start"])
