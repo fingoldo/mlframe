@@ -27,7 +27,7 @@ SPLIT_INDEX_FIELDS: tuple[str, ...] = ("train_idx", "val_idx", "test_idx", "cali
 def mask_signature(mask: np.ndarray) -> str:
     """A short stable id of a label mask: equal masks share it, so their targets share one narrowing."""
     mask = np.asarray(mask, dtype=bool)
-    digest = hashlib.blake2b(np.packbits(mask).tobytes(), digest_size=8)
+    digest = hashlib.blake2b(np.packbits(mask).data, digest_size=8)
     digest.update(int(mask.size).to_bytes(8, "little"))
     return digest.hexdigest()
 
@@ -47,11 +47,29 @@ class TargetRows:
     pos: Mapping[str, np.ndarray] = field(repr=False)
     n_labelled: Mapping[str, int]
     n_total: Mapping[str, int]
+    # Splits this target does without: too few labelled rows there. A dropped val trains with no val (no early stopping),
+    # a dropped calib skips calibration.
+    dropped: frozenset = frozenset()
 
     def labelled_share(self, split: str) -> Optional[float]:
         """Share of a split's rows that carry a label, or None when the split is absent or empty."""
         total = self.n_total.get(split)
         return None if not total else self.n_labelled[split] / total
+
+    def without(self, splits: "set[str]") -> "TargetRows":
+        """These rows with ``splits`` emptied (val and its outlier-filtered twin go together); the signature changes with them."""
+        if "val_idx" in splits:
+            splits = splits | {"filtered_val_idx"}
+        splits = {s for s in splits if s in self.idx}
+        if not splits:
+            return self
+        empty = np.empty(0, dtype=np.int64)
+        idx = {k: (empty if k in splits else v) for k, v in self.idx.items()}
+        pos = {k: (empty if k in splits else v) for k, v in self.pos.items()}
+        n_labelled = {k: (0 if k in splits else v) for k, v in self.n_labelled.items()}
+        dropped = self.dropped | frozenset(splits)
+        signature = self.signature + "-" + mask_signature(np.array([s in dropped for s in SPLIT_INDEX_FIELDS]))[:4]
+        return TargetRows(signature=signature, mask=self.mask, idx=idx, pos=pos, n_labelled=n_labelled, n_total=self.n_total, dropped=dropped)
 
 
 def build_target_rows(mask: np.ndarray, splits: Mapping[str, Any]) -> TargetRows:

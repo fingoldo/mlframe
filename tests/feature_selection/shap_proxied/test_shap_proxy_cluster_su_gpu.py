@@ -261,24 +261,16 @@ def test_gpu_kernel_speedup_at_width_2000():
         use_gpu=False,
     )
 
-    t0 = time.perf_counter()
-    cpu_labels = cluster_correlated_features_su(
-        bins,
-        threshold=0.4,
-        feature_names=names,
-        use_gpu=False,
-    )
-    t_cpu = time.perf_counter() - t0
+    def _timed(use_gpu: bool):
+        t0 = time.perf_counter()
+        labels = cluster_correlated_features_su(bins, threshold=0.4, feature_names=names, use_gpu=use_gpu, gpu_min_features=10)
+        return time.perf_counter() - t0, labels
 
-    t0 = time.perf_counter()
-    gpu_labels = cluster_correlated_features_su(
-        bins,
-        threshold=0.4,
-        feature_names=names,
-        use_gpu=True,
-        gpu_min_features=10,
-    )
-    t_gpu = time.perf_counter() - t0
+    # Best of three per side: one measurement on a shared runner can be off by 2-3x for reasons unrelated to the kernel.
+    cpu_runs = [_timed(False) for _ in range(3)]
+    gpu_runs = [_timed(True) for _ in range(3)]
+    t_cpu, cpu_labels = min(cpu_runs, key=lambda r: r[0])
+    t_gpu, gpu_labels = min(gpu_runs, key=lambda r: r[0])
 
     assert np.array_equal(cpu_labels, gpu_labels), "labels diverge at width=2000"
     ratio = t_cpu / max(t_gpu, 1e-9)

@@ -61,7 +61,13 @@ def compute_model_pipeline_cache_key(
     # schema fingerprint in for pandas paths too -- closing the gap without touching the
     # pre_pipeline_name-gated target-suffix logic at all.
     _cache_key_train_df = train_df_polars if strategy.supports_polars else train_df_pd
-    return str(
+    # The key holds no row identity: a target trained on its labelled rows only would be served the pipeline fitted on
+    # every row. Its rows' signature goes into the key; a fully labelled target's key is unchanged.
+    from ._target_row_scope import active_rows
+
+    rows = active_rows()
+    rows_suffix = f"_rows{rows.signature[:8]}" if rows is not None else ""
+    key = str(
         _compute_pipeline_cache_key(
             _content_key,
             pre_pipeline_name,
@@ -75,6 +81,7 @@ def compute_model_pipeline_cache_key(
             train_target=current_train_target,
         )
     )
+    return key + rows_suffix
 
 
 def compute_cached_model_input_fingerprint(

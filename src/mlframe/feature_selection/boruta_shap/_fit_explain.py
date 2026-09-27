@@ -619,10 +619,11 @@ def explain(self):
     # rows leaking into the fit and the explanation background.
     _xb: Any = getattr(self, "X_boruta", None)
     _x: Any = getattr(self, "X", None)
-    if hasattr(_xb, "shape") and hasattr(_x, "shape"):
-        assert int(_xb.shape[0]) == int(
-            _x.shape[0]
-        ), f"SHAP background row count {int(_xb.shape[0])} != train row count {int(_x.shape[0])}: X_boruta must be [X | shadow] over the train rows"
+    if hasattr(_xb, "shape") and hasattr(_x, "shape") and int(_xb.shape[0]) != int(_x.shape[0]):
+        # A raise, not an assert: `python -O` strips asserts, and this guards against held-out rows in the fit.
+        raise ValueError(
+            f"SHAP background row count {int(_xb.shape[0])} != train row count {int(_x.shape[0])}: X_boruta must be [X | shadow] over the train rows"
+        )
     if hasattr(_fit_frame, "shape") and hasattr(basis, "shape"):
         _n_train = int(_fit_frame.shape[0])
         _n_basis = int(basis.shape[0])

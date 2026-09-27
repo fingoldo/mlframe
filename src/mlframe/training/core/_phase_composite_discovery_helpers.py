@@ -140,11 +140,11 @@ def _discovery_config_signature(config: Any) -> ConfigSignatureV1:
         versions["mlframe"] = "?"
     from importlib.metadata import PackageNotFoundError, version as _dist_version
 
-    from mlframe.training.composite.discovery import _algo_version
+    from mlframe.training.composite.discovery import shared as discovery_shared
 
-    # The selection logic's own version: a discovery fix inside a release must invalidate warm caches. Read off the
-    # defining module at call time: the ``shared`` facade holds a copy of the int taken at import.
-    versions["discovery_algo"] = str(_algo_version.DISCOVERY_ALGO_VERSION)
+    # The selection logic's own version: a discovery fix inside a release must invalidate warm caches. Read off the module
+    # at call time rather than imported by name, so a value set after import is the one that counts.
+    versions["discovery_algo"] = str(discovery_shared.DISCOVERY_ALGO_VERSION)
     # Distribution metadata, not ``__import__``: reading a version string must not load catboost / lightgbm / xgboost.
     for _name, _dist in (
         ("sklearn", "scikit-learn"), ("lightgbm", "lightgbm"), ("catboost", "catboost"), ("xgboost", "xgboost"),

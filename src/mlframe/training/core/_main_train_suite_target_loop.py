@@ -7,6 +7,9 @@ The unsupervised pre-screen runs here, once, before any target. It used to run i
 ``_train_one_target``, which sits inside ``target_scoped_frames``: on a suite with per-target supervised columns the
 scope restored the pre-screen frames on exit while ``_pre_screen_done`` stayed latched, so every later target trained
 on the columns the screen had dropped.
+
+A target with missing labels (``target_null_policy="drop_rows"``) trains inside ``target_row_scope``: the context is
+narrowed to its labelled rows and restored afterwards. A fully labelled target runs exactly as before.
 """
 
 from __future__ import annotations
@@ -20,6 +23,8 @@ from mlframe.training.pipeline.shared import target_scoped_frames
 
 from ._main_train_suite_encoding import _encode_string_multiclass_target
 from ._phase_train_one_target_pre_screen import _maybe_run_unsupervised_pre_screen
+from ._target_row_decisions import rows_for_target
+from ._target_row_scope import target_row_scope
 
 
 def train_every_target(ctx: Any, target_by_type: dict, metadata: dict, pr: Any) -> None:
@@ -29,6 +34,7 @@ def train_every_target(ctx: Any, target_by_type: dict, metadata: dict, pr: Any) 
     ``pr._train_one_target`` keep patching the call this loop makes.
     """
     _maybe_run_unsupervised_pre_screen(ctx, None)
+    rows_by_signature: dict = {}
     for target_type, targets in tqdmu_lazy_start(target_by_type.items(), desc="target type"):
         # Written directly onto ctx so _finalize_and_save_metadata's `if ctx.slug_to_original_target_type:` guard sees
         # it -- mirrors how ctx.slug_to_original_target_name is populated in _phase_train_one_target_model_setup.py.
@@ -36,6 +42,15 @@ def train_every_target(ctx: Any, target_by_type: dict, metadata: dict, pr: Any) 
         for cur_target_name, cur_target_values in tqdmu_lazy_start(targets.items(), desc="target"):
             cur_target_values = _encode_string_multiclass_target(target_type, cur_target_name, cur_target_values, metadata)
             targets[cur_target_name] = cur_target_values
-            # Other targets' label-supervised composite columns are hidden from this target's models.
-            with target_scoped_frames(ctx, target_type, cur_target_name):
-                pr._train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values)
+            rows, working, train_it = rows_for_target(ctx, target_type, cur_target_name, cur_target_values, metadata, rows_by_signature)
+            if not train_it:
+                continue
+            # The models see the working target (integer-filled for classification); the suite keeps the one with gaps.
+            targets[cur_target_name] = working
+            try:
+                with target_row_scope(ctx, rows):
+                    # Other targets' label-supervised composite columns are hidden from this target's models.
+                    with target_scoped_frames(ctx, target_type, cur_target_name):
+                        pr._train_one_target(ctx, target_type, targets, cur_target_name, working)
+            finally:
+                targets[cur_target_name] = cur_target_values

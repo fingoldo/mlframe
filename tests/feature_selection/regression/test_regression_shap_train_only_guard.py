@@ -132,5 +132,5 @@ def test_d1_p2_8_shap_explainer_assertion_fires_on_size_mismatch():
     bs.y = pd.Series(y_full[:60])
     bs.model_ = RandomForestClassifier(n_estimators=5, random_state=42, n_jobs=1)
     bs.model_.fit(X_bad_boruta, pd.Series(y_full))
-    with pytest.raises(AssertionError, match="SHAP background row count"):
+    with pytest.raises(ValueError, match="SHAP background row count"):
         bs.explain()

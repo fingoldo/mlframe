@@ -177,6 +177,18 @@ def lgb_dataset_reuse_capable() -> bool:
 # Mixin -- shared fit-with-cache logic
 # ---------------------------------------------------------------------
 
+def _without_stale_init_score(dtrain: Any, source: str, init_score: Any) -> "tuple[Any, str]":
+    """The cached train Dataset and its source, or ``(None, "miss")`` when this fit has no init_score but it carries one.
+
+    LightGBM cannot clear an init_score (set_init_score(None) keeps the old array), and explicit zeros are not "no
+    init_score": they switch off boost_from_average, so the same fit trained a different booster on a cache hit than
+    on a miss.
+    """
+    if dtrain is not None and init_score is None and dtrain.get_init_score() is not None:
+        return None, "miss"
+    return dtrain, source
+
+
 class _DatasetReuseMixin:
     """Implements the override-fit + cache logic. Concrete subclasses
     just bind it to ``LGBMClassifier`` or ``LGBMRegressor``.
@@ -397,6 +409,7 @@ class _DatasetReuseMixin:
             if _global_train_hit is not None:
                 dtrain = _global_train_hit
                 _train_source = "module"
+        dtrain, _train_source = _without_stale_init_score(dtrain, _train_source, init_score)
         if dtrain is not None:
             # Validate that label cardinality matches the cached Dataset
             # before any set_label/set_weight: cache hit on ``X`` does NOT
@@ -434,11 +447,8 @@ class _DatasetReuseMixin:
             # Dataset silently trained against the STALE (or entirely absent) init_score baked in
             # from whichever earlier .fit() call first built it, instead of the new one. Always
             # re-apply on every cache hit, same as label/weight: an explicit new init_score
-            # overwrites. LightGBM's Dataset.set_init_score(None) does NOT clear a previously-set
-            # init_score (confirmed live: get_init_score() still returns the old array after
-            # set_init_score(None)) -- explicit all-zeros is LightGBM's own default baseline when
-            # no init_score is supplied at all, so that is the correct "no init_score" state to
-            # restore to when this fit call omits it.
+            # overwrites. A fit without one reaches here only when the cached Dataset has none
+            # either (see the rebuild above), so there is nothing to clear.
             # Multiclass boosters need init_score flattened to num_data() * num_class rows (LightGBM's
             # C++ side raises "Number of class for initial score error" for anything shorter) -- a
             # binary/regression booster's init_score is exactly num_data() long. _n_classes is set by
@@ -450,8 +460,6 @@ class _DatasetReuseMixin:
                 if _init_arr.shape[0] != _expected_init_len:
                     raise ValueError(f"lgb_shim: init_score length " f"{_init_arr.shape[0]} != expected " f"{_expected_init_len}")
                 dtrain.set_init_score(_init_arr)
-            else:
-                dtrain.set_init_score(np.zeros(_expected_init_len, dtype=np.float64))
 
             # Promote a module-cache hit to instance-level for the next call on this instance.
             self._cached_train_dataset = dtrain

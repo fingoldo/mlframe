@@ -168,7 +168,6 @@
   "src/mlframe/training/core/_setup_helpers_pre_pipelines.py::_build_pre_pipelines": 33,
   "src/mlframe/training/drift_report.py::compute_label_distribution_drift": 28,
   "src/mlframe/training/extractors/_extractors_showcase.py::showcase_features_and_targets": 27,
-  "src/mlframe/training/extractors/_extractors_simple.py::SimpleFeaturesAndTargetsExtractor.build_targets": 32,
   "src/mlframe/training/feature_handling/apply.py::feature_handling_apply": 26,
   "src/mlframe/training/lgb_shim.py::_DatasetReuseMixin.fit": 44,
   "src/mlframe/training/neural/base/_base_fit.py::_FitMixin._fit_common": 92,

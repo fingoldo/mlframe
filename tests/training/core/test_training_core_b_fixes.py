@@ -67,15 +67,25 @@ def test_f1_slug_to_original_target_type_reaches_ctx():
     assert 'metadata["slug_to_original_target_type"] = dict(ctx.slug_to_original_target_type)' in src
 
 
-def test_f1_main_train_suite_no_longer_declares_dead_local():
-    """The dead throwaway locals are gone; _main_train_suite.py writes ctx.slug_to_original_target_type directly."""
-    import inspect
+def test_f1_the_target_loop_records_every_target_type_slug_on_ctx():
+    """The loop writes ctx.slug_to_original_target_type itself (a throwaway local copy used to be declared and dropped)."""
+    import types
 
-    from mlframe.training.core import _main_train_suite as mts
+    import numpy as np
 
-    src = inspect.getsource(mts)
-    assert "slug_to_original_target_type: dict[str, Any] = {}" not in src
-    assert "ctx.slug_to_original_target_type[slugify(str(target_type).lower())] = target_type" in src
+    from mlframe.training.configs import TargetTypes, TrainingBehaviorConfig
+    from mlframe.training.core._main_train_suite_target_loop import train_every_target
+    from mlframe.training.core._training_context import TrainingContext
+
+    ctx = TrainingContext()
+    ctx.behavior_config = TrainingBehaviorConfig()
+    ctx._pre_screen_done = True
+    trained = []
+    pr = types.SimpleNamespace(_train_one_target=lambda c, tt, targets, name, values: trained.append((tt, name)))
+    target_by_type = {TargetTypes.REGRESSION: {"y": np.arange(5.0)}, TargetTypes.BINARY_CLASSIFICATION: {"c": np.array([0, 1, 0, 1, 1])}}
+    train_every_target(ctx, target_by_type, {}, pr)
+    assert trained == [(TargetTypes.REGRESSION, "y"), (TargetTypes.BINARY_CLASSIFICATION, "c")]
+    assert ctx.slug_to_original_target_type == {"regression": TargetTypes.REGRESSION, "binary_classification": TargetTypes.BINARY_CLASSIFICATION}
 
 
 # ---------------------------------------------------------------------------

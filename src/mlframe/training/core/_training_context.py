@@ -244,6 +244,8 @@ class TrainingContext:
     # via the strong-ref window). Three full coercions per recurrent member per target collapse to
     # one when the same train/val/test frames are reused.
     _recurrent_numpy_cache: dict = field(default_factory=dict)
+    # The TargetRows of the target being trained when its labels are incomplete (see _target_row_scope), else None.
+    _row_scope: Any = None
 
     models: dict = field(default_factory=lambda: {})
     # Per-target ensemble outputs from ``score_ensemble`` (use_mlframe_ensembles=True). Keyed

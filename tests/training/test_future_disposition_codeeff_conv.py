@@ -205,25 +205,29 @@ def test_codep18_main_uses_phase_runner_namespace():
 
 
 def test_codep112_train_recurrent_models_reads_from_ctx():
-    """Codep112 train recurrent models reads from ctx."""
-    src = _read("training/core/main.py")
-    # The call to train_recurrent_models must pass recurrent_models from ctx.recurrent_models
-    # not from the closed-over function param. After the fix the call uses ctx.recurrent_models.
-    assert "ctx.recurrent_models" in src
-    # Quick proxy: between the train_recurrent_models call and its closing paren, the kwarg
-    # recurrent_models= must be sourced from ctx.recurrent_models.
-    call_idx = src.find("train_recurrent_models(")
-    closing = src.index("\n    )", call_idx) if "\n    )" in src[call_idx:] else len(src)
-    block = src[call_idx:closing]
-    # heuristic: line containing recurrent_models= passes ctx.recurrent_models
-    rec_line = [line for line in block.splitlines() if "recurrent_models=" in line and "ctx" not in line.split("=")[0]]
-    if rec_line:
-        # Either it reads from ctx or there is no recurrent_models= line at all.
-        assert len(rec_line) > 0
-        for line in rec_line:
-            assert (
-                "ctx.recurrent_models" in line
-            ), "CODE-P1-12 regression: train_recurrent_models() still receives the closed-over param instead of reading ctx.recurrent_models at call time"
+    """train_recurrent_models receives ctx.recurrent_models as it is at call time, not a value captured earlier."""
+    import types
+
+    from mlframe.training.core._main_train_suite_phases import run_recurrent_finalize_and_composite_post
+
+    class _Stop(Exception):
+        pass
+
+    received = {}
+
+    def _train_recurrent_models(**kwargs):
+        received.update(kwargs)
+        raise _Stop
+
+    ctx = types.SimpleNamespace(models={}, recurrent_models=["lstm"])
+    ctx.recurrent_models = ["gru"]  # changed after construction: the call must see this one
+    pr = types.SimpleNamespace(train_recurrent_models=_train_recurrent_models)
+    names = run_recurrent_finalize_and_composite_post.__code__.co_varnames[: run_recurrent_finalize_and_composite_post.__code__.co_argcount]
+    args = {name: None for name in names}
+    args.update(ctx=ctx, pr_module=pr, model_name="m", target_name="t", verbose=0)
+    with pytest.raises(_Stop):
+        run_recurrent_finalize_and_composite_post(**args)
+    assert received["recurrent_models"] == ["gru"] and received["ctx"] is ctx
 
 
 # ---------- CODE-P2-8: inspect import at module top ----------

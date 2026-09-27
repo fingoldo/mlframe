@@ -85,6 +85,14 @@ class TrainingBehaviorConfig(BaseConfig):
         (access violation in a worker thread that faulthandler can't
         catch) will still terminate -- for true isolation use subprocess
         training, which this flag does NOT provide.
+    target_null_policy : {"raise", "drop_rows"}
+        What a target with missing labels (NaN / null) does. ``"raise"`` refuses it before any training, naming every
+        such target. ``"drop_rows"`` trains and scores each target on its labelled rows only, keeping the one split
+        shared by all targets: rows without that target's label leave its train, val, test and calib.
+    min_labelled_train_rows, min_labelled_val_rows, min_labelled_test_rows, min_labelled_calib_rows : int
+        Under ``"drop_rows"``, the fewest labelled rows a target needs in each split. Too few train rows skips the
+        target; too few val rows trains it without a val split (no early stopping); too few test rows marks its test
+        metrics ``low_n``; too few calib rows skips its calibration.
     """
 
     prefer_gpu_configs: bool = True
@@ -127,6 +135,11 @@ class TrainingBehaviorConfig(BaseConfig):
     enable_crash_reporting: bool = True
     # Default False: silently skipping a failed model is a semantic shift that users must opt into explicitly.
     continue_on_model_failure: bool = False
+    target_null_policy: Literal["raise", "drop_rows"] = "raise"
+    min_labelled_train_rows: int = Field(default=100, ge=1)
+    min_labelled_val_rows: int = Field(default=50, ge=1)
+    min_labelled_test_rows: int = Field(default=50, ge=1)
+    min_labelled_calib_rows: int = Field(default=50, ge=1)
     # Per-target binary decision-threshold tuning on val/OOF (NEVER test), maximising ``tune_decision_threshold_metric``; the tuned value is stamped into ``metadata["decision_thresholds"]`` so predict reuses it (0.5 stays the leak-safe fallback). Affects only hard-label ``preds``; probabilities are untouched.
     # Tri-state: "auto" (default) tunes only when the val target is imbalanced (minority fraction < DECISION_THRESHOLD_IMBALANCE_FRACTION) and leaves 0.5 on balanced targets where val-tuning only adds variance; True always tunes; False forces 0.5. bool kept for back-compat.
     tune_decision_threshold: Union[bool, str] = "auto"

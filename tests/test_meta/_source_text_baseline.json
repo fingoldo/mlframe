@@ -472,10 +472,6 @@
       "count": 2,
       "note": ""
     },
-    "training/test_audit_sentinel_collision.py::test_extractors_classification_target_rejects_nan::text held in `src`": {
-      "count": 2,
-      "note": ""
-    },
     "training/test_audit_sentinel_collision.py::test_pd_ordinal_encoder_default_uses_minus_one::text held in `src`": {
       "count": 2,
       "note": ""
@@ -785,14 +781,6 @@
       "note": ""
     },
     "training/test_future_disposition_codeeff_conv.py::test_codelow6_profile_harness_module_present::text held in `txt`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_future_disposition_codeeff_conv.py::test_codep112_train_recurrent_models_reads_from_ctx::text held in `l`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_future_disposition_codeeff_conv.py::test_codep112_train_recurrent_models_reads_from_ctx::text held in `src`": {
       "count": 1,
       "note": ""
     },

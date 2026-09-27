@@ -365,7 +365,14 @@ def _build_process_model_kwargs(
     optimize_storage: bool = True,
     metadata_columns: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Build kwargs dictionary for process_model call."""
+    """Build kwargs dictionary for process_model call.
+
+    Every fit passes here, so it is where a fit that would see a row without a label for the target in a narrowed row
+    scope is refused (before the skip-and-continue handler around the fit, which could not swallow it).
+    """
+    from ._target_row_scope import check_rows_in_scope
+
+    check_rows_in_scope(common_params)
     if mlframe_model_name:
         common_params = common_params.copy()
         common_params["model_category"] = mlframe_model_name

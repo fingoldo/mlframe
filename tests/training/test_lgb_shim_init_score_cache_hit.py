@@ -31,7 +31,7 @@ def small_regression_data():
     rng = np.random.default_rng(0)
     n = 200
     X = pd.DataFrame(rng.normal(size=(n, 4)), columns=[f"f{i}" for i in range(4)])
-    y = X["f0"].to_numpy() * 2.0 + rng.normal(scale=0.1, size=n)
+    y = 10.0 + X["f0"].to_numpy() * 2.0 + rng.normal(scale=0.1, size=n)  # off-zero mean: boost_from_average must matter
     return X, y
 
 
@@ -58,22 +58,36 @@ def test_second_fit_with_new_init_score_reuses_dataset_and_updates_init_score(sm
     )
 
 
-def test_second_fit_without_init_score_clears_prior_init_score(small_regression_data):
-    """A cache-hit fit that OMITS init_score must clear any init_score set by an earlier fit on the
-    same cached Dataset back to LightGBM's own no-init-score baseline (all-zeros -- LightGBM's
-    Dataset.set_init_score(None) does NOT actually clear a previously-set init_score, confirmed live),
-    not silently leave the stale value in place."""
+def test_second_fit_without_init_score_trains_as_a_fresh_fit_without_one(small_regression_data):
+    """A cache-hit fit that omits init_score must train the booster a fresh fit without one trains.
+
+    LightGBM cannot clear an init_score from a Dataset, and explicit zeros are not the same as none: they switch off
+    boost_from_average, so the reused Dataset used to yield a booster shifted by the train mean from a fresh fit's.
+    """
     X, y = small_regression_data
     m = LGBMRegressorWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
+    m.fit(X, y, init_score=np.full(len(y), 3.0, dtype=np.float64))
+    m.fit(X, y)  # no init_score this time
 
-    init_score_1 = np.full(len(y), 3.0, dtype=np.float64)
-    m.fit(X, y, init_score=init_score_1)
-    np.testing.assert_array_equal(m._cached_train_dataset.get_init_score(), init_score_1)
+    fresh = LGBMRegressorWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
+    fresh._init_cache()
+    import os
 
-    m.fit(X, y)  # no init_score this time -- must clear the prior one, not leave it stale
+    os.environ["MLFRAME_LGB_CACHE_DISABLE"] = "1"
+    try:
+        fresh.fit(X, y)
+    finally:
+        os.environ.pop("MLFRAME_LGB_CACHE_DISABLE", None)
+    np.testing.assert_array_equal(m.predict(X), fresh.predict(X))
+    assert m._cached_train_dataset.get_init_score() is None
 
-    np.testing.assert_array_equal(
-        m._cached_train_dataset.get_init_score(),
-        np.zeros(len(y)),
-        err_msg="omitting init_score on a cache-hit fit must clear the prior fit's init_score back to zeros",
-    )
+
+def test_a_module_cache_hit_trains_the_same_booster_as_a_miss(small_regression_data):
+    """Two instances fitting the same X: the second hits the module-level cache and must train the same booster."""
+    X, y = small_regression_data
+    first = LGBMRegressorWithDatasetReuse(n_estimators=5, **_QUIET_LGB)
+    first.fit(X, y)
+    second = LGBMRegressorWithDatasetReuse(n_estimators=5, **_QUIET_LGB)
+    second.fit(X, y)
+    assert second._cached_train_dataset is first._cached_train_dataset, "the second fit should reuse the cached Dataset"
+    np.testing.assert_array_equal(first.predict(X), second.predict(X))
