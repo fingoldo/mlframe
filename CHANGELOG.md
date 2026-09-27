@@ -188,6 +188,8 @@ history.
 
 ### Fixed
 
+- The automatic categorical-group search (`categorical_group_concat_auto_enabled`) scores a regression target with `mutual_info_regression`; `mutual_info_classif` refused it, so the step failed and was skipped on every regression target. Rows without a label are left out of the search.
+- Under `target_null_policy="drop_rows"`, a target whose val or test has no labelled row (outcomes of the newest rows not known yet) trains as with `val_size=0` / `test_size=0` instead of crashing on an empty prediction, and its dummy baselines no longer report on the empty split. String class labels with gaps are refused like string labels without gaps.
 - `LGBMRegressorWithDatasetReuse` / `LGBMClassifierWithDatasetReuse`: a fit without `init_score` that reused a cached Dataset carrying one from an earlier fit reset it to zeros, which switches LightGBM's `boost_from_average` off, so the same fit trained a different booster on a cache hit than on a miss. Such a Dataset is now rebuilt.
 - `SimpleFeaturesAndTargetsExtractor` keeps a missing classification label missing: every target derived from the column is NaN on that row (float32; int8 as before when every row is labelled), and an as-is class column stays float with NaN. It used to refuse the whole column. The suite still refuses targets with missing labels before training, naming each.
 - A target with missing labels now fails before any training, naming every such target with its count. A regression target with NaN labels used to fail inside its first model fit, after every earlier target had already trained.

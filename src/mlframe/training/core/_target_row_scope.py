@@ -143,6 +143,13 @@ def _narrowed_fields(ctx: Any, rows: TargetRows) -> dict[str, Any]:
             out[split] = rows.idx[split]
     if "calib_idx" in rows.dropped:  # the suite's "no calib" is None, not an empty slice
         out["calib_idx"] = out["calib_df"] = None
+    # A val or test left with no labelled row looks like the suite's val_size=0 / test_size=0: an empty index and no
+    # frame (the pipeline turns an empty frame into None, and the consumers after it test for None, not for length).
+    for split in ("val_idx", "filtered_val_idx", "test_idx"):
+        if split in rows.n_labelled and rows.n_labelled[split] == 0:
+            for name in _NARROW[split]:
+                if name in out:
+                    out[name] = None
     train_pos, val_pos = rows.pos.get("train_idx"), rows.pos.get("val_idx")
     od_masks = {"train_od_idx": train_pos, "val_od_idx": val_pos}
     for name, pos in od_masks.items():
@@ -187,7 +194,11 @@ def target_row_scope(ctx: Any, rows: Optional[TargetRows]) -> Iterator[None]:
         yield
     finally:
         _ACTIVE_ROWS.reset(token)
-        released = {name for name in narrowed if ROW_REGISTRY[name].startswith("narrow:") and getattr(ctx, name) is None}
+        # Only a frame the scope handed over and the body set to None was released; one the scope itself set to None
+        # (an empty split) was not, and the suite's full frame must come back.
+        released = {
+            name for name, value in narrowed.items() if ROW_REGISTRY[name].startswith("narrow:") and value is not None and getattr(ctx, name) is None
+        }
         for name in names:
             if ROW_REGISTRY.get(name) == "merge_back":
                 continue

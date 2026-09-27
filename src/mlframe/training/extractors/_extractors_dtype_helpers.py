@@ -107,11 +107,14 @@ def _safe_int_cast_numpy(arr: np.ndarray, target_name: str) -> np.ndarray:
 def _labelled_class_values(arr: np.ndarray, missing: np.ndarray, target_name: str) -> np.ndarray:
     """A class column with missing labels, kept float so they stay NaN; its labelled values must still be integers.
 
-    An object column (string labels) is returned as is: the suite encodes its labelled values later.
+    An object column goes through the same cast its labelled values would get without the gaps, so string labels are
+    refused exactly as in a fully labelled column.
     """
-    if arr.dtype.kind == "O":
-        return arr
     labelled = arr[~missing]
+    if arr.dtype.kind == "O":
+        _safe_int_cast_numpy(labelled, target_name)
+        labelled = labelled.astype(np.float64)
+        arr = np.where(missing, np.nan, pd.to_numeric(pd.Series(arr), errors="coerce").to_numpy(dtype=np.float64))
     if not np.isfinite(labelled).all() or not np.all(np.equal(np.mod(labelled, 1), 0)):
         raise ValueError(
             f"target {target_name!r}: numeric target contains non-integer or infinite labels; "

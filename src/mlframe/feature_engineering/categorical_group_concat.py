@@ -22,7 +22,7 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-from sklearn.feature_selection import mutual_info_classif
+from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 
 
 def concat_categorical_group(df: pd.DataFrame, columns: Sequence[str], separator: str = "_", feature_name: str = "concat_group") -> pd.DataFrame:
@@ -58,15 +58,22 @@ def concat_categorical_group(df: pd.DataFrame, columns: Sequence[str], separator
     return out
 
 
-def _composite_mi_with_target(values: pd.Series, y: np.ndarray, random_state: int) -> float:
-    """Mutual information between a (possibly composite) categorical column and a discrete target.
+def _is_continuous_target(y: np.ndarray) -> bool:
+    """Whether ``y`` is a regression target: float values that are not all whole numbers."""
+    return y.dtype.kind == "f" and not np.all(np.equal(np.mod(y, 1), 0))
 
-    Uses integer codes rather than raw strings -- ``mutual_info_classif`` needs a numeric feature matrix, and
+
+def _composite_mi_with_target(values: pd.Series, y: np.ndarray, random_state: int) -> float:
+    """Mutual information between a (possibly composite) categorical column and the target.
+
+    Uses integer codes rather than raw strings -- the MI estimators need a numeric feature matrix, and
     ``pd.factorize`` codes preserve the exact partition of rows into levels that MI actually depends on (the
     numeric code values themselves carry no order the estimator relies on, since ``discrete_features=True``).
+    A continuous target goes to ``mutual_info_regression``: ``mutual_info_classif`` refuses it outright.
     """
     codes, _ = pd.factorize(values)
-    mi = mutual_info_classif(codes.reshape(-1, 1), y, discrete_features=True, random_state=random_state)
+    estimator = mutual_info_regression if _is_continuous_target(y) else mutual_info_classif
+    mi = estimator(codes.reshape(-1, 1), y, discrete_features=True, random_state=random_state)
     return float(mi[0])
 
 
@@ -120,6 +127,9 @@ def discover_categorical_groups(
         raise ValueError("discover_categorical_groups: need at least 1 column to partition")
 
     y_arr = np.asarray(y)
+    labelled = ~pd.isna(y_arr)
+    if not labelled.all():  # rows without a label carry no information about the target
+        df, y_arr = df.loc[labelled], y_arr[labelled]
     cap = max_group_size if max_group_size is not None else len(columns)
     if cap < 1:
         raise ValueError("discover_categorical_groups: max_group_size must be >= 1")

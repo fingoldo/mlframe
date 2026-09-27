@@ -154,3 +154,44 @@ def test_outlier_detection_and_missing_labels_work_together(tmp_path, common_ini
         entries = models[tt][name]
         entry = entries[0] if isinstance(entries, list) else entries
         assert entry.metrics["test"], f"{name} was not scored"
+
+
+def test_a_right_censored_target_trains_without_test_rows_and_logs_nothing_failing(tmp_path, common_init_params, caplog):
+    """Labels missing for the newest rows only (outcomes not known yet): test, the newest block, has no labelled row.
+
+    The target trains on train and val, its test is the suite's test_size=0 shape, its record says low_n, and nothing on
+    the way logs a failure (dummy baselines used to report on the empty test; the fit used to predict on it and crash).
+    """
+    import logging
+
+    df = _frame(2)
+    df["ts"] = pd.date_range("2023-01-01", periods=N_ROWS, freq="h")
+    df.loc[df.index >= int(N_ROWS * 0.75), "y_part"] = np.nan
+    with caplog.at_level(logging.WARNING):
+        models, meta = train_mlframe_models_suite(
+            df=df,
+            target_name="t",
+            model_name="m",
+            features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(regression_targets=["y_full", "y_part"], columns_to_drop={"row_id"}, ts_field="ts"),
+            mlframe_models=["lgb"],
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False, target_null_policy="drop_rows"),
+            composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False),
+            reporting_config=common_init_params,
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            verbose=0,
+        )
+    record = meta["target_rows"]["regression/y_part"]
+    assert record["n_labelled"]["test_idx"] == 0 and record["low_n"] is True
+    entries = models[TargetTypes.REGRESSION]["y_part"]
+    entry = entries[0] if isinstance(entries, list) else entries
+    assert entry.metrics["val"] and not entry.metrics.get("test")
+    # Not about this target: the host's commit headroom, and the default val placement mixing random in-period rows.
+    unrelated = ("mlframe.training._commit_headroom", "mlframe.training.baselines._dummy_baseline_regression")
+    bad = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno >= logging.WARNING and r.name not in unrelated and any(w in r.getMessage().lower() for w in ("failed", "raised", "empty"))
+    ]
+    assert not bad, bad

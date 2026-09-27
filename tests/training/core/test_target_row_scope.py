@@ -176,7 +176,7 @@ def test_too_few_val_rows_trains_without_val_and_too_few_calib_rows_without_cali
     assert rows.dropped == {"val_idx", "filtered_val_idx", "calib_idx"}
     ctx = _ctx()
     with target_row_scope(ctx, rows):
-        assert ctx.val_df_pd.shape[0] == 0, "no val is the suite's val_size=0 shape: an empty frame"
+        assert ctx.val_idx.size == 0 and ctx.val_df_pd is None, "no val is the suite's val_size=0 shape: an empty index, no frame"
         assert ctx.calib_idx is None and ctx.calib_df is None, "no calib is None, as when calib_size is 0"
 
 
@@ -211,3 +211,14 @@ def test_the_working_classification_target_is_integer_and_regression_keeps_nan()
     cls = working_target(y, mask, TargetTypes.BINARY_CLASSIFICATION, "y")
     assert cls.dtype == np.int8 and cls[mask].tolist() == [0, 1, 1]
     assert working_target(y, mask, TargetTypes.REGRESSION, "y") is y
+
+
+def test_a_split_left_with_no_labelled_row_has_no_frame_and_comes_back_whole():
+    """A right-censored target with no labelled test row sees test as the suite's test_size=0 does; its frames return."""
+    ctx = _ctx()
+    mask = np.ones(N, dtype=bool)
+    mask[14:18] = False
+    full_test = ctx.test_df_pd
+    with target_row_scope(ctx, build_target_rows(mask, splits_of(ctx))):
+        assert ctx.test_idx.size == 0 and ctx.test_df_pd is None and ctx.test_df_polars is None
+    assert ctx.test_df_pd is full_test and ctx.test_df_polars is not None

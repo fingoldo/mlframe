@@ -229,7 +229,8 @@ def run_dummy_baselines(
                 )
                 _emit_val = bool(getattr(reporting_config, "compute_valset_metrics", True))
                 _emit_test = bool(getattr(reporting_config, "compute_testset_metrics", True))
-                if _emit_val and _strongest_val_raw is not None and current_val_target is not None:
+                # An empty split (val_size / test_size 0, or no labelled row there for this target) has nothing to report.
+                if _emit_val and _strongest_val_raw is not None and current_val_target is not None and len(current_val_target) > 0:
                     _vp, _vpr = _split_preds_probs(_strongest_val_raw, target_type)
                     _common_val = dict(_common)
                     if plot_file:
@@ -240,7 +241,7 @@ def run_dummy_baselines(
                         report_title="VAL (DUMMY) ",
                         **_common_val,
                     )
-                if _emit_test and _strongest_test_raw is not None and current_test_target is not None:
+                if _emit_test and _strongest_test_raw is not None and current_test_target is not None and len(current_test_target) > 0:
                     _tp, _tpr = _split_preds_probs(_strongest_test_raw, target_type)
                     _common_test = dict(_common)
                     if plot_file:

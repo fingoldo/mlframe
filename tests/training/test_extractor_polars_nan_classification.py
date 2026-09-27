@@ -49,3 +49,19 @@ def test_fractional_labelled_values_are_still_refused():
     df = pd.DataFrame({"x": [1.0, 2.0, 3.0], "cls": [0.0, 1.5, None]})
     with pytest.raises(ValueError, match="non-integer"):
         SimpleFeaturesAndTargetsExtractor(classification_targets=["cls"]).build_targets(df)
+
+
+@pytest.mark.parametrize("missing", [None, float("nan")])
+def test_string_labels_are_refused_with_gaps_as_without(missing):
+    """A gap must not let string labels past the integer check that refuses them in a fully labelled column."""
+    for values in (["hi", "lo", "mid", "hi"], ["hi", "lo", missing, "hi"]):
+        df = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "grade": pd.Series(values, dtype=object)})
+        with pytest.raises(ValueError, match="invalid literal"):
+            SimpleFeaturesAndTargetsExtractor(classification_targets=["grade"]).build_targets(df)
+
+
+def test_integer_labels_in_an_object_column_keep_their_gaps():
+    df = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "grade": pd.Series([0, 2, None, 1], dtype=object)})
+    y = SimpleFeaturesAndTargetsExtractor(classification_targets=["grade"]).build_targets(df)
+    y = np.asarray(next(iter(y.values()))["grade"], dtype=np.float64)
+    assert np.isnan(y[2]) and y[[0, 1, 3]].tolist() == [0.0, 2.0, 1.0]
