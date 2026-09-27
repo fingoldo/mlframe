@@ -149,7 +149,7 @@ def test_the_pipeline_cache_key_carries_the_rows_only_inside_a_scope():
     ctx = _ctx()
     rows = build_target_rows(MASK, splits_of(ctx))
     with target_row_scope(ctx, rows):
-        assert compute_model_pipeline_cache_key(**kwargs) == f"base_rows{rows.signature[:8]}"
+        assert compute_model_pipeline_cache_key(**kwargs) == f"base_rows{rows.signature}"
 
 
 # ---- per-target decisions ------------------------------------------------------------------------------------------
@@ -235,3 +235,35 @@ def test_split_details_and_the_record_describe_the_labelled_rows_and_flag_censor
     assert any("censored" in note for note in record["notes"])
     with target_row_scope(ctx, rows):
         assert ctx.test_details == "2024-01-15/2024-01-15 labelled 1/4"
+
+
+def test_a_narrowing_that_would_not_fit_in_the_commit_headroom_is_warned_about(monkeypatch):
+    from mlframe.training.core import _target_row_scope as scope
+
+    ctx = _ctx()
+    rows = build_target_rows(MASK, splits_of(ctx))
+    monkeypatch.setattr(scope, "_available_commit_bytes", lambda: 10)
+    assert "copies about" in scope.warn_if_narrowing_exceeds_headroom(ctx, rows)
+    monkeypatch.setattr(scope, "_available_commit_bytes", lambda: 10**12)
+    assert scope.warn_if_narrowing_exceeds_headroom(ctx, rows) is None
+
+
+def test_the_pipeline_cache_drops_one_row_groups_entries():
+    from mlframe.training.strategies.pipeline_cache import PipelineCache
+
+    cache = PipelineCache(verbose=False, bytes_limit=10**9)
+    frame = pd.DataFrame({"x": np.arange(5.0)})
+    for key in ("lgb_rowsaaaa1111", "lgb_rowsbbbb2222", "lgb"):
+        cache.set(key, frame, None, None)
+    cache.set_fitted_pipeline("lgb_rowsaaaa1111", object())
+    assert cache.discard_suffix("_rowsaaaa1111") == 1
+    assert not cache.has("lgb_rowsaaaa1111") and cache.has("lgb_rowsbbbb2222") and cache.has("lgb")
+    assert cache.get_fitted_pipeline("lgb_rowsaaaa1111") is None
+
+
+def test_rows_without_their_val_have_their_own_pipeline_cache_key():
+    """Same mask, one group without val: a shared key would serve one group the other's cached (train, val, test) frames."""
+    ctx = _ctx()
+    rows = build_target_rows(MASK, splits_of(ctx))
+    without_val = rows.without({"val_idx"})
+    assert without_val.signature != rows.signature and not without_val.signature.startswith(rows.signature + "_")

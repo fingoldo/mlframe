@@ -66,7 +66,7 @@ def compute_model_pipeline_cache_key(
     from ._target_row_scope import active_rows
 
     rows = active_rows()
-    rows_suffix = f"_rows{rows.signature[:8]}" if rows is not None else ""
+    rows_suffix = f"_rows{rows.signature}" if rows is not None else ""
     key = str(
         _compute_pipeline_cache_key(
             _content_key,

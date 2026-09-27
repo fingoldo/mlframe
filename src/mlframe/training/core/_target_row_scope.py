@@ -120,6 +120,58 @@ def _split_total(rows: TargetRows, split: str) -> Optional[int]:
     return rows.n_total.get(fallback) if fallback else None
 
 
+def _frame_nbytes(value: Any) -> int:
+    """Shallow in-memory size of a frame or array (0 for anything else): enough to estimate a narrowing's copies."""
+    if isinstance(value, pl.DataFrame):
+        return int(value.estimated_size())
+    if isinstance(value, pd.DataFrame):
+        return int(value.memory_usage(deep=False, index=False).sum())
+    return int(getattr(value, "nbytes", 0) or 0)
+
+
+def _available_commit_bytes() -> Optional[int]:
+    """What this host can still commit (Windows commit charge, else available RAM), or None when unknown."""
+    try:
+        from ..crash_diagnostics import windows_commit_status
+
+        status = windows_commit_status()
+        if status:
+            return int(status["commit_avail_gb"] * 1024**3)
+        import psutil
+
+        return int(psutil.virtual_memory().available)
+    except Exception as exc:  # a probe must never stop training
+        logger.debug("commit probe failed: %s", exc)
+        return None
+
+
+def warn_if_narrowing_exceeds_headroom(ctx: Any, rows: TargetRows) -> Optional[str]:
+    """Warn when this group's narrowed copies of the frames would not fit in what the host can still commit.
+
+    The copies are the frames' size times their labelled share; on Windows a process that cannot commit is killed with no
+    chance to handle it, so the warning is the only notice. Returns the message, or None.
+    """
+    seen: set = set()
+    needed = 0
+    for split, fields in _NARROW.items():
+        share = rows.labelled_share(split) if split in rows.n_total else rows.labelled_share({"filtered_train_idx": "train_idx", "filtered_val_idx": "val_idx"}.get(split, split))
+        for name in fields:
+            value = getattr(ctx, name, None)
+            if value is None or id(value) in seen:
+                continue
+            seen.add(id(value))
+            needed += int(_frame_nbytes(value) * (share or 0.0))
+    available = _available_commit_bytes()
+    if available is None or needed <= 0.8 * available:
+        return None
+    message = (
+        f"narrowing to rows {rows.signature} copies about {needed / 1024**3:.1f} GB of frames with {available / 1024**3:.1f} GB left to "
+        "commit; the process may be killed. Free memory, or train the targets with missing labels in a separate run."
+    )
+    logger.warning("[target-rows] %s", message)
+    return message
+
+
 def _narrowed_fields(ctx: Any, rows: TargetRows) -> dict[str, Any]:
     """New values of every narrowed field; a frame shared by two fields is sliced once."""
     out: dict[str, Any] = {}
@@ -206,6 +258,7 @@ def target_row_scope(ctx: Any, rows: Optional[TargetRows]) -> Iterator[None]:
     saved = {name: getattr(ctx, name) for name in names}
     artifacts = getattr(ctx, "artifacts", None)
     saved_artifacts = {k: artifacts.pop(k) for k in _ARTIFACT_CACHES if isinstance(artifacts, dict) and k in artifacts}
+    warn_if_narrowing_exceeds_headroom(ctx, rows)
     narrowed = _narrowed_fields(ctx, rows)
     for name, value in narrowed.items():
         setattr(ctx, name, value)
@@ -231,6 +284,11 @@ def target_row_scope(ctx: Any, rows: Optional[TargetRows]) -> Iterator[None]:
             for k in _ARTIFACT_CACHES:
                 artifacts.pop(k, None)
             artifacts.update(saved_artifacts)
+        # The narrowed frames this group's targets cached are of no use to any other group: free them now rather than
+        # leaving them to the cache's LRU while the next group's narrowed copies pile on top.
+        discard = getattr(getattr(ctx, "_pipeline_cache", None), "discard_suffix", None)
+        if callable(discard):
+            discard(f"_rows{rows.signature}")
 
 
 def _has_unlabelled(mask: np.ndarray, idx: Any) -> bool:

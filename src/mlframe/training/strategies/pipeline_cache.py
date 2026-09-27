@@ -238,6 +238,16 @@ class PipelineCache:
         """Check if a cache key exists (does NOT promote to MRU)."""
         return cache_key in self._cache
 
+    def discard_suffix(self, suffix: str) -> int:
+        """Drop every entry whose key ends with ``suffix`` (one row group's entries once its targets are done); returns how many."""
+        keys = [k for k in self._cache if k.endswith(suffix)]
+        for key in keys:
+            self._total_bytes -= self._entry_sizes.pop(key, 0)
+            self._cache.pop(key, None)
+        for key in [k for k in self._fitted_pipelines if k.endswith(suffix)]:
+            self._fitted_pipelines.pop(key, None)
+        return len(keys)
+
     def clear(self) -> None:
         """Clear all cached DataFrames and reset the byte-budget accounting."""
         self._cache.clear()
