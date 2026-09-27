@@ -33,6 +33,17 @@ def _figure_extent_in(px: Optional[float], fallback_px: float) -> float:
     return (fallback_px if px is None else float(px)) / PX_PER_INCH
 
 
+def _colorbar_dict(p: ScatterPanelSpec) -> dict:
+    """``marker.colorbar`` payload: a label, plus discrete ticks/labels when the spec set them."""
+    cbar: dict = dict(title=p.colorbar_label)
+    if p.colorbar_ticks is not None:
+        cbar["tickmode"] = "array"
+        cbar["tickvals"] = list(p.colorbar_ticks)
+        if p.colorbar_ticklabels is not None:
+            cbar["ticktext"] = list(p.colorbar_ticklabels)
+    return cbar
+
+
 def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
     """Render a scatter panel: downsamples above ``_SCATTER_MAX_POINTS`` (extremes-preserving), converts mpl marker-area sizing to plotly pixel-diameter, switches to WebGL above ``_SCATTER_WEBGL_THRESHOLD`` points (unless error bars are present, which Scattergl doesn't support), and layers optional highlight points, trend line, uncertainty band, overlay line, and a perfect-fit y=x diagonal on top."""
     # Lazy, function-local, matching ``_plotly_network``: the parent module imports this one at its own bottom,
@@ -80,7 +91,7 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
             marker["cmax"] = p.color_vmax
         marker["showscale"] = bool(p.colorbar_label)
         if p.colorbar_label:
-            marker["colorbar"] = dict(title=p.colorbar_label)
+            marker["colorbar"] = _colorbar_dict(p)
     elif p.point_color is not None:
         marker["color"] = p.point_color
 

@@ -174,8 +174,8 @@ def _compute_regression_baselines(
                 and timestamps_test is not None
                 and _is_temporally_monotonic(timestamps_train, timestamps_val, timestamps_test)
             )
-            label = "per_group_historical_mean (ts)" if ts_active else "per_group_mean"
-            # Annotate row label with high-overlap warning
+            label = f"per_group_historical_mean[{cat_col}] (ts)" if ts_active else f"per_group_mean[{cat_col}]"
+            # "high_entity_overlap" = share of val rows whose group also had >=5 train rows (entity reuse, not skill).
             if pg_diag["repeat_entity_rate"] >= config.per_group_high_overlap_threshold:
                 label = f"{label} (high_entity_overlap={pg_diag['repeat_entity_rate']:.2f})"
             val_preds[label] = val_pg

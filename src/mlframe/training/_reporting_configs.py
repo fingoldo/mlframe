@@ -197,8 +197,9 @@ class ReportingConfig(BaseConfig):
     honest_estimator_diagnostics: bool = True
 
     # Per-target_type panel templates. Same DSL grammar as ``title_metrics_template`` (space-separated tokens, validator checks against the chart modules' ALLOWED_*_PANEL_TOKENS frozensets, no duplicates). All-by-default; operator removes tokens to skip individual panels.
-    # Binary classification previously had no curve charts (only a reliability diagram); these render ROC/PR/SCORE_DIST/KS/THRESHOLD/GAIN by default.
-    binary_panels: str = "ROC PR SCORE_DIST KS THRESHOLD GAIN PIT"
+    # Binary classification previously had no curve charts (only a reliability diagram); these render ROC/PR/SCORE_DIST/THRESHOLD by default. KS and GAIN summarise the same separation ROC/PR already show (a single number and a
+    # bottom-up re-reading of the gain the PR/threshold panels cover) and are opt-in only -- pass them explicitly to add them back.
+    binary_panels: str = "ROC PR SCORE_DIST THRESHOLD PIT"
     # Opt-in data-aware panel emphasis for the binary report. ``"all"`` (default) keeps the full binary_panels set in order (back-compat, no surprise). ``"data_aware"`` derives the positive base rate from y_true at dispatch and emphasizes the panels that matter for that skew: imbalanced (base rate < emphasis_imbalance_lo or > _hi) leads with PR / THRESHOLD and drops the optimistic-under-imbalance ROC; balanced leads with ROC. Only applies when binary_panels is left at its default; a custom binary_panels is never reordered. Single-class / tiny-n falls back to "all".
     panel_emphasis: Literal["all", "data_aware"] = "all"
     emphasis_imbalance_lo: float = 0.2

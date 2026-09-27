@@ -271,8 +271,11 @@ def compose_calibration_heatmap_2d_figure(
         if _ratio > 1.0
         else ""
     )
-    headline = (f"worst cell: {feat_x_name}={x_labels[wx]}, {feat_y_name}={y_labels[wy]}  ECE={worst:.3f}  [{light}]"
-                f"  |  median-cell ECE={median_ece:.3f}{_sample_note}")
+    # Ranked by EXCESS over each cell's own sampling-noise floor, not by raw ECE -- see ``compute_calibration_heatmap_2d``.
+    # A thin cell can have a high raw ECE that is still within its noise floor, so this is not always the reddest
+    # cell on the heatmap; the label says so explicitly rather than silently disagreeing with the colours.
+    headline = (f"most significant cell (excess over noise floor): {feat_x_name}={x_labels[wx]}, {feat_y_name}={y_labels[wy]}  "
+                f"ECE={worst:.3f}  [{light}]  |  median-cell ECE={median_ece:.3f}{_sample_note}")
     skipped_note = ("  skipped: " + ", ".join(skipped)) if skipped else ""
 
     panel: PanelSpec = HeatmapPanelSpec(

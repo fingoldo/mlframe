@@ -81,8 +81,8 @@ def test_segment_means_present_as_step_series():
     """The per-segment mean must be a distinct series carrying both regime means (0.1 and 0.6)."""
     spec = build_temporal_audit_spec(_synthetic_audit_with_changepoint())
     line = spec.panels[0][0]
-    assert "segment mean" in line.series_labels
-    seg = np.asarray(line.y[line.series_labels.index("segment mean")])
+    assert "segment mean (flat between change-points)" in line.series_labels
+    seg = np.asarray(line.y[line.series_labels.index("segment mean (flat between change-points)")])
     distinct = np.unique(np.round(seg[~np.isnan(seg)], 2))
     assert set(distinct.tolist()) == {0.1, 0.6}
 

@@ -54,7 +54,7 @@ def _separable(n=4000, sep=2.5, seed=0):
 def test_allowed_tokens_and_default_template():
     """Allowed tokens and default template."""
     assert ALLOWED_BINARY_PANEL_TOKENS == frozenset({"ROC", "PR", "SCORE_DIST", "KS", "THRESHOLD", "GAIN", "PIT"})
-    assert DEFAULT_BINARY_PANELS.split() == ["ROC", "PR", "SCORE_DIST", "KS", "THRESHOLD", "GAIN"]
+    assert DEFAULT_BINARY_PANELS.split() == ["ROC", "PR", "SCORE_DIST", "THRESHOLD"]
 
 
 def test_unknown_token_raises():
@@ -83,7 +83,7 @@ def test_roc_panel_is_line_with_auc_in_title():
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="ROC"))
     assert isinstance(panel, LinePanelSpec)
     assert "AUC=" in panel.title
-    assert "chance" in panel.series_labels
+    assert "random guessing" in panel.series_labels
 
 
 def test_pr_panel_is_line_with_ap_and_prevalence_baseline():
@@ -92,7 +92,7 @@ def test_pr_panel_is_line_with_ap_and_prevalence_baseline():
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR"))
     assert isinstance(panel, LinePanelSpec)
     assert "AP=" in panel.title
-    assert any("no-skill" in lbl for lbl in panel.series_labels)
+    assert any("random guessing" in lbl for lbl in panel.series_labels)
 
 
 def test_score_dist_panel_is_line_two_classes_with_threshold_vline():
@@ -121,7 +121,7 @@ def test_threshold_panel_has_four_metric_series():
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="THRESHOLD"))
     assert isinstance(panel, LinePanelSpec)
-    assert set(panel.series_labels) == {"precision", "recall", "F1", "queue-rate"}
+    assert set(panel.series_labels) == {"precision", "recall", "F1", "queue-rate (% of rows flagged at this threshold)"}
 
 
 def test_threshold_panel_cost_series_added_when_cost_ratio_given():

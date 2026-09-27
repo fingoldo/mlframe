@@ -213,7 +213,7 @@
   "src/mlframe/reporting/charts/risk_coverage.py::build_risk_coverage_spec": 154,
   "src/mlframe/reporting/charts/shap_panels.py::shap_summary_and_dependence": 161,
   "src/mlframe/reporting/charts/slice_finder.py::find_weak_slices": 276,
-  "src/mlframe/reporting/renderers/_matplotlib_scatter.py::_scatter": 205,
+  "src/mlframe/reporting/renderers/_matplotlib_scatter.py::_scatter": 204,
   "src/mlframe/reporting/renderers/_plotly_heatmap.py::_heatmap": 176,
   "src/mlframe/reporting/renderers/_plotly_line.py::_line": 211,
   "src/mlframe/reporting/renderers/_plotly_scatter.py::_scatter": 329,

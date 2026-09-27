@@ -18,6 +18,10 @@ from mlframe.reporting import render_multi_target_panels
 from mlframe.reporting.auto_dispatch import select_binary_emphasis_panels
 
 _DEFAULT = "ROC PR SCORE_DIST KS THRESHOLD GAIN PIT"
+# The REAL ReportingConfig.binary_panels field default (KS/GAIN are opt-in only, not in it); _DEFAULT above stays a
+# generic all-tokens template so the pure-selector tests can still assert that emphasis preserves an explicitly
+# requested KS/GAIN.
+_CONFIG_DEFAULT = "ROC PR SCORE_DIST THRESHOLD PIT"
 
 
 def _imbalanced_y(n=5000, rate=0.03, seed=0):
@@ -251,7 +255,7 @@ class TestReportModelPerfThreading:
         cfg = ReportingConfig()  # panel_emphasis defaults to "all"
         assert cfg.panel_emphasis == "all"
         tmpl = self._run(monkeypatch, tmp_path, cfg, cfg.binary_panels)
-        assert tmpl == _DEFAULT
+        assert tmpl == _CONFIG_DEFAULT
 
     def test_custom_template_not_reordered_even_in_data_aware(self, monkeypatch, tmp_path):
         """Custom template not reordered even in data aware."""
@@ -299,7 +303,7 @@ class TestReportModelPerfThreading:
                 binary_panels=cfg.binary_panels,
                 reporting_config=cfg,
             )
-        assert captured["template"] == _DEFAULT
+        assert captured["template"] == _CONFIG_DEFAULT
 
 
 # ---------------------------------------------------------------------------

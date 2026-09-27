@@ -175,7 +175,7 @@ def build_temporal_audit_spec(
         band_color="steelblue",
         band_label="95% Wilson interval on each bin's own n",
         hovertext=hover,
-        series_labels=(target_name, "segment mean", f"sparse (filtered, n={len(dropped)})"),
+        series_labels=(target_name, "segment mean (flat between change-points)", f"sparse (filtered, n={len(dropped)})"),
         title=title,
         xlabel=f"{timestamp_col} ({granularity})",
         ylabel=ylabel,
@@ -311,7 +311,7 @@ def compose_target_acf_figure(
         panels=grid,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
         caption=caption_for_tokens(
-            "How to read: these panels look for structure in the target over time; a bar outside the shaded band is correlation the white-noise null does not explain.",
+            "How to read: these panels look for structure in the target over time; a bar past the red +-1.96/sqrt(n) lines is correlation the white-noise null does not explain.",
             tokens,
             _TOKEN_CAPTIONS,
         ),

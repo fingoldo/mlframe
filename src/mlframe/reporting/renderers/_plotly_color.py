@@ -80,13 +80,17 @@ def _mpl_to_plotly_cmap(name: str) -> "str | list":
     if key.endswith("_r"):
         key = key[:-2]
         reversed_suffix = "_r"
-    if key == "tab10":
+    if key == "tab10" or key.startswith("tab10:"):
         # LINE_PALETTE is mlframe's own committed tab10 hex sequence (reporting/colors.py) -- reused here
         # instead of hand-rolling a second copy, and it is deliberately colorblind-accessible per that
         # module's own docstring (tab20's lightness variants were dropped for exactly this reason).
+        # ``"tab10:<N>"`` (matching the matplotlib twin's ``_resolve_discrete_cmap``) takes only the first N
+        # colors: a caller with fewer than 10 categories already pins color_vmin/vmax to that narrower span, and
+        # spreading all 10 bands across it would sample only N of them at arbitrary, non-first-N positions.
         from mlframe.reporting.colors import LINE_PALETTE
 
-        colors = tuple(reversed(LINE_PALETTE)) if reversed_suffix else LINE_PALETTE
+        colors = LINE_PALETTE[: int(key.split(":", 1)[1])] if ":" in key else LINE_PALETTE
+        colors = tuple(reversed(colors)) if reversed_suffix else colors
         return _discrete_step_colorscale(colors)
     base = _MPL_TO_PLOTLY.get(key)
     if base is not None:

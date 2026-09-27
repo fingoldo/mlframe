@@ -331,22 +331,12 @@ def target_dist_overlay(
                 _any_cropped = True
             panels.append(pred_panel)
     grid = pack_panels(panels, max_cols=2)
-    _crop_note = (
-        " A heavy tail stretches past the plotted x-range on one or more panels (a handful of extreme values "
-        "would otherwise squash the whole curve); the view is cropped to the ~p0.5-p99.5 window but every "
-        "density value is still computed from the FULL data, tail included."
-        if _any_cropped else ""
-    )
+    _crop_note = " (x-axis cropped to ~p0.5-p99.5; a few extreme values extend past it)" if _any_cropped else ""
     return FigureSpec(
         suptitle=title,
         panels=grid,
         figsize=figsize_for_grid(1, max(len(panels), 1), cell_width=7.0, cell_height=4.5),
-        caption=(
-            "Overlaid per-split distributions of the target and of the predictions. Curves that separate mean the "
-            "splits are not exchangeable, so a holdout metric may not transfer to the next period. The grey band is "
-            "the train p01-p99 envelope: prediction mass outside it is extrapolation, where the model has never "
-            f"seen a comparable example. VERDICT: {drift_line}{_crop_note}"
-        ),
+        caption=f"Grey band = train p01-p99. Separated curves = splits not exchangeable. {drift_line}{_crop_note}",
     )
 
 

@@ -172,12 +172,12 @@ def _compute_classification_baselines(
                 _, val_pg, test_pg, pg_diag = _per_group_predict(
                     train_X, val_X, test_X, train_y.astype(np.float64), cat_col, target_type,
                 )
-                # Convert to (N, 2) probs: [1-p, p]
-                val_pg_2d = np.column_stack([1 - val_pg, val_pg])
+                val_pg_2d = np.column_stack([1 - val_pg, val_pg])  # (N, 2) probs: [1-p, p]
                 test_pg_2d = np.column_stack([1 - test_pg, test_pg])
-                label = "per_group_prior"
+                label = f"per_group_prior[{cat_col}]"
+                # "high_entity_overlap" = share of val rows whose group also had >=5 train rows (entity reuse, not skill).
                 if pg_diag["repeat_entity_rate"] >= config.per_group_high_overlap_threshold:
-                    label = f"per_group_prior (high_entity_overlap={pg_diag['repeat_entity_rate']:.2f})"
+                    label = f"{label} (high_entity_overlap={pg_diag['repeat_entity_rate']:.2f})"
                 val_probs[label] = val_pg_2d
                 test_probs[label] = test_pg_2d
                 extras["per_group"] = {"cat_col": cat_col, **pg_diag}

@@ -19,6 +19,41 @@ from ._shared_helpers import _SCATTER_MAX_POINTS, low_evidence_mask, non_collidi
 
 logger = logging.getLogger(__name__)
 
+def _resolve_discrete_cmap(name: str):
+    """Resolve a colormap name for ``ax.scatter``, special-casing ``"tab10:<N>"``.
+
+    A caller with fewer than 10 discrete categories (e.g. a 2-class scatter) pins ``color_vmin``/``color_vmax``
+    to ``[-0.5, N-0.5]`` so category ``k`` lands in the middle of band ``k`` -- but plain ``"tab10"`` is always a
+    fixed 10-color palette, so squeezing only N categories into that vmin/vmax span samples just N of its 10
+    entries at whatever positions the norm happens to hit, not the first N in order. On a 2-class panel this
+    picked tab10's green and gray instead of its blue and orange, and the gray read as invisible against the
+    panel background. ``"tab10:2"`` (etc.) instead builds a ``ListedColormap`` from exactly the first N colors
+    of mlframe's own committed tab10 sequence (``LINE_PALETTE``, shared with the plotly twin's discrete-band
+    colorscale), so N categories always get N maximally-distinct, backend-consistent colors.
+    """
+    if name.startswith("tab10:"):
+        import matplotlib
+        from matplotlib.colors import ListedColormap
+
+        from mlframe.reporting.colors import LINE_PALETTE
+
+        n = int(name.split(":", 1)[1])
+        return ListedColormap(LINE_PALETTE[:n])
+    import matplotlib
+
+    return matplotlib.colormaps[name]
+
+
+def _add_colorbar(fig, sc, ax, cbar_axes, p: ScatterPanelSpec) -> None:
+    """Attach a labelled colorbar to a scatter's mappable, with discrete ticks/labels when the spec set them."""
+    cbar = fig.colorbar(sc, ax=(cbar_axes if cbar_axes is not None else ax))
+    cbar.set_label(p.colorbar_label)
+    if p.colorbar_ticks is not None:
+        cbar.set_ticks(list(p.colorbar_ticks))
+        if p.colorbar_ticklabels is not None:
+            cbar.set_ticklabels(list(p.colorbar_ticklabels))
+
+
 def _axes_size_in(ax) -> tuple:
     """``(width, height)`` of the axes in inches, falling back to a typical panel when unmeasurable."""
     try:
@@ -92,7 +127,7 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     kw["s"] = size_arr if size_arr is not None else float(p.point_size)
     if color_arr is not None:
         kw["c"] = color_arr
-        kw["cmap"] = matplotlib.colormaps[p.colormap]
+        kw["cmap"] = _resolve_discrete_cmap(p.colormap)
         if p.color_vmin is not None:
             kw["vmin"] = p.color_vmin
         if p.color_vmax is not None:
@@ -222,8 +257,7 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
             )
 
     if p.colorbar_label and color_arr is not None:
-        cbar = fig.colorbar(sc, ax=(cbar_axes if cbar_axes is not None else ax))
-        cbar.set_label(p.colorbar_label)
+        _add_colorbar(fig, sc, ax, cbar_axes, p)
 
     ax.set_xlabel(p.xlabel)
     ax.set_ylabel(p.ylabel)

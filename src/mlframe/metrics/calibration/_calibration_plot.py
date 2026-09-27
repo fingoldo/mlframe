@@ -567,7 +567,7 @@ def show_calibration_plot(
     label_freq: str = "Observed Frequency",
     label_perfect: str = "Perfect",
     label_prob: str = "Predicted Probability",
-    colorbar_label: str = "Bin population",
+    colorbar_label: Optional[str] = None,
     show_prob_histogram: bool = True,
     prob_histogram_yscale: str = "linear",
     show_inline_population_labels: bool = True,
@@ -764,7 +764,7 @@ def show_calibration_plot(
                 ax.set_xlabel(label_prob)
             ax.set_ylabel(label_freq)
             cbar = fig.colorbar(sc, ax=(cbar_ax if cbar_ax is not None else ax))
-            cbar.set_label(colorbar_label)
+            cbar.set_label(colorbar_label or "Bin population")
             if show_inline_population_labels:
                 vertical_offset = 0.02
                 for x, y, hit in zip(freqs_predicted, freqs_true, hits):

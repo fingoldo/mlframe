@@ -209,7 +209,7 @@ def _roc_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: f
     return LinePanelSpec(
         x=x_thin,
         y=(tpr_thin, diag),
-        series_labels=("ROC", "chance"),
+        series_labels=("ROC", "random guessing"),
         title=f"ROC (AUC={roc_auc:.3f})",
         xlabel="False Positive Rate",
         ylabel="True Positive Rate",
@@ -356,7 +356,7 @@ def _pr_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: fl
     if ap_ci:
         _, lo, hi = bootstrap_ap_ci(yt, ys, seed=ap_ci_seed, sort=sort)
         if np.isfinite(lo) and np.isfinite(hi):
-            title = f"Precision-Recall (AP={ap:.3f} [{lo:.3f}, {hi:.3f}], 95% CI)"
+            title = f"Precision-Recall (AP={ap:.3f}, 95% CI [{lo:.3f}, {hi:.3f}])"
     markers = None
     if operating_point:
         op = _operating_point(sort, threshold)
@@ -366,7 +366,7 @@ def _pr_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: fl
     return LinePanelSpec(
         x=x_thin,
         y=(prec_thin, baseline),
-        series_labels=("PR", f"no-skill (prev={prevalence:.3f})"),
+        series_labels=("PR", f"random guessing (positive rate={prevalence:.1%})"),
         title=title,
         xlabel="Recall",
         ylabel="Precision",
@@ -403,7 +403,7 @@ def _score_dist_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thres
             f"y=0 (n={neg.size:,}, {neg.size / max(sort.n, 1):.1%})",
             f"y=1 (n={pos.size:,}, {pos.size / max(sort.n, 1):.1%})",
         ),
-        title="Score distribution by class (density: each curve integrates to 1, so heights are NOT counts)",
+        title="Score distribution by class (normalized to integrate to 1 -- height is not a row count)",
         xlabel="Predicted score",
         ylabel="Density",
         line_styles=("-", "-"),
@@ -527,7 +527,7 @@ def _threshold_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thresh
         markers.append((float(sweep["thresholds"][_bi]), float(_f1_full[_bi]),
                         f"F1 optimum @ {sweep['thresholds'][_bi]:.3f} (F1={_f1_full[_bi]:.3f})", "#9467bd", "*"))
     series: List[np.ndarray] = [prec, rec, f1, queue]
-    labels: List[str] = ["precision", "recall", "F1", "queue-rate"]
+    labels: List[str] = ["precision", "recall", "F1", "queue-rate (% of rows flagged at this threshold)"]
     styles: List[str] = ["-", "-", "-", "--"]
     colors: List[str] = ["#1f77b4", "#2ca02c", "#9467bd", "#7f7f7f"]
     # Queue-rate is the fraction of the population flagged at each threshold -- an operating-volume axis, not a quality
@@ -708,7 +708,7 @@ _TOKEN_CAPTIONS: Dict[str, str] = {
 }
 
 
-DEFAULT_BINARY_PANELS: str = "ROC PR SCORE_DIST KS THRESHOLD GAIN"
+DEFAULT_BINARY_PANELS: str = "ROC PR SCORE_DIST THRESHOLD"
 
 
 def compose_binary_figure(

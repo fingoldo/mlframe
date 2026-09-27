@@ -99,7 +99,7 @@ def test_figure_is_heatmap_panel():
     assert isinstance(panel, HeatmapPanelSpec)
     assert panel.colormap == "RdYlGn_r"
     assert panel.cell_text is not None
-    assert "worst cell" in panel.title
+    assert "most significant cell" in panel.title
 
 
 def test_figure_degenerate_returns_annotation():

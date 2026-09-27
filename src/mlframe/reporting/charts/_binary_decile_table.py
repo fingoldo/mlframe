@@ -148,11 +148,17 @@ def binary_decile_table_figure(
     total_row = ["TOTAL", f"{total_n:,}", f"{total_pos:,}", "-" if not np.isfinite(total_resp) else f"{total_resp:.1%}", "100.0%", "1.00", "0.000"]
     cells.append(total_row)
 
-    fig = Figure(figsize=(8.0, 0.42 * (n_rows + 3)) if figsize is None else figsize)
+    caption = (
+        "Rows sorted by score, decile 1 = top-scored 10%. response = positive rate in that decile; "
+        "cum gain = share of all positives captured by deciles 1..d; lift = that capture rate vs. overall "
+        "prevalence (1.00 = random); cum KS = |cum.%positives - cum.%negatives| through decile d."
+    )
+    fig = Figure(figsize=(8.0, 0.42 * (n_rows + 3) + 0.5) if figsize is None else figsize)
     FigureCanvasAgg(fig)
     ax = fig.add_subplot(111)
     ax.axis("off")
     ax.set_title(title + note, fontsize=11)
+    fig.text(0.5, 0.01, caption, ha="center", va="bottom", fontsize=7.5, color="#555555", wrap=True)
     table = ax.table(cellText=cells, colLabels=col_headers, loc="center", cellLoc="center")
     table.auto_set_font_size(False)
     table.set_fontsize(9)

@@ -75,6 +75,12 @@ class ScatterPanelSpec:
     # When the colorbar represents a meaningful axis (e.g. bin population),
     # set ``colorbar_label`` so renderers add a labelled colorbar.
     colorbar_label: Optional[str] = None
+    # Explicit tick positions + text for a DISCRETE-valued colour axis (e.g. a handful of class codes), so the
+    # colorbar shows exactly those values/names instead of a continuous scale with its own auto-picked ticks --
+    # which, over a narrow numeric span like a 2-class ``[-0.5, 1.5]`` range, sweeps through most of a qualitative
+    # colormap's full palette and prints ticks the data can never take. Both None = default continuous colorbar.
+    colorbar_ticks: Optional[Tuple[float, ...]] = None
+    colorbar_ticklabels: Optional[Tuple[str, ...]] = None
     # Per-point error bars (e.g. Wilson CIs on reliability-diagram bins). Same length as ``y`` / ``x``.
     # ``y_err`` may be a single array (symmetric) or a (lower, upper) pair of arrays (asymmetric, as Wilson is).
     y_err: Optional[Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]] = None

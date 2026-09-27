@@ -300,7 +300,7 @@ def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample
         x=z0,
         y=z1,
         point_color=_codes.astype(np.float64),
-        colormap="tab10",
+        colormap=f"tab10:{_n_classes}",
         color_vmin=-0.5,
         color_vmax=_n_classes - 0.5,
         title=(
@@ -311,6 +311,8 @@ def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample
         ylabel=str(f1),
         point_alpha=0.4,
         colorbar_label=f"class ({_n_classes} values)",
+        colorbar_ticks=tuple(range(_n_classes)),
+        colorbar_ticklabels=tuple(str(c) for c in _classes),
         equal_aspect=False,
         xlim=_robust_axis_lim(z0),
         ylim=_robust_axis_lim(z1),
@@ -361,7 +363,9 @@ def compose_separability_figure(X: Any, y: np.ndarray, features: Optional[Sequen
     return FigureSpec(
         suptitle=suptitle,
         panels=((panel,),),
-        figsize=FIGSIZE_SQUARE,
+        # Wider than FIGSIZE_SQUARE: this panel's title carries the Fisher-J verdict sentence plus a colorbar
+        # squeezing the plot area, both of which wrapped into several ragged short lines at 6in.
+        figsize=(8.0, 5.5),
         caption=(
             "Each point is one row, positioned by two features and coloured by class. Fisher J is the squared "
             "Mahalanobis distance between the class means under the pooled within-class covariance: 0 means the two "
