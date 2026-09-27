@@ -139,7 +139,9 @@ class TestGlobalCompositeCap:
         y_noisy = _strong_ar_target(base_noisy, rng, noise_scale=3.0)  # heavy noise -- low/no honest gain
         targets = {"target_clean": y_clean.astype(np.float64), "target_noisy": y_noisy.astype(np.float64)}
 
-        cfg = CompositeTargetDiscoveryConfig(enabled=True, max_total_composite_targets=1)
+        # The clean target's gains (+0.02..+0.09 on RMSE ~0.47) sit under the noise-aware floor of 2 paired standard errors on
+        # this 1500-row synthetic, so that orthogonal gate would drop them before the cap acts; min_honest_gain_z=0 isolates the cap.
+        cfg = CompositeTargetDiscoveryConfig(enabled=True, max_total_composite_targets=1, min_honest_gain_z=0.0)
         target_by_type, _metadata = _run(cfg, targets, feats_df)
         kept_names = set(target_by_type[TargetTypes.REGRESSION]) - set(targets)
         assert len(kept_names) == 1, f"expected exactly 1 composite kept under cap=1, got {kept_names}"

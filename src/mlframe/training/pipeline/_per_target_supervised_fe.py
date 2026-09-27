@@ -180,7 +180,7 @@ def target_scoped_frames(ctx: Any, target_type: Any, target_name: Any) -> Iterat
     saved_artifacts = {k: artifacts.pop(k) for k in _CROSS_TARGET_ARTIFACTS if isinstance(artifacts, dict) and k in artifacts}
     saved_id_caches = {a: getattr(ctx, a) for a in _ID_KEYED_CACHES if isinstance(getattr(ctx, a, None), dict)}
     for a in saved_id_caches:
-        setattr(ctx, a, {})
+        setattr(ctx, a, type(saved_id_caches[a])())  # same container type: the pandas-view cache evicts with OrderedDict.popitem(last=False)
     for a in _FRAME_ATTRS:
         setattr(ctx, a, _drop(saved[a], foreign))
     if saved["cat_features"] is not None:

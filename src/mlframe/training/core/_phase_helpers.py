@@ -16,6 +16,7 @@ import polars as pl
 if TYPE_CHECKING:
     from ._training_context import TrainingContext
 
+from ._target_labels import raise_on_missing_labels
 from ._misc_helpers import (
     _cfg_get, _df_shape_str, _elapsed_str,
 )
@@ -785,6 +786,7 @@ def _phase_load_and_preprocess(
         logger.info("  preprocess_dataframe done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_preproc))
         logger.info("  PHASE 1 total: %s", _elapsed_str(t0_phase1))
 
+    raise_on_missing_labels(target_by_type)  # before any target trains, naming every target with missing labels
     ctx.df = df
     ctx.target_by_type = target_by_type
     ctx.group_ids_raw = group_ids_raw

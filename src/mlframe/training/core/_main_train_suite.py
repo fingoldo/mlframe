@@ -29,8 +29,6 @@ logger = logging.getLogger(__name__)
 import numpy as np
 import pandas as pd
 import polars as pl
-from pyutilz.strings import slugify
-from pyutilz.system import tqdmu_lazy_start
 
 from ._process_flag_scope import capture_process_flag_snapshot, restore_process_flags
 from ..extractors import FeaturesAndTargetsExtractor
@@ -60,10 +58,9 @@ from . import _phase_runners as pr
 from ._main_train_suite_encoding import (
     SuiteResult,
     _assert_suite_return_shape,
-    _encode_string_multiclass_target,
 )
 from ._phase_helpers_fit_pipeline import extensions_with_split_seed
-from mlframe.training.pipeline.shared import target_scoped_frames
+from ._main_train_suite_target_loop import train_every_target
 from ._main_train_suite_polars_gate import any_pipeline_stage_requested, needs_polars_pre_clone
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df, mirror_split_outputs_to_ctx  # noqa: F401
 from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification  # noqa: F401
@@ -702,21 +699,7 @@ def train_mlframe_models_suite(
             verbose=bool(verbose),
         )
 
-        for target_type, targets in tqdmu_lazy_start(target_by_type.items(), desc="target type"):
-            # Written directly onto ctx (not a throwaway local) so _finalize_and_save_metadata's
-            # `if ctx.slug_to_original_target_type:` guard sees it -- mirrors how
-            # ctx.slug_to_original_target_name is populated (mutated in place downstream in
-            # _phase_train_one_target_model_setup.py rather than threaded back up from a local here).
-            ctx.slug_to_original_target_type[slugify(str(target_type).lower())] = target_type
-
-            for cur_target_name, cur_target_values in tqdmu_lazy_start(targets.items(), desc="target"):
-                cur_target_values = _encode_string_multiclass_target(
-                    target_type, cur_target_name, cur_target_values, metadata,
-                )
-                targets[cur_target_name] = cur_target_values
-                # Other targets' label-supervised composite columns are hidden from this target's models.
-                with target_scoped_frames(ctx, target_type, cur_target_name):
-                    pr._train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values)
+        train_every_target(ctx, target_by_type, metadata, pr)
 
         export_votenrank_leaderboards(ctx=ctx, data_dir=data_dir, verbose=verbose)
 

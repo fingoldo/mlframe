@@ -320,7 +320,6 @@
   "default_via_or::votenrank/confidence_gated_blend.py::55b50a14fc4b",
   "default_via_or::votenrank/correlation_diversity_ablation.py::54c0fbe6d2f3",
   "duplicate_function_body::feature_selection/filters/_orthogonal_hsic_fe.py::cfdc600fdb9b",
-  "duplicate_function_body::feature_selection/filters/hermite_fe/__init__.py::ad1efbc84753",
   "duplicate_function_body::training/core/_misc_helpers.py::ce8d6c2d2f65",
   "effect_flag_outside_its_effect::feature_selection/filters/_confirm_predictor.py::eb9e95ec5539",
   "effect_flag_outside_its_effect::feature_selection/filters/_feature_engineering_pairs/_pairs_emit.py::d081c3697950",

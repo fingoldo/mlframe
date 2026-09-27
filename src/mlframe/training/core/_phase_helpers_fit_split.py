@@ -184,6 +184,28 @@ def _apply_val_test_embargo(val_idx, timestamps, purge: int):
     return vi[np.sort(keep_order)]
 
 
+def _stratify_codes(values: Any) -> np.ndarray:
+    """A classification target as stratification labels, a missing label as its own code (-1).
+
+    ``np.unique`` treats every NaN as distinct: one unlabelled row made a stacked multi-target key unique per row, which
+    switched stratification off, and sklearn's splitter rejects NaN outright. Codes are sorted like ``np.unique``'s, so
+    a target without missing labels stratifies exactly as before; it is returned unchanged.
+    """
+    arr = np.asarray(values)
+    missing = pd.isna(arr)
+    if arr.ndim != 1 or not missing.any():
+        return arr
+    return pd.factorize(pd.Series(arr), sort=True)[0]
+
+
+def _multilabel_for_stratify(values: Any) -> np.ndarray:
+    """A multilabel target for stratification with a missing label read as 0: the splitter's ``bool`` cast read NaN as 1."""
+    arr = np.asarray(values)
+    if arr.dtype.kind == "f" and np.isnan(arr).any():
+        return np.where(np.isnan(arr), 0.0, arr)
+    return arr
+
+
 def _phase_train_val_test_split(
     *,
     df: pl.DataFrame | pd.DataFrame | None,
@@ -250,7 +272,7 @@ def _phase_train_val_test_split(
                 _classification_targets.extend(_tv for _tv in _named.values() if _tv is not None)
         if _multilabel_target is not None:
             try:
-                _ml_arr = np.asarray(_multilabel_target)
+                _ml_arr = _multilabel_for_stratify(_multilabel_target)
                 if _ml_arr.ndim == 2 and _ml_arr.shape[1] >= 1:
                     # Prefer the proper iterative-stratification path when available.
                     try:
@@ -281,7 +303,7 @@ def _phase_train_val_test_split(
                 _stratify_y = None
         elif len(_classification_targets) == 1:
             try:
-                _arr = np.asarray(_classification_targets[0])
+                _arr = _stratify_codes(_classification_targets[0])
                 if _arr.ndim == 1:
                     _u, _c = np.unique(_arr, return_counts=True)
                     if len(_u) >= 2 and _c.min() >= 2:
@@ -307,7 +329,7 @@ def _phase_train_val_test_split(
                 _stratify_y = None
         elif len(_classification_targets) > 1:
             try:
-                _arrs = [np.asarray(_t) for _t in _classification_targets]
+                _arrs = [_stratify_codes(_t) for _t in _classification_targets]
                 _n = len(_arrs[0])
                 if all(_a.ndim == 1 and len(_a) == _n for _a in _arrs):
                     # Composite key: each row maps to an integer class id from
@@ -360,7 +382,7 @@ def _phase_train_val_test_split(
                             _n_bins = 10 if _finite.sum() >= 5000 else 4
                             _quantiles = np.linspace(0.0, 1.0, _n_bins + 1)[1:-1]
                             _edges = np.unique(np.quantile(_y_reg[_finite], _quantiles))
-                            _buckets = np.digitize(_y_reg, _edges)
+                            _buckets = np.where(_finite, np.digitize(_y_reg, _edges), -1)  # a missing label is its own stratum, not the top bucket
                             _u, _c = np.unique(_buckets, return_counts=True)
                             if len(_u) >= 2 and _c.min() >= 2:
                                 _stratify_y = _buckets

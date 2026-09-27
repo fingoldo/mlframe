@@ -186,6 +186,11 @@ history.
 
 ### Fixed
 
+- A target with missing labels now fails before any training, naming every such target with its count. A regression target with NaN labels used to fail inside its first model fit, after every earlier target had already trained.
+- A polars float classification target with NaN labels is refused like one with nulls. NaN is not null in polars, so the guard passed and NaN became the positive class.
+- The unsupervised pre-screen runs once, before the first target. With per-target supervised columns the target scope restored the pre-screen frames on exit while the screen stayed marked as done, so every later target trained on the columns the screen had dropped. The scope also keeps the pandas view cache an `OrderedDict` and drops `calib_df` with the other screened frames.
+- Composite discovery keeps a missing label missing: a transformed target is NaN wherever the raw target is, instead of the train median that fills domain violations.
+- Missing labels no longer count as a class in the outlier-detection class-balance guard, in split stratification (multilabel NaN was read as True, a missing regression value fell in the top bucket), or as observations in the temporal audit, which also treats polars NaN as null.
 - **The target distribution report shows `min`, `max` and a point mass with the rows below it.** A production `total_charge` was 74% zeros with a few refunds at -2.17; the report printed `p01=0` and nothing hinted at the negatives.
 - **The zero-inflation hurdle tolerates a sliver below the atom and says why it declines.** It required 0 to be the exact minimum, so those refunds silently kept `HurdleRegressor` off. Up to 0.1% of rows below the point mass now count as "no event" (`HurdleRegressor(below_zero="no_event")`, which also keeps the magnitude model on the log scale), and a declined target is logged with the reason, including a point mass at the MAXIMUM, the shape of a constant filled in for "no event".
 - **`HurdleRegressor` trains as a tree model when both halves are boosters.** It fell back to the linear strategy (scaling, one-hot) with a "No registered strategy" warning; a two-part estimator now takes the strategy its halves agree on.

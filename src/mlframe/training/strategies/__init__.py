@@ -212,9 +212,10 @@ def _strategy_of_halves(estimator: Any) -> "ModelPipelineStrategy | None":
         return None
     from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 
+    classifier, regressor = getattr(estimator, "classifier", None), getattr(estimator, "regressor", None)
     halves = [
-        getattr(estimator, "classifier", None) or HistGradientBoostingClassifier(),
-        getattr(estimator, "regressor", None) or HistGradientBoostingRegressor(),
+        HistGradientBoostingClassifier() if classifier is None else classifier,
+        HistGradientBoostingRegressor() if regressor is None else regressor,
     ]
     if any(hasattr(h, "classifier") and hasattr(h, "regressor") for h in halves):
         return None  # no nesting: a half that is itself two-part is not a case this resolves
@@ -244,7 +245,9 @@ def _strategy_for_estimator(estimator: Any) -> ModelPipelineStrategy:
     Unknown classes fall back to :class:`LinearModelStrategy` (scaler-requiring)
     with a WARNING log line.
     """
-    strategy = _known_strategy(estimator) or _strategy_of_halves(estimator)
+    strategy = _known_strategy(estimator)
+    if strategy is None:
+        strategy = _strategy_of_halves(estimator)
     if strategy is not None:
         return strategy
 
