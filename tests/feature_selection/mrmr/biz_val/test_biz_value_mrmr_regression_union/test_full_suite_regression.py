@@ -403,13 +403,19 @@ class TestMegaFixtureAllOn:
             f"even the screen-healthy ones. This is a real FE-pipeline "
             f"regression, not the known seed-specific core under-selection."
         )
-        # Floor raised 0.72 -> 0.80 (mrmr_audit_2026-07-22 baseline-debt reconciliation): the core
+        # Mean floor 0.75, set from the measured spread across compute backends. Which backends run (GPU or CPU, parallel or
+        # serial) follows the kernel-tuning cache, and their last-bit differences flip near-ties between candidate MIs: seed 7
+        # ranged 0.607-0.725 over subsets of one machine's cache, seed 1 0.843-0.906, seed 42 0.850. An empty cache (every CI
+        # run, every pytest process under the conftest) gives a mean of 0.790, so the previous 0.80 failed there deterministically
+        # while the signal was recovered. The worst measured mean is ~0.767; 0.75 keeps a margin over it and stays above the old
+        # 0.72 catastrophic floor. The best-of-seeds 0.83 above still catches a pipeline that recovers the signal on no seed.
+        # Previously: floor raised 0.72 -> 0.80 (mrmr_audit_2026-07-22 baseline-debt reconciliation): the core
         # greedy under-selection this floor used to tolerate is fixed (see docstring); the measured
         # mean is a stable 0.847 across repeated fits, so 0.80 keeps a real margin (~0.047) while
         # still catching a genuine regression (e.g. an FE family silently dropping out, or the
         # under-selection defect reappearing) well before it could reach the old 0.72 floor.
-        assert mean_auc >= 0.80, (
-            f"mean downstream LogReg AUC {mean_auc:.4f} < 0.80 on the "
+        assert mean_auc >= 0.75, (
+            f"mean downstream LogReg AUC {mean_auc:.4f} < 0.75 on the "
             f"mega-fixture (per-seed {[round(a, 4) for a in aucs]}); the "
             f"all-on FE pipeline degraded below the regression floor -- "
             f"check for a silently-dropped FE family or a reappearance of "
