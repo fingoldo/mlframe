@@ -199,3 +199,19 @@ def test_biz_val_target_encoding_composite_wiring_recovers_entity_signal():
         f"wired two-step target encoding should recover the per-entity effect far better than raw "
         f"cat_col one-hot (structurally uninformative here), got mse_wired={mse_wired:.4f} vs mse_raw={mse_raw:.4f}"
     )
+
+
+def test_rows_without_a_label_do_not_poison_the_encoding():
+    """A train target with missing labels used to turn the whole train column into NaN and every lookup into 0.0."""
+    df, group_ids, ts, y, _ = _entity_target_frame(n=1200)
+    y_gaps = y.copy()
+    y_gaps[np.random.default_rng(3).random(len(y)) < 0.3] = np.nan
+    cfg = PreprocessingExtensionsConfig(two_step_target_encode_columns=["cat_col"])
+    metadata: dict = {}
+    train, val, _ = apply_target_encoding_composite_fe(
+        df.iloc[:900], df.iloc[900:], None, cfg, group_ids, ts, y_gaps[:900], np.arange(900), np.arange(900, 1200), None, metadata=metadata, verbose=0
+    )
+    out_col = metadata["two_step_target_encode_out_col"]
+    assert np.isfinite(train[out_col].to_numpy()).all() and np.isfinite(val[out_col].to_numpy()).all()
+    assert metadata["two_step_target_encode_global_prior"] == np.nanmean(y_gaps[:900])
+    assert np.isfinite(list(metadata["two_step_target_encode_entity_lookup"].values())).all()

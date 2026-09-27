@@ -411,8 +411,13 @@ def plot_mi_gain_with_jitter(
     jittered = np.empty((n_jitter, n))
     for b in range(n_jitter):
         jittered[b] = gains + rng.normal(scale=jitter_scale * np.abs(gains), size=n)
-    lo = np.nanpercentile(jittered, 2.5, axis=0)
-    hi = np.nanpercentile(jittered, 97.5, axis=0)
+    # A spec without a gain (NaN) has no band: percentiles of an all-NaN column only raise a warning and return NaN.
+    lo = np.full(n, np.nan)
+    hi = np.full(n, np.nan)
+    has_gain = np.isfinite(gains)
+    if has_gain.any():
+        lo[has_gain] = np.percentile(jittered[:, has_gain], 2.5, axis=0)
+        hi[has_gain] = np.percentile(jittered[:, has_gain], 97.5, axis=0)
     err_lo = gains - lo
     err_hi = hi - gains
 

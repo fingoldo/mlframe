@@ -95,7 +95,8 @@ def apply_target_encoding_composite_fe(
 
     out_col = _out_col_name(columns)
     entity_lookup = pd.Series(terminal_encoding, index=g_train).groupby(level=0).first().to_dict()
-    global_prior = float(np.average(y_train))
+    # The prior of an unseen entity: the mean of the labelled train rows (a row without a label has no y to average).
+    global_prior = float(np.nanmean(y_train))
 
     if metadata is not None:
         metadata["two_step_target_encode_columns"] = columns

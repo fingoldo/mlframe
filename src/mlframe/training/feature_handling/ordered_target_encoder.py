@@ -16,6 +16,49 @@ import numpy as np
 import pandas as pd
 
 
+def _global_prior_sorted(y: np.ndarray, sorted_y: np.ndarray, prior: Optional[float], causal_prior: bool) -> np.ndarray:
+    """The prior each row (in causal order) is smoothed toward: a constant, or the expanding mean of strictly prior rows.
+
+    Rows without a label (NaN y) count toward neither: the constant prior is the mean of the labelled rows, and the
+    expanding mean skips unlabelled rows. With every row labelled this is the original computation, bit for bit.
+    """
+    n = sorted_y.shape[0]
+    missing = np.isnan(sorted_y)
+    if not causal_prior:
+        if prior is not None:
+            return np.full(n, float(prior), dtype=np.float64)
+        # The mean of the input order, not the sorted one: float summation order is part of the result.
+        return np.full(n, float(np.nanmean(y) if missing.any() else np.mean(y)), dtype=np.float64)
+    if missing.any():
+        y0 = np.where(missing, 0.0, sorted_y)
+        labelled = (~missing).astype(np.float64)
+        global_running_sum = np.cumsum(y0) - y0
+        global_running_count = np.cumsum(labelled) - labelled
+    else:
+        global_running_sum = np.cumsum(sorted_y) - sorted_y
+        global_running_count = np.arange(n, dtype=np.float64)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        global_prior_sorted = global_running_sum / global_running_count
+    global_prior_sorted[global_running_count == 0] = float(prior) if prior is not None else 0.0
+    return global_prior_sorted
+
+
+def _running_category_stats(sorted_cats: np.ndarray, sorted_y: np.ndarray) -> "tuple[pd.Series, pd.Series]":
+    """Per row (in causal order), the sum and count of its category's strictly prior labelled y values.
+
+    A row without a label (NaN y) is still encoded from the rows before it but adds nothing to later rows.
+    """
+    missing = np.isnan(sorted_y)
+    if not missing.any():
+        grouped = pd.DataFrame({"cat": sorted_cats, "y": sorted_y}).groupby("cat", sort=False)["y"]
+        return grouped.cumsum() - sorted_y, grouped.cumcount()
+    y0 = np.where(missing, 0.0, sorted_y)
+    labelled = (~missing).astype(np.int64)
+    df = pd.DataFrame({"cat": sorted_cats, "y": y0, "n": labelled})
+    grouped = df.groupby("cat", sort=False)
+    return grouped["y"].cumsum() - y0, grouped["n"].cumsum() - labelled
+
+
 def ordered_target_encode(
     categories: np.ndarray,
     y: np.ndarray,
@@ -90,24 +133,13 @@ def ordered_target_encode(
     sorted_cats = categories[sort_idx]
     sorted_y = y[sort_idx]
 
-    if causal_prior:
-        # Strictly zero-leakage prior: the EXPANDING mean of y over rows strictly before row i (global,
-        # not per-category) -- row 0 has no prior rows at all and falls back to the explicit `prior`
-        # override (or 0.0). Same shift-by-one-row pattern as the per-category running_sum/count below.
-        global_running_sum = np.cumsum(sorted_y) - sorted_y
-        global_running_count = np.arange(n, dtype=np.float64)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            global_prior_sorted = global_running_sum / global_running_count
-        global_prior_sorted[0] = float(prior) if prior is not None else 0.0
-    else:
-        global_prior_sorted = np.full(n, float(np.mean(y)) if prior is None else float(prior), dtype=np.float64)
+    # Strictly zero-leakage when causal_prior: the EXPANDING mean of y over rows strictly before row i (global, not
+    # per-category); a row with no prior labelled row falls back to the explicit `prior` override (or 0.0).
+    global_prior_sorted = _global_prior_sorted(y, sorted_y, prior, causal_prior)
 
-    df = pd.DataFrame({"cat": sorted_cats, "y": sorted_y})
-    grouped = df.groupby("cat", sort=False)["y"]
     # cumsum/cumcount computed over the SORTED (causal-order) rows, then shifted by one row within each
     # category so row i sees only strictly-prior rows (cumsum up to and including i, minus y_i itself).
-    running_sum = grouped.cumsum() - sorted_y
-    running_count = grouped.cumcount()
+    running_sum, running_count = _running_category_stats(sorted_cats, sorted_y)
 
     encoded_sorted = (running_sum + smoothing * global_prior_sorted) / (running_count + smoothing)
 
@@ -174,16 +206,8 @@ def ordered_target_encode_batch(
 
     sorted_y = y[sort_idx]
 
-    if causal_prior:
-        # Strictly zero-leakage prior: see ordered_target_encode's causal_prior docstring. Computed ONCE
-        # (global, not per-category) and shared across every column, same as the non-causal global_prior.
-        global_running_sum = np.cumsum(sorted_y) - sorted_y
-        global_running_count = np.arange(n, dtype=np.float64)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            global_prior_sorted = global_running_sum / global_running_count
-        global_prior_sorted[0] = float(prior) if prior is not None else 0.0
-    else:
-        global_prior_sorted = np.full(n, float(np.mean(y)) if prior is None else float(prior), dtype=np.float64)
+    # Computed ONCE (global, not per-category) and shared across every column; see ordered_target_encode.
+    global_prior_sorted = _global_prior_sorted(y, sorted_y, prior, causal_prior)
 
     if noise_std > 0.0:
         if isinstance(random_state, np.random.Generator):
@@ -204,10 +228,7 @@ def ordered_target_encode_batch(
         categories = np.asarray(categories)
         sorted_cats = categories[sort_idx]
 
-        df = pd.DataFrame({"cat": sorted_cats, "y": sorted_y})
-        grouped = df.groupby("cat", sort=False)["y"]
-        running_sum = grouped.cumsum() - sorted_y
-        running_count = grouped.cumcount()
+        running_sum, running_count = _running_category_stats(sorted_cats, sorted_y)
 
         encoded_sorted = (running_sum + smoothing * global_prior_sorted) / (running_count + smoothing)
 

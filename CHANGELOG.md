@@ -188,6 +188,8 @@ history.
 
 ### Fixed
 
+- Ordered target encoding (`ordered_target_encode`, `ordered_target_encode_batch`, and the two-step encoding built on them) with rows that have no label: such a row used to make the prior NaN, so the whole train column came out NaN and every per-entity lookup 0.0, silently. A row without a label is now encoded from the labelled rows before it and adds nothing to later rows; with every row labelled the output is unchanged bit for bit.
+- Two charts no longer emit numpy warnings on empty input: the composite MI-gain chart for a spec without a gain, and the error-bias panel for an error group with no rows.
 - The automatic categorical-group search (`categorical_group_concat_auto_enabled`) scores a regression target with `mutual_info_regression`; `mutual_info_classif` refused it, so the step failed and was skipped on every regression target. Rows without a label are left out of the search.
 - Under `target_null_policy="drop_rows"`, a target whose val or test has no labelled row (outcomes of the newest rows not known yet) trains as with `val_size=0` / `test_size=0` instead of crashing on an empty prediction, and its dummy baselines no longer report on the empty split. String class labels with gaps are refused like string labels without gaps.
 - `LGBMRegressorWithDatasetReuse` / `LGBMClassifierWithDatasetReuse`: a fit without `init_score` that reused a cached Dataset carrying one from an earlier fit reset it to zeros, which switches LightGBM's `boost_from_average` off, so the same fit trained a different booster on a cache hit than on a miss. Such a Dataset is now rebuilt.

@@ -197,7 +197,8 @@ def _error_bias_panel(col: np.ndarray, name: str, *, masks: Dict[str, np.ndarray
     cols: List[str] = []
     for g in ("OVER", "UNDER", "MAJORITY"):
         gvals = col[masks[g] & finite]
-        dens, _ = np.histogram(gvals, bins=edges, density=True)
+        # An empty group has no density (numpy divides by its zero count); it draws as a flat zero line.
+        dens = np.histogram(gvals, bins=edges, density=True)[0] if gvals.size else np.zeros(len(edges) - 1)
         # Uneven bins: plot each group's share of rows per bin so narrow and wide bins are comparable.
         series.append(dens * np.diff(edges) if heavy is not None else dens)
         labels.append(g)
