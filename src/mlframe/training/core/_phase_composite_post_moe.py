@@ -22,6 +22,7 @@ from ..composite import (
 )
 from ..composite.post_shim import PrePipelinePredictShim
 from ._phase_composite_post_lag_predict import _LagPredictDeployableModel
+from ._phase_composite_wrapping import _splits_for_target
 from ._prediction_memo import memo_predict
 from mlframe.utils.log_throttle import log_throttle
 
@@ -196,120 +197,134 @@ def run_composite_moe_and_value_report(
         for _key in list(_by_name.keys()):
             if not str(_key).startswith("_CT_ENSEMBLE__"):
                 continue
-            _orig_tname = str(_key)[len("_CT_ENSEMBLE__") :]
-            _s = {**_full, **{k: v for k, v in ((split_args_by_target or {}).get((str(_tt_e), _orig_tname)) or {}).items() if k in _full}}
-            filtered_train_df, filtered_val_df, filtered_val_idx = _s["filtered_train_df"], _s["filtered_val_df"], _s["filtered_val_idx"]
-            test_df, test_idx = _s["test_df_pd"], _s["test_idx"]
-            if filtered_val_df is None or filtered_val_idx is None:
-                continue  # no labelled val row for this target: nothing to select on
-            _entries = _by_name.get(_key) or []
-            if not _entries:
-                continue
-            _ens_model = getattr(_entries[0], "model", None)
-            if _ens_model is None or not hasattr(_ens_model, "predict"):
-                continue
+            _run_moe_for_one_ensemble(
+                _tt_e, _key, _by_name.get(_key) or [], models=models, metadata=metadata, target_by_type=target_by_type,
+                full_splits=_full, split_args_by_target=split_args_by_target, ctx_groups=_ctx_groups, ctx_sw=_ctx_sw,
+                group_column=_group_column, shrink_rtol=_shrink_rtol, min_group_rows=_min_group_rows, min_gain_z=_min_gain_z,
+                emit_report=_emit_report, moe_enabled=_moe_enabled,
+            )
 
-            _y_full = (target_by_type or {}).get(_tt_e, {}).get(_orig_tname)
-            _y_sel = _select_rows(_y_full, filtered_val_idx, np.float64)
-            if _y_sel is None or _y_sel.size == 0:
-                continue
 
-            _raw_shim = _first_raw_shim(models, _tt_e, _orig_tname)
-            if _raw_shim is None:
-                continue
-            _lag_model = _resolve_lag_model(metadata, _tt_e, _orig_tname)
+def _run_moe_for_one_ensemble(
+    _tt_e: Any, _key: str, _entries: list, *, models: dict, metadata: dict, target_by_type: dict, full_splits: dict,
+    split_args_by_target: "dict | None", ctx_groups: Any, ctx_sw: Any, group_column: "str | None", shrink_rtol: float,
+    min_group_rows: int, min_gain_z: float, emit_report: bool, moe_enabled: bool,
+) -> None:
+    """One deployed ``_CT_ENSEMBLE__<target>`` slot: predicts the experts on its (possibly row-narrowed) val split,
+    emits the composite value report, and wraps the deployed model in a MoE gate when routing is possible."""
+    _orig_tname = str(_key)[len("_CT_ENSEMBLE__") :]
+    _s = _splits_for_target(full_splits, split_args_by_target, _tt_e, _orig_tname)
+    filtered_train_df, filtered_val_df, filtered_val_idx = _s["filtered_train_df"], _s["filtered_val_df"], _s["filtered_val_idx"]
+    test_df, test_idx = _s["test_df_pd"], _s["test_idx"]
+    if filtered_val_df is None or filtered_val_idx is None:
+        return  # no labelled val row for this target: nothing to select on
+    if not _entries:
+        return
+    _ens_model = getattr(_entries[0], "model", None)
+    if _ens_model is None or not hasattr(_ens_model, "predict"):
+        return
 
-            # Predict the experts on the selection (val) split. A single failing expert aborts this target's gate/report (no fabricated numbers) but leaves
-            # every other target untouched.
-            try:
-                _composite_sel = memo_predict(_ens_model, filtered_val_df)
-                _raw_sel = memo_predict(_raw_shim, filtered_val_df)
-                _lag_sel = None
-                if _lag_model is not None:
-                    if filtered_train_df is not None:
-                        try:
-                            _lag_model.fit(filtered_train_df)
-                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                            logger.debug("suppressed: %s", e)
-                    _lag_sel = np.asarray(_lag_model.predict(filtered_val_df), dtype=np.float64).reshape(-1)
-            except Exception as _pred_err:
-                log_throttle(
-                    logger, "composite_moe_expert_predict_failed", logging.WARNING,
-                    "[CompositeMoE] target='%s': expert prediction on selection split failed (%s); "
-                    "skipping value report + gate for this target.", _orig_tname, _pred_err,
-                )
-                continue
+    _y_full = (target_by_type or {}).get(_tt_e, {}).get(_orig_tname)
+    _y_sel = _select_rows(_y_full, filtered_val_idx, np.float64)
+    if _y_sel is None or _y_sel.size == 0:
+        return
 
-            _groups_sel = _select_rows(_ctx_groups, filtered_val_idx)
-            _sw_sel = _select_rows(_ctx_sw.get(_orig_tname), filtered_val_idx, np.float64) if isinstance(_ctx_sw, dict) else None
+    _raw_shim = _first_raw_shim(models, _tt_e, _orig_tname)
+    if _raw_shim is None:
+        return
+    _lag_model = _resolve_lag_model(metadata, _tt_e, _orig_tname)
 
-            if _emit_report:
+    # Predict the experts on the selection (val) split. A single failing expert aborts this target's gate/report (no fabricated numbers) but leaves
+    # every other target untouched.
+    try:
+        _composite_sel = memo_predict(_ens_model, filtered_val_df)
+        _raw_sel = memo_predict(_raw_shim, filtered_val_df)
+        _lag_sel = None
+        if _lag_model is not None:
+            if filtered_train_df is not None:
                 try:
-                    _report = build_composite_value_report(
-                        _y_sel, _raw_sel, _composite_sel, _groups_sel,
-                        y_pred_lag=_lag_sel, sample_weight=_sw_sel,
-                    )
-                    metadata.setdefault("composite_value_report", {}).setdefault(str(_tt_e), {})[_orig_tname] = _report
-                    logger.info(
-                        "[CompositeValueReport] target='%s'\n%s",
-                        _orig_tname, render_composite_value_report(_report),
-                    )
-                except Exception as _rep_err:
-                    log_throttle(
-                        logger, "composite_value_report_build_failed", logging.WARNING,
-                        "[CompositeValueReport] target='%s': report build failed (%s); continuing.",
-                        _orig_tname, _rep_err,
-                    )
+                    _lag_model.fit(filtered_train_df)
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed: %s", e)
+            _lag_sel = np.asarray(_lag_model.predict(filtered_val_df), dtype=np.float64).reshape(-1)
+    except Exception as _pred_err:
+        log_throttle(
+            logger, "composite_moe_expert_predict_failed", logging.WARNING,
+            "[CompositeMoE] target='%s': expert prediction on selection split failed (%s); "
+            "skipping value report + gate for this target.", _orig_tname, _pred_err,
+        )
+        return
 
-            # MoE gate wrap: needs the lag failsafe, group ids on the selection split, AND a predict-time group column present in the val frame (else the
-            # deployed gate could only route globally to lag, which is worse than the ensemble where composite wins -- so we no-op and ship the ensemble
-            # unchanged).
-            if not _moe_enabled or _lag_model is None or _groups_sel is None or _group_column is None:
-                continue
-            if _extract_group_array(filtered_val_df, _group_column) is None:
-                # The deployed gate routes by this column at predict time, so without it there is nothing to deploy. Said once: a group column kept only as
-                # bookkeeping (an extractor's group_field is dropped from the features) left the enabled gate a silent no-op.
-                log_throttle(
-                    logger, "composite_moe_no_group_column", logging.INFO,
-                    "[CompositeMoE] target='%s': group column %r is not in the feature frame, so the MoE gate cannot route at "
-                    "predict time and the ensemble ships unchanged. Keep the column among the features to enable the gate.",
-                    _orig_tname, _group_column,
-                )
-                continue
-            try:
-                _gate = MoESelectionGate(
-                    failsafe="lag", shrink_rtol=_shrink_rtol, min_group_rows=_min_group_rows, min_gain_z=_min_gain_z,
-                ).fit(
-                    _y_sel,
-                    {"composite": _composite_sel, "raw": _raw_sel, "lag": _lag_sel},
-                    group_ids=_groups_sel,
-                    sample_weight=_sw_sel,
-                )
-                _entries[0].model = _MoEGatedDeployableModel(
-                    composite_model=_ens_model,
-                    raw_model=_raw_shim,
-                    lag_model=_lag_model,
-                    gate=_gate,
-                    group_column=_group_column,
-                )
-                metadata.setdefault("composite_moe_gate", {}).setdefault(str(_tt_e), {})[_orig_tname] = {
-                    "group_choice": dict(_gate.group_choice_),
-                    "global_choice": _gate.global_choice_,
-                    "guarantee": dict(_gate.guarantee_),
-                    "group_column": _group_column,
-                }
-                _restamp_shipped_metrics(metadata, _tt_e, _orig_tname, _entries[0].model, _y_full, [("val", filtered_val_df, filtered_val_idx), ("test", test_df, test_idx)])
-                logger.info(
-                    "[CompositeMoE] target='%s' wrapped deployed ensemble in MoE gate " "(global='%s', not_worse_than_lag=%s, pooled RMSE gate=%s vs lag=%s).",
-                    _orig_tname,
-                    _gate.global_choice_,
-                    _gate.guarantee_.get("not_worse_than_lag"),
-                    _gate.guarantee_.get("pooled_rmse_gate"),
-                    _gate.guarantee_.get("pooled_rmse_per_expert", {}).get("lag"),
-                )
-            except Exception as _gate_err:
-                log_throttle(
-                    logger, "composite_moe_gate_fit_wrap_failed", logging.WARNING,
-                    "[CompositeMoE] target='%s': gate fit/wrap failed (%s); deploy left unchanged.",
-                    _orig_tname, _gate_err,
-                )
+    _groups_sel = _select_rows(ctx_groups, filtered_val_idx)
+    _sw_sel = _select_rows(ctx_sw.get(_orig_tname), filtered_val_idx, np.float64) if isinstance(ctx_sw, dict) else None
+
+    if emit_report:
+        try:
+            _report = build_composite_value_report(
+                _y_sel, _raw_sel, _composite_sel, _groups_sel,
+                y_pred_lag=_lag_sel, sample_weight=_sw_sel,
+            )
+            metadata.setdefault("composite_value_report", {}).setdefault(str(_tt_e), {})[_orig_tname] = _report
+            logger.info(
+                "[CompositeValueReport] target='%s'\n%s",
+                _orig_tname, render_composite_value_report(_report),
+            )
+        except Exception as _rep_err:
+            log_throttle(
+                logger, "composite_value_report_build_failed", logging.WARNING,
+                "[CompositeValueReport] target='%s': report build failed (%s); continuing.",
+                _orig_tname, _rep_err,
+            )
+
+    # MoE gate wrap: needs the lag failsafe, group ids on the selection split, AND a predict-time group column present in the val frame (else the
+    # deployed gate could only route globally to lag, which is worse than the ensemble where composite wins -- so we no-op and ship the ensemble
+    # unchanged).
+    if not moe_enabled or _lag_model is None or _groups_sel is None or group_column is None:
+        return
+    if _extract_group_array(filtered_val_df, group_column) is None:
+        # The deployed gate routes by this column at predict time, so without it there is nothing to deploy. Said once: a group column kept only as
+        # bookkeeping (an extractor's group_field is dropped from the features) left the enabled gate a silent no-op.
+        log_throttle(
+            logger, "composite_moe_no_group_column", logging.INFO,
+            "[CompositeMoE] target='%s': group column %r is not in the feature frame, so the MoE gate cannot route at "
+            "predict time and the ensemble ships unchanged. Keep the column among the features to enable the gate.",
+            _orig_tname, group_column,
+        )
+        return
+    try:
+        _gate = MoESelectionGate(
+            failsafe="lag", shrink_rtol=shrink_rtol, min_group_rows=min_group_rows, min_gain_z=min_gain_z,
+        ).fit(
+            _y_sel,
+            {"composite": _composite_sel, "raw": _raw_sel, "lag": _lag_sel},
+            group_ids=_groups_sel,
+            sample_weight=_sw_sel,
+        )
+        _entries[0].model = _MoEGatedDeployableModel(
+            composite_model=_ens_model,
+            raw_model=_raw_shim,
+            lag_model=_lag_model,
+            gate=_gate,
+            group_column=group_column,
+        )
+        metadata.setdefault("composite_moe_gate", {}).setdefault(str(_tt_e), {})[_orig_tname] = {
+            "group_choice": dict(_gate.group_choice_),
+            "global_choice": _gate.global_choice_,
+            "guarantee": dict(_gate.guarantee_),
+            "group_column": group_column,
+        }
+        _restamp_shipped_metrics(metadata, _tt_e, _orig_tname, _entries[0].model, _y_full, [("val", filtered_val_df, filtered_val_idx), ("test", test_df, test_idx)])
+        logger.info(
+            "[CompositeMoE] target='%s' wrapped deployed ensemble in MoE gate " "(global='%s', not_worse_than_lag=%s, pooled RMSE gate=%s vs lag=%s).",
+            _orig_tname,
+            _gate.global_choice_,
+            _gate.guarantee_.get("not_worse_than_lag"),
+            _gate.guarantee_.get("pooled_rmse_gate"),
+            _gate.guarantee_.get("pooled_rmse_per_expert", {}).get("lag"),
+        )
+    except Exception as _gate_err:
+        log_throttle(
+            logger, "composite_moe_gate_fit_wrap_failed", logging.WARNING,
+            "[CompositeMoE] target='%s': gate fit/wrap failed (%s); deploy left unchanged.",
+            _orig_tname, _gate_err,
+        )

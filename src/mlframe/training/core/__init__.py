@@ -24,6 +24,9 @@ from ..pipeline import fit_and_transform_pipeline
 
 from .main import train_mlframe_models_suite
 
+# The active target's row narrowing (target_null_policy="drop_rows"): the labelled-rows contract other packages read.
+from ._target_row_scope import active_rows
+
 from .predict import (
     predict_mlframe_models_suite,
     predict_from_models,

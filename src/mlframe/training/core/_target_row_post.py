@@ -90,6 +90,16 @@ def split_args_by_target(ctx: Any, target_by_type: Mapping, metadata: Mapping, a
     return {key: narrow_split_args(rows, args) for key, rows in rows_by_target(ctx, target_by_type, metadata).items()}
 
 
+def full_split_args_and_by_target(ctx: Any, target_by_type: Mapping, metadata: Mapping, **split_vars: Any) -> "tuple[dict, dict]":
+    """``(the caller's split variables as one dict, that dict narrowed per target with missing labels)``.
+
+    Every post-loop consumer (composite wrapping, the cross-target ensemble, MoE, recurrent training) shares this same
+    pair: the full split for a fully labelled target, its own narrowing for one with missing labels.
+    """
+    full = dict(split_vars)
+    return full, split_args_by_target(ctx, target_by_type, metadata, full)
+
+
 def train_recurrent_by_rows(suite_ctx: Any, train_fn: Any, target_by_type: Mapping, metadata: Mapping, /, **kwargs: Any) -> Any:
     """``train_fn`` (``train_recurrent_models``) over every target, each target with missing labels on its labelled rows.
 

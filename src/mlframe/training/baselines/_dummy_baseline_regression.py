@@ -25,11 +25,20 @@ MAX_UNLABELLED_SHARE_FOR_TS_BASELINES = 0.05
 
 def _unlabelled_train_share() -> float:
     """Share of train rows without a label for the target being trained in a narrowed row scope (0.0 outside one)."""
-    from ..core._target_row_scope import active_rows  # lazy: core imports this package
+    from ..core import active_rows  # lazy: core imports this package, so the public re-export must be used here
 
     rows = active_rows()
     share = rows.labelled_share("train_idx") if rows is not None else None
     return 0.0 if share is None else 1.0 - share
+
+
+def _ts_baselines_skip_reason() -> "str | None":
+    """Why the TS rule baselines must not run, or None: "the last P values" of a train series with many unlabelled rows
+    removed are not the last P time steps."""
+    gap_share = _unlabelled_train_share()
+    if gap_share > MAX_UNLABELLED_SHARE_FOR_TS_BASELINES:
+        return f"{gap_share:.0%} of train rows have no label for this target"
+    return None
 
 def _extract_col_1d(df: Any, col: str) -> np.ndarray:
     """Return ``df[col]`` as a flat ndarray, polars/pandas/array agnostic. Polars uses ``get_column`` (no ``.select().reshape`` round-trip)."""
@@ -194,13 +203,10 @@ def _compute_regression_baselines(
 
     # --- TS baselines (prediction rules) ---
     if timestamps_train is not None and timestamps_val is not None and timestamps_test is not None:
-        ts_train = _normalize_timestamps(timestamps_train)
-        ts_val = _normalize_timestamps(timestamps_val)
-        ts_test = _normalize_timestamps(timestamps_test)
-        _gap_share = _unlabelled_train_share()
-        if _gap_share > MAX_UNLABELLED_SHARE_FOR_TS_BASELINES:
-            # "The last P values" of a train series with many unlabelled rows removed are not the last P time steps.
-            extras["ts_diagnostics"] = {"skipped": f"{_gap_share:.0%} of train rows have no label for this target"}
+        ts_train, ts_val, ts_test = (_normalize_timestamps(t) for t in (timestamps_train, timestamps_val, timestamps_test))
+        _ts_skip_reason = _ts_baselines_skip_reason()
+        if _ts_skip_reason is not None:
+            extras["ts_diagnostics"] = {"skipped": _ts_skip_reason}
         elif ts_train is not None and ts_val is not None and ts_test is not None and _is_temporally_monotonic(ts_train, ts_val, ts_test):
             periods, ts_diag = _resolve_ts_periods(
                 train_y, ts_train, config.ts_extra_periods, random_state=getattr(config, "random_state", 42),

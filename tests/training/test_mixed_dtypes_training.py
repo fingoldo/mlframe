@@ -100,7 +100,7 @@ class TestMixedDtypesTraining:
         """
         ft_extractor = SimpleFeaturesAndTargetsExtractor(
             classification_targets=["cl_act_total_hired"],
-            classification_lower_thresholds=dict(cl_act_total_hired=1),
+            classification_gte_thresholds=dict(cl_act_total_hired=1),
             ts_field="job_posted_at",
             columns_to_drop={"uid", "job_posted_at", "job_status", "cl_id"},
             verbose=1,

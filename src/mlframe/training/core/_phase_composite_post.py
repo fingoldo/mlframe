@@ -151,6 +151,25 @@ def _with_raw_only_ensemble_entries(composite_specs_by_target_type, models, comp
     return composite_specs_by_target_type
 
 
+def _run_cross_target_ensemble_for_type(_tt_e, _tt_specs, *, _args_by_target, _full_split_args, **shared) -> None:
+    """One target type's cross-target-ensemble pass: every original target with a non-empty spec list, each on its own
+    (possibly row-narrowed) split arguments. No-op with an INFO log when ``models`` has no entry for ``_tt_e`` at all."""
+    from ._phase_composite_post_xt_ensemble import _build_cross_target_ensemble_for_target
+    from ._target_row_post import target_key
+
+    if not _tt_specs:
+        return
+    # StrEnum: models.get(str_key) is hash-equivalent to models.get(enum_key).
+    if _tt_e not in (shared["models"] or {}):
+        logger.info("[CompositeCrossTargetEnsemble] target_type='%s': no models registered; ensemble skipped.", _tt_e)
+        return
+    for _orig_tname, _spec_list in _tt_specs.items():
+        _build_cross_target_ensemble_for_target(
+            _tt_e=_tt_e, _orig_tname=_orig_tname, _spec_list=_spec_list,
+            **_args_by_target.get(target_key(_tt_e, _orig_tname), _full_split_args), **shared,
+        )
+
+
 @with_prediction_memo
 def run_composite_post_processing(
     *,
@@ -184,14 +203,14 @@ def run_composite_post_processing(
     """
     # A target trained on its labelled rows only is wrapped, ensembled and gated on those rows too: its split frames and
     # indices are narrowed once here and shared by every step below (the wrap pass caches predictions by frame identity).
-    from ._target_row_post import split_args_by_target, target_key
+    from ._target_row_post import full_split_args_and_by_target
 
-    _full_split_args = dict(
+    _full_split_args, _args_by_target = full_split_args_and_by_target(
+        ctx, target_by_type, metadata,
         filtered_train_df=filtered_train_df, filtered_val_df=filtered_val_df, test_df_pd=test_df_pd, train_df_pd=train_df_pd,
         val_df_pd=val_df_pd, filtered_train_idx=filtered_train_idx, filtered_val_idx=filtered_val_idx, test_idx=test_idx,
         train_idx=train_idx, val_idx=val_idx,
     )
-    _args_by_target = split_args_by_target(ctx, target_by_type, metadata, _full_split_args)
     # Composite-target wrapping: T-scale inner models get wrapped so predict() returns y-scale.
     composite_specs_by_target_type = metadata.get("composite_target_specs", {}) or {}
     # Train-prediction cache (key = id(wrapper)) populated by the wrapping block and reused by the cross-target ensemble block.
@@ -267,37 +286,15 @@ def run_composite_post_processing(
         discovery_enabled=_discovery_enabled, ce_strategy=_ce_strategy,
     )
     if _discovery_enabled and _ce_strategy != "off" and composite_specs_by_target_type:
-        from ._phase_composite_post_xt_ensemble import _build_cross_target_ensemble_for_target
-
+        _shared_ensemble_kwargs = dict(
+            _ce_strategy=_ce_strategy, models=models, metadata=metadata, target_by_type=target_by_type,
+            composite_target_discovery_config=composite_target_discovery_config, target_name=target_name, model_name=model_name,
+            reporting_config=reporting_config, plot_file=plot_file, _train_pred_cache=_train_pred_cache, ctx=ctx,
+        )
         for _tt_e, _tt_specs in composite_specs_by_target_type.items():
-            if not _tt_specs:
-                continue
-            # StrEnum: models.get(str_key) is hash-equivalent to models.get(enum_key).
-            if _tt_e not in (models or {}):
-                logger.info(
-                    "[CompositeCrossTargetEnsemble] target_type='%s': no models " "registered; ensemble skipped.",
-                    _tt_e,
-                )
-                continue
-            for _orig_tname, _spec_list in _tt_specs.items():
-                _split_args = _args_by_target.get(target_key(_tt_e, _orig_tname), _full_split_args)
-                _build_cross_target_ensemble_for_target(
-                    _tt_e=_tt_e,
-                    _orig_tname=_orig_tname,
-                    _spec_list=_spec_list,
-                    _ce_strategy=_ce_strategy,
-                    models=models,
-                    metadata=metadata,
-                    target_by_type=target_by_type,
-                    composite_target_discovery_config=composite_target_discovery_config,
-                    target_name=target_name,
-                    model_name=model_name,
-                    **_split_args,
-                    reporting_config=reporting_config,
-                    plot_file=plot_file,
-                    _train_pred_cache=_train_pred_cache,
-                    ctx=ctx,
-                )
+            _run_cross_target_ensemble_for_type(
+                _tt_e, _tt_specs, _args_by_target=_args_by_target, _full_split_args=_full_split_args, **_shared_ensemble_kwargs
+            )
 
     # MoE selection gate + composite VALUE report: this is the one place where the deployed composite ensemble,
     # the raw-y model, the lag failsafe, true y and group_ids coexist on the honest val split. Both are flag-gated

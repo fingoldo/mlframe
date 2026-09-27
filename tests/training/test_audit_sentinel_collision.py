@@ -74,8 +74,8 @@ def test_a_missing_classification_label_is_refused_before_training() -> None:
     from mlframe.training.configs import TargetTypes
     from mlframe.training.core._target_labels import raise_on_missing_labels
 
-    with pytest.raises(ValueError, match="y_bin_above_0.5: target contains 1 NaN/null label"):
-        raise_on_missing_labels({TargetTypes.BINARY_CLASSIFICATION: {"y_bin_above_0.5": np.array([1.0, np.nan, 0.0], dtype=np.float32)}})
+    with pytest.raises(ValueError, match="y_bin_gte_0.5: target contains 1 NaN/null label"):
+        raise_on_missing_labels({TargetTypes.BINARY_CLASSIFICATION: {"y_bin_gte_0.5": np.array([1.0, np.nan, 0.0], dtype=np.float32)}})
 
 
 def test_pd_ordinal_encoder_default_uses_minus_one() -> None:
@@ -205,10 +205,10 @@ def test_extractors_classification_nan_stays_missing() -> None:
     df = pd.DataFrame({"x": [1.0, 2.0, 3.0], "y_bin": [1.0, np.nan, 0.0]})
     ext = _ext_mod.SimpleFeaturesAndTargetsExtractor(
         classification_targets=["y_bin"],
-        classification_lower_thresholds={"y_bin": 0.5},
+        classification_gte_thresholds={"y_bin": 0.5},
     )
     targets = ext.transform(df)[1]
-    y = np.asarray(next(iter(targets.values()))["y_bin_above_0.5"], dtype=np.float64)
+    y = np.asarray(next(iter(targets.values()))["y_bin_gte_0.5"], dtype=np.float64)
     assert np.isnan(y[1])
     np.testing.assert_array_equal(y[[0, 2]], [1.0, 0.0])
 

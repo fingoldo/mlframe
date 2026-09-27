@@ -24,8 +24,8 @@ def _frame(backend: str, missing):
 @pytest.mark.parametrize(
     "rule, name, expected",
     [
-        ({"classification_lower_thresholds": {"hired": 1}}, "hired_above_1", [0, 1, 1]),
-        ({"classification_upper_thresholds": {"hired": 1}}, "hired_below_1", [1, 0, 1]),
+        ({"classification_gte_thresholds": {"hired": 1}}, "hired_gte_1", [0, 1, 1]),
+        ({"classification_lte_thresholds": {"hired": 1}}, "hired_lte_1", [1, 0, 1]),
         ({"classification_exact_values": {"hired": 2}}, "hired_eq_2", [0, 1, 0]),
         ({}, "hired", [0, 2, 1]),
     ],
@@ -39,8 +39,8 @@ def test_a_missing_classification_label_stays_missing(backend, missing, rule, na
 
 @pytest.mark.parametrize("backend", ["polars", "pandas"])
 def test_a_fully_labelled_classification_target_is_still_int8(backend):
-    extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["hired"], classification_lower_thresholds={"hired": 1})
-    y = next(iter(extractor.build_targets(_frame(backend, 0.0)).values()))["hired_above_1"]
+    extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["hired"], classification_gte_thresholds={"hired": 1})
+    y = next(iter(extractor.build_targets(_frame(backend, 0.0)).values()))["hired_gte_1"]
     assert np.asarray(y).dtype == np.int8
     np.testing.assert_array_equal(np.asarray(y), [0, 1, 0, 1])
 

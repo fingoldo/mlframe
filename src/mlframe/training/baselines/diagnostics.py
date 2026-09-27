@@ -223,6 +223,16 @@ def _delta_pct(
     return float((metric_after / metric_baseline - 1.0) * 100.0)
 
 
+def _drop_unlabelled_rows(y: Any, X: Any) -> "tuple[Any, Any]":
+    """``(y, X)`` restricted to rows with a label; unchanged when every row has one.
+
+    Kept, an unlabelled row made the regression RMSE NaN (reported as a "degenerate target" skip), counted NaN as a
+    class, and put NaN into the binary init score.
+    """
+    labelled = ~pd.isna(y)
+    return (y[labelled], X.loc[labelled]) if not labelled.all() else (y, X)
+
+
 class BaselineDiagnostics:
     """Run the per-target baseline diagnostic.
 
@@ -310,11 +320,7 @@ class BaselineDiagnostics:
         try:
             y = _to_1d_numpy(train_target)
             X = _coerce_to_pandas(train_df, feature_cols)
-            # Rows without a label carry nothing to fit or score: kept, they made the regression RMSE NaN (reported as a
-            # "degenerate target" skip), counted NaN as a class, and put NaN into the binary init score.
-            labelled = ~pd.isna(y)
-            if not labelled.all():
-                y, X = y[labelled], X.loc[labelled]
+            y, X = _drop_unlabelled_rows(y, X)
             # The quick model is LightGBM, which rejects object/string feature columns ("pandas dtypes must be int,
             # float or bool") even when they are named in categorical_feature -- it needs pandas 'category' dtype.
             # Cast the declared categoricals that arrive as object/string ONCE on the full frame (via assign, so the

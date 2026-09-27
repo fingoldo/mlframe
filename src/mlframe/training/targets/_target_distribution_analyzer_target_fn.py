@@ -53,6 +53,12 @@ logger = logging.getLogger(__name__)
 # Below this share of labelled rows the lag autocorrelation of the compacted target is not measured (see its use).
 MIN_LABELLED_SHARE_FOR_AUTOCORR = 0.9
 
+def _labelled_share_too_low_for_autocorr(n_labelled: int, n_total: int) -> "float | None":
+    """The labelled share when it is below the autocorrelation floor (a lag then spans an unknown gap), else None."""
+    share = n_labelled / n_total if n_total else 1.0
+    return float(share) if share < MIN_LABELLED_SHARE_FOR_AUTOCORR else None
+
+
 def _apply_heavy_tail_huber_overrides(kurt: float, knob_overrides: dict, stamp_prov, huber_delta: float) -> None:
     """Robust (Huber-family) loss overrides for a heavy-tailed regression target, skipped above the Huber ceiling.
 
@@ -77,6 +83,74 @@ def _apply_heavy_tail_huber_overrides(kurt: float, knob_overrides: dict, stamp_p
     stamp_prov("lgb_kwargs", "objective", "huber", "heavy_tail")
     stamp_prov("xgb_kwargs", "objective", "reg:pseudohubererror", "heavy_tail")
     stamp_prov("cb_kwargs", "loss_function", cb_huber, "heavy_tail")
+
+
+def _detect_strong_ar(
+    y_for_stats: np.ndarray, y: np.ndarray, n: int, finite: np.ndarray, has_time_axis: bool, group_ids: Optional[np.ndarray], *,
+    diagnostics: dict, pathologies: list, knob_overrides: dict, stamp_prov: Any,
+) -> None:
+    """Global lag-autocorr when time-ordered, else per-group lag-autocorr; forces MLP layernorm off if strong.
+
+    Per-group autocorr: row order encodes time within each group but not across groups (per-customer time series /
+    per-subject EEG / depth-sorted per-asset logs) -- global lag-1 looks low because group boundaries inject
+    discontinuities, but within each group there IS a strong AR signal. A prod log had depth-sorted rows within
+    hundreds of groups; global lag-1 wasn't measured (no timestamps, so has_time_axis=False) and the MLP
+    use_layernorm recommendation never fired.
+
+    Autocorrelation needs neighbouring rows to be neighbours: with many unlabelled rows dropped, lag 1 of the
+    compacted series spans unknown gaps, so the estimate is not measured at all below a labelled-share floor.
+    """
+    ar = float("nan")
+    ar_source = None
+    _autocorr_gate = _labelled_share_too_low_for_autocorr(n, y.size)
+    if _autocorr_gate is not None:
+        diagnostics["autocorr_skipped_labelled_share"] = _autocorr_gate
+    elif has_time_axis:
+        # E5.1: scan lags 1/2/3/5 and take the strongest |autocorr|. Long-memory
+        # series can hit lag-2/3 strongly with weak lag-1 -- both shapes feed
+        # the same MLP-LayerNorm collapse mode the AR detector exists to flag.
+        ar, ar_lag = _max_abs_lag_autocorr(y_for_stats)
+        ar_source = f"global_lag{ar_lag}" if ar_lag else "global"
+        diagnostics["lag1_autocorr"] = _lag_autocorr(y_for_stats, lag=1)
+        diagnostics["max_abs_autocorr"] = float(ar)
+        diagnostics["max_abs_autocorr_lag"] = int(ar_lag) if ar_lag else 0
+    elif group_ids is not None:
+        gids_arr = np.asarray(group_ids).reshape(-1)
+        if gids_arr.size == y.size:
+            # Apply the same finite-mask filter as y_for_stats.
+            _gids_finite = gids_arr[finite] if finite.size == y.size else gids_arr
+            # E5 (2026-05-21) ordering-check addition: warn when within-group
+            # sequence is destroyed by post-FTE shuffling. The per-group AR
+            # detector assumes rows of the same group are contiguous AND in
+            # their natural order (depth- or time-ordered for sequence-style
+            # data; per-customer time logs). When the suite caller shuffles BEFORE
+            # passing to analyze_target_distribution, the within-group
+            # autocorr drops to ~0 and the detector silently false-negatives
+            # the same prod-relevant pathology it exists to catch.
+            _ordered = _check_within_group_ordering(_gids_finite)
+            diagnostics["group_ordering_check"] = bool(_ordered)
+            if not _ordered:
+                logger.warning(
+                    "_lag1_autocorr_grouped: rows do not appear sorted by group "
+                    "(only %.0f%% consecutive transitions are within-group). The "
+                    "per-group AR detector assumes within-group sequence is preserved; "
+                    "if your data IS group-sorted, ignore this warning. Otherwise "
+                    "the AR signal is being destroyed by post-FTE row shuffling.",
+                    100.0 * float(np.mean(_gids_finite[:-1] == _gids_finite[1:])),
+                )
+            ar, _n_groups_skipped = _lag1_autocorr_grouped(y_for_stats, _gids_finite)
+            ar_source = "per_group"
+            diagnostics["lag1_autocorr_per_group"] = ar
+            diagnostics["lag1_autocorr_per_group_groups_skipped"] = float(_n_groups_skipped)
+    if math.isfinite(ar) and abs(ar) > _STRONG_AR_PEARSON_LAG1:
+        pathologies.append(f"strong_AR_target(max_abs_autocorr={ar:.3f}, source={ar_source})")
+        # Real prod root cause: MLP with per-row layernorm collapses
+        # under strong AR because the layer destroys inter-row absolute-
+        # scale signal that AR depends on. Force layernorm OFF.
+        knob_overrides.setdefault("mlp_kwargs", {})
+        mlp_np = knob_overrides["mlp_kwargs"].setdefault("network_params", {})
+        mlp_np["use_layernorm"] = False
+        stamp_prov("mlp_kwargs", "network_params.use_layernorm", False, "strong_AR_target")
 
 
 def analyze_target_distribution(
@@ -229,72 +303,11 @@ def analyze_target_distribution(
         if is_mm:
             pathologies.append(f"multi_modal_target(peaks={n_peaks}, max_sep={max_sep:.2f} stds)")
 
-        # Strong AR. Global lag-1 autocorr is meaningful when row order encodes
-        # time across the whole dataset. For group-ordered data (rows ordered
-        # within each group but not across groups -- per-customer
-        # time series / per-subject EEG / depth-sorted per-asset logs), a per-group
-        # autocorr aggregated by group size is the right metric: global lag-1
-        # looks low because the group boundaries inject discontinuities, but
-        # within each group there IS a strong AR signal. A prod log had
-        # depth-sorted rows within hundreds of groups; global lag-1 wasn't
-        # measured (the suite
-        # didn't pass timestamps so has_time_axis=False), and the MLP
-        # use_layernorm recommendation never fired. The per-group branch below
-        # gives the analyzer access to that signal even when the suite caller
-        # can't supply explicit timestamps.
-        ar = float("nan")
-        ar_source = None
-        # Autocorrelation needs neighbouring rows to be neighbours: with many unlabelled rows dropped, lag 1 of the
-        # compacted series spans unknown gaps, so the estimate is not measured at all below this share of labelled rows.
-        labelled_share = n / y.size if y.size else 1.0
-        if labelled_share < MIN_LABELLED_SHARE_FOR_AUTOCORR:
-            diagnostics["autocorr_skipped_labelled_share"] = float(labelled_share)
-        elif has_time_axis:
-            # E5.1: scan lags 1/2/3/5 and take the strongest |autocorr|. Long-memory
-            # series can hit lag-2/3 strongly with weak lag-1 -- both shapes feed
-            # the same MLP-LayerNorm collapse mode the AR detector exists to flag.
-            ar, ar_lag = _max_abs_lag_autocorr(y_for_stats)
-            ar_source = f"global_lag{ar_lag}" if ar_lag else "global"
-            diagnostics["lag1_autocorr"] = _lag_autocorr(y_for_stats, lag=1)
-            diagnostics["max_abs_autocorr"] = float(ar)
-            diagnostics["max_abs_autocorr_lag"] = int(ar_lag) if ar_lag else 0
-        elif group_ids is not None:
-            gids_arr = np.asarray(group_ids).reshape(-1)
-            if gids_arr.size == y.size:
-                # Apply the same finite-mask filter as y_for_stats.
-                _gids_finite = gids_arr[finite] if finite.size == y.size else gids_arr
-                # E5 (2026-05-21) ordering-check addition: warn when within-group
-                # sequence is destroyed by post-FTE shuffling. The per-group AR
-                # detector assumes rows of the same group are contiguous AND in
-                # their natural order (depth- or time-ordered for sequence-style
-                # data; per-customer time logs). When the suite caller shuffles BEFORE
-                # passing to analyze_target_distribution, the within-group
-                # autocorr drops to ~0 and the detector silently false-negatives
-                # the same prod-relevant pathology it exists to catch.
-                _ordered = _check_within_group_ordering(_gids_finite)
-                diagnostics["group_ordering_check"] = bool(_ordered)
-                if not _ordered:
-                    logger.warning(
-                        "_lag1_autocorr_grouped: rows do not appear sorted by group "
-                        "(only %.0f%% consecutive transitions are within-group). The "
-                        "per-group AR detector assumes within-group sequence is preserved; "
-                        "if your data IS group-sorted, ignore this warning. Otherwise "
-                        "the AR signal is being destroyed by post-FTE row shuffling.",
-                        100.0 * float(np.mean(_gids_finite[:-1] == _gids_finite[1:])),
-                    )
-                ar, _n_groups_skipped = _lag1_autocorr_grouped(y_for_stats, _gids_finite)
-                ar_source = "per_group"
-                diagnostics["lag1_autocorr_per_group"] = ar
-                diagnostics["lag1_autocorr_per_group_groups_skipped"] = float(_n_groups_skipped)
-        if math.isfinite(ar) and abs(ar) > _STRONG_AR_PEARSON_LAG1:
-            pathologies.append(f"strong_AR_target(max_abs_autocorr={ar:.3f}, source={ar_source})")
-            # Real prod root cause: MLP with per-row layernorm collapses
-            # under strong AR because the layer destroys inter-row absolute-
-            # scale signal that AR depends on. Force layernorm OFF.
-            knob_overrides.setdefault("mlp_kwargs", {})
-            mlp_np = knob_overrides["mlp_kwargs"].setdefault("network_params", {})
-            mlp_np["use_layernorm"] = False
-            _stamp_prov("mlp_kwargs", "network_params.use_layernorm", False, "strong_AR_target")
+        # Strong AR (global lag-autocorr, or per-group where row order encodes time only within each group).
+        _detect_strong_ar(
+            y_for_stats, y, n, finite, has_time_axis, group_ids, diagnostics=diagnostics, pathologies=pathologies,
+            knob_overrides=knob_overrides, stamp_prov=_stamp_prov,
+        )
 
         # Clustered target (within-group << between-group variance)
         if group_ids is not None:

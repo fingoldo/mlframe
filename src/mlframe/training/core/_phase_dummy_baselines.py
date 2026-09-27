@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -13,6 +14,11 @@ from .utils import _augment_with_dropped_high_card_cols
 from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
+
+
+def _has_rows(target: Any) -> bool:
+    """False for an empty split (val_size / test_size 0, or no labelled row there for this target): nothing to report."""
+    return target is not None and len(target) > 0
 
 
 def _resolve_spec_raw_target(matching_spec: dict, target_type, target_by_type: dict, cur_target_name: str):
@@ -229,8 +235,7 @@ def run_dummy_baselines(
                 )
                 _emit_val = bool(getattr(reporting_config, "compute_valset_metrics", True))
                 _emit_test = bool(getattr(reporting_config, "compute_testset_metrics", True))
-                # An empty split (val_size / test_size 0, or no labelled row there for this target) has nothing to report.
-                if _emit_val and _strongest_val_raw is not None and current_val_target is not None and len(current_val_target) > 0:
+                if _emit_val and _strongest_val_raw is not None and _has_rows(current_val_target):
                     _vp, _vpr = _split_preds_probs(_strongest_val_raw, target_type)
                     _common_val = dict(_common)
                     if plot_file:
@@ -241,7 +246,7 @@ def run_dummy_baselines(
                         report_title="VAL (DUMMY) ",
                         **_common_val,
                     )
-                if _emit_test and _strongest_test_raw is not None and current_test_target is not None and len(current_test_target) > 0:
+                if _emit_test and _strongest_test_raw is not None and _has_rows(current_test_target):
                     _tp, _tpr = _split_preds_probs(_strongest_test_raw, target_type)
                     _common_test = dict(_common)
                     if plot_file:

@@ -50,6 +50,16 @@ def _binary_target(comparison: "Union[pd.Series, pl.Series]", missing: Optional[
     return out
 
 
+# (attribute name, column-name suffix, comparison). The suffix names the operator itself (gt/lt/gte/lte) rather than a
+# reader-inferred direction ("above"/"below" read as strict but ``classification_lower_thresholds`` was >=, not >).
+_THRESHOLD_OPS: Tuple[Tuple[str, str, Any], ...] = (
+    ("classification_gt_thresholds", "gt", lambda s, t: s > t),
+    ("classification_lt_thresholds", "lt", lambda s, t: s < t),
+    ("classification_gte_thresholds", "gte", lambda s, t: s >= t),
+    ("classification_lte_thresholds", "lte", lambda s, t: s <= t),
+)
+
+
 class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     """Simple extractor for common regression and classification targets.
 
@@ -82,12 +92,18 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     classification_exact_values : dict, optional
         Dict mapping column names to exact values for binary classification.
         Example: {"status": 1} creates target "status_eq_1".
-    classification_lower_thresholds : dict, optional
-        Dict mapping column names to lower threshold values for binary classification.
-        Example: {"score": 0.5} creates target "score_above_0.5".
-    classification_upper_thresholds : dict, optional
-        Dict mapping column names to upper threshold values for binary classification.
-        Example: {"score": 0.8} creates target "score_below_0.8".
+    classification_gt_thresholds : dict, optional
+        Dict mapping column names to strict lower bounds (col > value).
+        Example: {"score": 0.5} creates target "score_gt_0.5".
+    classification_lt_thresholds : dict, optional
+        Dict mapping column names to strict upper bounds (col < value).
+        Example: {"score": 0.8} creates target "score_lt_0.8".
+    classification_gte_thresholds : dict, optional
+        Dict mapping column names to inclusive lower bounds (col >= value).
+        Example: {"score": 0.5} creates target "score_gte_0.5".
+    classification_lte_thresholds : dict, optional
+        Dict mapping column names to inclusive upper bounds (col <= value).
+        Example: {"score": 0.8} creates target "score_lte_0.8".
     use_uniform_weighting : bool, default=True
         If True, include uniform weighting (None) in sample weights dict. Default is
         True so every run produces a uniform baseline -- without one, a single
@@ -111,13 +127,13 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     >>> extractor = SimpleFeaturesAndTargetsExtractor(
     ...     regression_targets=["price"],
     ...     classification_targets=["quality"],
-    ...     classification_lower_thresholds={"quality": 3},
-    ...     classification_upper_thresholds={"quality": 8},
+    ...     classification_gte_thresholds={"quality": 3},
+    ...     classification_lte_thresholds={"quality": 8},
     ...     ts_field="date",
     ... )
     >>> df, targets, *rest = extractor.transform(df)
     >>> sorted(name for per_type in targets.values() for name in per_type)
-    ['price', 'quality_above_3', 'quality_below_8']
+    ['price', 'quality_gte_3', 'quality_lte_8']
     """
 
     def __init__(
@@ -133,9 +149,10 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         classification_targets: Optional[Iterable] = None,
         learning_to_rank_targets: Optional[Iterable] = None,
         classification_exact_values: Optional[dict] = None,
-        classification_lower_thresholds: Optional[dict] = None,
-        classification_upper_thresholds: Optional[dict] = None,
-        classification_thresholds: Optional[dict] = None,  # alias for classification_lower_thresholds
+        classification_gt_thresholds: Optional[dict] = None,
+        classification_lt_thresholds: Optional[dict] = None,
+        classification_gte_thresholds: Optional[dict] = None,
+        classification_lte_thresholds: Optional[dict] = None,
         # Weighting options
         use_uniform_weighting: bool = True,
         use_recency_weighting: bool = True,
@@ -162,11 +179,10 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         self.regression_targets = regression_targets
         self.classification_targets = classification_targets
         self.learning_to_rank_targets = learning_to_rank_targets
-        # classification_thresholds is an alias for classification_lower_thresholds
-        if classification_thresholds is not None and classification_lower_thresholds is None:
-            classification_lower_thresholds = classification_thresholds
-        self.classification_lower_thresholds = classification_lower_thresholds
-        self.classification_upper_thresholds = classification_upper_thresholds
+        self.classification_gt_thresholds = classification_gt_thresholds
+        self.classification_lt_thresholds = classification_lt_thresholds
+        self.classification_gte_thresholds = classification_gte_thresholds
+        self.classification_lte_thresholds = classification_lte_thresholds
         self.classification_exact_values = classification_exact_values
         self.use_uniform_weighting = use_uniform_weighting
         self.use_recency_weighting = use_recency_weighting
@@ -214,17 +230,15 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                 col_data = df[col]
                 missing = _missing_label_mask(col_data)
 
-                # Process lower thresholds
-                if self.classification_lower_thresholds and col in self.classification_lower_thresholds:
-                    thresh_val = self.classification_lower_thresholds[col]
-                    target_name = f"{col}_above_{thresh_val}"
-                    targets[target_name] = _binary_target(col_data >= thresh_val, missing)
-
-                # Process upper thresholds
-                if self.classification_upper_thresholds and col in self.classification_upper_thresholds:
-                    thresh_val = self.classification_upper_thresholds[col]
-                    target_name = f"{col}_below_{thresh_val}"
-                    targets[target_name] = _binary_target(col_data <= thresh_val, missing)
+                # Threshold targets: one column per configured (attr, op) whose mapping names this col.
+                _has_threshold = False
+                for _attr, _suffix, _cmp in _THRESHOLD_OPS:
+                    _mapping = getattr(self, _attr, None)
+                    if _mapping and col in _mapping:
+                        thresh_val = _mapping[col]
+                        target_name = f"{col}_{_suffix}_{thresh_val}"
+                        targets[target_name] = _binary_target(_cmp(col_data, thresh_val), missing)
+                        _has_threshold = True
 
                 # Process exact values
                 if self.classification_exact_values and col in self.classification_exact_values:
@@ -245,11 +259,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                 # Default: use column as-is. Don't pre-cast to int8 here -- intize_targets()
                 # below promotes int8/16/32/64 based on actual value range, so multiclass labels
                 # with cardinality >127 don't wrap silently (pandas) or raise (polars).
-                if (
-                    col not in (self.classification_lower_thresholds or {})
-                    and col not in (self.classification_upper_thresholds or {})
-                    and col not in (self.classification_exact_values or {})
-                ):
+                if not _has_threshold and col not in (self.classification_exact_values or {}):
                     target_name = col
                     targets[target_name] = col_data
 

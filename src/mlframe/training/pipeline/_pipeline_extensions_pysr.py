@@ -10,8 +10,9 @@ from __future__ import annotations
 import logging
 import os
 import subprocess  # nosec B404 - subprocess used below with list args only, no shell=True
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
+import numpy as np
 import pandas as pd
 
 from ..configs import PreprocessingExtensionsConfig
@@ -47,6 +48,13 @@ def _prune_preset_operator_maps(merged_params: dict, user_params: dict) -> None:
             if _inner:
                 _nc[outer] = _inner
         merged_params["nested_constraints"] = _nc or None
+
+
+def _labelled_fit_view(train_df: pd.DataFrame, y_train: Any) -> "tuple[pd.DataFrame, np.ndarray]":
+    """``(train_df, y)`` restricted to rows with a label; a copy only when some row lacks one, else unchanged."""
+    y = np.asarray(y_train).ravel()
+    labelled = ~pd.isna(y)
+    return (train_df.loc[labelled].copy(), y[labelled]) if not labelled.all() else (train_df, y)
 
 
 def _apply_pysr_fe(
@@ -89,7 +97,6 @@ def _apply_pysr_fe(
         if verbose:
             logger.warning("PySR feature engineering is enabled but the pysr / Julia " "runtime is not importable. Skipping.")
         return []
-    import numpy as np
 
     pysr_params = getattr(config, "pysr_params", None) or {}
     # Operator preset (minimal / standard / physics) -- standard is the in-suite default. The preset
@@ -169,11 +176,7 @@ def _apply_pysr_fe(
     # bruteforce.py:_run_pysr_feature_engineering).
     # PySR fits on the labelled rows: a row without a label has no y to regress on. The subset is its own frame, so the
     # temp target column below never touches the caller's.
-    y_fit = np.asarray(y_train).ravel()
-    labelled = ~pd.isna(y_fit)
-    fit_df = train_df
-    if not labelled.all():
-        fit_df, y_fit = train_df.loc[labelled].copy(), y_fit[labelled]
+    fit_df, y_fit = _labelled_fit_view(train_df, y_train)
     _sample_override = getattr(config, "pysr_sample_size", None)
     sample_n = min(len(fit_df), int(_sample_override)) if _sample_override is not None else len(fit_df)
     # Log when pool is large enough to noticeably affect memory; users can opt to cap via the config.

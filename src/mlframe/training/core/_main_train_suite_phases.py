@@ -73,16 +73,16 @@ def unpack_ctx_configs_to_locals(ctx: Any) -> dict:
 def warn_on_empty_target_by_type(target_by_type: Any) -> None:
     """Empty target_by_type means the extractor returned no targets - usually a caller-side mis-configuration.
 
-    Common cause is passing classification_exact_values / classification_thresholds without classification_targets=[...] (the default ``SimpleFeaturesAndTargetsExtractor.build_targets`` gates those branches on classification_targets being truthy). Pre-fix this short-circuited silently to ``(empty_models, metadata)`` making such misconfigurations look like a fast successful run; loud WARN surfaces them at suite entry instead.
+    Common cause is passing classification_exact_values / classification_gt_thresholds (or _lt_ / _gte_ / _lte_) without classification_targets=[...] (the default ``SimpleFeaturesAndTargetsExtractor.build_targets`` gates those branches on classification_targets being truthy). Pre-fix this short-circuited silently to ``(empty_models, metadata)`` making such misconfigurations look like a fast successful run; loud WARN surfaces them at suite entry instead.
     """
     if not target_by_type:
         logger.warning(
             "train_mlframe_models_suite: features_and_targets_extractor produced an "
             "empty target_by_type. No models will be trained. Check the extractor's "
             "configuration - common cause is passing classification_exact_values / "
-            "classification_thresholds without classification_targets=[...] (the "
-            "default SimpleFeaturesAndTargetsExtractor.build_targets gates those "
-            "branches on classification_targets being truthy)."
+            "classification_gt_thresholds (or _lt_ / _gte_ / _lte_) without "
+            "classification_targets=[...] (the default SimpleFeaturesAndTargetsExtractor.build_targets "
+            "gates those branches on classification_targets being truthy)."
         )
 
 

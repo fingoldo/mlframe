@@ -147,7 +147,6 @@
   "src/mlframe/training/core/_phase_composite_discovery.py::run_composite_target_discovery": 65,
   "src/mlframe/training/core/_phase_composite_post_summary.py::_run_suite_end_dummy_baselines_summary": 32,
   "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py::_build_cross_target_ensemble_for_target": 97,
-  "src/mlframe/training/core/_phase_composite_wrapping.py::_run_composite_target_wrapping": 51,
   "src/mlframe/training/core/_phase_config_setup.py::setup_configuration": 40,
   "src/mlframe/training/core/_phase_dummy_baselines.py::run_dummy_baselines": 36,
   "src/mlframe/training/core/_phase_finalize.py::finalize_suite": 37,
@@ -185,7 +184,6 @@
   "src/mlframe/training/reporting/_reporting_regression/__init__.py::report_regression_model_perf": 60,
   "src/mlframe/training/splitting.py::make_train_test_split": 85,
   "src/mlframe/training/targets/_target_distribution_analyzer_features.py::analyze_feature_distribution": 37,
-  "src/mlframe/training/targets/_target_distribution_analyzer_target_fn.py::analyze_target_distribution": 26,
   "src/mlframe/training/targets/_train_eval_select_target.py::select_target": 34,
   "src/mlframe/training/train_eval.py::process_model": 30,
   "src/mlframe/training/utils.py::get_pandas_view_of_polars_df": 35

@@ -355,6 +355,399 @@ def emit_per_model_composite_y_scale_test(
         )
 
 
+def _splits_for_target(full_splits: dict, split_args_by_target: "dict | None", target_type, orig_tname) -> dict:
+    """``full_splits`` overridden by this target's own narrowing (see ``_target_row_post``), else unchanged."""
+    per_target = ((split_args_by_target or {}).get((str(target_type), str(orig_tname))) or {})
+    return {**full_splits, **{k: v for k, v in per_target.items() if k in full_splits}}
+
+
+def _wrap_one_composite(
+    _tt_w: Any, _composite_name: str, _entries: Any, _orig_tname: str, _spec: dict, *,
+    target_by_type: dict, metadata: dict, _full_splits: dict, split_args_by_target: "dict | None",
+    group_column: "str | None", skip_predict: bool, enable_watchdog: bool, target_name: "str | None",
+    plot_file: "str | None", reporting_config: Any, _train_pred_cache: dict,
+) -> None:
+    """Wrap one composite target's entries in CompositeTargetEstimator and record its y-scale metrics.
+
+    Mutates ``_train_pred_cache`` (train predictions the cross-target ensemble reuses), ``metadata`` and, for a
+    read-only ``.model`` attribute, ``_entries`` itself, in place.
+    """
+    _s = _splits_for_target(_full_splits, split_args_by_target, _tt_w, _orig_tname)
+    filtered_train_idx, filtered_train_df, filtered_val_idx = _s["filtered_train_idx"], _s["filtered_train_df"], _s["filtered_val_idx"]
+    filtered_val_df, test_idx, test_df_pd = _s["filtered_val_df"], _s["test_idx"], _s["test_df_pd"]
+    _train_frame_key = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
+    # y_train for wrapping is the ORIGINAL y (not T) at the train rows the wrapper saw at fit time.
+    _y_full = target_by_type.get(_tt_w, {}).get(_orig_tname)
+    if _y_full is None:
+        log_throttle(
+            logger, "composite_wrap_missing_original_target", logging.WARNING,
+            "[CompositeTargetEstimator] missing original target '%s' "
+            "in target_by_type for composite='%s'; skipping wrap. "
+            "Predictions will remain in T-scale.",
+            _orig_tname, _composite_name,
+        )
+        return
+    try:
+        _y_train_for_wrap = np.asarray(_y_full)[filtered_train_idx]
+    except Exception as _y_err:
+        log_throttle(
+            logger, "composite_wrap_cannot_align_y_train", logging.WARNING,
+            "[CompositeTargetEstimator] cannot align y_train for '%s': %s. " "Skipping wrap.",
+            _composite_name,
+            _y_err,
+        )
+        return
+    if not isinstance(_entries, list):
+        return
+    _n_wrapped = _wrap_composite_entries(_entries, _spec, _y_train_for_wrap, filtered_train_df, group_column, _orig_tname, _composite_name)
+    logger.info(
+        "[CompositeTargetEstimator] wrapped %d model(s) for composite " "target '%s'; predictions now y-scale.",
+        _n_wrapped,
+        _composite_name,
+    )
+    if metadata is not None:
+        _y_full_ens = target_by_type.get(_tt_w, {}).get(_orig_tname)
+        if _y_full_ens is not None:
+            _record_ensemble_y_scale_metrics(
+                entries=_entries, y_full=np.asarray(_y_full_ens), metadata=metadata, target_type=_tt_w,
+                composite_name=_composite_name,
+                splits=(("val", filtered_val_idx, filtered_val_df), ("test", test_idx, test_df_pd)),
+            )
+    # Compute y-scale RMSE/MAE/R2 per split so composite is comparable to raw (per-target metrics were T-scale). ``skip_predict``: bypass the per-split
+    # predict + metric block; wrap step above already ran so downstream predict-path callers see y-scale predictions. Pack G watchdog on additive
+    # transforms (T-MAE == y-MAE) is the correctness gate; the y-scale numbers here would just restate what the T-scale metrics already say.
+    if skip_predict:
+        _skip_predict_charts_and_watchdog(
+            _tt_w, _composite_name, _orig_tname, _entries, _spec, target_by_type=target_by_type,
+            enable_watchdog=enable_watchdog, filtered_val_idx=filtered_val_idx, filtered_val_df=filtered_val_df,
+            target_name=target_name, test_idx=test_idx, test_df_pd=test_df_pd, plot_file=plot_file,
+            reporting_config=reporting_config,
+        )
+        return
+    _score_composite_y_scale_metrics(
+        _tt_w, _composite_name, _orig_tname, _entries, _spec, metadata=metadata, target_by_type=target_by_type,
+        filtered_train_idx=filtered_train_idx, filtered_train_df=filtered_train_df, filtered_val_idx=filtered_val_idx,
+        filtered_val_df=filtered_val_df, test_idx=test_idx, test_df_pd=test_df_pd, _train_frame_key=_train_frame_key,
+        _train_pred_cache=_train_pred_cache, enable_watchdog=enable_watchdog, target_name=target_name,
+        plot_file=plot_file, reporting_config=reporting_config,
+    )
+
+
+def _wrap_composite_entries(_entries: Any, _spec: dict, _y_train_for_wrap: np.ndarray, filtered_train_df: Any,
+                             group_column: "str | None", _orig_tname: str, _composite_name: str) -> int:
+    """Wrap each entry's inner model in ``CompositeTargetEstimator`` in place (mutating ``_entries``); returns how many."""
+    _n_wrapped = 0
+    for _i, _entry in enumerate(_entries):
+        _inner = getattr(_entry, "model", None) or _entry
+        if not hasattr(_inner, "predict"):
+            continue
+        # Idempotency: if the entry is ALREADY a CompositeTargetEstimator (re-entry via recover_composite_y_scale_metrics), skip wrap. Double-wrap would
+        # treat y-scale predict output as if it were T-scale and invert the transform a second time, producing garbage.
+        if isinstance(_inner, CompositeTargetEstimator):
+            continue
+        try:
+            # Multi-base specs (linear_residual_multi / future multi-base transforms) carry extra base columns alongside the primary; the builder passes
+            # the full base_columns tuple so predict() reconstructs the (n, K) base matrix matching the K alphas in fitted_params (else it raises "base
+            # has 1 columns but fitted alphas has K entries").
+            _wrapper = build_composite_wrapper(
+                entry=_entry, inner=_inner, spec=_spec, y_train=_y_train_for_wrap,
+                train_df=filtered_train_df, target_name=_orig_tname, group_column=group_column,
+            )
+        except Exception as _wrap_err:
+            log_throttle(
+                logger, "composite_wrap_failed", logging.WARNING,
+                "[CompositeTargetEstimator] wrap failed for '%s' (entry %d): %s. "
+                "Predictions will remain in T-scale.",
+                _composite_name, _i, _wrap_err,
+            )
+            continue
+        # Preserve auxiliary metadata (columns, model_name, metrics) by replacing inner on entry.
+        if hasattr(_entry, "model"):
+            try:
+                _entry.model = _wrapper
+            except Exception as e:
+                # Read-only attribute: replace the entry itself.
+                logger.debug("_entry.model assignment failed (likely read-only), replacing the entry instead: %s", e)
+                _entries[_i] = _wrapper
+                _n_wrapped += 1
+            else:
+                _n_wrapped += 1
+        else:
+            _entries[_i] = _wrapper
+            _n_wrapped += 1
+    return _n_wrapped
+
+
+def _skip_predict_charts_and_watchdog(
+    _tt_w: Any, _composite_name: str, _orig_tname: str, _entries: Any, _spec: dict, *, target_by_type: dict,
+    enable_watchdog: bool, filtered_val_idx: Any, filtered_val_df: Any, target_name: "str | None", test_idx: Any,
+    test_df_pd: Any, plot_file: "str | None", reporting_config: Any,
+) -> None:
+    """The ``skip_wrap_pass_predict=True`` path: no per-split metrics, just the val watchdog sample and one test-split chart per entry."""
+    logger.info(
+        "[CompositeTargetEstimator] composite='%s': wrap done, "
+        "y-scale metric block SKIPPED (skip_wrap_pass_predict=True). "
+        "T-scale metrics already in the per-target training log; "
+        "the watchdog checks a val sample.",
+        _composite_name,
+    )
+    _y_full_wd = target_by_type.get(_tt_w, {}).get(_orig_tname)
+    if enable_watchdog and _y_full_wd is not None and filtered_val_idx is not None and filtered_val_df is not None:
+        _wd_df, _wd_y = watchdog_sample(filtered_val_df, np.asarray(_y_full_wd)[filtered_val_idx])
+        for _entry in _entries:
+            _wd_model = getattr(_entry, "model", None) or _entry
+            if callable(getattr(_wd_model, "predict", None)):
+                run_wrap_watchdog(_wd_model, _spec, _wd_df, _wd_y, composite_name=_composite_name, split_name="val")
+    # Even when the heavy multi-split metric block is skipped,
+    # emit a SINGLE test-split y-scale chart per composite entry
+    # so the operator gets the chart the user asked for.
+    # Cost: one wrapper.predict(test_df)
+    # per entry (~0.1s booster, ~5s MLP). Cheap relative to the
+    # full 3-split metric block (~5-15 min).
+    if target_name is not None and test_idx is not None and test_df_pd is not None:
+        _y_full_chart = target_by_type.get(_tt_w, {}).get(_orig_tname)
+        if _y_full_chart is not None:
+            _y_arr_chart = np.asarray(_y_full_chart)
+            for _entry in _entries:
+                # The per-model hook already emitted this entry's test chart; skip to avoid a duplicate predict + overwrite of the same _yscale_{composite} file.
+                if getattr(_entry, "_yscale_chart_emitted", False):
+                    continue
+                try:
+                    _wrap_chart = getattr(_entry, "model", None) or _entry
+                    if not callable(getattr(_wrap_chart, "predict", None)):
+                        # Ensemble pseudo-entries carry predictions, not a model: there is nothing to predict with
+                        # (a production log warned "'SimpleNamespace' object has no attribute 'predict'" per entry).
+                        continue
+                    _y_split_chart = _y_arr_chart[test_idx]
+                    _y_pred_chart = np.asarray(
+                        _wrap_chart.predict(test_df_pd),
+                        dtype=np.float64,
+                    ).reshape(-1)
+                    _finite_chart = np.isfinite(_y_pred_chart) & np.isfinite(_y_split_chart)
+                    if _finite_chart.sum() == 0:
+                        continue
+                    _y_t = _y_split_chart[_finite_chart]
+                    _y_p = _y_pred_chart[_finite_chart]
+                    _diff = _y_p - _y_t.astype(np.float64)
+                    _rmse_c = float(np.sqrt(np.mean(_diff * _diff)))
+                    _mae_c = float(np.mean(np.abs(_diff)))
+                    _ss_tot_c = float(np.sum((_y_t - _y_t.mean()) ** 2))
+                    _r2_c = (1.0 - float(np.sum(_diff * _diff)) / _ss_tot_c) if _ss_tot_c > 0 else float("nan")
+                    _emit_yscale_composite_chart(
+                        y_target=_y_t,
+                        y_pred=_y_p,
+                        inner_entry=_entry,
+                        composite_name=_composite_name,
+                        orig_tname=_orig_tname,
+                        target_name=target_name,
+                        plot_file=plot_file,
+                        reporting_config=reporting_config,
+                        rmse_y=_rmse_c, mae_y=_mae_c, r2_y=_r2_c,
+                    )
+                except Exception as _chart_err:
+                    log_throttle(
+                        logger, "composite_wrap_yscale_chart_emit_failed_skip_predict", logging.WARNING,
+                        "[CompositeTargetEstimator] y-scale chart " "emit failed for composite='%s' (non-fatal): %s",
+                        _composite_name,
+                        _chart_err,
+                    )
+    return
+
+
+def _score_one_entry_per_split(
+    _entry: Any, _wrapper_for_score: Any, _y_arr_metric: np.ndarray, *, _spec: dict, _composite_name: str, _orig_tname: str,
+    filtered_train_idx: Any, filtered_train_df: Any, filtered_val_idx: Any, filtered_val_df: Any, test_idx: Any, test_df_pd: Any,
+    _train_frame_key: tuple, _train_pred_cache: dict, enable_watchdog: bool, target_name: "str | None", plot_file: "str | None",
+    reporting_config: Any,
+) -> dict:
+    """Wrapped (post-clip) and raw (pre-clip) y-scale RMSE/MAE/R2 for one entry, per split; charts + watchdog + train-pred cache write-back."""
+    _entry_y_scores: dict[str, dict[str, float]] = {}
+    for _split_name, _split_idx, _split_df in (
+        ("train", filtered_train_idx, filtered_train_df),
+        ("val", filtered_val_idx, filtered_val_df),
+        ("test", test_idx, test_df_pd),
+    ):
+        if _split_idx is None or _split_df is None:
+            continue
+        try:
+            _y_split = _y_arr_metric[_split_idx]
+            # Wrapped (post-clip) prediction = today's headline value. Train RMSE here is optimistic by construction:
+            # the clip is [y_train_min, y_train_max], train rows are in-envelope, clip is a no-op. Val / test rows
+            # may drift outside; the clip then narrows the headline RMSE. To make that contribution explicit we ALSO
+            # capture the raw (pre-clip) prediction via ``predict_pre_clip`` and emit a parallel metric block.
+            if hasattr(_wrapper_for_score, "predict_with_pre_clip"):
+                # One inner predict gives both numbers (predict + predict_pre_clip ran it twice); the clipped
+                # one is handed to the phase memo for the report and the MoE that predict this pair next.
+                _y_pred_wrapped, _y_pred_raw = (np.asarray(a, dtype=np.float64).reshape(-1)
+                                                for a in _wrapper_for_score.predict_with_pre_clip(_split_df))
+                memo_seed(_wrapper_for_score, _split_df, _y_pred_wrapped)
+            else:
+                _y_pred_wrapped = memo_predict(_wrapper_for_score, _split_df)
+                # Inner is not a CompositeTargetEstimator (raw / passthrough); raw == wrapped is the honest answer.
+                _y_pred_raw = _y_pred_wrapped
+            # Use wrapped predictions for sample-log, cache, and the headline metric block (back-compat).
+            _y_pred = _y_pred_wrapped
+            # Sample-log the first 3 (y_pred, y_true) pairs per split as a leakage / contract sanity check.
+            if _split_idx is not None and len(_y_split) > 0:
+                _n_dbg = min(3, len(_y_split))
+                _pairs = ", ".join(f"({_y_pred[_i]:.3f}, {_y_split[_i]:.3f})" for _i in range(_n_dbg))
+                _outer_dbg = getattr(_entry, "model", None) or _entry
+                _inner_dbg = getattr(_outer_dbg, "base_estimator", None) or getattr(_outer_dbg, "estimator_", None) or _outer_dbg
+                logger.debug(
+                    "[CompositeTargetEstimator.diag] inner=%s split=%s sample(y_hat, y_true) = %s",
+                    type(_inner_dbg).__name__, _split_name, _pairs,
+                )
+            if _split_name == "train":
+                _train_pred_cache[(id(_wrapper_for_score), *_train_frame_key)] = _y_pred
+                # Inner-model key too: composite_post.py reads via ``getattr(comp, 'model', comp)`` which unwraps one level.
+                _inner_for_write = getattr(_wrapper_for_score, "model", None)
+                if _inner_for_write is not None and _inner_for_write is not _wrapper_for_score:
+                    _train_pred_cache[(id(_inner_for_write), *_train_frame_key)] = _y_pred
+            _diff = _y_pred - _y_split.astype(np.float64)
+            _finite = np.isfinite(_diff)
+            if _finite.sum() == 0:
+                continue
+            # Zero-variance y => R2 undefined; emit NaN rather than 0.0 to mark the degenerate case.
+            _y_finite = _y_split.astype(np.float64)[_finite]
+            _ss_tot = float(np.sum((_y_finite - _y_finite.mean()) ** 2))
+            _ss_res = float(np.sum(_diff[_finite] * _diff[_finite]))
+            _r2 = (1.0 - _ss_res / _ss_tot) if _ss_tot > 0 else float("nan")
+            _rmse_wrapped = float(np.sqrt(np.mean(_diff[_finite] * _diff[_finite])))
+            _mae_wrapped = float(np.mean(np.abs(_diff[_finite])))
+            # Raw (pre-clip) RMSE / MAE: align finite mask to raw predictions so any wrapped-only NaN doesn't
+            # bias the comparison. On in-envelope splits (train) raw and wrapped agree exactly.
+            _diff_raw = _y_pred_raw - _y_split.astype(np.float64)
+            _finite_raw = np.isfinite(_diff_raw)
+            if int(_finite_raw.sum()) > 0:
+                _rmse_raw = float(np.sqrt(np.mean(_diff_raw[_finite_raw] * _diff_raw[_finite_raw])))
+                _mae_raw = float(np.mean(np.abs(_diff_raw[_finite_raw])))
+            else:
+                _rmse_raw = float("nan")
+                _mae_raw = float("nan")
+            _entry_y_scores[_split_name] = {
+                "RMSE": _rmse_wrapped,
+                "MAE": _mae_wrapped,
+                "R2": _r2,
+                "n_rows_finite": int(_finite.sum()),
+                "RMSE_raw": _rmse_raw,
+                "RMSE_wrapped": _rmse_wrapped,
+                "MAE_raw": _mae_raw,
+                "MAE_wrapped": _mae_wrapped,
+            }
+            # emit a Y-SCALE
+            # chart for composite models on the TEST split
+            # so it is directly comparable to raw-target
+            # charts (same MTTR/MTTS units, same scatter
+            # axes). The T-scale residual chart in
+            # ``_reporting_regression`` is skipped exactly
+            # to make room for this y-scale chart.
+            if (
+                _split_name in ("val", "test")
+                and target_name is not None
+                and not getattr(_entry, "_yscale_chart_emitted", False)  # per-model hook already wrote these
+            ):
+                try:
+                    _emit_yscale_composite_chart(
+                        y_target=_y_split.astype(np.float64)[_finite],
+                        y_pred=_y_pred[_finite],
+                        inner_entry=_entry,
+                        composite_name=_composite_name,
+                        orig_tname=_orig_tname,
+                        target_name=target_name,
+                        plot_file=plot_file,
+                        reporting_config=reporting_config,
+                        rmse_y=_rmse_wrapped, mae_y=_mae_wrapped, r2_y=_r2,
+                        split_name=_split_name,
+                        y_train_mean=(
+                            float(np.nanmean(_y_arr_metric[filtered_train_idx].astype(np.float64)))
+                            if filtered_train_idx is not None and len(filtered_train_idx)
+                            else None
+                        ),
+                    )
+                except Exception as _chart_err:
+                    log_throttle(
+                        logger, "composite_wrap_yscale_chart_emit_failed", logging.WARNING,
+                        "[CompositeTargetEstimator] y-scale chart " "emit failed for composite='%s' (non-fatal): %s",
+                        _composite_name,
+                        _chart_err,
+                    )
+            # Independent-oracle watchdog (see ``_composite_wrap_watchdog``); ``enable_watchdog=False`` skips its extra predicts.
+            if enable_watchdog:
+                run_wrap_watchdog(_wrapper_for_score, _spec, _split_df, _y_split, composite_name=_composite_name, split_name=_split_name)
+        except Exception as _split_err:
+            # A composite whose predict raises would otherwise vanish from the y-scale verdict with only a DEBUG line;
+            # the model stays in metadata, but its missing split metrics must be visible.
+            log_throttle(
+                logger, "composite_yscale_split_metrics_failed", logging.WARNING,
+                "[composite y-scale metrics] split='%s' composite='%s' skipped: %s: %s",
+                _split_name, _composite_name, type(_split_err).__name__, _split_err,
+            )
+            continue
+    return _entry_y_scores
+
+
+def _score_composite_y_scale_metrics(
+    _tt_w: Any, _composite_name: str, _orig_tname: str, _entries: Any, _spec: dict, *, metadata: dict, target_by_type: dict,
+    filtered_train_idx: Any, filtered_train_df: Any, filtered_val_idx: Any, filtered_val_df: Any, test_idx: Any, test_df_pd: Any,
+    _train_frame_key: tuple, _train_pred_cache: dict, enable_watchdog: bool, target_name: "str | None", plot_file: "str | None",
+    reporting_config: Any,
+) -> None:
+    """Per-split (train/val/test) y-scale RMSE/MAE/R2 for each entry, with its cache write-back and charts."""
+    _metrics_dict = metadata.setdefault(
+        "composite_target_y_scale_metrics", {},
+    ).setdefault(str(_tt_w), {}).setdefault(_composite_name, [])
+    # Re-scored below per real model; ensemble rows (no model, scored by _record_ensemble_y_scale_metrics) stay.
+    _ens_names = {getattr(e, "model_name", None) for e in _entries if not callable(getattr(getattr(e, "model", None), "predict", None))}
+    _metrics_dict[:] = [row for row in _metrics_dict if row.get("model_name") in _ens_names]
+    _y_full_metric = target_by_type.get(_tt_w, {}).get(_orig_tname)
+    if _y_full_metric is None:
+        return
+    _y_arr_metric = np.asarray(_y_full_metric)
+    for _entry in _entries:
+        _wrapper_for_score = getattr(_entry, "model", None) or _entry
+        if not callable(getattr(_wrapper_for_score, "predict", None)):
+            continue  # ensemble pseudo-entry without a model (see the chart loop above)
+        _entry_y_scores = _score_one_entry_per_split(
+            _entry, _wrapper_for_score, _y_arr_metric, _spec=_spec, _composite_name=_composite_name, _orig_tname=_orig_tname,
+            filtered_train_idx=filtered_train_idx, filtered_train_df=filtered_train_df, filtered_val_idx=filtered_val_idx,
+            filtered_val_df=filtered_val_df, test_idx=test_idx, test_df_pd=test_df_pd, _train_frame_key=_train_frame_key,
+            _train_pred_cache=_train_pred_cache, enable_watchdog=enable_watchdog, target_name=target_name,
+            plot_file=plot_file, reporting_config=reporting_config,
+        )
+        _metrics_dict.append({
+            "model_name": getattr(_entry, "model_name", None),
+            "metrics": _entry_y_scores,
+        })
+        # Log y-scale summary so composite numbers are comparable to raw-target models in script output.
+        if _entry_y_scores:
+            _y_summary_parts: list[str] = []
+            for _split_name in ("train", "val", "test"):
+                _s = _entry_y_scores.get(_split_name)
+                if not _s:
+                    continue
+                _y_summary_parts.append(
+                    f"{_split_name.upper()}=RMSE_y:{_fmt(_s['RMSE'])} " f"MAE_y:{_fmt(_s['MAE'])} " f"R2_y:{_fmt(_s.get('R2', float('nan')), 4)}"
+                )
+            if _y_summary_parts:
+                # After wrapping _entry.model IS the CompositeTargetEstimator; drill into base_estimator for the actual inner type name.
+                _mn = getattr(_entry, "model_name", None)
+                if not _mn:
+                    _outer = getattr(_entry, "model", None) or _entry
+                    _inner_actual = getattr(_outer, "base_estimator", None) or getattr(_outer, "estimator_", None) or _outer
+                    _mn = _strip(type(_inner_actual).__name__)
+                else:
+                    _mn = _strip(_mn)
+                logger.info(
+                    "[CompositeTargetEstimator] composite='%s' " "model='%s' y-scale metrics (post-inverse, " "comparable to raw): %s",
+                    _composite_name,
+                    _mn,
+                    " | ".join(_y_summary_parts),
+                )
+
+
+
+
+
 def _run_composite_target_wrapping(
     *,
     models: dict,
@@ -405,320 +798,11 @@ def _run_composite_target_wrapping(
             if _composite_name not in _name_to_spec:
                 continue
             _orig_tname, _spec = _name_to_spec[_composite_name]
-            _s = {**_full_splits, **{k: v for k, v in ((split_args_by_target or {}).get((str(_tt_w), str(_orig_tname))) or {}).items() if k in _full_splits}}
-            filtered_train_idx, filtered_train_df, filtered_val_idx = _s["filtered_train_idx"], _s["filtered_train_df"], _s["filtered_val_idx"]
-            filtered_val_df, test_idx, test_df_pd = _s["filtered_val_df"], _s["test_idx"], _s["test_df_pd"]
-            _train_frame_key = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
-            # y_train for wrapping is the ORIGINAL y (not T) at the train rows the wrapper saw at fit time.
-            _y_full = target_by_type.get(_tt_w, {}).get(_orig_tname)
-            if _y_full is None:
-                log_throttle(
-                    logger, "composite_wrap_missing_original_target", logging.WARNING,
-                    "[CompositeTargetEstimator] missing original target '%s' "
-                    "in target_by_type for composite='%s'; skipping wrap. "
-                    "Predictions will remain in T-scale.",
-                    _orig_tname, _composite_name,
-                )
-                continue
-            try:
-                _y_train_for_wrap = np.asarray(_y_full)[filtered_train_idx]
-            except Exception as _y_err:
-                log_throttle(
-                    logger, "composite_wrap_cannot_align_y_train", logging.WARNING,
-                    "[CompositeTargetEstimator] cannot align y_train for '%s': %s. " "Skipping wrap.",
-                    _composite_name,
-                    _y_err,
-                )
-                continue
-            if not isinstance(_entries, list):
-                continue
-            _n_wrapped = 0
-            for _i, _entry in enumerate(_entries):
-                _inner = getattr(_entry, "model", None) or _entry
-                if not hasattr(_inner, "predict"):
-                    continue
-                # Idempotency: if the entry is ALREADY a CompositeTargetEstimator (re-entry via recover_composite_y_scale_metrics), skip wrap. Double-wrap would
-                # treat y-scale predict output as if it were T-scale and invert the transform a second time, producing garbage.
-                if isinstance(_inner, CompositeTargetEstimator):
-                    continue
-                try:
-                    # Multi-base specs (linear_residual_multi / future multi-base transforms) carry extra base columns alongside the primary; the builder passes
-                    # the full base_columns tuple so predict() reconstructs the (n, K) base matrix matching the K alphas in fitted_params (else it raises "base
-                    # has 1 columns but fitted alphas has K entries").
-                    _wrapper = build_composite_wrapper(
-                        entry=_entry, inner=_inner, spec=_spec, y_train=_y_train_for_wrap,
-                        train_df=filtered_train_df, target_name=_orig_tname, group_column=group_column,
-                    )
-                except Exception as _wrap_err:
-                    log_throttle(
-                        logger, "composite_wrap_failed", logging.WARNING,
-                        "[CompositeTargetEstimator] wrap failed for '%s' (entry %d): %s. "
-                        "Predictions will remain in T-scale.",
-                        _composite_name, _i, _wrap_err,
-                    )
-                    continue
-                # Preserve auxiliary metadata (columns, model_name, metrics) by replacing inner on entry.
-                if hasattr(_entry, "model"):
-                    try:
-                        _entry.model = _wrapper
-                    except Exception as e:
-                        # Read-only attribute: replace the entry itself.
-                        logger.debug("_entry.model assignment failed (likely read-only), replacing the entry instead: %s", e)
-                        _entries[_i] = _wrapper
-                        _n_wrapped += 1
-                    else:
-                        _n_wrapped += 1
-                else:
-                    _entries[_i] = _wrapper
-                    _n_wrapped += 1
-            logger.info(
-                "[CompositeTargetEstimator] wrapped %d model(s) for composite " "target '%s'; predictions now y-scale.",
-                _n_wrapped,
-                _composite_name,
+            _wrap_one_composite(
+                _tt_w, _composite_name, _entries, _orig_tname, _spec,
+                target_by_type=target_by_type, metadata=metadata, _full_splits=_full_splits,
+                split_args_by_target=split_args_by_target, group_column=group_column, skip_predict=skip_predict,
+                enable_watchdog=enable_watchdog, target_name=target_name, plot_file=plot_file,
+                reporting_config=reporting_config, _train_pred_cache=_train_pred_cache,
             )
-            if metadata is not None:
-                _y_full_ens = target_by_type.get(_tt_w, {}).get(_orig_tname)
-                if _y_full_ens is not None:
-                    _record_ensemble_y_scale_metrics(
-                        entries=_entries, y_full=np.asarray(_y_full_ens), metadata=metadata, target_type=_tt_w,
-                        composite_name=_composite_name,
-                        splits=(("val", filtered_val_idx, filtered_val_df), ("test", test_idx, test_df_pd)),
-                    )
-            # Compute y-scale RMSE/MAE/R2 per split so composite is comparable to raw (per-target metrics were T-scale). ``skip_predict``: bypass the per-split
-            # predict + metric block; wrap step above already ran so downstream predict-path callers see y-scale predictions. Pack G watchdog on additive
-            # transforms (T-MAE == y-MAE) is the correctness gate; the y-scale numbers here would just restate what the T-scale metrics already say.
-            if skip_predict:
-                logger.info(
-                    "[CompositeTargetEstimator] composite='%s': wrap done, "
-                    "y-scale metric block SKIPPED (skip_wrap_pass_predict=True). "
-                    "T-scale metrics already in the per-target training log; "
-                    "the watchdog checks a val sample.",
-                    _composite_name,
-                )
-                _y_full_wd = target_by_type.get(_tt_w, {}).get(_orig_tname)
-                if enable_watchdog and _y_full_wd is not None and filtered_val_idx is not None and filtered_val_df is not None:
-                    _wd_df, _wd_y = watchdog_sample(filtered_val_df, np.asarray(_y_full_wd)[filtered_val_idx])
-                    for _entry in _entries:
-                        _wd_model = getattr(_entry, "model", None) or _entry
-                        if callable(getattr(_wd_model, "predict", None)):
-                            run_wrap_watchdog(_wd_model, _spec, _wd_df, _wd_y, composite_name=_composite_name, split_name="val")
-                # Even when the heavy multi-split metric block is skipped,
-                # emit a SINGLE test-split y-scale chart per composite entry
-                # so the operator gets the chart the user asked for.
-                # Cost: one wrapper.predict(test_df)
-                # per entry (~0.1s booster, ~5s MLP). Cheap relative to the
-                # full 3-split metric block (~5-15 min).
-                if target_name is not None and test_idx is not None and test_df_pd is not None:
-                    _y_full_chart = target_by_type.get(_tt_w, {}).get(_orig_tname)
-                    if _y_full_chart is not None:
-                        _y_arr_chart = np.asarray(_y_full_chart)
-                        for _entry in _entries:
-                            # The per-model hook already emitted this entry's test chart; skip to avoid a duplicate predict + overwrite of the same _yscale_{composite} file.
-                            if getattr(_entry, "_yscale_chart_emitted", False):
-                                continue
-                            try:
-                                _wrap_chart = getattr(_entry, "model", None) or _entry
-                                if not callable(getattr(_wrap_chart, "predict", None)):
-                                    # Ensemble pseudo-entries carry predictions, not a model: there is nothing to predict with
-                                    # (a production log warned "'SimpleNamespace' object has no attribute 'predict'" per entry).
-                                    continue
-                                _y_split_chart = _y_arr_chart[test_idx]
-                                _y_pred_chart = np.asarray(
-                                    _wrap_chart.predict(test_df_pd),
-                                    dtype=np.float64,
-                                ).reshape(-1)
-                                _finite_chart = np.isfinite(_y_pred_chart) & np.isfinite(_y_split_chart)
-                                if _finite_chart.sum() == 0:
-                                    continue
-                                _y_t = _y_split_chart[_finite_chart]
-                                _y_p = _y_pred_chart[_finite_chart]
-                                _diff = _y_p - _y_t.astype(np.float64)
-                                _rmse_c = float(np.sqrt(np.mean(_diff * _diff)))
-                                _mae_c = float(np.mean(np.abs(_diff)))
-                                _ss_tot_c = float(np.sum((_y_t - _y_t.mean()) ** 2))
-                                _r2_c = (1.0 - float(np.sum(_diff * _diff)) / _ss_tot_c) if _ss_tot_c > 0 else float("nan")
-                                _emit_yscale_composite_chart(
-                                    y_target=_y_t,
-                                    y_pred=_y_p,
-                                    inner_entry=_entry,
-                                    composite_name=_composite_name,
-                                    orig_tname=_orig_tname,
-                                    target_name=target_name,
-                                    plot_file=plot_file,
-                                    reporting_config=reporting_config,
-                                    rmse_y=_rmse_c, mae_y=_mae_c, r2_y=_r2_c,
-                                )
-                            except Exception as _chart_err:
-                                log_throttle(
-                                    logger, "composite_wrap_yscale_chart_emit_failed_skip_predict", logging.WARNING,
-                                    "[CompositeTargetEstimator] y-scale chart " "emit failed for composite='%s' (non-fatal): %s",
-                                    _composite_name,
-                                    _chart_err,
-                                )
-                continue
-            _metrics_dict = metadata.setdefault(
-                "composite_target_y_scale_metrics", {},
-            ).setdefault(str(_tt_w), {}).setdefault(_composite_name, [])
-            # Re-scored below per real model; ensemble rows (no model, scored by _record_ensemble_y_scale_metrics) stay.
-            _ens_names = {getattr(e, "model_name", None) for e in _entries if not callable(getattr(getattr(e, "model", None), "predict", None))}
-            _metrics_dict[:] = [row for row in _metrics_dict if row.get("model_name") in _ens_names]
-            _y_full_metric = target_by_type.get(_tt_w, {}).get(_orig_tname)
-            if _y_full_metric is None:
-                continue
-            _y_arr_metric = np.asarray(_y_full_metric)
-            for _entry in _entries:
-                _wrapper_for_score = getattr(_entry, "model", None) or _entry
-                if not callable(getattr(_wrapper_for_score, "predict", None)):
-                    continue  # ensemble pseudo-entry without a model (see the chart loop above)
-                _entry_y_scores: dict[str, dict[str, float]] = {}
-                for _split_name, _split_idx, _split_df in (
-                    ("train", filtered_train_idx, filtered_train_df),
-                    ("val", filtered_val_idx, filtered_val_df),
-                    ("test", test_idx, test_df_pd),
-                ):
-                    if _split_idx is None or _split_df is None:
-                        continue
-                    try:
-                        _y_split = _y_arr_metric[_split_idx]
-                        # Wrapped (post-clip) prediction = today's headline value. Train RMSE here is optimistic by construction:
-                        # the clip is [y_train_min, y_train_max], train rows are in-envelope, clip is a no-op. Val / test rows
-                        # may drift outside; the clip then narrows the headline RMSE. To make that contribution explicit we ALSO
-                        # capture the raw (pre-clip) prediction via ``predict_pre_clip`` and emit a parallel metric block.
-                        if hasattr(_wrapper_for_score, "predict_with_pre_clip"):
-                            # One inner predict gives both numbers (predict + predict_pre_clip ran it twice); the clipped
-                            # one is handed to the phase memo for the report and the MoE that predict this pair next.
-                            _y_pred_wrapped, _y_pred_raw = (np.asarray(a, dtype=np.float64).reshape(-1)
-                                                            for a in _wrapper_for_score.predict_with_pre_clip(_split_df))
-                            memo_seed(_wrapper_for_score, _split_df, _y_pred_wrapped)
-                        else:
-                            _y_pred_wrapped = memo_predict(_wrapper_for_score, _split_df)
-                            # Inner is not a CompositeTargetEstimator (raw / passthrough); raw == wrapped is the honest answer.
-                            _y_pred_raw = _y_pred_wrapped
-                        # Use wrapped predictions for sample-log, cache, and the headline metric block (back-compat).
-                        _y_pred = _y_pred_wrapped
-                        # Sample-log the first 3 (y_pred, y_true) pairs per split as a leakage / contract sanity check.
-                        if _split_idx is not None and len(_y_split) > 0:
-                            _n_dbg = min(3, len(_y_split))
-                            _pairs = ", ".join(f"({_y_pred[_i]:.3f}, {_y_split[_i]:.3f})" for _i in range(_n_dbg))
-                            _outer_dbg = getattr(_entry, "model", None) or _entry
-                            _inner_dbg = getattr(_outer_dbg, "base_estimator", None) or getattr(_outer_dbg, "estimator_", None) or _outer_dbg
-                            logger.debug(
-                                "[CompositeTargetEstimator.diag] inner=%s split=%s sample(y_hat, y_true) = %s",
-                                type(_inner_dbg).__name__, _split_name, _pairs,
-                            )
-                        if _split_name == "train":
-                            _train_pred_cache[(id(_wrapper_for_score), *_train_frame_key)] = _y_pred
-                            # Inner-model key too: composite_post.py reads via ``getattr(comp, 'model', comp)`` which unwraps one level.
-                            _inner_for_write = getattr(_wrapper_for_score, "model", None)
-                            if _inner_for_write is not None and _inner_for_write is not _wrapper_for_score:
-                                _train_pred_cache[(id(_inner_for_write), *_train_frame_key)] = _y_pred
-                        _diff = _y_pred - _y_split.astype(np.float64)
-                        _finite = np.isfinite(_diff)
-                        if _finite.sum() == 0:
-                            continue
-                        # Zero-variance y => R2 undefined; emit NaN rather than 0.0 to mark the degenerate case.
-                        _y_finite = _y_split.astype(np.float64)[_finite]
-                        _ss_tot = float(np.sum((_y_finite - _y_finite.mean()) ** 2))
-                        _ss_res = float(np.sum(_diff[_finite] * _diff[_finite]))
-                        _r2 = (1.0 - _ss_res / _ss_tot) if _ss_tot > 0 else float("nan")
-                        _rmse_wrapped = float(np.sqrt(np.mean(_diff[_finite] * _diff[_finite])))
-                        _mae_wrapped = float(np.mean(np.abs(_diff[_finite])))
-                        # Raw (pre-clip) RMSE / MAE: align finite mask to raw predictions so any wrapped-only NaN doesn't
-                        # bias the comparison. On in-envelope splits (train) raw and wrapped agree exactly.
-                        _diff_raw = _y_pred_raw - _y_split.astype(np.float64)
-                        _finite_raw = np.isfinite(_diff_raw)
-                        if int(_finite_raw.sum()) > 0:
-                            _rmse_raw = float(np.sqrt(np.mean(_diff_raw[_finite_raw] * _diff_raw[_finite_raw])))
-                            _mae_raw = float(np.mean(np.abs(_diff_raw[_finite_raw])))
-                        else:
-                            _rmse_raw = float("nan")
-                            _mae_raw = float("nan")
-                        _entry_y_scores[_split_name] = {
-                            "RMSE": _rmse_wrapped,
-                            "MAE": _mae_wrapped,
-                            "R2": _r2,
-                            "n_rows_finite": int(_finite.sum()),
-                            "RMSE_raw": _rmse_raw,
-                            "RMSE_wrapped": _rmse_wrapped,
-                            "MAE_raw": _mae_raw,
-                            "MAE_wrapped": _mae_wrapped,
-                        }
-                        # emit a Y-SCALE
-                        # chart for composite models on the TEST split
-                        # so it is directly comparable to raw-target
-                        # charts (same MTTR/MTTS units, same scatter
-                        # axes). The T-scale residual chart in
-                        # ``_reporting_regression`` is skipped exactly
-                        # to make room for this y-scale chart.
-                        if (
-                            _split_name in ("val", "test")
-                            and target_name is not None
-                            and not getattr(_entry, "_yscale_chart_emitted", False)  # per-model hook already wrote these
-                        ):
-                            try:
-                                _emit_yscale_composite_chart(
-                                    y_target=_y_split.astype(np.float64)[_finite],
-                                    y_pred=_y_pred[_finite],
-                                    inner_entry=_entry,
-                                    composite_name=_composite_name,
-                                    orig_tname=_orig_tname,
-                                    target_name=target_name,
-                                    plot_file=plot_file,
-                                    reporting_config=reporting_config,
-                                    rmse_y=_rmse_wrapped, mae_y=_mae_wrapped, r2_y=_r2,
-                                    split_name=_split_name,
-                                    y_train_mean=(
-                                        float(np.nanmean(_y_arr_metric[filtered_train_idx].astype(np.float64)))
-                                        if filtered_train_idx is not None and len(filtered_train_idx)
-                                        else None
-                                    ),
-                                )
-                            except Exception as _chart_err:
-                                log_throttle(
-                                    logger, "composite_wrap_yscale_chart_emit_failed", logging.WARNING,
-                                    "[CompositeTargetEstimator] y-scale chart " "emit failed for composite='%s' (non-fatal): %s",
-                                    _composite_name,
-                                    _chart_err,
-                                )
-                        # Independent-oracle watchdog (see ``_composite_wrap_watchdog``); ``enable_watchdog=False`` skips its extra predicts.
-                        if enable_watchdog:
-                            run_wrap_watchdog(_wrapper_for_score, _spec, _split_df, _y_split, composite_name=_composite_name, split_name=_split_name)
-                    except Exception as _split_err:
-                        # A composite whose predict raises would otherwise vanish from the y-scale verdict with only a DEBUG line;
-                        # the model stays in metadata, but its missing split metrics must be visible.
-                        log_throttle(
-                            logger, "composite_yscale_split_metrics_failed", logging.WARNING,
-                            "[composite y-scale metrics] split='%s' composite='%s' skipped: %s: %s",
-                            _split_name, _composite_name, type(_split_err).__name__, _split_err,
-                        )
-                        continue
-                _metrics_dict.append({
-                    "model_name": getattr(_entry, "model_name", None),
-                    "metrics": _entry_y_scores,
-                })
-                # Log y-scale summary so composite numbers are comparable to raw-target models in script output.
-                if _entry_y_scores:
-                    _y_summary_parts: list[str] = []
-                    for _split_name in ("train", "val", "test"):
-                        _s = _entry_y_scores.get(_split_name)
-                        if not _s:
-                            continue
-                        _y_summary_parts.append(
-                            f"{_split_name.upper()}=RMSE_y:{_fmt(_s['RMSE'])} " f"MAE_y:{_fmt(_s['MAE'])} " f"R2_y:{_fmt(_s.get('R2', float('nan')), 4)}"
-                        )
-                    if _y_summary_parts:
-                        # After wrapping _entry.model IS the CompositeTargetEstimator; drill into base_estimator for the actual inner type name.
-                        _mn = getattr(_entry, "model_name", None)
-                        if not _mn:
-                            _outer = getattr(_entry, "model", None) or _entry
-                            _inner_actual = getattr(_outer, "base_estimator", None) or getattr(_outer, "estimator_", None) or _outer
-                            _mn = _strip(type(_inner_actual).__name__)
-                        else:
-                            _mn = _strip(_mn)
-                        logger.info(
-                            "[CompositeTargetEstimator] composite='%s' " "model='%s' y-scale metrics (post-inverse, " "comparable to raw): %s",
-                            _composite_name,
-                            _mn,
-                            " | ".join(_y_summary_parts),
-                        )
     return _train_pred_cache

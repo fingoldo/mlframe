@@ -445,17 +445,34 @@ class TestSimpleFeaturesAndTargetsExtractorClassification:
 
     def test_classification_with_threshold(self):
         """Test classification target with threshold."""
-        extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["score"], classification_thresholds={"score": 0.5})
+        extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["score"], classification_gte_thresholds={"score": 0.5})
         df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0, 4.0], "score": [0.2, 0.4, 0.6, 0.8]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, _, _ = result
 
         targets = target_by_type[TargetTypes.BINARY_CLASSIFICATION]
-        # Target name should include threshold
-        assert "score_above_0.5" in targets
+        # Target name should include operator + threshold
+        assert "score_gte_0.5" in targets
         expected = np.array([0, 0, 1, 1], dtype=np.int8)
-        np.testing.assert_array_equal(targets["score_above_0.5"], expected)
+        np.testing.assert_array_equal(targets["score_gte_0.5"], expected)
+
+    def test_classification_with_strict_gt_and_lt_thresholds(self):
+        """gt/lt are strict, unlike the inclusive gte/lte -- the boundary value itself must land on the excluded side."""
+        extractor = SimpleFeaturesAndTargetsExtractor(
+            classification_targets=["score"],
+            classification_gt_thresholds={"score": 0.5},
+            classification_lt_thresholds={"score": 0.5},
+        )
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0, 4.0], "score": [0.2, 0.5, 0.6, 0.8]})
+
+        result = extractor.transform(df)
+        _, target_by_type, _, _, _, _, _, _ = result
+        targets = target_by_type[TargetTypes.BINARY_CLASSIFICATION]
+
+        assert "score_gt_0.5" in targets and "score_lt_0.5" in targets
+        np.testing.assert_array_equal(targets["score_gt_0.5"], np.array([0, 0, 1, 1], dtype=np.int8))
+        np.testing.assert_array_equal(targets["score_lt_0.5"], np.array([1, 0, 0, 0], dtype=np.int8))
 
     def test_classification_with_exact_values(self):
         """Test classification target with exact value matching."""
@@ -485,7 +502,7 @@ class TestSimpleFeaturesAndTargetsExtractorMixed:
     def test_both_regression_and_classification(self):
         """Test extraction of both regression and classification targets."""
         extractor = SimpleFeaturesAndTargetsExtractor(
-            regression_targets=["reg_target"], classification_targets=["cls_target"], classification_thresholds={"cls_target": 50}
+            regression_targets=["reg_target"], classification_targets=["cls_target"], classification_gte_thresholds={"cls_target": 50}
         )
         df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0], "reg_target": [10.0, 20.0, 30.0], "cls_target": [40, 60, 80]})
 
@@ -495,7 +512,7 @@ class TestSimpleFeaturesAndTargetsExtractorMixed:
         assert TargetTypes.REGRESSION in target_by_type
         assert TargetTypes.BINARY_CLASSIFICATION in target_by_type
         assert "reg_target" in target_by_type[TargetTypes.REGRESSION]
-        assert "cls_target_above_50" in target_by_type[TargetTypes.BINARY_CLASSIFICATION]
+        assert "cls_target_gte_50" in target_by_type[TargetTypes.BINARY_CLASSIFICATION]
         assert {"reg_target", "cls_target"} <= cols_to_drop
 
 
