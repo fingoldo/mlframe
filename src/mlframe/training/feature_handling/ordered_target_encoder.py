@@ -40,7 +40,7 @@ def _global_prior_sorted(y: np.ndarray, sorted_y: np.ndarray, prior: Optional[fl
     with np.errstate(invalid="ignore", divide="ignore"):
         global_prior_sorted = global_running_sum / global_running_count
     global_prior_sorted[global_running_count == 0] = float(prior) if prior is not None else 0.0
-    return global_prior_sorted
+    return np.asarray(global_prior_sorted)
 
 
 def _running_category_stats(sorted_cats: np.ndarray, sorted_y: np.ndarray) -> "tuple[pd.Series, pd.Series]":

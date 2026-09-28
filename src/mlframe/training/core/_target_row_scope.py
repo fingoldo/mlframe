@@ -273,9 +273,7 @@ def target_row_scope(ctx: Any, rows: Optional[TargetRows]) -> Iterator[None]:
         _ACTIVE_ROWS.reset(token)
         # Only a frame the scope handed over and the body set to None was released; one the scope itself set to None
         # (an empty split) was not, and the suite's full frame must come back.
-        released = {
-            name for name, value in narrowed.items() if ROW_REGISTRY[name].startswith("narrow:") and value is not None and getattr(ctx, name) is None
-        }
+        released = {name for name, value in narrowed.items() if ROW_REGISTRY[name].startswith("narrow:") and value is not None and getattr(ctx, name) is None}
         for name in names:
             if ROW_REGISTRY.get(name) == "merge_back":
                 continue

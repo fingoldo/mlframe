@@ -40,7 +40,7 @@ def parse_synthetic(name: str, columns: Any) -> Optional[tuple[str, str, str]]:
             i = name.find(token, start)
             if i < 0:
                 break
-            a, b = name[:i], name[i + len(token):]
+            a, b = name[:i], name[i + len(token) :]
             if a in cols and b in cols:
                 return a, op, b
             start = i + 1

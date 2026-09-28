@@ -172,7 +172,6 @@ def compose_pair_fe(
     }
 
 
-
 def _heldout_trivial_mi(x_a, x_b, y, tr, va, *, discrete_target, mi_estimator, plugin_n_bins) -> float:
     """Held-out MI of the trivial pair baseline, CHOSEN on the fold's train rows and SCORED on its held-out rows.
 

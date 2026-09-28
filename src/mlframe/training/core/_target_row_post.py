@@ -113,8 +113,7 @@ def train_recurrent_by_rows(suite_ctx: Any, train_fn: Any, target_by_type: Mappi
         return train_fn(target_by_type=target_by_type, **kwargs)
     skipped = {key for key, record in recorded.items() if "skipped" in record}
     plain = {
-        tt: {n: v for n, v in named.items() if target_key(tt, n) not in narrowed and f"{tt}/{n}" not in skipped}
-        for tt, named in (target_by_type or {}).items()
+        tt: {n: v for n, v in named.items() if target_key(tt, n) not in narrowed and f"{tt}/{n}" not in skipped} for tt, named in (target_by_type or {}).items()
     }
     plain = {tt: named for tt, named in plain.items() if named}
     models = kwargs.pop("models")

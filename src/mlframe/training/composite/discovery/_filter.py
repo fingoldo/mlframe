@@ -204,7 +204,7 @@ def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, cor
         _sampled_arrays, _y_for_corr = _maybe_sample_for_leak_corr(
             candidates, candidate_arrays, _y_leak,
         )
-        X_train = block[:, :len(candidates)] if (block is not None and _sampled_arrays is candidate_arrays) else np.column_stack(_sampled_arrays)
+        X_train = block[:, : len(candidates)] if (block is not None and _sampled_arrays is candidate_arrays) else np.column_stack(_sampled_arrays)
         # Free the per-column ndarrays the moment they land in the stacked matrix (on the list path):
         # candidate_arrays holds (n_features) views/copies that double the peak
         # footprint until we let them go (~8 GB on a 4M-row x 500-col float32 frame).
@@ -216,7 +216,7 @@ def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, cor
         # a C-order axis-0 reduction sums each column in row order whatever the other columns are, so they are the same.
         col_has_nan = np.zeros(X_train.shape[1], dtype=bool)
         for _start in range(0, X_train.shape[0], _FINITE_SCAN_ROWS):
-            col_has_nan |= ~np.isfinite(X_train[_start:_start + _FINITE_SCAN_ROWS]).all(axis=0)
+            col_has_nan |= ~np.isfinite(X_train[_start : _start + _FINITE_SCAN_ROWS]).all(axis=0)
         _nan_cols = np.nonzero(col_has_nan)[0]
         non_finite_cols = {int(j): ~np.isfinite(X_train[:, j]) for j in _nan_cols}
         if _nan_cols.size:

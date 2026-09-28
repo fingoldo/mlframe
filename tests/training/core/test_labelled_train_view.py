@@ -12,6 +12,7 @@ from mlframe.training.core._main_train_suite_phases import _labelled_train_view
 
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_rows_without_a_label_leave_with_their_features_and_group_ids(backend):
+    """An unlabelled row's features and group id are both dropped, on pandas and polars."""
     frame = pd.DataFrame({"x": np.arange(6.0)})
     frame = pl.from_pandas(frame) if backend == "polars" else frame
     y = np.array([1.0, np.nan, 2.0, 3.0, np.nan, 4.0])
@@ -22,9 +23,10 @@ def test_rows_without_a_label_leave_with_their_features_and_group_ids(backend):
 
 
 def test_full_length_group_ids_and_fully_labelled_targets_pass_through():
+    """A fully labelled target returns the original frame as is; full-length group ids pass through untouched."""
     frame = pd.DataFrame({"x": np.arange(3.0)})
     full_groups = np.arange(10)
-    train, y_out, g_out = _labelled_train_view(frame, np.array([1.0, np.nan, 2.0]), full_groups)
+    train, _y_out, g_out = _labelled_train_view(frame, np.array([1.0, np.nan, 2.0]), full_groups)
     assert len(train) == 2 and g_out is full_groups
     same, _, _ = _labelled_train_view(frame, np.array([1.0, 2.0, 3.0]), full_groups)
     assert same is frame

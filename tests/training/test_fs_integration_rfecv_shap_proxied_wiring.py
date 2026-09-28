@@ -132,13 +132,16 @@ def test_f3_selector_kind_classifies_wrapped_rfecv():
     assert _selector_kind(pps[0]) == "RFECV"
 
 
-def test_biz_f3_cluster_wrap_keeps_whole_correlated_cluster():
-    """biz_value: with expand=True the wrap returns the WHOLE correlated cluster, not just the medoid.
+def test_biz_f3_cluster_wrap_keeps_one_representative_of_the_correlated_cluster():
+    """biz_value: the suite's cluster wrap collapses a correlated group to its medoid, not the whole group.
 
-    A bare RFECV keeping ``keep`` columns drops near-duplicate members; the cluster-medoid wrap expands a
-    selected medoid back to all its cluster mates, so a near-duplicate group survives together. This is the
-    measurable win the wrap delivers (recall on correlated groups), and a regression that silently disables
-    the wrap drops the duplicates again.
+    A bare RFECV keeping ``keep`` columns drops near-duplicate members on its own; the cluster-medoid wrap fits
+    the inner selector on medoids only and returns the winning medoid, so the near-duplicates never reach the
+    inner selector's budget. Returning every member (``expand=True``) was measured against medoids-only over 21
+    dataset-seed runs and lost nothing on OOS AUC (mean -0.0001) while returning a 20% smaller support, so the
+    suite wrap (and the registry's RFECV/BorutaShap factories) now default to medoids-only
+    (bench_group_aware_expand_vs_medoids). A regression that silently disables the wrap entirely would instead
+    make the wrap's output identical to the bare RFECV's, which this still catches.
     """
     rng = np.random.default_rng(0)
     base = rng.standard_normal(400)
@@ -161,10 +164,11 @@ def test_biz_f3_cluster_wrap_keeps_whole_correlated_cluster():
     wrap_pps, _ = _build(rfecv_models=["lgb"], rfecv_models_params={"lgb": rf_wrap}, rfecv_cluster_reduce=True, rfecv_cluster_corr_threshold=0.9)
     wrap_kept = list(wrap_pps[0].fit(df, y).transform(df).columns)
 
-    # Bare keeps a single column; the wrap expands the correlated cluster {a, a_dup1, a_dup2} back together.
+    # Bare keeps a single column; the wrap also keeps a single column, but it must be a MEDOID of the cluster
+    # (the wrap engaged and picked from {a, a_dup1, a_dup2}), not one of the disjoint noise columns.
     assert len(bare_kept) == 1
-    assert len(wrap_kept) >= 3, f"cluster wrap should keep the whole correlated group, got {wrap_kept}"
-    assert {"a", "a_dup1", "a_dup2"}.issubset(set(wrap_kept))
+    assert len(wrap_kept) == 1, f"the suite wrap should keep exactly the winning medoid, got {wrap_kept}"
+    assert set(wrap_kept).issubset({"a", "a_dup1", "a_dup2"}), f"the wrap did not engage on the correlated cluster: {wrap_kept}"
 
 
 # --------------------------------------------------------------------------- F4

@@ -357,7 +357,7 @@ def emit_per_model_composite_y_scale_test(
 
 def _splits_for_target(full_splits: dict, split_args_by_target: "dict | None", target_type, orig_tname) -> dict:
     """``full_splits`` overridden by this target's own narrowing (see ``_target_row_post``), else unchanged."""
-    per_target = ((split_args_by_target or {}).get((str(target_type), str(orig_tname))) or {})
+    per_target = (split_args_by_target or {}).get((str(target_type), str(orig_tname))) or {}
     return {**full_splits, **{k: v for k, v in per_target.items() if k in full_splits}}
 
 
@@ -578,8 +578,7 @@ def _score_one_entry_per_split(
             if hasattr(_wrapper_for_score, "predict_with_pre_clip"):
                 # One inner predict gives both numbers (predict + predict_pre_clip ran it twice); the clipped
                 # one is handed to the phase memo for the report and the MoE that predict this pair next.
-                _y_pred_wrapped, _y_pred_raw = (np.asarray(a, dtype=np.float64).reshape(-1)
-                                                for a in _wrapper_for_score.predict_with_pre_clip(_split_df))
+                _y_pred_wrapped, _y_pred_raw = (np.asarray(a, dtype=np.float64).reshape(-1) for a in _wrapper_for_score.predict_with_pre_clip(_split_df))
                 memo_seed(_wrapper_for_score, _split_df, _y_pred_wrapped)
             else:
                 _y_pred_wrapped = memo_predict(_wrapper_for_score, _split_df)
@@ -743,9 +742,6 @@ def _score_composite_y_scale_metrics(
                     _mn,
                     " | ".join(_y_summary_parts),
                 )
-
-
-
 
 
 def _run_composite_target_wrapping(

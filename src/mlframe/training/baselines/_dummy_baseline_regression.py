@@ -18,7 +18,6 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
-
 # Above this share of unlabelled train rows the time-series rule baselines (naive, seasonal naive, drift) are skipped.
 MAX_UNLABELLED_SHARE_FOR_TS_BASELINES = 0.05
 

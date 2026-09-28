@@ -19,7 +19,6 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_prox
 )
 
 
-
 def _mark_selection_optimistic(ranked: list, best_idx) -> None:
     """Flag the chosen subset's ``honest_loss`` as selection-optimistic.
 

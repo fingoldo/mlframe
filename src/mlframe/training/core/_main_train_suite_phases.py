@@ -373,7 +373,7 @@ def run_recurrent_finalize_and_composite_post(
         ctx,
         pr_module.train_recurrent_models,
         target_by_type,
-        getattr(ctx, "metadata", None),
+        getattr(ctx, "metadata", None) or {},
         models=ctx.models,
         recurrent_models=ctx.recurrent_models,
         recurrent_config=recurrent_config,
@@ -550,7 +550,6 @@ def run_distribution_analyzer_and_estimator_injection(
         train_idx=ctx.train_idx, behavior_config=behavior_config,
     )
     return hyperparams_config, train_df, val_df, test_df, mlframe_models
-
 
 
 def _labelled_train_view(train_df: Any, y: Any, group_ids: Any) -> tuple:

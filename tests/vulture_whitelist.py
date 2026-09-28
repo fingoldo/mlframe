@@ -122,3 +122,30 @@ caller
 # lookup and must accept its full argument list; only ``calls`` matters to the assertion. ---
 elements_per_member
 autotune
+
+# --- tests/training/composite/discovery/test_gate_evaluation_errors_reject.py: ``raising_inverse`` is a
+# pytest fixture, requested by name in each test signature. vulture sees the parameter as an unused local. ---
+raising_inverse
+
+# --- tests/training/composite/discovery/test_bootstrap_mi_y_replicates_shared.py: ``unshared`` stands in for
+# ``_bootstrap_gain_replicates`` and must accept its full keyword signature to be swapped in via monkeypatch. ---
+mi_y_reps
+
+# --- tests/training/composite/estimator/test_wrap_watchdog_oracle.py and
+# test_regression_watchdog_yscale_object_target.py: the monkeypatched predict lambda stands in for the real
+# wrapper.predict(X, inner_X=None) and must accept its full signature. ---
+inner_X
+
+# --- tests/training/composite/screening/test_lgb_shared_fold_construct_is_serialised.py and
+# test_masked_fold_lgb_is_locked_and_identical.py: ``_ConcurrencyProbe``/the fake train callable stand in for
+# ``lightgbm.Dataset``/``lightgbm.train`` and must accept their full constructor/call signature. ---
+free_raw_data
+num_boost_round
+
+# --- tests/training/test_gpu_contention_cpu_fallback.py: the monkeypatched lambda stands in for
+# ``compute_total_gpus_ram(gpus)`` and must accept its signature; only the return value matters here. ---
+gpus
+
+# --- tests/training/core/test_target_loop_group_major.py: ``train_one`` stands in for the real per-target
+# training callable and must accept its full positional signature. ---
+targets_

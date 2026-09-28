@@ -183,7 +183,6 @@ def optimize_finite_onedimensional_search_space(
 
     while True:
 
-
         next_candidate = optimizer.suggest_candidate()
         if next_candidate is NOT_READY:
             # Surrogate not yet trainable (no evaluations submitted, or all known targets identical).

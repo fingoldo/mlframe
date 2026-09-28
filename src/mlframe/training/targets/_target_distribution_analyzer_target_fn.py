@@ -49,7 +49,6 @@ from ._target_distribution_analyzer_stats import (
 logger = logging.getLogger(__name__)
 
 
-
 # Below this share of labelled rows the lag autocorrelation of the compacted target is not measured (see its use).
 MIN_LABELLED_SHARE_FOR_AUTOCORR = 0.9
 

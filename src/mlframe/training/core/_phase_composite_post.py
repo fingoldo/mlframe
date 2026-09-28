@@ -292,9 +292,7 @@ def run_composite_post_processing(
             reporting_config=reporting_config, plot_file=plot_file, _train_pred_cache=_train_pred_cache, ctx=ctx,
         )
         for _tt_e, _tt_specs in composite_specs_by_target_type.items():
-            _run_cross_target_ensemble_for_type(
-                _tt_e, _tt_specs, _args_by_target=_args_by_target, _full_split_args=_full_split_args, **_shared_ensemble_kwargs
-            )
+            _run_cross_target_ensemble_for_type(_tt_e, _tt_specs, _args_by_target=_args_by_target, _full_split_args=_full_split_args, **_shared_ensemble_kwargs)
 
     # MoE selection gate + composite VALUE report: this is the one place where the deployed composite ensemble,
     # the raw-y model, the lag failsafe, true y and group_ids coexist on the honest val split. Both are flag-gated

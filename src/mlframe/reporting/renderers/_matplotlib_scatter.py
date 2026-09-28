@@ -71,7 +71,6 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     # so a module-level ``from .matplotlib import ...`` would be a hard cycle. By call time the parent is loaded.
     from .matplotlib import _EDGE_LABEL_FLIP_FRACTION, _err_to_mpl, _set_panel_title
 
-    import matplotlib
     x = np.asarray(p.x)
     y = np.asarray(p.y)
     n = len(x)

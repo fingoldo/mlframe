@@ -32,6 +32,7 @@ N_ROWS = 1500
 
 
 def _frame(seed: int = 0) -> pd.DataFrame:
+    """A frame with one fully labelled target (``y_full``) and one with ~30% missing labels (``y_part``)."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(N_ROWS, 4))
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(4)])
@@ -44,6 +45,7 @@ def _frame(seed: int = 0) -> pd.DataFrame:
 
 
 def _suite(df, targets, data_dir, common_init_params, split_config, models=("lgb",)):
+    """Run the suite on ``df`` for ``targets`` with drop_rows missing-label handling and every unsupervised step off."""
     return train_mlframe_models_suite(
         df=df,
         target_name="t",
@@ -64,6 +66,7 @@ def _suite(df, targets, data_dir, common_init_params, split_config, models=("lgb
 
 
 def _test_metrics(models: dict, target: str) -> dict:
+    """Per-model test-split metrics for one regression target, keyed by model name."""
     entries = models[TargetTypes.REGRESSION][target]
     entries = entries if isinstance(entries, list) else [entries]
     return {getattr(e, "model_name", str(i)): e.metrics["test"] for i, e in enumerate(entries)}
@@ -71,6 +74,7 @@ def _test_metrics(models: dict, target: str) -> dict:
 
 @pytest.mark.parametrize("models", [("lgb",), ("linear",)])
 def test_a_target_with_missing_labels_trains_as_on_its_labelled_rows_alone(tmp_path, common_init_params, models):
+    """A target with missing labels trains as if it had been fit on its labelled rows alone from the start: the reference is a second suite run on the frame pre-filtered to those rows, pinned to the same split."""
     df = _frame()
     dir_a, dir_b = str(tmp_path / "a"), str(tmp_path / "b")
     models_a, meta_a = _suite(df, ["y_full", "y_part"], dir_a, common_init_params, TrainingSplitConfig(id_column="row_id"), models)
@@ -95,6 +99,7 @@ def test_a_target_with_missing_labels_trains_as_on_its_labelled_rows_alone(tmp_p
 
 
 def _split_rows(path: str, split: str) -> np.ndarray:
+    """The row ids the suite assigned to one split, read back from its saved ``split_ids.parquet``."""
     from mlframe.training._fixed_splits import SPLIT_CODES
 
     stored = pd.read_parquet(path)
@@ -121,6 +126,7 @@ def test_outlier_detection_and_missing_labels_work_together(tmp_path, common_ini
     real = pr._train_one_target
 
     def spy(ctx, target_type, targets_, name, values):
+        """Record each target's filtered train/val/test row indices, then train as usual."""
         seen[name] = dict(train=np.asarray(ctx.filtered_train_idx), val=np.asarray(ctx.filtered_val_idx), test=np.asarray(ctx.test_idx))
         return real(ctx, target_type, targets_, name, values)
 
@@ -206,6 +212,7 @@ def test_the_cross_target_ensemble_of_a_target_with_gaps_is_built_on_its_labelle
     real_build = xt._build_cross_target_ensemble_for_target
 
     def spy_build(**kwargs):
+        """Record each original target's filtered train/val row indices, then build the ensemble as usual."""
         seen.setdefault("xt", {})[kwargs["_orig_tname"]] = (np.asarray(kwargs["filtered_train_idx"]), np.asarray(kwargs["filtered_val_idx"]))
         return real_build(**kwargs)
 
@@ -213,12 +220,13 @@ def test_the_cross_target_ensemble_of_a_target_with_gaps_is_built_on_its_labelle
     real_wrap = post._run_composite_target_wrapping
 
     def spy_wrap(**kwargs):
+        """Record which targets the composite wrapping step received split args for, then wrap as usual."""
         seen["wrap_keys"] = set(kwargs.get("split_args_by_target") or {})
         return real_wrap(**kwargs)
 
     monkeypatch.setattr(post, "_run_composite_target_wrapping", spy_wrap)
     df = _frame(3)
-    models, meta = train_mlframe_models_suite(
+    models, _meta = train_mlframe_models_suite(
         df=df,
         target_name="t",
         model_name="m",
