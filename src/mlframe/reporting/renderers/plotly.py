@@ -41,6 +41,7 @@ from ._kaleido import (
     write_image_via_kaleido,
 )
 from ._plotly_interactivity import apply_interactivity, html_config
+from ._plotly_spacing import horizontal_gap_px, row_bottom_furniture_px, vertical_spacing_fraction
 from ._plotly_color import _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, PX_PER_INCH,
@@ -87,6 +88,10 @@ _PX_PER_INCH = PX_PER_INCH
 # operating points within a percent of each other, and two rows put the first and third back on top of one
 # another.
 _STACKED_LABEL_ROWS = 3
+_MARGIN_L = 60
+_MARGIN_R = 40
+# Room reserved below the bottom row's axis furniture for a static export's horizontal legend (two rows of entries).
+_STATIC_LEGEND_BAND_PX = 60
 _STACKED_LABEL_SHIFT_PX = 11
 _VIOLIN_LABEL_MAXLEN = 20  # matches the matplotlib twin; a 30-deg rotated label projects most of its length
 # Past this many categories the vertical branch switches to explicit, rotated tick text; how many of
@@ -316,16 +321,14 @@ class PlotlyRenderer:
                         )
                     )
 
-        # Row 1's titles live in the top MARGIN, but every later row's is stamped into the inter-row gap -- which
-        # was sized from the row count alone, so a tall title below row 1 had nothing reserved for it. Grow the gap
-        # with the tallest title in ANY row.
-        _max_title_lines = max((t.count("<br>") + 1) for t in subplot_titles if t) if any(subplot_titles) else 1
-
         # A colorbar is pinned just outside its own subplot's right edge, and its TICK LABELS stick out further
         # still -- straight into the next column's y-axis title. The gap has to hold the bar, its labels and the
         # neighbour's axis furniture, which the default 0.08 does not on a multi-column figure.
         _has_colorbar = any(isinstance(pn, HeatmapPanelSpec) for rw in spec.panels for pn in rw if pn is not None)
-        _hspace = 0.08
+        # 0.08 is the floor; a boundary whose neighbours carry a secondary y-axis or long category labels needs more.
+        _hspace = max(0.08, horizontal_gap_px(spec.panels, cols) / max(spec.figsize[0] * _PX_PER_INCH - _MARGIN_L - _MARGIN_R, 1.0)) if cols > 1 else 0.08
+        if cols > 1:
+            _hspace = min(_hspace, 0.5 / (cols - 1))
         if _has_colorbar and cols > 1:
             from ._plotly_heatmap import _COLORBAR_GUTTER_PX, _NEIGHBOUR_AXIS_PX
 
@@ -338,8 +341,8 @@ class PlotlyRenderer:
             shared_xaxes=spec.sharex,
             shared_yaxes=spec.sharey,
             horizontal_spacing=_hspace,
-            # Roomier vertical gap so a row's subplot-title annotation (stamped just above the subplot domain) clears the data/xticks of the row above and wrapped multi-line titles don't overlap the row beneath; capped at plotly's 1/(rows-1) ceiling.
-            vertical_spacing=(min(0.16 + 0.03 * max(_max_title_lines - 1, 0), 0.9 / max(rows - 1, 1)) if rows > 1 else 0.16),
+            # Sized in pixels from what the gap must hold; a fixed fraction grows with the row count (see ``_plotly_spacing``).
+            vertical_spacing=vertical_spacing_fraction(spec.panels, subplot_titles, cols, spec.figsize[1] * _PX_PER_INCH),
         )
         if spec.row_height_ratios is not None:
             total = sum(spec.row_height_ratios)
@@ -383,17 +386,20 @@ class PlotlyRenderer:
         _panel_title_band = _row1_title_lines * (_PANEL_TITLE_FONTSIZE + 4)
         top_margin = (40 + n_suptitle_lines * (spec.suptitle_fontsize + 8) if spec.suptitle else 30) + _panel_title_band
 
-        # How-to-read footnote pinned to the bottom edge (paper coords), small + dim. Grows the bottom margin so it
-        # never overlaps the axes or the below-figure legend.
+        # How-to-read footnote pinned to the bottom edge (paper coords), small + dim. It and the static legend sit below
+        # the bottom row's tick labels AND x-axis title, so both are offset by that furniture's measured height.
+        _below_axis_px = int(row_bottom_furniture_px(spec.panels[-1])) + 8
+        # In pixels, not paper fraction: a paper offset scales with the figure height.
+        _legend_band_px = _STATIC_LEGEND_BAND_PX if static_legend else 0
         n_caption_lines = 0
         if spec.caption:
             wrapped_caption = _wrap_text_to_figure(spec.caption, fontsize=_CAPTION_FONTSIZE, width_in=spec.figsize[0], fallback_chars=CAPTION_WRAP_CHARS)
             n_caption_lines = wrapped_caption.count("<br>") + 1
             fig.add_annotation(
                 text=wrapped_caption, xref="paper", yref="paper", x=0.5, y=0, xanchor="center", yanchor="top",
-                yshift=-((90 if static_legend else 30) + 8), showarrow=False, font=dict(size=_CAPTION_FONTSIZE, color="#595959"),
+                yshift=-(_below_axis_px + _legend_band_px), showarrow=False, font=dict(size=_CAPTION_FONTSIZE, color="#595959"),
             )
-        bottom_margin = (90 if static_legend else 50) + n_caption_lines * 16
+        bottom_margin = max(_below_axis_px + _legend_band_px + n_caption_lines * 16 + 12, 50)
 
         fig.update_layout(
             # ``figsize`` is in matplotlib inches and matplotlib renders at 100 dpi by default, so 80 px/in
@@ -406,7 +412,7 @@ class PlotlyRenderer:
             # bug as the px/in mismatch above, just from the other direction.
             height=int(spec.figsize[1] * _PX_PER_INCH) + top_margin + bottom_margin,
             # Bottom margin grows when the legend is shown so the below-figure legend has room.
-            margin=dict(l=60, r=40, t=top_margin, b=bottom_margin),
+            margin=dict(l=_MARGIN_L, r=_MARGIN_R, t=top_margin, b=bottom_margin),
             # Interactive HTML identifies series via hover, so the legend stays off on MULTI-panel figures to
             # avoid the legend soup (every panel's series pooled into one list: precision/recall/F1 mixed with
             # reliability lines). That reasoning does not hold for a SINGLE labelled panel -- there is no soup,
@@ -419,7 +425,7 @@ class PlotlyRenderer:
             fig.update_layout(legend=dict(
                 font=dict(size=9), itemsizing="constant",
                 bgcolor="rgba(255,255,255,0.6)",
-                orientation="h", yanchor="top", y=-0.08, xanchor="center", x=0.5,
+                orientation="h", yanchor="top", y=-_below_axis_px / max(spec.figsize[1] * _PX_PER_INCH, 1.0), xanchor="center", x=0.5,
             ))
         elif any(getattr(pn, "legend_outside", False) for row in spec.panels for pn in row if pn is not None):
             # legend_outside / legend_ncol were matplotlib-only, so the many-series overlays they exist for got an

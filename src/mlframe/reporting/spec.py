@@ -401,6 +401,9 @@ class LinePanelSpec:
     # attaches the DENOMINATOR behind an aggregate: without it a rate computed from 3 rows renders identically to
     # one from 300k, and the count is usually already in hand at the point the bar is built.
     hovertext: Optional[Tuple[str, ...]] = None
+    # plotly-only zoom strip under a temporal x-axis. Off by default: it duplicates the panel's own drag-to-zoom and
+    # takes a band of the panel's height, drawn as a squashed copy of the chart the reader has to look past.
+    rangeslider: bool = False
 
 
 @dataclass(frozen=True)

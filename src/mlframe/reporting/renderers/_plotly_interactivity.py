@@ -1,7 +1,7 @@
 """Interactivity enrichment for the plotly renderer's HTML output.
 
 HTML reports are meant to be explored, not read like a static PNG. These helpers set per-panel-type
-interactivity (unified hover for line panels, rangesliders for temporal panels, rich hovertemplates,
+interactivity (unified hover for line panels, an opt-in rangeslider for temporal panels, rich hovertemplates,
 clickable legends) and a cleaned-up modebar, gated so each property lands only where it is correct
 (e.g. unified hover is wrong for scatter/heatmap; a rangeslider wastes vertical space on non-temporal charts).
 """
@@ -41,7 +41,7 @@ def _trace_axis(tr) -> str:
 
 
 def _line_is_temporal(p: LinePanelSpec) -> bool:
-    """Whether the line panel's x-axis is a time axis (triggers the rangeslider)."""
+    """Whether the line panel's x-axis is a time axis (a precondition for the opt-in rangeslider)."""
     return bool(getattr(p, "x_is_time", False))
 
 
@@ -69,13 +69,13 @@ def apply_interactivity(fig: Any, spec, *, static_legend: bool = False) -> None:
     """Set per-panel-type interactivity props on an already-rendered figure.
 
     Gating: unified hover + rich line templates only on LinePanelSpec; rangeslider only on temporal line
-    panels; clickable-legend toggles only when the figure carries a legend (>1 trace and legend shown).
+    panels that set ``rangeslider=True``; clickable-legend toggles only when the figure carries a legend (>1 trace and legend shown).
     Scatter/heatmap keep plotly's default closest-point hover (unified hover misreads them).
     """
     panels = [p for row in spec.panels for p in row if p is not None]
     line_panels = [p for p in panels if isinstance(p, LinePanelSpec)]
     has_line = bool(line_panels)
-    has_temporal = any(_line_is_temporal(p) for p in line_panels)
+    wants_rangeslider = any(_line_is_temporal(p) and getattr(p, "rangeslider", False) for p in line_panels)
     has_heatmap = any(isinstance(p, HeatmapPanelSpec) for p in panels)
 
     # Unified hover (all series at the hovered x) only when the figure is line-dominated and carries no heatmap;
@@ -102,7 +102,7 @@ def apply_interactivity(fig: Any, spec, *, static_legend: bool = False) -> None:
     _apply_line_traces(fig, spec)
     _apply_nonline_traces(fig, spec)
 
-    if has_temporal:
+    if wants_rangeslider:
         _apply_rangeslider(fig, spec)
 
 
@@ -196,11 +196,11 @@ def _apply_nonline_traces(fig, spec) -> None:
 
 
 def _apply_rangeslider(fig, spec) -> None:
-    """Rangeslider + range-selector zoom buttons on temporal line panels only (never on non-temporal charts)."""
+    """Rangeslider on the temporal line panels that opted in via ``LinePanelSpec.rangeslider`` (never on non-temporal charts)."""
     cols = max((len(r) for r in spec.panels), default=0)
     for r, row in enumerate(spec.panels):
         for c in range(cols):
             panel = row[c] if c < len(row) else None
-            if not (isinstance(panel, LinePanelSpec) and _line_is_temporal(panel)):
+            if not (isinstance(panel, LinePanelSpec) and _line_is_temporal(panel) and panel.rangeslider):
                 continue
             fig.update_xaxes(rangeslider=dict(visible=True, thickness=0.06), row=r + 1, col=c + 1)

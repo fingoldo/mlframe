@@ -1,9 +1,11 @@
 """Plotly renderer interactivity: HTML reports must be explorable, with each interactivity prop gated to the panel
-types where it is correct (unified hover on lines, rangeslider on temporal only, rich hovertemplates on ROC/PR/calib).
+types where it is correct (unified hover on lines, opt-in rangeslider on temporal only, rich hovertemplates on ROC/PR/calib).
 HTML isn't visually diff-able here, so these assert the resulting go.Figure carries the expected props.
 """
 
 from __future__ import annotations
+
+import dataclasses
 
 import numpy as np
 import pytest
@@ -95,9 +97,20 @@ def test_legend_click_toggles_set(renderer, roc_panel):
     assert leg.get("itemdoubleclick") == "toggleothers"
 
 
-def test_temporal_panel_gets_rangeslider(renderer, temporal_panel):
-    """Temporal panel gets rangeslider."""
-    assert True in _rangeslider_visibles(_fig(renderer, temporal_panel))
+def test_temporal_panel_has_no_rangeslider_by_default(renderer, temporal_panel):
+    # The strip under a time axis duplicated drag-to-zoom and ate a band of the panel; it is opt-in now.
+    """Temporal panel has no rangeslider unless it asks for one."""
+    assert True not in _rangeslider_visibles(_fig(renderer, temporal_panel))
+
+
+def test_temporal_panel_gets_rangeslider_when_opted_in(renderer, temporal_panel):
+    """Temporal panel gets a rangeslider with ``rangeslider=True``."""
+    assert True in _rangeslider_visibles(_fig(renderer, dataclasses.replace(temporal_panel, rangeslider=True)))
+
+
+def test_rangeslider_opt_in_ignored_on_nontemporal_line(renderer, roc_panel):
+    """A non-temporal line panel never gets a rangeslider, even when it asks."""
+    assert True not in _rangeslider_visibles(_fig(renderer, dataclasses.replace(roc_panel, rangeslider=True)))
 
 
 def test_nontemporal_line_has_no_rangeslider(renderer, roc_panel):
@@ -145,7 +158,7 @@ def test_modebar_drops_lasso_and_logo(renderer, roc_panel):
 
 def test_html_output_carries_interactivity(renderer, temporal_panel, tmp_path):
     """Html output carries interactivity."""
-    fig = _fig(renderer, temporal_panel)
+    fig = _fig(renderer, dataclasses.replace(temporal_panel, rangeslider=True))
     out = str(tmp_path / "t.html")
     renderer.save(fig, out, "html")
     with open(out, encoding="utf-8") as f:
