@@ -31,6 +31,14 @@ import numpy as np
 from numba import njit, prange
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import _uf_labels
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su_joint import (
+    DENSE_JOINT_CELLS_PER_ROW,
+    DENSE_JOINT_MIN_CELLS,
+    SPARSE_CODE_RELABEL_MIN,
+    _pairwise_su_edges,
+    dense_relabel_codes,
+    su_from_classes_sparse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -275,100 +283,6 @@ def _pairwise_su_edges_gpu(
 
 
 @njit(parallel=True, nogil=True, cache=True, fastmath=False)
-def _pairwise_su_edges(
-    bins_packed: np.ndarray,
-    nbins: np.ndarray,
-    freqs_packed: np.ndarray,
-    freqs_offsets: np.ndarray,
-    h_marginals: np.ndarray,
-    constant_mask: np.ndarray,
-    threshold: float,
-) -> np.ndarray:
-    """Pairwise SU matrix above ``threshold`` returned as a dense flag matrix.
-
-    ``bins_packed`` is a ``(n_features, n_samples)`` int32 view (column-major
-    layout: each feature's per-sample bin ids occupy a contiguous row, so the
-    inner sample-scan reads two contiguous int32 strips and saturates the L1
-    cache line instead of jumping ``n_features * 4`` bytes per sample);
-    ``nbins[i]`` is the cardinality used to size the joint-counts matrix on
-    column ``i``; ``freqs_packed`` is the concatenation of all per-column
-    marginal probability vectors with offsets in ``freqs_offsets`` (shape
-    ``(n_features + 1,)``); ``h_marginals[i]`` is the pre-computed Shannon
-    entropy of column ``i``; ``constant_mask[i]`` is ``True`` when column ``i``
-    has <=1 distinct bin (SU=0 vs anyone).
-
-    Returns an upper-triangle flag matrix (``flag[i, j] = 1`` iff ``SU(i, j) >= threshold``
-    and ``i < j``). Edge extraction happens outside the njit kernel so the prange
-    iterations stay purely numeric.
-    """
-    n_features, n_samples = bins_packed.shape
-    flags = np.zeros((n_features, n_features), dtype=np.uint8)
-    # P1f: guard the ``1.0 / n_samples`` below. Empty input is short-circuited by the callers today, but
-    # a zero-sample matrix here would divide by zero; with no samples there are no edges, so return early.
-    if n_samples == 0:
-        return flags
-    # max joint cardinality controls a single thread-local reusable buffer per
-    # outer iteration; avoids per-pair np.zeros allocation that bottlenecks at
-    # width >= 2000 (numba memory allocator under contention).
-    #
-    # bench-attempt-rejected (2026-05-31, iter72): j-tile block of B consecutive
-    # j-columns sharing the i-row L1 read in the sample sweep. Tested B in
-    # {2,3,4,5,7,8,16,32} at width=2000 / n_samples=1500 / n_bins=10 / 8 numba
-    # threads: every B regressed (best B=8 was 2.59s vs per-pair 2.13s = 0.82x).
-    # Likely the B strided writes to joints[jb, x_i, x_j] saturate L1 stores and
-    # the extra zeroing work (B * nb_i * nb_j cells per tile) wipes any savings
-    # from sharing the i-row read. Do not re-attempt pure j-tiling without first
-    # changing the inner-loop store pattern (e.g. SoA joints[B, k_chunk] +
-    # post-reduction, or sample-tile + j-tile two-level blocking).
-    max_nb = 0
-    for i in range(n_features):
-        if nbins[i] > max_nb:
-            max_nb = nbins[i]
-    for i in prange(n_features):
-        if constant_mask[i]:
-            continue
-        nb_i = nbins[i]
-        h_i = h_marginals[i]
-        off_i = freqs_offsets[i]
-        # one int64 buffer per outer-i (thread-local because prange allocates
-        # locals inside the parallel region on the worker thread's stack).
-        joint = np.zeros((max_nb, max_nb), dtype=np.int64)
-        for j in range(i + 1, n_features):
-            if constant_mask[j]:
-                continue
-            nb_j = nbins[j]
-            # reset only the cells we'll touch.
-            for a in range(nb_i):
-                for b in range(nb_j):
-                    joint[a, b] = 0
-            for k in range(n_samples):
-                joint[bins_packed[i, k], bins_packed[j, k]] += 1
-            inv_n = 1.0 / n_samples
-            mi = 0.0
-            off_j = freqs_offsets[j]
-            for a in range(nb_i):
-                px = freqs_packed[off_i + a]
-                if px <= 0.0:
-                    continue
-                for b in range(nb_j):
-                    jc = joint[a, b]
-                    if jc == 0:
-                        continue
-                    py = freqs_packed[off_j + b]
-                    if py <= 0.0:
-                        continue
-                    jf = jc * inv_n
-                    mi += jf * math.log(jf / (px * py))
-            denom = h_i + h_marginals[j]
-            if denom <= 1e-12:
-                continue
-            su = 2.0 * mi / denom
-            if su >= threshold:
-                flags[i, j] = 1
-    return flags
-
-
-@njit(parallel=True, nogil=True, cache=True, fastmath=False)
 def _compute_marginals_packed(
     bins_packed: np.ndarray,
     nbins: np.ndarray,
@@ -438,35 +352,33 @@ def _setup_su_kernel_inputs(
             return None
     n_features = len(arrays)
 
-    # Pre-determine nb_i per feature (one .max() per column - O(n_samples) total per
-    # column; cheap C call, no Python-loop overhead per element). The hint overrides
-    # the observed max so the joint-counts matrix dimension stays consistent with
-    # MRMR's view of the bin space even when a column never realises its highest bin.
+    # Pre-determine nb_i per feature (one .max() per column). The hint overrides the observed max so the joint-counts
+    # dimension matches MRMR's view of the bin space even when a column never realises its highest bin.
+    # A column whose code space is wide (polars Categorical physical codes index a process-wide string cache, so a
+    # 10-level column can carry codes in the 100k range) is relabelled to dense 0..K-1 codes instead: empty bins add
+    # nothing to MI or entropy and the relabel is monotone, so SU is bit-identical while nb drops to the true K.
     nbins = np.empty(n_features, dtype=np.int64)
     freqs_offsets = np.empty(n_features + 1, dtype=np.int64)
+    bins_packed = np.empty((n_features, n_samples), dtype=np.int32, order="C")
     offset = 0
     for i, arr in enumerate(arrays):
-        if arr.size == 0:
-            observed_max = 0
+        observed_max = int(arr.max()) + 1 if arr.size else 0
+        if observed_max > SPARSE_CODE_RELABEL_MIN:
+            nb = dense_relabel_codes(arr, bins_packed[i])
         else:
-            observed_max = int(arr.max()) + 1
-        hint = nbins_hints[i] if nbins_hints is not None else 0
-        nb = max(observed_max, int(hint) if hint else 0)
+            hint = nbins_hints[i] if nbins_hints is not None else 0
+            nb = max(observed_max, int(hint) if hint else 0)
+            # Column-major write: each feature's bin ids occupy a contiguous int32 row so the SU kernel's inner sample
+            # loop reads stride-1 strips.
+            bins_packed[i, :] = arr.astype(np.int32, copy=False)
         nbins[i] = nb
         freqs_offsets[i] = offset
         offset += nb
     freqs_offsets[n_features] = offset
 
-    bins_packed = np.empty((n_features, n_samples), dtype=np.int32, order="C")
     freqs_packed = np.empty(int(offset), dtype=np.float64)
     h_marginals = np.empty(n_features, dtype=np.float64)
     constant_mask = np.empty(n_features, dtype=np.bool_)
-
-    # Column-major write: each feature's bin ids occupy a contiguous int32 row so the
-    # SU kernel's inner sample loop reads stride-1 strips. The astype(copy=False) is a
-    # no-op view when arr is already int32, otherwise a single C-level copy.
-    for i, arr in enumerate(arrays):
-        bins_packed[i, :] = arr.astype(np.int32, copy=False)
 
     # Parallel sweep: bincount + normalize + entropy + constant-mask, all in one
     # pass per column on a worker thread. Replaces the prior pair of Python loops
@@ -566,7 +478,13 @@ def _column_marginal(
     if cls.size == 0:
         return cls, np.empty(0, dtype=np.float64)
     observed_max = int(cls.max()) + 1 if cls.size else 0
-    nb = max(observed_max, int(n_bins_hint) if n_bins_hint is not None else 0)
+    if observed_max > SPARSE_CODE_RELABEL_MIN:
+        # Wide code space (see ``_setup_su_kernel_inputs``): relabel densely; SU is unchanged.
+        dense = np.empty(cls.shape[0], dtype=np.int32)
+        nb = dense_relabel_codes(cls, dense)
+        cls = dense.astype(np.int64)
+    else:
+        nb = max(observed_max, int(n_bins_hint) if n_bins_hint is not None else 0)
     counts = np.bincount(cls, minlength=nb).astype(np.float64)
     total = counts.sum()
     if total <= 0.0:
@@ -829,9 +747,11 @@ def cluster_correlated_features_su(
             classes_j, freqs_j = marginals[j]
             if np.count_nonzero(freqs_j) <= 1:
                 continue
-            # ``compute_su_from_classes`` is numba-jitted and reads the
-            # int64 class arrays + float64 freq arrays we computed above.
-            su = float(compute_su_from_classes(classes_i, freqs_i, classes_j, freqs_j))
+            # A dense K_i x K_j table for an ID-like column pair would be ~n^2 cells; count those sparsely (same value).
+            if freqs_i.shape[0] * freqs_j.shape[0] > max(DENSE_JOINT_MIN_CELLS, DENSE_JOINT_CELLS_PER_ROW * classes_i.shape[0]):
+                su = float(su_from_classes_sparse(classes_i, freqs_i, classes_j, freqs_j))
+            else:
+                su = float(compute_su_from_classes(classes_i, freqs_i, classes_j, freqs_j))
             if su >= threshold:
                 ei_parts.append(i)
                 ej_parts.append(j)
