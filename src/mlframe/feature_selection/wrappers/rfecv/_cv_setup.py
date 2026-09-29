@@ -3,10 +3,13 @@
 Carved out of ``_rfecv_fit``'s pre-while setup. Resolves the ``cv``
 argument into a concrete splitter:
 
+* a splitter name (``"KFold"``) or class -> instantiated (``n_splits=3`` when it takes one); a numeric string -> int.
 * int cv -> auto-detect time-series via a 4-source priority chain
   (suite-level ``timestamps`` hint -> polars schema hint ->
   pandas DatetimeIndex monotonicity -> single polars datetime column
   monotonicity). If detected, swap to ``TimeSeriesSplit``.
+* int cv + a ``timestamps`` hint whose values are NOT sorted -> ``TimestampOrderedSplit`` (forward-chains in timestamp
+  order, at the group level when groups are given), since every positional splitter would chain in the wrong order.
 * int cv + groups + a temporal signal -> ``GroupTimeSeriesSplit`` (entity isolation AND forward-chained time
   order; falls back to the group KFold below when there are too few groups, or when ``cv_shuffle=True`` opts out).
 * int cv + classifier + groups -> ``StratifiedGroupKFold``.
@@ -14,10 +17,7 @@ argument into a concrete splitter:
 * int cv + regressor + groups -> ``GroupKFold``.
 * int cv + regressor + no groups -> ``KFold``.
 
-If ``early_stopping_val_nsplits`` is set, builds ``val_cv`` by cloning
-``cv`` with the override; falls back to ``copy.copy + setattr(n_splits)``
-for splitters whose ``get_params()`` doesn't expose the slot (LOO etc.)
-and WARNS loudly because the override may be silently ignored.
+If ``early_stopping_val_nsplits`` is set, ``val_cv`` is ``cv`` rebuilt with that many folds (see ``_derive_val_cv``).
 
 Re-imported at the parent's module bottom so historical
 ``from ._fit import _resolve_cv_and_val_cv`` keeps resolving
@@ -26,7 +26,9 @@ transparently.
 from __future__ import annotations
 
 import copy
+import inspect
 import logging
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -40,7 +42,89 @@ from sklearn.model_selection import (
     TimeSeriesSplit,
 )
 
+from ._timestamp_ordered_split import TimestampOrderedSplit
+
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
+
+
+_DEFAULT_N_SPLITS = 3
+
+
+def _splitter_class_by_name(name: str) -> type:
+    """Resolve a splitter class from its name: sklearn.model_selection first, then this package's own splitters."""
+    import sklearn.model_selection as _skms
+
+    from ._group_time_series_split import GroupTimeSeriesSplit
+
+    own = {"GroupTimeSeriesSplit": GroupTimeSeriesSplit, "TimestampOrderedSplit": TimestampOrderedSplit}
+    cls = own.get(name) or getattr(_skms, name, None)
+    if not isinstance(cls, type) or not hasattr(cls, "split"):
+        raise ValueError(f"RFECV: cv={name!r} is not a known CV splitter name (sklearn.model_selection or {sorted(own)}).")
+    return cls
+
+
+def _init_param_names(cls: type) -> set:
+    """Keyword parameters of ``cls.__init__``, the same introspection sklearn's own splitter ``__repr__`` relies on."""
+    try:
+        return {p.name for p in inspect.signature(cls).parameters.values() if p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)}
+    except (TypeError, ValueError):
+        return set()
+
+
+def _coerce_cv_spec(cv: Any, cv_shuffle: bool, random_state: Any) -> Any:
+    """Turn a numeric string into an int and a splitter name or class into an instance; anything else passes through.
+
+    A class gets ``n_splits=3`` (RFECV's ``cv=None`` default) when it takes one, plus ``shuffle`` / ``random_state`` when
+    ``cv_shuffle`` asks for a shuffle and the class accepts them.
+    """
+    if isinstance(cv, str):
+        if cv.strip().isnumeric():
+            return int(cv)
+        cv = _splitter_class_by_name(cv.strip())
+    if isinstance(cv, type):
+        params = _init_param_names(cv)
+        kwargs: dict = {}
+        if "n_splits" in params:
+            kwargs["n_splits"] = _DEFAULT_N_SPLITS
+        if cv_shuffle and "shuffle" in params:
+            kwargs["shuffle"] = True
+            if "random_state" in params:
+                kwargs["random_state"] = random_state
+        return cv(**kwargs)
+    return cv
+
+
+def _derive_val_cv(cv: Any, n_splits: int) -> Any:
+    """The early-stopping splitter: ``cv`` rebuilt with ``n_splits`` folds.
+
+    sklearn splitters have no ``get_params``; like their own ``__repr__``, the constructor signature is read and every
+    parameter taken from the same-named attribute. Only a splitter with no ``n_splits`` slot at all (LeaveOneOut and
+    other data-sized splitters) cannot honour the override, and only that case warns.
+    """
+    custom = getattr(cv, "early_stopping_val_cv", None)
+    if callable(custom):
+        return custom(n_splits)
+    params = _init_param_names(type(cv))
+    if "n_splits" in params and all(hasattr(cv, p) for p in params):
+        kwargs = {p: getattr(cv, p) for p in params}
+        kwargs["n_splits"] = n_splits
+        if kwargs.get("shuffle") is False and kwargs.get("random_state") is not None:
+            kwargs["random_state"] = None
+        try:
+            return type(cv)(**kwargs)
+        except (TypeError, ValueError) as exc:
+            logger.debug("RFECV: rebuilding %s with n_splits=%d failed (%s); falling back to attribute assignment.", type(cv).__name__, n_splits, exc)
+    if not hasattr(cv, "n_splits"):
+        logger.warning(
+            "RFECV: cv=%s has no n_splits (its fold count comes from the data), so early_stopping_val_nsplits=%d cannot "
+            "apply; its early-stopping hold-out uses the same splitter. Pass an n_splits-based cv to control it.",
+            type(cv).__name__, n_splits,
+        )
+        return copy.deepcopy(cv)
+    # deepcopy, not copy: a shallow copy shares mutable internals, so the n_splits write would leak into the caller's cv.
+    val_cv = copy.deepcopy(cv)
+    val_cv.n_splits = n_splits
+    return val_cv
 
 
 def _make_group_time_series(n_splits, groups, fallback, verbose):
@@ -104,7 +188,8 @@ def _resolve_cv_and_val_cv(
     object when it was already a splitter (no int / numeric-string).
     """
     random_state = _fixed_shuffle_seed(cv_shuffle, random_state)
-    if cv is None or str(cv).isnumeric():
+    cv = _coerce_cv_spec(cv, cv_shuffle, random_state)
+    if cv is None or isinstance(cv, (int, np.integer)):
         if cv is None:
             cv = 3
         # Time-series auto-detect: a monotonic datetime axis means KFold-style shuffles would leak future into past; TimeSeriesSplit is
@@ -117,13 +202,17 @@ def _resolve_cv_and_val_cv(
         # catches the case where X has no DatetimeIndex / no polars datetime col but the suite knows the row order is
         # temporal (e.g. integer epoch seconds in a separate array). Honour the hint regardless of X's schema.
         _ts_hint = fit_params.pop("timestamps", None) if isinstance(fit_params, dict) else None
-        if groups is None and _ts_hint is not None:
+        # A hint whose values are not sorted still says the rows are temporal, just not in row order: every positional
+        # splitter (TimeSeriesSplit, GroupTimeSeriesSplit) would then chain in the wrong order, so it gets TimestampOrderedSplit.
+        _ts_hint_unsorted = False
+        if _ts_hint is not None:
             try:
                 _ts_arr = np.asarray(_ts_hint)
                 if _ts_arr.ndim == 1 and _ts_arr.size == (X.shape[0] if hasattr(X, "shape") else len(X)):
-                    # Monotonic-non-decreasing -> time axis.
                     if bool(np.all(_ts_arr[1:] >= _ts_arr[:-1])):
-                        _is_time_series = True
+                        _is_time_series = groups is None
+                    else:
+                        _ts_hint_unsorted = True
             except (TypeError, ValueError):
                 pass
         # Polars-input path: the schema-level monotonic-datetime check happens BEFORE the to_pandas() at fit entry; the hint is set
@@ -166,7 +255,9 @@ def _resolve_cv_and_val_cv(
         # GroupTimeSeriesSplit, which forward-chains at the group level (entity isolation AND temporal order). Honour
         # an explicit cv_shuffle=True opt-out, mirroring the non-group temporal path.
         _use_group_time_series = False
-        if groups is not None and not cv_shuffle:
+        if _ts_hint_unsorted:
+            pass
+        elif groups is not None and not cv_shuffle:
             _use_group_time_series = (
                 _ts_hint is not None
                 or _polars_time_series_hint
@@ -191,7 +282,18 @@ def _resolve_cv_and_val_cv(
                 "pass cv=TimeSeriesSplit(...) explicitly if you want temporal folds.",
             )
             _is_time_series = False
-        if _is_time_series:
+        if _ts_hint_unsorted and cv_shuffle:
+            logger.warning(
+                "RFECV: explicit cv_shuffle=True overrides the fit_params['timestamps'] hint; folds are shuffled, not "
+                "ordered in time. Drop cv_shuffle if temporal ordering matters.",
+            )
+        if _ts_hint_unsorted and not cv_shuffle:
+            cv = TimestampOrderedSplit(n_splits=cv, timestamps=_ts_hint)
+            logger.info(
+                "RFECV: rows are not sorted by the fit_params['timestamps'] hint; using %s, which forward-chains in timestamp order%s.",
+                cv, " at the group level" if groups is not None else "",
+            )
+        elif _is_time_series:
             cv = TimeSeriesSplit(n_splits=cv)
             if verbose:
                 logger.info(
@@ -223,32 +325,11 @@ def _resolve_cv_and_val_cv(
                     cv = KFold(n_splits=cv, shuffle=True, random_state=random_state)
                 else:
                     cv = KFold(n_splits=cv, shuffle=False)
-        if verbose and not _is_time_series:
+        if verbose and not _is_time_series and not _ts_hint_unsorted:
             logger.info("Using cv=%s", cv)
 
     if early_stopping_val_nsplits:
-        try:
-            # sklearn KFold-family raises ValueError if random_state is set while shuffle=False. Drop random_state in that case.
-            _cv_params = dict(cv.get_params())
-            if _cv_params.get("shuffle") is False and _cv_params.get("random_state") is not None:
-                _cv_params["random_state"] = None
-            _cv_params["n_splits"] = early_stopping_val_nsplits
-            val_cv = type(cv)(**_cv_params)
-        except (AttributeError, TypeError, ValueError):
-            # Fallback for LeaveOneOut / iterator-based custom CVs whose get_params() may not exist or whose n_splits is computed
-            # from the data. The setattr-style fallback below may silently write to a meaningless attribute and the CV runs with its
-            # original split count, ignoring the user's early_stopping_val_nsplits request - warn loudly.
-            logger.warning(
-                "RFECV: cv=%r does not accept n_splits via get_params(); "
-                "falling back to copy.copy + attribute assignment. The user's "
-                "early_stopping_val_nsplits=%s may be IGNORED if this CV "
-                "computes its split count from the data (e.g. LeaveOneOut). "
-                "Pass an explicit val_cv-compatible splitter to silence this.",
-                type(cv).__name__, early_stopping_val_nsplits,
-            )
-            # ``copy.copy`` is shallow and shares internal state with the original; mutating ``n_splits`` afterwards silently corrupts the caller's splitter reference. ``deepcopy`` is micro-cost on a splitter (a few floats / ints / a random state) and isolates this branch from the caller's object identity.
-            val_cv = copy.deepcopy(cv)
-            val_cv.n_splits = early_stopping_val_nsplits
+        val_cv = _derive_val_cv(cv, int(early_stopping_val_nsplits))
         if not early_stopping_rounds:
             early_stopping_rounds = 20
     else:

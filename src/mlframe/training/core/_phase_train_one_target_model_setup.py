@@ -551,6 +551,14 @@ def _setup_per_target_mlframe_models(
         logger.info("  select_target done in %s", _elapsed_str(t0_select_target))
         log_ram_usage()
 
+    from ._rfecv_temporal_cv import apply_temporal_cv_to_rfecv
+
+    apply_temporal_cv_to_rfecv(
+        {name: rfecv_models_params.get(name) for name in (rfecv_models or [])},
+        timestamps=timestamps, train_idx=_train_idx, split_config=getattr(ctx, "split_config", None),
+        hyperparams_config=_target_hyperparams_config, verbose=verbose,
+    )
+
     # Pack H: auto-pick MAE / Huber loss for heavy-tail regression
     # residuals. ``cur_target_values`` is the raw y for raw-target or
     # the composite residual T for composite-target paths; in both
