@@ -228,7 +228,7 @@
   "src/mlframe/training/_fixed_splits.py::pinned_train_val_test_split": 155,
   "src/mlframe/training/_helpers_training_configs.py::get_training_configs": 669,
   "src/mlframe/training/_io_save.py::save_mlframe_model": 395,
-  "src/mlframe/training/_model_factories.py::_patch_dataset_constructors_with_logging": 193,
+  "src/mlframe/training/_model_factories.py::_patch_dataset_constructors_with_logging": 159,
   "src/mlframe/training/_trainer_configure.py::configure_training_params": 699,
   "src/mlframe/training/_trainer_train_and_evaluate.py::train_and_evaluate_model": 932,
   "src/mlframe/training/_training_loop.py::_train_model_with_fallback_unguarded": 652,

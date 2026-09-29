@@ -63,6 +63,44 @@ def infer_build_callsite(skip_frames: int = 2) -> str:
         return "?"
 
 
+# Module-name fragments of the internal fit loops whose per-iteration builds are demoted to DEBUG: composite discovery,
+# screening, baseline-diagnostics ablation, and every feature-selection wrapper (RFECV folds x elimination steps, the
+# permutation-importance scorer calls). Those builds are the per-fold noise; the per-owner rollup still counts them.
+_INTERNAL_LOOP_MODULE_MARKERS = ("composite", "screening", "baseline_diagnostics", "mlframe.feature_selection.")
+
+# A build this slow stays at INFO even inside an internal loop: its cost is worth a line of its own.
+SLOW_INTERNAL_BUILD_SECONDS = 5.0
+
+
+def originates_in_internal_loop(skip_frames: int = 2) -> bool:
+    """True if any ancestor frame lives in a known per-iteration internal fit loop.
+
+    The reported call site is the nearest non-library frame, which is often mlframe's own thin dataset-build shim
+    (lgb_shim / xgb_shim) and so masks the originating loop; the whole stack is scanned instead. 60 frames, not 25:
+    an internal loop that dispatches through sklearn CV plus joblib puts more than 25 frames between itself and the
+    constructor.
+    """
+    try:
+        frame: Any = _sys._getframe(skip_frames)
+        for _ in range(60):
+            if frame is None:
+                break
+            mod = (frame.f_globals.get("__name__", "") or "").lower()
+            if any(m in mod for m in _INTERNAL_LOOP_MODULE_MARKERS):
+                return True
+            frame = frame.f_back
+    except Exception as exc:
+        logger.debug("originates_in_internal_loop: stack walk failed: %s", exc)
+    return False
+
+
+def dataset_build_log_level(elapsed: float, skip_frames: int = 3) -> int:
+    """INFO for a main-path build or a slow one; DEBUG for a routine build fired from inside an internal fit loop."""
+    if elapsed >= SLOW_INTERNAL_BUILD_SECONDS:
+        return logging.INFO
+    return logging.DEBUG if originates_in_internal_loop(skip_frames=skip_frames) else logging.INFO
+
+
 def record_dataset_build(label: str, owner: str, rows: int, seconds: float) -> None:
     """Add one dataset build to its owner's running totals."""
     key = f"{owner} [{label}]"
@@ -114,8 +152,11 @@ def format_dataset_build_stats(rows: List[Dict[str, Any]], *, top: int = 15) -> 
 
 
 __all__ = [
+    "SLOW_INTERNAL_BUILD_SECONDS",
+    "dataset_build_log_level",
     "dataset_build_snapshot",
     "infer_build_callsite",
+    "originates_in_internal_loop",
     "format_dataset_build_stats",
     "record_dataset_build",
     "reset_dataset_build_stats",

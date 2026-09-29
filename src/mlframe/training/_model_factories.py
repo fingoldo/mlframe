@@ -8,7 +8,6 @@ un-fitted sklearn-compatible estimator classes or instances.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +165,6 @@ def _patch_dataset_constructors_with_logging() -> None:
     wrapped class; subsequent calls are no-ops.
     """
     import time as _time
-    import sys as _sys
 
     # Use the trainer-level logger so external consumers / tests can filter
     # dataset-build events with the stable name `mlframe.training.trainer`
@@ -213,30 +211,6 @@ def _patch_dataset_constructors_with_logging() -> None:
 
         return infer_build_callsite(skip_frames=3)
 
-    def _originates_in_internal_loop() -> bool:
-        """True if any ancestor stack frame lives in a known per-iteration internal loop (composite discovery / screening / baseline-diagnostics ablation) -- used to demote its build-event log line to DEBUG."""
-        # A per-iteration nuisance build is one fired from inside an internal FIT LOOP -- composite discovery /
-        # screening / baseline-diagnostics ablation / cross-target OOF K-fold. The reported single call site is the
-        # nearest non-library frame, which is often mlframe's own thin dataset-build shim (lgb_shim / xgb_shim) and so
-        # MASKS the originating loop, defeating the INFO->DEBUG demotion. Scan the whole stack instead: if ANY ancestor
-        # frame lives in one of those loop modules, demote. The main-model training path has no such ancestor -> stays INFO.
-        try:
-            frame: Any = _sys._getframe(2)
-            # 60, not 25: an internal loop that dispatches through sklearn CV plus joblib puts more than 25
-            # frames between itself and the constructor, so the demotion silently stopped applying exactly
-            # where the per-fold noise is worst.
-            for _ in range(60):
-                if frame is None:
-                    break
-                mod = (frame.f_globals.get("__name__", "") or "").lower()
-                if "composite" in mod or "screening" in mod or "baseline_diagnostics" in mod:
-                    return True
-                frame = frame.f_back
-        except Exception as e:
-            logger.debug("swallowed exception in _model_factories.py: %s", e)
-            pass
-        return False
-
     def _wrap_init(cls, label: str):
         """Monkey-patch ``cls.__init__`` in place to emit a build-event log line after construction; idempotent per concrete class via the ``_mlframe_build_logger_installed`` own-``__dict__`` marker."""
         if cls is None:
@@ -269,8 +243,8 @@ def _patch_dataset_constructors_with_logging() -> None:
                     logger.debug("dataset-build stats not recorded (%s: %s)", type(_stats_exc).__name__, _stats_exc)
                 # INFO is the LEAST restrictive level this wrapper ever logs at (the internal-loop branch
                 # further demotes to DEBUG, never promotes past INFO), so if INFO is disabled neither
-                # branch can ever fire -- skip the stack-walking introspection (_infer_callsite up to 8
-                # frames, _originates_in_internal_loop up to 25) entirely rather than computing args nobody
+                # branch can ever fire -- skip the stack-walking introspection (_infer_callsite and the
+                # internal-loop stack scan, up to 60 frames each) entirely rather than computing args nobody
                 # reads. Default logging config (root level WARNING) hits this on every DMatrix/Pool/Dataset
                 # build; a caller who raises this logger to INFO/DEBUG is unaffected (both branches still run).
                 # NOTE: must be an `if`, not an early `return` -- this is inside the wrapped __init__'s
@@ -284,21 +258,12 @@ def _patch_dataset_constructors_with_logging() -> None:
                         shape_str = f"{shape[0]}x?"
                     else:
                         shape_str = "?x?"
-                    # I3 fix: demote internal-diagnostic build events to
-                    # DEBUG so per-feature ablation / per-trial discovery loops don't
-                    # drown out actually-useful build events on production-size datasets.
-                    # Only demote when callsite originates in
-                    # one of the known internal-loop modules (the previous "OR row
-                    # count below 50K" half of the heuristic hid every legitimate
-                    # small-data build from INFO; caught by
-                    # test_fix9_build_logging_fires_on_dmatrix on a 200x5 frame).
-                    # BaselineDiagnostics' ablation loop fits a
-                    # fresh LGB.Dataset per feature-subset (7-15 builds per training
-                    # run on a wide frame) - same nuisance pattern as composite /
-                    # screening, demote it too.
-                    # Demote when the build originates anywhere inside an internal fit loop (scanning the full stack, not
-                    # just the shim-masked call site), so per-fold / per-feature-subset builds don't drown the log at INFO.
-                    _level = logging.DEBUG if _originates_in_internal_loop() else logging.INFO
+                    # Routine builds fired from inside an internal fit loop (composite / screening / ablation / RFECV folds /
+                    # permutation-importance scoring) go to DEBUG so they don't drown the log; slow ones stay INFO.
+                    # skip_frames=3: dataset_build_log_level -> _logged_init -> the constructor's caller.
+                    from ._dataset_build_stats import dataset_build_log_level
+
+                    _level = dataset_build_log_level(elapsed, skip_frames=3)
                     # ``elapsed`` covers the CONSTRUCTOR only. LightGBM's Dataset defers its binning to
                     # construct(), so a build that really took two minutes reported took=0.000s and read as
                     # instant -- name which of the two the number is instead of letting it mislead.
