@@ -24,6 +24,7 @@ from typing import Dict, List, Mapping, Optional, Sequence
 
 import numpy as np
 
+from mlframe.metrics.calibration import ICE_UNCOMPUTABLE
 from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec,
@@ -40,6 +41,9 @@ def normalize_history(
 
     Unknown split keys are dropped (the booster sometimes emits an extra eval set the report
     does not care about); a metric left with no recognised split is dropped entirely.
+
+    ICE's "not scored" sentinel (``+-ICE_UNCOMPUTABLE``, exact match only so a genuine large regression loss is kept)
+    becomes NaN: it is a placeholder CatBoost forces to be finite, and plotted as a value it flattens the whole panel.
     """
     out: Dict[str, Dict[str, np.ndarray]] = {}
     for metric, splits in history.items():
@@ -54,7 +58,13 @@ def normalize_history(
                 continue
             # First alias wins: a booster never emits two train-like keys for one metric, and
             # silently overwriting would hide a caller bug rather than surface it.
-            norm.setdefault(canon, np.asarray(series, dtype=np.float64).ravel())
+            if canon in norm:
+                continue
+            arr = np.asarray(series, dtype=np.float64).ravel()
+            sentinel = np.abs(arr) == ICE_UNCOMPUTABLE
+            if sentinel.any():
+                arr = np.where(sentinel, np.nan, arr)
+            norm[canon] = arr
         if norm:
             out[str(metric)] = norm
     return out
@@ -86,6 +96,19 @@ def _sampled_positions(length: int, n_iter: int, metric_period: Optional[int]) -
         if pos[-1] != n_iter - 1 and len(pos) + 1 == length:
             return np.asarray([*pos, n_iter - 1], dtype=np.float64)
     return None
+
+
+def _interp_with_gaps(x: np.ndarray, pos: np.ndarray, s: np.ndarray) -> np.ndarray:
+    """Interpolate ``s`` sampled at ``pos`` onto ``x``, leaving NaN wherever either bracketing sample is missing."""
+    fin = np.isfinite(s)
+    out = np.full(x.shape[0], np.nan)
+    if not fin.any():
+        return out
+    right = np.clip(np.searchsorted(pos, x, side="left"), 0, pos.shape[0] - 1)
+    left = np.clip(np.searchsorted(pos, x, side="right") - 1, 0, pos.shape[0] - 1)
+    ok = fin[left] & fin[right]
+    out[ok] = np.interp(x[ok], pos[fin], s[fin])
+    return out
 
 
 def _metric_panel(
@@ -127,6 +150,8 @@ def _metric_panel(
             _pos = _sampled_positions(s.shape[0], n_iter, metric_period)
             if _pos is not None and np.isfinite(s).all():
                 _aligned.append(np.interp(x, _pos, s))
+            elif _pos is not None:
+                _aligned.append(_interp_with_gaps(x, _pos, s))
             else:
                 _aligned.append(np.concatenate([s, np.full(n_iter - s.shape[0], np.nan)]))
         series = _aligned

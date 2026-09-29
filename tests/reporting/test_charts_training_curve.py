@@ -300,3 +300,32 @@ class TestLayout:
         panel = compose_training_curve_figure(overfit_history, es_iteration=70).panels[0][0]
         assert "ES @" not in panel.title
         assert panel.vlines[0][2] == "early stop @ 70"
+
+
+class TestSentinelMasking:
+    """ICE's finite "not scored" sentinel must never be drawn as a value."""
+
+    def test_ice_sentinel_becomes_nan(self):
+        from mlframe.metrics.calibration import ICE_UNCOMPUTABLE
+
+        h = {"ICE": {"learn": [0.22, ICE_UNCOMPUTABLE, ICE_UNCOMPUTABLE], "validation": [0.25, 0.24, -ICE_UNCOMPUTABLE]}}
+        out = normalize_history(h)["ICE"]
+        assert out["train"][0] == pytest.approx(0.22) and np.isnan(out["train"][1:]).all()
+        assert np.isnan(out["val"][2])
+
+    def test_genuine_large_loss_is_kept(self):
+        out = normalize_history({"RMSE": {"train": [3.5e6, 2.0e6], "val": [4.0e6, 3.0e6]}})["RMSE"]
+        np.testing.assert_array_equal(out["train"], [3.5e6, 2.0e6])
+
+    def test_sampled_train_curve_with_sentinel_is_gapped_not_flattened(self):
+        from mlframe.metrics.calibration import ICE_UNCOMPUTABLE
+
+        h, train_full, _ = _catboost_sampled_history()
+        learn = list(h["Huber"]["learn"])
+        learn[10] = ICE_UNCOMPUTABLE
+        h = {"Huber": {"learn": learn, "validation": h["Huber"]["validation"]}}
+        train = np.asarray(compose_training_curve_figure(h, metric_period=5).panels[0][0].y[0])
+        assert train.shape[0] == 600 and np.nanmax(train) < 1.0
+        assert np.isnan(train[46:54]).all(), "iterations bracketed by the masked sample (logged at 50) are gaps"
+        np.testing.assert_allclose(train[:45], train_full[:45], rtol=1e-12)
+        np.testing.assert_allclose(train[55:], train_full[55:], rtol=1e-12)

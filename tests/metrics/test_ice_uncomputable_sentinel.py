@@ -43,11 +43,11 @@ def _evaluate(metric, n, seed=0):
 
 
 def test_skip_sentinel_is_the_worst_value_not_zero():
-    metric = ICE(metric=lambda y_true, y_score: 0.25, higher_is_better=False, max_arr_size=100)
+    metric = ICE(metric=lambda y_true, y_score: 0.25, higher_is_better=False, max_arr_size=100, subsample_skipped_sets=False)
     assert _evaluate(metric, 50) == 0.25
     assert _evaluate(metric, 500) == ICE_UNCOMPUTABLE
 
 
 def test_skip_sentinel_follows_the_metric_direction():
-    metric = ICE(metric=lambda y_true, y_score: 0.25, higher_is_better=True, max_arr_size=100)
+    metric = ICE(metric=lambda y_true, y_score: 0.25, higher_is_better=True, max_arr_size=100, subsample_skipped_sets=False)
     assert _evaluate(metric, 500) == -ICE_UNCOMPUTABLE

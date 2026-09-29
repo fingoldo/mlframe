@@ -465,6 +465,8 @@ class ICE:
     calibration_plot_period: int
     max_arr_size: int
     skip_largest_set: bool
+    learn_sample_size: int
+    subsample_skipped_sets: bool
     plot_file: Optional[str]
 
     def __init__(
@@ -475,6 +477,8 @@ class ICE:
         max_arr_size: int = 0,
         skip_largest_set: bool = False,
         plot_file: Optional[str] = None,
+        learn_sample_size: int = 50_000,
+        subsample_skipped_sets: bool = True,
     ) -> None:
 
         # save params
@@ -483,14 +487,40 @@ class ICE:
         self.nruns = 0
         # Row counts this instance has been called with. CatBoost evaluates a custom eval_metric on the LEARN set as well
         # as on the eval set; the learn value is only printed (early stopping and model selection read the eval set), and
-        # on a 498k-row learn set one call cost 107.8 ms. ``skip_largest_set`` skips the largest set seen once more than
-        # one size has appeared, i.e. only when an eval set exists, so a run without one keeps computing its only metric.
+        # on a 498k-row learn set one call cost 107.8 ms. ``skip_largest_set`` identifies the learn set as the first size seen
+        # (CatBoost deep-copies the metric per fit and scores the learn set before the eval sets on every iteration, so this holds
+        # even when an eval set is the larger one) and, once more than one size has appeared (i.e. only when an eval set exists,
+        # so a run without one keeps computing its only metric), scores it on a fixed ``learn_sample_size``-row subsample.
+        # Returning the skip sentinel there instead drew a flat 1e6 train line in CatBoost's own plot and in the training-curve
+        # chart; ``subsample_skipped_sets=False`` restores it.
+        # ``max_arr_size`` likewise subsamples any larger set rather than returning the sentinel, which would freeze early stopping
+        # when it hit the eval set.
         self._seen_sizes: set = set()
+        self._learn_size: Optional[int] = None
+        self._sample_idx: dict[tuple[int, int], np.ndarray] = {}
         self._sample_weights_checked: bool = False  # the weight vector is constant per fit; inspect it once
 
     def is_max_optimal(self):
         """CatBoost custom-metric protocol hook: whether a higher value is better."""
         return self.higher_is_better
+
+    def __getstate__(self) -> dict:
+        """Pickle state without the per-size subsample index cache, which is cheap to rebuild."""
+        state = self.__dict__.copy()
+        state["_sample_idx"] = {}
+        return state
+
+    def _subsample_index(self, n_rows: int, sample_n: int) -> np.ndarray:
+        """Sorted fixed row subsample for a set of ``n_rows`` rows, seeded by the size so every iteration scores the same rows."""
+        cache: dict[tuple[int, int], np.ndarray] = self.__dict__.setdefault("_sample_idx", {})
+        key = (n_rows, sample_n)
+        idx: Optional[np.ndarray] = cache.get(key)
+        if idx is None:
+            idx = np.sort(np.random.default_rng(n_rows).choice(n_rows, size=sample_n, replace=False))
+            if n_rows < np.iinfo(np.int32).max:
+                idx = idx.astype(np.int32)
+            cache[key] = idx
+        return idx
 
     def __sklearn_clone__(self):
         """Identity clone for sklearn's ``clone()`` (sklearn >= 1.3).
@@ -512,6 +542,33 @@ class ICE:
         """CatBoost custom-metric protocol hook: convert raw logits to probabilities, compute the integral calibration error, and periodically log/plot the calibration report."""
         output_weight = 1  # the returned value is already a weighted aggregate; CatBoost must not re-weight it
 
+        n_rows = len(approxes[0])
+        # Sentinel for a set this metric deliberately does not score (only with ``subsample_skipped_sets=False``). It must be the
+        # WORST value in the metric's own direction, never 0: 0 is the best possible ICE (lower-is-better), so a skipped EVAL set
+        # used to score perfectly on every iteration and freeze early stopping at iteration 1. CatBoost rejects a non-finite
+        # custom metric value, hence a large finite one.
+        _skip_value = -ICE_UNCOMPUTABLE if self.higher_is_better else ICE_UNCOMPUTABLE
+        sample_n = 0
+        if self.max_arr_size and n_rows > self.max_arr_size:
+            sample_n = int(self.max_arr_size)
+        elif getattr(self, "skip_largest_set", False):
+            self._seen_sizes.add(n_rows)
+            if getattr(self, "_learn_size", None) is None:
+                self._learn_size = n_rows
+            if len(self._seen_sizes) > 1 and n_rows == self._learn_size:
+                sample_n = int(getattr(self, "learn_sample_size", 50_000) or 0)
+                if sample_n <= 0:
+                    return _skip_value, output_weight
+        if sample_n:
+            if not getattr(self, "subsample_skipped_sets", True):
+                return _skip_value, output_weight
+            if sample_n < n_rows:
+                idx = self._subsample_index(n_rows, sample_n)
+                approxes = [np.asarray(a)[idx] for a in approxes]
+                target = np.asarray(target)[idx]
+                if weight is not None:
+                    weight = np.asarray(weight)[idx]
+
         # A weighted fit (fairness / inverse-frequency / recency weights) is scored with the same per-row weights, so the
         # metric driving early stopping describes the sample the loss minimises. Equal weights change nothing and are
         # not passed. A custom ``metric`` that takes no ``sample_weight`` is scored unweighted, said once per fit.
@@ -527,20 +584,6 @@ class ICE:
                         "ICE: this fit carries per-row sample weights but the metric %r takes no sample_weight, so the value "
                         "driving early stopping is unweighted.", self.metric,
                     )
-
-        n_rows = len(approxes[0])
-        # Skip sentinel for a set this metric deliberately does not score. It must be the WORST value in the metric's
-        # own direction, never 0: 0 is the best possible ICE (lower-is-better), so a skipped EVAL set used to score
-        # perfectly on every iteration and freeze early stopping at iteration 1. CatBoost rejects a non-finite custom
-        # metric value, hence a large finite one.
-        _skip_value = -ICE_UNCOMPUTABLE if self.higher_is_better else ICE_UNCOMPUTABLE
-        # to avoid expensive train set metric evaluation, we skip any input larger than max_arr_size
-        if self.max_arr_size and n_rows > self.max_arr_size:
-            return _skip_value, output_weight
-        if getattr(self, "skip_largest_set", False):
-            self._seen_sizes.add(n_rows)
-            if len(self._seen_sizes) > 1 and n_rows == max(self._seen_sizes):
-                return _skip_value, output_weight
 
         # Convert CatBoost logits to probabilities using numba-optimized functions
         from .core import cb_logits_to_probs_binary, cb_logits_to_probs_multiclass  # lazy: import-cycle, see module top

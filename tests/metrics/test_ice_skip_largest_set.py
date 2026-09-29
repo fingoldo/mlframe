@@ -1,4 +1,4 @@
-"""ICE skips the learn set (only printed) but never the eval set early stopping reads."""
+"""ICE subsamples the learn set (only printed) but always scores the eval set early stopping reads in full."""
 
 from __future__ import annotations
 
@@ -18,11 +18,23 @@ def _call(m, n, seed=0):
 
 
 def test_largest_set_is_skipped_only_after_a_second_size_appears():
-    m = ICE(metric=_metric, higher_is_better=False, skip_largest_set=True)
+    m = ICE(metric=_metric, higher_is_better=False, skip_largest_set=True, subsample_skipped_sets=False)
     assert _call(m, 1000) == 0.25, "the only set seen so far must still be scored"
     assert _call(m, 200) == 0.25, "the smaller (eval) set is always scored"
-    assert _call(m, 1000) == ICE_UNCOMPUTABLE, "the larger (learn) set is skipped once an eval set is known"
+    assert _call(m, 1000) == ICE_UNCOMPUTABLE, "with the legacy opt-out, the larger (learn) set is skipped once an eval set is known"
     assert _call(m, 200) == 0.25
+
+
+def test_largest_set_is_subsampled_by_default():
+    sizes = []
+
+    def _rec(y_true, y_score):
+        sizes.append(len(y_true))
+        return 0.25
+
+    m = ICE(metric=_rec, higher_is_better=False, skip_largest_set=True, learn_sample_size=300)
+    assert _call(m, 1000) == 0.25 and _call(m, 200) == 0.25 and _call(m, 1000) == 0.25 and _call(m, 200) == 0.25
+    assert sizes == [1000, 200, 300, 200], "the learn set is scored on a subsample once an eval set is known; the eval set never is"
 
 
 def test_single_set_run_keeps_its_metric():
