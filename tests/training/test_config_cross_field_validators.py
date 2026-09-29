@@ -57,7 +57,7 @@ def test_fsc_rfecv_kwargs_with_models_passes():
         rfecv_models=["cb"],
         rfecv_kwargs={"verbose": 0},
     )
-    assert cfg.rfecv_models == ["cb"]
+    assert cfg.rfecv_models == ["cb_rfecv"]
 
 
 def test_fsc_boruta_kwargs_without_master_flag_raises():

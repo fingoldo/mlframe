@@ -142,7 +142,7 @@ class TestConfigInstantiationDoesNotRaise:
             custom_pre_pipelines={"my_pca": sentinel},
         )
         assert cfg.use_mrmr_fs is True
-        assert cfg.rfecv_models == ["cb"]
+        assert cfg.rfecv_models == ["cb_rfecv"]
         assert cfg.custom_pre_pipelines == {"my_pca": sentinel}
 
     def test_confidence_analysis_config(self):

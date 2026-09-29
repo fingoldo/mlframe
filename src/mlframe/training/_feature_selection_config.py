@@ -29,6 +29,9 @@ from ._configs_base import BaseConfig
 # be forwarded verbatim to RFECV(**kwargs) and crash with a TypeError at construction. The suite's RFECV
 # cluster-reduce wrap is driven instead by the first-class ``rfecv_cluster_*`` fields below (applied in
 # ``_build_pre_pipelines``), so the documented default-ON cluster-medoid behaviour now actually holds for the suite RFECV.
+# Keys of the ``rfecv_models_params`` dict ``select_target`` builds; ``rfecv_models`` entries must name one of them.
+RFECV_MODEL_NAMES = ("cb_rfecv", "lgb_rfecv", "xgb_rfecv")
+
 _REGISTRY_CLUSTER_REDUCE_KEYS = frozenset({"cluster_reduce", "cluster_corr_threshold", "cluster_min_reduction", "cluster_corr_method"})
 
 
@@ -61,7 +64,8 @@ class FeatureSelectionConfig(InertFieldsWarningMixin, BaseConfig):
     mrmr_kwargs : dict, optional
         Arguments for mRMR. Expected keys: features_to_select, show_progress, redundancy_metric.
     rfecv_models : list of str, optional
-        Model types for RFECV feature selection (e.g., ["cb", "lgb"]).
+        RFECV selectors to build, from ``RFECV_MODEL_NAMES`` (``"cb_rfecv"``, ``"lgb_rfecv"``, ``"xgb_rfecv"``); a bare ``"cb"`` is
+        canonicalised to ``"cb_rfecv"``. Unknown names raise at construction.
     rfecv_kwargs : dict, optional
         Arguments for RFECV. Expected keys: step, min_features_to_select, cv, scoring.
     """
@@ -355,6 +359,26 @@ class FeatureSelectionConfig(InertFieldsWarningMixin, BaseConfig):
         if unknown:
             raise ValueError(f"FeatureSelectionConfig.cascade_select_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
         return v
+
+    @field_validator("rfecv_models")
+    @classmethod
+    def _validate_rfecv_models(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        """Rejects unknown RFECV model names at construction; a bare backend name (``"cb"``) is canonicalised to its ``"cb_rfecv"`` key."""
+        if not v:
+            return v
+        if isinstance(v, str):
+            v = [v]
+        out: List[str] = []
+        unknown = []
+        for name in v:
+            key = name if name in RFECV_MODEL_NAMES else f"{name}_rfecv"
+            if key not in RFECV_MODEL_NAMES:
+                unknown.append(name)
+            elif key not in out:
+                out.append(key)
+        if unknown:
+            raise ValueError(f"FeatureSelectionConfig.rfecv_models: unknown RFECV model(s) {unknown}. Valid names: {list(RFECV_MODEL_NAMES)}")
+        return out
 
     @field_validator("rfecv_cluster_corr_method")
     @classmethod
