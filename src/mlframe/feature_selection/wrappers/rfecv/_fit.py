@@ -32,6 +32,7 @@ from .._helpers import (
 from ._cv_setup import _resolve_cv_and_val_cv
 from ._mbh_optimizer import _build_mbh_optimizer
 from ._finalize import _finalize_fit_results
+from ._fit_summary import log_rfecv_fit_summary
 from ._checkpoint import _maybe_resume_from_checkpoint
 from ._must_include import _resolve_must_include
 from ._fit_init import _init_fit_state
@@ -177,6 +178,8 @@ def _precompute_prescreen_fold_universes(self, *, X, y, groups, cv, full_feature
 
 def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params):
     """Fit RFECV: densifies a sparse ``X`` (refusing inputs whose dense form would exceed ~2 GB), applies the optional prescreen, precomputes per-fold train-only prescreen universes, then drives the recursive elimination loop to select the final feature subset."""
+    # The max_runtime_mins clock covers the whole fit, including the input hashing / leakage / cardinality checks, which take minutes on wide 500k+ row frames.
+    _fit_t0 = timer()
     # No estimator configured (neither estimators= nor estimator=) is a caller error; check it FIRST,
     # before anything downstream (_init_fit_state's is_classifier(None) check, or the
     # stability_selection dispatch's sklearn.base.clone(None)) hits it as a confusing AttributeError
@@ -362,7 +365,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     )
     ndigits = self.report_ndigits
 
-    start_time = timer()
+    start_time = _fit_t0
     if max_runtime_mins:
         if verbose:
             logger.info("max_runtime_mins=%.2f", max_runtime_mins)
@@ -636,6 +639,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         show_plot=show_plot,
         signature=signature,
     )
+    log_rfecv_fit_summary(self, stop_reason=state.stop_reason, n_iters=state.nsteps, elapsed_s=timer() - _fit_t0, ndigits=ndigits)
     try:
         from mlframe.training.provenance import record_provenance as _record_provenance
         _n_rows_done = int(X.shape[0]) if hasattr(X, "shape") else None

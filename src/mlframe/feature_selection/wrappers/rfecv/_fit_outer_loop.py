@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from os.path import exists
 from timeit import default_timer as timer
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -52,6 +52,10 @@ class OuterLoopState:
     best_score: float = -np.inf
     nofeatures_score: float = float("nan")
     ran_out_of_time: bool = False
+    # Wall seconds of every completed outer iteration; their mean predicts whether one more iteration still fits in max_runtime_mins.
+    iter_durations: list = field(default_factory=list)
+    # Human-readable reason the outer loop ended, surfaced in the end-of-fit summary log.
+    stop_reason: Optional[str] = None
 
     evaluated_scores_mean: dict = field(default_factory=dict)
     evaluated_scores_std: dict = field(default_factory=dict)
@@ -116,8 +120,13 @@ def run_outer_loop_iteration(
 ):
     """Run ONE iteration of the outer while-loop and return the outcome.
 
-    Mutates ``state`` in place. Returns ``IterationOutcome.BREAK`` when any of the six original break conditions fires (no more features, stop_file, dummy-beats-first-explored, max_runtime_mins, max_refits, best_desired_score, max_noimproving_iters, special_feature_indices already covered); returns ``IterationOutcome.CONTINUE`` otherwise. Raises RuntimeError on 5-consecutive-NaN (verbatim pre-carve behaviour).
+    Mutates ``state`` in place. Returns ``IterationOutcome.BREAK`` when any break condition fires (no more features, stop_file, dummy-beats-first-explored, max_runtime_mins, max_refits, best_desired_score, max_noimproving_iters, convergence_tol, special_feature_indices already covered) and records why in ``state.stop_reason``; returns ``IterationOutcome.CONTINUE`` otherwise. Raises RuntimeError on 5-consecutive-NaN (verbatim pre-carve behaviour).
+
+    ``max_runtime_mins`` is enforced between iterations, never inside one (a half-evaluated subset has no usable CV score): the loop stops once the
+    elapsed fit time exceeds the budget, and also refuses to START an iteration when the mean duration of the completed ones predicts it would end past
+    the budget. The overshoot is therefore bounded by how much one iteration can exceed the running mean, rather than by a whole iteration.
     """
+    _iter_t0 = timer()
 
     # RAM-aware GC: ``maybe_clean_ram_and_gpu`` checks RSS-vs-baseline and free-vs-frame BEFORE invoking gc.collect, so the ~290ms cost is paid only when something actually accumulated. The old unconditional ``clean_ram()`` every-5-iters trigger fired even on small problems where no garbage existed, dominating wall.
     state.ram_baseline_mb = maybe_clean_ram_and_gpu(
@@ -162,9 +171,11 @@ def run_outer_loop_iteration(
         )
 
     if current_features is None or len(current_features) == 0:
+        state.stop_reason = "the search proposed no further candidate subset"
         return IterationOutcome.BREAK
     if self.stop_file and exists(self.stop_file):
         logger.warning("Stop file %s detected, quitting.", self.stop_file)
+        state.stop_reason = f"stop file {self.stop_file!r} detected"
         return IterationOutcome.BREAK
 
     desc = f"{progressbar_prefix} trying {len(current_features):_}F"
@@ -327,6 +338,23 @@ def run_outer_loop_iteration(
 
     state.nsteps += 1
 
+    # Track the best BEFORE any stop check below: a stop used to return first, so the final iteration's subset never reached
+    # best_nfeatures/best_score (the SFFS swap pass seeds from them) and the checkpoint persisted a best one iteration stale.
+    if final_score > state.best_score:
+        state.best_score = final_score
+        state.best_iter = state.nsteps
+        state.best_nfeatures = len(current_features)
+        state.n_noimproving_iters = 0
+    else:
+        # C8: only increment the no-improve counter when
+        # the OPTIMIZER actually proposed something it hadn't seen before
+        # (was_stored=True or new N). MBH revisits of the same N with a worse
+        # subset (was_stored=False) used to spike the counter and trip
+        # max_noimproving_iters prematurely. Opt-out via
+        # noimprove_counts_revisit=True.
+        if was_stored or getattr(self, "noimprove_counts_revisit", False):
+            state.n_noimproving_iters += 1
+
     # Persist outer-loop state so a crash mid-run is recoverable. fitted_estimators is intentionally NOT pickled (CB / RF ensembles dominate file size); they are re-fit on resume when needed. Save errors are logged but do not abort the fit.
     if self.checkpoint_path is not None:
         try:
@@ -369,44 +397,43 @@ def run_outer_loop_iteration(
                 len(current_features),
                 f"{final_score:.{ndigits}f}",
             )
+            state.stop_reason = "the dummy baseline at 0 features beat the first explored subset"
             return IterationOutcome.BREAK
 
+    state.iter_durations.append(timer() - _iter_t0)
     if max_runtime_mins and not state.ran_out_of_time:
-        delta = timer() - start_time
-        state.ran_out_of_time = delta > (max_runtime_mins * 60)
+        _budget_s = max_runtime_mins * 60
+        _elapsed_s = timer() - start_time
+        _mean_iter_s = float(np.mean(state.iter_durations))
+        if _elapsed_s > _budget_s:
+            state.stop_reason = f"max_runtime_mins={max_runtime_mins:_.1f} reached ({_elapsed_s / 60:_.1f} min elapsed)"
+        elif _elapsed_s + _mean_iter_s > _budget_s:
+            state.stop_reason = (
+                f"max_runtime_mins={max_runtime_mins:_.1f}: another iteration (mean {_mean_iter_s / 60:_.1f} min) "
+                f"would end past the budget ({_elapsed_s / 60:_.1f} min elapsed)"
+            )
+        state.ran_out_of_time = state.stop_reason is not None
         if state.ran_out_of_time:
             if verbose:
-                logger.info("max_runtime_mins=%s reached.", f"{max_runtime_mins:_.1f}")
+                logger.info("RFECV: stopping, %s.", state.stop_reason)
             return IterationOutcome.BREAK
 
     if max_refits and state.nsteps >= max_refits:
         if verbose:
             logger.info("max_refits=%s reached.", f"{max_refits:_}")
+        state.stop_reason = f"max_refits={max_refits:_} reached"
         return IterationOutcome.BREAK
-
-    if final_score > state.best_score:
-        state.best_score = final_score
-        state.best_iter = state.nsteps
-        state.best_nfeatures = len(current_features)
-        state.n_noimproving_iters = 0
-    else:
-        # C8: only increment the no-improve counter when
-        # the OPTIMIZER actually proposed something it hadn't seen before
-        # (was_stored=True or new N). MBH revisits of the same N with a worse
-        # subset (was_stored=False) used to spike the counter and trip
-        # max_noimproving_iters prematurely. Opt-out via
-        # noimprove_counts_revisit=True.
-        if was_stored or getattr(self, "noimprove_counts_revisit", False):
-            state.n_noimproving_iters += 1
 
     if best_desired_score is not None and final_score > best_desired_score:
         if verbose:
             logger.info("best_desired_score %s reached.", f"{best_desired_score:_.{ndigits}f}")
+        state.stop_reason = f"best_desired_score={best_desired_score} reached"
         return IterationOutcome.BREAK
 
     if max_noimproving_iters and state.n_noimproving_iters >= max_noimproving_iters:
         if verbose:
             logger.info("Max # of noimproved iters reached: %s", state.n_noimproving_iters)
+        state.stop_reason = f"max_noimproving_iters={max_noimproving_iters} reached"
         return IterationOutcome.BREAK
 
     # S7: tolerance-based convergence. ``n_noimproving_iters``
@@ -430,6 +457,7 @@ def run_outer_loop_iteration(
                         "convergence_tol reached: spread %.6f < tol*|best| (%.6g * %.6f); stopping.",
                         _spread, _tol, _scale,
                     )
+                state.stop_reason = f"convergence_tol={_tol} reached"
                 return IterationOutcome.BREAK
 
     # Abort early if every iter so far produced a NaN final_score. The most common cause is a custom scorer returning NaN on every fold (e.g. ROC AUC on single-class CV folds). Without this, the noimproving counter would consume max_noimproving_iters worth of useless CV fits. Detect 5 consecutive NaN iters and bail.
@@ -450,6 +478,7 @@ def run_outer_loop_iteration(
     if self.special_feature_indices is not None:
         if verbose:
             logger.info("Quitting as special_feature_indices were checked.")
+        state.stop_reason = "special_feature_indices evaluated"
         return IterationOutcome.BREAK
 
     return IterationOutcome.CONTINUE

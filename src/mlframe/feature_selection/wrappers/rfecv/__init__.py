@@ -178,6 +178,8 @@ class RFECV(TransformerMixin, BaseEstimator):
         feature_cost: float = 0.0,
         smooth_perf: int = 0,
         # stopping conditions
+        # max_runtime_mins: wall budget for the whole fit (the clock starts at fit entry). Checked between outer iterations only - an iteration is never
+        # cut mid-way - and an iteration is not started when the mean duration of the completed ones predicts it would end past the budget.
         max_runtime_mins: Union[float, None] = None,
         max_refits: Union[int, None] = None,
         best_desired_score: Union[float, None] = None,
@@ -249,6 +251,7 @@ class RFECV(TransformerMixin, BaseEstimator):
         feature_groups: Union[dict, None] = None,
         # n_features_selection_rule: rule for picking n_features_ from cv_results_ (resolved in select_optimal_nfeatures_).
         #   'argmax' - argmax of (mean - lambda*std - feature_cost*N). On FLAT score curves around the optimum this collapses to the FIRST N visited near-max, often under-selecting.
+        #   The one_se_* band is [best mean - fold std of the best N, best mean]: the across-fold standard deviation, not std/sqrt(n_folds).
         #   'one_se_max' - LARGEST N within 1 SE of the best mean; robust on plateaus, but NOT parsimonious: on noise-robust learners (GBM / RF) the
         #       whole N-range can sit inside the 1-SE band, so this keeps ~all features. Set feature_cost>0 (it biases the band toward fewer
         #       features) or use 'one_se_min' when you want a compact set.

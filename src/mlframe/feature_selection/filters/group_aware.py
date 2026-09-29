@@ -443,11 +443,14 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
         reduction = (n_feat - n_clusters) / max(n_feat, 1)
         self.reduction_ = float(reduction)
         self.reduced_ = bool(reduction >= float(self.min_reduction))
+        # "Group" here means a discovered cluster of correlated columns, not a user-supplied groups column; the suite applies this wrap to its RFECV by
+        # default, so the line names the opt-out for users who never asked for it.
         logger.info(
-            "GroupAwareMRMR: %d original features -> %d cluster medoids "
-            "(corr_threshold=%.2f, reduction=%.1f%%, applied=%s).",
-            n_feat, n_clusters, self.corr_threshold, 100.0 * reduction,
-            self.reduced_,
+            "GroupAwareMRMR correlation-cluster pre-reduction (not a groups column): %d original features -> %d clusters of |%s corr| > %.2f "
+            "(reduction=%.1f%%, min_reduction=%.1f%%, applied=%s); %s runs on %s. "
+            "Opt out in the training suite with FeatureSelectionConfig(rfecv_cluster_reduce=False).",
+            n_feat, n_clusters, self.corr_method, self.corr_threshold, 100.0 * reduction, 100.0 * float(self.min_reduction), self.reduced_,
+            type(self.estimator).__name__, "one medoid per cluster" if self.reduced_ else "all original features",
         )
 
         # Guard: when the reduction is below the threshold, run the inner
@@ -457,12 +460,14 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
             inner = clone(self.estimator)
             inner.fit(X, y, **fit_params)
             self.estimator_ = inner
-            self.support_ = self._prune_rank_deficient(X, self._inner_support_indices(inner, list(X.columns)))
+            _inner_sup = self._inner_support_indices(inner, list(X.columns))
+            self.support_ = self._prune_rank_deficient(X, _inner_sup)
             self.selected_clusters_ = sorted(set(int(self.cluster_assignments_[i]) for i in self.support_))
             self.n_features_ = len(self.support_)
             self.n_features_in_ = n_feat
             if is_df:
                 self.feature_names_in_ = list(X.columns)
+            self._log_selection_summary(X, n_before_prune=len(_inner_sup))
             return self
 
         # Fit inner estimator on the medoid subset only.
@@ -494,7 +499,22 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
         self.n_features_in_ = X.shape[1]
         if is_df:
             self.feature_names_in_ = list(X.columns)
+        self._log_selection_summary(X, n_before_prune=len(_sup))
         return self
+
+    def _log_selection_summary(self, X, n_before_prune: int) -> None:
+        """One INFO line with the final kept count and names in ORIGINAL-feature space; the inner selector's own summary counts medoids only."""
+        from mlframe.feature_selection._selection_log import format_name_list
+
+        names = [X.columns[int(i)] for i in np.asarray(self.support_, dtype=np.int64)]
+        n_pruned = int(n_before_prune) - len(names)
+        logger.info(
+            "GroupAwareMRMR: kept %d of %d original features (%d of %d clusters selected by %s%s%s): [%s]",
+            len(names), int(X.shape[1]), len(self.selected_clusters_), len(self.cluster_medoid_indices_), type(self.estimator).__name__,
+            ", all members of each" if self.expand and self.reduced_ else "",
+            f"; {n_pruned} dropped as exact linear combinations of other kept columns" if n_pruned > 0 else "",
+            format_name_list(names),
+        )
 
     def transform(self, X, y=None):
         """Subset ``X`` to the columns retained in ``support_`` (expanded cluster members or medoids-only, per ``expand``)."""
