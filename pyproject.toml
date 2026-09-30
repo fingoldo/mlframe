@@ -227,6 +227,7 @@ override-dependencies = [
     # ("Numba needs NumPy 2.4 or less"); without the cap the resolver pulls numpy 2.5 and every numba import dies.
     "numpy<2.0; python_version < '3.10'",
     "numpy>=1.23,<2.5; python_version >= '3.10'",
+    "pycddlib; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -405,6 +406,10 @@ stats = [
     # Third-party information theory, used ONLY to cross-check the dataset oracle's own exact mutual
     # information against an implementation nobody here wrote. It is deliberately not an arm backend.
     "dit>=1.5",
+    # dit -> pypoman -> pycddlib, which ships wheels for Windows only; on Linux/macOS it builds from an sdist that needs
+    # system cddlib headers (fails on a stock runner). pycddlib-standalone bundles cddlib and provides the same `cdd` module,
+    # and [tool.uv].override-dependencies drops pycddlib off Windows so the two never install together.
+    "pycddlib-standalone>=3.0.0; sys_platform != 'win32'",
 ]
 
 # GPU acceleration (CuPy). The CuPy wheel is CUDA-major-specific, so pick the extra matching your CUDA toolkit:

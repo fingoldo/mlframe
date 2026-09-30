@@ -23,6 +23,7 @@ overrides = [
     { name = "numpy", marker = "python_full_version < '3.10'", specifier = "<2.0" },
     { name = "numpy", marker = "python_full_version >= '3.10'", specifier = ">=1.23,<2.5" },
     { name = "ortools", specifier = ">=9.12" },
+    { name = "pycddlib", marker = "sys_platform == 'win32'" },
 ]
 
 [[package]]
@@ -7177,6 +7178,7 @@ all = [
     { name = "properscoring" },
     { name = "psycopg2-binary" },
     { name = "pycalib" },
+    { name = "pycddlib-standalone", marker = "sys_platform != 'win32'" },
     { name = "pymongo" },
     { name = "pynndescent" },
     { name = "pysr", version = "2.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10' or python_full_version >= '3.15'" },
@@ -7363,6 +7365,7 @@ signal = [
 ]
 stats = [
     { name = "dit" },
+    { name = "pycddlib-standalone", marker = "sys_platform != 'win32'" },
     { name = "statsmodels", version = "0.14.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10' or python_full_version >= '3.15'" },
     { name = "statsmodels", version = "0.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10' and python_full_version < '3.15'" },
 ]
@@ -7485,6 +7488,7 @@ requires-dist = [
     { name = "pyarrow", marker = "python_full_version < '3.10'", specifier = ">=14.0.0" },
     { name = "pyarrow", marker = "python_full_version >= '3.10'", specifier = ">=25.0.0" },
     { name = "pycalib", marker = "extra == 'calibration'", specifier = ">=0.1.0.dev0" },
+    { name = "pycddlib-standalone", marker = "sys_platform != 'win32' and extra == 'stats'", specifier = ">=3.0.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydoclint", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "pymongo", marker = "extra == 'db'", specifier = ">=4.5" },
@@ -10726,6 +10730,12 @@ wheels = [
 ]
 
 [[package]]
+name = "pycddlib-standalone"
+version = "3.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/95/ebccc84c3f397f4bcb36d94128076f39d7aee4d5e52184576846b538f602/pycddlib_standalone-3.0.0.tar.gz", hash = "sha256:28a3cba479a720257741ca72fd3048f9064351a6b1d8c8443c57258d4dc4a74e", size = 90981, upload-time = "2024-10-04T11:22:16.33Z" }
+
+[[package]]
 name = "pycparser"
 version = "2.23"
 source = { registry = "https://pypi.org/simple" }
@@ -11146,7 +11156,7 @@ dependencies = [
     { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10' or python_full_version >= '3.15'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and python_full_version < '3.15'" },
-    { name = "pycddlib" },
+    { name = "pycddlib", marker = "sys_platform == 'win32'" },
     { name = "scipy", version = "1.13.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10' or python_full_version >= '3.15'" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
