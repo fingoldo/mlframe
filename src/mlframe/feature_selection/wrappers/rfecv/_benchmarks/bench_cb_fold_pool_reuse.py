@@ -9,8 +9,9 @@ Every RFECV fold fit on a new column subset rebuilds the train and val Pools and
 3. Cached per-fold quantization borders (``save_quantization_borders`` once, re-indexed ``input_borders`` per subset):
    bit-identical on float data (max |delta p| = 0.0), quantize 2.54s -> 1.34s at 375k x 88 on a 4-core host.
    Against a raw fit whose fixed per-fit overhead is ~2.2s (its=1) and whose trees cost ~0.1s each at this size,
-   the saving is a few percent of a realistic fold fit. Not wired: it needs the fold loop to pre-build a quantized
-   Pool for CatBoost only (bypassing the generic ``estimator.fit(X, y)``), plus cat/text-feature and eval-set handling.
+   the saving is a few percent of a realistic fold fit at 100k x 30. UPDATE: re-measured end to end per subset fit (bench_cb_border_cache_fold.py) it is
+   7.6% (100k x 30), 11.3% (100k x 88), 13.7% (375k x 88) of CPU time, and it is now wired as ``rfecv/_cb_border_cache.py`` (CatBoost CPU, default on,
+   env opt-out MLFRAME_RFECV_CB_CACHED_BORDERS=0), identity-gated by bench_cb_border_cache_identity.py. Levers 1-2 stay REJECTED.
 
 Run: python -m mlframe.feature_selection.wrappers.rfecv._benchmarks.bench_cb_fold_pool_reuse [n_rows] [n_cols]
 """

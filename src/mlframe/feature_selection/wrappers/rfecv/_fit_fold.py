@@ -105,6 +105,20 @@ def _subsample_train_index(train_index, frac, fold_seed):
     return train_index[np.sort(local_rng.choice(len(train_index), size=size, replace=False))]
 
 
+def _try_cached_border_fit(fitted, *, source, X_train, y_train, fit_features, fit_params, train_rows, sample_weight) -> bool:
+    """CatBoost-only: fit through a Pool quantized with the fold's cached borders (bit-identical to the generic fit). ``False`` -> caller fits generically."""
+    from ._cb_border_cache import fit_catboost_with_cached_borders, is_supported
+
+    if not is_supported(fitted, fit_params):
+        return False
+    _kw = {k: v for k, v in fit_params.items() if k != "sample_weight"}
+    _sw = fit_params.get("sample_weight", sample_weight)
+    with suppress_stdout_stderr():
+        return fit_catboost_with_cached_borders(
+            fitted, source=source, X_train=X_train, y_train=y_train, fit_features=list(fit_features), fit_params=_kw, train_rows=train_rows, sample_weight=_sw,
+        )
+
+
 def _eval_fold_body(
     nfold,
     train_index,
@@ -332,8 +346,16 @@ def _eval_fold_body(
             _fit_key = getattr(_fitted.fit, "__func__", _fitted.fit)
             if _fit_accepts_sample_weight(_fit_key):
                 _per_est_fit_params["sample_weight"] = _fold_train_sw
-        with _ctx:
-            _fitted.fit(X=X_train, y=y_train, **_per_est_fit_params)
+        _fast_done = False
+        if getattr(self, "cb_cached_borders", True):
+            _fast_done = _try_cached_border_fit(
+                _fitted, source=X_estimator if X_estimator is not None else X, X_train=X_train, y_train=y_train, fit_features=fit_features,
+                fit_params=_per_est_fit_params, train_rows=(train_index if true_train_index is None else train_index[true_train_index]),
+                sample_weight=_fold_train_sw,
+            )
+        if not _fast_done:
+            with _ctx:
+                _fitted.fit(X=X_train, y=y_train, **_per_est_fit_params)
         # Scorer-side: forward fold-test sample_weight when sklearn scorer accepts it. make_scorer-wrapped callables expose sample_weight via _BaseScorer.__call__; bare callables may not.
         if _fold_test_sw is not None:
             try:
