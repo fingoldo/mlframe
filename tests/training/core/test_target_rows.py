@@ -7,8 +7,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from mlframe.training.configs import TargetTypes
-from mlframe.training.core._target_rows import SPLIT_INDEX_FIELDS, build_target_rows, group_targets_by_rows, mask_signature
+from mlframe.training.core._target_labels import label_mask
+from mlframe.training.core._target_rows import SPLIT_INDEX_FIELDS, build_target_rows, mask_signature
 
 
 @st.composite
@@ -53,17 +53,13 @@ def test_narrowed_splits_keep_exactly_the_labelled_rows_in_order(case):
 
 def test_equal_masks_share_one_narrowing_and_fully_labelled_targets_get_none():
     y_a = np.array([1.0, np.nan, 2.0, 3.0, np.nan, 4.0])
-    y_b = y_a * 10
     y_c = np.array([np.nan, 1.0, 2.0, 3.0, 4.0, 5.0])
-    full = np.arange(6.0)
     splits = {"train_idx": np.array([0, 1, 2, 3]), "val_idx": np.array([4]), "test_idx": np.array([5])}
-    targets = {TargetTypes.REGRESSION: {"a": y_a, "b": y_b, "c": y_c, "full": full}}
-    rows_by_sig, sig_by_target = group_targets_by_rows(targets, splits)
-    assert len(rows_by_sig) == 2
-    assert sig_by_target[(TargetTypes.REGRESSION, "a")] == sig_by_target[(TargetTypes.REGRESSION, "b")]
-    assert sig_by_target[(TargetTypes.REGRESSION, "a")] != sig_by_target[(TargetTypes.REGRESSION, "c")]
-    assert (TargetTypes.REGRESSION, "full") not in sig_by_target
-    rows_a = rows_by_sig[sig_by_target[(TargetTypes.REGRESSION, "a")]]
+    masks = {name: label_mask(values) for name, values in {"a": y_a, "b": y_a * 10, "c": y_c, "full": np.arange(6.0)}.items()}
+    assert masks["full"] is None
+    assert mask_signature(masks["a"]) == mask_signature(masks["b"])
+    assert mask_signature(masks["a"]) != mask_signature(masks["c"])
+    rows_a = build_target_rows(masks["a"], splits)
     np.testing.assert_array_equal(rows_a.idx["train_idx"], [0, 2, 3])
     assert rows_a.idx["val_idx"].size == 0 and rows_a.labelled_share("val_idx") == 0.0
     assert rows_a.labelled_share("calib_idx") is None

@@ -185,11 +185,11 @@ def _one_replicate_importances(
     return imps[:p], imps[p:]
 
 
-def _summ(res, b):
+def _summ_ace(res, b):
     return res.selected_features, len(res.feature_names), None
 
 
-@logs_selection("ace_select", _summ)
+@logs_selection("ace_select", _summ_ace)
 def ace_select(
     X,
     y,

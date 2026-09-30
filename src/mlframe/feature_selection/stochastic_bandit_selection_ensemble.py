@@ -43,11 +43,11 @@ class EnsembleSelectionResult:
     """Each seed's full selected set (locked-in ∪ best subset), in seed order."""
 
 
-def _summ(res, b):
+def _summ_stochastic_bandit_selection_ensemble(res, b):
     return res.union_top_feats, int(b.arguments["X"].shape[1]), f"union over {len(b.arguments['seeds'])} seed(s)"
 
 
-@logs_selection("stochastic_bandit_selection_ensemble", _summ)
+@logs_selection("stochastic_bandit_selection_ensemble", _summ_stochastic_bandit_selection_ensemble)
 def stochastic_bandit_selection_ensemble(
     estimator: Any,
     X: pd.DataFrame,

@@ -4,7 +4,6 @@ Integration tests for core training functionality.
 Tests the main train_mlframe_models_suite function end-to-end.
 """
 
-
 from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig, TrainingBehaviorConfig
 
 
@@ -64,6 +63,24 @@ def _assert_trained_target_entries(entries, *, target_type_label: str):
         assert (
             has_predict or has_predict_proba
         ), f"{target_type_label}: entries[{i}].model is not a fitted estimator: no predict / predict_proba on {type(m).__name__}"
+
+
+def _train_ridge_suite(df, fte, data_dir, common_init_params, model_name, **overrides):
+    """Run the suite with a single ridge model, no ensembles and no verbosity, unless ``overrides`` replace a keyword."""
+    kwargs = dict(
+        df=df,
+        target_name="test_target",
+        model_name=model_name,
+        features_and_targets_extractor=fte,
+        mlframe_models=["ridge"],
+        reporting_config=common_init_params,
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
+        verbose=0,
+    )
+    kwargs.update(overrides)
+    return train_mlframe_models_suite(**kwargs)
 
 
 class TestTrainMLFrameModelsSuiteBasic:
@@ -939,19 +956,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         with pytest.raises(ValueError, match="target contains.*NaN"):
-            train_mlframe_models_suite(
-                df=df,
-                target_name="test_target",
-                model_name="nan_target",
-                features_and_targets_extractor=fte,
-                mlframe_models=["ridge"],
-                reporting_config=common_init_params,
-                use_ordinary_models=True,
-                use_mlframe_ensembles=False,
-                behavior_config=TrainingBehaviorConfig(target_null_policy="raise"),
-                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
-                verbose=0,
-            )
+            _train_ridge_suite(df, fte, temp_data_dir, common_init_params, "nan_target", behavior_config=TrainingBehaviorConfig(target_null_policy="raise"))
 
     def test_nan_in_target_column_trains_on_labelled_rows_by_default(self, temp_data_dir, common_init_params):
         """Default policy is drop_rows: a target with NaN labels trains and scores on its labelled rows instead of raising."""
@@ -969,18 +974,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="nan_target_default",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            reporting_config=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
-            verbose=0,
-        )
+        models, metadata = _train_ridge_suite(df, fte, temp_data_dir, common_init_params, "nan_target_default")
         assert "regression/target" in metadata["target_rows"]
         entries = models[TargetTypes.REGRESSION]["target"]
         entry = entries[0] if isinstance(entries, list) else entries

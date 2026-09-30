@@ -108,8 +108,8 @@ def _score_edges(
     for e in prange(m):
         a = ea[e]
         b = packed[eb[e]]
-        ca = counts[offs[a]: offs[a] + nbins[a]]
-        cb = counts[offs[eb[e]]: offs[eb[e]] + nbins[eb[e]]]
+        ca = counts[offs[a] : offs[a] + nbins[a]]
+        cb = counts[offs[eb[e]] : offs[eb[e]] + nbins[eb[e]]]
         order = orders[order_row[a]]
         denom = ent[a] + ent[eb[e]]
         scratch = np.empty(n, dtype=np.int32)

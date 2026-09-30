@@ -9,11 +9,21 @@ import pytest
 
 from mlframe.training.composite._hurdle_dispatch import (
     ZERO_INFLATION_FRACTION_THRESHOLD,
+    _scan_zero_inflation,
     maybe_inject_hurdle_for_zero_inflated,
-    zero_inflated_atom,
-    zero_inflated_regression_targets,
+    zero_inflation_verdict,
 )
 from mlframe.training.core._setup_helpers import _entry_not_for_target
+
+
+def zero_inflated_atom(y):
+    """The "no event" value of a zero-inflated target, or None."""
+    return zero_inflation_verdict(y)[0]
+
+
+def zero_inflated_regression_targets(target_by_type, train_idx):
+    """``{atom: [target names]}`` for every zero-inflated regression target."""
+    return _scan_zero_inflation(target_by_type, train_idx)[0]
 
 
 def _zero_inflated(n=2000, zero_frac=0.7, seed=0):

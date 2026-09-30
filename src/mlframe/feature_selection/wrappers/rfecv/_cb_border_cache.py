@@ -36,7 +36,7 @@ _CACHES: dict = {}
 class _FoldBorders:
     """Borders of one fold: ``lines[name]`` = tab-joined ``border[\\tnan_mode]`` rows; ``known`` = every column the borders were computed over."""
 
-    __slots__ = ("lines", "known")
+    __slots__ = ("known", "lines")
 
     def __init__(self) -> None:
         self.lines: dict = {}
@@ -86,31 +86,17 @@ def _get_cache(source: Any) -> Optional[_SourceCache]:
         return cache
 
 
-def cache_stats(source: Any) -> dict:
-    """Hit/miss counters for a source frame's cache (test/diagnostic hook)."""
-    with _LOCK:
-        cache = _CACHES.get(id(source))
-    if cache is None or cache.ref() is not source:
-        return {"hits": 0, "misses": 0, "folds": 0}
-    return {"hits": cache.hits, "misses": cache.misses, "folds": len(cache.folds)}
-
-
-def _param(estimator: Any, name: str) -> Any:
-    try:
-        return estimator.get_params().get(name)
-    except Exception:
-        return None
-
-
 def is_supported(estimator: Any, fit_params: dict) -> bool:
     """Whether this estimator + fit kwargs can use the cached-borders path (CatBoost, CPU, no text/embedding/per-feature quantization)."""
     if not _is_catboost(estimator) or os.environ.get("MLFRAME_RFECV_CB_CACHED_BORDERS", "1").strip().lower() in ("0", "false", "off", "no"):
         return False
     try:
         params = estimator.get_params()
-    except Exception:
+    except Exception as exc:
+        logger.warning("RFECV CatBoost cached-borders fast path disabled: get_params() raised %s: %s", type(exc).__name__, exc)
         return False
-    if str(params.get("task_type") or "CPU").upper() != "CPU":
+    task_type = params.get("task_type")
+    if task_type is not None and str(task_type).upper() != "CPU":
         return False
     if any(params.get(k) for k in _UNSUPPORTED_PARAMS):
         return False

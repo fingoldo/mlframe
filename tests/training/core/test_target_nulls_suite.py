@@ -65,6 +65,26 @@ def _suite(df, targets, data_dir, common_init_params, split_config, models=("lgb
     )
 
 
+def _train(df, tmp_path, common_init_params, extractor, **overrides):
+    """Run the suite with lgb, drop_rows missing-label handling and composite discovery off, unless ``overrides`` replace a keyword."""
+    kwargs = dict(
+        df=df,
+        target_name="t",
+        model_name="m",
+        features_and_targets_extractor=extractor,
+        mlframe_models=["lgb"],
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False, target_null_policy="drop_rows"),
+        composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False),
+        reporting_config=common_init_params,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        verbose=0,
+    )
+    kwargs.update(overrides)
+    return train_mlframe_models_suite(**kwargs)
+
+
 def _test_metrics(models: dict, target: str) -> dict:
     """Per-model test-split metrics for one regression target, keyed by model name."""
     entries = models[TargetTypes.REGRESSION][target]
@@ -132,20 +152,9 @@ def test_outlier_detection_and_missing_labels_work_together(tmp_path, common_ini
 
     monkeypatch.setattr(pr, "_train_one_target", spy)
     fte_kwargs = {"classification_targets": targets} if task == "classification" else {"regression_targets": targets}
-    models, meta = train_mlframe_models_suite(
-        df=df,
-        target_name="t",
-        model_name="m",
-        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(columns_to_drop={"row_id"}, **fte_kwargs),
-        mlframe_models=["lgb"],
-        use_ordinary_models=True,
-        use_mlframe_ensembles=False,
-        behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False, target_null_policy="drop_rows"),
+    models, meta = _train(
+        df, tmp_path, common_init_params, SimpleFeaturesAndTargetsExtractor(columns_to_drop={"row_id"}, **fte_kwargs),
         outlier_detection_config=OutlierDetectionConfig(detector=IsolationForest(contamination=0.1, random_state=0)),
-        composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False),
-        reporting_config=common_init_params,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
-        verbose=0,
     )
     labelled = df["y_part"].notna().to_numpy()
     full, part = seen["y_full"], seen["y_part"]
@@ -174,19 +183,9 @@ def test_a_right_censored_target_trains_without_test_rows_and_logs_nothing_faili
     df["ts"] = pd.date_range("2023-01-01", periods=N_ROWS, freq="h")
     df.loc[df.index >= int(N_ROWS * 0.75), "y_part"] = np.nan
     with caplog.at_level(logging.WARNING):
-        models, meta = train_mlframe_models_suite(
-            df=df,
-            target_name="t",
-            model_name="m",
-            features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(regression_targets=["y_full", "y_part"], columns_to_drop={"row_id"}, ts_field="ts"),
-            mlframe_models=["lgb"],
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False, target_null_policy="drop_rows"),
-            composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False),
-            reporting_config=common_init_params,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
-            verbose=0,
+        models, meta = _train(
+            df, tmp_path, common_init_params,
+            SimpleFeaturesAndTargetsExtractor(regression_targets=["y_full", "y_part"], columns_to_drop={"row_id"}, ts_field="ts"),
         )
     record = meta["target_rows"]["regression/y_part"]
     assert record["n_labelled"]["test_idx"] == 0 and record["low_n"] is True
@@ -226,19 +225,9 @@ def test_the_cross_target_ensemble_of_a_target_with_gaps_is_built_on_its_labelle
 
     monkeypatch.setattr(post, "_run_composite_target_wrapping", spy_wrap)
     df = _frame(3)
-    models, _meta = train_mlframe_models_suite(
-        df=df,
-        target_name="t",
-        model_name="m",
-        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(regression_targets=["y_full", "y_part"], columns_to_drop={"row_id"}),
-        mlframe_models=["lgb"],
-        use_ordinary_models=True,
-        use_mlframe_ensembles=False,
-        behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False, target_null_policy="drop_rows"),
+    models, _meta = _train(
+        df, tmp_path, common_init_params, SimpleFeaturesAndTargetsExtractor(regression_targets=["y_full", "y_part"], columns_to_drop={"row_id"}),
         composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=True),
-        reporting_config=common_init_params,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
-        verbose=0,
     )
     labelled = df["y_part"].notna().to_numpy()
     assert "y_part" in seen.get("xt", {}), "the cross-target ensemble step never ran for the target with gaps"

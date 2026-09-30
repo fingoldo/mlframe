@@ -86,10 +86,12 @@ def test_registered_selector_logs_single_info_summary_with_correct_counts(key, d
     sel = SELECTOR_SPECS[key].make("binary")
     caplog.set_level(logging.INFO)
     sel.fit(X, y)
-    label, k, n, msg = _one(caplog, _LABELS[key])
+    _label, k, n, msg = _one(caplog, _LABELS[key])
     assert n == N_FEATURES
     assert k == len(selected_names(sel)), msg
-    for name in selected_names(sel)[:5]:
+    named = selected_names(sel)[:5]
+    assert named, "the fixture must leave the selector something to name"
+    for name in named:
         assert name in msg
     # a wrapped / composed selector must not leak its members' own summary lines next to its own
     assert len(_summaries(caplog)) == 1, [s[3] for s in _summaries(caplog)]
@@ -112,7 +114,7 @@ def test_stability_mrmr_logs_one_summary_not_one_per_bootstrap(data, caplog):
     X, y = data
     caplog.set_level(logging.INFO)
     sel = StabilityMRMR(_make_mrmr(), n_bootstraps=2, support_threshold=0.5, random_state=0).fit(X, y)
-    label, k, n, _ = _one(caplog, "StabilityMRMR")
+    _label, k, n, _ = _one(caplog, "StabilityMRMR")
     assert (k, n) == (len(sel.support_), N_FEATURES)
     assert len(_summaries(caplog)) == 1
 
@@ -125,7 +127,7 @@ def test_stability_fe_selector_logs_one_summary(data, caplog):
     params = dict(min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False, full_npermutations=3, random_seed=0, min_features_fallback=1, verbose=False)
     caplog.set_level(logging.INFO)
     sel = StabilityFESelector(params, n_bootstraps=2, support_threshold=0.5, random_state=0).fit(X, y)
-    label, k, n, msg = _one(caplog, "StabilityFESelector")
+    _label, k, n, _msg = _one(caplog, "StabilityFESelector")
     assert n == N_FEATURES
     assert k == int(np.asarray(sel.full_mrmr_.support_).size)
     assert len(_summaries(caplog)) == 1

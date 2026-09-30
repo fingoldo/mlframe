@@ -86,6 +86,12 @@ def n_columns(X: Any) -> int:
 Extractor = Callable[[Any, "inspect.BoundArguments"], Tuple[Iterable, int, Optional[str]]]
 
 
+def summ_selected_of_x(res: Any, b: "inspect.BoundArguments") -> Tuple[Iterable, int, Optional[str]]:
+    """Extractor for a selector returning ``selected`` or ``(selected, ...)`` and taking the frame as its ``X`` argument."""
+    sel = res[0] if isinstance(res, tuple) else res
+    return sel, n_columns(b.arguments["X"]), None
+
+
 def logs_selection(name: str, extract: Extractor, *, what: str = "selected") -> Callable[[F], F]:
     """Decorator: after the wrapped selection function returns, emit one INFO summary via :func:`log_selection`.
 

@@ -41,13 +41,13 @@ def _noninformative_columns_vs_one_reference(
     return [str(c) for c in report.loc[report["stable"], "column"].tolist()]
 
 
-def _summ(res, b):
+def _summ_drop_noninformative_vs_reference(res, b):
     cols = b.arguments.get("feature_cols")
     n = len(cols) if cols is not None else int(b.arguments["df"].shape[1])
     return res, n, "non-informative vs reference cohort"
 
 
-@logs_selection("drop_noninformative_vs_reference", _summ, what="dropped")
+@logs_selection("drop_noninformative_vs_reference", _summ_drop_noninformative_vs_reference, what="dropped")
 def drop_noninformative_vs_reference(
     df: pd.DataFrame,
     reference_mask: Union[np.ndarray, Sequence[np.ndarray]],

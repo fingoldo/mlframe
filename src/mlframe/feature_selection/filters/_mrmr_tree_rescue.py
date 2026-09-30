@@ -192,7 +192,7 @@ class MRMRTreeRescued(MRMR):
         n_before = int(np.asarray(self.support_).size) if hasattr(self, "support_") else 0
         self._apply_tree_rescue(X, y)
         if hasattr(self, "support_") and int(np.asarray(self.support_).size) != n_before:
-            from .mrmr._mrmr_fit_log import log_mrmr_fit_summary
+            from .mrmr.shared import log_mrmr_fit_summary
 
             log_mrmr_fit_summary(self, time.perf_counter() - t0)
         return self

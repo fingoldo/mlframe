@@ -25,4 +25,3 @@ def test_canonical_rfecv_model_names_accepted(name):
 
 def test_bare_backend_name_canonicalised_and_deduplicated():
     assert FeatureSelectionConfig(rfecv_models=["cb", "cb_rfecv", "lgb"]).rfecv_models == ["cb_rfecv", "lgb_rfecv"]
-

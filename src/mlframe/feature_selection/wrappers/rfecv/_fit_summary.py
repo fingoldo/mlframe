@@ -19,7 +19,7 @@ def build_rfecv_fit_summary(self: Any, *, stop_reason: Optional[str], n_iters: i
     rule = getattr(self, "resolved_n_features_rule_", None)
     parts = [
         f"RFECV: selected {len(selected):_} of {n_in:_} features after {n_iters:_} iteration(s) in {elapsed_s / 60:_.1f} min "
-        f"(stopped: {stop_reason or 'every candidate subset size was evaluated'}; n_features_selection_rule={rule})."
+        f"(stopped: {'every candidate subset size was evaluated' if stop_reason is None else stop_reason}; n_features_selection_rule={rule})."
     ]
 
     cv_results = getattr(self, "cv_results_", None) or {}

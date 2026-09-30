@@ -48,6 +48,27 @@ def _support_to_indices(support, n_features: int) -> np.ndarray:
     return arr.astype(np.int64)
 
 
+def _stratified_class_groups(y, stratify: bool, sample_fraction: float, n_samples: int):
+    """Per-class row-index groups when stratified subsampling applies, else ``None`` (plain draw).
+
+    ON when requested AND y looks class-like (few distinct values): a high-cardinality / continuous y is a regression target where per-class
+    stratification is meaningless. It also fires only when a class is genuinely AT RISK in the plain draw. Forcing per-class quotas on a near-balanced
+    target is a no-op for class coverage (every class survives an unstratified subsample with overwhelming probability) but still perturbs the subsample
+    composition - it shifts the noise-feature inclusion probabilities and can push a borderline false positive over ``support_threshold``. The corrective
+    mechanism should fire exactly where it corrects something: when the smallest class's EXPECTED count in an unstratified subsample is small enough that
+    a draw could realistically drop or starve it (``sample_fraction * min_class_size < _STRATIFY_MIN_EXPECTED_PER_CLASS``).
+    """
+    y_arr = np.asarray(y.values if hasattr(y, "values") else y)
+    if not stratify or y_arr.ndim != 1:
+        return None
+    uniq, counts = np.unique(y_arr, return_counts=True)
+    if uniq.size > max(50, n_samples // 2):
+        return None
+    if float(sample_fraction) * int(counts.min()) >= _STRATIFY_MIN_EXPECTED_PER_CLASS:
+        return None
+    return [np.flatnonzero(y_arr == c) for c in uniq]
+
+
 class StabilityMRMR(TransformerMixin, BaseEstimator):
     """Bootstrap-stability wrapper for mRMR-family selectors.
 
@@ -147,21 +168,7 @@ class StabilityMRMR(TransformerMixin, BaseEstimator):
         # Generate seeds upfront so the bootstrap is deterministic for a given ``random_state`` regardless of joblib worker order.
         seeds = rng.integers(0, 2**31 - 1, size=self.n_bootstraps)
 
-        # Decide once whether stratified sampling applies: ON when requested AND y looks class-like (few distinct values). A high-cardinality / continuous y is a
-        # regression target where per-class stratification is meaningless, so fall back to the plain draw. The per-class index groups are precomputed once and reused.
-        _y_arr = np.asarray(y.values if hasattr(y, "values") else y)
-        _class_groups = None
-        if self.stratify and _y_arr.ndim == 1:
-            _uniq, _counts = np.unique(_y_arr, return_counts=True)
-            # Stratify only when a class is genuinely AT RISK in the plain draw. Forcing per-class quotas on a near-balanced target is a no-op for class
-            # coverage (every class survives an unstratified subsample with overwhelming probability) but still perturbs the subsample composition - it shifts
-            # the noise-feature inclusion probabilities and can push a borderline false positive over ``support_threshold``. The corrective mechanism should
-            # fire exactly where it corrects something: when the smallest class's EXPECTED count in an unstratified subsample is small enough that a draw could
-            # realistically drop or starve it (``sample_fraction * min_class_size < _STRATIFY_MIN_EXPECTED_PER_CLASS``), per the rare-imbalance regime.
-            if _uniq.size <= max(50, n_samples // 2):
-                _expected_min_class = float(self.sample_fraction) * int(_counts.min())
-                if _expected_min_class < _STRATIFY_MIN_EXPECTED_PER_CLASS:
-                    _class_groups = [np.flatnonzero(_y_arr == c) for c in _uniq]
+        _class_groups = _stratified_class_groups(y, self.stratify, self.sample_fraction, n_samples)
 
         def _stratified_indices(local_rng) -> np.ndarray:
             """Draw a per-class-quota subsample from ``_class_groups`` so every present class survives, per the rare-imbalance stratification gate above."""

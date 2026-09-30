@@ -764,7 +764,7 @@ def show_calibration_plot(
                 ax.set_xlabel(label_prob)
             ax.set_ylabel(label_freq)
             cbar = fig.colorbar(sc, ax=(cbar_ax if cbar_ax is not None else ax))
-            cbar.set_label(colorbar_label or "Bin population")
+            cbar.set_label("Bin population" if colorbar_label is None else colorbar_label)
             if show_inline_population_labels:
                 vertical_offset = 0.02
                 for x, y, hit in zip(freqs_predicted, freqs_true, hits):

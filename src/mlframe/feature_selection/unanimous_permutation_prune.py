@@ -19,11 +19,11 @@ import numpy as np
 from ._selection_log import logs_selection, n_columns
 
 
-def _summ(res, b):
+def _summ_unanimous_permutation_prune(res, b):
     return res, n_columns(b.arguments["X"]), "surviving unanimous permutation pruning"
 
 
-@logs_selection("unanimous_permutation_prune", _summ)
+@logs_selection("unanimous_permutation_prune", _summ_unanimous_permutation_prune)
 def unanimous_permutation_prune(
     X: Any,
     y: np.ndarray,

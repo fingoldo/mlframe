@@ -110,9 +110,9 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
         "balanced_accuracy_score",
     ): "multiclass balanced accuracy (macro recall over C>2 classes); balanced_accuracy_binary is binary-only. Binary path uses balanced_accuracy_binary; sklearn only on the nclasses>2 branch.",
     (
-        "training/_helpers_training_configs.py",
+        "training/_picklable_metrics.py",
         "roc_auc_score",
-    ): "one-vs-rest multiclass AUC: neg_ovr_roc_auc_score wraps roc_auc_score(..., multi_class='ovr') as an XGB eval_metric; fast_roc_auc is binary-only.",
+    ): "one-vs-rest multiclass AUC: NegOvrRocAuc wraps roc_auc_score(..., multi_class='ovr') as an XGB eval_metric; fast_roc_auc is binary-only.",
     (
         "training/_partial_fit_es_wrapper.py",
         "log_loss",

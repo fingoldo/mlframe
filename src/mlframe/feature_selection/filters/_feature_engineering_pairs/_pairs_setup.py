@@ -57,6 +57,15 @@ def winsorize_heavy_tailed_target(y: np.ndarray) -> np.ndarray:
     return np.asarray(np.clip(y, q_lo, q_hi))
 
 
+def _should_bind_prewarp(has_binding: bool, spec, held_gain: float, gain: float) -> bool:
+    """Whether a var takes ``spec`` from the pair being scored: always for its first pairing, then only if the held pairing captured no interaction.
+
+    Rebinding on any larger gain moved warps between pairs that were all synergistic, and on three fixtures it swapped a clean library form for a
+    prewarp, kept a redundant sub-term and emptied the orthogonal-basis layer; so only a var whose held gain is <= 0 moves, and only to a pairing with a positive gain.
+    """
+    return not has_binding or (spec is not None and held_gain <= 0.0 and gain > max(held_gain, 0.0))
+
+
 def _prewarp_pair_synergy_gain(vals_a, vals_b, spec_a, spec_b, y, apply_operand_prewarp) -> float:
     """``|corr(wa*wb, y)| - max(|corr(wa, y)|, |corr(wb, y)|)`` for a pair's jointly fitted warps; ``-inf`` when unmeasurable.
 
@@ -265,11 +274,7 @@ def _fit_prewarp_and_gate_med(
             )
             _gain = _prewarp_pair_synergy_gain(_vals_a, _vals_b, _sa, _sb, _prewarp_y_eff, apply_operand_prewarp)
             for _v, _s in ((_va, _sa), (_vb, _sb)):
-                # Rebind only a var whose current pairing captured NO interaction (gain <= 0), and only to a pairing that does.
-                # Rebinding on any larger gain moved warps between pairs that were all synergistic, and on three fixtures it
-                # swapped a clean library form for a prewarp, kept a redundant sub-term and emptied the orthogonal-basis layer.
-                _held = _pw_bind_gain.get(_v, -np.inf)
-                if _v not in _prewarp_spec_by_var or (_s is not None and _held <= 0.0 and _gain > max(_held, 0.0)):
+                if _should_bind_prewarp(_v in _prewarp_spec_by_var, _s, _pw_bind_gain.get(_v, -np.inf), _gain):
                     _prewarp_spec_by_var[_v] = _s
                     _pw_bind_gain[_v] = _gain
 

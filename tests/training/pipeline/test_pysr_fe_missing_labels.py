@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training._preprocessing_configs import PreprocessingExtensionsConfig
 
@@ -30,7 +29,6 @@ def test_pysr_is_fitted_on_the_labelled_rows(monkeypatch):
     y[::4] = np.nan
     before = list(train.columns)
     pysr_fe._apply_pysr_fe(train_df=train, val_df=None, test_df=None, y_train=y, config=PreprocessingExtensionsConfig(pysr_enabled=True), verbose=0)
-    if "y" not in seen:
-        pytest.skip("PySR path not reached in this environment (julia / pysr import gate)")
+    assert "y" in seen, "the helper never reached run_pysr_feature_engineering"
     assert seen["n"] == 75 and np.isfinite(seen["y"]).all()
     assert list(train.columns) == before and len(train) == 100

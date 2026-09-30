@@ -61,7 +61,7 @@ def _tick_band_px(panel: Any) -> float:
         if getattr(panel, "orientation", "vertical") == "horizontal":
             return _TICK_BAND_PX
         cats = list(panel.categories)
-        maxlen = int(panel.label_maxlen or _BAR_LABEL_MAXLEN)
+        maxlen = _BAR_LABEL_MAXLEN if panel.label_maxlen is None else int(panel.label_maxlen)
         if panel.xtick_rotation:
             angle = float(panel.xtick_rotation)
         elif len(cats) > 25:
@@ -107,13 +107,12 @@ def vertical_spacing_fraction(panels: Sequence[Sequence[Any]], subplot_titles: S
         return 0.0
     gap_px = 0.0
     for r in range(rows - 1):
-        below_titles = [t for t in subplot_titles[(r + 1) * cols:(r + 2) * cols] if t]
+        below_titles = [t for t in subplot_titles[(r + 1) * cols : (r + 2) * cols] if t]
         title_lines = max((t.count("<br>") + 1 for t in below_titles), default=0)
         gap_px = max(gap_px, row_bottom_furniture_px(panels[r]) + title_lines * _TITLE_LINE_PX + _GAP_PAD_PX)
     frac = gap_px / max(float(plot_height_px), 1.0)
     # plotly rejects vertical_spacing > 1/(rows-1); stay under it so each row keeps a sliver of height.
     return min(frac, 0.9 / (rows - 1))
-
 
 
 def _uses_secondary_y(panel: Any) -> bool:
@@ -129,7 +128,7 @@ def panel_left_furniture_px(panel: Any) -> float:
     if panel is None or isinstance(panel, (AnnotationPanelSpec, NetworkPanelSpec)):
         return 0.0
     if isinstance(panel, BarPanelSpec) and getattr(panel, "orientation", "vertical") == "horizontal":
-        maxlen = int(panel.label_maxlen or _BAR_LABEL_MAXLEN)
+        maxlen = _BAR_LABEL_MAXLEN if panel.label_maxlen is None else int(panel.label_maxlen)
         ticks = max((measured_text_width_pt(str(c)[:maxlen], _TICK_FONT_PX) for c in panel.categories), default=0.0) + 8.0
     elif isinstance(panel, (HeatmapPanelSpec, ConfusionMarginsPanelSpec)):
         ticks = max((measured_text_width_pt(str(c)[:_BAR_LABEL_MAXLEN], _TICK_FONT_PX) for c in panel.row_labels), default=0.0) + 8.0
@@ -157,3 +156,13 @@ def horizontal_gap_px(panels: Sequence[Sequence[Any]], cols: int) -> float:
                 continue
             gap_px = max(gap_px, panel_right_furniture_px(left) + panel_left_furniture_px(right) + _GAP_PAD_PX)
     return gap_px
+
+
+def horizontal_spacing_fraction(panels: Sequence[Sequence[Any]], cols: int, plot_width_px: float) -> float:
+    """Column gap as a fraction of the plot width: 0.08 is the floor, and a boundary whose neighbours carry a secondary y-axis or long category labels needs more.
+
+    Capped at plotly's ``1 / (cols - 1)`` ceiling (half of it, so the panels keep a usable width).
+    """
+    if cols <= 1:
+        return 0.08
+    return min(max(0.08, horizontal_gap_px(panels, cols) / max(plot_width_px, 1.0)), 0.5 / (cols - 1))

@@ -469,12 +469,8 @@ def _setup_per_target_mlframe_models(
             )
 
             _orig_mlp_kwargs = getattr(hyperparams_config, "mlp_kwargs", None) or {}
-            # Pass existing mlp_kwargs so the translator can preserve a
-            # caller-pinned optimizer (e.g. MuonAdamWHybrid). Without it
-            # the translator hardcoded ``optimizer=torch.optim.AdamW``
-            # whenever ``alpha`` was present in the sklearn-shape override,
-            # and the deep-merge below silently overwrote a user's Muon
-            # choice.
+            # Pass existing mlp_kwargs so the translator preserves a caller-pinned optimizer (e.g. MuonAdamWHybrid) instead of hardcoding
+            # AdamW whenever ``alpha`` is in the sklearn-shape override, which the deep-merge below would silently apply over it.
             _mlframe_override = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
                 _sklearn_override,
                 existing_mlp_kwargs=_orig_mlp_kwargs,
@@ -516,9 +512,8 @@ def _setup_per_target_mlframe_models(
             _fd_aa_err,
         )
 
-    # Test set is never OD-filtered. train_df_size_bytes_cached is the pre-conversion Polars-side size
-    # passed through so configure_training_params can skip a 3-min pandas memory_usage(deep=...) scan
-    # on high-cardinality object columns; the OD-shrinkage approximation only feeds a GPU-RAM heuristic.
+    # Test set is never OD-filtered. train_df_size_bytes_cached is the pre-conversion Polars-side size, passed so configure_training_params
+    # skips a 3-min pandas memory_usage(deep=...) scan on high-cardinality object columns (the OD-shrinkage approximation only feeds a GPU-RAM heuristic).
     common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
         model_name=f"{target_name} {model_name} {cur_target_name}", composite_names=composite_target_names(metadata),
         target=cur_target_values,
@@ -552,11 +547,8 @@ def _setup_per_target_mlframe_models(
         logger.info("  select_target done in %s", _elapsed_str(t0_select_target))
         log_ram_usage()
 
-    # Pack H: auto-pick MAE / Huber loss for heavy-tail regression
-    # residuals. ``cur_target_values`` is the raw y for raw-target or
-    # the composite residual T for composite-target paths; in both
-    # cases the inner boosting fits this distribution directly, so
-    # the auto-switch matches the actual signal-vs-noise regime.
+    # Auto-pick MAE / Huber loss for heavy-tail regression residuals. ``cur_target_values`` is the raw y (raw-target paths) or the composite
+    # residual T (composite paths); either way the inner boosting fits that distribution directly.
     # The kurtosis is read from the rows the booster actually fits (post-OD train), not the full-length target:
     # the full vector still carries the outliers the detector just removed (and the val / test rows), so a
     # contaminated target picked Huber for a fit on already-cleaned rows.

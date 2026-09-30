@@ -176,6 +176,23 @@ def _precompute_prescreen_fold_universes(self, *, X, y, groups, cv, full_feature
     return universes
 
 
+def _densify_sparse_input(X):
+    """Densify a scipy.sparse ``X`` at the boundary (the FS pipeline is dense-frame-centric); refuse one whose dense form would exceed ~2 GB rather than silently doubling host memory."""
+    try:
+        from scipy.sparse import issparse
+    except ImportError:
+        return X
+    if not issparse(X):
+        return X
+    dense_bytes = int(X.shape[0]) * int(X.shape[1]) * 8
+    if dense_bytes > 2 * 1024**3:
+        raise NotImplementedError(
+            f"RFECV does not accept scipy.sparse X whose dense form would be {dense_bytes / 1024 ** 3:.1f} GB "
+            f"(> 2 GB); densify a representative subset or pass a DataFrame/ndarray that fits in RAM."
+        )
+    return np.asarray(X.toarray())
+
+
 def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params):
     """Fit RFECV: densifies a sparse ``X`` (refusing inputs whose dense form would exceed ~2 GB), applies the optional prescreen, precomputes per-fold train-only prescreen universes, then drives the recursive elimination loop to select the final feature subset."""
     # The max_runtime_mins clock covers the whole fit, including the input hashing / leakage / cardinality checks, which take minutes on wide 500k+ row frames.
@@ -187,21 +204,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     if not (list(self.estimators) if self.estimators else ([self.estimator] if self.estimator is not None else [])):
         raise ValueError("RFECV requires either estimator= or estimators=.")
 
-    # scipy.sparse X is not first-class across the dense-frame-centric FS pipeline; densify at the boundary so the
-    # existing ndarray path handles it. Gated on dense size per the project RAM rule - a sparse matrix whose dense
-    # form would exceed ~2 GB is refused with a clear error rather than silently doubling host memory.
-    try:
-        from scipy.sparse import issparse as _issparse
-    except ImportError:
-        _issparse = None
-    if _issparse is not None and _issparse(X):
-        _dense_bytes = int(X.shape[0]) * int(X.shape[1]) * 8
-        if _dense_bytes > 2 * 1024**3:
-            raise NotImplementedError(
-                f"RFECV does not accept scipy.sparse X whose dense form would be {_dense_bytes / 1024 ** 3:.1f} GB "
-                f"(> 2 GB); densify a representative subset or pass a DataFrame/ndarray that fits in RAM."
-            )
-        X = np.asarray(X.toarray())  # type: ignore[union-attr]  # narrowed by _issparse(X) above
+    X = _densify_sparse_input(X)
 
     # Multi-output (2D y) opt-in: fit one single-target RFECV per output column and aggregate support_ (union/intersect).
     # Default ``multioutput_strategy=None`` falls through to the historical clear NotImplementedError in _fit_init.

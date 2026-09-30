@@ -100,11 +100,11 @@ def _stochastic_bandit_selection_core(
     return best_subset, locked_in_feats
 
 
-def _summ(res, b):
+def _summ_stochastic_bandit_selection(res, b):
     return res, int(b.arguments["X"].shape[1]), None
 
 
-@logs_selection("stochastic_bandit_selection", _summ)
+@logs_selection("stochastic_bandit_selection", _summ_stochastic_bandit_selection)
 def stochastic_bandit_selection(
     estimator: Any,
     X: pd.DataFrame,

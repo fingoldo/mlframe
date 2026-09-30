@@ -127,6 +127,19 @@ def _derive_val_cv(cv: Any, n_splits: int) -> Any:
     return val_cv
 
 
+def _timestamp_hint_is_sorted(ts_hint: Any, n_rows: int):
+    """``True`` / ``False`` for a per-row ``timestamps`` hint that is / is not non-decreasing in row order; ``None`` when absent or unusable."""
+    if ts_hint is None:
+        return None
+    try:
+        arr = np.asarray(ts_hint)
+        if arr.ndim != 1 or arr.size != n_rows:
+            return None
+        return bool(np.all(arr[1:] >= arr[:-1]))
+    except (TypeError, ValueError):
+        return None
+
+
 def _make_group_time_series(n_splits, groups, fallback, verbose):
     """Build a GroupTimeSeriesSplit (entity isolation + temporal fold order), or fall back to ``fallback`` when
     there are too few distinct groups for the requested n_splits (need >= n_splits + 1)."""
@@ -204,17 +217,10 @@ def _resolve_cv_and_val_cv(
         _ts_hint = fit_params.pop("timestamps", None) if isinstance(fit_params, dict) else None
         # A hint whose values are not sorted still says the rows are temporal, just not in row order: every positional
         # splitter (TimeSeriesSplit, GroupTimeSeriesSplit) would then chain in the wrong order, so it gets TimestampOrderedSplit.
-        _ts_hint_unsorted = False
-        if _ts_hint is not None:
-            try:
-                _ts_arr = np.asarray(_ts_hint)
-                if _ts_arr.ndim == 1 and _ts_arr.size == (X.shape[0] if hasattr(X, "shape") else len(X)):
-                    if bool(np.all(_ts_arr[1:] >= _ts_arr[:-1])):
-                        _is_time_series = groups is None
-                    else:
-                        _ts_hint_unsorted = True
-            except (TypeError, ValueError):
-                pass
+        _ts_sorted = _timestamp_hint_is_sorted(_ts_hint, X.shape[0] if hasattr(X, "shape") else len(X))
+        _ts_hint_unsorted = _ts_sorted is False
+        if _ts_sorted:
+            _is_time_series = groups is None
         # Polars-input path: the schema-level monotonic-datetime check happens BEFORE the to_pandas() at fit entry; the hint is set
         # there so the conversion doesn't erase the per-column polars dtype information needed for unambiguous detection.
         if not _is_time_series and groups is None and _polars_time_series_hint:

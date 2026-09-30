@@ -36,11 +36,11 @@ from sklearn.preprocessing import StandardScaler
 from ._selection_log import logs_selection
 
 
-def _summ(res, b):
+def _summ_ridge_forward_prefilter(res, b):
     return res, len(b.arguments["feature_names"]), "ridge-coefficient prefilter pool"
 
 
-@logs_selection("ridge_coefficient_prefilter", _summ)
+@logs_selection("ridge_coefficient_prefilter", _summ_ridge_forward_prefilter)
 def ridge_coefficient_prefilter(
     X: np.ndarray,
     y: np.ndarray,

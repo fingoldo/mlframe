@@ -17,8 +17,6 @@ from typing import Any, Mapping, Optional
 
 import numpy as np
 
-from ._target_labels import label_mask
-
 # The split index attributes of ``TrainingContext`` and the frames aligned to each: train and val frames exist before
 # and after outlier detection, test is never filtered, calib is its own slice.
 SPLIT_INDEX_FIELDS: tuple[str, ...] = ("train_idx", "val_idx", "test_idx", "calib_idx", "filtered_train_idx", "filtered_val_idx")
@@ -95,26 +93,3 @@ def build_target_rows(mask: np.ndarray, splits: Mapping[str, Any]) -> TargetRows
 def splits_of(ctx: Any) -> dict[str, Any]:
     """The split index arrays of a ``TrainingContext``, by ``SPLIT_INDEX_FIELDS`` name."""
     return {name: getattr(ctx, name, None) for name in SPLIT_INDEX_FIELDS}
-
-
-def group_targets_by_rows(
-    target_by_type: Mapping[Any, Mapping[str, Any]], splits: Mapping[str, Any]
-) -> "tuple[dict[str, TargetRows], dict[tuple[Any, str], str]]":
-    """``({signature: TargetRows}, {(target type, name): signature})`` for every target with missing labels.
-
-    A fully labelled target is in neither map: it trains on the split as it is, with no copy of anything.
-    """
-    rows_by_sig: dict[str, TargetRows] = {}
-    sig_by_target: dict[tuple[Any, str], str] = {}
-    for target_type, named in (target_by_type or {}).items():
-        if not isinstance(named, Mapping):
-            continue
-        for name, values in named.items():
-            mask = label_mask(values)
-            if mask is None:
-                continue
-            sig = mask_signature(mask)
-            if sig not in rows_by_sig:
-                rows_by_sig[sig] = build_target_rows(mask, splits)
-            sig_by_target[(target_type, str(name))] = sig
-    return rows_by_sig, sig_by_target

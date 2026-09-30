@@ -23,8 +23,7 @@ def test_rfecv_frac_subsample_keeps_chronological_train_order():
     X = pd.DataFrame(ts[:, None] + 0.001 * rng.normal(size=(n, 4)), columns=list("abcd"))
     y = (rng.normal(size=n) > 0).astype(int)
     _RecordingLogit.seen = []
-    rfecv = RFECV(estimator=_RecordingLogit(), cv=TimestampOrderedSplit(n_splits=3, timestamps=ts), cv_shuffle=False, frac=0.5,
-                  max_runtime_mins=1.0, verbose=0)
+    rfecv = RFECV(estimator=_RecordingLogit(), cv=TimestampOrderedSplit(n_splits=3, timestamps=ts), cv_shuffle=False, frac=0.5, max_runtime_mins=1.0, verbose=0)
     rfecv.fit(X, y)
     train_fits = [s for s in _RecordingLogit.seen if 20 < len(s) < 0.6 * n]
     assert train_fits, "no fold fit was recorded"

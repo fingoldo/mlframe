@@ -14,7 +14,7 @@ import pytest
 
 from mlframe.training.composite._hurdle_dispatch import (
     BELOW_ATOM_TOLERANCE,
-    zero_inflated_regression_targets,
+    _scan_zero_inflation,
     zero_inflation_verdict,
 )
 from mlframe.training.composite.hurdle import HurdleRegressor
@@ -61,7 +61,7 @@ def test_a_declined_target_is_logged_not_silently_skipped(caplog):
 
     targets = {TargetTypes.REGRESSION: {"total_charge": _charges(n_negative=2_000)}}
     with caplog.at_level(logging.WARNING):
-        assert zero_inflated_regression_targets(targets, None) == {}
+        assert _scan_zero_inflation(targets, None)[0] == {}
     assert any("no HurdleRegressor for total_charge" in r.getMessage() for r in caplog.records)
 
 

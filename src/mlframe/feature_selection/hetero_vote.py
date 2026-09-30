@@ -93,11 +93,11 @@ def _cv_skill(est, X, y, *, classification: bool, folds: int, random_state: int)
     return max(0.0, score - chance)
 
 
-def _summ(res, b):
+def _summ_hetero_vote(res, b):
     return res[0], n_columns(b.arguments["X"]), f"{res[1].get('n_models', 0)} panel model(s)"
 
 
-@logs_selection("heterogeneous_relevance_vote", _summ)
+@logs_selection("heterogeneous_relevance_vote", _summ_hetero_vote)
 def heterogeneous_relevance_vote(
     X, y, *, models=None, classification: bool = True, n_shadow_trials: int = 3,
     percentile: float = 100.0, per_model_hit_frac: float = 0.5, vote_threshold: float = 0.5,

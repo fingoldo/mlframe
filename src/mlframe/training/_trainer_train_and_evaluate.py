@@ -109,7 +109,6 @@ logger = logging.getLogger("mlframe.training.trainer")
 from ._trainer_train_and_evaluate_helpers import _run_val_split_metrics, _run_test_split_metrics
 
 
-
 def _oof_train_timestamps(timestamps: Any, train_idx: Any) -> Any:
     """Timestamps of the train rows the OOF pass folds over (None when the suite has none); a pandas Series stays one so a tz-aware dtype survives."""
     if timestamps is None:

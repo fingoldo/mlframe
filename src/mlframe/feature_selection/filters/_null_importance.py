@@ -16,17 +16,18 @@ from typing import Any, Callable, Dict
 
 import numpy as np
 
-from mlframe.feature_selection._selection_log import logs_selection, n_columns
+from mlframe.feature_selection._selection_log import logs_selection
 
 
-def _summ(res, b):
+def _summ_null_importance(res, b):
     mask = np.asarray(res["keep_mask"], dtype=bool)
     X = b.arguments["X"]
-    names = list(getattr(X, "columns", [])) or list(range(mask.size))
+    cols = getattr(X, "columns", None)
+    names = list(range(mask.size)) if cols is None else list(cols)
     return [n for n, k in zip(names, mask) if k], int(mask.size), f"above the {b.arguments.get('percentile', 95.0)}th percentile of null importance"
 
 
-@logs_selection("null_importance_filter", _summ)
+@logs_selection("null_importance_filter", _summ_null_importance)
 def null_importance_filter(
     X: Any,
     y: np.ndarray,

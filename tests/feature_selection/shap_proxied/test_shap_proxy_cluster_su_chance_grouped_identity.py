@@ -19,12 +19,10 @@ _LEGACY = pathlib.Path(new.__file__).parent / "_benchmarks" / "su_chance_legacy.
 def legacy():
     spec = importlib.util.spec_from_file_location("su_chance_legacy", _LEGACY)
     mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod  # numba's cache=True resolves the defining module through sys.modules
-    try:
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(sys.modules, spec.name, mod)  # numba's cache=True resolves the defining module through sys.modules
         spec.loader.exec_module(mod)
         yield mod
-    finally:
-        sys.modules.pop(spec.name, None)
 
 
 def _scenario(seed: int):

@@ -14,15 +14,15 @@ from typing import Any, Dict, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_selection._selection_log import logs_selection, n_columns
+from mlframe.feature_selection._selection_log import logs_selection
 
 
-def _summ(res, b):
+def _summ_monotonic_stability(res, b):
     stable = res["stable"].astype(bool) if len(res) else res.get("stable", [])
     return [f for f, s in zip(res["feature"], stable) if s], len(res), "sign-stable across group subsamples"
 
 
-@logs_selection("monotonic_deviation_stability_filter", _summ)
+@logs_selection("monotonic_deviation_stability_filter", _summ_monotonic_stability)
 def monotonic_deviation_stability_filter(
     df: pd.DataFrame,
     y: np.ndarray,

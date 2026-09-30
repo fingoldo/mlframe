@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Sequence
 
-from mlframe.feature_selection._selection_log import format_name_list
+from mlframe.feature_selection.shared import format_name_list
 
 logger = logging.getLogger(__name__)
 

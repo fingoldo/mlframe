@@ -15,6 +15,7 @@ from . import (
     _target_name_signature as target_name_signature,
     _target_to_numpy_values as target_to_numpy_values,
 )
+from ._mrmr_fit_log import log_mrmr_fit_summary
 from ._mrmr_param_constants import (
     _VALID_FE_HYBRID_ORTH_BASES as VALID_FE_HYBRID_ORTH_BASES,
     _VALID_FE_HYBRID_ORTH_CLUSTER_BASIS_AGGREGATORS as VALID_FE_HYBRID_ORTH_CLUSTER_BASIS_AGGREGATORS,
@@ -37,6 +38,7 @@ __all__ = [
     "full_y_content_hash",
     "hashable_params_signature",
     "lazy_chunks",
+    "log_mrmr_fit_summary",
     "replay_fitted_state",
     "target_name_signature",
     "target_to_numpy_values",

@@ -19,6 +19,7 @@ import numpy as np
 from .._enums import OptimumSearch, VotesAggregation
 from .._helpers import get_next_features_subset, store_averaged_cv_scores
 from ._fit_fold import _eval_fold_body
+from ._outer_loop_bookkeeping import runtime_budget_exhausted, update_best_and_noimprove
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
@@ -338,22 +339,7 @@ def run_outer_loop_iteration(
 
     state.nsteps += 1
 
-    # Track the best BEFORE any stop check below: a stop used to return first, so the final iteration's subset never reached
-    # best_nfeatures/best_score (the SFFS swap pass seeds from them) and the checkpoint persisted a best one iteration stale.
-    if final_score > state.best_score:
-        state.best_score = final_score
-        state.best_iter = state.nsteps
-        state.best_nfeatures = len(current_features)
-        state.n_noimproving_iters = 0
-    else:
-        # C8: only increment the no-improve counter when
-        # the OPTIMIZER actually proposed something it hadn't seen before
-        # (was_stored=True or new N). MBH revisits of the same N with a worse
-        # subset (was_stored=False) used to spike the counter and trip
-        # max_noimproving_iters prematurely. Opt-out via
-        # noimprove_counts_revisit=True.
-        if was_stored or getattr(self, "noimprove_counts_revisit", False):
-            state.n_noimproving_iters += 1
+    update_best_and_noimprove(self, state, final_score, len(current_features), was_stored)
 
     # Persist outer-loop state so a crash mid-run is recoverable. fitted_estimators is intentionally NOT pickled (CB / RF ensembles dominate file size); they are re-fit on resume when needed. Save errors are logged but do not abort the fit.
     if self.checkpoint_path is not None:
@@ -400,23 +386,8 @@ def run_outer_loop_iteration(
             state.stop_reason = "the dummy baseline at 0 features beat the first explored subset"
             return IterationOutcome.BREAK
 
-    state.iter_durations.append(timer() - _iter_t0)
-    if max_runtime_mins and not state.ran_out_of_time:
-        _budget_s = max_runtime_mins * 60
-        _elapsed_s = timer() - start_time
-        _mean_iter_s = float(np.mean(state.iter_durations))
-        if _elapsed_s > _budget_s:
-            state.stop_reason = f"max_runtime_mins={max_runtime_mins:_.1f} reached ({_elapsed_s / 60:_.1f} min elapsed)"
-        elif _elapsed_s + _mean_iter_s > _budget_s:
-            state.stop_reason = (
-                f"max_runtime_mins={max_runtime_mins:_.1f}: another iteration (mean {_mean_iter_s / 60:_.1f} min) "
-                f"would end past the budget ({_elapsed_s / 60:_.1f} min elapsed)"
-            )
-        state.ran_out_of_time = state.stop_reason is not None
-        if state.ran_out_of_time:
-            if verbose:
-                logger.info("RFECV: stopping, %s.", state.stop_reason)
-            return IterationOutcome.BREAK
+    if runtime_budget_exhausted(state, max_runtime_mins, start_time, _iter_t0, timer(), verbose):
+        return IterationOutcome.BREAK
 
     if max_refits and state.nsteps >= max_refits:
         if verbose:

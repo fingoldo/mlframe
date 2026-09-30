@@ -546,6 +546,15 @@ def _run_cpu_pairwise_su(
     ))
 
 
+def _pair_su(classes_i: np.ndarray, freqs_i: np.ndarray, classes_j: np.ndarray, freqs_j: np.ndarray) -> float:
+    """SU of one column pair. A dense K_i x K_j joint table for an ID-like pair would be ~n^2 cells, so those are counted sparsely (same value)."""
+    from mlframe.feature_selection.filters.info_theory import compute_su_from_classes
+
+    if freqs_i.shape[0] * freqs_j.shape[0] > max(DENSE_JOINT_MIN_CELLS, DENSE_JOINT_CELLS_PER_ROW * classes_i.shape[0]):
+        return float(su_from_classes_sparse(classes_i, freqs_i, classes_j, freqs_j))
+    return float(compute_su_from_classes(classes_i, freqs_i, classes_j, freqs_j))
+
+
 def cluster_correlated_features_su(
     bins: dict[str, np.ndarray],
     *,
@@ -652,8 +661,6 @@ def cluster_correlated_features_su(
         ``(n_features,)`` int64. Constant columns and features with no
         above-threshold partner become singleton clusters.
     """
-    from mlframe.feature_selection.filters.info_theory import compute_su_from_classes
-
     if not isinstance(bins, dict):
         raise TypeError(f"cluster_correlated_features_su: expected bins dict, got {type(bins).__name__}")
     names, arrays = _resolve_columns(bins, feature_names)
@@ -757,11 +764,7 @@ def cluster_correlated_features_su(
             classes_j, freqs_j = marginals[j]
             if np.count_nonzero(freqs_j) <= 1:
                 continue
-            # A dense K_i x K_j table for an ID-like column pair would be ~n^2 cells; count those sparsely (same value).
-            if freqs_i.shape[0] * freqs_j.shape[0] > max(DENSE_JOINT_MIN_CELLS, DENSE_JOINT_CELLS_PER_ROW * classes_i.shape[0]):
-                su = float(su_from_classes_sparse(classes_i, freqs_i, classes_j, freqs_j))
-            else:
-                su = float(compute_su_from_classes(classes_i, freqs_i, classes_j, freqs_j))
+            su = _pair_su(classes_i, freqs_i, classes_j, freqs_j)
             if su >= threshold:
                 ei_parts.append(i)
                 ej_parts.append(j)

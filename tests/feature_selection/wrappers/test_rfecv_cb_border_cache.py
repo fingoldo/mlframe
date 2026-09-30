@@ -6,10 +6,10 @@ import pandas as pd
 import pytest
 
 catboost = pytest.importorskip("catboost")
-from catboost import CatBoostClassifier, CatBoostRegressor  # noqa: E402
+from catboost import CatBoostClassifier, CatBoostRegressor
 
-from mlframe.feature_selection.wrappers import RFECV  # noqa: E402
-from mlframe.feature_selection.wrappers.rfecv import _cb_border_cache as cbc  # noqa: E402
+from mlframe.feature_selection.wrappers import RFECV
+from mlframe.feature_selection.wrappers.rfecv import _cb_border_cache as cbc
 
 
 def _frame(seed: int, n: int = 1200, p: int = 8, with_cat: bool = False, with_nan: bool = False):
@@ -40,14 +40,14 @@ def test_cached_borders_subset_fit_bit_identical_to_generic_fit(with_cat, with_n
     rows = np.arange(len(Xt))
     src = type("Src", (), {})()
     full = list(X.columns)
-    for subset in (full, [c for c in full if c not in ("f1", "f5")], ["f0", "f2", "f3"] + cats):
+    for subset in (full, [c for c in full if c not in ("f1", "f5")], ["f0", "f2", "f3", *cats]):
         params = {"cat_features": [subset.index(c) for c in cats if c in subset], "eval_set": (Xv[subset], yv), "use_best_model": True, "early_stopping_rounds": 10}
         m = CatBoostClassifier(iterations=25, depth=4, verbose=0, allow_writing_files=False, random_seed=3)
         assert cbc.fit_catboost_with_cached_borders(m, source=src, X_train=Xt[subset], y_train=yt, fit_features=subset, fit_params=params, train_rows=rows, sample_weight=w)
         ref = _generic_fit(CatBoostClassifier, Xt[subset], yt, Xv[subset], yv, [subset.index(c) for c in cats if c in subset], w)
         assert np.array_equal(m.predict_proba(Xv[subset]), ref.predict_proba(Xv[subset]))
-    st = cbc.cache_stats(src)
-    assert st["misses"] == 1 and st["hits"] == 2
+    cache = cbc._CACHES[id(src)]
+    assert cache.misses == 1 and cache.hits == 2
 
 
 def test_cached_borders_regressor_identical():

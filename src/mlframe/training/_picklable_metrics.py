@@ -137,14 +137,18 @@ class PositionalIntegralCalibrationError(IntegralCalibrationError):
 
 
 class VerboseBoundMetric:
-    """A metric callable with a fixed ``verbose`` level threaded into every call (RFECV's ``make_scorer`` score function)."""
+    """A metric callable with a fixed ``verbose`` level threaded into every call (RFECV's ``make_scorer`` score function).
+
+    Args:
+        metric: the wrapped metric.
+        verbose: the verbosity it is always called with.
+    """
     # sklearn's scorer repr reads ``score_func.__name__``; keep the name the local closure had so logs stay comparable.
     __name__ = "fs_and_hpt_integral_calibration_error"
 
     __slots__ = ("metric", "verbose")
 
     def __init__(self, metric: Callable, verbose: Any) -> None:
-        """Bind the wrapped metric and the verbosity it is always called with."""
         self.metric = metric
         self.verbose = verbose
 

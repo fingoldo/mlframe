@@ -131,12 +131,12 @@ def _diverse_ranking(ranked_features: Sequence[str], clusters: dict, rotation: i
     return ordered
 
 
-def _summ(res, b):
+def _summ_varying_size_top_k_subsets(res, b):
     largest = max(res, key=len) if res else []
     return largest, len(b.arguments["ranked_features"]), f"largest of {len(res)} subset(s), sizes {sorted({len(x) for x in res})}"
 
 
-@logs_selection("varying_size_top_k_subsets", _summ)
+@logs_selection("varying_size_top_k_subsets", _summ_varying_size_top_k_subsets)
 def varying_size_top_k_subsets(
     ranked_features: Sequence[str],
     sizes: Sequence[int],

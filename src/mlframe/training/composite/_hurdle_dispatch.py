@@ -80,11 +80,6 @@ def zero_inflation_verdict(y: Any) -> "tuple[Optional[float], int, Optional[str]
     return atom, n_below, None
 
 
-def zero_inflated_atom(y: Any) -> Optional[float]:
-    """The "no event" value of a zero-inflated target, or None when ``y`` is not one (see :func:`zero_inflation_verdict`)."""
-    return zero_inflation_verdict(y)[0]
-
-
 def _default_hurdle_halves() -> tuple[Any, Any]:
     """``(classifier, regressor)`` prototypes: LightGBM when installed (pandas categoricals, speed), else sklearn HGB."""
     try:
@@ -98,11 +93,6 @@ def _default_hurdle_halves() -> tuple[Any, Any]:
         from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 
         return HistGradientBoostingClassifier(max_iter=200, random_state=0), HistGradientBoostingRegressor(max_iter=200, random_state=0)
-
-
-def zero_inflated_regression_targets(target_by_type: Any, train_idx: Any) -> dict[float, list[str]]:
-    """``{atom: [target names]}`` for every regression target that is zero-inflated on its train rows."""
-    return _scan_zero_inflation(target_by_type, train_idx)[0]
 
 
 def _scan_zero_inflation(target_by_type: Any, train_idx: Any) -> "tuple[dict[float, list[str]], dict[float, dict[str, int]]]":

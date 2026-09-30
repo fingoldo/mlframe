@@ -20,7 +20,7 @@ from io import StringIO
 import numpy as np
 
 from mlframe.training._configs_base import TargetTypes
-from mlframe.training.composite._hurdle_dispatch import zero_inflated_regression_targets
+from mlframe.training.composite._hurdle_dispatch import _scan_zero_inflation
 
 
 def _targets(n: int, k: int, seed: int = 0) -> dict:
@@ -40,14 +40,14 @@ if __name__ == "__main__":
         tb = _targets(n, 8)
         idx = np.arange(int(n * 0.75))
         t0 = time.perf_counter()
-        found = zero_inflated_regression_targets(tb, idx)
+        found = _scan_zero_inflation(tb, idx)[0]
         print(f"n={n:>9} targets=8 -> {(time.perf_counter() - t0) * 1000:8.1f} ms, zero-inflated: {sum(len(v) for v in found.values())}")
 
     tb = _targets(1_000_000, 8)
     idx = np.arange(750_000)
     pr = cProfile.Profile()
     pr.enable()
-    zero_inflated_regression_targets(tb, idx)
+    _scan_zero_inflation(tb, idx)[0]
     pr.disable()
     s = StringIO()
     pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(12)

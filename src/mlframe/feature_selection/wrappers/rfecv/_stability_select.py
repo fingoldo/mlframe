@@ -386,18 +386,8 @@ def select_optimal_nfeatures_(
 
     ultimate_perf = base_perf - np.array(checked_nfeatures) * feature_cost
 
-    # C3:
-    # Pre-Wave-1 'auto' = ('one_se_max' for multi-estimator else 'argmax')
-    # had inverted multi-vs-singular logic. The original Wave 1 fix changed
-    # 'auto' -> 'argmax' uniformly, but the synthetic-bench (n=8000, p=200,
-    # 30 informative, flat score curve) showed argmax catastrophically
-    # underselects on plateau (recall 0.30) where 'one_se_max' takes the
-    # full band and recovers recall=1.0. On non-flat curves both rules
-    # converge to the same N within ±1 feature. So NEW default 'auto' =
-    # 'one_se_max' is strictly safer for the workloads RFECV sees:
-    # plateau-prone score curves benefit, real-signal curves see no change.
-    # Users wanting argmax-greedy or 1-SE-parsimony pass explicit
-    # 'argmax' / 'one_se_min'.
+    # 'auto' = 'one_se_max': on a flat score curve (n=8000, p=200, 30 informative) 'argmax' under-selects catastrophically (recall 0.30) while
+    # 'one_se_max' takes the full band and recovers recall=1.0; on non-flat curves both converge to the same N within +-1 feature.
     rule = getattr(self, "n_features_selection_rule", "auto")
     if rule == "auto":
         rule = "one_se_max"
@@ -525,8 +515,7 @@ def select_optimal_nfeatures_(
             )
         _finite_nz_idx = nz_idx[_finite_mask]
         best_mean_idx = _finite_nz_idx[np.argmax(mean_arr[_finite_nz_idx])]
-        band_arr = band_half_width(std_arr, fold_counts(self, checked_nfeatures), band_kind)
-        threshold = mean_arr[best_mean_idx] - band_arr[best_mean_idx]
+        threshold = mean_arr[best_mean_idx] - band_half_width(std_arr, fold_counts(self, checked_nfeatures), band_kind)[best_mean_idx]
         in_band = [i for i in nz_idx if mean_arr[i] >= threshold]
         if not in_band:
             in_band = [int(best_mean_idx)]

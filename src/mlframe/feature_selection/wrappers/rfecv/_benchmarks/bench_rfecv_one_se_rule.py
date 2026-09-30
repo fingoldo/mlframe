@@ -201,6 +201,7 @@ def _job(args):
     try:
         return run_one(*args)
     except Exception as exc:  # keep the sweep resilient; failures are reported, never silently dropped
+        logger.warning("bench job %s failed: %s: %s", args[:3], type(exc).__name__, exc)
         return [{"dataset": args[0], "seed": args[1], "est": args[2], "error": f"{type(exc).__name__}: {exc}"}]
 
 

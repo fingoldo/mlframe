@@ -41,7 +41,7 @@ from ._kaleido import (
     write_image_via_kaleido,
 )
 from ._plotly_interactivity import apply_interactivity, html_config
-from ._plotly_spacing import horizontal_gap_px, row_bottom_furniture_px, vertical_spacing_fraction
+from ._plotly_spacing import horizontal_spacing_fraction, row_bottom_furniture_px, vertical_spacing_fraction
 from ._plotly_color import _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, PX_PER_INCH,
@@ -325,10 +325,7 @@ class PlotlyRenderer:
         # still -- straight into the next column's y-axis title. The gap has to hold the bar, its labels and the
         # neighbour's axis furniture, which the default 0.08 does not on a multi-column figure.
         _has_colorbar = any(isinstance(pn, HeatmapPanelSpec) for rw in spec.panels for pn in rw if pn is not None)
-        # 0.08 is the floor; a boundary whose neighbours carry a secondary y-axis or long category labels needs more.
-        _hspace = max(0.08, horizontal_gap_px(spec.panels, cols) / max(spec.figsize[0] * _PX_PER_INCH - _MARGIN_L - _MARGIN_R, 1.0)) if cols > 1 else 0.08
-        if cols > 1:
-            _hspace = min(_hspace, 0.5 / (cols - 1))
+        _hspace = horizontal_spacing_fraction(spec.panels, cols, spec.figsize[0] * _PX_PER_INCH - _MARGIN_L - _MARGIN_R)
         if _has_colorbar and cols > 1:
             from ._plotly_heatmap import _COLORBAR_GUTTER_PX, _NEIGHBOUR_AXIS_PX
 

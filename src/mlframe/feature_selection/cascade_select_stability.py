@@ -17,11 +17,11 @@ from .cascade_select import cascade_select
 from ._selection_log import logs_selection, n_columns
 
 
-def _summ(res, b):
+def _summ_cascade_select_stability(res, b):
     return res["stable_selected"], n_columns(b.arguments["X"]), f"stability_threshold={b.arguments.get('stability_threshold', 0.6)}"
 
 
-@logs_selection("cascade_select_stable", _summ)
+@logs_selection("cascade_select_stable", _summ_cascade_select_stability)
 def cascade_select_stable(
     X: Any,
     y: np.ndarray,

@@ -119,6 +119,35 @@ def _try_cached_border_fit(fitted, *, source, X_train, y_train, fit_features, fi
         )
 
 
+def _clone_with_cb_text_processing(est_proto, X_train, filtered_fit_params, early_stopping_supported):
+    """Clone ``est_proto``; a CatBoost clone with text features on an early-stopping fold also gets ``text_processing`` sized to the fold's row count."""
+    fitted = clone(est_proto)
+    if not early_stopping_supported:
+        return fitted
+    if not (filtered_fit_params.get("text_features") or []) or "CatBoost" not in type(fitted).__name__:
+        return fitted
+    from mlframe.training.helpers import compute_cb_text_processing
+
+    fold_rows = X_train.shape[0] if hasattr(X_train, "shape") else None
+    tp = compute_cb_text_processing(fold_rows) if fold_rows is not None else None
+    if tp is not None and hasattr(fitted, "set_params"):
+        try:
+            fitted.set_params(text_processing=tp)
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+    return fitted
+
+
+def _score_with_optional_weight(scoring, fitted, X_test, y_test, test_sample_weight):
+    """Score on the fold-test rows, forwarding ``sample_weight`` when the scorer accepts it (make_scorer callables do, bare callables may not)."""
+    if test_sample_weight is None:
+        return scoring(fitted, X_test, y_test)
+    try:
+        return scoring(fitted, X_test, y_test, sample_weight=test_sample_weight)
+    except TypeError:
+        return scoring(fitted, X_test, y_test)
+
+
 def _eval_fold_body(
     nfold,
     train_index,
@@ -319,21 +348,7 @@ def _eval_fold_body(
             # First estimator was already cloned + text_processing tuned above as ``fitted_estimator``.
             _fitted = fitted_estimator
         else:
-            _fitted = clone(_est_proto)
-            # Apply CB text_processing if applicable for THIS clone.
-            if val_cv and has_early_stopping_support(estimator_type):
-                _temp_text_feats = _filtered_fit_params.get("text_features") or []
-                if _temp_text_feats and "CatBoost" in type(_fitted).__name__:
-                    from mlframe.training.helpers import compute_cb_text_processing
-
-                    _fold_rows = X_train.shape[0] if hasattr(X_train, "shape") else None
-                    _tp = compute_cb_text_processing(_fold_rows) if _fold_rows is not None else None
-                    if _tp is not None and hasattr(_fitted, "set_params"):
-                        try:
-                            _fitted.set_params(text_processing=_tp)
-                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                            logger.debug("suppressed: %s", e)
-                            pass
+            _fitted = _clone_with_cb_text_processing(_est_proto, X_train, _filtered_fit_params, val_cv and has_early_stopping_support(estimator_type))
 
         _model_type_name = type(_fitted).__name__
         _ctx = suppress_stdout_stderr() if _model_type_name in CATBOOST_MODEL_TYPES else nullcontext()
@@ -346,24 +361,15 @@ def _eval_fold_body(
             _fit_key = getattr(_fitted.fit, "__func__", _fitted.fit)
             if _fit_accepts_sample_weight(_fit_key):
                 _per_est_fit_params["sample_weight"] = _fold_train_sw
-        _fast_done = False
-        if getattr(self, "cb_cached_borders", True):
-            _fast_done = _try_cached_border_fit(
-                _fitted, source=X_estimator if X_estimator is not None else X, X_train=X_train, y_train=y_train, fit_features=fit_features,
-                fit_params=_per_est_fit_params, train_rows=(train_index if true_train_index is None else train_index[true_train_index]),
-                sample_weight=_fold_train_sw,
-            )
+        _fast_done = getattr(self, "cb_cached_borders", True) and _try_cached_border_fit(
+            _fitted, source=X_estimator if X_estimator is not None else X, X_train=X_train, y_train=y_train, fit_features=fit_features,
+            fit_params=_per_est_fit_params, train_rows=(train_index if true_train_index is None else train_index[true_train_index]),
+            sample_weight=_fold_train_sw,
+        )
         if not _fast_done:
             with _ctx:
                 _fitted.fit(X=X_train, y=y_train, **_per_est_fit_params)
-        # Scorer-side: forward fold-test sample_weight when sklearn scorer accepts it. make_scorer-wrapped callables expose sample_weight via _BaseScorer.__call__; bare callables may not.
-        if _fold_test_sw is not None:
-            try:
-                _score = scoring(_fitted, X_test, y_test, sample_weight=_fold_test_sw)
-            except TypeError:
-                _score = scoring(_fitted, X_test, y_test)
-        else:
-            _score = scoring(_fitted, X_test, y_test)
+        _score = _score_with_optional_weight(scoring, _fitted, X_test, y_test, _fold_test_sw)
         _est_scores.append(_score)
 
         # FI is computed on the actual fit_features.

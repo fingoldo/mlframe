@@ -14,15 +14,15 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_selection._selection_log import logs_selection, n_columns
+from mlframe.feature_selection._selection_log import logs_selection
 
 
-def _summ(res, b):
+def _summ_ks_stability(res, b):
     unstable = res.loc[~res["stable"].astype(bool), "column"] if len(res) else []
     return list(unstable), len(res), "train/test distribution shift (KS)"
 
 
-@logs_selection("ks_stability_filter", _summ, what="flagged unstable")
+@logs_selection("ks_stability_filter", _summ_ks_stability, what="flagged unstable")
 def ks_stability_filter(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,

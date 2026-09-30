@@ -716,7 +716,6 @@
   "nondiscriminating_test::feature_selection/mrmr/test_gpu_circuit_breaker_rearm_on_fit.py::52c96d6def34",
   "nondiscriminating_test::feature_selection/mrmr/test_mrmr_fixes.py::0105d40f4035",
   "nondiscriminating_test::feature_selection/regression/test_regression_bug_fixes.py::38d886a5d2c9",
-  "nondiscriminating_test::feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py::2f124b3974fa",
   "nondiscriminating_test::feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py::43d8804350ef",
   "nondiscriminating_test::feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py::bcf414077d45",
   "nondiscriminating_test::feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py::c1f75547c496",

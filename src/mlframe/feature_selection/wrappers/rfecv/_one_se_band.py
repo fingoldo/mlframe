@@ -20,7 +20,7 @@ def split_rule_band(rule: str) -> tuple:
     return rule, "se"
 
 
-def fold_counts(self: Any, checked_nfeatures: Sequence[int]) -> np.ndarray:
+def fold_counts(self: Any, checked_nfeatures: "Sequence[int] | np.ndarray") -> np.ndarray:
     """Number of finite fold scores behind each evaluated N; 1 (no shrinkage) where it cannot be determined."""
     counts = np.ones(len(checked_nfeatures), dtype=float)
     pfs = getattr(self, "_per_fold_scores", None) or {}
@@ -40,4 +40,4 @@ def band_half_width(std: np.ndarray, k: np.ndarray, band: str = "se") -> np.ndar
     std = np.asarray(std, dtype=float)
     if band == "foldstd":
         return std
-    return std / np.sqrt(np.maximum(np.asarray(k, dtype=float), 1.0))
+    return np.asarray(std / np.sqrt(np.maximum(np.asarray(k, dtype=float), 1.0)), dtype=float)

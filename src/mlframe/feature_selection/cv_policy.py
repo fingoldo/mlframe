@@ -247,7 +247,7 @@ def holdout_indices(policy: Optional[CVPolicy], n: int, test_size: float, *, ran
         order = _chronological_positions(policy, n)
         if order is None:
             return None
-        return np.sort(order[: n - n_hold]), np.sort(order[n - n_hold:])
+        return np.sort(order[: n - n_hold]), np.sort(order[n - n_hold :])
     if not policy.matches(n) or len(np.unique(np.asarray(policy.groups))) < 2:
         return None
     search, hold = next(GroupShuffleSplit(n_splits=1, test_size=n_hold / n, random_state=random_state).split(np.empty(n), groups=np.asarray(policy.groups)))

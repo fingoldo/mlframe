@@ -63,7 +63,7 @@ def main(n: int = 100_000, p: int = 30, its: int = 60) -> None:
             for line in src:
                 parts = line.rstrip("\n").split("\t")
                 if int(parts[0]) in remap:
-                    dst.write("\t".join([str(remap[int(parts[0])])] + parts[1:]) + "\n")
+                    dst.write("\t".join([str(remap[int(parts[0])]), *parts[1:]]) + "\n")
         sub = Pool(X.iloc[:, keep], y)
         sub.quantize(input_borders=sub_path)
         m_b = CatBoostClassifier(iterations=its, verbose=0, random_seed=0).fit(sub, eval_set=Pool(Xv.iloc[:, keep], yv))

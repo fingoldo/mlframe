@@ -83,7 +83,7 @@ def test_sparse_joint_counting_is_bit_identical_to_dense():
         arrs[1] = ((arrs[0] + rng.integers(0, 2, n)) % 20).astype(np.int32)
         packed = _setup_su_kernel_inputs(arrs, None)
         assert packed is not None
-        bp, nb, fp, fo, h, cm = packed
+        bp, nb, fp, fo, _h, _cm = packed
         for thr in (0.01, 0.1, 0.4):
             np.testing.assert_array_equal(_pairwise_su_edges(*packed, thr), _pairwise_su_edges(*packed, thr, 0))
         for i in range(4):

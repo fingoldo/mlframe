@@ -60,5 +60,5 @@ def test_xgb_default_eval_metric_survives_stdlib_pickle_roundtrip(data):
     metric = restored.get_params()["eval_metric"]
     assert metric.__name__ == "neg_ovr_roc_auc_score"
     yt = np.array([0, 1, 0, 1, 1, 0])
-    proba = np.array([[.8, .2], [.3, .7], [.6, .4], [.2, .8], [.4, .6], [.7, .3]])
+    proba = np.array([[0.8, 0.2], [0.3, 0.7], [0.6, 0.4], [0.2, 0.8], [0.4, 0.6], [0.7, 0.3]])
     assert metric(yt, proba[:, 1]) == est.get_params()["eval_metric"](yt, proba[:, 1])
