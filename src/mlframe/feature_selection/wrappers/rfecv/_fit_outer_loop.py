@@ -19,6 +19,7 @@ import numpy as np
 from .._enums import OptimumSearch, VotesAggregation
 from .._helpers import get_next_features_subset, store_averaged_cv_scores
 from ._fit_fold import _eval_fold_body
+from ._futility_stop import futility_armed, futility_verdict, remaining_iterations
 from ._outer_loop_bookkeeping import runtime_budget_exhausted, update_best_and_noimprove
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
@@ -66,6 +67,8 @@ class OuterLoopState:
     dummy_scores: list = field(default_factory=list)
     # 2026-05-28 sklearn-parity: per-fold scores keyed by N, for cv_results_["splitK_test_score"] schema.
     per_fold_scores: dict = field(default_factory=dict)  # dict[N -> list[float] of length n_splits]
+    # Every evaluated subset as (N, per-fold scores), in iteration order; feeds the futility stop and is published as ``eval_trace_``.
+    eval_trace: list = field(default_factory=list)
     # convergence_tol sliding window of recent final_scores (see run_outer_loop_iteration).
     _recent_finals: list = field(default_factory=list)
 
@@ -334,6 +337,7 @@ def run_outer_loop_iteration(
                 f"{scores_mean:.{ndigits}f}", f"{scores_std:.{ndigits}f}", f"{final_score:.{ndigits}f}",
             )
 
+    state.eval_trace.append((len(current_features), tuple(float(v) for v in scores)))
     state.prev_nfeatures, state.prev_score = len(current_features), final_score
     iters_pbar.update(1)
 
@@ -406,6 +410,26 @@ def run_outer_loop_iteration(
             logger.info("Max # of noimproved iters reached: %s", state.n_noimproving_iters)
         state.stop_reason = f"max_noimproving_iters={max_noimproving_iters} reached"
         return IterationOutcome.BREAK
+
+    if futility_armed(self):
+        _verdict = futility_verdict(
+            state.eval_trace,
+            min_iters=int(self.futility_min_iters),
+            alpha=float(self.futility_alpha),
+            patience_frac=float(self.futility_patience_frac),
+            remaining=remaining_iterations(self, state, len(original_features), max_refits, max_runtime_mins, timer() - start_time),
+            full_n=len(original_features),
+            anchor=str(self.futility_anchor),
+            rule=str(self.n_features_selection_rule),
+            mean_w=float(self.mean_perf_weight),
+            std_w=float(self.std_perf_weight),
+        )
+        self.futility_verdict_ = _verdict
+        if _verdict.stop:
+            if verbose:
+                logger.info("RFECV: %s; stopping.", _verdict.describe())
+            state.stop_reason = _verdict.describe()
+            return IterationOutcome.BREAK
 
     # S7: tolerance-based convergence. ``n_noimproving_iters``
     # resets on ANY new-best even when the improvement is CV noise (e.g. 1e-6

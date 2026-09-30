@@ -319,6 +319,17 @@ class RFECV(TransformerMixin, BaseEstimator):
         # S7: tolerance-based convergence. When set, break when max(last K final_scores) - min(...) < tol * |best_score|. None disables.
         convergence_tol: Union[float, None] = None,
         convergence_tol_window: int = 10,
+        # Futility stop (default ON; False restores the exhaustive search - see _futility_stop.py): quit once no smaller subset is likely to beat the FULL set by more than the one_se_max band, judged on paired
+        # per-fold differences vs iteration 0. Armed only for n_features_selection_rule in {auto, one_se_max, one_se_max_foldstd} with feature_cost=0 and
+        # max_nfeatures=None; selection-neutral by construction while the pick is the full set. min_iters = smaller sizes that must be evaluated first;
+        # alpha = one-sided confidence level of the upper bound on any subset's gain; patience_frac = flat stretch demanded as a fraction of the iterations left.
+        futility_stop: bool = True,
+        futility_min_iters: int = 5,
+        futility_alpha: float = 0.05,
+        futility_patience_frac: float = 0.1,
+        # futility_anchor: 'full' (default) only stops while the pick is the FULL set (selection-neutral by construction); 'pick' also stops while a smaller
+        # pick holds, judged against that pick (saves more, measured ~94% same-N on the one-SE bench, unproven - unevaluated sizes above the pick stay possible).
+        futility_anchor: str = "full",
         # S9+S10: richer init design seeding the MBH optimizer with multiple low/mid/high N anchors. None = legacy single seed;
         # int K = exactly K equidistant anchors; 'auto' (NEW default) scales K by p AND evaluation budget so init-seed wall stays
         # small relative to user-driven exploration: p<=10 -> K=2, p<=50 OR budget<30 -> K=3, else -> K=5.
@@ -465,6 +476,8 @@ class RFECV(TransformerMixin, BaseEstimator):
     ):
 
         # checks
+        if futility_anchor not in ("full", "pick"):
+            raise ValueError(f"futility_anchor must be 'full' or 'pick', got {futility_anchor!r}")
         if frac is not None:
             if not (frac > 0.0 and frac < 1.0):
                 raise ValueError(f"frac must be between 0 and 1, got {frac}")

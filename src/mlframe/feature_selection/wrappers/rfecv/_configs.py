@@ -52,6 +52,11 @@ if _PYDANTIC_AVAILABLE:
         best_desired_score: Optional[float] = None
         convergence_tol: Optional[float] = None
         convergence_tol_window: int = 10
+        futility_stop: bool = True
+        futility_min_iters: int = Field(default=5, ge=1)
+        futility_alpha: float = Field(default=0.05, gt=0.0, lt=1.0)
+        futility_patience_frac: float = Field(default=0.1, ge=0.0, le=1.0)
+        futility_anchor: str = "full"
 
         # MBH surrogate + acquisition
         optimizer_config: Optional[Dict[str, Any]] = None
@@ -75,6 +80,14 @@ if _PYDANTIC_AVAILABLE:
             """Restricts ``optimizer_target`` to the two scores the MBH surrogate can be pointed at."""
             if v not in ("mean", "final_score"):
                 raise ValueError(f"optimizer_target must be 'mean' or 'final_score'; got {v!r}")
+            return v
+
+        @field_validator("futility_anchor")
+        @classmethod
+        def _ck_fanchor(cls, v: str) -> str:
+            """Restricts ``futility_anchor`` to the two supported baselines of the futility stop."""
+            if v not in ("full", "pick"):
+                raise ValueError(f"futility_anchor must be 'full' or 'pick'; got {v!r}")
             return v
 
         @field_validator("dichotomic_step")
