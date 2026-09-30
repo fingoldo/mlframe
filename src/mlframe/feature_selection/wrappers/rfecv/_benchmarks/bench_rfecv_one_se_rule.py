@@ -10,7 +10,7 @@ Summarise:
     python -m mlframe.feature_selection.wrappers.rfecv._benchmarks.bench_rfecv_one_se_rule --summarize <results.json>[,<more.json>]
 
 Verdict (13 datasets x 6 seeds x catboost/lightgbm/linear = 234 paired units; california_housing was unreachable offline and replaced by make_friedman1;
-results in ``_results/rfecv_one_se_rule_20260930_065629.json`` + ``..._070439.json``): the SE band became the default.
+raw JSON is written to the git-ignored ``_results/`` on each run; the table below is the record): the SE band became the default.
   paired vs one_se_max_foldstd, dOOS mean +- se | W/T/L (tie = |d| <= 1e-4) | d n_kept:
     one_se_max (SE)  +0.00040 +- 0.00021 | 47/151/36 | -7.36     <- adopted (per estimator: catboost +0.00026, lightgbm +0.00062, linear +0.00031)
     one_se_max_2se   -0.00010 +- 0.00012 | 10/207/17 | +1.67     (REJECTED: no gain, keeps more)

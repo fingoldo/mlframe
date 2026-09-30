@@ -242,3 +242,4 @@ audit/**/*_commitmsg.txt
 /*.png
 /*.svg
 /*.pdf
+**/_benchmarks/_results/rfecv_one_se_rule_*.json
