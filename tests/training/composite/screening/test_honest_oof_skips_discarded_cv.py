@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import mlframe.training.composite.discovery._screening_tiny as screening_tiny
+import mlframe.training.composite.discovery._tiny_rerank_process as tiny_rerank_process
 from mlframe.training.composite import CompositeTargetDiscovery
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
@@ -23,17 +23,18 @@ _FEATS = ["base_full", "base_partial", "x1"]
 def _count_cv_calls(monkeypatch) -> dict:
     """Replace the multiseed CV entry point with a counting passthrough.
 
-    Patched where the rerank's per-spec scorer (``_tiny_rerank_process.score_spec``) looks it up at call time.
+    Patched in ``_tiny_rerank_process``, whose module-level ``from ._screening_tiny import`` is the binding the per-spec scorer calls;
+    patching the defining module would leave that binding untouched and every count would read 0.
     """
     seen = {"n": 0}
-    original = screening_tiny._tiny_cv_rmse_y_scale_multiseed
+    original = tiny_rerank_process._tiny_cv_rmse_y_scale_multiseed
 
     def counting(*args, **kwargs):
         """Count the call, then defer to the real CV."""
         seen["n"] += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(screening_tiny, "_tiny_cv_rmse_y_scale_multiseed", counting)
+    monkeypatch.setattr(tiny_rerank_process, "_tiny_cv_rmse_y_scale_multiseed", counting)
     return seen
 
 

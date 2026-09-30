@@ -13,6 +13,7 @@ import pytest
 
 from mlframe.training.composite.discovery import _auto_chain, _eval_waic, _splitter
 from mlframe.training.composite.discovery import _tiny_rerank
+from mlframe.training.composite.discovery import shared as _shared
 
 
 def _spy_splits(monkeypatch, module):
@@ -89,13 +90,13 @@ def test_one_rerank_scores_raw_and_every_spec_under_one_fold_scheme(monkeypatch)
     from mlframe.training.composite import CompositeTargetDiscovery
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-    from mlframe.training.composite.discovery import _screening_tiny
+    from mlframe.training.composite.discovery import _tiny_rerank_process
 
     seen: list[bool] = []
-    # The raw baseline is scored from _tiny_rerank; each spec through _tiny_rerank_process.score_spec, which resolves its
-    # CV function from _screening_tiny at call time.
+    # The raw baseline is scored from _tiny_rerank; each spec through _tiny_rerank_process.score_spec, which calls the CV function
+    # bound at its own module level (a patch on _screening_tiny would not reach it).
     for module, name in ((_tiny_rerank, "_tiny_cv_rmse_raw_y"), (_tiny_rerank, "_tiny_cv_rmse_raw_y_multiseed"),
-                         (_screening_tiny, "_tiny_cv_rmse_y_scale_multiseed")):
+                         (_tiny_rerank_process, "_tiny_cv_rmse_y_scale_multiseed")):
         real = getattr(module, name)
 
         def _spy(*a, _real=real, **kw):
@@ -174,14 +175,14 @@ def test_a_recurrent_component_gets_contiguous_oof_folds(monkeypatch):
     from mlframe.training.composite.ensemble import compute_oof_holdout_predictions
 
     requested = []
-    real = _splitter.make_discovery_splitter
+    real = _shared.make_discovery_splitter
 
     def _spy(*a, **kw):
         """Record whether each splitter request asked for contiguous folds, then pass it through."""
         requested.append(kw.get("contiguous"))
         return real(*a, **kw)
 
-    monkeypatch.setattr(_splitter, "make_discovery_splitter", _spy)
+    monkeypatch.setattr(_shared, "make_discovery_splitter", _spy)  # the ensemble resolves it from here at call time
     rng = np.random.default_rng(0)
     n = 600
     base = np.cumsum(rng.normal(size=n)) + 50.0

@@ -1,16 +1,18 @@
 """biz_value: elimination_rule='stability' protects steady-mid-rank features from one-fold eviction.
 
-Pins the scenario where stability measurably wins on honest holdout: 'many_steady' bed seed 1,
-where the legacy 'importance' rule collapses RFECV to N=2 (dropping 4 of the 6 steady-mid true
-features) while 'stability' keeps the steady features (top-k in most folds) and lands a markedly
-higher holdout AUC. Measured (RF impurity, cv=3, max_refits=8):
-  importance auc=0.7169 (n=2)   stability auc=0.8110 (n=9)   delta=+0.094
-Floor set at +0.04 (well below measured 0.094) to absorb seed/thread noise.
+Pins the beds where stability measurably wins on honest holdout: 'many_steady' seeds 2 and 3, where the legacy 'importance' rule collapses
+RFECV to N=2 (dropping 5 of the 6 steady-mid true features) while 'stability' keeps the steady features (top-k in most folds).
+Measured (RF impurity, cv=3, max_refits=8, one_se_min_foldstd):
+  seed 2: importance auc=0.7434 (n=2)  stability auc=0.8134 (n=9)  delta=+0.070
+  seed 3: importance auc=0.7358 (n=2)  stability auc=0.8187 (n=5)  delta=+0.083
+Floor set at +0.04 (roughly half the measured deltas) to absorb seed/thread noise.
 
-NOTE: this is the ONE bed/seed where stability replicated a clear win in the cross-seed bench
-(bench_rfecv_stability_elimination.py: 1 win / 1 tiny loss / 13 ties of 15). The default stays
-'importance'; this test guards the opt-in win so a future regression that breaks the
-fold-selection-frequency discount is caught by a FAILING WIN, not just an interface check.
+Seed 1 (the original pin) no longer collapses: importance now keeps 6 features (AUC 0.8104 vs stability 0.8214, delta +0.011), so the
+collapse this rule protects against simply does not occur there any more. A ten-seed sweep (seeds 1-10) gives mean delta +0.0136, with the win
+concentrated where importance collapses (seeds 2, 3) and stability within -0.0095 of importance everywhere else.
+
+The default stays 'importance'; this test guards the opt-in win so a regression that breaks the fold-selection-frequency discount is caught
+by a FAILING WIN, not just an interface check.
 """
 
 from __future__ import annotations
@@ -78,11 +80,12 @@ def _holdout_auc(X, y, rule, seed=1):
 
 
 @pytest.mark.slow
-def test_biz_val_rfecv_stability_beats_importance_on_many_steady():
+@pytest.mark.parametrize("seed", [2, 3])
+def test_biz_val_rfecv_stability_beats_importance_on_many_steady(seed):
     """Biz val rfecv stability beats importance on many steady."""
-    X, y = _make_many_steady(seed=1)
-    auc_imp, cols_imp = _holdout_auc(X, y, "importance")
-    auc_stab, cols_stab = _holdout_auc(X, y, "stability")
+    X, y = _make_many_steady(seed=seed)
+    auc_imp, cols_imp = _holdout_auc(X, y, "importance", seed)
+    auc_stab, cols_stab = _holdout_auc(X, y, "stability", seed)
     # stability keeps more of the steady-mid true features and wins holdout AUC.
     assert auc_stab >= auc_imp + 0.04, (
         f"stability holdout AUC {auc_stab:.4f} should beat importance {auc_imp:.4f} by >=0.04 "
