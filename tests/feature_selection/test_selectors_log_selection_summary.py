@@ -311,6 +311,27 @@ def test_functional_selector_logs_single_info_summary(label, runner, n_expected,
     assert len(_summaries(caplog)) == 1, [s[3] for s in _summaries(caplog)]  # nested selector functions stay quiet
 
 
+def _rfecv_lines(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.INFO and r.getMessage().startswith("RFECV: selected")]
+
+
+def test_cascade_select_silences_nested_rfecv_summary(data, caplog):
+    X, y = data
+    caplog.set_level(logging.INFO)
+    _casc(X, y)
+    assert _rfecv_lines(caplog) == []
+    assert len([s for s in _summaries(caplog) if s[0] == "cascade_select"]) == 1
+
+
+def test_rfecv_run_directly_keeps_its_own_summary(data, caplog):
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
+
+    X, y = data
+    caplog.set_level(logging.INFO)
+    RFECV(estimator=_rf(), cv=2, random_state=0, verbose=0, max_runtime_mins=1).fit(X, y)
+    assert len(_rfecv_lines(caplog)) == 1
+
+
 def test_varying_size_top_k_subsets_logs_summary(caplog):
     from mlframe.feature_selection import varying_size_top_k_subsets
 

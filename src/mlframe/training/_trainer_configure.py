@@ -833,12 +833,10 @@ def configure_training_params(
     else:
         if prefer_calibrated_classifiers:
 
-            def fs_and_hpt_integral_calibration_error(*args, **kwargs):
-                """RFECV scorer for calibrated classifiers: forwards to ``configs.fs_and_hpt_integral_calibration_error`` with the closure-captured ``verbose`` level threaded in."""
-                return configs.fs_and_hpt_integral_calibration_error(*args, **kwargs, verbose=rfecv_model_verbose)
+            from ._picklable_metrics import VerboseBoundMetric
 
             rfecv_scoring = make_scorer(
-                score_func=fs_and_hpt_integral_calibration_error,
+                score_func=VerboseBoundMetric(configs.fs_and_hpt_integral_calibration_error, rfecv_model_verbose),
                 response_method="predict_proba",
                 greater_is_better=False,
             )

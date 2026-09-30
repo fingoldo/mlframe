@@ -164,7 +164,7 @@ def apply_synergy_bootstrap(
                 synergy_added_idx = set(_added)
                 numeric_vars_to_consider = numeric_vars_to_consider | _raw_numeric_idx
                 if verbose:
-                    logger.info(
+                    logger.debug(
                         "MRMR FE synergy bootstrap: augmented pair pool with %d unselected raw "
                         "numeric columns (%d raw <= cap %d) so zero-marginal synergy pairs "
                         "(a*d / sign products / log*sin) get joint-MI screened.",

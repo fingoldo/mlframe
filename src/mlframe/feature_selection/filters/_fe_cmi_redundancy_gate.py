@@ -681,7 +681,7 @@ def apply_cmi_redundancy_gate(
     if verbose:
         for nm in names:
             d = diagnostics.get(nm, {})
-            logger.info(
+            logger.debug(
                 "CMI-redundancy gate: %s accept=%s cmi=%.4f excess=%.4f "
                 "floor=%.4f rel_bar=%.4f (%s)",
                 nm, d.get("accept"), d.get("cmi", float("nan")),

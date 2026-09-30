@@ -155,5 +155,5 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
         y_for_strategy=_y_for_strategy,
         cache_dir=getattr(self, "cache_dir", None),
     )
-    logger.info("categorized.")
+    logger.debug("categorized.")
     return _nbins_strategy, _x_for_cat, cols, data, nbins

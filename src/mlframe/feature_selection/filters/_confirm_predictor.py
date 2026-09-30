@@ -527,7 +527,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     prefer_gpu=False,
                 )
                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                    logger.info("mi_direct bootstrapped eval took %.1f sec.", timer() - eval_start)
+                    logger.debug("mi_direct bootstrapped eval took %.1f sec.", timer() - eval_start)
             cached_confident_MIs[X] = bootstrapped_gain, confidence
     else:
         if X in cached_confident_MIs:
@@ -572,7 +572,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                 _rows_per_cell = _conditioning_rows_per_cell(ctx, X)
                 if _rows_per_cell < _undersample_threshold:
                     if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                        logger.info(
+                        logger.debug(
                             "confirm %s: conditioning joint undersampled (%.2f rows/cell < %.2f); " "marginal-MI fallback (conf=%.*f)",
                             get_candidate_name(X, factors_names=factors_names),
                             _rows_per_cell, _undersample_threshold, ndigits, confidence,
@@ -650,7 +650,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     bootstrapped_gain = 0.0
 
             if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                logger.info("get_fleuret_criteria_confidence bootstrapped eval took %.1f sec.", timer() - eval_start)
+                logger.debug("get_fleuret_criteria_confidence bootstrapped eval took %.1f sec.", timer() - eval_start)
 
     return bootstrapped_gain, confidence
 

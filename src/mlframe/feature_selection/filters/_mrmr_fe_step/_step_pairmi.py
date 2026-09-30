@@ -190,7 +190,7 @@ def compute_pair_mis_and_floor(
     n_pairs = (_k * (_k - 1)) // 2
 
     if verbose:
-        logger.info("Feature Engineering: Computing MIs of %d most prospective feature pairs...", n_pairs)
+        logger.debug("Feature Engineering: Computing MIs of %d most prospective feature pairs...", n_pairs)
 
     # ---------------------------------------------------------------------------------------------------------------
     # Layer 3 pre-batch: compute pair MIs for every (a, b) in numeric_vars_to_consider via
@@ -261,7 +261,7 @@ def compute_pair_mis_and_floor(
             _batch_prefill_count += _prefill_cached_pair_mis(_pair_a_arr, _pair_b_arr, _pair_mi_batch, cached_MIs, cached_confident_MIs)
             if verbose:
                 _backend_summary = ", ".join(f"{k}={v}" for k, v in sorted(_backend_counts.items()))
-                logger.info(
+                logger.debug(
                     "MRMR FE: batch-prefilled %d/%d pair MIs via [%s] backend chunk(s) (permutation test skipped for these pairs)",
                     _batch_prefill_count, _n_pairs_batch, _backend_summary,
                 )
@@ -307,7 +307,7 @@ def compute_pair_mis_and_floor(
     )
     if _run_serial:
         if verbose and _below_perm_floor and not _all_pairs_precomputed and n_jobs > 1 and n_pairs >= max(2, n_jobs):
-            logger.info(
+            logger.debug(
                 "MRMR FE: fe_npermutations=%d < %d -- the loky pair-MI pool never wins at this budget "
                 "(measured 0.03-0.38x across n_pairs=190..20000 at fe_npermutations=3); running serial instead.",
                 fe_npermutations, _LOKY_POOL_MIN_FE_NPERMUTATIONS,

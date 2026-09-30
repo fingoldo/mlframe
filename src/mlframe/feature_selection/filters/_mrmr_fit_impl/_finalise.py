@@ -383,7 +383,7 @@ def _finalise_fs_results(
     if verbose:
         predictors_str = ", ".join([f"{el['name']}: {el['gain']:.4f}" for el in predictors[:50]])
         predictors_str = textwrap.shorten(predictors_str, width=300)
-        logger.info("MRMR+ selected %d out of %d features: %s", self.n_features_, self.n_features_in_, predictors_str)
+        logger.debug("MRMR+ selected %d out of %d features: %s", self.n_features_, self.n_features_in_, predictors_str)
 
     # Refresh the params slot with POST-fit values before storing: should fit ever resolve/normalise a
     # param in place (RFECV does this with ``scoring``), the entry-time params fingerprint would never

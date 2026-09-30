@@ -104,7 +104,7 @@ class IntegralCalibrationError:
     # pickle's default protocol-2 path to copy.
     def __getstate__(self) -> dict:
         """State as a plain dict, so a slotted instance pickles."""
-        return {name: getattr(self, name) for name in self.__slots__}
+        return {name: getattr(self, name) for name in IntegralCalibrationError.__slots__}  # not ``self.__slots__``: a subclass declares ``()``
 
     def __setstate__(self, state: dict) -> None:
         """Restore from the dict produced by ``__getstate__``."""
@@ -134,6 +134,45 @@ class PositionalIntegralCalibrationError(IntegralCalibrationError):
             verbose=verbose,
             **self._kwargs(),
         )
+
+
+class VerboseBoundMetric:
+    """A metric callable with a fixed ``verbose`` level threaded into every call (RFECV's ``make_scorer`` score function)."""
+    # sklearn's scorer repr reads ``score_func.__name__``; keep the name the local closure had so logs stay comparable.
+    __name__ = "fs_and_hpt_integral_calibration_error"
+
+    __slots__ = ("metric", "verbose")
+
+    def __init__(self, metric: Callable, verbose: Any) -> None:
+        """Bind the wrapped metric and the verbosity it is always called with."""
+        self.metric = metric
+        self.verbose = verbose
+
+    def __call__(self, *args, **kwargs):
+        """Forward to the wrapped metric with ``verbose`` appended."""
+        return self.metric(*args, **kwargs, verbose=self.verbose)
+
+    def __getstate__(self) -> dict:
+        """Slots-only state for pickling."""
+        return {"metric": self.metric, "verbose": self.verbose}
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore slots."""
+        self.metric = state["metric"]
+        self.verbose = state["verbose"]
+
+
+class NegOvrRocAuc:
+    """Negated one-vs-rest ROC-AUC, for use as an XGBoost minimization ``eval_metric``."""
+    __name__ = "neg_ovr_roc_auc_score"
+
+    __slots__ = ()
+
+    def __call__(self, *args, **kwargs):
+        """``-roc_auc_score(..., multi_class="ovr")``."""
+        from sklearn.metrics import roc_auc_score
+
+        return -roc_auc_score(*args, **kwargs, multi_class="ovr")
 
 
 class SubgroupAveragedMetric:
@@ -308,8 +347,10 @@ def build_robust_ts_metric(
 __all__ = [
     "IntegralCalibrationError",
     "LightGBMMetricAdapter",
+    "NegOvrRocAuc",
     "PositionalIntegralCalibrationError",
     "RobustTimeSplitMetric",
     "SubgroupAveragedMetric",
+    "VerboseBoundMetric",
     "build_robust_ts_metric",
 ]

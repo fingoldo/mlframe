@@ -494,7 +494,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Discretize continuous data
     # ---------------------------------------------------------------------------------------------------------------
 
-    logger.info("categorizing dataset...")
+    logger.debug("categorizing dataset...")
     # NaN handling is delegated to `categorize_dataset` via
     # `missing_strategy`. The legacy ffill/bfill path was a temporal-fill
     # workaround that injected fake signal correlated with the row's
@@ -876,7 +876,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Surfaced at verbose>=1 (2026-07-09; was gated behind verbose>2, an unrealistically high bar that
     # left this cumulative-per-operator timing breakdown effectively invisible to normal production runs).
     if verbose and times_spent:
-        logger.info("MRMR FE time spent by binary func (cumulative across all rounds): %s", sort_dict_by_value(times_spent))
+        logger.debug("MRMR FE time spent by binary func (cumulative across all rounds): %s", sort_dict_by_value(times_spent))
     # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)
 
     # ---------------------------------------------------------------------------------------------------------------

@@ -354,7 +354,7 @@ def drop_redundant_raw_operands(
         consumers = [ei for ei in all_consumers if (len(_eng_signal_parents.get(ei, set()) - {rname}) >= 1) and not _is_pseudo_remix_child(cols[ei])]
         if not consumers:
             if verbose:
-                logger.info(
+                logger.debug(
                     "raw-redundancy: KEEP %s (no multi-source engineered subsumer; " "consumers %s are sole-operand self-transforms -- DPI-trap, cannot " "prove redundancy)",
                     rname,
                     [cols[e] for e in all_consumers],
@@ -578,7 +578,7 @@ def drop_redundant_raw_operands(
                 if raw_retains_linear_signal_given_children(_lin_raw, _lin_y, _lin_children, seed=seed):
                     keep = True
                     if verbose:
-                        logger.info(
+                        logger.debug(
                             "raw-redundancy: KEEP %s via LINEAR-USABILITY leg (CMI collapsed "
                             "cond_excess=%.5f but raw retains significant private linear signal "
                             "given %s -- nonlinear child is not a linear equivalent)",
@@ -647,7 +647,7 @@ def drop_redundant_raw_operands(
                 pass
         if keep:
             if verbose:
-                logger.info(
+                logger.debug(
                     "raw-redundancy: KEEP %s (cmi=%.4f floor=%.4f cond_excess=%.5f " "marg_excess=%.5f max_child_anchor=%.4f -- carries significant " "independent residual given %s)",
                     rname,
                     cmi,

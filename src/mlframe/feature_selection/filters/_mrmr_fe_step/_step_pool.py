@@ -103,7 +103,7 @@ def build_fe_operand_pool(
         if _gate_raw_idx:
             _synergy_added_idx = _synergy_added_idx - _gate_raw_idx
             if verbose:
-                logger.info(
+                logger.debug(
                     "MRMR FE: reclassified %d gate-source raw operand(s) %s from synergy-bootstrap to "
                     "regularly-selected so their elementary pairs use the lenient prevalence bar.",
                     len(_gate_raw_idx), sorted(cols[i] for i in _gate_raw_idx),

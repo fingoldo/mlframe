@@ -10,7 +10,6 @@ from types import SimpleNamespace  # bundled config return at the bottom of get_
 from typing import Callable, Any, Optional, Sequence
 
 import psutil  # used for n_jobs=cpu_count(logical=False) in XGB_GENERAL_PARAMS
-from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
 
 from ._gpu_probe import CUDA_IS_AVAILABLE, LGB_GPU_AVAILABLE, XGB_GPU_AVAILABLE
@@ -26,6 +25,7 @@ logger = logging.getLogger("mlframe.training.helpers")
 from ._picklable_metrics import (
     IntegralCalibrationError,
     LightGBMMetricAdapter,
+    NegOvrRocAuc,
     PositionalIntegralCalibrationError,
     SubgroupAveragedMetric,
     build_robust_ts_metric,
@@ -179,9 +179,7 @@ def get_training_configs(
     if early_stopping_rounds is not None and early_stopping_rounds <= 0:
         early_stopping_rounds = max(2, iterations // 3)
 
-    def neg_ovr_roc_auc_score(*args, **kwargs):
-        """Negated one-vs-rest ROC-AUC, for use as an XGBoost minimization ``eval_metric``."""
-        return -roc_auc_score(*args, **kwargs, multi_class="ovr")
+    neg_ovr_roc_auc_score = NegOvrRocAuc()
 
     # Build defaults, then let caller's kwargs override any of them
     # via .update(). Using **cb_kwargs for merge crashes when the

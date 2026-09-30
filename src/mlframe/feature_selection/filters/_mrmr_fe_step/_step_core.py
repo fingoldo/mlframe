@@ -642,7 +642,7 @@ def _run_fe_step_impl(
     _fni_idx = {nm: i for i, nm in enumerate(_fni_list)}
     original_cols = {i: _fni_idx[col] for i, col in enumerate(cols) if col in _fni_idx}
     if verbose >= 1:
-        logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
+        logger.debug("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
 
     # PER-OPERAND PRE-WARP: read the opt-in flag + knobs off the
     # MRMR instance (getattr keeps _run_fe_step's signature stable, mirroring
@@ -861,7 +861,7 @@ def _run_fe_step_impl(
             jobs_list.append(cur_dict)
 
         if verbose:
-            logger.info(
+            logger.debug(
                 "Using %d items per thread for checking %d prospective_pairs with gain>%.2f.",
                 desired_nitems, len(prospective_pairs), fe_min_pair_mi_prevalence,
             )

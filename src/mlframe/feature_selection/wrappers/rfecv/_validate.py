@@ -35,6 +35,19 @@ import pandas as pd
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
+def _plausibly_id_like_numeric(ser: pd.Series) -> bool:
+    """True for integer dtypes and for float columns whose finite values are all whole numbers; a genuinely continuous float is high-cardinality by nature, not an ID."""
+    from pandas.api.types import is_float_dtype, is_integer_dtype
+
+    if is_integer_dtype(ser):
+        return True
+    if not is_float_dtype(ser):
+        return False
+    vals = ser.dropna().to_numpy(dtype=float)
+    vals = vals[np.isfinite(vals)]
+    return vals.size > 0 and bool(np.all(vals == np.round(vals)))
+
+
 def _sanitize_X_inputs(self, X, y):
     """Apply validation warnings + the four destructive sanitise passes.
 
@@ -299,14 +312,14 @@ def _sanitize_X_inputs(self, X, y):
     # E5: warn on high-cardinality integer / int-encoded
     # columns that look like hashes / IDs. They pass Pearson leak (low corr),
     # but tree FI inflates them via split-frequency bias. Knockoffs assume
-    # Gaussian and become meaningless. Threshold: numeric dtype AND
+    # Gaussian and become meaningless. Threshold: integer dtype (or integer-valued float) AND
     # nunique > 0.5 * n_rows AND n_rows >= 50.
     if isinstance(X, pd.DataFrame) and X.shape[0] >= 50:  # W9: unconditional, see rationale above
         from pandas.api.types import is_numeric_dtype as _is_num
         _suspicious_hicard: list = []
         _n = X.shape[0]
         for _c in X.columns:
-            if not _is_num(X[_c]):
+            if not _is_num(X[_c]) or not _plausibly_id_like_numeric(X[_c]):
                 continue
             try:
                 _nu = int(X[_c].nunique(dropna=True))

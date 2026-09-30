@@ -69,6 +69,11 @@ def quiet_nested() -> Iterator[None]:
         _nested.depth -= 1
 
 
+def is_quiet() -> bool:
+    """True inside a :func:`quiet_nested` scope: a selector that logs its own summary should stay silent there."""
+    return getattr(_nested, "depth", 0) > 0
+
+
 def n_columns(X: Any) -> int:
     """Column count of a pandas / polars / ndarray-like ``X``."""
     shape = getattr(X, "shape", None)

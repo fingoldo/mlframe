@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ..._selection_log import format_name_list
+from ..._selection_log import format_name_list, is_quiet
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
@@ -47,7 +47,12 @@ def build_rfecv_fit_summary(self: Any, *, stop_reason: Optional[str], n_iters: i
 
 
 def log_rfecv_fit_summary(self: Any, *, stop_reason: Optional[str], n_iters: int, elapsed_s: float, ndigits: int = 4) -> None:
-    """Emit the summary at INFO unconditionally: a single line per fit, and the only place the kept size, stop reason and column names meet."""
+    """Emit the summary at INFO: a single line per fit, and the only place the kept size, stop reason and column names meet.
+
+    Silent when RFECV is fitted inside a wrapper's ``quiet_nested`` scope (e.g. ``cascade_select``), whose own line is the one to read.
+    """
+    if is_quiet():
+        return
     try:
         logger.info(build_rfecv_fit_summary(self, stop_reason=stop_reason, n_iters=n_iters, elapsed_s=elapsed_s, ndigits=ndigits))
     except Exception as exc:  # a reporting failure must never fail a multi-hour fit
