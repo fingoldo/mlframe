@@ -29,6 +29,7 @@ except ImportError:
 
 from ..train_eval import select_target
 from ..utils import log_ram_usage
+from ._catboost_has_time import apply_catboost_has_time
 from ._cv_policy_setup import _publish_suite_cv_policy
 from ._misc_helpers import _elapsed_str, _split_preds_probs
 from ._phase_diagnostics import run_per_target_diagnostics
@@ -566,6 +567,8 @@ def _setup_per_target_mlframe_models(
         split_config=getattr(ctx, "split_config", None), hyperparams_config=_target_hyperparams_config, verbose=verbose,
         rfecv_models_params={name: rfecv_models_params.get(name) for name in (rfecv_models or [])}, common_params=common_params,
     )
+
+    apply_catboost_has_time(models_params, _cv_policy, _target_hyperparams_config, verbose=verbose)
 
     pre_pipelines, pre_pipeline_names = _build_pre_pipelines(
         cv_policy=_cv_policy,

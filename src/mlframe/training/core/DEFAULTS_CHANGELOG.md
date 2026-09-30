@@ -152,6 +152,13 @@ folds instead of shuffled KFold), BorutaShap / ACE (permutation) / ShapProxiedFS
 `None` = follow the same decision (time-aware OOF now applies whenever the suite has timestamps and its val/test split takes the newest rows; only matters when
 `oof_n_splits >= 2`). Opt out with `unified_cv_policy=False` (selectors) / `oof_has_time=False` (OOF).
 
+## CatBoost `has_time` follows the unified CV policy (chronological train rows only)
+
+CatBoost's `has_time` was explicit-only (`ModelHyperparamsConfig.has_time=False`). It is now switched on per target when the unified CV policy is temporal, the caller
+set neither `hyperparams_config.has_time` nor `cb_kwargs['has_time']`, and the train rows' timestamps are already non-decreasing with no missing value (`core/_catboost_has_time.py`).
+CatBoost reads row order as time order, so an unsorted train set keeps `has_time=False` with one INFO line (the suite never reorders or copies the frame; reordering would need every
+row-aligned artifact inverted). Opt out with `has_time=False`; `unified_cv_policy=False` also disables it.
+
 ## Left opt-in (wave 2)
 
 - **`TrainingBehaviorConfig.oof_n_splits` / `oof_has_time` / `oof_random_seed`**: default `0` (no OOF,
