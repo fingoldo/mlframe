@@ -496,3 +496,10 @@ LightGBM/XGBoost) — a clean negative result, not a gap.
   A target with infinite (`+-inf`) labels is refused before training under EVERY policy, `"raise"` and
   `"drop_rows"` alike -- inf is almost never a genuine missing-label sentinel, and silently dropping those
   rows would train on a non-randomly-biased subset (whichever computation produced the inf) without saying so.
+
+## Flipped: `RFECV` `one_se_*` tolerance band is a standard error, not the across-fold std (2026-09-30)
+
+`n_features_selection_rule="auto"` resolves to `one_se_max`, whose band was `best mean - fold std` (population std of the k fold scores) -- sqrt(k) times wider than
+the standard error, so noise-robust learners kept the largest N. The band is now `best mean - std/sqrt(k)`. Paired multi-dataset bench (13 datasets x 6 seeds x
+CatBoost/LightGBM/linear; `feature_selection/wrappers/rfecv/_benchmarks/bench_rfecv_one_se_rule.py`): OOS +0.0004 +- 0.0002 (W/T/L 47/151/36), 7.4 fewer features,
+stability (Jaccard) 0.73 -> 0.64. Opt-out: `n_features_selection_rule="one_se_max_foldstd"` (or `"one_se_min_foldstd"`).

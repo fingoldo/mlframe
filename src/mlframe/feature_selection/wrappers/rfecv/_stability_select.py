@@ -16,6 +16,7 @@ import pandas as pd
 from sklearn.base import clone
 
 from ._fit_fold import _fit_accepts_sample_weight
+from ._one_se_band import band_half_width, fold_counts, split_rule_band
 from .._enums import VotesAggregation
 from .._helpers import (
     get_actual_features_ranking,
@@ -403,6 +404,7 @@ def select_optimal_nfeatures_(
     # Surface the resolved rule (after 'auto' expansion) so the FS report can show which selection rule
     # actually picked n_features_ without re-deriving the auto logic.
     self.resolved_n_features_rule_ = rule
+    rule, band_kind = split_rule_band(rule)
 
     # bench-attempt-rejected (2026-06-11): a flat-curve / pure-noise reject in the 'auto' branch - when the best evaluated subset
     # cannot beat (or is SE-significantly worse than) the no-features N=0 dummy, select NOTHING instead of all features - was
@@ -485,7 +487,7 @@ def select_optimal_nfeatures_(
                     "instead of selecting all %d.",
                     p_in, self.n_features_, p_in,
                 )
-                self.resolved_n_features_rule_ = f"{rule}+p_ge_n_fp_control_cap"
+                self.resolved_n_features_rule_ = f"{self.resolved_n_features_rule_}+p_ge_n_fp_control_cap"
                 return
 
     if rule == "argmax":
@@ -523,7 +525,8 @@ def select_optimal_nfeatures_(
             )
         _finite_nz_idx = nz_idx[_finite_mask]
         best_mean_idx = _finite_nz_idx[np.argmax(mean_arr[_finite_nz_idx])]
-        threshold = mean_arr[best_mean_idx] - std_arr[best_mean_idx]
+        band_arr = band_half_width(std_arr, fold_counts(self, checked_nfeatures), band_kind)
+        threshold = mean_arr[best_mean_idx] - band_arr[best_mean_idx]
         in_band = [i for i in nz_idx if mean_arr[i] >= threshold]
         if not in_band:
             in_band = [int(best_mean_idx)]
@@ -545,7 +548,7 @@ def select_optimal_nfeatures_(
                     best_idx = _i
                     break
         else:
-            raise ValueError(f"n_features_selection_rule={rule!r} not supported. " f"Use 'auto', 'argmax', 'one_se_max', 'one_se_min', or 'plateau'.")
+            raise ValueError(f"n_features_selection_rule={rule!r} not supported. " f"Use 'auto', 'argmax', 'one_se_max', 'one_se_min', 'one_se_max_foldstd', 'one_se_min_foldstd', or 'plateau'.")
     best_top_n = int(nfeatures_arr[best_idx])
 
     if show_plot or plot_file:

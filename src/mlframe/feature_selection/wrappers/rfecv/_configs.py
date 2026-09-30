@@ -163,8 +163,11 @@ if _PYDANTIC_AVAILABLE:
         @classmethod
         def _ck_rule(cls, v: str) -> str:
             """Restricts ``n_features_selection_rule`` to the supported CV-curve-to-final-N selection strategies."""
-            if v not in ("auto", "argmax", "one_se_min", "one_se_max", "plateau"):
-                raise ValueError(f"n_features_selection_rule must be 'auto' / 'argmax' / 'one_se_min' / 'one_se_max' / 'plateau'; got {v!r}")
+            if v not in ("auto", "argmax", "one_se_min", "one_se_max", "one_se_min_foldstd", "one_se_max_foldstd", "plateau"):
+                raise ValueError(
+                    "n_features_selection_rule must be 'auto' / 'argmax' / 'one_se_min' / 'one_se_max' / 'one_se_min_foldstd' / 'one_se_max_foldstd' / "
+                    f"'plateau'; got {v!r}"
+                )
             return v
 
     class RobustnessConfig(_RFECVBaseConfig):

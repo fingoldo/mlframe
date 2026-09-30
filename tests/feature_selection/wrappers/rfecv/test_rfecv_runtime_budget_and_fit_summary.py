@@ -137,3 +137,26 @@ def test_summary_explains_one_se_rule_keeping_more_than_best_scoring_subset():
     assert "Rule one_se_max keeps the largest evaluated size" in text
     assert "n_features_selection_rule='argmax'" in text
     assert "... (+58 more)" in text
+
+
+def _one_se_fitted(rule, k):
+    names = [f"f{i}" for i in range(88)]
+    return SimpleNamespace(
+        _selected_cols_cache=names, n_features_in_=88, n_features_=88, resolved_n_features_rule_=rule,
+        mean_perf_weight=1.0, std_perf_weight=0.0, feature_cost=0.0, _per_fold_scores={n: [0.0] * k for n in (7, 56, 71, 88)},
+        cv_results_={"nfeatures": [0, 7, 56, 71, 88], "cv_mean_perf": [-0.2, -0.06, -0.04, -0.0425, -0.041], "cv_std_perf": [0.0, 0.01, 0.006, 0.006, 0.005]},
+    )
+
+
+def test_summary_states_standard_error_band_arithmetic():
+    # floor = -0.0400 - 0.0060/sqrt(9) = -0.0420
+    text = build_rfecv_fit_summary(_one_se_fitted("one_se_max", 9), stop_reason=None, n_iters=3, elapsed_s=1.0)
+    assert "one standard error (fold std / sqrt(k))" in text
+    assert "(-0.0400 - 0.0060/sqrt(9) = -0.0420)" in text
+
+
+def test_summary_states_legacy_fold_std_band_for_foldstd_rule():
+    # floor = -0.0400 - 0.0060 = -0.0460
+    text = build_rfecv_fit_summary(_one_se_fitted("one_se_max_foldstd", 9), stop_reason=None, n_iters=3, elapsed_s=1.0)
+    assert "Rule one_se_max_foldstd keeps the largest evaluated size" in text
+    assert "one across-fold std" in text and "(-0.0400 - 0.0060 = -0.0460)" in text

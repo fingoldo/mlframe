@@ -13,6 +13,8 @@ import pandas as pd
 
 from mlframe.core.set_similarity import kuncheva as _kuncheva_index
 
+from ._one_se_band import band_half_width, fold_counts
+
 
 def cv_results_df_(self) -> "pd.DataFrame":
     """Return cv_results_ as a pd.DataFrame for tabular operations (sort_values, query, plot, to_csv). Built lazily on access; raises if fit() has not run."""
@@ -69,7 +71,7 @@ def selection_stability_(self, metric: str = "jaccard") -> float:
     return float(np.mean(pairs)) if pairs else float("nan")
 
 
-def n_features_one_se_(self, direction: str = "min") -> int:
+def n_features_one_se_(self, direction: str = "min", band: str = "se") -> int:
     """1-SE rule, parameterised by ``direction``.
 
     - 'min' (default, sklearn-canonical): SMALLEST N whose CV mean is within one SE of the best -> most parsimonious within band.
@@ -77,10 +79,14 @@ def n_features_one_se_(self, direction: str = "min") -> int:
     Without this param the helper returned 'min' always while ``select_optimal_nfeatures_`` with ``rule='one_se_max'`` returned
     the opposite. Direct callers of the helper saw a different N than the picker.
 
+    ``band='se'`` (default, matches ``n_features_selection_rule='one_se_*'``) uses fold std / sqrt(k); ``band='foldstd'`` is the legacy raw across-fold std.
+
     Returns the integer count, or n_features_ as a fallback if cv_results_ is unavailable.
     """
     if direction not in ("min", "max"):
         raise ValueError(f"direction must be 'min' or 'max'; got {direction!r}")
+    if band not in ("se", "foldstd"):
+        raise ValueError(f"band must be 'se' (fold std / sqrt(k), the RFECV default) or 'foldstd' (legacy); got {band!r}")
     if not hasattr(self, "cv_results_") or not self.cv_results_.get("nfeatures"):
         return getattr(self, "n_features_", 0)
     nfeatures = np.asarray(self.cv_results_["nfeatures"], dtype=int)
@@ -93,6 +99,7 @@ def n_features_one_se_(self, direction: str = "min") -> int:
     if not nonzero.any():
         return getattr(self, "n_features_", 0)
     nf, m, s = nfeatures[nonzero], means[nonzero], stds[nonzero]
+    s = band_half_width(s, fold_counts(self, [int(n) for n in nf]), band)
     # mean_perf_weight + std_perf_weight are baked into final_score; for 1-SE we need the unadjusted mean - cv_mean_perf is raw.
     # Mask NaN candidates before argmax: argmax picks a NaN slot when any candidate's cv_mean_perf is all-NaN-folds.
     _finite_mask = np.isfinite(m)

@@ -7,6 +7,7 @@ from typing import Any, Optional
 import numpy as np
 
 from ..._selection_log import format_name_list, is_quiet
+from ._one_se_band import band_half_width, fold_counts, split_rule_band
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
@@ -35,11 +36,18 @@ def build_rfecv_fit_summary(self: Any, *, stop_reason: Optional[str], n_iters: i
         n_kept = int(getattr(self, "n_features_", len(selected)))
         if n_kept != int(nf[best]) and isinstance(rule, str) and rule.startswith("one_se") and not getattr(self, "feature_cost", 0.0):
             top = int(idx[np.argmax(mean[idx])])
-            floor = mean[top] - (std[top] if np.isfinite(std[top]) else 0.0)
-            which = "largest" if rule.startswith("one_se_max") else "smallest"
+            base_rule, band_kind = split_rule_band(rule)
+            which = "largest" if base_rule.startswith("one_se_max") else "smallest"
+            top_std = std[top] if np.isfinite(std[top]) else 0.0
+            if band_kind == "foldstd":
+                half, band_txt, arith = top_std, "one across-fold std", f"{mean[top]:.{ndigits}f} - {top_std:.{ndigits}f}"
+            else:
+                k = int(fold_counts(self, [int(nf[top])])[0])
+                half = float(band_half_width(np.array([top_std]), np.array([k]))[0])
+                band_txt, arith = "one standard error (fold std / sqrt(k))", f"{mean[top]:.{ndigits}f} - {top_std:.{ndigits}f}/sqrt({k})"
             parts.append(
-                f"Rule {rule} keeps the {which} evaluated size whose CV mean is >= best mean minus one fold-std "
-                f"({mean[top]:.{ndigits}f} - {std[top]:.{ndigits}f} = {floor:.{ndigits}f}); "
+                f"Rule {rule} keeps the {which} evaluated size whose CV mean is >= best mean minus {band_txt} "
+                f"({arith} = {mean[top] - half:.{ndigits}f}); "
                 f"pass n_features_selection_rule='argmax' to keep the best-scoring subset instead."
             )
     parts.append(f"Selected: [{format_name_list(selected)}]")

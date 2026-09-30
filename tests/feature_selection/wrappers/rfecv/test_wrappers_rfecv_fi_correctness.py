@@ -215,7 +215,7 @@ class TestAutoRuleResolution:
     """
 
     def test_auto_resolves_to_one_se_max(self):
-        # Verify by checking N is within the 1-SE band of argmax mean.
+        # Verify by checking N is within the 1-SE band (fold std / sqrt(k), k=3 folds) of argmax mean.
         """Auto resolves to one se max."""
         X, y = make_regression(n_samples=120, n_features=8, n_informative=3, random_state=0)
         rfecv = RFECV(estimator=Ridge(), cv=3, max_refits=5)
@@ -227,7 +227,7 @@ class TestAutoRuleResolution:
         if not nz.any():
             return
         best = int(np.argmax(means[nz]))
-        threshold = means[nz][best] - stds[nz][best]
+        threshold = means[nz][best] - stds[nz][best] / np.sqrt(3)
         in_band = nfeats[nz][means[nz] >= threshold]
         # 'one_se_max' picks the LARGEST N within the 1-SE band.
         if len(in_band) > 0:

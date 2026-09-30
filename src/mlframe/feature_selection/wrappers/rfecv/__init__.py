@@ -251,13 +251,16 @@ class RFECV(TransformerMixin, BaseEstimator):
         feature_groups: Union[dict, None] = None,
         # n_features_selection_rule: rule for picking n_features_ from cv_results_ (resolved in select_optimal_nfeatures_).
         #   'argmax' - argmax of (mean - lambda*std - feature_cost*N). On FLAT score curves around the optimum this collapses to the FIRST N visited near-max, often under-selecting.
-        #   The one_se_* band is [best mean - fold std of the best N, best mean]: the across-fold standard deviation, not std/sqrt(n_folds).
-        #   'one_se_max' - LARGEST N within 1 SE of the best mean; robust on plateaus, but NOT parsimonious: on noise-robust learners (GBM / RF) the
-        #       whole N-range can sit inside the 1-SE band, so this keeps ~all features. Set feature_cost>0 (it biases the band toward fewer
-        #       features) or use 'one_se_min' when you want a compact set.
+        #   The one_se_* band is [best mean - std/sqrt(k), best mean]: the standard error of the mean CV score over the k folds actually scored at the best N.
+        #       The raw across-fold std is sqrt(k) times wider and, on noise-robust learners (GBM / RF), swallows the whole N-range so the largest N always wins;
+        #       the '*_foldstd' variants keep that legacy band.
+        #   'one_se_max' - LARGEST N within 1 SE of the best mean; robust on plateaus. Set feature_cost>0 (it biases the band toward fewer features) or use
+        #       'one_se_min' when you want a compact set.
         #   'one_se_min' - sklearn-canonical SMALLEST N within 1 SE; parsimonious (drops redundant / marginally-informative features) but can under-select on flat curves.
-        #   'auto' (default) - resolves to 'one_se_max' for ALL estimators (single AND multi); deliberately recall-oriented after 'one_se_min' was found to
-        #       under-select on plateau-prone curves. Pass 'one_se_min' explicitly for parsimony.
+        #   'one_se_max_foldstd' / 'one_se_min_foldstd' - the same rules with the legacy across-fold-std band.
+        #   'plateau' - smallest N within one across-fold std of the best mean achievable at >= that N.
+        #   'auto' (default) - resolves to 'one_se_max' for ALL estimators (single AND multi); recall-oriented because 'one_se_min' and 'argmax' under-select on
+        #       plateau-prone curves. Pass 'one_se_min' explicitly for parsimony.
         n_features_selection_rule: str = "auto",
         # Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B). When True, replaces MBH+CV-fold-voting with bootstrap subsampling: B replicates of n/2 (no
         # replacement), fit estimator on each, count how often each feature appears in the top-K importance ranks. Feature is selected if frequency >= stability_threshold.
@@ -503,9 +506,10 @@ class RFECV(TransformerMixin, BaseEstimator):
         if leakage_action not in ("warn", "exclude", "raise"):
             raise ValueError(f"leakage_action must be 'warn', 'exclude', or 'raise'; " f"got {leakage_action!r}.")
 
-        if n_features_selection_rule not in ("auto", "argmax", "one_se_min", "one_se_max", "plateau"):
+        if n_features_selection_rule not in ("auto", "argmax", "one_se_min", "one_se_max", "one_se_min_foldstd", "one_se_max_foldstd", "plateau"):
             raise ValueError(
-                f"n_features_selection_rule must be 'auto', 'argmax', " f"'one_se_min', 'one_se_max', or 'plateau'; got {n_features_selection_rule!r}."
+                "n_features_selection_rule must be 'auto', 'argmax', 'one_se_min', 'one_se_max', 'one_se_min_foldstd', 'one_se_max_foldstd', "
+                f"or 'plateau'; got {n_features_selection_rule!r}."
             )
 
         if fi_missing_policy not in ("worst", "median", "skip"):

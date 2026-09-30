@@ -15,6 +15,8 @@ one_se_min is much more parsimonious (~40% fewer features at -0.0018 AUC) but do
 of seeds, so it is not promoted to the default. The resolved rule is now surfaced via RFECV.resolved_n_features_rule_
 so a report can show which rule actually fired. Pin n_features_selection_rule='one_se_min' when parsimony matters
 more than the last 0.002 of recall-side AUC.
+
+Superseded for the band-width question by wrappers/rfecv/_benchmarks/bench_rfecv_one_se_rule.py (multi-dataset; the default is now the SE band).
 """
 from __future__ import annotations
 
