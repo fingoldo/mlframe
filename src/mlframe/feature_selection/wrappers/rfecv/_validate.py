@@ -48,6 +48,31 @@ def _plausibly_id_like_numeric(ser: pd.Series) -> bool:
     return vals.size > 0 and bool(np.all(vals == np.round(vals)))
 
 
+def _id_like_verdict(ser: pd.Series, n_rows: int):
+    """Returns ``(kind, nunique, n_valid)`` when an ID-like numeric column deserves a warning, else ``None``.
+
+    ``kind`` is 'monotonic' (row-index / autoincrement, unique fraction > 0.5), 'hash-like' (value range > 100*n, unique fraction > 0.5) or
+    'high-cardinality' (any other integer-valued column, which must clear the stricter 0.9 unique fraction because a count-like measure with
+    many distinct values is legitimately ordinal).
+    """
+    vals = ser.dropna().to_numpy(dtype=float)
+    n_valid = int(vals.size)
+    if n_valid == 0:
+        return None
+    nu = int(np.unique(vals).size)
+    frac = nu / n_valid
+    if frac <= 0.5:
+        return None
+    d = np.diff(vals)
+    if d.size and (bool(np.all(d > 0)) or bool(np.all(d < 0))):
+        return "monotonic", nu, n_valid
+    if float(vals.max() - vals.min()) > 100.0 * n_rows:
+        return "hash-like", nu, n_valid
+    if frac > 0.9:
+        return "high-cardinality", nu, n_valid
+    return None
+
+
 def _sanitize_X_inputs(self, X, y):
     """Apply validation warnings + the four destructive sanitise passes.
 
@@ -312,8 +337,8 @@ def _sanitize_X_inputs(self, X, y):
     # E5: warn on high-cardinality integer / int-encoded
     # columns that look like hashes / IDs. They pass Pearson leak (low corr),
     # but tree FI inflates them via split-frequency bias. Knockoffs assume
-    # Gaussian and become meaningless. Threshold: integer dtype (or integer-valued float) AND
-    # nunique > 0.5 * n_rows AND n_rows >= 50.
+    # Gaussian and become meaningless. Integer dtype (or integer-valued float), n_rows >= 50, and unique fraction > 0.5 for monotonic / large-range
+    # (hash-like) columns or > 0.9 for other integer columns; see _id_like_verdict.
     if isinstance(X, pd.DataFrame) and X.shape[0] >= 50:  # W9: unconditional, see rationale above
         from pandas.api.types import is_numeric_dtype as _is_num
         _suspicious_hicard: list = []
@@ -322,17 +347,18 @@ def _sanitize_X_inputs(self, X, y):
             if not _is_num(X[_c]) or not _plausibly_id_like_numeric(X[_c]):
                 continue
             try:
-                _nu = int(X[_c].nunique(dropna=True))
+                _verdict = _id_like_verdict(X[_c], _n)
             except (TypeError, ValueError):
                 continue
-            if _nu > 0.5 * _n:
-                _suspicious_hicard.append((_c, _nu))
+            if _verdict is not None:
+                _kind, _nu, _nv = _verdict
+                _suspicious_hicard.append((_c, f"{_kind}; dtype={X[_c].dtype}; nunique={_nu}; n={_nv}; unique_frac={_nu / _nv:.3f}"))
             if len(_suspicious_hicard) >= 10:
                 break
         if _suspicious_hicard:
             logger.warning(
                 "RFECV: %d numeric column(s) have cardinality > 0.5*n (looks "
-                "like ID / hash / unencoded high-card categorical): %s. Tree "
+                "like ID / hash / unencoded high-card categorical; 'monotonic' = row-index / autoincrement in row order): %s. Tree "
                 "FI will inflate them; knockoffs assume Gaussian and will "
                 "fail on these. Consider must_exclude or target-encoding.",
                 len(_suspicious_hicard), _suspicious_hicard[:10],

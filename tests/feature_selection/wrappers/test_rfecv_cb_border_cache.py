@@ -103,3 +103,42 @@ def test_cache_not_shared_across_source_frames():
     a, b = type("Src", (), {})(), type("Src", (), {})()
     assert cbc._get_cache(a) is not cbc._get_cache(b)
     assert cbc._get_cache(a) is cbc._get_cache(a)
+
+
+def test_cb_cached_borders_param_default_true_and_roundtrips():
+    import pickle
+
+    from sklearn.base import clone
+
+    r = _rfecv(CatBoostClassifier(verbose=0), [])
+    assert r.cb_cached_borders is True and r.get_params()["cb_cached_borders"] is True
+    off = RFECV(estimator=CatBoostClassifier(verbose=0), cb_cached_borders=False)
+    assert clone(off).cb_cached_borders is False
+    assert pickle.loads(pickle.dumps(off)).cb_cached_borders is False
+
+
+def test_cb_cached_borders_param_false_disables_fast_path_and_true_uses_it(monkeypatch):
+    monkeypatch.delenv("MLFRAME_RFECV_CB_CACHED_BORDERS", raising=False)
+    X, y, _ = _frame(0)
+    for flag in (False, True):
+        cbc.TOTALS.update(hits=0, misses=0, fallbacks=0)
+        r = _rfecv(CatBoostClassifier(iterations=10, depth=3, verbose=0, allow_writing_files=False, random_seed=0), [], cb_cached_borders=flag)
+        r.fit(X, y)
+        assert (cbc.TOTALS["hits"] > 0) is flag
+
+
+def test_cb_cached_borders_env_zero_overrides_param_true(monkeypatch):
+    monkeypatch.setenv("MLFRAME_RFECV_CB_CACHED_BORDERS", "0")
+    X, y, _ = _frame(0)
+    cbc.TOTALS.update(hits=0, misses=0, fallbacks=0)
+    _rfecv(CatBoostClassifier(iterations=10, depth=3, verbose=0, allow_writing_files=False, random_seed=0), [], cb_cached_borders=True).fit(X, y)
+    assert cbc.TOTALS["hits"] == 0
+
+
+def test_feature_selection_config_rfecv_kwargs_accepts_cb_cached_borders():
+    from mlframe.training import FeatureSelectionConfig
+
+    cfg = FeatureSelectionConfig(rfecv_models=["cb_rfecv"], rfecv_kwargs={"cb_cached_borders": False})
+    assert cfg.rfecv_kwargs == {"cb_cached_borders": False}
+    with pytest.raises(ValueError, match="unknown key"):
+        FeatureSelectionConfig(rfecv_models=["cb_rfecv"], rfecv_kwargs={"cb_cached_border": False})

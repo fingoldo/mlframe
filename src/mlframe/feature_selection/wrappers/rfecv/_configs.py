@@ -66,6 +66,9 @@ if _PYDANTIC_AVAILABLE:
         swap_top_k: int = 0
         swap_top_k_allow_no_es: bool = False
 
+        # CatBoost per-fold cached-borders fast path (env MLFRAME_RFECV_CB_CACHED_BORDERS=0 also forces it off)
+        cb_cached_borders: bool = True
+
         @field_validator("optimizer_target")
         @classmethod
         def _ck_target(cls, v: str) -> str:

@@ -114,6 +114,11 @@ class RFECV(TransformerMixin, BaseEstimator):
     optimum toward fewer features. Disable on imbalanced datasets if you score
     on accuracy / F1.
 
+    Notes on ``cb_cached_borders`` (default True)
+    ---------------------------------------------
+    For CatBoost estimators the per-fold fits reuse quantization borders computed once on the full frame (selection is bit-identical to
+    re-quantizing per fold, only faster). Set False, or export MLFRAME_RFECV_CB_CACHED_BORDERS=0, to force the plain per-fold fit; either one disables it.
+
     Parameters
     ----------
         cv : int, cross-validation generator or an iterable, default=None
@@ -382,6 +387,9 @@ class RFECV(TransformerMixin, BaseEstimator):
         # C8: when False (NEW default), the no-improve counter only ticks when the iter actually stored a new best subset. Multi-revisit
         # of the same N with a worse subset no longer trips max_noimproving_iters prematurely. True = legacy.
         noimprove_counts_revisit: bool = False,
+        # CatBoost CPU fast path: quantization borders are computed once on the full source frame and reused by every fold fit (bit-identical selection,
+        # skips per-fold re-quantization). False disables it; env MLFRAME_RFECV_CB_CACHED_BORDERS=0 also forces it off regardless of this flag.
+        cb_cached_borders: bool = True,
         # ----- Wave 5 / L4-L7 -----
         # L7: optional prescreen pass run BEFORE the MBH outer loop. Reduces the universe original_features to a smaller candidate set
         # so MBH explores a tighter space. Supported values:
