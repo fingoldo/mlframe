@@ -25,9 +25,6 @@ CHANCE_SCOPE_RATIO: float = 0.1
 
 CHANCE_N_PERM: int = 2
 
-_INSERTION_SORT_MAX: int = 96
-"""a-groups up to this many rows are sorted by inline insertion sort (a slice-sort call per group costs more than the sort itself)."""
-
 
 @njit(nogil=True, cache=True)
 def _entropy(counts: np.ndarray, n: int) -> float:
@@ -39,81 +36,46 @@ def _entropy(counts: np.ndarray, n: int) -> float:
     return h
 
 
-@njit(parallel=True, nogil=True, cache=True)
-def _group_orders(packed: np.ndarray, nbins: np.ndarray, counts: np.ndarray, offs: np.ndarray, major: np.ndarray, orders: np.ndarray) -> None:
-    """Stable counting-sort row permutation of each ``major`` column into ``orders[r]`` (rows grouped by ascending code)."""
-    n = packed.shape[1]
-    for r in prange(major.shape[0]):
-        c = major[r]
-        col = packed[c]
-        nb = nbins[c]
-        start = np.zeros(nb, dtype=np.int64)
-        acc = 0
-        for x in range(nb):
-            start[x] = acc
-            acc += counts[offs[c] + x]
-        for k in range(n):
-            x = col[k]
-            orders[r, start[x]] = k
-            start[x] += 1
-
-
 @njit(nogil=True, cache=True)
-def _mi_grouped(order: np.ndarray, ca: np.ndarray, cb: np.ndarray, b: np.ndarray, scratch: np.ndarray) -> float:
-    """Plug-in MI of (a, b) with rows pre-grouped by ``a`` code (``order``); only the b values inside each a-group are sorted.
-
-    Visits distinct (a, b) cells in ascending ``a * nb_b + b`` key order and applies the same per-cell expression as a global key sort,
-    so the float accumulation is bit-identical to it.
-    """
-    n = order.shape[0]
+def _mi_sorted(a: np.ndarray, b: np.ndarray, nb_b: int, ca: np.ndarray, cb: np.ndarray, keys: np.ndarray) -> float:
+    n = a.shape[0]
+    for k in range(n):
+        keys[k] = np.int64(a[k]) * nb_b + b[k]
+    keys.sort()
     mi = 0.0
-    s = 0
-    for x in range(ca.shape[0]):
-        g = ca[x]
-        for k in range(g):
-            scratch[k] = b[order[s + k]]
-        s += g
-        if g > _INSERTION_SORT_MAX:
-            scratch[:g].sort()
-        else:
-            for k in range(1, g):
-                v = scratch[k]
-                j = k - 1
-                while j >= 0 and scratch[j] > v:
-                    scratch[j + 1] = scratch[j]
-                    j -= 1
-                scratch[j + 1] = v
-        cur = scratch[0]
-        cnt = 1
-        for k in range(1, g + 1):
-            if k < g and scratch[k] == cur:
-                cnt += 1
-                continue
-            mi += (cnt / n) * math.log((cnt / n) / ((ca[x] / n) * (cb[cur] / n)))
-            if k < g:
-                cur = scratch[k]
-                cnt = 1
+    cur = keys[0]
+    cnt = 1
+    for k in range(1, n + 1):
+        if k < n and keys[k] == cur:
+            cnt += 1
+            continue
+        x = cur // nb_b
+        y = cur - x * nb_b
+        mi += (cnt / n) * math.log((cnt / n) / ((ca[x] / n) * (cb[y] / n)))
+        if k < n:
+            cur = keys[k]
+            cnt = 1
     return mi
 
 
 @njit(parallel=True, nogil=True, cache=True)
 def _score_edges(
     packed: np.ndarray, nbins: np.ndarray, counts: np.ndarray, offs: np.ndarray, ent: np.ndarray,
-    orders: np.ndarray, order_row: np.ndarray, ea: np.ndarray, eb: np.ndarray, n_perm: int, seed: int,
+    ea: np.ndarray, eb: np.ndarray, n_perm: int, seed: int,
 ) -> np.ndarray:
     """Return ``(n_edges, 2)``: plug-in SU and mean permutation-null SU per edge."""
     m = ea.shape[0]
     n = packed.shape[1]
     out = np.zeros((m, 2))
     for e in prange(m):
-        a = ea[e]
+        a = packed[ea[e]]
         b = packed[eb[e]]
-        ca = counts[offs[a]: offs[a] + nbins[a]]
+        ca = counts[offs[ea[e]]: offs[ea[e]] + nbins[ea[e]]]
         cb = counts[offs[eb[e]]: offs[eb[e]] + nbins[eb[e]]]
-        order = orders[order_row[a]]
-        denom = ent[a] + ent[eb[e]]
-        scratch = np.empty(n, dtype=np.int32)
-        out[e, 0] = 2.0 * _mi_grouped(order, ca, cb, b, scratch) / denom
+        nb_b = nbins[eb[e]]
+        denom = ent[ea[e]] + ent[eb[e]]
+        keys = np.empty(n, dtype=np.int64)
+        out[e, 0] = 2.0 * _mi_sorted(a, b, nb_b, ca, cb, keys) / denom
         shuf = b.copy()
         state = np.uint64(seed) * np.uint64(6364136223846793005) + np.uint64(e + 1) * np.uint64(1442695040888963407)
         acc = 0.0
@@ -126,7 +88,7 @@ def _score_edges(
                 t = shuf[k]
                 shuf[k] = shuf[j]
                 shuf[j] = t
-            acc += 2.0 * _mi_grouped(order, ca, cb, shuf, scratch) / denom
+            acc += 2.0 * _mi_sorted(a, shuf, nb_b, ca, cb, keys) / denom
         out[e, 1] = acc / n_perm
     return out
 
@@ -172,13 +134,7 @@ def veto_chance_edges(
     keep[no_evidence] = False
     todo = np.flatnonzero(in_scope & ~no_evidence)
     if todo.size:
-        ta, tb = pa[todo], pb[todo]
-        major = np.unique(ta)
-        order_row = np.full(cols.size, -1, dtype=np.int64)
-        order_row[major] = np.arange(major.size)
-        orders = np.empty((major.size, n), dtype=np.int32)
-        _group_orders(dense, nbins, counts, offs, major, orders)
-        res = _score_edges(dense, nbins, counts, offs, ent, orders, order_row, ta, tb, int(n_perm), int(seed))
+        res = _score_edges(dense, nbins, counts, offs, ent, pa[todo], pb[todo], int(n_perm), int(seed))
         su, null = res[:, 0], res[:, 1]
         adj = (su - null) / np.maximum(1.0 - null, 1e-12)
         keep[todo] = adj >= threshold
