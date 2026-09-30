@@ -320,6 +320,14 @@ def train_mlframe_models_suite(
     # copied out of ctx.artifacts HERE, because a later phase rebuilds that dict from its own local and would
     # otherwise throw the snapshot away -- which is what left the flags flipped even on a clean run.
     _flag_snapshot = capture_process_flag_snapshot(ctx)
+    # Background rendering: the queue is thread-local-active for this suite, so the save chokepoints defer to it only when called
+    # from this thread, and the ``finally`` below guarantees every queued artifact is finished before the call returns.
+    from mlframe.reporting._async_render_hooks import join_suite_render_queue, set_active_render_queue, start_suite_render_queue
+
+    _render_queue = start_suite_render_queue(
+        ctx.reporting_config, save_charts=bool(ctx.save_charts), data_dir=ctx.data_dir, verbose=bool(verbose),
+    )
+    _prev_render_queue = set_active_render_queue(_render_queue)
     try:
 
         # LTR opt-in: helper returns None for non-LTR call sites. Moved AFTER setup_configuration because the helper now reads
@@ -749,6 +757,10 @@ def train_mlframe_models_suite(
 
         return SuiteResult(dict(models), metadata)
     finally:
+        try:
+            join_suite_render_queue(_render_queue, getattr(ctx, "metadata", None), final=True)
+        finally:
+            set_active_render_queue(_prev_render_queue)
         # ctx.artifacts first (finalize_suite pops from it on the happy path, so this is usually a no-op), then the
         # boundary snapshot, which survives a phase replacing that dict.
         restore_process_flags(getattr(ctx, "artifacts", None))

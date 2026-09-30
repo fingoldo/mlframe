@@ -4,6 +4,8 @@ User-facing entrypoints:
 - ``parse_plot_output_dsl(s)`` -- parse DSL like "plotly[html,png] + matplotlib[pdf]"
 - ``render_and_save(spec, output, base_path)`` -- render once per backend, save in all formats
 - ``Renderer`` Protocol + ``MatplotlibRenderer`` / ``PlotlyRenderer`` impls
+- ``ReportRenderQueue`` (``_async_render``) -- bounded background worker pool with zero-copy array hand-off; a suite with
+  ``ReportingConfig.async_render`` saves its figures through it while the next model trains
 
 Spec dataclasses (``ScatterPanelSpec`` / ``HistogramPanelSpec`` / etc.)
 describe one chart in pure-data form so the same spec renders identically

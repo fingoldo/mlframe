@@ -6,6 +6,25 @@ to be **ON by default**, including behavior-changing ones, accepting the resulti
 existing callers of the suite. This file records what was flipped, what was deliberately left opt-in with a
 stated reason, and the bugs the flip work surfaced and fixed along the way.
 
+## Flipped to default-ON (2026-09-30)
+
+- **`ReportingConfig.async_render`**: new field, default `"auto"`. Report figures and the combined HTML index are written by a
+  bounded background `ReportRenderQueue` while the next model trains (see `mlframe/reporting/_async_render.py`). `"auto"` is on
+  when `save_charts` + `data_dir` are set, the machine has >= 3 physical cores and the session is not interactive; otherwise
+  rendering stays inline exactly as before. Artifacts are byte-identical (PNG) / structure-identical (HTML) and every one is
+  finished before the suite returns; log lines from chart builders are no longer ordered with the model's own log lines.
+  Opt out: `ReportingConfig(async_render=False)`. `async_render_backend`, `async_render_workers`, `async_render_max_pending_mb`
+  tune it; `diagnostic_splits` (default `None`) limits named diagnostics to some splits.
+
+## Flipped back to opt-in (2026-09-30)
+
+- **`OutputConfig.run_diagnostics`**: `adversarial_fold_selection` removed from the default list (now 5 cheap
+  diagnostics). It fits a 5-fold LightGBM train-vs-test classifier (~37 s on 400k rows) to suggest a
+  "test-like" validation fold that nothing in the suite consumes (no reader of `metadata["diagnostics"]`
+  or its `val_idx` anywhere in `src/`). Opt in with
+  `OutputConfig(run_diagnostics=[..., "adversarial_fold_selection"])`. Its stored `val_idx` is an `int32`
+  numpy array, not a list.
+
 ## Flipped to default-ON (2026-07-12)
 
 - **`OutputConfig.run_diagnostics`**: default changed from `None` to all 6 registered

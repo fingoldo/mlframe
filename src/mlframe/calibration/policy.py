@@ -661,7 +661,7 @@ def _emit_reliability_plot(
         # layout-blind opinion about where the file goes.
         fmt = "png"
     try:
-        render_and_save(spec, parse_plot_output_dsl(f"matplotlib[{fmt}]"), root, interactive=False)
+        render_and_save(spec, parse_plot_output_dsl(f"matplotlib[{fmt}]"), root, interactive=False, defer=False)
     except OSError as exc:
         logger.warning("pick_best_calibrator: reliability render failed for %s: %s", plot_path, exc)
         return None

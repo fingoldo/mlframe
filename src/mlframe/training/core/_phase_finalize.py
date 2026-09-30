@@ -694,6 +694,15 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         except Exception as _hd_err:
             logger.warning("[honest_diagnostics] aggregator failed: %s", _hd_err)
 
+    # Every queued chart must be on disk (and any failure reconciled into the charts accounting) before the metadata is persisted
+    # and the chart summary below counts files.
+    try:
+        from mlframe.reporting._async_render_hooks import active_render_queue, join_suite_render_queue
+
+        join_suite_render_queue(active_render_queue(), ctx.metadata)
+    except Exception as _ar_err:
+        logger.warning("[async-render] join before finalize failed: %s", _ar_err)
+
     # ``verbose=0`` silences the duplicate "Saved metadata to ..." log line; main.py already saved partway.
     _finalize_and_save_metadata(ctx, verbose=0)
 

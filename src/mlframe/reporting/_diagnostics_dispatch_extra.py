@@ -279,6 +279,76 @@ def _find_html_fragment(base: str) -> Optional[str]:
     return None
 
 
+def _combined_html_sync(*, base_path: str, chart_paths: Sequence[str], title: str) -> Optional[str]:
+    """Stitch ``chart_paths`` into ``<base_path>_report.html`` and return its path (None when nothing was stitchable). Raises on failure."""
+    from mlframe.reporting.output import BACKEND_FORMATS
+    from mlframe.reporting.report_html import build_combined_report
+
+    # Display worst feature-value slices (``_weak_slices``) before the per-split weak-segment heatmaps
+    # (``_weak_segments``): the once-on-test slice ranking is the headline; the per-split heatmaps drill in after.
+    ordered = list(chart_paths)
+    slice_pos = [i for i, p in enumerate(ordered) if p and p.endswith("_weak_slices")]
+    segs = [p for p in ordered if p and p.endswith("_weak_segments")]
+    if slice_pos and segs:
+        segset = set(segs)
+        rest = [p for p in ordered if p not in segset]
+        anchor = ordered[max(slice_pos)]
+        ordered = []
+        for p in rest:
+            ordered.append(p)
+            if p == anchor:
+                ordered.extend(segs)
+
+    # Heterogeneous by design: a PNG entry is (section, label, png) and an interactive one is
+    # (section, label, None, fragment); build_combined_report accepts both tuple arities.
+    entries: list = []
+    seen = set()
+    for p in ordered:
+        if not p or p in seen:
+            continue
+        seen.add(p)
+        label = os.path.basename(p)
+        png = p if p.lower().endswith(".png") else ""
+        if not png:
+            # Last-resort candidate: where the per-format layout WOULD have written it, not the flat name --
+            # with subfolders on, the flat name never exists and the entry silently fell back to the fragment.
+            from mlframe.reporting.renderers.save import resolve_output_path
+
+            _fallback_png = resolve_output_path(p, "matplotlib", "png", multi_output=False)
+            png = next((c for c in _candidate_paths(p, "png", BACKEND_FORMATS) if os.path.exists(c)), _fallback_png)
+        if not os.path.exists(png):
+            # No PNG (e.g. a plotly[html]-only run): fall back to the interactive fragment so the entry
+            # still appears in the index instead of being dropped.
+            _frag = _find_html_fragment(p)
+            if _frag is not None:
+                section, nice = _classify_chart(os.path.basename(p))
+                entries.append((section, nice, None, _frag))
+                continue
+        section, nice = _classify_chart(label)
+        entries.append((section, nice, png))
+    if not entries:
+        return None
+    # The stitched report is an html artefact like any other, so it belongs in the html/ directory rather
+    # than loose beside it.
+    from mlframe.reporting.renderers.save import resolve_output_path
+
+    out_path = resolve_output_path(base_path + "_report", "plotly", "html", multi_output=False)
+    build_combined_report(entries, title=title, out_path=out_path)
+    return out_path
+
+
+def _combined_html_task(base_path: str, chart_paths: Sequence[str], title: str, subfolders: bool) -> Optional[str]:
+    """Worker body: the stitch under the submitting thread's per-format layout (a thread-local the worker would otherwise not see)."""
+    from mlframe.reporting.renderers.save import get_format_subfolders, set_format_subfolders
+
+    prior = get_format_subfolders()
+    set_format_subfolders(subfolders)
+    try:
+        return _combined_html_sync(base_path=base_path, chart_paths=chart_paths, title=title)
+    finally:
+        set_format_subfolders(prior)
+
+
 def build_combined_html_report(
     *,
     base_path: str,
@@ -291,6 +361,10 @@ def build_combined_html_report(
 
     Looks for a ``<base>.png`` next to each recorded chart base path (the matplotlib renderer's output); missing
     artifacts are noted inline by the builder, never crash. Records the combined path in ``metrics_dict["charts"]``.
+
+    With an active ``ReportRenderQueue`` the stitch is queued behind every render submitted so far (it reads their files) and the
+    deterministic output path is recorded immediately, so the metrics dict a model is saved with is the same as in a synchronous
+    run; a stitch that later fails is reconciled into ``charts["failed"]`` when the queue is joined.
     """
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
     # The report builder embeds a plotly HTML fragment just as happily as a PNG, so gating the WHOLE report on
@@ -301,70 +375,64 @@ def build_combined_html_report(
     if not base_path or not chart_paths or not _outputs:
         return None
     try:
-        from mlframe.reporting.output import BACKEND_FORMATS
-        from mlframe.reporting.report_html import build_combined_report
+        from mlframe.reporting._async_render_hooks import active_render_queue
+        from mlframe.reporting.renderers.save import _use_format_subfolders, resolve_output_path
 
-        # Display worst feature-value slices (``_weak_slices``) before the per-split weak-segment heatmaps
-        # (``_weak_segments``): the once-on-test slice ranking is the headline; the per-split heatmaps drill in after.
-        ordered = list(chart_paths)
-        slice_pos = [i for i, p in enumerate(ordered) if p and p.endswith("_weak_slices")]
-        segs = [p for p in ordered if p and p.endswith("_weak_segments")]
-        if slice_pos and segs:
-            segset = set(segs)
-            rest = [p for p in ordered if p not in segset]
-            anchor = ordered[max(slice_pos)]
-            ordered = []
-            for p in rest:
-                ordered.append(p)
-                if p == anchor:
-                    ordered.extend(segs)
+        queue = active_render_queue()
+        if queue is not None:
+            out_path = resolve_output_path(base_path + "_report", "plotly", "html", multi_output=False)
 
-        # Heterogeneous by design: a PNG entry is (section, label, png) and an interactive one is
-        # (section, label, None, fragment); build_combined_report accepts both tuple arities.
-        entries: list = []
-        seen = set()
-        for p in ordered:
-            if not p or p in seen:
-                continue
-            seen.add(p)
-            label = os.path.basename(p)
-            png = p if p.lower().endswith(".png") else ""
-            if not png:
-                # Last-resort candidate: where the per-format layout WOULD have written it, not the flat name --
-                # with subfolders on, the flat name never exists and the entry silently fell back to the fragment.
-                from mlframe.reporting.renderers.save import resolve_output_path
+            def _reconcile(fut) -> None:
+                """Runs on the joining thread: a stitch that failed or found nothing to stitch flips the optimistic record."""
+                if fut.exception() is not None or fut.result() is None:
+                    _record(charts, "combined_html", False)
+                    if isinstance(charts, dict):
+                        charts.pop("combined_report", None)
+                        if "combined_html" in charts.get("saved", []):
+                            charts["saved"].remove("combined_html")
 
-                _fallback_png = resolve_output_path(p, "matplotlib", "png", multi_output=False)
-                png = next((c for c in _candidate_paths(p, "png", BACKEND_FORMATS) if os.path.exists(c)), _fallback_png)
-            if not os.path.exists(png):
-                # No PNG (e.g. a plotly[html]-only run): fall back to the interactive fragment so the entry
-                # still appears in the index instead of being dropped.
-                _frag = _find_html_fragment(p)
-                if _frag is not None:
-                    section, nice = _classify_chart(os.path.basename(p))
-                    entries.append((section, nice, None, _frag))
-                    continue
-            section, nice = _classify_chart(label)
-            entries.append((section, nice, png))
-        if not entries:
+            queue.submit(
+                _combined_html_task, base_path, list(chart_paths), title, _use_format_subfolders(),
+                name=os.path.basename(base_path) + "_report", after_pending=True, on_done=_reconcile,
+            )
+            _record(charts, "combined_html", True)
+            if isinstance(metrics_dict, dict) and charts is not None:
+                charts["combined_report"] = out_path
+            return out_path
+        stitched = _combined_html_sync(base_path=base_path, chart_paths=chart_paths, title=title)
+        if stitched is None:
             return None
-        # The stitched report is an html artefact like any other, so it belongs in the html/ directory rather
-        # than loose beside it.
-        from mlframe.reporting.renderers.save import resolve_output_path
-
-        out_path = resolve_output_path(base_path + "_report", "plotly", "html", multi_output=False)
-        build_combined_report(entries, title=title, out_path=out_path)
         _record(charts, "combined_html", True)
         if isinstance(metrics_dict, dict) and charts is not None:
             # Assign, do not setdefault: `setdefault` kept the FIRST path, so rebuilding a report (a
             # re-render into a new directory, or a second call in the same run) left the metrics dict
             # pointing at the previous, now-stale document.
-            charts["combined_report"] = out_path
-        return out_path
+            charts["combined_report"] = stitched
+        return stitched
     except Exception:
         logger.exception("diagnostics_dispatch: combined HTML report failed; continuing.")
         _record(charts, "combined_html", False)
         return None
+
+
+def _decile_table_task(y_true: np.ndarray, y_score: np.ndarray, n_deciles: int, png_path: str) -> str:
+    """Worker body: build the decile-table figure from the handed-over arrays and save it (a worker owns no pyplot state, only a Figure)."""
+    from mlframe.reporting.charts.binary import binary_decile_table_figure
+
+    fig = binary_decile_table_figure(y_true, y_score, n_deciles=n_deciles)
+    try:
+        d = os.path.dirname(png_path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        fig.savefig(png_path, bbox_inches="tight")
+    finally:
+        try:
+            import matplotlib.pyplot as plt
+
+            plt.close(fig)
+        except Exception:  # nosec B110 - an explicit Figure has no pyplot manager to close
+            logger.debug("decile-table figure close failed", exc_info=True)
+    return png_path
 
 
 def render_decile_table_diagnostic(
@@ -379,6 +447,10 @@ def render_decile_table_diagnostic(
     """Binary decile gain/lift/KS table figure (the tabular complement to the GAIN curve). Default-ON for binary targets.
 
     A single O(n log n) score sort inside the builder; skips cheaply on a single-class target or absent score.
+
+    With an active ``ReportRenderQueue`` the whole build (sort + figure) and the save run on a worker, receiving ``y_true``/``y_score``
+    through the queue's array hand-off (a private copy or read-only view on the thread backend, a shared-memory view on the process
+    backend); the chart is accounted as saved at submit, exactly as a successful inline save would be.
     """
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
     if not plot_outputs or not base_path:
@@ -389,10 +461,23 @@ def render_decile_table_diagnostic(
     if m == 0:
         return False
     try:
+        out = base_path + "_decile_table"
+        from mlframe.reporting._async_render_hooks import active_render_queue
+
+        queue = active_render_queue()
+        if queue is not None:
+            if "png" not in plot_outputs.lower():
+                return False  # png not requested; nothing rendered, nothing to record either way
+            from mlframe.reporting.renderers.save import resolve_output_path
+
+            path = resolve_output_path(out, "matplotlib", "png", multi_output=False)
+            queue.submit(_decile_table_task, yt[:m], ys[:m], n_deciles, path, name=os.path.basename(out))
+            _record(charts, "decile_table", True)
+            _record_path(charts, out)
+            return True
         from mlframe.reporting.charts.binary import binary_decile_table_figure
 
         fig = binary_decile_table_figure(yt[:m], ys[:m], n_deciles=n_deciles)
-        out = base_path + "_decile_table"
         ok = _save_figure(fig, plot_outputs, out)
         if ok is None:
             return False  # png not requested; nothing rendered, nothing to record either way

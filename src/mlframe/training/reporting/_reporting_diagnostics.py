@@ -310,7 +310,12 @@ def _render_post_fit_diagnostics(
     _is_ensemble_variant = is_ensemble_variant_name(model_name)
     _policy = HeavyDiagnosticsPolicy(mode=getattr(cfg, "heavy_diagnostics_for", "best"), is_primary=not _is_ensemble_variant)
     _charts = metrics.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics, dict) else None
-    _budget = DiagnosticsBudget(getattr(cfg, "diagnostics_max_seconds", 0.0) or 0.0, policy=_policy, charts=_charts)
+    # Split label of this report: the per-split plot_file is suffixed ``_<split>`` (val / test / train / oof / ...).
+    _split = os.path.basename(plot_file).rsplit("_", 1)[-1] if plot_file else "test"
+    _budget = DiagnosticsBudget(
+        getattr(cfg, "diagnostics_max_seconds", 0.0) or 0.0, policy=_policy, charts=_charts,
+        split=_split, split_rules=getattr(cfg, "diagnostic_splits", None),
+    )
 
     from mlframe.reporting.diagnostics_dispatch import (
         build_combined_html_report, render_category_discriminability_diagnostic, render_class_structure_diagnostic,
@@ -328,9 +333,6 @@ def _render_post_fit_diagnostics(
         _bs = _binary_positive_score(probs)
         if _bs is not None:
             y_pred = _bs
-
-    # Split label for the model card: the per-split plot_file is suffixed ``_<split>`` (val / test / train / oof / ...).
-    _split = os.path.basename(plot_file).rsplit("_", 1)[-1] if plot_file else "test"
 
     # Collapse short-circuit: when a regression model's predictions have degenerated to ~constant
     # (pred_std << target_std AND R^2 < 0 -- the group-shift inverse-collapse the sensor flags), the

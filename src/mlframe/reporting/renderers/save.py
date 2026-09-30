@@ -302,8 +302,41 @@ def render_and_save(
     keep_handles: bool = False,
     interactive: Optional[bool] = None,
     format_subfolders: Optional[bool] = None,
+    defer: bool = True,
 ) -> Optional[Dict[str, Any]]:
-    """Render the spec on each backend in ``output`` and save in all formats.
+    """Render the spec on each backend in ``output`` and save in all formats (see ``render_and_save_now`` for the parameters).
+
+    ``defer=False`` renders inline even when a queue is active, for a caller that hands the saved path to a reader straight away.
+
+    When the calling thread has an active ``ReportRenderQueue`` (a suite running with ``ReportingConfig.async_render``), a save-only
+    call is queued and returns ``None`` immediately; the file appears when the worker finishes and is guaranteed by the suite's
+    final join. Interactive sessions, ``keep_handles`` and unsaved renders always run inline, in order.
+    """
+    from mlframe.reporting._async_render_hooks import active_render_queue, submit_render
+
+    queue = active_render_queue()
+    if queue is not None and base_path and not keep_handles and defer:
+        _interactive = _detect_interactive_session() if interactive is None else bool(interactive)
+        if not _interactive:
+            # Layout and inline mode are thread-local overrides set by the suite on THIS thread; the worker cannot see them, so
+            # the layout is resolved here and travels with the task.
+            _sub = _use_format_subfolders() if format_subfolders is None else bool(format_subfolders)
+            submit_render(queue, spec, output, base_path, _sub)
+            return None
+    return render_and_save_now(spec, output, base_path, keep_handles=keep_handles, interactive=interactive, format_subfolders=format_subfolders)
+
+
+def render_and_save_now(
+    spec: FigureSpec,
+    output: PlotOutputSpec,
+    base_path: str,
+    *,
+    keep_handles: bool = False,
+    interactive: Optional[bool] = None,
+    format_subfolders: Optional[bool] = None,
+    failed_backends: Optional[list] = None,
+) -> Optional[Dict[str, Any]]:
+    """Render the spec on each backend in ``output`` and save in all formats, on the calling thread.
 
     Parameters
     ----------
@@ -328,6 +361,9 @@ def render_and_save(
         ``ReportingConfig.plot_format_subfolders``, then
         ``MLFRAME_PLOT_FORMAT_SUBFOLDERS``, then the module default (False --
         see that constant for why the library stays flat).
+    failed_backends : list, optional
+        Out-parameter: the name of every backend whose render or save failed is appended (the failure is still logged and
+        counted; this just lets an async worker report the dropped chart by name).
     interactive : bool, optional
         When True, also call ``renderer.show(fig)`` per backend so the
         figure renders inline in the notebook cell (in addition to the
@@ -411,6 +447,8 @@ def render_and_save(
                 _results.append(f.result(timeout=_BACKEND_RENDER_TIMEOUT_S))
             except _FutureTimeout:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 _record_render_failure(timed_out=True)
+                if failed_backends is not None:
+                    failed_backends.append("timeout")
                 log_throttle(
                     logger, "render_save_backend_future_timeout", logging.WARNING,
                     "render_and_save: backend future exceeded %ss; the worker thread is abandoned and one "
@@ -418,6 +456,8 @@ def render_and_save(
                 )
             except Exception:
                 _record_render_failure(timed_out=False)
+                if failed_backends is not None:
+                    failed_backends.append("backend")
                 log_throttle(
                     logger, "render_save_backend_future_failed", logging.WARNING,
                     "render_and_save: backend future failed; one render output dropped. " "See get_render_failure_stats().",
@@ -437,6 +477,8 @@ def render_and_save(
                 _results.append(_do_backend(backend, fmts))
             except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate (see the multi-backend branch above)
                 _record_render_failure(timed_out=False)
+                if failed_backends is not None:
+                    failed_backends.append(backend)
                 log_throttle(
                     logger, "render_save_single_backend_failed", logging.WARNING,
                     "render_and_save: single-backend render failed; one render output dropped. " "See get_render_failure_stats().",
@@ -475,6 +517,7 @@ def render_and_save(
 
 __all__ = [
     "render_and_save",
+    "render_and_save_now",
     "set_inline_display_mode",
     "get_inline_display_mode",
     "get_render_failure_stats",

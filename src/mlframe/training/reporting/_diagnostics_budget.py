@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Callable, List, Optional, Tuple, TypeVar
+from typing import Callable, List, Mapping, Optional, Sequence, Tuple, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,14 @@ class DiagnosticsBudget:
     """
 
     def __init__(
-        self, max_seconds: float, *, verbose: bool = True, policy: "HeavyDiagnosticsPolicy | None" = None, charts: "dict | None" = None,
+        self,
+        max_seconds: float,
+        *,
+        verbose: bool = True,
+        policy: "HeavyDiagnosticsPolicy | None" = None,
+        charts: "dict | None" = None,
+        split: "str | None" = None,
+        split_rules: "Mapping[str, Sequence[str]] | None" = None,
     ) -> None:
         """Start the clock. ``policy`` decides scope (which diagnostics apply here); the budget decides time.
 
@@ -86,6 +93,10 @@ class DiagnosticsBudget:
         complete one to anything reading ``charts``.
         """
         self.charts = charts
+        # ``split_rules`` maps a diagnostic name to the splits it may run on ("val", "test", ...); a name with no rule runs on every
+        # split, which is the behaviour when the knob is unset.
+        self.split = None if split is None else str(split).strip().lower()
+        self.split_rules = {str(k): tuple(str(x).strip().lower() for x in v) for k, v in (split_rules or {}).items()}
         self.max_seconds = float(max_seconds or 0.0)
         self.verbose = verbose
         self.policy = HeavyDiagnosticsPolicy(mode="all") if policy is None else policy
@@ -113,6 +124,10 @@ class DiagnosticsBudget:
         if not self.policy.allows(name):
             self.out_of_scope.append(name)
             self._record_skip(name, "restricted to the primary model (ReportingConfig.heavy_diagnostics_for)")
+            return None
+        allowed_splits = self.split_rules.get(name)
+        if allowed_splits is not None and self.split is not None and self.split not in allowed_splits:
+            self._record_skip(name, f"restricted to splits {list(allowed_splits)} (ReportingConfig.diagnostic_splits)")
             return None
         if self.exhausted():
             self.skipped.append(name)

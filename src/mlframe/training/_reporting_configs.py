@@ -160,6 +160,21 @@ class ReportingConfig(BaseConfig):
     # that knows the flat name finds the file by prepending the format directory. False restores the flat layout.
     plot_format_subfolders: bool = True
 
+    # Render and save the report artifacts (figures, the combined HTML index) on background workers while the next model trains.
+    # ``"auto"`` (default) turns it on when charts are saved under a data_dir and the machine has >= 3 physical cores, and keeps
+    # it off in an interactive session (inline display must stay in order); True/False force it. The numeric metrics, the
+    # logged report and everything the training flow reads back stay synchronous; every queued artifact is finished (or reported
+    # as failed, by name, in a WARNING and ``metadata["async_render"]``) before the suite returns.
+    async_render: Union[bool, Literal["auto"]] = "auto"
+    # "thread": workers share the process and overlap GIL-releasing native training (GBDT fit/predict) and I/O, with no copies.
+    # "process": spawned workers with big arrays handed over through shared memory; real parallelism for drawing, at the cost
+    # of a worker start and a one-time copy of each array into shared memory.
+    async_render_backend: Literal["thread", "process"] = "thread"
+    # None = a quarter of the physical cores, at least one, so training keeps the rest.
+    async_render_workers: Optional[int] = Field(default=None, ge=1)
+    # Submitting blocks while the bytes referenced by queued renders exceed this, bounding memory if workers fall behind.
+    async_render_max_pending_mb: float = Field(default=512.0, gt=0)
+
     # Colormap for the reliability diagram's bubbles (and the bin-population panel when it is enabled). The library
     # default is the diverging ``RdYlBu``, which suits the signed calibration gap the bubbles are coloured by: red
     # over-confident, pale calibrated, blue under-confident. ``None`` keeps that default; any matplotlib colormap
@@ -270,6 +285,12 @@ class ReportingConfig(BaseConfig):
     heavy_diagnostics_for: Literal["best", "all"] = "best"  # a typo used to fall back to "best" with only a log line
 
     diagnostics_max_seconds: float = 300.0
+
+    # Restrict individual post-fit diagnostics to some splits: ``{"decile_table": ("test",), "interaction_strength": ("test",)}`` runs
+    # those two on the test split only (val is the early-stopping split, so its numbers are optimistic and the test report is the one
+    # read). A diagnostic with no entry runs on every split, so ``None`` (default) changes nothing. The skip is recorded under
+    # ``charts["skipped"]`` with this knob named as the reason.
+    diagnostic_splits: Optional[Dict[str, Tuple[str, ...]]] = None
 
     # Cost of one false positive vs one false negative, e.g. ``{"fp": 1.0, "fn": 12.0}``. Only the RATIO matters.
     # Every crisp classification metric in the report describes a decision rule at 0.5 -- a default nobody chose,

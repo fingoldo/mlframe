@@ -95,6 +95,7 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
     # ``plt.close`` MUST run on every exit (early non-png return, savefig failure, success); otherwise a builder that
     # hands us a Figure on a non-png run -- or whose savefig raises -- leaks it into matplotlib's global registry,
     # which grows unbounded across the per-split/per-target hot path. Hence the close lives in ``finally``.
+    deferred = False
     try:
         if "png" not in (plot_outputs or "").lower():
             return None  # not requested, not a failure
@@ -103,20 +104,27 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
             # wrote straight to the flat name, so with the per-format subfolder layout on they landed BESIDE the
             # png/ and html/ directories every render_and_save chart went into -- visible in a production output
             # dir as a handful of loose decile_table / fiplot / shap / report files.
+            from mlframe.reporting._async_render_hooks import active_render_queue, submit_figure_save
             from mlframe.reporting.renderers.save import resolve_output_path
 
-            fig.savefig(ensure_parent_dir(resolve_output_path(base_path, "matplotlib", "png", multi_output=False)), bbox_inches="tight")
+            _path = resolve_output_path(base_path, "matplotlib", "png", multi_output=False)
+            _queue = active_render_queue()
+            if _queue is not None and submit_figure_save(_queue, fig, _path):
+                deferred = True  # the worker owns the figure now and closes it after saving
+                return True
+            fig.savefig(ensure_parent_dir(_path), bbox_inches="tight")
             return True
         except Exception:
             logger.exception("diagnostics_dispatch: saving figure %s failed; continuing.", base_path)
             return False
     finally:
-        try:
-            import matplotlib.pyplot as plt
+        if not deferred:
+            try:
+                import matplotlib.pyplot as plt
 
-            plt.close(fig)
-        except Exception as e:  # nosec B110 - optional dependency import guard
-            logger.debug("matplotlib figure close-on-error failed: %s", e)
+                plt.close(fig)
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("matplotlib figure close-on-error failed: %s", e)
 
 
 def _column_names(frame: Any) -> Optional[List[str]]:
