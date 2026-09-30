@@ -105,6 +105,8 @@ class TrainingSplitConfig(BaseConfig):
         Maximum age (fraction) of training samples to keep.
     wholeday_splitting : bool
         Whether to split on day boundaries (default: True).
+    chronological_train_order : bool
+        Order train rows by timestamp via an index-only reorder when timestamps exist (default: True).
     random_seed : int
         Random seed for reproducible splits (default: 42).
     val_placement : {"forward", "backward"}
@@ -172,6 +174,11 @@ class TrainingSplitConfig(BaseConfig):
     # the better).
     trainset_aging_limit: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
     wholeday_splitting: bool = True
+    # When timestamps exist, order the TRAIN rows chronologically (stable; missing timestamps last) by reordering only the train
+    # index array before the frames are taken -- no frame copy. Temporal CV folds (RFECV/OOF) and CatBoost ``has_time`` need
+    # chronological train rows; the splitter itself returns them in source-row order. Split MEMBERSHIP and val/test order are unchanged.
+    # False keeps the source-row order. Already-chronological train rows cost one O(n) check, no sort.
+    chronological_train_order: bool = True
     random_seed: int = DEFAULT_RANDOM_SEED
 
     # "First test then train" - Mazzanti 2024 (Medium, 58-dataset benchmark).

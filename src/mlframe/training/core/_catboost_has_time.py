@@ -1,9 +1,9 @@
 """Let CatBoost's ``has_time`` follow the suite's unified CV policy, but only when the train rows really are in time order.
 
 ``has_time=True`` makes CatBoost treat ROW ORDER as time order (no shuffling when it draws the permutations behind ordered target statistics and
-ordered boosting). The suite's train frame keeps the caller's row order, so the flag is only correct when the train rows are already non-decreasing in
-time. Reordering would mean copying the frame and re-aligning every row-aligned artifact (weights, group ids, eval sets, OOF / predictions), so an unsorted
-train set simply leaves ``has_time`` off and says why.
+ordered boosting). The split phase orders the train INDEX chronologically (``TrainingSplitConfig.chronological_train_order``, default on; index-only, no frame copy), so the
+train rows normally arrive sorted. The flag is still only correct when they are non-decreasing with no missing timestamp, so a train set that is not (missing
+timestamps, or the opt-out) leaves ``has_time`` off and says why.
 
 Enabled only when ALL hold: the policy is temporal, neither ``hyperparams_config.has_time`` nor ``cb_kwargs['has_time']`` was set by the caller,
 the train rows' timestamps are known, and they are non-decreasing. An explicit ``has_time`` (True or False) is never overridden.
@@ -65,7 +65,7 @@ def decide_catboost_has_time(policy: Any, hyperparams_config: Any) -> Tuple[bool
     if train_ts is None:
         return False, "no train-row timestamps are available"
     if not timestamps_are_chronological(train_ts):
-        return False, "the train rows are not in chronological order (or have missing timestamps) and reordering would copy the frame"
+        return False, "the train rows are not in chronological order or have missing timestamps (set TrainingSplitConfig.chronological_train_order=True to order them at split time)"
     return True, "the policy is temporal and the train rows are already in chronological order"
 
 

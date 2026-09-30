@@ -51,6 +51,7 @@ from ..utils import (
     maybe_clean_ram_and_gpu,
 )
 from ..splitting import make_train_test_split
+from .._chronological_order import apply_chronological_train_order
 from .._fixed_splits import has_pinned_splits, pinned_train_val_test_split, record_split_membership, split_dir_for
 from ._setup_helpers import _compute_fairness_subgroups
 
@@ -491,6 +492,9 @@ def _phase_train_val_test_split(
             val_idx = _apply_val_test_embargo(val_idx, timestamps, int(split_config.cv_purge))
             if verbose and val_idx is not None and len(val_idx) < _nv_before:
                 logger.info("E2 embargo: dropped %d most-recent val rows to gap val<->test (cv_purge=%d).", _nv_before - len(val_idx), split_config.cv_purge)
+    # Order ONLY the train index array by time (val/test keep the splitter's membership and order): the frames below are
+    # materialised by a take with these arrays anyway, so every row-aligned artifact indexed by train_idx follows for free.
+    train_idx = apply_chronological_train_order(train_idx, timestamps, split_config, metadata, verbose)
     if verbose:
         log_ram_usage()
 

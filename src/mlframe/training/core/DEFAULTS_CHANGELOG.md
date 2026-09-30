@@ -159,6 +159,15 @@ set neither `hyperparams_config.has_time` nor `cb_kwargs['has_time']`, and the t
 CatBoost reads row order as time order, so an unsorted train set keeps `has_time=False` with one INFO line (the suite never reorders or copies the frame; reordering would need every
 row-aligned artifact inverted). Opt out with `has_time=False`; `unified_cv_policy=False` also disables it.
 
+## Train rows ordered chronologically at split time (default ON, `TrainingSplitConfig.chronological_train_order`)
+
+When the suite has timestamps, the TRAIN index array is stably ordered by timestamp (missing timestamps last, ties keep row order) right after the split and before
+the frames are taken (`training/_chronological_order.py`, hooked in `_phase_train_val_test_split`). Only an O(n_train) int64 index vector and the timestamps vector are
+touched; the source frame is never sorted or copied, because the train/val/test frames are materialised by a take with these arrays anyway, and every row-aligned artifact
+(targets, weights, group ids, timestamps, OOF) already indexes with `train_idx`. Already-chronological train rows cost one O(n) check (the same `idx` object is returned, no argsort:
+~3 ms at 1M rows, ~60 ms at 10M). Split MEMBERSHIP and val/test order are unchanged. Result: temporal RFECV / OOF folds and CatBoost `has_time` now engage on frames whose rows are
+not stored in time order. `metadata["train_chronological_order"]` records `sorted` / `reordered`. Opt out with `chronological_train_order=False` (old source-row order).
+
 ## Left opt-in (wave 2)
 
 - **`TrainingBehaviorConfig.oof_n_splits` / `oof_has_time` / `oof_random_seed`**: default `0` (no OOF,
