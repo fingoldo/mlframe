@@ -157,13 +157,16 @@ def _mask_takers():
     from mlframe.training.composite.transforms.interaction_bases import generate_interaction_bases
 
     def _gen(c, y, m):
+        """Generate interaction bases under the mask and return the masked rows with provenance sans n_finite."""
         syn, prov = generate_interaction_bases(c, top_k=3, train_mask=m)
         return {k: (np.asarray(v)[m], {p: q for p, q in prov[k].items() if p != "n_finite"}) for k, v in syn.items()}
 
     def _score(c, y, m):
+        """Score interaction pairs under the mask and return their non-array fields."""
         return [{k: v for k, v in r.items() if not isinstance(v, np.ndarray)} for r in score_interaction_pairs(c, y, top_k=3, train_mask=m)]
 
     def _surface(c, y, m):
+        """Discover interaction bases under the mask and return sorted columns and non-array records."""
         cols, recs = discover_interaction_bases(c, y, top_k=3, train_mask=m)
         return sorted(cols), [{k: v for k, v in r.items() if not isinstance(v, np.ndarray)} for r in recs]
 

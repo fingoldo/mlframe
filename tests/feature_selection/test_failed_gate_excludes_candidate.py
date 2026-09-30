@@ -6,6 +6,7 @@ from mlframe.feature_selection.filters.evaluation import _exclude_ungated_candid
 
 
 def test_the_candidate_is_zeroed_everywhere_the_ranking_reads():
+    """The candidate is zeroed everywhere the ranking reads."""
     partial = {7: (0.4, 3)}
     expected = np.array([0.1] * 10)
     gain = _exclude_ungated_candidate(7, partial, expected)

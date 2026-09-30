@@ -14,6 +14,7 @@ from mlframe.models.ensembling.selection import _score_blend
 
 
 def _probs_good_on(classes_good: set, n: int = 600, k: int = 4, seed: int = 0):
+    """Random multiclass labels and probabilities that are informative only for the given classes."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, k, n)
     p = rng.random((n, k))
@@ -24,12 +25,14 @@ def _probs_good_on(classes_good: set, n: int = 600, k: int = 4, seed: int = 0):
 
 
 def test_a_member_good_on_most_classes_outscores_one_good_on_class_one_only():
+    """A member good on most classes outscores one good on class one only."""
     y, good_on_three = _probs_good_on({0, 2, 3})
     _, good_on_one = _probs_good_on({1}, seed=0)
     assert _score_blend(good_on_three, y, None) > _score_blend(good_on_one, y, None)
 
 
 def test_binary_behaviour_is_unchanged():
+    """Binary behaviour is unchanged."""
     rng = np.random.default_rng(1)
     y = rng.integers(0, 2, 500)
     p1 = np.clip(0.3 + 0.4 * y + rng.normal(0, 0.2, 500), 0, 1)

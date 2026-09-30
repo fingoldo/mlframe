@@ -87,6 +87,7 @@ def test_composite_chart_header_matches_the_native_format(tmp_path, monkeypatch)
     seen = {}
 
     def _capture(**kw):
+        """Record the keyword arguments of the chart call."""
         seen.update(kw)
 
     monkeypatch.setattr(ev, "report_regression_model_perf", _capture)

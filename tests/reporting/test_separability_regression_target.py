@@ -9,6 +9,7 @@ from mlframe.reporting.charts.engineered_separability import compose_separabilit
 
 
 def test_continuous_target_uses_percentile_colouring_and_rank_scores():
+    """Continuous target uses percentile colouring and rank scores."""
     rng = np.random.default_rng(0)
     a = rng.lognormal(3, 1, 3000)
     y = np.log1p(a) + rng.normal(scale=0.3, size=3000)
@@ -21,6 +22,7 @@ def test_continuous_target_uses_percentile_colouring_and_rank_scores():
 
 
 def test_class_target_keeps_fisher_score():
+    """Class target keeps fisher score."""
     rng = np.random.default_rng(1)
     y = rng.integers(0, 2, 2000)
     spec = compose_separability_figure(pd.DataFrame({"f0": y + rng.normal(size=2000), "f1": rng.normal(size=2000)}), y, features=["f0", "f1"])

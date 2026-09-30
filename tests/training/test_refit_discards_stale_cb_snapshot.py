@@ -19,6 +19,7 @@ from mlframe.training._training_loop_refit import _maybe_refit_on_degenerate_bes
 
 
 def test_refit_replaces_the_huber_fit_despite_an_armed_snapshot(tmp_path, caplog):
+    """Refit replaces the huber fit despite an armed snapshot."""
     rng = np.random.default_rng(0)
     x = rng.normal(size=(400, 3))
     y = 150.0 * x[:, 0] + rng.normal(size=400)

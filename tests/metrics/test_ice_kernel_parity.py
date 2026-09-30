@@ -48,6 +48,7 @@ def _reference(y_true, y_pred, kwargs):
 
 @pytest.mark.parametrize("n, nbins, skewed", [(5_000, 10, True), (20_000, 100, True), (3_000, 20, False)])
 def test_batched_kernels_match_fast_ice_only(n, nbins, skewed):
+    """Batched kernels match fast ice only."""
     y_true, y_pred, desc_idx = _bed(n, seed=0, skewed=skewed)
     args = list(_ICE_KWARGS_TUPLE)
     args[0] = nbins

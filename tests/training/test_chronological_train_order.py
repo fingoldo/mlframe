@@ -13,15 +13,18 @@ from mlframe.training.core._phase_helpers_fit_split import _phase_train_val_test
 
 
 def _dt(n, seed=0):
+    """Hourly datetime64[ns] timestamps."""
     base = np.datetime64("2024-01-01T00:00:00", "ns")
     return base + (np.arange(n) * 3_600_000_000_000).astype("timedelta64[ns]")
 
 
 def test_already_sorted_returns_same_object_and_skips_argsort(monkeypatch):
+    """Already sorted returns same object and skips argsort."""
     idx = np.array([0, 2, 3, 7, 9])
     ts = _dt(10)
 
     def _boom(*a, **k):
+        """Fail if argsort is called."""
         raise AssertionError("argsort must not run on an already-chronological index")
 
     monkeypatch.setattr(co.np, "argsort", _boom)
@@ -31,6 +34,7 @@ def test_already_sorted_returns_same_object_and_skips_argsort(monkeypatch):
 
 @pytest.mark.parametrize("kind", ["numpy", "pandas", "polars", "int", "pandas_tz"])
 def test_unsorted_becomes_chronological_all_timestamp_containers(kind):
+    """Unsorted becomes chronological all timestamp containers."""
     n = 12
     perm = np.random.default_rng(1).permutation(n)
     ts = _dt(n)[perm]
@@ -51,12 +55,14 @@ def test_unsorted_becomes_chronological_all_timestamp_containers(kind):
 
 
 def test_ties_are_stable_in_row_order():
+    """Ties are stable in row order."""
     ts = np.array([5, 1, 5, 1, 3, 5])
     out, _ = chronological_order_index(np.arange(6), ts)
     assert out.tolist() == [1, 3, 4, 0, 2, 5]
 
 
 def test_missing_timestamps_go_last_stable():
+    """Missing timestamps go last stable."""
     ts = np.array(["2024-01-03", "NaT", "2024-01-01", "NaT", "2024-01-02"], dtype="datetime64[ns]")
     out, status = chronological_order_index(np.arange(5), ts)
     assert status == "reordered" and out.tolist() == [2, 4, 0, 1, 3]
@@ -69,6 +75,7 @@ def test_missing_timestamps_go_last_stable():
 
 
 def test_skipped_when_no_timestamps_or_misaligned():
+    """Skipped when no timestamps or misaligned."""
     idx = np.array([3, 1, 2])
     out, status = chronological_order_index(idx, None)
     assert out is idx and status == "skipped"
@@ -76,11 +83,13 @@ def test_skipped_when_no_timestamps_or_misaligned():
 
 
 class _Cfg:
+    """Split-config stand-in holding the chronological_train_order flag and a real config dump."""
     def __init__(self, order=True):
         self.chronological_train_order = order
         self.d = TrainingSplitConfig(test_size=0.2, val_size=0.2, chronological_train_order=order).model_dump()
 
     def model_dump(self, exclude=None):
+        """Return a copy of the stored config dict."""
         return dict(self.d)
 
     def __getattr__(self, name):
@@ -91,6 +100,7 @@ class _Cfg:
 
 
 def _run_phase(df, ts, order, tmp_path=None):
+    """Run the train/val/test split phase with the ordering flag and return its result."""
     n = len(df)
     y = np.arange(n, dtype=float)
     md: dict = {}
@@ -104,6 +114,7 @@ def _run_phase(df, ts, order, tmp_path=None):
 
 @pytest.mark.parametrize("frame", ["pandas", "polars"])
 def test_real_split_orders_train_chronologically_and_keeps_membership(frame):
+    """Real split orders train chronologically and keeps membership."""
     n = 400
     perm = np.random.default_rng(3).permutation(n)
     ts = _dt(n)[perm]
@@ -125,6 +136,7 @@ def test_real_split_orders_train_chronologically_and_keeps_membership(frame):
 
 
 def test_chronological_frame_costs_only_the_check():
+    """Chronological frame costs only the check."""
     n = 200
     ts = _dt(n)
     _, md = _run_phase(pd.DataFrame({"x": np.arange(n)}), ts, True)
@@ -132,4 +144,5 @@ def test_chronological_frame_costs_only_the_check():
 
 
 def test_default_is_on():
+    """Default is on."""
     assert TrainingSplitConfig().chronological_train_order is True

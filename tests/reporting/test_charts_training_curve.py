@@ -306,6 +306,7 @@ class TestSentinelMasking:
     """ICE's finite "not scored" sentinel must never be drawn as a value."""
 
     def test_ice_sentinel_becomes_nan(self):
+        """Ice sentinel becomes nan."""
         from mlframe.metrics.calibration import ICE_UNCOMPUTABLE
 
         h = {"ICE": {"learn": [0.22, ICE_UNCOMPUTABLE, ICE_UNCOMPUTABLE], "validation": [0.25, 0.24, -ICE_UNCOMPUTABLE]}}
@@ -314,10 +315,12 @@ class TestSentinelMasking:
         assert np.isnan(out["val"][2])
 
     def test_genuine_large_loss_is_kept(self):
+        """Genuine large loss is kept."""
         out = normalize_history({"RMSE": {"train": [3.5e6, 2.0e6], "val": [4.0e6, 3.0e6]}})["RMSE"]
         np.testing.assert_array_equal(out["train"], [3.5e6, 2.0e6])
 
     def test_sampled_train_curve_with_sentinel_is_gapped_not_flattened(self):
+        """Sampled train curve with sentinel is gapped not flattened."""
         from mlframe.metrics.calibration import ICE_UNCOMPUTABLE
 
         h, train_full, _ = _catboost_sampled_history()

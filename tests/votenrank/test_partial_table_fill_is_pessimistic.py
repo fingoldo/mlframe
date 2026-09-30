@@ -15,6 +15,7 @@ from mlframe.votenrank import Leaderboard
 
 
 def _table():
+    """Score table where B failed both hard tasks and A scored below median on them."""
     # Higher is better. B failed on the two hard tasks; A ran everywhere but scored below median on them.
     return pd.DataFrame(
         # A and B are identical on the tasks both ran, so the fill rule alone decides their order.
@@ -30,15 +31,18 @@ def test_a_failed_model_does_not_outrank_one_that_ran():
 
 
 def test_the_imputed_cells_are_reported():
+    """The imputed cells are reported."""
     lb = Leaderboard(table=_table())
     assert sorted(lb.imputed_cells_) == [("B", "hard1"), ("B", "hard2")]
 
 
 def test_the_historical_median_fill_is_still_available():
+    """The historical median fill is still available."""
     ranking = Leaderboard(table=_table(), partial_fill="median").mean_ranking()
     assert list(ranking.index).index("B") < list(ranking.index).index("A"), "median credit is what put B ahead"
 
 
 def test_an_unknown_fill_policy_is_refused():
+    """An unknown fill policy is refused."""
     with pytest.raises(ValueError, match="partial_fill"):
         Leaderboard(table=_table(), partial_fill="mean")

@@ -11,6 +11,7 @@ from mlframe.reporting.charts._error_bias import error_bias_per_feature
 
 
 def test_heavy_feature_uses_asinh_and_worst_segment_has_support():
+    """Heavy feature uses asinh and worst segment has support."""
     rng = np.random.default_rng(0)
     n = 30000
     X = pd.DataFrame({"budget": rng.lognormal(6, 2, n)})

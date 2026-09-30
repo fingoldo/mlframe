@@ -18,6 +18,7 @@ def test_a_multiclass_probe_is_scored_over_every_class():
 
 
 def test_binary_still_uses_roc_auc():
+    """Binary still uses roc auc."""
     rng = np.random.default_rng(1)
     X = rng.normal(size=(300, 1))
     y = (X[:, 0] > 0).astype(int)
@@ -26,6 +27,7 @@ def test_binary_still_uses_roc_auc():
 
 
 def test_the_selection_runs_end_to_end_on_a_multiclass_target():
+    """The selection runs end to end on a multiclass target."""
     rng = np.random.default_rng(2)
     df = pd.DataFrame({"a": rng.normal(size=300), "b": rng.normal(size=300)})
     y = np.digitize(df["a"].to_numpy(), [-0.5, 0.5])

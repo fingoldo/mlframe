@@ -51,6 +51,7 @@ class TestUnknownTransformIsTheOnlyExcusedFailure:
         import mlframe.training.composite.ensemble as ens
 
         def _boom(name):
+            """Raise a registry-corruption error."""
             raise RuntimeError("registry corrupted")
 
         monkeypatch.setattr(ens, "get_transform", _boom)
@@ -66,6 +67,7 @@ class TestUnknownTransformIsTheOnlyExcusedFailure:
         assert waic._additive_in_t(SimpleNamespace(transform_name="no_such_transform_xyz")) is False
 
         def _boom(name):
+            """Raise a registry-corruption error."""
             raise RuntimeError("registry corrupted")
 
         monkeypatch.setattr(waic, "get_transform", _boom)

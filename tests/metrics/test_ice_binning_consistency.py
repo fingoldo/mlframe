@@ -18,6 +18,7 @@ from mlframe.metrics.core import fast_ice_only
 
 
 def _bed(kind: str, n: int = 20_000, seed: int = 0):
+    """Balanced or rare-positive synthetic probabilities with matching binary labels."""
     rng = np.random.default_rng(seed)
     p = rng.random(n) if kind == "balanced" else np.clip(rng.beta(1.0, 22.0, n), 1e-6, 1 - 1e-6)
     y = (rng.random(n) < p).astype(np.int8)
@@ -26,6 +27,7 @@ def _bed(kind: str, n: int = 20_000, seed: int = 0):
 
 @pytest.mark.parametrize("kind", ["balanced", "rare"])
 def test_fast_ice_only_matches_the_report(kind):
+    """Fast ice only matches the report."""
     y, p = _bed(kind)
     report_ice = float(fast_calibration_report(y_true=y, y_pred=p, show_plots=False, plot_file=None).ice)
     assert float(fast_ice_only(y, p)) == pytest.approx(report_ice, rel=0, abs=0)
@@ -40,12 +42,14 @@ def test_rare_class_actually_takes_the_quantile_grid():
 
 @pytest.mark.parametrize("kind, kernel_expected", [("balanced", True), ("rare", False)])
 def test_batched_uniform_kernel_is_skipped_when_bins_must_be_quantile(monkeypatch, kind, kernel_expected):
+    """Batched uniform kernel is skipped when bins must be quantile."""
     import mlframe.metrics._ice_metric as ice_mod
 
     used = []
     original = ice_mod._ice_kernel_dispatch
 
     def _spy(*args, **kwargs):
+        """Note that the batched uniform kernel ran, then delegate."""
         used.append(True)
         return original(*args, **kwargs)
 

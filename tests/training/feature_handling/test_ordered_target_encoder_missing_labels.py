@@ -14,6 +14,7 @@ from mlframe.training.feature_handling.ordered_target_encoder import ordered_tar
 
 
 def _oracle(cats, y, order, smoothing, causal_prior):
+    """Reference ordered target encoding computed row by row over the sorted order."""
     sort_idx = np.argsort(order, kind="mergesort")
     labelled_mean = float(np.nanmean(y))
     out = np.empty(len(y))
@@ -34,6 +35,7 @@ def _oracle(cats, y, order, smoothing, causal_prior):
 @pytest.mark.parametrize("causal_prior", [False, True])
 @pytest.mark.parametrize("missing_share", [0.0, 0.3])
 def test_the_encoding_matches_its_definition(causal_prior, missing_share):
+    """The encoding matches its definition."""
     rng = np.random.default_rng(1)
     n = 500
     cats = rng.choice(list("abcde"), n)

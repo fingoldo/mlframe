@@ -21,6 +21,7 @@ class _UnreplayableRecipe:
 
 
 def _case(n=3000, seed=0):
+    """Build five predictors and a target that is a nonlinear function of a, b, c and d."""
     rng = np.random.default_rng(seed)
     a, b, c = rng.random(n) + 0.5, rng.random(n) + 0.5, rng.random(n) + 0.5
     d, e = rng.random(n), rng.random(n)
@@ -29,6 +30,7 @@ def _case(n=3000, seed=0):
 
 
 def test_a_retention_candidate_that_cannot_replay_is_not_kept(monkeypatch):
+    """A retention candidate that cannot replay is not kept."""
     from mlframe.feature_selection.filters import MRMR, _fe_pure_form_retention
     from mlframe.feature_selection.filters.engineered_recipes import _recipe_dispatch
 
@@ -36,6 +38,7 @@ def test_a_retention_candidate_that_cannot_replay_is_not_kept(monkeypatch):
     real_apply = _recipe_dispatch.apply_recipe
 
     def spy(recipe, *a, **k):
+        """Record replay attempts on the unreplayable recipe, then delegate to the real replay."""
         if isinstance(recipe, _UnreplayableRecipe):
             replay_attempts.append(recipe.name)
         return real_apply(recipe, *a, **k)

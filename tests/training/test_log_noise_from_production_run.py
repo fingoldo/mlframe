@@ -14,6 +14,7 @@ from mlframe.training.composite.discovery._screening_tiny import _build_tiny_mod
 
 
 def _tiny(family: str):
+    """Build a small model of the family with fixed hyperparameters."""
     return _build_tiny_model(family, n_estimators=5, num_leaves=7, learning_rate=0.1, random_state=0, deterministic=False, inner_n_jobs=-1)
 
 
@@ -53,10 +54,13 @@ class TestInnerNJobsCap:
         """That one is a real oversubscription risk and must stay visible."""
 
         class _Stubborn:
+            """Model stand-in that exposes n_jobs but refuses to change it."""
             def get_params(self, deep=True):
+                """Report n_jobs as -1."""
                 return {"n_jobs": -1}
 
             def set_params(self, **kw):
+                """Reject every change as read-only."""
                 raise ValueError("n_jobs is read-only here")
 
         with caplog.at_level(logging.WARNING):
@@ -68,6 +72,7 @@ class TestCommitPressureRepetition:
     """The heartbeat repeats a condition when it changes, not every beat."""
 
     def _run(self, monkeypatch, private_gb: float, avail_gb: float = 200.0):
+        """Patch commit status and process memory for the given private and available GB and run the headroom check."""
         import mlframe.training._commit_headroom as ch
 
         monkeypatch.setattr(
@@ -76,6 +81,7 @@ class TestCommitPressureRepetition:
         )
 
         class _MI:
+            """Memory-info stand-in with 1 GB RSS and the given private bytes."""
             rss = int(1.0 * 1024**3)
             private = int(private_gb * 1024**3)
 
@@ -108,6 +114,7 @@ class TestStructuralNaNAdvice:
 
     @staticmethod
     def _report(fraction: float, cols):
+        """Report stand-in flagging each column with a nan_fraction warning."""
         return SimpleNamespace(feature_warnings={c: [f"nan_fraction={fraction:.4f} >= 0.99"] for c in cols})
 
     def test_columns_the_pre_screen_drops_anyway_get_no_false_advice(self, caplog):

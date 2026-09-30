@@ -21,6 +21,7 @@ class _Model:
 
 
 def _frame(i16_dtype=pl.Int16):
+    """Polars frame with a float32 column and an integer column of the given dtype."""
     return pl.DataFrame({"a": np.arange(4, dtype=np.float32), "b": pl.Series([1, 2, 3, 4], dtype=i16_dtype)})
 
 
@@ -41,6 +42,7 @@ def test_a_pandas_fit_frame_records_nothing():
 
 
 def test_drift_names_changed_missing_and_extra_columns():
+    """Drift names changed missing and extra columns."""
     model = _Model()
     _stamp_fit_polars_schema(model, _frame())
     now = _frame(pl.Int64).with_columns(pl.lit(1.0).alias("c")).drop("a")
@@ -64,9 +66,11 @@ def test_the_fallback_warning_carries_the_drift(caplog):
     """End to end through the real fallback: a rejected polars predict, a pandas retry, and a warning naming the column."""
 
     class CatBoostClassifier:  # the fallback recognises CatBoost by class name
+        """Classifier stand-in that rejects polars input with CatBoost's signature error."""
         classes_ = np.array([0, 1])
 
         def predict_proba(self, X):
+            """Raise on polars input, else return uniform probabilities."""
             if isinstance(X, pl.DataFrame):
                 raise TypeError("No matching signature found")
             return np.tile([0.5, 0.5], (len(X), 1))

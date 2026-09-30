@@ -12,6 +12,7 @@ from mlframe.training.drift_report import compute_label_distribution_drift, form
 
 
 def _charges(n, seed, n_negative=0):
+    """Zero-inflated lognormal charges, with the first n_negative entries set to -2.17."""
     rng = np.random.default_rng(seed)
     y = np.where(rng.random(n) < 0.74, 0.0, np.exp(rng.normal(4.0, 1.2, n)))
     y[:n_negative] = -2.17
@@ -19,6 +20,7 @@ def _charges(n, seed, n_negative=0):
 
 
 def test_min_max_and_rows_below_the_point_mass_are_reported():
+    """Min max and rows below the point mass are reported."""
     report = compute_label_distribution_drift(_charges(20_000, 0, n_negative=7), _charges(2_000, 1), _charges(2_000, 2), "regression")
     train = report["splits"]["train"]
     assert train["min"] == -2.17 and train["max"] > 100
@@ -29,6 +31,7 @@ def test_min_max_and_rows_below_the_point_mass_are_reported():
 
 
 def test_a_continuous_target_reports_no_point_mass():
+    """A continuous target reports no point mass."""
     rng = np.random.default_rng(3)
     report = compute_label_distribution_drift(rng.normal(size=5_000), rng.normal(size=500), rng.normal(size=500), "regression")
     assert report["splits"]["train"]["atom_share"] == 0.0

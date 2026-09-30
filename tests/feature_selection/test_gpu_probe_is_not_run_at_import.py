@@ -11,12 +11,14 @@ _SRC = str(Path(mlframe.__file__).resolve().parents[1])
 
 
 def _run(code: str):
+    """Run code in a fresh interpreter with the source tree on PYTHONPATH and return the completed process."""
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([_SRC, os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep))
     # A fresh process each time: "did importing this initialise CUDA" cannot be asked once it already has.
     return subprocess.run([sys.executable, "-W", "always", "-c", code], capture_output=True, text=True, env=env)
 
 
 def test_importing_feature_selection_neither_probes_cuda_nor_imports_cupy():
+    """Importing feature selection neither probes cuda nor imports cupy."""
     r = _run("import sys, mlframe.feature_selection; print('cupy' in sys.modules)")
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "False", "cupy was imported at package-import time"
@@ -24,6 +26,7 @@ def test_importing_feature_selection_neither_probes_cuda_nor_imports_cupy():
 
 
 def test_the_availability_accessors_still_answer():
+    """The availability accessors still answer."""
     r = _run(
         "from mlframe.feature_selection.filters._batch_mi_noise_gate_kernels import cuda_available, cupy_available\n"
         "print(isinstance(cuda_available(), bool), isinstance(cupy_available(), bool))"
@@ -33,6 +36,7 @@ def test_the_availability_accessors_still_answer():
 
 
 def test_the_legacy_flag_names_still_read_through_the_accessors():
+    """The legacy flag names still read through the accessors."""
     r = _run(
         "import mlframe.feature_selection.filters._batch_mi_noise_gate_kernels as k\n"
         "import mlframe.feature_selection.filters.batch_mi_noise_gate_gpu as g\n"

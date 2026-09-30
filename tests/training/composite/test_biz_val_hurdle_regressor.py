@@ -22,6 +22,7 @@ _KW = dict(max_iter=100, random_state=0)
 
 
 def _zero_inflated(n: int, sigma: float, seed: int = 0, zero_frac: float = 0.71):
+    """Regression data in which a logistic event gates a lognormal magnitude, leaving zero_frac zeros."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 6))
     logit = 1.6 * X[:, 0] - 1.2 * X[:, 1] + np.log((1 - zero_frac) / zero_frac)
@@ -31,10 +32,12 @@ def _zero_inflated(n: int, sigma: float, seed: int = 0, zero_frac: float = 0.71)
 
 
 def _r2(y: np.ndarray, p: np.ndarray) -> float:
+    """Coefficient of determination of p against y."""
     return float(1.0 - np.sum((y - p) ** 2) / np.sum((y - y.mean()) ** 2))
 
 
 def _fit_all(sigma: float) -> dict:
+    """Fit the hurdle model and baselines on zero-inflated data and return their test predictions."""
     X, y = _zero_inflated(2 * N_TRAIN, sigma)
     Xtr, ytr, Xte, yte = X[:N_TRAIN], y[:N_TRAIN], X[N_TRAIN:], y[N_TRAIN:]
     hurdle = HurdleRegressor(classifier=HistGradientBoostingClassifier(**_KW), regressor=HistGradientBoostingRegressor(**_KW)).fit(Xtr, ytr)
@@ -48,11 +51,13 @@ def _fit_all(sigma: float) -> dict:
 
 @pytest.fixture(scope="module")
 def moderate_tail() -> dict:
+    """Fit results for moderate-tail (sigma 0.6) data."""
     return _fit_all(0.6)
 
 
 @pytest.fixture(scope="module")
 def heavy_tail() -> dict:
+    """Fit results for heavy-tail (sigma 1.8) data."""
     return _fit_all(1.8)
 
 

@@ -4,6 +4,7 @@ from mlframe.feature_selection.filters._cluster_hierarchy import _component_medo
 
 
 def test_failed_and_non_finite_scores_are_not_recorded():
+    """Failed and non finite scores are not recorded."""
     pair_sus: dict = {}
     _record_pair_su(pair_sus, "a", "b", float("nan"))
     _record_pair_su(pair_sus, "a", "c", float("inf"))

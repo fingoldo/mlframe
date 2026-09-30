@@ -26,6 +26,7 @@ N = 20_000
 
 
 def _rmse(a, b):
+    """Root mean squared difference."""
     return float(np.sqrt(np.mean((a - b) ** 2)))
 
 
@@ -63,11 +64,13 @@ def test_paired_gain_se_keeps_a_noise_edge_below_the_bar():
 
 
 def test_paired_gain_se_is_undefined_on_too_few_rows():
+    """Paired gain se is undefined on too few rows."""
     y, raw, spec = _paired_predictions(n=20)
     assert not np.isfinite(_paired_rmse_gain_se(y, raw, spec, _rmse(y, raw), _rmse(y, spec)))
 
 
 def test_paired_gain_se_is_undefined_when_both_models_are_perfect():
+    """Paired gain se is undefined when both models are perfect."""
     y = np.linspace(0.0, 1.0, N)
     assert not np.isfinite(_paired_rmse_gain_se(y, y, y, 0.0, 0.0))
 
@@ -79,6 +82,7 @@ def test_spec_carries_the_gain_standard_error_field():
 
 
 def test_config_exposes_the_noise_aware_floor_multiplier():
+    """Config exposes the noise aware floor multiplier."""
     cfg = CompositeTargetDiscoveryConfigBase()
     assert cfg.min_honest_gain_z == 2.0
     assert cfg.min_honest_gain_to_train == 0.001
@@ -90,6 +94,7 @@ def test_config_exposes_the_noise_aware_floor_multiplier():
 
 
 def _zero_inflated(zero_frac: float, n: int = 100_000, seed: int = 0) -> np.ndarray:
+    """Sample that is zero with probability zero_frac and Pareto-tailed otherwise."""
     rng = np.random.default_rng(seed)
     return np.where(rng.random(n) < zero_frac, 0.0, rng.pareto(1.2, n) * 60.0)
 
@@ -102,6 +107,7 @@ def test_zero_inflated_target_skips_the_curved_compressors():
 
 
 def test_the_skip_list_covers_the_two_transforms_that_collapsed_in_production():
+    """The skip list covers the two transforms that collapsed in production."""
     assert {"log_y", "cbrt_y"} <= CURVED_Y_COMPRESSORS
 
 
@@ -111,6 +117,7 @@ def test_clipping_transforms_are_not_skipped():
 
 
 def test_a_continuous_target_is_untouched():
+    """A continuous target is untouched."""
     rng = np.random.default_rng(3)
     y = rng.gamma(2.0, 50.0, 100_000)
     assert point_mass_fraction(y) < 0.01
@@ -126,6 +133,7 @@ def test_a_discrete_target_without_a_dominant_mass_is_untouched():
 
 
 def test_the_threshold_is_the_contract():
+    """The threshold is the contract."""
     below = point_mass_curved_inverse_skips(_zero_inflated(POINT_MASS_FRACTION_THRESHOLD - 0.1, seed=5))
     above = point_mass_curved_inverse_skips(_zero_inflated(POINT_MASS_FRACTION_THRESHOLD + 0.1, seed=5))
     assert below == frozenset()
@@ -133,4 +141,5 @@ def test_the_threshold_is_the_contract():
 
 
 def test_point_mass_fraction_is_undecidable_on_a_tiny_sample():
+    """Point mass fraction is undecidable on a tiny sample."""
     assert point_mass_fraction(np.zeros(10)) == 0.0

@@ -6,6 +6,7 @@ from mlframe.training.core._main_train_suite_target_distribution import _flag_ta
 
 
 def test_a_pandas_frame_is_flagged_not_skipped():
+    """A pandas frame is flagged not skipped."""
     df = pd.DataFrame({"target_outcome_amount": [1.0, 2.0], "x": [3.0, 4.0]})
     metadata: dict = {}
     _flag_target_named_features(df, {"regression": {"target_outcome": None}}, metadata)
@@ -13,6 +14,7 @@ def test_a_pandas_frame_is_flagged_not_skipped():
 
 
 def test_a_frame_without_columns_is_a_no_op():
+    """A frame without columns is a no op."""
     metadata: dict = {}
     _flag_target_named_features(object(), {"regression": {"t": None}}, metadata)
     assert metadata == {}

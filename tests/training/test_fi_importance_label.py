@@ -8,6 +8,7 @@ from mlframe.training._feature_importances import describe_importance_kind
 
 
 def test_labels_per_backend():
+    """Labels per backend."""
     cb = pytest.importorskip("catboost")
     lgb = pytest.importorskip("lightgbm")
     assert "PredictionValuesChange" in describe_importance_kind(cb.CatBoostRegressor())

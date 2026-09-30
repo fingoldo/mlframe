@@ -17,6 +17,7 @@ _CHATTER = (
 
 
 def test_mrmr_fit_info_stream_has_no_per_step_chatter_but_keeps_final_summary(caplog):
+    """Mrmr fit info stream has no per step chatter but keeps final summary."""
     rng = np.random.default_rng(0)
     n = 1500
     X = pd.DataFrame(rng.normal(size=(n, 6)), columns=[f"f{i}" for i in range(6)])

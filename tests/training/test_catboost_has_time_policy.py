@@ -14,25 +14,30 @@ from mlframe.training.core._catboost_has_time import apply_catboost_has_time, de
 
 
 def _ts(n=200, shuffled=False):
+    """Hourly timestamps, optionally shuffled."""
     ts = pd.Series(pd.date_range("2024-01-01", periods=n, freq="h"))
     return ts.sample(frac=1.0, random_state=0).reset_index(drop=True) if shuffled else ts
 
 
 def _policy(ts, kind="temporal"):
+    """CV policy of the given kind, carrying the timestamps only when temporal."""
     return CVPolicy(kind, "test", ts if kind == "temporal" else None)
 
 
 def _params():
+    """Model params for a CatBoost entry with has_time off and a non-CatBoost entry."""
     return {"cb": {"model": CatBoostClassifier(iterations=3, has_time=False, verbose=0, allow_writing_files=False)}, "lgb": {"model": object()}}
 
 
 def test_sorted_train_and_temporal_policy_enables_has_time():
+    """Sorted train and temporal policy enables has time."""
     mp = _params()
     assert apply_catboost_has_time(mp, _policy(_ts()), ModelHyperparamsConfig()) is True
     assert mp["cb"]["model"].get_params()["has_time"] is True
 
 
 def test_unsorted_train_leaves_has_time_off_and_logs_once(caplog):
+    """Unsorted train leaves has time off and logs once."""
     mp = _params()
     with caplog.at_level(logging.INFO, logger="mlframe.training.core._catboost_has_time"):
         assert apply_catboost_has_time(mp, _policy(_ts(shuffled=True)), ModelHyperparamsConfig()) is False
@@ -42,6 +47,7 @@ def test_unsorted_train_leaves_has_time_off_and_logs_once(caplog):
 
 
 def test_explicit_false_wins_over_temporal_policy():
+    """Explicit false wins over temporal policy."""
     mp = _params()
     cfg = ModelHyperparamsConfig(has_time=False)
     assert apply_catboost_has_time(mp, _policy(_ts()), cfg) is False
@@ -49,18 +55,21 @@ def test_explicit_false_wins_over_temporal_policy():
 
 
 def test_explicit_cb_kwargs_has_time_is_not_overridden():
+    """Explicit cb kwargs has time is not overridden."""
     cfg = ModelHyperparamsConfig(cb_kwargs={"has_time": False})
     assert decide_catboost_has_time(_policy(_ts()), cfg)[0] is False
 
 
 @pytest.mark.parametrize("policy", [None, CVPolicy("iid", "x"), CVPolicy("temporal", "x", None)])
 def test_no_policy_or_no_timestamps_is_unchanged(policy):
+    """No policy or no timestamps is unchanged."""
     mp = _params()
     assert apply_catboost_has_time(mp, policy, ModelHyperparamsConfig()) is False
     assert mp["cb"]["model"].get_params()["has_time"] is False
 
 
 def test_missing_timestamps_are_not_chronological():
+    """Missing timestamps are not chronological."""
     ts = _ts()
     ts.iloc[5] = pd.NaT
     assert not timestamps_are_chronological(ts)
@@ -70,12 +79,14 @@ def test_missing_timestamps_are_not_chronological():
 
 
 def test_regressor_wrapper_param_is_reached():
+    """Regressor wrapper param is reached."""
     mp = {"cb": {"model": CatBoostRegressor(iterations=3, verbose=0, allow_writing_files=False)}}
     assert apply_catboost_has_time(mp, _policy(_ts()), ModelHyperparamsConfig()) is True
     assert mp["cb"]["model"].get_params()["has_time"] is True
 
 
 def test_real_fit_with_has_time_reaches_model():
+    """Real fit with has time reaches model."""
     rng = np.random.default_rng(0)
     n = 300
     X = pd.DataFrame({"a": rng.normal(size=n), "c": rng.integers(0, 5, n).astype(str)})

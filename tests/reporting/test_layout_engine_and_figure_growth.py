@@ -120,6 +120,7 @@ def test_a_lone_trailing_panel_spans_its_row():
     from mlframe.reporting.spec import FigureSpec, LinePanelSpec
 
     def _widths(n_panels: int) -> list:
+        """Render n line panels in two columns and return each axes' width."""
         panels = [LinePanelSpec(x=np.arange(5), y=(np.arange(5, dtype=float),), title=f"p{i}") for i in range(n_panels)]
         fig = MatplotlibRenderer().render(FigureSpec(suptitle="t", panels=pack_panels(panels, max_cols=2), figsize=(8.0, 6.0)))
         return [round(ax.get_position().width, 3) for ax in fig.axes]

@@ -107,6 +107,7 @@ def test_a_degenerate_fold_keeps_the_global_params_instead_of_dropping_the_spec(
     params = _poly_fit(y, base)
 
     def _always_fails(_y, _b, **_kw):
+        """Fail as a degenerate fold would."""
         raise RuntimeError("degenerate fold")
 
     score = _cv(y, base, x, _poly_transform(fit=_always_fails), params)

@@ -14,6 +14,7 @@ from mlframe.models.ensembling.process_method import _select_split_probs
 
 
 def _member(raw, cal=None):
+    """Ensemble member stand-in with raw validation probabilities and optional calibrated ones."""
     ns = types.SimpleNamespace(val_probs=np.asarray(raw))
     if cal is not None:
         ns.calibrated_val_probs = np.asarray(cal)
@@ -21,6 +22,7 @@ def _member(raw, cal=None):
 
 
 def test_a_mixed_member_set_falls_back_to_raw_for_everyone():
+    """A mixed member set falls back to raw for everyone."""
     members = [_member([0.2, 0.8], cal=[0.3, 0.7]), _member([0.1, 0.9])]
     got = _select_split_probs(members, "val", use_calibrated=True)
     np.testing.assert_array_equal(got[0], [0.2, 0.8])
@@ -28,6 +30,7 @@ def test_a_mixed_member_set_falls_back_to_raw_for_everyone():
 
 
 def test_a_fully_calibrated_set_uses_the_calibrated_probabilities():
+    """A fully calibrated set uses the calibrated probabilities."""
     members = [_member([0.2, 0.8], cal=[0.3, 0.7]), _member([0.1, 0.9], cal=[0.15, 0.85])]
     got = _select_split_probs(members, "val", use_calibrated=True)
     np.testing.assert_array_equal(got[0], [0.3, 0.7])
@@ -35,5 +38,6 @@ def test_a_fully_calibrated_set_uses_the_calibrated_probabilities():
 
 
 def test_calibration_off_means_raw():
+    """Calibration off means raw."""
     members = [_member([0.2, 0.8], cal=[0.3, 0.7])]
     np.testing.assert_array_equal(_select_split_probs(members, "val", use_calibrated=False)[0], [0.2, 0.8])

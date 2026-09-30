@@ -35,6 +35,7 @@ def _mask_and_splits(draw):
 @settings(max_examples=300, deadline=None)
 @given(_mask_and_splits())
 def test_narrowed_splits_keep_exactly_the_labelled_rows_in_order(case):
+    """Narrowed splits keep exactly the labelled rows in order."""
     mask, splits = case
     rows = build_target_rows(mask, splits)
     for name in SPLIT_INDEX_FIELDS:
@@ -52,6 +53,7 @@ def test_narrowed_splits_keep_exactly_the_labelled_rows_in_order(case):
 
 
 def test_equal_masks_share_one_narrowing_and_fully_labelled_targets_get_none():
+    """Equal masks share one narrowing and fully labelled targets get none."""
     y_a = np.array([1.0, np.nan, 2.0, 3.0, np.nan, 4.0])
     y_c = np.array([np.nan, 1.0, 2.0, 3.0, 4.0, 5.0])
     splits = {"train_idx": np.array([0, 1, 2, 3]), "val_idx": np.array([4]), "test_idx": np.array([5])}

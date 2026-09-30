@@ -22,6 +22,7 @@ _UNLIKELY = {
 
 
 def _is_unary(name: str) -> bool:
+    """Whether the named transform needs no base column."""
     return not get_transform(name).requires_base
 
 

@@ -8,13 +8,16 @@ from mlframe.training.core import _predict_pre_pipeline as pp
 
 
 class _FailingPipeline:
+    """Pipeline stand-in whose transform always fails."""
     feature_names_in_ = np.array(["a"])
 
     def transform(self, X):
+        """Raise a vocabulary-drift error."""
         raise RuntimeError("vocabulary drift")
 
 
 def test_without_the_env_var_the_failure_is_an_outage(monkeypatch):
+    """Without the env var the failure is an outage."""
     monkeypatch.delenv("MLFRAME_EXTENSIONS_SOFT_FAIL", raising=False)
     pp.take_extensions_soft_fail_taint()
     with pytest.raises(RuntimeError, match="transform failed at predict time"):
@@ -23,6 +26,7 @@ def test_without_the_env_var_the_failure_is_an_outage(monkeypatch):
 
 
 def test_with_the_env_var_the_raw_frame_is_served_and_recorded(monkeypatch):
+    """With the env var the raw frame is served and recorded."""
     monkeypatch.setenv("MLFRAME_EXTENSIONS_SOFT_FAIL", "1")
     pp.take_extensions_soft_fail_taint()
     df = pd.DataFrame({"a": [1.0]})

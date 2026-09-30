@@ -19,6 +19,7 @@ OWN = 1000
 
 
 def _snap(util=5.0, used=500.0, total=8192.0, procs=()):
+    """GPU snapshot dict for one device with the given utilisation, memory and processes."""
     return {"gpus": [{"index": 0, "util_pct": util, "mem_used_mb": used, "mem_total_mb": total}], "processes": list(procs)}
 
 
@@ -43,6 +44,7 @@ def test_without_per_process_memory_all_used_memory_counts():
 
 
 def test_high_utilisation_alone_is_busy_and_the_threshold_is_configurable(monkeypatch):
+    """High utilisation alone is busy and the threshold is configurable."""
     snap = _snap(util=85.0, used=1000.0)
     assert "85% busy" in gpu_busy_reason(snap, required_gb=0.5, own_pid=OWN)
     monkeypatch.setenv("MLFRAME_GPU_BUSY_UTIL_PCT", "90")
@@ -50,12 +52,14 @@ def test_high_utilisation_alone_is_busy_and_the_threshold_is_configurable(monkey
 
 
 def test_an_unreadable_card_is_not_evidence_of_contention():
+    """An unreadable card is not evidence of contention."""
     assert gpu_busy_reason(None, required_gb=1.0) is None
     assert gpu_busy_reason({"gpus": [], "processes": []}, required_gb=1.0) is None
 
 
 @pytest.mark.parametrize("devices,expected", [(None, 0), ("0", 0), ("1:2", 1), ("3-5", 3), ([2], 2), ("GPU", 0)])
 def test_catboost_devices_map_to_the_first_device(devices, expected):
+    """Catboost devices map to the first device."""
     assert cb_device_index(devices) == expected
 
 
@@ -96,6 +100,7 @@ _BUSY = _snap(util=100.0, used=8100.0, procs=[{"gpu": 0, "pid": 7320, "name": "p
 
 
 def test_a_busy_card_sends_the_target_to_cpu_and_a_free_one_back_to_gpu(monkeypatch, caplog):
+    """A busy card sends the target to cpu and a free one back to gpu."""
     monkeypatch.setattr(gc_mod, "_LAST_BUSY", {"reason": None})
     assert _gpu_decision(monkeypatch, caplog, _BUSY) == "False"
     assert any("train on CPU" in r.getMessage() for r in caplog.records)
@@ -104,5 +109,6 @@ def test_a_busy_card_sends_the_target_to_cpu_and_a_free_one_back_to_gpu(monkeypa
 
 
 def test_the_check_can_be_switched_off(monkeypatch, caplog):
+    """The check can be switched off."""
     monkeypatch.setenv("MLFRAME_GPU_CONTENTION_CPU_FALLBACK", "0")
     assert _gpu_decision(monkeypatch, caplog, _BUSY) == "True"

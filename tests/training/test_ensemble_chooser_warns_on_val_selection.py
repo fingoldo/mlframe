@@ -13,10 +13,12 @@ from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
 
 def _flavour(val_auc: float):
+    """Result tuple holding a model stand-in with the given validation AUC."""
     return (types.SimpleNamespace(metrics={"val": {"roc_auc": val_auc}}),)
 
 
 def test_a_val_based_pick_warns(caplog):
+    """A val based pick warns."""
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core._ensemble_chooser"):
         winner = _choose_ensemble_flavour({"arithm": _flavour(0.71), "geo": _flavour(0.74)})
     assert winner == "geo"

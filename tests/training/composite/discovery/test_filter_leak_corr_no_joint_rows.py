@@ -25,6 +25,7 @@ class _Disc:
 
 
 def test_two_jointly_finite_rows_are_no_evidence_of_a_leak():
+    """Two jointly finite rows are no evidence of a leak."""
     n = 400
     rng = np.random.default_rng(0)
     y = rng.normal(size=n)

@@ -16,6 +16,7 @@ import pytest
 
 
 def test_the_map_gathers_on_demand_bounds_its_cache_and_drops_a_synthetic_bases_parents():
+    """The map gathers on demand bounds its cache and drops a synthetic bases parents."""
     from mlframe.training.composite.discovery._per_base_x import PerBaseMatrices, base_ordered
 
     x = np.arange(40, dtype=np.float32).reshape(5, 8)
@@ -44,6 +45,7 @@ def _rerank_peak(n_bases: int, monkeypatch) -> tuple:
     real = CompositeTargetDiscovery._tiny_model_rerank
 
     def spy(self, kept_specs, *a, **k):
+        """Measure peak traced memory of the real rerank and the number of distinct bases."""
         tracemalloc.start()
         try:
             return real(self, kept_specs, *a, **k)

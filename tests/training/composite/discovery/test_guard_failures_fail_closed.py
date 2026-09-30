@@ -45,6 +45,7 @@ def test_a_chain_whose_final_fit_fails_is_not_a_candidate():
     tf = get_transform("linear_residual")
 
     def _raise(*_a, **_k):
+        """Fail as an unfittable transform would."""
         raise ValueError("cannot fit")
 
     broken = dataclasses.replace(tf, fit=_raise)

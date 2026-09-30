@@ -14,10 +14,13 @@ def test_the_task_timeout_fires_before_the_outer_watchdog():
 
 
 def test_killing_the_reusable_workers_issues_a_kill(monkeypatch):
+    """Killing the reusable workers issues a kill."""
     killed = {}
 
     class _Exec:
+        """Fake loky executor that records the kill_workers flag passed to shutdown."""
         def shutdown(self, kill_workers=False):
+            """Record the kill_workers flag."""
             killed["kill_workers"] = kill_workers
 
     import joblib.externals.loky as loky
@@ -28,9 +31,11 @@ def test_killing_the_reusable_workers_issues_a_kill(monkeypatch):
 
 
 def test_a_failure_to_kill_is_reported_not_raised(monkeypatch):
+    """A failure to kill is reported not raised."""
     import joblib.externals.loky as loky
 
     def _boom(*a, **k):
+        """Raise as if no reusable executor existed."""
         raise RuntimeError("no executor here")
 
     monkeypatch.setattr(loky, "get_reusable_executor", _boom)

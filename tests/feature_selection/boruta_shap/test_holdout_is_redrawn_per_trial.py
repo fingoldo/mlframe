@@ -12,10 +12,12 @@ import mlframe.feature_selection.boruta_shap as bs
 
 
 def _run(monkeypatch, **kw):
+    """Run a Boruta-SHAP selection while recording the random_state of every train_test_split call."""
     seeds = []
     real = bs.train_test_split
 
     def spy(*a, **k):
+        """Record the split's random_state, then delegate to the real train_test_split."""
         seeds.append(k.get("random_state"))
         return real(*a, **k)
 
@@ -31,6 +33,7 @@ def _run(monkeypatch, **kw):
 
 
 def test_the_opt_in_redraws_the_holdout_each_trial(monkeypatch):
+    """The opt in redraws the holdout each trial."""
     seeds = _run(monkeypatch, resample_holdout_per_trial=True)
     assert len(seeds) >= 2 and len(set(seeds)) == len(seeds), f"trials reused a split seed: {seeds}"
     assert seeds[0] == 7

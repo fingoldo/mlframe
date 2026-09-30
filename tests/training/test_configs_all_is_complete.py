@@ -6,6 +6,7 @@ import mlframe.training.configs as configs
 
 
 def test_star_import_brings_every_public_config_class():
+    """Star import brings every public config class."""
     classes = [name for name, obj in vars(configs).items() if inspect.isclass(obj) and obj.__module__.startswith("mlframe") and not name.startswith("_")]
     assert len(classes) > 20
     missing = sorted(set(classes) - set(configs.__all__))

@@ -20,6 +20,7 @@ from mlframe.metrics.quantile import coverage, pinball_loss, winkler_score
 
 
 def test_empty_quantile_losses_are_nan_not_perfect():
+    """Empty quantile losses are nan not perfect."""
     e = np.array([], dtype=np.float64)
     assert np.isnan(pinball_loss(e, e, 0.5))
     assert np.isnan(coverage(e, e, e))
@@ -27,6 +28,7 @@ def test_empty_quantile_losses_are_nan_not_perfect():
 
 
 def test_minus_one_plus_one_labels_score_like_sklearn():
+    """Minus one plus one labels score like sklearn."""
     rng = np.random.default_rng(0)
     n = 1000
     y = (rng.random(n) < 0.4).astype(int)
@@ -51,6 +53,7 @@ def test_lift_on_tied_scores_is_deterministic_and_equals_the_tie_expectation():
 
 
 def test_lift_without_ties_is_unchanged():
+    """Lift without ties is unchanged."""
     rng = np.random.default_rng(1)
     ys = rng.random(1000)
     yt = (rng.random(1000) < ys).astype(int)

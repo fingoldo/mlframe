@@ -14,11 +14,13 @@ from mlframe.metrics.calibration import ICE_UNCOMPUTABLE
 
 
 def _brier(y_true, y_score, sample_weight=None):
+    """Weighted Brier score of the positive-class column of y_score."""
     p = np.asarray(y_score)[:, 1]
     return float(np.average((p - np.asarray(y_true)) ** 2, weights=sample_weight))
 
 
 def _data(n, seed=0):
+    """Random logits with labels drawn from their sigmoid probabilities."""
     rng = np.random.default_rng(seed)
     logit = rng.normal(size=n)
     y = (rng.random(n) < 1.0 / (1.0 + np.exp(-logit))).astype(np.float64)
@@ -26,6 +28,7 @@ def _data(n, seed=0):
 
 
 def test_learn_set_scored_on_subsample_not_sentinel():
+    """Learn set scored on subsample not sentinel."""
     m = ICE(metric=_brier, higher_is_better=False, skip_largest_set=True, learn_sample_size=2_000)
     lv, ly = _data(20_000, seed=1)
     vv, vy = _data(3_000, seed=2)
@@ -40,12 +43,14 @@ def test_learn_set_scored_on_subsample_not_sentinel():
 
 
 def test_oversized_eval_set_is_subsampled_not_sentinel():
+    """Oversized eval set is subsampled not sentinel."""
     m = ICE(metric=_brier, higher_is_better=False, max_arr_size=1_000)
     v, y = _data(5_000, seed=3)
     assert m.evaluate((v,), y, None)[0] < 0.5
 
 
 def test_sample_weights_follow_the_subsample():
+    """Sample weights follow the subsample."""
     m = ICE(metric=_brier, higher_is_better=False, max_arr_size=1_000)
     v, y = _data(5_000, seed=4)
     w = np.where(y > 0, 3.0, 1.0)
@@ -53,6 +58,7 @@ def test_sample_weights_follow_the_subsample():
 
 
 def test_legacy_skip_opt_out_keeps_sentinel():
+    """Legacy skip opt out keeps sentinel."""
     m = ICE(metric=_brier, higher_is_better=False, skip_largest_set=True, subsample_skipped_sets=False)
     lv, ly = _data(5_000)
     vv, vy = _data(1_000)
@@ -62,6 +68,7 @@ def test_legacy_skip_opt_out_keeps_sentinel():
 
 
 def test_subsample_cache_not_pickled():
+    """Subsample cache not pickled."""
     import pickle
 
     m = ICE(metric=_brier, higher_is_better=False, max_arr_size=1_000)
@@ -74,6 +81,7 @@ def test_subsample_cache_not_pickled():
 
 
 def test_catboost_learn_curve_has_no_sentinel():
+    """Catboost learn curve has no sentinel."""
     catboost = pytest.importorskip("catboost")
     rng = np.random.default_rng(0)
     X = rng.normal(size=(3_000, 4))
@@ -89,9 +97,11 @@ def test_catboost_learn_curve_has_no_sentinel():
 
 
 def test_eval_set_larger_than_learn_is_scored_in_full():
+    """Eval set larger than learn is scored in full."""
     sizes = []
 
     def _rec(y_true, y_score):
+        """Record the size of the set being scored and return a constant."""
         sizes.append(len(y_true))
         return 0.25
 
@@ -105,6 +115,7 @@ def test_eval_set_larger_than_learn_is_scored_in_full():
 
 
 def test_catboost_scores_learn_before_eval_even_when_eval_is_larger():
+    """Catboost scores learn before eval even when eval is larger."""
     catboost = pytest.importorskip("catboost")
     rng = np.random.default_rng(0)
     X = rng.normal(size=(3_000, 4))

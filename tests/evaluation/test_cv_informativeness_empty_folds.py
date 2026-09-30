@@ -8,6 +8,7 @@ from mlframe.evaluation.cv_informativeness import cv_informativeness_check
 
 
 def test_an_exhausted_split_generator_yields_unknown_not_false():
+    """An exhausted split generator yields unknown not false."""
     rng = np.random.default_rng(0)
     X, y = rng.normal(size=(40, 2)), rng.normal(size=40)
     out = cv_informativeness_check(X, y, iter([]), Ridge, r2_score)
@@ -16,6 +17,7 @@ def test_an_exhausted_split_generator_yields_unknown_not_false():
 
 
 def test_measured_folds_still_give_a_boolean():
+    """Measured folds still give a boolean."""
     rng = np.random.default_rng(2)
     X = rng.normal(size=(120, 2))
     y = X[:, 0] * 3 + rng.normal(scale=0.1, size=120)

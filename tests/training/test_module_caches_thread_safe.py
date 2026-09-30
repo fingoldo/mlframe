@@ -7,9 +7,11 @@ from mlframe.training.composite.discovery import _screening_tiny as st
 
 
 def _hammer(fn, n_threads=8, n_iter=200):
+    """Call fn(thread, iteration) from n_threads threads and fail if any raised."""
     errors = []
 
     def work(t):
+        """One thread's loop over iterations, collecting exceptions."""
         try:
             for i in range(n_iter):
                 fn(t, i)
@@ -25,6 +27,7 @@ def _hammer(fn, n_threads=8, n_iter=200):
 
 
 def test_training_config_cache_never_holds_a_pin_without_its_entry(monkeypatch):
+    """Training config cache never holds a pin without its entry."""
     import mlframe.training.trainer as trainer
 
     monkeypatch.setattr(trainer, "get_training_configs", lambda **kw: {"seed": kw["random_seed"]})
@@ -33,6 +36,7 @@ def test_training_config_cache_never_holds_a_pin_without_its_entry(monkeypatch):
     tc._GTC_CACHE_SUBGROUPS_PIN.clear()
 
     def call(t, i):
+        """Fetch cached training configs and assert the result matches the seed."""
         res = tc._get_training_configs_cached(random_seed=(t * 7 + i) % 11, subgroups={"g": [t]})
         assert res == {"seed": (t * 7 + i) % 11}
 
@@ -43,10 +47,12 @@ def test_training_config_cache_never_holds_a_pin_without_its_entry(monkeypatch):
 
 
 def test_kfold_split_cache_serves_correct_splits_under_contention(monkeypatch):
+    """Kfold split cache serves correct splits under contention."""
     monkeypatch.setattr(st, "_KFOLD_SPLIT_CACHE_MAX", 3)
     st._KFOLD_SPLIT_CACHE.clear()
 
     def call(t, i):
+        """Fetch cached K-fold splits and assert the test folds partition the rows."""
         n = 20 + (t + i) % 5
         splits = st._cached_kfold_splits(n, 4, 0)
         assert sorted(int(x) for _, te in splits for x in te) == list(range(n)), "test folds must partition the rows"

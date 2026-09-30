@@ -9,15 +9,18 @@ from mlframe.training._preprocessing_configs import PreprocessingExtensionsConfi
 
 
 def test_pysr_is_fitted_on_the_labelled_rows(monkeypatch):
+    """Pysr is fitted on the labelled rows."""
     import mlframe.feature_engineering.bruteforce as bruteforce
     from mlframe.training.pipeline import _pipeline_extensions_pysr as pysr_fe
 
     seen = {}
 
     class _Stop(Exception):
+        """Sentinel raised to abort once the frame has been captured."""
         pass
 
     def _fake_run(df, target_col, **kwargs):
+        """Capture the target values and row count, then abort."""
         seen["y"] = df[target_col].to_numpy().copy()
         seen["n"] = len(df)
         raise _Stop  # the fit itself is not under test; the helper logs it and returns []

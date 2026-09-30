@@ -7,9 +7,11 @@ import mlframe.feature_selection.cascade_select_stability as css
 
 
 def test_each_run_sees_half_the_rows_with_no_duplicates(monkeypatch):
+    """Each run sees half the rows with no duplicates."""
     seen = []
 
     def fake_cascade(X, y, estimator_factory, **kw):
+        """Record the row ids of the subsample each cascade run is given and return an empty selection."""
         seen.append(X["row_id"].to_numpy().copy())
         return {"final_selected": []}
 

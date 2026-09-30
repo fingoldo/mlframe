@@ -42,6 +42,7 @@ def _singleton_group_split(seed: int = 0):
 
 
 def test_singleton_groups_no_longer_emit_zero_or_one():
+    """Singleton groups no longer emit zero or one."""
     frame, y_train, _y_val = _singleton_group_split()
     _train, val_pred, _test, _diag = _per_group_predict(frame, frame, frame, y_train, "g", "binary_classification")
     assert not np.any(val_pred == 0.0), "a one-row group must not predict a certain negative"
@@ -87,6 +88,7 @@ def test_shrinkage_strength_tracks_the_signal_to_noise_ratio():
     weak = rng.normal(0, 0.01, 200)[gid] + rng.normal(0, 1, 2000)
 
     def _m(y):
+        """Empirical-Bayes pseudocounts for target y given the group means."""
         means = pd.Series(y).groupby(gid).mean().to_numpy()
         return _empirical_bayes_pseudocounts(y, sizes, means, float(y.mean()))
 
@@ -105,6 +107,7 @@ def test_polars_and_pandas_paths_agree():
 
 
 def test_unseen_groups_still_fall_back_to_the_global_mean():
+    """Unseen groups still fall back to the global mean."""
     frame, y_train, _y_val = _singleton_group_split(seed=5)
     unseen = pd.DataFrame({"g": np.array([f"unseen{i}" for i in range(200)])})
     _train, val_pred, _test, _diag = _per_group_predict(frame, unseen, unseen, y_train, "g", "binary_classification")

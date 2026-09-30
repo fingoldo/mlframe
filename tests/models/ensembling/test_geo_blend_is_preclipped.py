@@ -8,6 +8,7 @@ from mlframe.models.ensembling.base import combine_probs
 
 
 def test_an_out_of_range_member_does_not_inflate_the_geometric_mean():
+    """An out of range member does not inflate the geometric mean."""
     good = np.array([[0.2, 0.8], [0.6, 0.4]])
     leaky = np.array([[0.2, 1.4], [0.6, 0.4]])  # a raw margin leaking through as a "probability"
     clipped = np.clip(leaky, 0.0, 1.0)

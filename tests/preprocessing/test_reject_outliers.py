@@ -45,6 +45,7 @@ def test_reject_outliers_preferentially_drops_the_injected_outlier_cluster():
 
 
 def test_reject_outliers_no_outliers_present_keeps_almost_everything():
+    """Reject outliers no outliers present keeps almost everything."""
     pytest.importorskip("imblearn", reason="the default reject_outliers pipeline is built on imblearn, an optional dependency")
     """On data with no genuine outlier structure, IsolationForest's default contamination still flags a
     small fraction (its own baseline rate) -- but the vast majority of rows must survive."""

@@ -15,6 +15,7 @@ N = 40
 
 
 def test_groups_train_largest_first_narrow_once_and_models_keep_the_given_order(monkeypatch):
+    """Groups train largest first narrow once and models keep the given order."""
     ctx = TrainingContext()
     ctx.behavior_config = TrainingBehaviorConfig(min_labelled_train_rows=3, min_labelled_val_rows=1, min_labelled_test_rows=1, min_labelled_calib_rows=1)
     ctx.train_idx, ctx.val_idx, ctx.test_idx = np.arange(30), np.arange(30, 35), np.arange(35, 40)
@@ -30,6 +31,7 @@ def test_groups_train_largest_first_narrow_once_and_models_keep_the_given_order(
     real_scope = loop.target_row_scope
 
     def counting_scope(c, rows):
+        """Record each scope entry's rows, then delegate."""
         entries.append(rows)
         return real_scope(c, rows)
 
@@ -37,6 +39,7 @@ def test_groups_train_largest_first_narrow_once_and_models_keep_the_given_order(
     trained = []
 
     def train_one(c, tt, targets_, name, values):
+        """Record the model name and whether a row scope is active, and store the model."""
         trained.append((name, active_rows() is not None))
         c.models.setdefault(tt, {})[name] = name
 

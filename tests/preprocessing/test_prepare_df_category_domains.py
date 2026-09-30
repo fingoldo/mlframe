@@ -17,6 +17,7 @@ def test_a_later_frame_is_coded_against_the_training_domain():
 
 
 def test_an_unseen_value_becomes_missing_rather_than_borrowing_a_code():
+    """An unseen value becomes missing rather than borrowing a code."""
     later = prepare_df_for_xgboost(pd.DataFrame({"g": ["a", "zzz"]}), cat_features=["g"], category_domains={"g": ["a", "b"]})
     assert list(later["g"].cat.codes) == [0, -1]
 

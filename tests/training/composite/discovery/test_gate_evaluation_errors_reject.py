@@ -28,6 +28,7 @@ def raising_inverse(monkeypatch):
     """``linear_residual`` whose inverse raises, as a transform does on rows outside what it can invert."""
 
     def _raise(*_a, **_k):
+        """Fail as a non-invertible row set would."""
         raise ValueError("cannot invert these rows")
 
     monkeypatch.setitem(_TRANSFORMS_REGISTRY, "linear_residual", dataclasses.replace(_TRANSFORMS_REGISTRY["linear_residual"], inverse=_raise))

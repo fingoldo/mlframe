@@ -262,6 +262,7 @@ def test_gpu_kernel_speedup_at_width_2000():
     )
 
     def _timed(use_gpu: bool):
+        """Return the wall time and labels of one clustering run on the chosen backend."""
         t0 = time.perf_counter()
         labels = cluster_correlated_features_su(bins, threshold=0.4, feature_names=names, use_gpu=use_gpu, gpu_min_features=10)
         return time.perf_counter() - t0, labels

@@ -211,11 +211,13 @@ def test_codep112_train_recurrent_models_reads_from_ctx():
     from mlframe.training.core._main_train_suite_phases import run_recurrent_finalize_and_composite_post
 
     class _Stop(Exception):
+        """Sentinel raised to abort once the kwargs are captured."""
         pass
 
     received = {}
 
     def _train_recurrent_models(**kwargs):
+        """Capture the keyword arguments, then abort."""
         received.update(kwargs)
         raise _Stop
 

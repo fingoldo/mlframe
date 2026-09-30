@@ -7,6 +7,7 @@ from mlframe.training.configs import AutoMLConfig
 
 
 def _capture(monkeypatch):
+    """Patch the AutoGluon and LAMA trainers to record their kwargs."""
     seen = {}
     monkeypatch.setattr(automl, "train_autogluon_model", lambda **kw: seen.setdefault("ag", kw) and None)
     monkeypatch.setattr(automl, "train_lama_model", lambda **kw: seen.setdefault("lama", kw) and None)
@@ -14,11 +15,13 @@ def _capture(monkeypatch):
 
 
 def _run(config):
+    """Run the AutoML suite on a four-row frame with the config."""
     df = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "target": [0, 1, 0, 1]})
     automl.train_automl_models_suite(train_df=df, test_df=df, target_name="target", config=config)
 
 
 def test_time_limit_is_forwarded(monkeypatch):
+    """Time limit is forwarded."""
     seen = _capture(monkeypatch)
     _run(AutoMLConfig(use_autogluon=True, use_lama=True, time_limit=60))
     assert seen["ag"]["fit_params"] == {"time_limit": 60}
@@ -26,6 +29,7 @@ def test_time_limit_is_forwarded(monkeypatch):
 
 
 def test_explicit_library_key_wins_and_unset_budget_changes_nothing(monkeypatch):
+    """Explicit library key wins and unset budget changes nothing."""
     seen = _capture(monkeypatch)
     _run(AutoMLConfig(use_autogluon=True, use_lama=True, time_limit=60, autogluon_fit_params={"time_limit": 5, "presets": "x"}))
     assert seen["ag"]["fit_params"] == {"time_limit": 5, "presets": "x"}

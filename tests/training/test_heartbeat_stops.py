@@ -6,6 +6,7 @@ from mlframe.training import crash_diagnostics as cd
 
 
 def test_stop_then_restart():
+    """Stop then restart."""
     hb = cd.start_heartbeat(3600)
     assert hb is not None and hb.alive
     cd.stop_heartbeat()

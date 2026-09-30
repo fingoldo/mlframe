@@ -10,6 +10,7 @@ from mlframe.training.core._misc_helpers import _ensure_logging_visible
 
 @pytest.fixture(autouse=True)
 def _restore_logging():
+    """Restore root and package logger handlers and levels afterwards."""
     root, pkg = logging.getLogger(), logging.getLogger("mlframe")
     saved = (list(root.handlers), root.level, list(pkg.handlers), pkg.level, pkg.propagate)
     yield
@@ -18,6 +19,7 @@ def _restore_logging():
 
 
 def test_an_applications_root_handler_keeps_its_formatter_and_level():
+    """An applications root handler keeps its formatter and level."""
     root, pkg = logging.getLogger(), logging.getLogger("mlframe")
     root.handlers = []
     app_handler = logging.StreamHandler(stream=sys.stdout)
@@ -36,6 +38,7 @@ def test_an_applications_root_handler_keeps_its_formatter_and_level():
 
 
 def test_a_bare_process_gets_a_timestamped_handler_on_the_package_logger():
+    """A bare process gets a timestamped handler on the package logger."""
     root, pkg = logging.getLogger(), logging.getLogger("mlframe")
     root.handlers = []
     pkg.handlers, pkg.level, pkg.propagate = [], logging.NOTSET, True
@@ -48,6 +51,7 @@ def test_a_bare_process_gets_a_timestamped_handler_on_the_package_logger():
 
 
 def test_a_second_call_does_not_add_another_handler():
+    """A second call does not add another handler."""
     root, pkg = logging.getLogger(), logging.getLogger("mlframe")
     root.handlers = []
     pkg.handlers, pkg.level, pkg.propagate = [], logging.NOTSET, True

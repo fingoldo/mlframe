@@ -63,6 +63,7 @@ def test_environment_variables_doc_is_current():
     import re
 
     def _rows(text):
+        """Strip line-number anchors so rows compare independent of source positions."""
         return re.sub(r"#L\d+\)", ")", text)
 
     assert _rows(README_PATH.read_text(encoding="utf-8")) == _rows(_gen.render_markdown()), "run python scripts/gen_environment_variables_doc.py"

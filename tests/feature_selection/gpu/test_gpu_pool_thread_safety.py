@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters import gpu as fs_gpu
 
 
 def _factors(seed: int, n: int = 3000, nbins: int = 4) -> np.ndarray:
+    """Random integer factor matrix of n rows and two columns with nbins levels."""
     rng = np.random.default_rng(seed)
     return rng.integers(0, nbins, size=(n, 2)).astype(np.int32)
 
@@ -30,9 +31,11 @@ def test_the_pool_is_held_for_the_whole_block_not_just_the_allocation(monkeypatc
     original_ensure = fs_gpu._GPU_POOL.ensure
 
     def probing_ensure(*args, **kwargs):
+        """Stand-in for pool allocation that probes from another thread whether the pool lock is held."""
         done = threading.Event()
 
         def other_thread():
+            """Try to take the pool lock without blocking and record whether it was unavailable."""
             # False means another thread could NOT take the lock, i.e. this block is exclusive.
             acquired = fs_gpu._GPU_POOL_LOCK.acquire(blocking=False)
             if acquired:
@@ -60,6 +63,7 @@ def test_concurrent_callers_get_the_same_answers_as_serial_ones():
     barrier = threading.Barrier(len(beds))
 
     def work(i):
+        """Wait at the barrier, then compute the GPU MI for this thread's factor pair."""
         f, nb = beds[i]
         barrier.wait(timeout=30)
         got[i] = fs_gpu.mi_direct_gpu(f, (0,), (1,), (nb, nb), npermutations=8, base_seed=11)[0]

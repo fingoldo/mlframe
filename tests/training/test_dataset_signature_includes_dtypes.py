@@ -15,14 +15,17 @@ from mlframe.training import _dataset_cache_fingerprint as fp
 
 
 def _df():
+    """Two float columns."""
     return pd.DataFrame({"a": np.arange(10.0), "b": np.arange(10.0)})
 
 
 def test_identical_frames_share_a_key():
+    """Identical frames share a key."""
     assert fp.compute_signature(_df()) == fp.compute_signature(_df())
 
 
 def test_a_recast_changes_the_key():
+    """A recast changes the key."""
     assert fp.compute_signature(_df()) != fp.compute_signature(_df().astype(np.float32))
     assert fp.compute_signature(pl.from_pandas(_df())) != fp.compute_signature(pl.from_pandas(_df().astype(np.float32)))
     assert fp.compute_signature(np.zeros((3, 2))) != fp.compute_signature(np.zeros((3, 2), dtype=np.float32))
@@ -31,5 +34,6 @@ def test_a_recast_changes_the_key():
 
 
 def test_an_unhashable_frame_never_matches(monkeypatch):
+    """An unhashable frame never matches."""
     monkeypatch.setattr(fp, "_row_sample_hash", lambda X, n: None)
     assert fp.compute_signature(_df()) != fp.compute_signature(_df())

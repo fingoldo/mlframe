@@ -9,12 +9,14 @@ import mlframe.reporting.diagnostics_dispatch as dd
 
 
 def test_same_frames_fit_once(monkeypatch, tmp_path):
+    """Same frames fit once."""
     calls = []
     import mlframe.reporting.charts.drift as drift
 
     orig = drift.adversarial_validation
 
     def _spy(*a, **k):
+        """Count each adversarial fit, then delegate to the original."""
         calls.append(1)
         return orig(*a, **k)
 

@@ -13,6 +13,7 @@ from mlframe.metrics.classification._classification_report import fast_calibrati
 
 
 def test_float32_and_float64_predictions_report_the_same_log_loss():
+    """Float32 and float64 predictions report the same log loss."""
     rng = np.random.default_rng(0)
     n = 2000
     p = rng.random(n)

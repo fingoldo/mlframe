@@ -128,6 +128,7 @@ def test_a_split_whose_predict_raises_is_reported(caplog):
     entry = ctx["models"]["regression"]["y-linresmulti-base0"][0]
 
     def _boom(*_a, **_k):
+        """Fail as a broken predict would."""
         raise RuntimeError("predict exploded")
 
     # The shared predict engine raises, so every scoring path (predict, predict_with_pre_clip) fails the way a broken inner does.

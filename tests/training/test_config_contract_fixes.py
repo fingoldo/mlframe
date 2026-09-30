@@ -18,17 +18,20 @@ from mlframe.training.configs import FeatureSelectionConfig, PreprocessingConfig
 
 
 def test_a_dumped_feature_selection_config_revalidates():
+    """A dumped feature selection config revalidates."""
     cfg = FeatureSelectionConfig(rfecv_models=["cb"], rfecv_swap_top_k=3)
     again = FeatureSelectionConfig(**cfg.model_dump())
     assert again.rfecv_kwargs == cfg.rfecv_kwargs == {"swap_top_k": 3}
 
 
 def test_a_genuine_conflict_still_raises():
+    """A genuine conflict still raises."""
     with pytest.raises(ValueError, match="BOTH as a first-class lever"):
         FeatureSelectionConfig(rfecv_models=["cb"], rfecv_swap_top_k=3, rfecv_kwargs={"swap_top_k": 5})
 
 
 def test_the_preprocessing_skip_flag_default_matches_the_data_config():
+    """The preprocessing skip flag default matches the data config."""
     from mlframe.training.configs import DataConfig
 
     assert PreprocessingConfig().skip_infinity_checks is False
@@ -36,6 +39,7 @@ def test_the_preprocessing_skip_flag_default_matches_the_data_config():
 
 
 def test_setting_the_inert_preprocessing_flag_warns():
+    """Setting the inert preprocessing flag warns."""
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         PreprocessingConfig(skip_infinity_checks=True)
@@ -43,6 +47,7 @@ def test_setting_the_inert_preprocessing_flag_warns():
 
 
 def test_leaving_it_alone_does_not_warn():
+    """Leaving it alone does not warn."""
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         PreprocessingConfig()

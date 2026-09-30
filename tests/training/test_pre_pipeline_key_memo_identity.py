@@ -9,6 +9,7 @@ import mlframe.training.pipeline._pipeline_cache as pc
 
 
 def test_a_recycled_id_does_not_return_the_previous_pipelines_key(monkeypatch):
+    """A recycled id does not return the previous pipelines key."""
     X = pd.DataFrame({"a": np.arange(20.0), "b": np.arange(20.0) ** 2})
     y = np.arange(20) % 2
     # Every object reports the same id(): the worst case of CPython reusing a freed object's address.
@@ -19,6 +20,7 @@ def test_a_recycled_id_does_not_return_the_previous_pipelines_key(monkeypatch):
 
 
 def test_the_same_objects_still_hit_the_memo(monkeypatch):
+    """The same objects still hit the memo."""
     X = pd.DataFrame({"a": np.arange(20.0)})
     y = np.arange(20) % 2
     pipe = Pipeline([("s", StandardScaler())])

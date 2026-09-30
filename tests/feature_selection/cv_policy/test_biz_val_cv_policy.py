@@ -19,6 +19,7 @@ def _regime_frame(seed: int, n: int = 600, block: int = 20):
 
 
 def _select(seed: int, follow_policy: bool) -> set:
+    """Return the forward-selected feature set, with or without wiring the temporal CV policy into the selector."""
     X, y, ts = _regime_frame(seed)
     sel = ForwardSelectSelector(DecisionTreeClassifier(max_depth=6, random_state=0), cv=4, max_features=1, scoring="roc_auc", random_state=seed)
     if follow_policy:
@@ -27,6 +28,7 @@ def _select(seed: int, follow_policy: bool) -> set:
 
 
 def test_biz_val_cv_policy_forward_select_temporal_avoids_time_memorising_feature():
+    """Biz val cv policy forward select temporal avoids time memorising feature."""
     seeds = range(4)
     shuffled = [_select(s, follow_policy=False) for s in seeds]
     temporal = [_select(s, follow_policy=True) for s in seeds]

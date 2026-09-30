@@ -13,6 +13,7 @@ _N = 400
 
 
 def _msgs(caplog, col):
+    """Sanitize a frame holding the generated column and return the high-cardinality warnings logged."""
     rng = np.random.default_rng(0)
     df = pd.DataFrame({"c": col(rng), "x1": rng.normal(size=_N)})
     sel = RFECV(estimator=LogisticRegression(), cv=3, verbose=0, random_state=0, drop_id_like_sequences=False)
@@ -22,33 +23,40 @@ def _msgs(caplog, col):
 
 
 def _countlike(rng, frac):
+    """Shuffled integer column in which frac of the rows are distinct and the rest repeat earlier values."""
     k = int(_N * frac)
     base = rng.permutation(np.arange(2 * _N))[:k]
     return np.concatenate([base, rng.choice(base, _N - k)])[rng.permutation(_N)]
 
 
 def test_monotonic_autoincrement_int_warns_with_details(caplog):
+    """Monotonic autoincrement int warns with details."""
     msgs = _msgs(caplog, lambda rng: np.arange(_N))
     assert len(msgs) == 1 and "monotonic" in msgs[0] and "nunique=400" in msgs[0] and "n=400" in msgs[0] and "int64" in msgs[0]
 
 
 def test_random_large_range_int_hash_warns(caplog):
+    """Random large range int hash warns."""
     msgs = _msgs(caplog, lambda rng: rng.choice(10**7, _N, replace=False))
     assert len(msgs) == 1 and "hash-like" in msgs[0]
 
 
 def test_non_monotonic_countlike_int_with_unique_frac_0_6_does_not_warn(caplog):
+    """Non monotonic countlike int with unique frac 0 6 does not warn."""
     assert _msgs(caplog, lambda rng: _countlike(rng, 0.6)) == []
 
 
 def test_non_monotonic_int_with_unique_frac_above_0_9_warns(caplog):
+    """Non monotonic int with unique frac above 0 9 warns."""
     msgs = _msgs(caplog, lambda rng: rng.permutation(_N))
     assert len(msgs) == 1 and "high-cardinality" in msgs[0]
 
 
 def test_integer_valued_float_id_warns(caplog):
+    """Integer valued float id warns."""
     assert len(_msgs(caplog, lambda rng: rng.choice(10**7, _N, replace=False).astype(float))) == 1
 
 
 def test_continuous_float_does_not_warn(caplog):
+    """Continuous float does not warn."""
     assert _msgs(caplog, lambda rng: rng.normal(size=_N)) == []

@@ -15,6 +15,7 @@ def test_a_binary_column_gives_every_zero_the_same_score():
 
 
 def test_within_batch_matches_the_reference_on_the_fitting_data():
+    """Within batch matches the reference on the fitting data."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame({"c": rng.integers(0, 5, size=300).astype(float)})
     batch, _ = _compute_extremality_matrix(X, ["c"])

@@ -82,6 +82,7 @@ def test_concurrent_predicts_count_every_call_and_keep_their_own_shrink_flags():
     barrier = threading.Barrier(8)
 
     def _worker(k: int) -> None:
+        """Predict repeatedly on its own batch and record any shrink info that mismatches the batch."""
         batch = cont.iloc[: 10 + 5 * k]
         barrier.wait()
         for _ in range(150):

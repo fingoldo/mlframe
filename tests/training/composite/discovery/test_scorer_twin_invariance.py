@@ -42,6 +42,7 @@ def scaled_twin(t, k: float = _K):
 
 
 def _data(n=1500, seed=0):
+    """Target driven by a base and a nonlinear feature, with the base and feature matrix."""
     rng = np.random.default_rng(seed)
     base = rng.uniform(1.0, 5.0, n)
     x = rng.normal(size=(n, 4))
@@ -50,10 +51,12 @@ def _data(n=1500, seed=0):
 
 
 def _first(v):
+    """First element when given a tuple, else the value, as a float."""
     return float(v[0] if isinstance(v, tuple) else v)
 
 
 def _tiny_cv(transform, family):
+    """Tiny-model CV RMSE on the y scale for the transform."""
     from mlframe.training.composite.discovery._screening_tiny_perbin import _tiny_cv_rmse_y_scale
 
     y, base, x = _data()
@@ -63,6 +66,7 @@ def _tiny_cv(transform, family):
 
 
 def _auto_chain_cv(transform):
+    """Auto-chain CV RMSE on the y scale for the transform."""
     from mlframe.training.composite.discovery._auto_chain import _y_scale_cv_rmse
 
     y, base, x = _data()
@@ -71,6 +75,7 @@ def _auto_chain_cv(transform):
 
 
 def _mi_gain(transform):
+    """Auto-chain MI gain for the transform."""
     from mlframe.training.composite.discovery._auto_chain import _mi_gain_of
 
     y, base, x = _data()
@@ -78,6 +83,7 @@ def _mi_gain(transform):
 
 
 def _calibration(k):
+    """Calibration-adjusted score when out-of-fold and in-fold errors are both scaled by k."""
     from mlframe.training.composite.discovery._calibration_gate import calibration_adjusted_score
 
     rng = np.random.default_rng(1)
@@ -117,6 +123,7 @@ SPEC_SCORERS = {
 
 
 def _scorer_functions() -> set[str]:
+    """Names of scorer functions found in the discovery package sources."""
     out = set()
     for path in _DISCOVERY.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -126,6 +133,7 @@ def _scorer_functions() -> set[str]:
 
 
 def test_every_scorer_named_function_is_registered():
+    """Every scorer named function is registered."""
     registered = {k.split("[")[0] for k in SPEC_SCORERS}
     found = _scorer_functions()
     assert not (found - registered), f"register these in SPEC_SCORERS (y-scale runner, T-scale guard, or why n/a): {sorted(found - registered)}"
@@ -135,6 +143,7 @@ def test_every_scorer_named_function_is_registered():
 @pytest.mark.parametrize("name", sorted(k for k, (kind, run) in SPEC_SCORERS.items() if kind == "y_scale" and run is not None))
 @pytest.mark.parametrize("transform_name", ["linear_residual", "diff"])
 def test_a_y_scale_scorer_gives_a_transform_and_its_scaled_twin_the_same_score(name, transform_name):
+    """A y scale scorer gives a transform and its scaled twin the same score."""
     run = SPEC_SCORERS[name][1]
     t = get_transform(transform_name)
     a, b = run(t), run(scaled_twin(t))
@@ -143,10 +152,12 @@ def test_a_y_scale_scorer_gives_a_transform_and_its_scaled_twin_the_same_score(n
 
 
 def test_the_calibration_score_is_invariant_to_the_residual_scale():
+    """The calibration score is invariant to the residual scale."""
     np.testing.assert_allclose(_calibration(_K), _calibration(1.0), rtol=1e-9)
 
 
 def test_the_region_adaptive_fit_refuses_a_candidate_of_another_t_scale():
+    """The region adaptive fit refuses a candidate of another t scale."""
     from mlframe.training.composite.discovery._region_adaptive import fit_region_adaptive
 
     y, base, _ = _data()
@@ -157,6 +168,7 @@ def test_the_region_adaptive_fit_refuses_a_candidate_of_another_t_scale():
 
 
 def test_the_scaled_twin_reconstructs_the_same_y():
+    """The scaled twin reconstructs the same y."""
     y, base, _ = _data(200)
     t = get_transform("linear_residual")
     p = t.fit(y, base)

@@ -5,6 +5,7 @@ from mlframe.training.core._phase_helpers_fit_pipeline import extensions_with_sp
 
 
 def test_unset_seed_inherits_the_split_seed():
+    """Unset seed inherits the split seed."""
     assert PreprocessingExtensionsConfig().random_seed is None
     assert extensions_with_split_seed(None, 7).random_seed == 7
     assert extensions_with_split_seed({"pysr_enabled": False}, 8).random_seed == 8
@@ -12,6 +13,7 @@ def test_unset_seed_inherits_the_split_seed():
 
 
 def test_explicit_seed_is_kept():
+    """Explicit seed is kept."""
     assert extensions_with_split_seed(PreprocessingExtensionsConfig(random_seed=0), 7).random_seed == 0
     assert extensions_with_split_seed({"random_seed": 3}, 7).random_seed == 3
 
@@ -23,9 +25,11 @@ def test_suite_threads_the_split_seed(monkeypatch):
     seen = {}
 
     class _Stop(Exception):
+        """Sentinel raised to abort once the seed has been captured."""
         pass
 
     def _capture(**kwargs):
+        """Capture the extensions' random_seed, then abort."""
         seen["seed"] = kwargs["preprocessing_extensions"].random_seed
         raise _Stop
 

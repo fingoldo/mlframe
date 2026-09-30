@@ -10,6 +10,7 @@ from mlframe.training.composite import CompositeTargetEstimator
 
 
 def _data(n=20000, seed=0):
+    """Feature frame and a lognormal target whose geometric mean is far below its mean."""
     rng = np.random.default_rng(seed)
     x = rng.normal(size=n)
     y = np.exp(1.0 + 0.5 * x + rng.normal(scale=1.0, size=n))  # lognormal noise: geometric mean << mean
@@ -18,6 +19,7 @@ def _data(n=20000, seed=0):
 
 @pytest.mark.parametrize("transform", ["log_y", "cbrt_y"])
 def test_smeared_prediction_is_mean_unbiased(transform):
+    """Smeared prediction is mean unbiased."""
     from sklearn.linear_model import LinearRegression
 
     X, y = _data()

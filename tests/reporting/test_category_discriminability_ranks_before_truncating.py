@@ -7,9 +7,11 @@ from mlframe.reporting import _diagnostics_dispatch_extra as dx
 
 
 def test_truncation_follows_importance_not_frame_order(monkeypatch):
+    """Truncation follows importance not frame order."""
     seen = {}
 
     def _compose(df, y, features, **kw):
+        """Capture the feature list it is handed, then abort."""
         seen["features"] = list(features)
         raise RuntimeError("stop after capturing the feature list")
 

@@ -17,6 +17,7 @@ from mlframe.feature_selection.wrappers import RFECV
 
 
 def _replay(sel, rule):
+    """Re-run the optimal-feature-count selection under another rule and return the new support mask."""
     sel.n_features_selection_rule = rule
     cv = sel.cv_results_
     sel.select_optimal_nfeatures_(
@@ -26,6 +27,7 @@ def _replay(sel, rule):
 
 
 def test_biz_val_rfecv_one_se_band_se_keeps_fewer_features_at_equal_oos():
+    """Biz val rfecv one se band se keeps fewer features at equal oos."""
     X, y = make_classification(400, 200, n_informative=8, n_redundant=0, class_sep=1.5, random_state=0, shuffle=False)
     X = pd.DataFrame((X - X.mean(0)) / X.std(0), columns=[f"f{i}" for i in range(200)])
     n_legacy, n_se, auc_legacy, auc_se = [], [], [], []

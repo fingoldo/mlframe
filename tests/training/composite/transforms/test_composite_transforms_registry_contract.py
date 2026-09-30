@@ -317,6 +317,7 @@ def test_a_recursive_inverse_served_row_by_row_with_history_is_local(name: str):
                 kw.update(groups=g_fit[i : i + 1], history_groups=g_fit[:i])
 
             def one(th, kw=kw):
+                """Invert a single t-hat value with the transform's params."""
                 return float(t.inverse(np.array([th]), None, params, **kw)[0])
 
             moved.append(abs(one(T[i] + delta) - one(T[i])))

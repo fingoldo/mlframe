@@ -8,6 +8,7 @@ from mlframe.training.composite.discovery._skew_gate import RIGHT_TAIL_COMPRESSO
 
 
 def test_left_skewed_score_skips_compressors():
+    """Left skewed score skips compressors."""
     rng = np.random.default_rng(0)
     y = np.clip(5.0 - rng.exponential(0.3, 50000), 0.0, 5.0)
     assert left_skewed_right_tail_skips(y) == RIGHT_TAIL_COMPRESSORS
@@ -15,11 +16,13 @@ def test_left_skewed_score_skips_compressors():
 
 
 def test_right_skewed_target_keeps_them():
+    """Right skewed target keeps them."""
     rng = np.random.default_rng(1)
     assert left_skewed_right_tail_skips(rng.lognormal(0, 1.5, 50000)) == frozenset()
 
 
 def test_discovery_skips_them_on_left_skewed_target():
+    """Discovery skips them on left skewed target."""
     import pandas as pd
 
     from mlframe.training.composite import CompositeTargetDiscovery

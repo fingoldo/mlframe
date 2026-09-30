@@ -19,6 +19,7 @@ from mlframe.training.cb._cb_polars_text import cb_text_features_as_strings, mod
 
 
 def _frame(n: int = 50, seed: int = 0) -> pl.DataFrame:
+    """Polars frame with a numeric, a true categorical and a text-like categorical column."""
     rng = np.random.default_rng(seed)
     return pl.DataFrame({
         "num": rng.standard_normal(n).astype(np.float32),
@@ -31,20 +32,24 @@ class TestCast:
     """Only text features that are categorical change; everything else is returned as the very same object."""
 
     def test_categorical_text_feature_becomes_string(self):
+        """Categorical text feature becomes string."""
         out = text_columns_as_strings(_frame(), ["skills_text"])
         assert out.schema["skills_text"] == pl.String
         assert out.schema["true_cat"] == pl.Categorical, "cat features stay categorical: that is what CatBoost wants for them"
 
     def test_enum_text_feature_becomes_string(self):
+        """Enum text feature becomes string."""
         df = _frame().with_columns(pl.col("skills_text").cast(pl.String).cast(pl.Enum([f"s_{i:04d}" for i in range(20)])))
         assert text_columns_as_strings(df, ["skills_text"]).schema["skills_text"] == pl.String
 
     @pytest.mark.parametrize("text", [None, [], ["num"], ["absent"]])
     def test_nothing_to_cast_returns_the_same_frame(self, text):
+        """Nothing to cast returns the same frame."""
         df = _frame()
         assert text_columns_as_strings(df, text) is df
 
     def test_pandas_is_left_alone(self):
+        """Pandas is left alone."""
         pdf = _frame().to_pandas()
         assert text_columns_as_strings(pdf, ["skills_text"]) is pdf
 
@@ -59,6 +64,7 @@ def test_the_fit_helper_covers_train_and_every_eval_frame():
 
 
 def test_non_catboost_models_are_not_touched():
+    """Non catboost models are not touched."""
     tr = _frame()
     fit_params = {"text_features": ["skills_text"]}
     assert cb_text_features_as_strings("LGBMClassifier", tr, fit_params) is tr
@@ -68,9 +74,11 @@ def test_predict_side_reads_the_models_own_text_features():
     """At predict time the model, not fit_params, says which columns are text."""
 
     class _Fitted:
+        """Fitted-model stand-in declaring the third column as its text feature."""
         feature_names_ = ["num", "true_cat", "skills_text"]
 
         def get_text_feature_indices(self):
+            """Return the text feature index."""
             return [2]
 
     assert model_text_feature_names(_Fitted()) == ["skills_text"]

@@ -15,6 +15,7 @@ from sklearn.metrics import log_loss, roc_auc_score
 
 
 def _regime_change(seed, n=4000, k=40):
+    """Categorical target relationship that flips halfway through the rows."""
     rng = np.random.default_rng(seed)
     c = rng.integers(0, k, n)
     base = rng.normal(size=k)
@@ -24,6 +25,7 @@ def _regime_change(seed, n=4000, k=40):
 
 
 def _mean_scores(has_time):
+    """Mean log-loss and AUC over six seeds of a chronological split, with has_time on or off."""
     ll, auc = [], []
     for seed in range(6):
         X, y = _regime_change(seed)
@@ -37,6 +39,7 @@ def _mean_scores(has_time):
 
 
 def test_biz_val_catboost_has_time_regime_change_beats_shuffled_permutation():
+    """Biz val catboost has time regime change beats shuffled permutation."""
     ll_off, auc_off = _mean_scores(False)
     ll_on, auc_on = _mean_scores(True)
     assert ll_off - ll_on >= 0.10, (ll_off, ll_on)

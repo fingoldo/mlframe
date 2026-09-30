@@ -9,6 +9,7 @@ from mlframe.utils.warning_filters import install_filter_once
 
 
 def test_a_filter_is_installed_once_and_stays():
+    """A filter is installed once and stays."""
     marker = "mlframe-test-unique-message-xyz"
     assert install_filter_once(message=marker) is True
     assert install_filter_once(message=marker) is False, "a repeat install must not stack another filter"
@@ -26,6 +27,7 @@ def test_numeric_suppression_does_not_restore_another_threads_filters():
     errors = []
 
     def work():
+        """Enter the suppression block together with the other thread, then count divide warnings raised inside."""
         try:
             with _suppress_numeric_warnings():
                 inside.wait()  # both threads are inside the block at the same time
@@ -45,6 +47,7 @@ def test_numeric_suppression_does_not_restore_another_threads_filters():
 
 
 def test_the_numeric_suppressor_restores_the_error_state_afterwards():
+    """The numeric suppressor restores the error state afterwards."""
     from mlframe.feature_engineering.numerical import _suppress_numeric_warnings
 
     before = np.geterr()

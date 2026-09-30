@@ -15,10 +15,12 @@ import mlframe.training.core._predict_main_suite as pms
 
 
 def _record_kwargs(monkeypatch, module, fn_name):
+    """Patch the function to record the auxiliary events of each per-batch call."""
     seen = []
     real = getattr(module, fn_name)
 
     def spy(df, *a, **kw):
+        """Record auxiliary events for per-batch calls and return dummy predictions, else delegate."""
         if kw.get("predict_batch_rows") is None:  # the per-batch recursion, not the entry call
             seen.append(kw.get("auxiliary_events_df"))
             return {"predictions": {"m": np.zeros(len(df))}, "probabilities": {}}
@@ -29,6 +31,7 @@ def _record_kwargs(monkeypatch, module, fn_name):
 
 
 def test_in_memory_batches_receive_the_events_table(monkeypatch):
+    """In memory batches receive the events table."""
     spy, seen = _record_kwargs(monkeypatch, pmm, "predict_from_models")
     events = pd.DataFrame({"entity": [1, 2], "t": [0.0, 1.0]})
     spy(pd.DataFrame({"x": np.arange(25.0)}), {}, {}, predict_batch_rows=10, auxiliary_events_df=events, verbose=0)
@@ -36,6 +39,7 @@ def test_in_memory_batches_receive_the_events_table(monkeypatch):
 
 
 def test_disk_batches_receive_the_events_table(monkeypatch, tmp_path):
+    """Disk batches receive the events table."""
     # The bundle is loaded once, before the batches are dispatched, so a run over an empty directory needs it stubbed.
     monkeypatch.setattr(pms, "_load_suite_metadata", lambda *a, **kw: {"pipeline": None})
     spy, seen = _record_kwargs(monkeypatch, pms, "predict_mlframe_models_suite")

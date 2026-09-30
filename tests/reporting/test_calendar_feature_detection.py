@@ -9,6 +9,7 @@ from mlframe.reporting.charts._calendar_features import calendar_feature_names
 
 
 def test_detects_calendar_encodings_not_real_features():
+    """Detects calendar encodings not real features."""
     rng = np.random.default_rng(0)
     n = 5000
     ts = np.datetime64("2026-03-01") + np.sort(rng.integers(0, 180 * 86400, n)).astype("timedelta64[s]")
@@ -27,5 +28,6 @@ def test_detects_calendar_encodings_not_real_features():
 
 
 def test_numeric_timestamps_detect_nothing():
+    """Numeric timestamps detect nothing."""
     frame = pd.DataFrame({"a": np.arange(100.0)})
     assert calendar_feature_names(frame, np.arange(100.0)) == []

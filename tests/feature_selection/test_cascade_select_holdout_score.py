@@ -10,20 +10,25 @@ cs = importlib.import_module("mlframe.feature_selection.cascade_select")  # the 
 
 
 class _Model:
+    """Minimal estimator that records its training columns and always scores 0.5."""
     def fit(self, X, y):
+        """Remember the training column names and return self."""
         self.cols_ = list(X.columns)
         return self
 
     def score(self, X, y):
+        """Return a constant score of 0.5."""
         return 0.5
 
 
 def test_holdout_score_uses_the_final_subset_on_the_caller_rows():
+    """Holdout score uses the final subset on the caller rows."""
     X = pd.DataFrame({"a": np.arange(10.0), "b": np.arange(10.0)})
     score = cs._holdout_score(_Model, X, np.zeros(10), ["a"], X.iloc[:4], np.zeros(4), None)
     assert score == pytest.approx(0.5)
 
 
 def test_without_a_holdout_there_is_no_score():
+    """Without a holdout there is no score."""
     X = pd.DataFrame({"a": np.arange(10.0)})
     assert cs._holdout_score(_Model, X, np.zeros(10), ["a"], None, None, None) is None

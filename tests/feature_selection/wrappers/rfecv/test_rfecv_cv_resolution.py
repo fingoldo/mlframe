@@ -16,6 +16,7 @@ LOGGER = "mlframe.feature_selection.wrappers.rfecv"
 
 
 def _resolve(cv, *, n=40, estimator=None, groups=None, fit_params=None, cv_shuffle=False, val_nsplits=10):
+    """Resolve cv and validation cv for a small synthetic problem with the given options."""
     X = pd.DataFrame({"a": np.arange(n, dtype=float), "b": np.arange(n, dtype=float) % 7})
     y = np.arange(n) % 2
     return _resolve_cv_and_val_cv(
@@ -45,6 +46,7 @@ def test_sklearn_splitter_instance_builds_val_cv_without_warning(cv, caplog):
 
 
 def test_leave_one_out_still_warns_that_val_nsplits_cannot_apply(caplog):
+    """Leave one out still warns that val nsplits cannot apply."""
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         _cv, val_cv, _ = _resolve(LeaveOneOut(), val_nsplits=5)
     assert isinstance(val_cv, LeaveOneOut)
@@ -53,6 +55,7 @@ def test_leave_one_out_still_warns_that_val_nsplits_cannot_apply(caplog):
 
 @pytest.mark.parametrize("spec", ["KFold", KFold, "5"], ids=["name", "class", "numeric_string"])
 def test_cv_given_as_name_class_or_numeric_string_resolves_to_a_splitter(spec, caplog):
+    """Cv given as name class or numeric string resolves to a splitter."""
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         cv, val_cv, _ = _resolve(spec, estimator=Ridge(), val_nsplits=4)
     assert isinstance(cv, KFold)
@@ -62,6 +65,7 @@ def test_cv_given_as_name_class_or_numeric_string_resolves_to_a_splitter(spec, c
 
 
 def test_unknown_splitter_name_raises():
+    """Unknown splitter name raises."""
     with pytest.raises(ValueError, match="not a known CV splitter name"):
         _resolve("NoSuchSplit")
 
@@ -78,6 +82,7 @@ def test_unsorted_timestamps_hint_gives_timestamp_ordered_folds():
 
 
 def test_unsorted_timestamps_hint_with_groups_orders_groups_by_time():
+    """Unsorted timestamps hint with groups orders groups by time."""
     n = 60
     rng = np.random.default_rng(1)
     ts = rng.permutation(n)
@@ -90,6 +95,7 @@ def test_unsorted_timestamps_hint_with_groups_orders_groups_by_time():
 
 
 def test_timestamp_ordered_split_matches_time_series_split_on_sorted_rows():
+    """Timestamp ordered split matches time series split on sorted rows."""
     n = 50
     ref = [(tr.tolist(), te.tolist()) for tr, te in TimeSeriesSplit(n_splits=4).split(np.zeros(n))]
     got = [(tr.tolist(), te.tolist()) for tr, te in TimestampOrderedSplit(n_splits=4, timestamps=np.arange(n)).split(np.zeros(n))]
@@ -97,6 +103,7 @@ def test_timestamp_ordered_split_matches_time_series_split_on_sorted_rows():
 
 
 def test_timestamp_ordered_split_on_shuffled_datetimes_returns_chronological_folds():
+    """Timestamp ordered split on shuffled datetimes returns chronological folds."""
     n = 80
     order = np.random.default_rng(2).permutation(n)
     ts = pd.Series(pd.date_range("2024-01-01", periods=n, freq="h").to_numpy()[order])
@@ -109,6 +116,7 @@ def test_timestamp_ordered_split_on_shuffled_datetimes_returns_chronological_fol
 
 
 def test_timestamp_ordered_split_length_mismatch_warns_and_uses_row_order(caplog):
+    """Timestamp ordered split length mismatch warns and uses row order."""
     splitter = TimestampOrderedSplit(n_splits=3, timestamps=np.arange(10)[::-1])
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         folds = list(splitter.split(np.zeros(20)))
@@ -117,6 +125,7 @@ def test_timestamp_ordered_split_length_mismatch_warns_and_uses_row_order(caplog
 
 
 def test_timestamp_ordered_split_shares_timestamps_on_deepcopy_and_drops_them_from_pickle(caplog):
+    """Timestamp ordered split shares timestamps on deepcopy and drops them from pickle."""
     import copy
     import pickle
 

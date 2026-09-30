@@ -19,34 +19,40 @@ _G = np.array([0, 0, 0, 1, 1, 2, 2, 2])
 
 
 def _setup(category, model, **kw):
+    """Run eval-set setup for the model and category and return the fit params."""
     fp = {}
     _setup_eval_set(type(model).__name__, fp, _X, _Y, model_obj=model, model_category=category, **kw)
     return fp
 
 
 def test_xgboost_gets_val_weights_but_no_qid_on_a_classifier():
+    """Xgboost gets val weights but no qid on a classifier."""
     fp = _setup("xgb", xgboost.XGBClassifier(), sample_weight_val=_W, group_ids_val=_G)
     assert fp["sample_weight_eval_set"][0] is _W
     assert "eval_qid" not in fp, "XGBClassifier.fit has no eval_qid; passing it would crash the fit"
 
 
 def test_xgboost_ranker_gets_eval_qid():
+    """Xgboost ranker gets eval qid."""
     fp = _setup("xgb", xgboost.XGBRanker(), group_ids_val=_G)
     assert list(fp["eval_qid"][0]) == list(_G)
 
 
 def test_lightgbm_reads_eval_sample_weight_not_the_xgboost_name():
+    """Lightgbm reads eval sample weight not the xgboost name."""
     fp = _setup("lgb", lightgbm.LGBMClassifier(), sample_weight_val=_W, group_ids_val=_G)
     assert fp["eval_sample_weight"][0] is _W
     assert "sample_weight_eval_set" not in fp and "eval_group" not in fp
 
 
 def test_lightgbm_ranker_gets_group_sizes():
+    """Lightgbm ranker gets group sizes."""
     fp = _setup("lgb", lightgbm.LGBMRanker(), group_ids_val=_G)
     assert list(fp["eval_group"][0]) == [3, 2, 3]
 
 
 def test_catboost_val_weights_land_on_the_eval_pool():
+    """Catboost val weights land on the eval pool."""
     from mlframe.training.cb._cb_eval_weights import apply_cb_eval_sample_weights
 
     fp = _setup("cb", catboost.CatBoostClassifier(), sample_weight_val=_W)
@@ -60,6 +66,7 @@ def test_catboost_val_weights_land_on_the_eval_pool():
 
 
 def test_a_reused_catboost_pool_is_reset_when_the_next_fit_is_unweighted():
+    """A reused catboost pool is reset when the next fit is unweighted."""
     from mlframe.training.cb._cb_eval_weights import CB_EVAL_WEIGHTS_KEY, apply_cb_eval_sample_weights
 
     pool = catboost.Pool(_X, _Y)
@@ -70,6 +77,7 @@ def test_a_reused_catboost_pool_is_reset_when_the_next_fit_is_unweighted():
 
 
 def test_uniform_weights_leave_the_catboost_eval_set_untouched():
+    """Uniform weights leave the catboost eval set untouched."""
     from mlframe.training.cb._cb_eval_weights import CB_EVAL_WEIGHTS_KEY, apply_cb_eval_sample_weights
 
     fp = {"eval_set": [(_X, _Y)], CB_EVAL_WEIGHTS_KEY: [np.ones(8)]}
@@ -78,6 +86,7 @@ def test_uniform_weights_leave_the_catboost_eval_set_untouched():
 
 
 def test_an_unrecognised_model_name_warns_that_it_trains_without_early_stopping(caplog):
+    """An unrecognised model name warns that it trains without early stopping."""
     fp = {}
     with caplog.at_level(logging.WARNING, logger="mlframe.training._data_helpers"):
         _setup_eval_set("MyBoostWrapper", fp, _X, _Y)

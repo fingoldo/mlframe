@@ -15,6 +15,7 @@ from mlframe.metrics._core_brier import _fast_brier_checked_par, _fast_brier_sco
 
 @pytest.mark.parametrize("n", [300_000, 1_000_003])
 def test_the_parallel_kernel_is_reproducible(n):
+    """The parallel kernel is reproducible."""
     rng = np.random.default_rng(11)
     y_true = (rng.random(n) < 0.5).astype(np.float64)
     y_prob = rng.random(n)
@@ -23,6 +24,7 @@ def test_the_parallel_kernel_is_reproducible(n):
 
 
 def test_both_parallel_kernels_agree_with_each_other():
+    """Both parallel kernels agree with each other."""
     rng = np.random.default_rng(3)
     n = 400_000
     y_true = (rng.random(n) < 0.3).astype(np.float64)
@@ -42,6 +44,7 @@ def test_the_parallel_kernel_stays_within_fp_tolerance_of_the_sequential_one():
 
 
 def test_an_invalid_probability_still_reaches_the_nan_guard_from_any_chunk():
+    """An invalid probability still reaches the nan guard from any chunk."""
     rng = np.random.default_rng(7)
     n = 300_000
     y_true = (rng.random(n) < 0.5).astype(np.float64)
@@ -65,6 +68,7 @@ def test_the_parallel_log_loss_is_reproducible(n):
 
 
 def test_the_parallel_separation_score_is_reproducible():
+    """The parallel separation score is reproducible."""
     from mlframe.metrics._log_loss_and_separation import probability_separation_score
 
     rng = np.random.default_rng(13)

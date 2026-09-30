@@ -11,6 +11,7 @@ N = 600
 
 
 def _frame(seed=7):
+    """Polars frame of shuffled hourly rows with a target linear in x0 and the row id."""
     rng = np.random.default_rng(seed)
     ts = np.datetime64("2024-01-01T00:00:00", "ns") + (np.arange(N) * 3_600_000_000_000).astype("timedelta64[ns]")
     ts = ts[rng.permutation(N)]  # rows are NOT chronological
@@ -20,6 +21,7 @@ def _frame(seed=7):
 
 
 def _run(tmp_path, order):
+    """Train a suite on the frame with chronological train ordering on or off."""
     from mlframe.training.configs import BaselineDiagnosticsConfig, DummyBaselinesConfig, OutputConfig, PreprocessingBackendConfig, ReportingConfig, TrainingBehaviorConfig
     from mlframe.training._preprocessing_configs import TrainingSplitConfig
     from mlframe.training.core import train_mlframe_models_suite
@@ -40,11 +42,13 @@ def _run(tmp_path, order):
 
 
 def _entries(models):
+    """Flatten trained model entries across targets into plain model results."""
     trained = [e for per_target in models.values() for entries in per_target.values() for e in entries]
     return [e[0] if isinstance(e, tuple) and e else e for e in trained]
 
 
 def test_shuffled_time_frame_is_chronological_aligned_and_has_time(tmp_path):
+    """Shuffled time frame is chronological aligned and has time."""
     models, md = _run(tmp_path, True)
     assert md["train_chronological_order"] == "reordered"
     fitted = _entries(models)[0]
@@ -67,6 +71,7 @@ def test_shuffled_time_frame_is_chronological_aligned_and_has_time(tmp_path):
 
 
 def test_opt_out_keeps_row_order_and_has_time_off(tmp_path):
+    """Opt out keeps row order and has time off."""
     models, md = _run(tmp_path, False)
     assert "train_chronological_order" not in md
     fitted = _entries(models)[0]

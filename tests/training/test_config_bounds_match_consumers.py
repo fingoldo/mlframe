@@ -30,11 +30,13 @@ from mlframe.training._training_runtime_configs import MetricsConfig, SliceStabl
     ],
 )
 def test_the_value_is_rejected(build):
+    """The value is rejected."""
     with pytest.raises((ValidationError, ValueError)):
         build()
 
 
 def test_the_valid_neighbours_still_construct():
+    """The valid neighbours still construct."""
     TrainingBehaviorConfig(oof_n_splits=0)
     TrainingBehaviorConfig(oof_n_splits=2)
     MetricsConfig(nbins=2)

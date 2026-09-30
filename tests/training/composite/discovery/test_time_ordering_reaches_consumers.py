@@ -66,11 +66,13 @@ def test_the_drift_gate_halves_are_the_time_halves():
     train_idx = np.arange(n)
 
     class _Spec:
+        """Spec stand-in for a linear-residual transform on a base column."""
         transform_name = "linear_residual"
         base_column = "base"
         name = "spec"
 
     class _Disc:
+        """Discovery stand-in with drift detection on and a permuted time ordering."""
         config = type("C", (), {"detect_linear_residual_alpha_drift": True, "alpha_drift_z_threshold": 3.0, "reject_on_alpha_drift": False})()
         _auto_base_pool: dict = {}
         _time_ordering_ = time_key[perm]

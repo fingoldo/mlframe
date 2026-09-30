@@ -16,14 +16,17 @@ from mlframe.training.pipeline import _full_target_content_hash, target_label_ch
 
 @pytest.mark.parametrize("last, new", [("", ""), ("abc", ""), ("", "abc"), (None, "abc"), ("abc", None)])
 def test_an_unknown_signature_forces_the_swap(last, new):
+    """An unknown signature forces the swap."""
     assert target_label_changed(last, new) is True
 
 
 def test_equal_signatures_reuse_the_cached_label():
+    """Equal signatures reuse the cached label."""
     assert target_label_changed("abc", "abc") is False
 
 
 def test_different_signatures_swap():
+    """Different signatures swap."""
     assert target_label_changed("abc", "def") is True
 
 
@@ -31,10 +34,12 @@ def test_two_distinct_unhashable_targets_do_not_look_identical():
     """The live shape of the bug: the helper yields "" for both, and "" == "" used to mean "same target"."""
 
     class _Unhashable:
+        """Target stand-in that has a length but cannot be converted to numpy."""
         def __len__(self):
             return 3
 
         def to_numpy(self):
+            """Raise TypeError, as an unconvertible target would."""
             raise TypeError("this target cannot be converted")
 
     a, b = _Unhashable(), _Unhashable()
@@ -44,6 +49,7 @@ def test_two_distinct_unhashable_targets_do_not_look_identical():
 
 
 def test_two_distinct_hashable_targets_are_separated():
+    """Two distinct hashable targets are separated."""
     a = np.array([0, 1, 1, 0], dtype=np.int64)
     b = np.array([1, 0, 0, 1], dtype=np.int64)
     assert target_label_changed(_full_target_content_hash(a), _full_target_content_hash(b)) is True

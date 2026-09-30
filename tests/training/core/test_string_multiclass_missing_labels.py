@@ -20,5 +20,6 @@ def test_missing_labels_are_not_a_class_and_stay_missing():
 
 
 def test_a_fully_labelled_target_still_gets_integer_codes():
+    """A fully labelled target still gets integer codes."""
     codes = _encode_string_multiclass_target(TargetTypes.MULTICLASS_CLASSIFICATION, "g", np.array(["b", "a"], dtype=object), {})
     assert codes.dtype == np.int64 and codes.tolist() == [1, 0]

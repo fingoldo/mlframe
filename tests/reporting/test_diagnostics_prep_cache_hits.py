@@ -17,12 +17,14 @@ from mlframe.reporting.diagnostics_dispatch import _prepared_error_inputs
 
 @pytest.fixture(autouse=True)
 def _clean_cache():
+    """Clear the shared error-prep cache before and after the test."""
     prep.clear_shared_error_prep()
     yield
     prep.clear_shared_error_prep()
 
 
 def _bed(n: int = 200):
+    """Two random features with a target and a noisy prediction of it."""
     rng = np.random.default_rng(0)
     df = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n)})
     y_true = rng.normal(size=n)
@@ -31,6 +33,7 @@ def _bed(n: int = 200):
 
 
 def _call(df, y_true, y_pred, n=None, builds=None):
+    """Request prepared error inputs for the first n rows, counting builds when requested."""
     yt = np.asarray(y_true).ravel()
     yp = np.asarray(y_pred).ravel()
     n = n if n is not None else len(yt)
@@ -40,6 +43,7 @@ def _call(df, y_true, y_pred, n=None, builds=None):
 
 
 def test_two_entry_point_calls_build_once():
+    """Two entry point calls build once."""
     df, y_true, y_pred = _bed()
     first = _call(df, y_true, y_pred)
     second = _call(df, y_true, y_pred)
@@ -57,6 +61,7 @@ def test_a_different_row_count_is_a_different_entry():
 
 
 def test_different_targets_do_not_share_a_prep():
+    """Different targets do not share a prep."""
     df, y_true, y_pred = _bed()
     other = y_pred + 1.0
     _call(df, y_true, y_pred)

@@ -317,6 +317,7 @@ def test_relevancy_quantile_zero_means_the_nanmax_baseline(monkeypatch):
     real = numpy.nanquantile
 
     def spy(a, q, *args, **kwargs):
+        """Record the quantile requested, then delegate to the real quantile function."""
         seen.append(q)
         return real(a, q, *args, **kwargs)
 

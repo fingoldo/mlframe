@@ -9,11 +9,13 @@ from mlframe.training.configs import FairnessConfig, LinearModelConfig, MLPConfi
 
 @pytest.mark.parametrize("cls", [TreeModelConfig, MLPConfig, NGBConfig])
 def test_unconsumed_class_warns_on_construction(cls):
+    """Unconsumed class warns on construction."""
     with pytest.warns(FutureWarning, match="not read by the training suite"):
         cls()
 
 
 def test_consumed_class_does_not_warn():
+    """Consumed class does not warn."""
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         LinearModelConfig()
@@ -21,5 +23,6 @@ def test_consumed_class_does_not_warn():
 
 
 def test_fairness_enabled_warns():
+    """Fairness enabled warns."""
     with pytest.warns(UserWarning, match="enabled=True has no effect"):
         FairnessConfig(enabled=True)

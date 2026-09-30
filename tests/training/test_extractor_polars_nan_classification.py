@@ -15,6 +15,7 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 
 def _frame(backend: str, missing):
+    """Four-row frame in the given backend with a hired column containing the missing value."""
     data = {"x": [1.0, 2.0, 3.0, 4.0], "hired": [0.0, 2.0, missing, 1.0]}
     return pl.DataFrame(data, strict=False) if backend == "polars" else pd.DataFrame(data)
 
@@ -31,6 +32,7 @@ def _frame(backend: str, missing):
     ],
 )
 def test_a_missing_classification_label_stays_missing(backend, missing, rule, name, expected):
+    """A missing classification label stays missing."""
     extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["hired"], **rule)
     y = np.asarray(next(iter(extractor.build_targets(_frame(backend, missing)).values()))[name], dtype=np.float64)
     assert np.isnan(y[2]), f"the unlabelled row became {y[2]!r}"
@@ -39,6 +41,7 @@ def test_a_missing_classification_label_stays_missing(backend, missing, rule, na
 
 @pytest.mark.parametrize("backend", ["polars", "pandas"])
 def test_a_fully_labelled_classification_target_is_still_int8(backend):
+    """A fully labelled classification target is still int8."""
     extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["hired"], classification_gte_thresholds={"hired": 1})
     y = next(iter(extractor.build_targets(_frame(backend, 0.0)).values()))["hired_gte_1"]
     assert np.asarray(y).dtype == np.int8
@@ -46,6 +49,7 @@ def test_a_fully_labelled_classification_target_is_still_int8(backend):
 
 
 def test_fractional_labelled_values_are_still_refused():
+    """Fractional labelled values are still refused."""
     df = pd.DataFrame({"x": [1.0, 2.0, 3.0], "cls": [0.0, 1.5, None]})
     with pytest.raises(ValueError, match="non-integer"):
         SimpleFeaturesAndTargetsExtractor(classification_targets=["cls"]).build_targets(df)
@@ -61,6 +65,7 @@ def test_string_labels_are_refused_with_gaps_as_without(missing):
 
 
 def test_integer_labels_in_an_object_column_keep_their_gaps():
+    """Integer labels in an object column keep their gaps."""
     df = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "grade": pd.Series([0, 2, None, 1], dtype=object)})
     y = SimpleFeaturesAndTargetsExtractor(classification_targets=["grade"]).build_targets(df)
     y = np.asarray(next(iter(y.values()))["grade"], dtype=np.float64)

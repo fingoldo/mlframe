@@ -14,12 +14,14 @@ from mlframe.metrics.calibration._calibration_plot import calibration_binning
 
 
 def _bed(n=200, seed=0):
+    """Uniform probabilities and labels drawn from them."""
     rng = np.random.default_rng(seed)
     p = rng.random(n)
     return (rng.random(n) < p).astype(int), p
 
 
 def test_the_last_bin_is_a_real_bin():
+    """The last bin is a real bin."""
     y, p = _bed()
     hits = calibration_binning(y, p, nbins=10, strategy="uniform")[2]
     assert len(hits) == 10
@@ -27,6 +29,7 @@ def test_the_last_bin_is_a_real_bin():
 
 
 def test_two_bins_means_two_populated_bins():
+    """Two bins means two populated bins."""
     y, p = _bed()
     hits = calibration_binning(y, p, nbins=2, strategy="uniform")[2]
     assert len(hits) == 2 and hits.sum() == len(p)

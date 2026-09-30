@@ -19,6 +19,7 @@ from mlframe.metrics.scoring import rmsle_loss
 
 @pytest.mark.parametrize("n", [500, 300_000])
 def test_scorer_and_metric_agree_with_negative_rows(n):
+    """Scorer and metric agree with negative rows."""
     rng = np.random.default_rng(0)
     y_true = rng.gamma(2.0, 2.0, n)
     y_pred = y_true + rng.normal(0, 2.0, n)  # some predictions go negative
@@ -39,6 +40,7 @@ def test_pushing_rows_negative_is_not_rewarded():
 
 
 def test_the_parallel_path_is_reproducible():
+    """The parallel path is reproducible."""
     rng = np.random.default_rng(1)
     n = 400_000
     y_true = rng.gamma(2.0, 2.0, n)
@@ -47,5 +49,6 @@ def test_the_parallel_path_is_reproducible():
 
 
 def test_negative_rows_still_warn():
+    """Negative rows still warn."""
     with pytest.warns(RuntimeWarning, match="clipped to 0"):
         fast_rmsle(np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]), np.array([1.0, -2.0, 3.0, 4.0, 5.0, 6.0, 7.5]))

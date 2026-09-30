@@ -35,12 +35,14 @@ def _row_heights_px(fig, spec) -> list:
 
 
 def _line_grid(n_rows: int) -> FigureSpec:
+    """Figure spec of n_rows by two identical line panels."""
     x = np.linspace(0, 1, 20)
     panel = LinePanelSpec(x=x, y=x * x, title="panel", xlabel="x", ylabel="y")
     return FigureSpec(panels=tuple((panel, panel) for _ in range(n_rows)), figsize=(12.0, _CELL_H_IN * n_rows))
 
 
 def test_panel_height_does_not_shrink_with_row_count():
+    """Panel height does not shrink with row count."""
     renderer = get_renderer("plotly")
     per_row = {}
     for n_rows in (2, 3, 5):
@@ -53,6 +55,7 @@ def test_panel_height_does_not_shrink_with_row_count():
 
 
 def test_pit_panel_of_seven_panel_binary_report_keeps_its_height():
+    """Pit panel of seven panel binary report keeps its height."""
     rng = np.random.default_rng(0)
     y = rng.integers(0, 2, 4000)
     s = np.clip(0.3 * y + rng.random(4000) * 0.7, 0, 1)
@@ -65,6 +68,7 @@ def test_pit_panel_of_seven_panel_binary_report_keeps_its_height():
 
 
 def test_caption_clears_bottom_row_axis_title():
+    """Caption clears bottom row axis title."""
     spec = _line_grid(1)
     spec = FigureSpec(panels=spec.panels, figsize=spec.figsize, caption="How to read: something.")
     fig = get_renderer("plotly").render(spec)
@@ -76,6 +80,7 @@ def test_caption_clears_bottom_row_axis_title():
 
 
 def test_secondary_y_axis_title_does_not_collide_with_next_column():
+    """Secondary y axis title does not collide with next column."""
     x = np.linspace(0, 1, 20)
     left = LinePanelSpec(x=x, y=(x, 1 - x), secondary_y=(False, True), secondary_ylabel="queue rate", xlabel="t", ylabel="metric")
     right = LinePanelSpec(x=x, y=x, xlabel="f", ylabel="captured")
@@ -87,6 +92,7 @@ def test_secondary_y_axis_title_does_not_collide_with_next_column():
 
 
 def test_calibration_drift_figure_has_no_rangeslider():
+    """Calibration drift figure has no rangeslider."""
     rng = np.random.default_rng(1)
     n = 3000
     y = rng.integers(0, 2, n)

@@ -16,9 +16,11 @@ def test_the_forward_looking_gap_is_not_emitted_by_default():
 
 
 def test_it_is_available_when_asked_for_explicitly():
+    """It is available when asked for explicitly."""
     out = entity_inter_event_features(_IDS, _TS, include_forward_looking=True)
     np.testing.assert_allclose(out["time_to_next_event"], [1.0, 4.0, np.nan, 2.0, np.nan])
 
 
 def test_the_backward_gap_is_unchanged():
+    """The backward gap is unchanged."""
     np.testing.assert_allclose(entity_inter_event_features(_IDS, _TS)["time_since_prev_event"], [np.nan, 1.0, 4.0, np.nan, 2.0])

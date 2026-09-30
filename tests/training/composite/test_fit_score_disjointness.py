@@ -39,17 +39,20 @@ class _FitScoreSpy:
         orig = self.original
 
         def _fit(y, base, *args, **kwargs):
+            """Fit the original transform and tag params with the index of the recorded fit bases."""
             params = dict(orig.fit(y, base, *args, **kwargs))
             params[_TAG] = len(self.fit_bases)
             self.fit_bases.append(np.unique(np.asarray(base, dtype=np.float32).ravel()))
             return params
 
         def _inverse(t, base, params, *args, **kwargs):
+            """Record the fit tag and scored bases, then invert with the tag removed."""
             tag = params.get(_TAG) if isinstance(params, dict) else None
             self.scored.append((None if tag is None else int(tag), np.asarray(base, dtype=np.float32).ravel().copy()))
             return orig.inverse(t, base, {k: v for k, v in params.items() if k != _TAG}, *args, **kwargs)
 
         def _forward(y, base, params, *args, **kwargs):
+            """Apply the original forward transform with the tag removed."""
             return orig.forward(y, base, {k: v for k, v in params.items() if k != _TAG}, *args, **kwargs)
 
         _fit.__signature__ = inspect.signature(orig.fit)

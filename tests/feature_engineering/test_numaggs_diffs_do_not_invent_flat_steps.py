@@ -12,6 +12,7 @@ def test_a_step_from_zero_is_left_out_not_zeroed():
 
 
 def test_a_row_starting_at_zero_is_no_longer_identical_to_a_flat_row():
+    """A row starting at zero is no longer identical to a flat row."""
     names = get_numaggs_names(return_float32=True)
     rows = np.array([[0.0, 5.0, 10.0, 10.0], [5.0, 5.0, 5.0, 5.0]])
     out = numaggs_over_matrix_rows(rows, {}, use_diffs=True)

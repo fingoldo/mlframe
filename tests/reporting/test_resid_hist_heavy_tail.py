@@ -8,6 +8,7 @@ from mlframe.reporting.charts.regression import _resid_hist_panel
 
 
 def test_heavy_residuals_use_asinh_bins():
+    """Heavy residuals use asinh bins."""
     rng = np.random.default_rng(0)
     yt = np.where(rng.random(20000) < 0.7, 0.0, rng.lognormal(1, 1.5, 20000))
     panel = _resid_hist_panel(yt, np.abs(yt * 0.6 + rng.normal(size=yt.size)))
@@ -17,6 +18,7 @@ def test_heavy_residuals_use_asinh_bins():
 
 
 def test_gaussian_residuals_stay_linear():
+    """Gaussian residuals stay linear."""
     rng = np.random.default_rng(1)
     y = rng.normal(size=5000)
     panel = _resid_hist_panel(y, y + rng.normal(scale=0.3, size=y.size))

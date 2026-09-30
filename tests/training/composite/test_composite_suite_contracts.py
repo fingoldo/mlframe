@@ -32,6 +32,7 @@ class _Records(logging.Handler):
         self.records: list[logging.LogRecord] = []
 
     def emit(self, record):
+        """Store the log record."""
         self.records.append(record)
 
 
@@ -52,6 +53,7 @@ def suite(tmp_path_factory):
     real_hook = wrapping.emit_per_model_composite_y_scale_test
 
     def _hook_spy(**kw):
+        """Record the hook's kwargs, then return the real hook's result."""
         out = real_hook(**kw)
         _HOOK_CALLS.append(kw)
         return out
@@ -255,6 +257,7 @@ def grouped_suite(tmp_path_factory):
     real = moe_phase._restamp_shipped_metrics
 
     def _spy(metadata, target_type, target_name, shipped, y_full, splits):
+        """Capture the target, full y and splits passed in, then delegate."""
         captured.append((target_name, np.asarray(y_full, dtype=float), [(n, f, None if i is None else np.asarray(i)) for n, f, i in splits]))
         return real(metadata, target_type, target_name, shipped, y_full, splits)
 
@@ -262,6 +265,7 @@ def grouped_suite(tmp_path_factory):
     real_is_composite = dummy_phase.is_composite_target
 
     def _tag_spy(name, names, *a, **k):
+        """Tag each name as MTRESID or MTTR by the composite check, then return that result."""
         out = real_is_composite(name, names, *a, **k)
         tags.setdefault(str(name), set()).add("MTRESID" if out else "MTTR")
         return out

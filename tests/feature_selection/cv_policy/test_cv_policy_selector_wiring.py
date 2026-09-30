@@ -17,6 +17,7 @@ TS = np.random.default_rng(0).permutation(N)
 
 
 def _frame():
+    """Build N rows whose every column carries the row timestamp plus tiny noise, so a call reveals which rows it received, with a binary target."""
     rng = np.random.default_rng(1)
     # every column carries the row's timestamp (plus tiny noise) so a fit / predict call reveals which rows it was handed
     X = pd.DataFrame(TS[:, None] + 0.001 * rng.normal(size=(N, 4)), columns=list("abcd"))
@@ -31,45 +32,54 @@ class _TimeSpy(DecisionTreeClassifier):
     fits: list = []
 
     def fit(self, X, y, **kw):
+        """Record the newest training timestamp and fit normally."""
         arr = np.asarray(X)
         type(self).fits.append(arr[:, 0].max())
         self._train_max = arr[:, 0].max()
         return super().fit(X, y, **kw)
 
     def _check(self, X):
+        """Record a violation when prediction rows are older than the newest training row."""
         train_max = getattr(self, "_train_max", None)
         if train_max is not None and np.asarray(X)[:, 0].min() < train_max:
             type(self).violations.append((train_max, np.asarray(X)[:, 0].min()))
 
     def predict(self, X):
+        """Check row ordering, then predict."""
         self._check(X)
         return super().predict(X)
 
     def predict_proba(self, X):
+        """Check row ordering, then predict probabilities."""
         self._check(X)
         return super().predict_proba(X)
 
 
 def _reset():
+    """Clear the spy's recorded violations and fits."""
     _TimeSpy.violations = []
     _TimeSpy.fits = []
 
 
 def _temporal_policy():
+    """Temporal CV policy over the module's timestamps."""
     return CVPolicy("temporal", "test", TS)
 
 
 def _build_raw(**flags):
+    """Build the pre-pipelines with only the requested selectors enabled, returning pipelines and names."""
     flags.setdefault("use_mrmr_fs", False)
     return _build_pre_pipelines(use_ordinary_models=False, rfecv_models=[], rfecv_models_params={}, mrmr_kwargs=None, **flags)
 
 
 def _build(**flags):
+    """Build the pre-pipelines under the temporal policy and return them keyed by stripped name."""
     pipes, names = _build_raw(cv_policy=_temporal_policy(), target_type="binary_classification", **flags)
     return dict(zip([n.strip() for n in names], pipes))
 
 
 def test_build_pre_pipelines_swaps_cv_param_selectors_to_timestamp_ordered_split():
+    """Build pre pipelines swaps cv param selectors to timestamp ordered split."""
     built = _build(
         use_forward_select_fs=True, use_greedy_backward_elimination_fs=True, use_zero_importance_pruning_fs=True, use_cascade_select_fs=True,
     )
@@ -80,12 +90,14 @@ def test_build_pre_pipelines_swaps_cv_param_selectors_to_timestamp_ordered_split
 
 
 def test_build_pre_pipelines_stamps_holdout_selectors_and_mrmr():
+    """Build pre pipelines stamps holdout selectors and mrmr."""
     built = _build(use_mrmr_fs=True, use_ace_fs=True, use_boruta_shap=True, use_shap_proxied_fs=True)
     for name in ("MRMR", "ACE", "BorutaShap", "ShapProxiedFS"):
         assert get_cv_policy(built[name]).kind == "temporal", name
 
 
 def test_build_pre_pipelines_explicit_user_cv_wins():
+    """Build pre pipelines explicit user cv wins."""
     own = GroupKFold(n_splits=3)
     built = _build(use_forward_select_fs=True, forward_select_kwargs={"cv": own},
                    use_zero_importance_pruning_fs=True, zero_importance_pruning_kwargs={"cv": own})
@@ -95,6 +107,7 @@ def test_build_pre_pipelines_explicit_user_cv_wins():
 
 
 def test_build_pre_pipelines_without_policy_keeps_selector_defaults():
+    """Build pre pipelines without policy keeps selector defaults."""
     pipes, _ = _build_raw(use_forward_select_fs=True, use_zero_importance_pruning_fs=True)
     assert pipes[0].cv == 5 and pipes[1].cv is None and all(get_cv_policy(p) is None for p in pipes)
 
@@ -108,6 +121,7 @@ def test_build_pre_pipelines_without_policy_keeps_selector_defaults():
     ],
 )
 def test_functional_selectors_score_only_on_later_rows_than_they_fit(factory):
+    """Functional selectors score only on later rows than they fit."""
     _reset()
     X, y = _frame()
     factory(_temporal_policy()).fit(X, y)
@@ -139,6 +153,7 @@ def test_suite_built_selector_scores_only_on_later_rows_than_it_fits(kind, kwarg
 
 
 def test_greedy_backward_elimination_ignores_n_repeats_under_time_ordered_cv(caplog):
+    """Greedy backward elimination ignores n repeats under time ordered cv."""
     from mlframe.feature_selection.greedy_backward_elimination import greedy_backward_elimination
 
     _reset()
@@ -153,11 +168,13 @@ def test_greedy_backward_elimination_ignores_n_repeats_under_time_ordered_cv(cap
 
 
 def test_cascade_select_hands_time_ordered_cv_to_cascade_select(monkeypatch):
+    """Cascade select hands time ordered cv to cascade select."""
     import mlframe.feature_selection.functional_adapters as adapters
 
     seen = {}
 
     def spy_cascade(X, y, factory, **kw):
+        """Capture the cv argument passed to cascade_select and return an empty selection."""
         seen["cv"] = kw["cv"]
         return {"final_selected": []}
 
@@ -169,6 +186,7 @@ def test_cascade_select_hands_time_ordered_cv_to_cascade_select(monkeypatch):
 
 
 def test_ace_permutation_holdout_is_newest_rows_under_temporal_policy():
+    """Ace permutation holdout is newest rows under temporal policy."""
     from mlframe.feature_selection.ace import _pfi_split
 
     rng = np.random.default_rng(0)
@@ -179,6 +197,7 @@ def test_ace_permutation_holdout_is_newest_rows_under_temporal_policy():
 
 
 def test_ace_selector_fit_uses_policy_holdout(monkeypatch):
+    """Ace selector fit uses policy holdout."""
     import mlframe.feature_selection.ace as ace_mod
 
     calls = []
@@ -191,6 +210,7 @@ def test_ace_selector_fit_uses_policy_holdout(monkeypatch):
 
 
 def test_boruta_shap_holdout_is_newest_rows_under_temporal_policy():
+    """Boruta shap holdout is newest rows under temporal policy."""
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -205,15 +225,18 @@ def test_boruta_shap_holdout_is_newest_rows_under_temporal_policy():
 
 
 def test_shap_proxied_fs_holdout_and_oof_partition_follow_temporal_policy(monkeypatch):
+    """Shap proxied fs holdout and oof partition follow temporal policy."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain as explain_mod
 
     captured = {}
 
     class _Stop(Exception):
+        """Sentinel raised to abort once the policy has been captured."""
         pass
 
     def spy(*a, **kw):
+        """Capture the cv_policy passed in, then abort with _Stop."""
         captured["policy"] = kw.get("cv_policy")
         raise _Stop
 
@@ -233,11 +256,13 @@ def test_shap_proxied_fs_holdout_and_oof_partition_follow_temporal_policy(monkey
 
 
 def test_mrmr_heldout_gate_probe_uses_newest_third_under_temporal_policy(monkeypatch):
+    """Mrmr heldout gate probe uses newest third under temporal policy."""
     import mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._heldout_gate as gate
 
     captured = {}
 
     def fake_scorer(cols, y, tr, va):
+        """Capture the train and validation index arrays and return a zero-scoring closure."""
         captured["tr"], captured["va"] = tr.copy(), va.copy()
         return lambda extra=None: 0.0
 
@@ -250,6 +275,7 @@ def test_mrmr_heldout_gate_probe_uses_newest_third_under_temporal_policy(monkeyp
 
 
 def test_mrmr_stability_vote_folds_are_time_blocks_under_temporal_policy():
+    """Mrmr stability vote folds are time blocks under temporal policy."""
     from mlframe.feature_selection.filters._fe_stability_vote import _vote_folds
 
     folds = _vote_folds(_temporal_policy(), N, 5, np.random.default_rng(0))

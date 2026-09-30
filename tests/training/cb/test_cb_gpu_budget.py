@@ -127,6 +127,7 @@ def test_the_resumed_fit_does_not_run_under_the_guards_interrupt():
     calls = {"n": 0}
 
     def _fit_then_fail_on_resume(model, model_obj, name, X, y, fit_params, verbose=False):
+        """Fit on the first call and fail on any later (resumed) call."""
         calls["n"] += 1
         if calls["n"] > 1:
             raise ValueError("the resumed fit failed")

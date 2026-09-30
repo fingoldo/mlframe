@@ -12,10 +12,12 @@ from mlframe.models.ensembling import _build_votenrank_leaderboard_from_results
 
 
 def _res(**flavours):
+    """Map each model name to a result stand-in holding its metrics."""
     return {name: types.SimpleNamespace(metrics=m) for name, m in flavours.items()}
 
 
 def test_the_better_calibrated_flavour_wins_on_an_error_metric():
+    """The better calibrated flavour wins on an error metric."""
     res = _res(
         good={"val": {"brier_loss": 0.10, "roc_auc": 0.80}},
         bad={"val": {"brier_loss": 0.30, "roc_auc": 0.80}},
@@ -28,6 +30,7 @@ def test_the_better_calibrated_flavour_wins_on_an_error_metric():
 
 
 def test_test_split_columns_are_excluded():
+    """Test split columns are excluded."""
     res = _res(a={"val": {"roc_auc": 0.7}, "test": {"roc_auc": 0.9}}, b={"val": {"roc_auc": 0.6}, "test": {"roc_auc": 0.95}})
     board = _build_votenrank_leaderboard_from_results(res, is_regression=False)
     assert not any(str(c).startswith("test.") for c in board.table.columns)

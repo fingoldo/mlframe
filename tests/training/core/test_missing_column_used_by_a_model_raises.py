@@ -7,6 +7,7 @@ from mlframe.training.core._misc_helpers import _validate_input_columns_against_
 
 
 def _metadata(schema_names):
+    """Suite metadata with raw inputs a, b, c and one model schema over the given names."""
     return {
         "raw_input_columns": ["a", "b", "c"],
         "model_schemas": {"m.dump": {"schema_hash": "h", "input_schema": [{"name": n, "role": "num", "dtype": "float64"} for n in schema_names]}},
@@ -14,12 +15,14 @@ def _metadata(schema_names):
 
 
 def test_a_column_a_model_reads_directly_is_a_hard_failure():
+    """A column a model reads directly is a hard failure."""
     df = pd.DataFrame({"a": [1.0], "b": [2.0]})  # "c" is gone
     with pytest.raises(ValueError, match=r"c \(used by m.dump\)"):
         _validate_input_columns_against_metadata(df, _metadata(["a", "b", "c"]))
 
 
 def test_a_column_no_model_reads_still_only_warns(caplog):
+    """A column no model reads still only warns."""
     df = pd.DataFrame({"a": [1.0], "b": [2.0]})
     with caplog.at_level("WARNING", logger="mlframe.training.core._misc_helpers"):
         out = _validate_input_columns_against_metadata(df, _metadata(["a", "b"]))

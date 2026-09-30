@@ -709,6 +709,7 @@ def test_heavy_tail_split_overlay_keeps_splits_apart():
     rng = np.random.default_rng(0)
 
     def mk(n, m):
+        """Zero-inflated lognormal sample of size n scaled by m."""
         return np.where(rng.random(n) < 0.6, 0.0, rng.lognormal(np.log(m * 4), 1.5, n))
 
     spec = target_dist_overlay({"train": mk(40000, 2.1), "val": mk(5000, 1.2), "test": mk(6000, 0.3)})
@@ -727,6 +728,7 @@ def test_drift_verdict_not_hidden_by_heavy_tail():
     rng = np.random.default_rng(0)
 
     def mk(n, m):
+        """Zero-inflated heavy-tailed lognormal sample of size n scaled by m."""
         return np.where(rng.random(n) < 0.7, 0.0, rng.lognormal(np.log(m / 0.3) - 2.0, 2.0, n))
 
     verdict = _target_drift_verdict({"train": mk(200000, 2.1), "test": mk(60000, 0.26)}, train_key="train", task="regression")
@@ -734,6 +736,7 @@ def test_drift_verdict_not_hidden_by_heavy_tail():
 
 
 def test_drift_verdict_quiet_on_same_distribution():
+    """Drift verdict quiet on same distribution."""
     from mlframe.reporting.charts._error_analysis_splits import _target_drift_verdict
 
     rng = np.random.default_rng(1)

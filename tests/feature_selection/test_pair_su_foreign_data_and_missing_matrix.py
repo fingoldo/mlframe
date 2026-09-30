@@ -9,6 +9,7 @@ from mlframe.feature_selection.filters._dynamic_cluster_discovery._dcd_metrics i
 
 
 def _state(fd, fn):
+    """Build a DCDState holding the given factor data and bin counts."""
     st = DCDState()
     st.factors_data = fd
     st.factors_nbins = fn
@@ -29,6 +30,7 @@ def test_foreign_data_does_not_poison_the_states_cache():
 
 
 def test_no_matrix_is_unknown_not_independent(caplog):
+    """No matrix is unknown not independent."""
     st = _state(None, None)
     with caplog.at_level(logging.WARNING):
         su, vi = pair_su(st, 0, 1), pair_vi(st, 0, 1)

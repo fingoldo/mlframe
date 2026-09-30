@@ -44,12 +44,14 @@ def _entry(*, calib: bool = False, oof: bool = False, seed: int = 0):
 
 
 def _behavior(**kw):
+    """Behavior-config stand-in with threshold optimisation on, overridable by kwargs."""
     base = dict(auto_optimize_threshold=True, check_isotonic_overfit_risk=True, threshold_optimizer_kwargs=None)
     base.update(kw)
     return SimpleNamespace(**base)
 
 
 def _ctx(models, *, behavior="default", conformal=None, calib_idx=None):
+    """Training-context stand-in holding the models and configs."""
     return SimpleNamespace(
         models=models, metadata={}, verbose=1, calib_idx=calib_idx,
         behavior_config=_behavior() if behavior == "default" else behavior,
@@ -90,11 +92,13 @@ def test_the_threshold_step_itself_no_longer_emits_its_own_copy(caplog):
 
 
 def test_a_carved_calib_slice_means_nothing_to_report():
+    """A carved calib slice means nothing to report."""
     ctx = _ctx({"binary_classification": {"t": [_entry()]}}, calib_idx=np.arange(50))
     assert calib_dependent_steps_skipped(ctx) == []
 
 
 def test_calib_predictions_on_any_entry_mean_nothing_to_report():
+    """Calib predictions on any entry mean nothing to report."""
     ctx = _ctx({"binary_classification": {"t": [_entry(calib=True)]}})
     assert calib_dependent_steps_skipped(ctx) == []
 
@@ -108,6 +112,7 @@ def test_no_behavior_config_is_not_blamed_on_the_calib_slice():
 
 
 def test_disabled_steps_are_not_reported():
+    """Disabled steps are not reported."""
     ctx = _ctx(
         {"binary_classification": {"t": [_entry()]}},
         behavior=_behavior(auto_optimize_threshold=False, check_isotonic_overfit_risk=False),
@@ -117,6 +122,7 @@ def test_disabled_steps_are_not_reported():
 
 
 def test_conformal_sets_off_is_not_reported():
+    """Conformal sets off is not reported."""
     ctx = _ctx({"binary_classification": {"t": [_entry()]}}, conformal=SimpleNamespace(enabled=True, classification_mode="off"))
     assert "conformal prediction sets" not in calib_dependent_steps_skipped(ctx)
 
@@ -128,22 +134,26 @@ def test_regression_with_oof_still_gets_conformal_intervals():
 
 
 def test_regression_without_oof_loses_its_intervals():
+    """Regression without oof loses its intervals."""
     ctx = _ctx({"regression": {"t": [_entry(oof=False)]}})
     assert calib_dependent_steps_skipped(ctx) == ["conformal regression intervals (models without OOF predictions)"]
 
 
 def test_threshold_optimisation_is_only_reported_for_binary_targets():
+    """Threshold optimisation is only reported for binary targets."""
     ctx = _ctx({"multiclass_classification": {"t": [_entry()]}})
     assert not any("decision-threshold" in s for s in calib_dependent_steps_skipped(ctx))
 
 
 def test_no_models_means_nothing_to_report(caplog):
+    """No models means nothing to report."""
     with caplog.at_level(logging.WARNING):
         assert report_calib_dependent_steps_skipped(_ctx({})) == []
     assert caplog.text == ""
 
 
 def test_a_present_calib_slice_still_lets_the_threshold_step_do_its_job():
+    """A present calib slice still lets the threshold step do its job."""
     ctx = _ctx({"binary_classification": {"t": [_entry(calib=True)]}})
     _optimize_decision_threshold_on_calib_slice(ctx)
     assert "decision_threshold" in ctx.metadata
@@ -154,6 +164,7 @@ def test_a_present_calib_slice_still_lets_the_threshold_step_do_its_job():
 # --------------------------------------------------------------------------------------------------
 
 def _oof_ctx(models, *, oof_n_splits=0, shrink=True, diversity=True):
+    """Training-context stand-in for out-of-fold tests with the given split count and flags."""
     return SimpleNamespace(
         models=models, metadata={}, verbose=1, calib_idx=None,
         behavior_config=SimpleNamespace(oof_n_splits=oof_n_splits, recommend_diversity_additions_in_leaderboard=diversity),
@@ -177,6 +188,7 @@ def test_default_config_reports_both_oof_steps_as_inert_at_info(caplog):
 
 
 def test_oof_enabled_means_nothing_is_inert():
+    """Oof enabled means nothing is inert."""
     assert oof_dependent_steps_inert(_oof_ctx({"regression": {"t": [_entry()]}}, oof_n_splits=5)) == []
 
 
@@ -186,6 +198,7 @@ def test_an_entry_already_carrying_oof_means_nothing_is_inert():
 
 
 def test_disabled_oof_steps_are_not_reported():
+    """Disabled oof steps are not reported."""
     ctx = _oof_ctx({"regression": {"t": [_entry()]}}, shrink=False, diversity=False)
     assert oof_dependent_steps_inert(ctx) == []
 

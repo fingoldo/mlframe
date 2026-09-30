@@ -14,6 +14,7 @@ LOGGER = "mlframe.feature_selection.filters.correlated_features"
 
 
 def _correlated_frame(n=300, seed=0):
+    """Build four independent columns plus near-copies of a and b, with a target from a + b."""
     rng = np.random.default_rng(seed)
     base = rng.normal(size=(n, 4))
     X = pd.DataFrame(base, columns=["a", "b", "c", "d"])
@@ -24,10 +25,12 @@ def _correlated_frame(n=300, seed=0):
 
 
 def _messages(caplog):
+    """Return the messages logged by the module's logger."""
     return [r.getMessage() for r in caplog.records if r.name == LOGGER]
 
 
 def test_pre_reduction_log_explains_correlation_clusters_and_opt_out(caplog):
+    """Pre reduction log explains correlation clusters and opt out."""
     X, y = _correlated_frame()
     with caplog.at_level(logging.INFO, logger=LOGGER):
         CorrelatedFeaturesSelector(SelectKBest(f_classif, k=2), corr_method="pearson").fit(X, y)
@@ -38,6 +41,7 @@ def test_pre_reduction_log_explains_correlation_clusters_and_opt_out(caplog):
 
 
 def test_fit_logs_kept_original_feature_count_and_names(caplog):
+    """Fit logs kept original feature count and names."""
     X, y = _correlated_frame()
     with caplog.at_level(logging.INFO, logger=LOGGER):
         sel = CorrelatedFeaturesSelector(SelectKBest(f_classif, k=2), corr_method="pearson").fit(X, y)
@@ -49,6 +53,7 @@ def test_fit_logs_kept_original_feature_count_and_names(caplog):
 
 
 def test_fit_logs_kept_features_when_reduction_below_min_reduction(caplog):
+    """Fit logs kept features when reduction below min reduction."""
     rng = np.random.default_rng(1)
     X = pd.DataFrame(rng.normal(size=(300, 5)), columns=list("pqrst"))
     y = (X["p"] > 0).astype(int).to_numpy()

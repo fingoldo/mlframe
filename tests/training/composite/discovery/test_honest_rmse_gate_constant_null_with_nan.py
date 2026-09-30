@@ -17,6 +17,7 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def _signal_free(n: int = 1500, seed: int = 3):
+    """Frame with a base and two features and a pure-noise target."""
     rng = np.random.default_rng(seed)
     base = rng.uniform(1.0, 10.0, n)
     df = pd.DataFrame({"base": base, "x0": rng.normal(size=n), "x1": rng.normal(size=n)})
@@ -26,6 +27,7 @@ def _signal_free(n: int = 1500, seed: int = 3):
 
 
 def _run(y: np.ndarray, df: pd.DataFrame):
+    """Run the honest RMSE gate on a zero-coefficient linear-residual spec."""
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True, random_state=0, screening="mi", base_candidates=["base"], honest_holdout_frac=0.2, tiny_model_n_estimators=40,
         multi_base_enabled=False, interaction_base_discovery_enabled=False, auto_chain_discovery_enabled=False, auto_base_null_perms=0,
@@ -39,6 +41,7 @@ def _run(y: np.ndarray, df: pd.DataFrame):
 
 
 def test_constant_null_still_applies_with_a_nan_fit_target():
+    """Constant null still applies with a nan fit target."""
     df, y = _signal_free()
     y_nan = y.copy()
     y_nan[5] = np.nan

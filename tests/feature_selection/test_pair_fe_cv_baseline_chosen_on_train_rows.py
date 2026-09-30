@@ -12,6 +12,7 @@ def test_the_baseline_is_selected_on_train_rows(monkeypatch):
     real = fb.best_trivial_pair
 
     def spy(x_a, x_b, y, **kw):
+        """Record how many rows the baseline selection saw, then delegate to the real function."""
         chosen_on["n"] = len(y)
         return real(x_a, x_b, y, **kw)
 

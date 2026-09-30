@@ -198,6 +198,7 @@ def test_phases_leave_breadcrumbs_in_the_faulthandler_file(tmp_path, monkeypatch
 
 
 def test_no_breadcrumbs_without_an_open_faulthandler_file(monkeypatch):
+    """No breadcrumbs without an open faulthandler file."""
     from mlframe.training import phases
 
     from mlframe.training import crash_diagnostics

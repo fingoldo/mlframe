@@ -19,11 +19,13 @@ _HEALTHY = dict(calibration_mae=0.05, calibration_std=0.02, calibration_coverage
 
 
 def test_sentinel_is_finite():
+    """Sentinel is finite."""
     assert np.isfinite(ICE_UNCOMPUTABLE)
 
 
 @pytest.mark.parametrize("term", ["brier_loss", "calibration_mae", "calibration_std", "calibration_coverage"])
 def test_a_nan_loss_term_scores_worst(term):
+    """A nan loss term scores worst."""
     healthy = float(integral_calibration_error_from_metrics(**_HEALTHY))
     broken = float(integral_calibration_error_from_metrics(**{**_HEALTHY, term: float("nan")}))
     assert broken == ICE_UNCOMPUTABLE
@@ -32,22 +34,26 @@ def test_a_nan_loss_term_scores_worst(term):
 
 @pytest.mark.parametrize("term", ["roc_auc", "pr_auc"])
 def test_a_nan_reward_term_only_forfeits_its_reward(term):
+    """A nan reward term only forfeits its reward."""
     healthy = float(integral_calibration_error_from_metrics(**_HEALTHY))
     no_reward = float(integral_calibration_error_from_metrics(**{**_HEALTHY, term: float("nan")}))
     assert np.isfinite(no_reward) and no_reward > healthy
 
 
 def _evaluate(metric, n, seed=0):
+    """Evaluate the metric on n random scores and labels and return the first result."""
     rng = np.random.default_rng(seed)
     return metric.evaluate([rng.normal(size=n)], (rng.random(n) < 0.3).astype(np.int8), None)[0]
 
 
 def test_skip_sentinel_is_the_worst_value_not_zero():
+    """Skip sentinel is the worst value not zero."""
     metric = ICE(metric=lambda y_true, y_score: 0.25, higher_is_better=False, max_arr_size=100, subsample_skipped_sets=False)
     assert _evaluate(metric, 50) == 0.25
     assert _evaluate(metric, 500) == ICE_UNCOMPUTABLE
 
 
 def test_skip_sentinel_follows_the_metric_direction():
+    """Skip sentinel follows the metric direction."""
     metric = ICE(metric=lambda y_true, y_score: 0.25, higher_is_better=True, max_arr_size=100, subsample_skipped_sets=False)
     assert _evaluate(metric, 500) == -ICE_UNCOMPUTABLE

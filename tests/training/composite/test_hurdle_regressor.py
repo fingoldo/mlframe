@@ -17,6 +17,7 @@ N = 1500
 
 
 def _data(n=N, seed=0, zero_frac=0.6):
+    """Zero-inflated lognormal target with the zero event driven by the first feature."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 4))
     happens = rng.random(n) < 1.0 / (1.0 + np.exp(-(1.5 * X[:, 0] + np.log((1 - zero_frac) / zero_frac))))
@@ -25,6 +26,7 @@ def _data(n=N, seed=0, zero_frac=0.6):
 
 
 def _fast():
+    """Small histogram-boosting classifier and regressor for fast fits."""
     return dict(
         classifier=HistGradientBoostingClassifier(max_iter=40, random_state=0),
         regressor=HistGradientBoostingRegressor(max_iter=40, random_state=0),
@@ -53,12 +55,14 @@ def test_nonzero_point_mass_is_respected():
 
 
 def test_event_probabilities_are_probabilities():
+    """Event probabilities are probabilities."""
     X, y = _data()
     p = HurdleRegressor(**_fast()).fit(X, y).predict_event_proba(X)
     assert np.all((p >= 0) & (p <= 1))
 
 
 def test_magnitude_is_learned_on_event_rows_and_is_positive_under_log():
+    """Magnitude is learned on event rows and is positive under log."""
     X, y = _data()
     m = HurdleRegressor(**_fast()).fit(X, y)
     assert m.magnitude_target_ == "log"
@@ -72,6 +76,7 @@ def test_insample_smearing_factor_exceeds_one():
 
 
 def test_smearing_none_uses_a_unit_factor():
+    """Smearing none uses a unit factor."""
     X, y = _data()
     assert HurdleRegressor(smearing="none", **_fast()).fit(X, y).smearing_factor_ == 1.0
 
@@ -85,6 +90,7 @@ def test_oof_smearing_is_larger_than_insample():
 
 
 def test_raw_magnitude_target_applies_no_smearing():
+    """Raw magnitude target applies no smearing."""
     X, y = _data()
     m = HurdleRegressor(magnitude_target="raw", **_fast()).fit(X, y)
     assert m.magnitude_target_ == "raw" and m.smearing_factor_ == 1.0
@@ -106,6 +112,7 @@ def test_negative_event_magnitudes_fall_back_to_raw_and_say_so(caplog):
 
 
 def test_all_zero_target_predicts_the_point_mass_and_warns(caplog):
+    """All zero target predicts the point mass and warns."""
     X, _ = _data()
     with caplog.at_level(logging.WARNING):
         m = HurdleRegressor(**_fast()).fit(X, np.zeros(N))
@@ -125,6 +132,7 @@ def test_no_zero_rows_needs_no_classifier():
 
 
 def test_a_single_event_row_uses_its_value_as_the_magnitude():
+    """A single event row uses its value as the magnitude."""
     X, _ = _data()
     y = np.zeros(N)
     y[7] = 42.0
@@ -134,12 +142,14 @@ def test_a_single_event_row_uses_its_value_as_the_magnitude():
 
 
 def test_mismatched_lengths_raise():
+    """Mismatched lengths raise."""
     X, y = _data()
     with pytest.raises(ValueError, match="rows but y has"):
         HurdleRegressor(**_fast()).fit(X, y[:-1])
 
 
 def test_non_finite_target_raises():
+    """Non finite target raises."""
     X, y = _data()
     y = y.copy()
     y[3] = np.nan
@@ -149,6 +159,7 @@ def test_non_finite_target_raises():
 
 @pytest.mark.parametrize("bad", [{"magnitude_target": "sqrt"}, {"smearing": "median"}])
 def test_invalid_options_raise(bad):
+    """Invalid options raise."""
     X, y = _data()
     with pytest.raises(ValueError):
         HurdleRegressor(**{**_fast(), **bad}).fit(X, y)
@@ -179,17 +190,20 @@ def test_sample_weight_reaches_both_halves():
 
 
 def test_works_with_non_booster_components():
+    """Works with non booster components."""
     X, y = _data()
     m = HurdleRegressor(classifier=LogisticRegression(max_iter=500), regressor=LinearRegression()).fit(X, y)
     assert np.all(np.isfinite(m.predict(X)))
 
 
 def test_clone_and_get_params_round_trip():
+    """Clone and get params round trip."""
     m = HurdleRegressor(zero_value=1.0, magnitude_target="raw", smearing="oof", smearing_cv=3, random_state=4)
     c = clone(m)
     assert c.get_params() == m.get_params()
 
 
 def test_n_features_in_is_recorded():
+    """N features in is recorded."""
     X, y = _data()
     assert HurdleRegressor(**_fast()).fit(X, y).n_features_in_ == X.shape[1]

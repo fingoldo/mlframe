@@ -10,6 +10,7 @@ from mlframe.training.targets_performance import ROW_SCOPE_COLUMNS, compare_targ
 
 
 def _models(rmse_full: float, rmse_part: float):
+    """Results for a full-scope and a partial-scope regression target with the given RMSEs."""
     entry = lambda rmse: types.SimpleNamespace(model_name="lgb", metrics={"test": {"RMSE": rmse, "MAE": rmse / 2}})
     return {"regression": {"y_full": [entry(rmse_full)], "y_part": [entry(rmse_part)]}}
 
@@ -18,6 +19,7 @@ METADATA = {"target_rows": {"regression/y_part": {"n_labelled": {"test_idx": 12}
 
 
 def test_a_target_with_gaps_carries_its_labelled_count_and_low_n():
+    """A target with gaps carries its labelled count and low n."""
     frame = targets_performance_frame(_models(1.0, 2.0), METADATA)
     part = frame[frame["target_name"] == "y_part"].iloc[0]
     full = frame[frame["target_name"] == "y_full"].iloc[0]
@@ -27,11 +29,13 @@ def test_a_target_with_gaps_carries_its_labelled_count_and_low_n():
 
 
 def test_without_targets_with_gaps_the_frame_has_no_row_scope_columns():
+    """Without targets with gaps the frame has no row scope columns."""
     frame = targets_performance_frame(_models(1.0, 2.0), {})
     assert not set(ROW_SCOPE_COLUMNS) & set(frame.columns)
 
 
 def test_labelled_counts_are_not_compared_as_metrics():
+    """Labelled counts are not compared as metrics."""
     runs = {"a": targets_performance_frame(_models(1.0, 2.0), METADATA), "b": targets_performance_frame(_models(1.1, 2.1), METADATA)}
     comparison = compare_targets_performance(runs)
     text = comparison.frame.to_string() + comparison.scores.to_string()

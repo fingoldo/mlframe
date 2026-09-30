@@ -7,6 +7,7 @@ from mlframe.training.reporting._reporting_probabilistic import report_probabili
 
 
 def _run(y, X):
+    """Fit a logistic regression, report its probabilistic performance and return the metrics dict."""
     model = LogisticRegression(max_iter=500).fit(X, y)
     metrics: dict = {}
     report_probabilistic_model_perf(
@@ -18,6 +19,7 @@ def _run(y, X):
 
 
 def _imbalanced(labels):
+    """Three imbalanced classes (300/60/20 rows) with mean-shifted features."""
     rng = np.random.default_rng(0)
     counts = [300, 60, 20]
     y = np.concatenate([[lab] * c for lab, c in zip(labels, counts)])
@@ -37,6 +39,7 @@ def test_string_labels_get_real_supports():
 
 
 def test_p_values_and_dof_are_not_aggregated():
+    """P values and dof are not aggregated."""
     y, X = _imbalanced([0, 1, 2])
     m = _run(y, X)
     bad = [k for k in m if isinstance(k, str) and (k.startswith("macro_") or k.startswith("weighted_"))

@@ -18,6 +18,7 @@ N = 120
 
 
 def _split(**kw):
+    """Build a split-config namespace with defaults, overridden by kwargs."""
     base = dict(cv_strategy="random", test_size=0.2, val_size=0.2, shuffle_test=False, shuffle_val=False,
                 test_sequential_fraction=None, val_sequential_fraction=None, use_groups=False)
     base.update(kw)
@@ -25,6 +26,7 @@ def _split(**kw):
 
 
 def _hp(**kw):
+    """Build a hyperparameter namespace that reports its kwargs as explicitly set fields."""
     ns = SimpleNamespace(**kw)
     ns.model_fields_set = set(kw)
     return ns
@@ -32,6 +34,7 @@ def _hp(**kw):
 
 @pytest.fixture
 def shuffled_ts():
+    """Random permutation of N timestamps."""
     return np.random.default_rng(0).permutation(N)
 
 
@@ -50,11 +53,13 @@ def shuffled_ts():
     ],
 )
 def test_cv_is_temporal_decision_table(has_ts, split, hp, override, expected):
+    """Cv is temporal decision table."""
     temporal, reason = cv_is_temporal(np.arange(N) if has_ts else None, split, hp, override)
     assert temporal is expected and reason
 
 
 def test_decide_cv_policy_kinds(shuffled_ts):
+    """Decide cv policy kinds."""
     groups = np.repeat(np.arange(12), 10)
     temporal = decide_cv_policy(timestamps=shuffled_ts, train_idx=None, groups=groups, split_config=_split(), hyperparams_config=_hp())
     assert temporal.kind == "temporal" and temporal.groups is groups
@@ -66,6 +71,7 @@ def test_decide_cv_policy_kinds(shuffled_ts):
 
 
 def test_decide_cv_policy_slices_arrays_to_train_rows(shuffled_ts):
+    """Decide cv policy slices arrays to train rows."""
     train_idx = np.arange(0, N, 2)
     policy = decide_cv_policy(timestamps=pd.Series(shuffled_ts), train_idx=train_idx, split_config=_split(), hyperparams_config=_hp())
     assert len(policy.timestamps) == train_idx.size
@@ -73,6 +79,7 @@ def test_decide_cv_policy_slices_arrays_to_train_rows(shuffled_ts):
 
 
 def test_temporal_splitter_folds_are_chronological_on_unsorted_rows(shuffled_ts):
+    """Temporal splitter folds are chronological on unsorted rows."""
     cv = build_cv_splitter(CVPolicy("temporal", "t", shuffled_ts), 4)
     assert isinstance(cv, TimestampOrderedSplit) and cv.deterministic_folds
     for tr, te in cv.split(np.zeros((N, 1))):
@@ -80,6 +87,7 @@ def test_temporal_splitter_folds_are_chronological_on_unsorted_rows(shuffled_ts)
 
 
 def test_temporal_splitter_with_bound_groups_isolates_groups_in_time_order(shuffled_ts):
+    """Temporal splitter with bound groups isolates groups in time order."""
     groups = np.repeat(np.arange(12), 10)
     ts = np.arange(N).astype(float)
     cv = build_cv_splitter(CVPolicy("temporal", "t", ts, groups), 3)
@@ -91,6 +99,7 @@ def test_temporal_splitter_with_bound_groups_isolates_groups_in_time_order(shuff
 
 
 def test_grouped_splitter_isolates_groups_without_passing_groups_to_split():
+    """Grouped splitter isolates groups without passing groups to split."""
     groups = np.repeat(np.arange(10), 12)
     cv = build_cv_splitter(CVPolicy("grouped", "g", None, groups), 4)
     assert isinstance(cv, BoundGroupKFold)
@@ -99,11 +108,13 @@ def test_grouped_splitter_isolates_groups_without_passing_groups_to_split():
 
 
 def test_iid_splitter_is_stratified_for_classification_else_plain():
+    """Iid splitter is stratified for classification else plain."""
     assert isinstance(build_cv_splitter(CVPolicy("iid", "x"), 3, classification=True), StratifiedKFold)
     assert type(build_cv_splitter(None, 3)) is KFold
 
 
 def test_holdout_indices_temporal_takes_newest_rows(shuffled_ts):
+    """Holdout indices temporal takes newest rows."""
     search, hold = holdout_indices(CVPolicy("temporal", "t", shuffled_ts), N, 0.25)
     assert hold.size == 30 and search.size == 90
     assert shuffled_ts[search].max() < shuffled_ts[hold].min()
@@ -111,12 +122,14 @@ def test_holdout_indices_temporal_takes_newest_rows(shuffled_ts):
 
 
 def test_holdout_indices_grouped_isolates_groups():
+    """Holdout indices grouped isolates groups."""
     groups = np.repeat(np.arange(12), 10)
     search, hold = holdout_indices(CVPolicy("grouped", "g", None, groups), N, 0.25, random_state=1)
     assert not set(groups[search]) & set(groups[hold])
 
 
 def test_holdout_indices_none_for_iid_and_for_row_count_mismatch(caplog):
+    """Holdout indices none for iid and for row count mismatch."""
     assert holdout_indices(None, N, 0.3) is None
     assert holdout_indices(CVPolicy("iid", "x"), N, 0.3) is None
     with caplog.at_level(logging.WARNING):
@@ -125,6 +138,7 @@ def test_holdout_indices_none_for_iid_and_for_row_count_mismatch(caplog):
 
 
 def test_partition_folds_temporal_blocks_partition_all_rows(shuffled_ts):
+    """Partition folds temporal blocks partition all rows."""
     folds = partition_folds(CVPolicy("temporal", "t", shuffled_ts), N, 4)
     assert folds is not None
     tests = np.concatenate([te for _, te in folds])
@@ -137,6 +151,7 @@ def test_partition_folds_temporal_blocks_partition_all_rows(shuffled_ts):
 
 
 def test_partition_folds_grouped_and_iid_fallback():
+    """Partition folds grouped and iid fallback."""
     groups = np.repeat(np.arange(12), 10)
     folds = partition_folds(CVPolicy("grouped", "g", None, groups), N, 3)
     assert folds and all(not set(groups[tr]) & set(groups[te]) for tr, te in folds)
@@ -144,6 +159,7 @@ def test_partition_folds_grouped_and_iid_fallback():
 
 
 def test_apply_cv_param_only_replaces_suite_chosen_cv(shuffled_ts):
+    """Apply cv param only replaces suite chosen cv."""
     policy = CVPolicy("temporal", "t", shuffled_ts)
     for original in (None, 4):
         sel = SimpleNamespace(cv=original)
@@ -159,6 +175,7 @@ def test_apply_cv_param_only_replaces_suite_chosen_cv(shuffled_ts):
 
 
 def test_wire_selector_policy_stamps_and_skips_iid(shuffled_ts):
+    """Wire selector policy stamps and skips iid."""
     sel = SimpleNamespace(cv=None)
     assert wire_selector_policy(sel, CVPolicy("temporal", "t", shuffled_ts))
     assert get_cv_policy(sel).kind == "temporal" and isinstance(sel.cv, TimestampOrderedSplit)
@@ -167,6 +184,7 @@ def test_wire_selector_policy_stamps_and_skips_iid(shuffled_ts):
 
 
 def test_policy_shares_arrays_on_deepcopy_and_drops_them_from_pickle(shuffled_ts):
+    """Policy shares arrays on deepcopy and drops them from pickle."""
     policy = CVPolicy("temporal", "t", shuffled_ts)
     assert copy.deepcopy(policy).timestamps is shuffled_ts
     restored = pickle.loads(pickle.dumps(policy))
@@ -175,6 +193,7 @@ def test_policy_shares_arrays_on_deepcopy_and_drops_them_from_pickle(shuffled_ts
 
 
 def test_subset_restricts_rows_and_degrades_when_arrays_are_short(shuffled_ts):
+    """Subset restricts rows and degrades when arrays are short."""
     idx = np.arange(0, N, 3)
     sub = CVPolicy("temporal", "t", shuffled_ts).subset(idx)
     assert np.array_equal(sub.timestamps, shuffled_ts[idx])

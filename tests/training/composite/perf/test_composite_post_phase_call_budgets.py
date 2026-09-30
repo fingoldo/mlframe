@@ -41,11 +41,13 @@ def post_counts(tmp_path_factory):
     real_predict, real_transform = CompositeTargetEstimator._predict_unclipped, Pipeline.transform
 
     def predict_spy(self, X, *a, **k):
+        """Count predicts per (model, rows) unless the T-scale is given, then delegate."""
         if k.get("t_hat_override") is None:  # an inverse of given T-scale predictions runs no inner model
             predicts[(id(self), len(X))] += 1
         return real_predict(self, X, *a, **k)
 
     def transform_spy(self, X, *a, **k):
+        """Count transforms per (model, frame), then delegate."""
         transforms[(id(self), id(X))] += 1
         return real_transform(self, X, *a, **k)
 

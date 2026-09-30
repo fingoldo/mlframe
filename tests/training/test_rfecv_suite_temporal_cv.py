@@ -27,6 +27,7 @@ def test_training_configs_pass_rfecv_a_fold_count_not_a_plain_kfold():
 
 
 def test_training_configs_keep_time_series_split_for_has_time():
+    """Training configs keep time series split for has time."""
     from mlframe.training.trainer import get_training_configs
 
     configs = get_training_configs(rfecv_kwargs={"cv_n_splits": 4}, has_time=True, enabled_models=["cb"])
@@ -67,6 +68,7 @@ def test_suite_int_cv_resolves_to_stratified_kfold_for_a_classifier(caplog):
          "explicit_has_time_false", "explicit_has_time_true", "explicit_cv_shuffle", "explicit_cv"],
 )
 def test_rfecv_cv_is_temporal_decision(split_kwargs, hp_kwargs, has_ts, expected):
+    """Rfecv cv is temporal decision."""
     temporal, reason = rfecv_cv_is_temporal(
         np.arange(10) if has_ts else None, TrainingSplitConfig(**split_kwargs), ModelHyperparamsConfig(**hp_kwargs),
     )
@@ -74,6 +76,7 @@ def test_rfecv_cv_is_temporal_decision(split_kwargs, hp_kwargs, has_ts, expected
 
 
 def _suite_rfecv(cv):
+    """RFECV around logistic regression with the given cv and a one-minute runtime cap."""
     return RFECV(estimator=LogisticRegression(), cv=cv, cv_shuffle=True, max_runtime_mins=1.0)
 
 
@@ -100,6 +103,7 @@ def test_apply_temporal_cv_replaces_suite_cv_with_train_row_timestamps():
 
 
 def test_apply_temporal_cv_leaves_iid_suite_alone():
+    """Apply temporal cv leaves iid suite alone."""
     params = {"cb_rfecv": _suite_rfecv(4)}
     replaced = apply_temporal_cv_to_rfecv(
         params, timestamps=None, train_idx=None, split_config=TrainingSplitConfig(), hyperparams_config=ModelHyperparamsConfig(),

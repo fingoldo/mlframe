@@ -9,6 +9,7 @@ import mlframe.training.core._predict_main_suite as pms
 
 
 def test_the_bundle_is_loaded_once_and_shared_by_every_batch(monkeypatch, tmp_path):
+    """The bundle is loaded once and shared by every batch."""
     loads = []
     monkeypatch.setattr(pms, "_load_suite_metadata", lambda *a, **kw: loads.append(a) or {"pipeline": None})
 
@@ -16,6 +17,7 @@ def test_the_bundle_is_loaded_once_and_shared_by_every_batch(monkeypatch, tmp_pa
     real = pms.predict_mlframe_models_suite
 
     def spy(df, *a, **kw):
+        """Record the preloaded metadata of per-batch calls and return dummy predictions, else delegate."""
         if kw.get("predict_batch_rows") is None:  # the per-batch recursion, not the entry call
             seen.append(kw.get("_preloaded_metadata"))
             return {"predictions": {"m": np.zeros(len(df))}, "probabilities": {}}

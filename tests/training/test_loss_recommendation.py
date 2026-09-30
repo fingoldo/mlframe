@@ -200,6 +200,7 @@ def test_huber_delta_follows_the_target_scale_when_most_rows_share_one_value() -
 
 
 def test_heavy_tail_analyzer_gives_catboost_the_same_scaled_delta() -> None:
+    """Heavy tail analyzer gives catboost the same scaled delta."""
     from mlframe.training.loss_recommendation import huber_delta_for
     from mlframe.training.targets._target_distribution_analyzer_target_fn import _apply_heavy_tail_huber_overrides
 

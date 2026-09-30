@@ -13,6 +13,7 @@ def test_infs_do_not_count_toward_the_minimum():
 
 
 def test_infs_are_dropped_not_turned_into_zeros():
+    """Infs are dropped not turned into zeros."""
     rng = np.random.default_rng(0)
     base = rng.normal(size=40)
     with_infs = np.concatenate([base, [np.inf, -np.inf, np.nan]])

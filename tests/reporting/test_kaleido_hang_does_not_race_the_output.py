@@ -15,6 +15,7 @@ def test_a_late_writer_lands_on_a_scratch_path_not_the_target(tmp_path, monkeypa
     started, wrote = threading.Event(), threading.Event()
 
     def _slow_write(fig, path, opts=None):
+        """Write the file after a delay that outlives the timeout."""
         started.set()
         time.sleep(1.5)  # outlives the timeout below
         with open(path, "w", encoding="utf-8") as f:
@@ -29,7 +30,9 @@ def test_a_late_writer_lands_on_a_scratch_path_not_the_target(tmp_path, monkeypa
     target = str(tmp_path / "chart.png")
 
     class _Fig:
+        """Figure stand-in whose HTML fallback writes a recovery page."""
         def write_html(self, path, **kw):
+            """Write a minimal recovery HTML page."""
             with open(path, "w", encoding="utf-8") as f:
                 f.write("<html>recovery</html>")
 
@@ -41,6 +44,7 @@ def test_a_late_writer_lands_on_a_scratch_path_not_the_target(tmp_path, monkeypa
 
 
 def test_abandoning_a_scratch_file_removes_it(tmp_path):
+    """Abandoning a scratch file removes it."""
     scratch = tmp_path / "chart.png.partial-abc"
     scratch.write_text("x", encoding="utf-8")
     kal._abandon_scratch_file(str(scratch))

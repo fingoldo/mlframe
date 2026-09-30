@@ -82,6 +82,7 @@ def _drive_masked_folds(n_threads: int) -> int:
     barrier = threading.Barrier(n_threads)
 
     def _worker(seed: int) -> None:
+        """Wait at the barrier, then fit a masked fold model."""
         rng = np.random.default_rng(seed)
         x = rng.normal(size=(200, 5)).astype(np.float32)
         train_fold = np.arange(160)

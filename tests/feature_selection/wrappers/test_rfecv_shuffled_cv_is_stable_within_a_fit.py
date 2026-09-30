@@ -7,6 +7,7 @@ from mlframe.feature_selection.wrappers.rfecv._cv_setup import _resolve_cv_and_v
 
 
 def test_repeated_splits_match_so_per_fold_prescreens_can_be_found():
+    """Repeated splits match so per fold prescreens can be found."""
     rng = np.random.default_rng(0)
     X, y = rng.normal(size=(120, 3)), rng.integers(0, 2, 120)
     cv, _val_cv, _ = _resolve_cv_and_val_cv(

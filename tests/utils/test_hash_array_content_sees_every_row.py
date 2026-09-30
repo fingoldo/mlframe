@@ -15,6 +15,7 @@ def test_a_middle_row_change_changes_the_content_hash():
 
 
 def test_equal_arrays_share_a_key_across_dtype_views():
+    """Equal arrays share a key across dtype views."""
     a = np.arange(10, dtype=np.float64)
     assert hash_array_content(a) == hash_array_content(a.copy())
     assert hash_array_content(a) != hash_array_content(a.astype(np.float32)), "dtype is part of the identity"

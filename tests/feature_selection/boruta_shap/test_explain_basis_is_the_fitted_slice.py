@@ -11,16 +11,19 @@ from mlframe.feature_selection.boruta_shap import BorutaShap
 
 
 def test_the_explained_rows_are_the_training_slice(monkeypatch):
+    """The explained rows are the training slice."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame({f"f{i}": rng.normal(size=200) for i in range(4)})
     y = (X["f0"] > 0).astype(int)
     seen = {}
 
     class _Spy:
+        """Explainer stand-in that records how many rows it is asked to explain."""
         def __init__(self, model, *a, **k):
             self.model = model
 
         def shap_values(self, data, *a, **k):
+            """Record the row count and return zero SHAP values of matching shape."""
             seen["rows"] = len(data)
             return np.zeros((len(data), data.shape[1]))
 

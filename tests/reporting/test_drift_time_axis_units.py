@@ -12,6 +12,7 @@ from mlframe.reporting.charts.drift import cusum_residual_drift, residual_vs_tim
 
 
 def _xs(spec) -> np.ndarray:
+    """Concatenate every finite x array found in the spec's panels."""
     xs = []
     for row in spec.panels:
         for panel in row:
@@ -24,6 +25,7 @@ def _xs(spec) -> np.ndarray:
 
 
 def _data(unit: str):
+    """Target, noisy prediction and sorted 2026 timestamps stored in the given datetime64 unit."""
     rng = np.random.default_rng(0)
     n = 2000
     ts = (np.datetime64("2026-08-10") + np.sort(rng.integers(0, 34 * 86400, n)).astype("timedelta64[s]")).astype(f"datetime64[{unit}]")
@@ -32,17 +34,20 @@ def _data(unit: str):
 
 
 def _assert_2026(xs: np.ndarray):
+    """Assert that all finite x values fall within August-September 2026 in nanoseconds."""
     lo, hi = np.datetime64("2026-08-01").astype("datetime64[ns]").astype(np.int64), np.datetime64("2026-09-20").astype("datetime64[ns]").astype(np.int64)
     finite = xs[np.isfinite(xs)]
     assert finite.size and finite.min() >= lo and finite.max() <= hi
 
 
 def test_residual_vs_time_microsecond_timestamps():
+    """Residual vs time microsecond timestamps."""
     for unit in ("us", "ns", "ms"):
         _assert_2026(_xs(residual_vs_time(*_data(unit))))
 
 
 def test_cusum_microsecond_timestamps():
+    """Cusum microsecond timestamps."""
     y, p, ts = _data("us")
     spec = cusum_residual_drift(y, p, timestamps=ts)
     xs = _xs(spec)

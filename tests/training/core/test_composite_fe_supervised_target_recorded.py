@@ -9,6 +9,7 @@ from mlframe.training.core._phase_helpers_fit_pipeline import _composite_fe_supe
 
 
 def test_the_chosen_target_is_recorded_and_logged_for_a_multi_target_suite(caplog):
+    """The chosen target is recorded and logged for a multi target suite."""
     targets = {"binary": {"churn": pd.Series([0, 1, 0]), "fraud": pd.Series([1, 1, 0])}}
     metadata: dict = {}
     with caplog.at_level(logging.INFO, logger="mlframe.training.core"):
@@ -19,6 +20,7 @@ def test_the_chosen_target_is_recorded_and_logged_for_a_multi_target_suite(caplo
 
 
 def test_a_single_target_is_recorded_without_a_log(caplog):
+    """A single target is recorded without a log."""
     metadata: dict = {}
     with caplog.at_level(logging.INFO, logger="mlframe.training.core"):
         _composite_fe_supervised_target({"regression": {"y": np.arange(3.0)}}, metadata)

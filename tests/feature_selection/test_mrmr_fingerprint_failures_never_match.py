@@ -19,6 +19,7 @@ class _UnreadableColumn(pd.DataFrame):
 
     @property
     def _constructor(self):
+        """Keep the subclass through pandas operations so derived columns stay unreadable."""
         return _UnreadableColumn
 
     def __getitem__(self, key):
@@ -28,20 +29,25 @@ class _UnreadableColumn(pd.DataFrame):
 
 
 def test_an_unreadable_column_makes_the_fingerprint_unmatchable():
+    """An unreadable column makes the fingerprint unmatchable."""
     frame = _UnreadableColumn({"a": np.arange(50.0), "b": np.arange(50.0)})
     assert _mrmr_compute_x_fingerprint(frame) != _mrmr_compute_x_fingerprint(frame)
 
 
 def test_a_readable_frame_keeps_a_stable_fingerprint():
+    """A readable frame keeps a stable fingerprint."""
     frame = pd.DataFrame({"a": np.arange(50.0), "b": np.arange(50.0)})
     assert _mrmr_compute_x_fingerprint(frame) == _mrmr_compute_x_fingerprint(frame.copy())
 
 
 class _NoBytes(np.ndarray):
+    """ndarray subclass whose tobytes always fails, simulating a column that cannot be fingerprinted."""
     def tobytes(self, *a, **k):
+        """Raise MemoryError to simulate a failed byte dump."""
         raise MemoryError("simulated")
 
 
 def test_an_array_parameter_whose_content_hash_fails_never_matches():
+    """An array parameter whose content hash fails never matches."""
     arr = np.arange(2000.0).view(_NoBytes)
     assert _hashable_params_signature({"w": arr}) != _hashable_params_signature({"w": arr})

@@ -20,6 +20,7 @@ _BUILD_LOGGER = "mlframe.training.trainer"
 
 @pytest.fixture(autouse=True)
 def _patched():
+    """Apply the CatBoost patches and reset dataset-build stats before and after the test."""
     pytest.importorskip("catboost")
     from mlframe.training._model_factories import apply_third_party_patches_once
 
@@ -30,10 +31,12 @@ def _patched():
 
 
 def _build_records(caplog, min_level: int) -> list:
+    """Return dataset-build log records at or above min_level."""
     return [r for r in caplog.records if r.name == _BUILD_LOGGER and "[dataset-build]" in r.getMessage() and r.levelno >= min_level]
 
 
 def _pool_from_module(module_name: str):
+    """Build a CatBoost Pool from code executed under the given module name."""
     from catboost import Pool
 
     rng = np.random.default_rng(0)

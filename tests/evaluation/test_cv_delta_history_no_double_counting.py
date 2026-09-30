@@ -6,6 +6,7 @@ from mlframe.evaluation.cv_delta_triage import CVDeltaHistory, triage_cv_delta
 
 
 def test_the_same_baseline_is_pooled_once():
+    """The same baseline is pooled once."""
     history = CVDeltaHistory()
     baseline = np.array([0.80, 0.82, 0.79, 0.81, 0.83])
     for _ in range(40):
@@ -14,6 +15,7 @@ def test_the_same_baseline_is_pooled_once():
 
 
 def test_new_score_vectors_still_accumulate():
+    """New score vectors still accumulate."""
     history = CVDeltaHistory()
     rng = np.random.default_rng(0)
     for _ in range(5):

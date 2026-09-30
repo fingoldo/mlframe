@@ -17,6 +17,7 @@ def _frame(n: int = 2000, seed: int = 0):
 
 
 def test_a_regression_target_finds_the_interacting_pair():
+    """A regression target finds the interacting pair."""
     df, signal, rng = _frame()
     y = 3.0 * signal + rng.normal(0, 0.3, len(df))
     groups = discover_categorical_groups(df, ["a", "b", "c"], y, min_mi_gain=0.01)
@@ -24,6 +25,7 @@ def test_a_regression_target_finds_the_interacting_pair():
 
 
 def test_rows_without_a_label_are_left_out_not_fatal():
+    """Rows without a label are left out not fatal."""
     df, signal, rng = _frame()
     y = signal.copy()
     y[rng.random(len(df)) < 0.3] = np.nan

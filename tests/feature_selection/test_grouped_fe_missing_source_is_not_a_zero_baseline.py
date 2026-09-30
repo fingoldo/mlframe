@@ -8,6 +8,7 @@ from mlframe.feature_selection.filters._grouped_quantile_fe import score_grouped
 
 
 def _data():
+    """Build raw columns, one engineered column and a binary target driven by the present raw column."""
     rng = np.random.default_rng(0)
     n = 400
     raw = pd.DataFrame({"g": rng.integers(0, 5, n), "present": rng.normal(size=n)})
@@ -25,6 +26,7 @@ def test_agg_uplift_is_unknown_when_the_source_is_missing():
 
 
 def test_quantile_uplift_is_unknown_when_the_source_is_missing():
+    """Quantile uplift is unknown when the source is missing."""
     raw, eng, y = _data()
     out = score_grouped_quantile_by_mi_uplift(raw, eng, y, eng_to_source={"eng_from_missing": "not_in_raw_X"})
     assert np.isnan(out.loc[0, "uplift"])

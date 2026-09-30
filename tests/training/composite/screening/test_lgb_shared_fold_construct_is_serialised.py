@@ -60,6 +60,7 @@ def _run_threads(n_threads: int, monkeypatch) -> int:
     barrier = threading.Barrier(n_threads)
 
     def _worker(seed: int) -> None:
+        """Wait at the barrier, then fit on the shared fold."""
         x = np.zeros((32, 4), dtype=np.float32) + seed
         rows = np.arange(32)
         barrier.wait()  # every thread reaches construction together: without the lock they would overlap

@@ -25,6 +25,7 @@ def test_the_prewarm_exit_handler_waits_for_a_running_prewarm(own_executor, monk
     finished = threading.Event()
 
     def _slow_prewarm():
+        """Sleep briefly, then signal completion."""
         time.sleep(0.5)
         finished.set()
 
@@ -54,7 +55,9 @@ def test_the_heartbeat_is_joined_at_exit(monkeypatch):
     stops = []
 
     class _HB:
+        """Heartbeat stand-in recording stop calls."""
         def stop(self, join=True, timeout=None):
+            """Record the join and timeout arguments."""
             stops.append((join, timeout))
 
     monkeypatch.setattr(cd, "_HEARTBEAT", _HB())

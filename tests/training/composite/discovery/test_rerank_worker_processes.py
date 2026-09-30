@@ -141,6 +141,7 @@ def test_a_task_a_worker_cannot_unpickle_is_rescored_serially(caplog):
     parent = os.getpid()
 
     def _fail_in_a_worker(parent_pid):
+        """Fail with MemoryError inside a worker process; in the parent return the diff transform."""
         import os as _os
 
         if _os.getpid() != parent_pid:
@@ -150,6 +151,7 @@ def test_a_task_a_worker_cannot_unpickle_is_rescored_serially(caplog):
         return _gt("diff")
 
     class _Unloadable:
+        """Object that unpickles only in the parent process."""
         def __reduce__(self):
             return (_fail_in_a_worker, (parent,))
 

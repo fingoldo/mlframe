@@ -16,18 +16,21 @@ from mlframe.training.core.predict import _combine_probs, _resolve_chosen_ensemb
 
 
 def _probs(seed: int, n: int = 50) -> np.ndarray:
+    """Random binary probability matrix with columns (1-p, p)."""
     rng = np.random.default_rng(seed)
     p = rng.random(n)
     return np.stack([1.0 - p, p], axis=1)
 
 
 def test_persisted_weights_are_applied():
+    """Persisted weights are applied."""
     members = [_probs(1), _probs(2)]
     weighted = _combine_probs(members, "arithm", precomputed_weights=[0.8, 0.2])
     np.testing.assert_allclose(weighted, np.average(np.stack(members), axis=0, weights=[0.8, 0.2]), rtol=1e-12)
 
 
 def test_without_weights_the_blend_stays_the_unweighted_mean():
+    """Without weights the blend stays the unweighted mean."""
     members = [_probs(1), _probs(2)]
     np.testing.assert_allclose(_combine_probs(members, "arithm"), np.mean(np.stack(members), axis=0), rtol=1e-12)
 
@@ -43,6 +46,7 @@ def test_weights_that_cannot_belong_to_this_member_set_are_refused_loudly(weight
 
 
 def test_the_resolver_returns_the_weights_beside_rrf_k():
+    """The resolver returns the weights beside rrf k."""
     metadata = {"ensembles_chosen_params": {"binary": {"y": {"rrf_k": 42, "blend_weights": [0.7, 0.3]}}}}
     params = _resolve_chosen_ensemble_params(metadata, "binary", "y")
     assert params["rrf_k"] == 42
@@ -50,5 +54,6 @@ def test_the_resolver_returns_the_weights_beside_rrf_k():
 
 
 def test_a_legacy_artefact_without_the_stamp_still_resolves():
+    """A legacy artefact without the stamp still resolves."""
     metadata = {"ensembles_chosen_params": {"binary": {"y": {"rrf_k": 60}}}}
     assert _resolve_chosen_ensemble_params(metadata, "binary", "y").get("blend_weights") is None

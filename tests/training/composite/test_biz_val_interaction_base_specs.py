@@ -98,6 +98,7 @@ def test_the_suite_trains_predicts_reloads_and_serves_a_synthetic_base_composite
     real_unclipped = type(w)._predict_unclipped
 
     def capture(self, frame, *a, **k):
+        """Capture the frame and unclipped predictions of the watched composite, then return them."""
         if self is w and k.get("t_hat_override") is None:
             out = real_unclipped(self, frame, *a, **k)
             seen["frame"], seen["y"] = frame, out[0]

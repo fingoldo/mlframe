@@ -12,6 +12,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import clu
 
 
 def _build(seed, n=50_000, K=10_000):
+    """Build high-cardinality ID-like columns with a recoded duplicate, a noisy copy and low-cardinality pair, plus the set of truly related pairs."""
     rng = np.random.default_rng(seed)
     a = rng.integers(0, K, n)
     noisy = np.where(rng.random(n) < 0.1, rng.integers(0, K, n), a)
@@ -23,6 +24,7 @@ def _build(seed, n=50_000, K=10_000):
 
 
 def _rates(chance):
+    """Return the summed false-merge and missed-merge counts over five seeds for the chance-correction setting."""
     fm = mm = 0
     for seed in range(5):
         cols, true = _build(seed)
@@ -39,6 +41,7 @@ def _rates(chance):
 
 
 def test_biz_val_cluster_su_chance_false_merges_eliminated_no_missed_merges():
+    """Biz val cluster su chance false merges eliminated no missed merges."""
     old_fm, _ = _rates(False)
     fm, mm = _rates(True)
     assert old_fm >= 25, old_fm

@@ -41,6 +41,7 @@ def fit_spy(monkeypatch):
     orig = t.fit
 
     def _spy(y, base, *args, **kwargs):
+        """Record the row count, groups and weights presence of each fit, then delegate."""
         calls.append({"n": len(y), "groups": None if kwargs.get("groups") is None else len(kwargs["groups"]), "sw": kwargs.get("sample_weight") is not None})
         return orig(y, base, *args, **kwargs)
 

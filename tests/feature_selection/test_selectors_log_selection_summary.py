@@ -26,11 +26,13 @@ _SUMMARY_RE = re.compile(r"^(?P<label>[A-Za-z_()]+): (?P<what>selected|kept|drop
 
 @pytest.fixture(scope="module")
 def data():
+    """Synthetic classification frame with a few informative columns among N_FEATURES, plus its target."""
     X, y = make_classification(n_samples=300, n_features=N_FEATURES, n_informative=3, n_redundant=0, random_state=0, shuffle=False)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(N_FEATURES)]), y
 
 
 def _rf():
+    """Small single-threaded random forest used as the selectors' estimator."""
     return RandomForestClassifier(n_estimators=10, max_depth=4, random_state=0, n_jobs=1)
 
 
@@ -47,6 +49,7 @@ def _summaries(caplog):
 
 
 def _one(caplog, label):
+    """Return the single summary logged under the label, failing if there is not exactly one."""
     found = [s for s in _summaries(caplog) if s[0] == label]
     assert len(found) == 1, f"expected exactly one {label!r} summary, got {[s[3] for s in _summaries(caplog)]}"
     return found[0]
@@ -68,6 +71,7 @@ _LABELS = {
 
 
 def _registry_params():
+    """Parametrize over the selector registry keys, marking slow selectors."""
     out = []
     for key in _LABELS:
         spec = SELECTOR_SPECS[key]
@@ -80,6 +84,7 @@ def _registry_params():
 
 @pytest.mark.parametrize("key", _registry_params())
 def test_registered_selector_logs_single_info_summary_with_correct_counts(key, data, caplog):
+    """Registered selector logs single info summary with correct counts."""
     X, y = data
     if SELECTOR_SPECS[key].needs_shap:
         pytest.importorskip("shap")
@@ -98,6 +103,7 @@ def test_registered_selector_logs_single_info_summary_with_correct_counts(key, d
 
 
 def test_rfecv_summary_still_emitted(data, caplog):
+    """Rfecv summary still emitted."""
     X, y = data
     sel = SELECTOR_SPECS["RFECV"].make("binary")
     caplog.set_level(logging.INFO)
@@ -108,6 +114,7 @@ def test_rfecv_summary_still_emitted(data, caplog):
 
 @pytest.mark.slow
 def test_stability_mrmr_logs_one_summary_not_one_per_bootstrap(data, caplog):
+    """Stability mrmr logs one summary not one per bootstrap."""
     from mlframe.feature_selection.filters.stability import StabilityMRMR
     from tests.feature_selection._selector_factories import _make_mrmr
 
@@ -121,6 +128,7 @@ def test_stability_mrmr_logs_one_summary_not_one_per_bootstrap(data, caplog):
 
 @pytest.mark.slow
 def test_stability_fe_selector_logs_one_summary(data, caplog):
+    """Stability fe selector logs one summary."""
     from mlframe.feature_selection.filters._stability_fe import StabilityFESelector
 
     X, y = data
@@ -134,6 +142,7 @@ def test_stability_fe_selector_logs_one_summary(data, caplog):
 
 
 def test_oracle_scorer_selector_logs_recommendation(data, caplog, tmp_path):
+    """Oracle scorer selector logs recommendation."""
     from mlframe.feature_selection.filters._oracle_scorer_select import OracleScorerSelector
 
     X, y = data
@@ -146,6 +155,7 @@ def test_oracle_scorer_selector_logs_recommendation(data, caplog, tmp_path):
 
 # ------------------------------------------------------------------------------------------------------ functional selectors / filters
 def _fwd(X, y):
+    """Run forward_select and return how many features it kept."""
     from mlframe.feature_selection import forward_select
 
     r = forward_select(X, y, lambda: LogisticRegression(max_iter=200), scoring="accuracy", cv=2, max_features=3)
@@ -153,42 +163,49 @@ def _fwd(X, y):
 
 
 def _bwd(X, y):
+    """Run greedy_backward_elimination and return how many features it kept."""
     from mlframe.feature_selection import greedy_backward_elimination
 
     return len(greedy_backward_elimination(_rf(), X, y, accuracy_score, cv=KFold(2), min_features=8))
 
 
 def _zero(X, y):
+    """Run iterative_zero_importance_pruning and return how many features it kept."""
     from mlframe.feature_selection import iterative_zero_importance_pruning
 
     return len(iterative_zero_importance_pruning(_rf(), X, y, accuracy_score, cv=KFold(2), max_rounds=2))
 
 
 def _casc(X, y):
+    """Run cascade_select and return the size of its final selection."""
     from mlframe.feature_selection import cascade_select
 
     return len(cascade_select(X, y, _rf, n_boruta_iterations=5, cv=2)["final_selected"])
 
 
 def _casc_stable(X, y):
+    """Run cascade_select_stable and return the size of its stable selection."""
     from mlframe.feature_selection import cascade_select_stable
 
     return len(cascade_select_stable(X, y, _rf, n_bootstrap=2, stability_threshold=0.5, n_boruta_iterations=5, cv=2)["stable_selected"])
 
 
 def _ace(X, y):
+    """Run ace_select and return the number of selected features."""
     from mlframe.feature_selection import ace_select
 
     return len(ace_select(X, y, _rf(), n_replicates=5).selected_features)
 
 
 def _near_noise(X, y):
+    """Run drop_near_noise_univariate_auc and return how many features it kept."""
     from mlframe.feature_selection import drop_near_noise_univariate_auc
 
     return len(drop_near_noise_univariate_auc(X, y, tolerance=0.1))
 
 
 def _vs_reference(X, y):
+    """Run drop_noninformative_vs_reference against a class-0 reference mask and return how many features it kept."""
     from mlframe.feature_selection import drop_noninformative_vs_reference
 
     mask = np.asarray(y) == 0
@@ -196,12 +213,14 @@ def _vs_reference(X, y):
 
 
 def _raw_after_embedding(X, y):
+    """Return how many columns drop_raw_after_embedding removed."""
     from mlframe.feature_selection import drop_raw_after_embedding
 
     return len(X.columns) - len(drop_raw_after_embedding(X, {"f0": ["f1"], "f5": ["f6"]}).columns)
 
 
 def _unanimous(X, y):
+    """Run unanimous_permutation_prune over two folds and return how many features it kept."""
     from mlframe.feature_selection import unanimous_permutation_prune
 
     splits = list(KFold(2, shuffle=True, random_state=0).split(X))
@@ -209,24 +228,28 @@ def _unanimous(X, y):
 
 
 def _ridge_prefilter(X, y):
+    """Run ridge_coefficient_prefilter and return how many features it kept."""
     from mlframe.feature_selection import ridge_coefficient_prefilter
 
     return len(ridge_coefficient_prefilter(X.to_numpy(), y, list(X.columns), cv=2, is_classifier=True))
 
 
 def _bandit(X, y):
+    """Run stochastic_bandit_selection and return how many features it picked."""
     from mlframe.feature_selection import stochastic_bandit_selection
 
     return len(stochastic_bandit_selection(_rf(), X, y, accuracy_score, subset_size=3, n_epochs=6, cv=KFold(2)))
 
 
 def _bandit_ensemble(X, y):
+    """Run the multi-seed bandit ensemble and return the size of the union of top features."""
     from mlframe.feature_selection import stochastic_bandit_selection_ensemble
 
     return len(stochastic_bandit_selection_ensemble(_rf(), X, y, accuracy_score, subset_size=3, seeds=[0, 1], n_epochs=6, cv=KFold(2)).union_top_feats)
 
 
 def _hetero(X, y):
+    """Run heterogeneous_relevance_vote and return how many features were accepted."""
     from mlframe.feature_selection import heterogeneous_relevance_vote
 
     accepted, _ = heterogeneous_relevance_vote(X, y, models={"rf": _rf()}, n_shadow_trials=1)
@@ -234,6 +257,7 @@ def _hetero(X, y):
 
 
 def _pre_screen(X, y):
+    """Add constant and all-null columns, run compute_unsupervised_drops, and return (drops, total columns)."""
     from mlframe.feature_selection.pre_screen import compute_unsupervised_drops
 
     df = X.copy()
@@ -243,9 +267,11 @@ def _pre_screen(X, y):
 
 
 def _boruta_fn(X, y):
+    """Run boruta_select with forest importances and return its selection."""
     from mlframe.feature_selection.filters import boruta_select
 
     def imp(Xa, ya):
+        """Forest feature importances for the Boruta scorer."""
         m = _rf().fit(np.asarray(Xa), ya)
         return m.feature_importances_
 
@@ -254,15 +280,18 @@ def _boruta_fn(X, y):
 
 
 def _null_importance(X, y):
+    """Run null_importance_filter and return the number of kept features."""
     from mlframe.feature_selection.filters import null_importance_filter
 
     def imp(Xa, ya):
+        """Forest feature importances for the null-importance scorer."""
         return _rf().fit(np.asarray(Xa), ya).feature_importances_
 
     return int(null_importance_filter(X, y, imp, n_shuffles=5)["keep_mask"].sum())
 
 
 def _monotonic(X, y):
+    """Run monotonic_deviation_stability_filter over a synthetic grouping and return (stable count, total)."""
     from mlframe.feature_selection.filters import monotonic_deviation_stability_filter
 
     df = X.copy()
@@ -272,6 +301,7 @@ def _monotonic(X, y):
 
 
 def _ks(X, y):
+    """Run ks_stability_filter on the two halves of the frame and return how many features were unstable."""
     from mlframe.feature_selection.filters import ks_stability_filter
 
     rep = ks_stability_filter(X.iloc[:150], X.iloc[150:], p_value_threshold=0.5)
@@ -304,6 +334,7 @@ _FUNCTION_CASES = [
 
 @pytest.mark.parametrize("label,runner,n_expected", _FUNCTION_CASES, ids=[c[0] for c in _FUNCTION_CASES])
 def test_functional_selector_logs_single_info_summary(label, runner, n_expected, data, caplog):
+    """Functional selector logs single info summary."""
     X, y = data
     caplog.set_level(logging.INFO)
     out = runner(X, y)
@@ -314,10 +345,12 @@ def test_functional_selector_logs_single_info_summary(label, runner, n_expected,
 
 
 def _rfecv_lines(caplog):
+    """Return the INFO log messages that start with 'RFECV: selected'."""
     return [r.getMessage() for r in caplog.records if r.levelno == logging.INFO and r.getMessage().startswith("RFECV: selected")]
 
 
 def test_cascade_select_silences_nested_rfecv_summary(data, caplog):
+    """Cascade select silences nested rfecv summary."""
     X, y = data
     caplog.set_level(logging.INFO)
     _casc(X, y)
@@ -326,6 +359,7 @@ def test_cascade_select_silences_nested_rfecv_summary(data, caplog):
 
 
 def test_rfecv_run_directly_keeps_its_own_summary(data, caplog):
+    """Rfecv run directly keeps its own summary."""
     from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     X, y = data
@@ -335,6 +369,7 @@ def test_rfecv_run_directly_keeps_its_own_summary(data, caplog):
 
 
 def test_varying_size_top_k_subsets_logs_summary(caplog):
+    """Varying size top k subsets logs summary."""
     from mlframe.feature_selection import varying_size_top_k_subsets
 
     ranked = [f"f{i}" for i in range(10)]
@@ -346,6 +381,7 @@ def test_varying_size_top_k_subsets_logs_summary(caplog):
 
 # ------------------------------------------------------------------------------------------------------ shared helper behaviour
 def test_log_selection_truncates_names_to_first_thirty(caplog):
+    """Log selection truncates names to first thirty."""
     names = [f"col{i}" for i in range(500)]
     caplog.set_level(logging.INFO)
     log_selection(logging.getLogger("t"), "Sel", 500, 800, names, elapsed=1.25)
@@ -356,8 +392,10 @@ def test_log_selection_truncates_names_to_first_thirty(caplog):
 
 
 def test_logs_selection_decorator_is_silent_when_nested(caplog):
+    """Logs selection decorator is silent when nested."""
     @logs_selection("inner", lambda res, b: (res, 5, None))
     def inner():
+        """Nested selector stand-in returning two column names."""
         return ["a", "b"]
 
     caplog.set_level(logging.INFO)
@@ -369,6 +407,7 @@ def test_logs_selection_decorator_is_silent_when_nested(caplog):
 
 
 def test_log_selection_respect_quiet_only_inside_quiet_scope(caplog):
+    """Log selection respect quiet only inside quiet scope."""
     caplog.set_level(logging.INFO)
     lg = logging.getLogger("t2")
     with quiet_nested():
@@ -380,9 +419,11 @@ def test_log_selection_respect_quiet_only_inside_quiet_scope(caplog):
 
 # ------------------------------------------------------------------------------------------------------ suite-level line
 def test_suite_selector_retention_line_lists_dropped_columns(caplog):
+    """Suite selector retention line lists dropped columns."""
     from mlframe.training.pipeline._pipeline_selector_log import log_selector_retention
 
     class DummySelector:
+        """Bare selector stand-in with no behaviour."""
         pass
 
     cols = [f"c{i}" for i in range(40)]
@@ -395,6 +436,7 @@ def test_suite_selector_retention_line_lists_dropped_columns(caplog):
 
 
 def test_suite_selector_retention_line_polars_and_engineered(caplog):
+    """Suite selector retention line polars and engineered."""
     pl = pytest.importorskip("polars")
     from mlframe.training.pipeline._pipeline_selector_log import log_selector_retention
 
@@ -407,6 +449,7 @@ def test_suite_selector_retention_line_polars_and_engineered(caplog):
 
 @pytest.mark.slow
 def test_mrmr_tree_rescued_final_summary_matches_rescued_support(data, caplog):
+    """Mrmr tree rescued final summary matches rescued support."""
     from mlframe.feature_selection.filters import MRMRTreeRescued
 
     X, y = data

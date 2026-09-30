@@ -24,6 +24,7 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 
 def _frame(n: int, seed: int) -> pd.DataFrame:
+    """Three numeric features, a categorical column and a linear target."""
     rng = np.random.RandomState(seed)
     x = rng.randn(n, 3)
     df = pd.DataFrame(x, columns=[f"f_{i}" for i in range(3)])
@@ -35,6 +36,7 @@ def _frame(n: int, seed: int) -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def trained_suite(tmp_path_factory):
+    """Train a small linear suite once and return where it was saved."""
     data_dir = str(tmp_path_factory.mktemp("suite"))
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
     train_mlframe_models_suite(
@@ -48,10 +50,12 @@ def trained_suite(tmp_path_factory):
 
 
 def test_every_model_failing_raises_instead_of_returning_an_empty_success(trained_suite, monkeypatch):
+    """Every model failing raises instead of returning an empty success."""
     models_path, fte = trained_suite
     import mlframe.training.core._predict_main_suite as pms
 
     def _broken(*a, **k):
+        """Fail like a version-drift unpickle error."""
         raise OSError("simulated version-drift unpickle failure")
 
     monkeypatch.setattr(pms, "load_mlframe_model", _broken)
@@ -60,6 +64,7 @@ def test_every_model_failing_raises_instead_of_returning_an_empty_success(traine
 
 
 def test_a_healthy_bundle_still_predicts(trained_suite):
+    """A healthy bundle still predicts."""
     models_path, fte = trained_suite
     out = predict_mlframe_models_suite(df=_frame(50, 1), models_path=models_path, features_and_targets_extractor=fte, verbose=0)
     assert out["predictions"], "a working bundle must produce predictions"
@@ -75,6 +80,7 @@ def test_the_disk_path_sanitises_names_after_the_pipeline(trained_suite, monkeyp
     real = fns.sanitize_frame_columns
 
     def spy(df):
+        """Record the column names passed to sanitisation, then delegate."""
         calls.append(tuple(str(c) for c in getattr(df, "columns", [])))
         return real(df)
 

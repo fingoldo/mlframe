@@ -38,6 +38,7 @@ class _FakeBooster:
         self.n_fits = 0
 
     def get_params(self, deep=True):
+        """Return the loss, eval metric and iteration settings."""
         return {
             "loss_function": self.loss_function,
             "eval_metric": self.eval_metric,
@@ -45,17 +46,20 @@ class _FakeBooster:
         }
 
     def set_params(self, **kw):
+        """Set each given attribute and return self."""
         for k, v in kw.items():
             setattr(self, k, v)
         return self
 
     def fit(self, X, y, **kw):
+        """Count the fit and become well-behaved only if refit on an RMSE-family loss."""
         self.n_fits += 1
         # A refit onto the RMSE family is what makes the model good; anything else keeps it pathological.
         self.bad = "rmse" not in str(self.loss_function).lower()
         return self
 
     def predict(self, X):
+        """Predict wildly off-scale values while pathological, near the truth once fixed."""
         n = len(X)
         rng = np.random.default_rng(0)
         if self.bad:
@@ -69,10 +73,12 @@ _Y_TRUE = np.sin(np.arange(2000) / 50.0) * 150.0 + 300.0
 
 
 def _fit_params():
+    """Fit params holding the validation eval set."""
     return {"eval_set": [(_X_VAL, _Y_TRUE)]}
 
 
 def _call(model, best_iter=MAX_ITER - 1, fit_params=None):
+    """Call the saturated-best-iteration refit helper for the model."""
     return _maybe_refit_on_saturated_best_iter(
         model_obj=model,
         model_type_name="CatBoostRegressor",
@@ -85,6 +91,7 @@ def _call(model, best_iter=MAX_ITER - 1, fit_params=None):
 
 
 def test_saturated_robust_loss_with_negative_r2_is_refit_on_rmse():
+    """Saturated robust loss with negative r2 is refit on rmse."""
     model = _FakeBooster()
     new_best = _call(model)
     assert new_best is not None or model.n_fits == 1
@@ -135,6 +142,7 @@ def test_unscoreable_eval_set_warns_and_keeps_the_fit(caplog):
 
 
 def test_non_booster_models_are_ignored():
+    """Non booster models are ignored."""
     model = _FakeBooster()
     assert (
         _maybe_refit_on_saturated_best_iter(
@@ -158,6 +166,7 @@ def test_non_booster_models_are_ignored():
     ],
 )
 def test_eval_set_xy_understands_every_backend_convention(fit_params, expected):
+    """Eval set xy understands every backend convention."""
     got = _eval_set_xy(fit_params)
     assert (got is not None) is expected
     if expected:

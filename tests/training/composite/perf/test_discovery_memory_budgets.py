@@ -28,6 +28,7 @@ class _Stop(Exception):
 
 
 def _frame(n: int, f: int, seed: int = 0) -> pd.DataFrame:
+    """n rows of f normal features and a target from the first two."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"f{i}": rng.normal(size=n) for i in range(f)})
     X["y"] = 2 * X["f0"] + np.sin(X["f1"]) + rng.normal(0, 0.3, n)
@@ -44,6 +45,7 @@ def _filter_peak(frame, n: int, f: int, monkeypatch) -> tuple[int, int]:
     out = {}
 
     def spy(self, df, feature_cols, y_train, train_idx):
+        """Warm the real filter, then measure its peak traced memory."""
         real(self, df, feature_cols, y_train, train_idx)  # imports and kernel compilation stay out of the measured call
         gc.collect()
         tracemalloc.start()
@@ -64,6 +66,7 @@ def _filter_peak(frame, n: int, f: int, monkeypatch) -> tuple[int, int]:
 
 @pytest.mark.parametrize("carrier", ["pandas", "polars"])
 def test_the_leak_corr_filter_peaks_at_one_sample_matrix_and_its_mask(carrier, monkeypatch):
+    """The leak corr filter peaks at one sample matrix and its mask."""
     n, f = 200_000, 50
     frame = _frame(n, f)
     if carrier == "polars":
@@ -84,15 +87,18 @@ def _resident_after_rerank(n: int, f: int, bases: int, monkeypatch) -> tuple[int
     real_prebin = fit_mod._prebin_feature_columns_cached
 
     def prebin(matrix, **k):
+        """Record the screening row count, then delegate."""
         at["screen_rows"] = int(matrix.shape[0])
         return real_prebin(matrix, **k)
 
     def report(state, tag):
+        """Record traced memory at the entry and rerank-done checkpoints."""
         if tag in ("entry", "tiny_model_rerank_done"):
             gc.collect()
             at[tag] = tracemalloc.get_traced_memory()[0]
 
     def fit(frame, screen_n):
+        """Fit discovery on the frame with the screening sample size, silencing warnings."""
         cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, mi_sample_n=screen_n, base_candidates=[f"f{i}" for i in range(bases)],
                                              transforms=["diff", "linear_residual"], interaction_base_discovery_enabled=False)
         with warnings.catch_warnings():

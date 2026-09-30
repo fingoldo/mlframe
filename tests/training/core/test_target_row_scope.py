@@ -56,6 +56,7 @@ def test_every_context_field_is_classified():
 
 @pytest.mark.parametrize("od", [False, True])
 def test_frames_and_indices_are_narrowed_together(od):
+    """Frames and indices are narrowed together."""
     ctx = _ctx(od=od)
     rows = build_target_rows(MASK, splits_of(ctx))
     with target_row_scope(ctx, rows):
@@ -77,6 +78,7 @@ def test_frames_and_indices_are_narrowed_together(od):
 
 
 def test_everything_is_put_back_on_exit_even_after_an_exception():
+    """Everything is put back on exit even after an exception."""
     ctx = _ctx(od=True)
     before = {f.name: getattr(ctx, f.name) for f in dataclasses.fields(ctx)}
     rows = build_target_rows(MASK, splits_of(ctx))
@@ -96,6 +98,7 @@ def test_everything_is_put_back_on_exit_even_after_an_exception():
 
 
 def test_a_frame_the_body_released_stays_released():
+    """A frame the body released stays released."""
     ctx = _ctx()
     with target_row_scope(ctx, build_target_rows(MASK, splits_of(ctx))):
         ctx.train_df_polars = None  # the body frees polars frames once pandas takes over
@@ -104,6 +107,7 @@ def test_a_frame_the_body_released_stays_released():
 
 
 def test_a_fully_labelled_target_changes_nothing():
+    """A fully labelled target changes nothing."""
     ctx = _ctx()
     before = {f.name: getattr(ctx, f.name) for f in dataclasses.fields(ctx)}
     with target_row_scope(ctx, None):
@@ -114,6 +118,7 @@ def test_a_fully_labelled_target_changes_nothing():
 
 
 def test_a_frame_misaligned_with_its_split_is_refused():
+    """A frame misaligned with its split is refused."""
     ctx = _ctx()
     ctx.val_df_pd = ctx.val_df_pd.iloc[:3]
     with pytest.raises(TargetRowScopeError, match="val_df_pd"):
@@ -122,6 +127,7 @@ def test_a_frame_misaligned_with_its_split_is_refused():
 
 
 def test_a_fit_that_would_see_an_unlabelled_row_is_refused():
+    """A fit that would see an unlabelled row is refused."""
     ctx = _ctx()
     rows = build_target_rows(MASK, splits_of(ctx))
     with target_row_scope(ctx, rows):
@@ -134,13 +140,16 @@ def test_a_fit_that_would_see_an_unlabelled_row_is_refused():
 
 
 def test_the_pipeline_cache_key_carries_the_rows_only_inside_a_scope():
+    """The pipeline cache key carries the rows only inside a scope."""
     from mlframe.training.core._phase_train_one_target_cache_helpers import compute_model_pipeline_cache_key
 
     class _Strategy:
+        """Strategy stand-in with no polars, imputation, scaling or encoding."""
         supports_polars = False
         requires_imputation = requires_scaling = requires_encoding = False
 
         def feature_tier(self):
+            """Return the (False, False) tier."""
             return (False, False)
 
     kwargs = dict(strategy=_Strategy(), pre_pipeline_name="", cat_features=[], text_features=[], embedding_features=[], train_df_polars=None,
@@ -156,12 +165,14 @@ def test_the_pipeline_cache_key_carries_the_rows_only_inside_a_scope():
 
 
 def _decide(ctx, values, target_type=TargetTypes.REGRESSION):
+    """Decide rows for target y and return them with the working values, train iteration and recorded metadata."""
     metadata: dict = {}
     rows, working, train_it = rows_for_target(ctx, target_type, "y", values, metadata, {})
     return rows, working, train_it, metadata[TARGET_ROWS_METADATA_KEY]["regression/y" if target_type == TargetTypes.REGRESSION else f"{target_type}/y"]
 
 
 def test_too_few_labelled_train_rows_skips_the_target():
+    """Too few labelled train rows skips the target."""
     y = np.full(N, np.nan)
     y[[0, 1, 10, 11, 14, 15]] = 1.0
     rows, _, train_it, record = _decide(_ctx(), y)
@@ -169,6 +180,7 @@ def test_too_few_labelled_train_rows_skips_the_target():
 
 
 def test_too_few_val_rows_trains_without_val_and_too_few_calib_rows_without_calib():
+    """Too few val rows trains without val and too few calib rows without calib."""
     y = np.arange(N, dtype=float)
     y[[11, 12, 13, 19]] = np.nan
     rows, _, train_it, _record = _decide(_ctx(), y)
@@ -181,6 +193,7 @@ def test_too_few_val_rows_trains_without_val_and_too_few_calib_rows_without_cali
 
 
 def test_too_few_test_rows_marks_the_metrics_low_n():
+    """Too few test rows marks the metrics low n."""
     y = np.arange(N, dtype=float)
     y[[14, 15, 16]] = np.nan
     rows, _, train_it, record = _decide(_ctx(), y)
@@ -188,6 +201,7 @@ def test_too_few_test_rows_marks_the_metrics_low_n():
 
 
 def test_a_classification_target_left_with_one_class_is_skipped():
+    """A classification target left with one class is skipped."""
     y = np.zeros(N)
     y[[1, 2, 3]] = np.nan
     y[15] = 1.0  # the only positive is in test
@@ -196,6 +210,7 @@ def test_a_classification_target_left_with_one_class_is_skipped():
 
 
 def test_rows_of_a_class_train_never_saw_are_left_out_of_scoring():
+    """Rows of a class train never saw are left out of scoring."""
     y = np.tile([0.0, 1.0], N // 2)
     y[5] = np.nan
     y[[15, 16]] = 2.0  # class 2 only in test
@@ -206,6 +221,7 @@ def test_rows_of_a_class_train_never_saw_are_left_out_of_scoring():
 
 
 def test_the_working_classification_target_is_integer_and_regression_keeps_nan():
+    """The working classification target is integer and regression keeps nan."""
     y = np.array([0.0, 1.0, np.nan, 1.0])
     mask = ~np.isnan(y)
     cls = working_target(y, mask, TargetTypes.BINARY_CLASSIFICATION, "y")
@@ -238,6 +254,7 @@ def test_split_details_and_the_record_describe_the_labelled_rows_and_flag_censor
 
 
 def test_a_narrowing_that_would_not_fit_in_the_commit_headroom_is_warned_about(monkeypatch):
+    """A narrowing that would not fit in the commit headroom is warned about."""
     from mlframe.training.core import _target_row_scope as scope
 
     ctx = _ctx()
@@ -249,6 +266,7 @@ def test_a_narrowing_that_would_not_fit_in_the_commit_headroom_is_warned_about(m
 
 
 def test_the_pipeline_cache_drops_one_row_groups_entries():
+    """The pipeline cache drops one row groups entries."""
     from mlframe.training.strategies.pipeline_cache import PipelineCache
 
     cache = PipelineCache(verbose=False, bytes_limit=10**9)

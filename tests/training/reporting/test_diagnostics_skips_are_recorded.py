@@ -13,6 +13,7 @@ def test_a_primary_model_is_not_mistaken_for_an_ensemble_variant(name):
 
 @pytest.mark.parametrize("name", ["EnsARITHM cb_lgb", "EnsHARM x", "Conf Ensemble arithm", "ensemble", "cb_ensemble"])
 def test_real_ensemble_variants_are_recognised(name):
+    """Real ensemble variants are recognised."""
     assert is_ensemble_variant_name(name)
 
 
@@ -26,6 +27,7 @@ def test_a_budget_skip_lands_in_charts():
 
 
 def test_an_out_of_scope_skip_lands_in_charts():
+    """An out of scope skip lands in charts."""
     charts: dict = {}
     budget = DiagnosticsBudget(0.0, policy=HeavyDiagnosticsPolicy(mode="best", is_primary=False), charts=charts)
     heavy = next(iter(__import__("mlframe.training.reporting._diagnostics_budget", fromlist=["HEAVY_DIAGNOSTICS"]).HEAVY_DIAGNOSTICS))
@@ -43,7 +45,9 @@ def test_the_interaction_budget_skip_is_recorded(monkeypatch):
     monkeypatch.setattr(pdp, "_interaction_cost_within_budget", lambda *a, **k: False)
 
     class _Model:
+        """Model stand-in predicting zeros."""
         def predict(self, X):
+            """Return zeros for each row."""
             return np.zeros(len(X))
 
     metrics: dict = {}
@@ -69,7 +73,9 @@ def test_a_panel_skip_and_a_diagnostic_skip_share_one_shape(monkeypatch):
     monkeypatch.setattr(pdp, "_interaction_cost_within_budget", lambda *a, **k: False)
 
     class _Model:
+        """Model stand-in predicting zeros."""
         def predict(self, X):
+            """Return zeros for each row."""
             return np.zeros(len(X))
 
     metrics: dict = {}

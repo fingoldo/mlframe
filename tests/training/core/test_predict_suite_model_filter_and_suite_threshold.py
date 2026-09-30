@@ -22,6 +22,7 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 @pytest.fixture(scope="module")
 def suite():
+    """Train a small binary-classification suite and return its location."""
     rng = np.random.RandomState(0)
     n = 1500
     x = rng.randn(n, 4)
@@ -38,12 +39,14 @@ def suite():
 
 
 def test_a_filter_that_matches_nothing_raises(suite):
+    """A filter that matches nothing raises."""
     models_path, fte, df, _ = suite
     with pytest.raises(ValueError, match="matched none"):
         predict_mlframe_models_suite(df=df.head(50), models_path=models_path, features_and_targets_extractor=fte, model_names=["no_such_model"], verbose=0)
 
 
 def test_the_suite_wide_labels_use_the_tuned_threshold(suite):
+    """The suite wide labels use the tuned threshold."""
     models_path, fte, df, md = suite
     out = predict_mlframe_models_suite(df=df.head(400), models_path=models_path, features_and_targets_extractor=fte, verbose=0)
     key = next(k for k in md["decision_thresholds"] if k.count("|") == 1)

@@ -35,6 +35,7 @@ def _prod_like_splits():
 
 
 def test_heavy_tail_level_collapse_is_reported():
+    """Heavy tail level collapse is reported."""
     train, val, test = _prod_like_splits()
     report = compute_label_distribution_drift(train, val, test, "regression")
 
@@ -50,6 +51,7 @@ def test_heavy_tail_level_collapse_is_reported():
 
 
 def test_ratios_are_recorded_for_every_split_and_statistic():
+    """Ratios are recorded for every split and statistic."""
     train, val, test = _prod_like_splits()
     drifts = compute_label_distribution_drift(train, val, test, "regression")["drifts"]
     for split in ("val", "test"):
@@ -93,6 +95,7 @@ def test_near_zero_train_reference_does_not_manufacture_a_warning():
 
 
 def test_binary_branch_is_untouched():
+    """Binary branch is untouched."""
     rng = np.random.default_rng(5)
     train = (rng.random(100_000) < 0.293).astype(int)
     test = (rng.random(50_000) < 0.360).astype(int)

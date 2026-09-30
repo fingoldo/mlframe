@@ -9,15 +9,18 @@ from mlframe.metrics.calibration import ICE_UNCOMPUTABLE
 
 
 def _metric(y_true, y_score):
+    """Constant metric returning 0.25."""
     return 0.25
 
 
 def _call(m, n, seed=0):
+    """Evaluate the metric on n random scores and labels and return the first result."""
     rng = np.random.default_rng(seed)
     return m.evaluate([rng.normal(size=n)], (rng.random(n) < 0.3).astype(np.int8), None)[0]
 
 
 def test_largest_set_is_skipped_only_after_a_second_size_appears():
+    """Largest set is skipped only after a second size appears."""
     m = ICE(metric=_metric, higher_is_better=False, skip_largest_set=True, subsample_skipped_sets=False)
     assert _call(m, 1000) == 0.25, "the only set seen so far must still be scored"
     assert _call(m, 200) == 0.25, "the smaller (eval) set is always scored"
@@ -26,9 +29,11 @@ def test_largest_set_is_skipped_only_after_a_second_size_appears():
 
 
 def test_largest_set_is_subsampled_by_default():
+    """Largest set is subsampled by default."""
     sizes = []
 
     def _rec(y_true, y_score):
+        """Record the size of the set being scored and return a constant."""
         sizes.append(len(y_true))
         return 0.25
 
@@ -38,6 +43,7 @@ def test_largest_set_is_subsampled_by_default():
 
 
 def test_single_set_run_keeps_its_metric():
+    """Single set run keeps its metric."""
     m = ICE(metric=_metric, higher_is_better=False, skip_largest_set=True)
     assert len(range(5)) > 0, "the loop below must iterate at least once"
     for _ in range(5):
@@ -45,5 +51,6 @@ def test_single_set_run_keeps_its_metric():
 
 
 def test_flag_off_scores_everything():
+    """Flag off scores everything."""
     m = ICE(metric=_metric, higher_is_better=False)
     assert _call(m, 5000) == 0.25 and _call(m, 100) == 0.25 and _call(m, 5000) == 0.25

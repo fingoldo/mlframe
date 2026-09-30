@@ -18,6 +18,7 @@ from mlframe.models.ensembling.score_gate import resolve_gate_target_arr
 
 
 def _bed(n_sub: int = 300):
+    """Binary target with one informative and one random prediction."""
     rng = np.random.default_rng(0)
     y = (rng.random(n_sub) < 0.4).astype(np.float64)
     good = np.clip(y * 0.8 + rng.normal(0, 0.1, n_sub) + 0.1, 0, 1)
@@ -26,6 +27,7 @@ def _bed(n_sub: int = 300):
 
 
 def _run(target, preds, **kw):
+    """Run the stacking-aware gate on the target and predictions and return its weights."""
     res: dict = {}
     weights = run_stacking_aware_gate(
         enable_stacking_aware_gate=True,
@@ -43,6 +45,7 @@ def _run(target, preds, **kw):
 
 
 def test_the_aligned_target_produces_weights():
+    """The aligned target produces weights."""
     y, preds = _bed()
     weights, res = _run(y, preds)
     assert weights is not None, "the weight fit must run when the target matches the gate rows"
@@ -66,6 +69,7 @@ def test_a_whole_frame_target_is_reported_instead_of_silently_disabling_the_fit(
     [("oof", "train"), ("train", "train"), ("train-coarse", "train"), ("val", "val"), ("val-coarse", "val"), ("test", "test"), ("test-coarse", "test")],
 )
 def test_every_gate_source_maps_to_its_own_split(split, expected):
+    """Every gate source maps to its own split."""
     arrays = {k: np.full(3, float(i)) for i, k in enumerate(("train", "val", "test"))}
     got = resolve_gate_target_arr(
         split,
@@ -78,10 +82,12 @@ def test_every_gate_source_maps_to_its_own_split(split, expected):
 
 
 def test_the_calib_source_reads_the_slice_stamped_on_the_members():
+    """The calib source reads the slice stamped on the members."""
     member = types.SimpleNamespace(calib_target=np.array([1.0, 0.0, 1.0]))
     got = resolve_gate_target_arr("calib", level_models_and_predictions=[member])
     np.testing.assert_array_equal(got, member.calib_target)
 
 
 def test_an_unknown_source_resolves_to_nothing_rather_than_to_the_wrong_rows():
+    """An unknown source resolves to nothing rather than to the wrong rows."""
     assert resolve_gate_target_arr(None, train_target_arr=np.zeros(3), level_models_and_predictions=[]) is None

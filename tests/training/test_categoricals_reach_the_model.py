@@ -14,6 +14,7 @@ import pytest
 
 
 def _frame(n=1200, seed=0):
+    """Three string categoricals and a numeric column with a target determined by the a and b pair."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame({k: rng.integers(0, 6, n).astype(str) for k in "abc"})
     df["num"] = rng.normal(size=n)
@@ -23,6 +24,7 @@ def _frame(n=1200, seed=0):
 
 
 def _train(tmp_path, **kwargs):
+    """Train the suite on the categorical frame and return models and metadata."""
     from mlframe.training.configs import OutputConfig
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
@@ -39,6 +41,7 @@ def _train(tmp_path, **kwargs):
 
 
 def test_default_suite_trains_catboost_on_its_categorical_columns(tmp_path):
+    """Default suite trains catboost on its categorical columns."""
     pytest.importorskip("catboost")
     _, _, meta, feats = _train(tmp_path)
     assert feats and all({"a", "b", "c"} <= f for f in feats), feats
@@ -46,6 +49,7 @@ def test_default_suite_trains_catboost_on_its_categorical_columns(tmp_path):
 
 
 def test_replayed_composite_column_reaches_the_model_at_predict(tmp_path):
+    """Replayed composite column reaches the model at predict."""
     pytest.importorskip("catboost")
     from mlframe.training.configs import PreprocessingExtensionsConfig
     from mlframe.training.core import predict_mlframe_models_suite

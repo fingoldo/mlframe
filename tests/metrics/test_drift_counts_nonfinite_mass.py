@@ -14,12 +14,14 @@ from mlframe.metrics._drift import js_divergence, kl_divergence, population_stab
 
 
 def _pair(seed: int = 0, n: int = 5000):
+    """Two independent standard-normal samples."""
     rng = np.random.default_rng(seed)
     return rng.normal(size=n), rng.normal(size=n)
 
 
 @pytest.mark.parametrize("fn, floor", [(population_stability_index, 0.25), (kl_divergence, 0.1), (js_divergence, 0.05)])
 def test_a_jump_in_the_nan_rate_is_reported_as_drift(fn, floor):
+    """A jump in the nan rate is reported as drift."""
     ref, tgt = _pair()
     tgt = tgt.copy()
     tgt[: len(tgt) // 2] = np.nan
@@ -28,6 +30,7 @@ def test_a_jump_in_the_nan_rate_is_reported_as_drift(fn, floor):
 
 @pytest.mark.parametrize("fn", [population_stability_index, kl_divergence, js_divergence])
 def test_the_same_nan_rate_on_both_sides_is_not_drift(fn):
+    """The same nan rate on both sides is not drift."""
     ref, tgt = _pair()
     ref, tgt = ref.copy(), tgt.copy()
     ref[::10] = np.nan

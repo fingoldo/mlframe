@@ -13,6 +13,7 @@ from mlframe.calibration.quality import estimate_calibration_quality_binned
 
 
 def test_binned_entries_are_labelled_as_curve_metrics():
+    """Binned entries are labelled as curve metrics."""
     rng = np.random.default_rng(0)
     p = rng.random(2000)
     y = (rng.random(2000) < p).astype(np.float64)

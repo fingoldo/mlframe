@@ -20,11 +20,13 @@ def test_the_env_var_sets_the_cap_after_import(monkeypatch):
 
 
 def test_an_unparseable_value_falls_back_instead_of_breaking(monkeypatch):
+    """An unparseable value falls back instead of breaking."""
     monkeypatch.setenv("MLFRAME_BATCH_JOINT_CARD_CAP", "lots")
     assert joint_cardinality_cap() == MAX_JOINT_CARDINALITY
 
 
 def test_the_kernel_skips_a_pair_over_the_passed_cap():
+    """The kernel skips a pair over the passed cap."""
     rng = np.random.default_rng(0)
     data = rng.integers(0, 30, size=(500, 2)).astype(np.int32)
     y = (data[:, 0] % 2).astype(np.int32)

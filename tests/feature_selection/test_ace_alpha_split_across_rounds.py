@@ -11,6 +11,7 @@ def test_each_round_tests_at_a_share_of_alpha(monkeypatch):
     real_bh = ace._benjamini_hochberg_reject
 
     def spy(pvals, alpha):
+        """Record the alpha each BH call receives, then delegate to the real procedure."""
         seen_alphas.append(alpha)
         return real_bh(pvals, alpha)
 

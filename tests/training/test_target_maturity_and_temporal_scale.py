@@ -34,6 +34,7 @@ def _timeline(seed: int = 0):
 
 
 def _frame(ts, y):
+    """Frame of timestamps and target values."""
     return pd.DataFrame({"ts": ts, "y": y})
 
 
@@ -105,6 +106,7 @@ def test_maturity_audit_does_not_call_a_declining_regime_censoring():
 
 
 def test_maturity_audit_reports_stable_for_a_stationary_target():
+    """Maturity audit reports stable for a stationary target."""
     ts, _days, rng = _timeline()
     y = rng.gamma(2.0, 50.0, N)
     assert audit_target_maturity(timestamps=ts, y=y).verdict == "stable"
@@ -124,12 +126,14 @@ def test_maturity_audit_on_the_production_bin_profile():
 
 
 def test_maturity_audit_needs_enough_bins():
+    """Maturity audit needs enough bins."""
     result = audit_binned_target_maturity(bin_stats=[5.0, 4.0, 3.0])
     assert result.verdict == "insufficient_data"
     assert not np.isfinite(result.trend)
 
 
 def test_maturity_audit_rejects_mismatched_lengths():
+    """Maturity audit rejects mismatched lengths."""
     with pytest.raises(ValueError, match="timestamps has"):
         audit_target_maturity(timestamps=np.arange(10), y=np.arange(9))
 

@@ -18,12 +18,14 @@ def test_the_expanding_mean_averages_the_earlier_labelled_rows_only():
 
 
 def test_the_trailing_mean_takes_its_window_from_the_labelled_rows():
+    """The trailing mean takes its window from the labelled rows."""
     out = _grouped_trailing_kernel(Y, OFFSETS, 2, False)
     np.testing.assert_allclose(out, [np.nan, 1.0, 1.0, 2.0, 2.0, 4.0, np.nan, 2.0, 2.0])
 
 
 @pytest.mark.parametrize("kernel", ["expanding", "trailing"])
 def test_a_filled_first_row_uses_the_first_label_of_its_group(kernel):
+    """A filled first row uses the first label of its group."""
     y = np.array([np.nan, 4.0, 6.0])
     offsets = np.array([0, 3], dtype=np.int64)
     out = _grouped_expanding_kernel(y, offsets, True) if kernel == "expanding" else _grouped_trailing_kernel(y, offsets, 5, True)

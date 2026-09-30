@@ -12,6 +12,7 @@ from mlframe.reporting.charts.split_comparison import overfit_verdict
 
 
 def test_smaller_target_with_collapsed_fit_is_not_green():
+    """Smaller target with collapsed fit is not green."""
     rng = np.random.default_rng(0)
     y_val = rng.lognormal(1.0, 1.0, 5000)
     p_val = y_val * 0.2 + y_val.mean() * 0.8  # weak but centred

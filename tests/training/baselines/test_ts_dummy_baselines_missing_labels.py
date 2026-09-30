@@ -13,6 +13,7 @@ from mlframe.training.core._training_context import TrainingContext
 
 
 def _run():
+    """Compute regression baselines on random train, val and test slices with sequential timestamps."""
     n_tr, n_va, n_te = 300, 60, 60
     rng = np.random.default_rng(0)
     frame = lambda n: pd.DataFrame({"x": rng.normal(size=n)})
@@ -24,6 +25,7 @@ def _run():
 
 
 def test_rule_baselines_are_skipped_inside_a_scope_with_many_gaps_and_built_outside():
+    """Rule baselines are skipped inside a scope with many gaps and built outside."""
     assert "skipped" not in (_run().get("ts_diagnostics") or {})
     ctx = TrainingContext()
     ctx.train_idx, ctx.val_idx, ctx.test_idx = np.arange(300), np.arange(300, 360), np.arange(360, 420)

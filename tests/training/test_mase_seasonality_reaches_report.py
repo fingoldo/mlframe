@@ -6,6 +6,7 @@ from mlframe.training._prediction_envelope_clip import TrainEnvelopeStats, train
 
 
 def test_train_naive_mae_uses_the_lag():
+    """Train naive mae uses the lag."""
     y = np.tile([0.0, 10.0], 10)
     assert train_naive_mae(y, 1) == 10.0
     assert train_naive_mae(y, 2) is None  # the lag-2 naive forecast is exact: no scale
@@ -13,6 +14,7 @@ def test_train_naive_mae_uses_the_lag():
 
 
 def test_report_computes_mase_from_the_threaded_scale():
+    """Report computes mase from the threaded scale."""
     from mlframe.training.reporting._reporting_regression import report_regression_model_perf
 
     rng = np.random.default_rng(0)

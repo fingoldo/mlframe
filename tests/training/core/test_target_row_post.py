@@ -16,6 +16,7 @@ N = 20
 
 
 def _ctx():
+    """Training context with small label minimums and 10/5/5 train/val/test rows."""
     ctx = TrainingContext()
     ctx.behavior_config = TrainingBehaviorConfig(min_labelled_train_rows=3, min_labelled_val_rows=1, min_labelled_test_rows=1, min_labelled_calib_rows=1)
     ctx.train_idx, ctx.val_idx, ctx.test_idx = np.arange(10), np.arange(10, 15), np.arange(15, 20)
@@ -24,6 +25,7 @@ def _ctx():
 
 
 def test_split_arguments_are_narrowed_frames_indices_and_sequences_together():
+    """Split arguments are narrowed frames indices and sequences together."""
     mask = np.ones(N, dtype=bool)
     mask[[2, 11, 16]] = False
     ctx = _ctx()
@@ -42,6 +44,7 @@ def test_split_arguments_are_narrowed_frames_indices_and_sequences_together():
 
 
 def test_recurrent_training_runs_each_target_with_gaps_in_its_own_scope_and_skips_skipped_targets():
+    """Recurrent training runs each target with gaps in its own scope and skips skipped targets."""
     ctx = _ctx()
     y_part = np.arange(N, dtype=float)
     y_part[[1, 12]] = np.nan
@@ -50,6 +53,7 @@ def test_recurrent_training_runs_each_target_with_gaps_in_its_own_scope_and_skip
     calls = []
 
     def fake_train(*, target_by_type, models, train_idx, **kwargs):
+        """Record the targets, train rows and scope activity of each call."""
         names = [n for named in target_by_type.values() for n in named]
         calls.append((names, np.asarray(train_idx), active_rows() is not None))
         return models

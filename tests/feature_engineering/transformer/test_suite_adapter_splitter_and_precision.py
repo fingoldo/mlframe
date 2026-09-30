@@ -12,7 +12,9 @@ from mlframe.feature_engineering.transformer._suite_adapter import ShortlistTran
 
 
 def _record_splitter(seen):
+    """Build a fake compute callable that appends the splitter it receives to seen and returns an all-zero frame."""
     def compute(X_train, y_train, X_query, splitter=None, *, seed=0):
+        """Record the splitter argument and return a zero feature frame sized to the query (or train) rows."""
         seen.append(splitter)
         n = X_train.shape[0] if X_query is None else X_query.shape[0]
         return pl.DataFrame({"f": np.zeros(n)})
@@ -21,6 +23,7 @@ def _record_splitter(seen):
 
 
 def test_the_callers_splitter_is_used_for_the_oof_features():
+    """The callers splitter is used for the oof features."""
     seen = []
     ts = TimeSeriesSplit(n_splits=3)
     X, y = pd.DataFrame({"a": np.arange(12.0)}), np.arange(12) % 2

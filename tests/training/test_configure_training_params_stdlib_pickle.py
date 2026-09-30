@@ -18,6 +18,7 @@ from mlframe.training._trainer_configure import configure_training_params
 
 @pytest.fixture(scope="module")
 def data():
+    """One-feature frame of 1500 rows and a random binary target."""
     rng = np.random.default_rng(0)
     n = 1500
     df = pd.DataFrame({"f": rng.standard_normal(n)})
@@ -26,6 +27,7 @@ def data():
 
 
 def _configure(df, y, models, calibrated):
+    """Call configure_training_params on fixed train, val and test slices for the models."""
     n = len(df)
     return configure_training_params(
         df=df, train_df=df.iloc[:1000], val_df=df.iloc[1000:1250], test_df=df.iloc[1250:],
@@ -37,6 +39,7 @@ def _configure(df, y, models, calibrated):
 
 
 def test_calibrated_rfecv_scorer_survives_stdlib_pickle_roundtrip(data):
+    """Calibrated rfecv scorer survives stdlib pickle roundtrip."""
     df, y = data
     out = _configure(df, y, ["lgb"], calibrated=True)
     rfecv = out[3]  # lgb_rfecv
@@ -53,6 +56,7 @@ def test_calibrated_rfecv_scorer_survives_stdlib_pickle_roundtrip(data):
 
 
 def test_xgb_default_eval_metric_survives_stdlib_pickle_roundtrip(data):
+    """Xgb default eval metric survives stdlib pickle roundtrip."""
     df, y = data
     out = _configure(df, y, ["xgb"], calibrated=False)
     est = out[1]["xgb"]["model"]

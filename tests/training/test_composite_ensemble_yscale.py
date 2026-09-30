@@ -12,6 +12,7 @@ from mlframe.training.core._phase_composite_wrapping import _record_ensemble_y_s
 
 
 def test_ensemble_gets_y_scale_row():
+    """Ensemble gets y scale row."""
     from sklearn.linear_model import LinearRegression
 
     rng = np.random.default_rng(0)

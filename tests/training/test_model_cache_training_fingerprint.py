@@ -55,6 +55,7 @@ def evaluate_modes(monkeypatch):
     real = te._call_train_evaluate_with_configs
 
     def spy(*args, **kwargs):
+        """Record the just_evaluate flag of each call, then delegate."""
         modes.append(bool(kwargs.get("just_evaluate")))
         return real(*args, **kwargs)
 
@@ -73,6 +74,7 @@ def test_a_rerun_reuses_the_dump_only_while_the_inputs_are_unchanged(tmp_path, e
     df["target"] = 2.0 * df["x1"] + rng.normal(0.0, 0.1, 400)
 
     def run(frame, **model_kw):
+        """Train the suite on the frame and return the recorded evaluate modes."""
         evaluate_modes.clear()
         train_mlframe_models_suite(
             df=frame, target_name="target", model_name="fp", features_and_targets_extractor=_build_minimal_fte(), mlframe_models=["linear"],

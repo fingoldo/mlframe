@@ -8,6 +8,7 @@ _PD = {"grid": None, "pdp": None}  # the interpolation that reads these is patch
 
 
 def _patch_pdps(monkeypatch, c_ij, c_i, c_j):
+    """Patch the partial-dependence helpers to return the given 2-D and 1-D centred surfaces."""
     monkeypatch.setattr(it, "compute_pdp_2d", lambda *a, **k: {"grid0": None, "grid1": None, "surface": None})
     monkeypatch.setattr(it, "_centered_interp_2d", lambda *a, **k: c_ij)
     seq = iter([c_i, c_j])
@@ -25,6 +26,7 @@ def test_strong_main_effects_on_a_flat_joint_surface_give_nan(monkeypatch):
 
 
 def test_a_pure_interaction_still_scores_near_one(monkeypatch):
+    """A pure interaction still scores near one."""
     rng = np.random.default_rng(0)
     c_ij = rng.normal(size=50)
     _patch_pdps(monkeypatch, c_ij, np.zeros(50), np.zeros(50))
@@ -41,6 +43,7 @@ def test_a_small_overshoot_from_estimation_noise_is_still_a_full_interaction(mon
 
 
 def test_an_additive_pair_scores_near_zero(monkeypatch):
+    """An additive pair scores near zero."""
     c_i = np.linspace(-1.0, 1.0, 50)
     c_j = np.cos(np.linspace(0, 3, 50))
     c_j = c_j - c_j.mean()

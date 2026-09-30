@@ -37,6 +37,7 @@ def _low_card_bins(rng: np.random.Generator, n: int, f: int) -> dict[str, np.nda
 
 
 def test_high_cardinality_column_keeps_parallel_su_edges():
+    """High cardinality column keeps parallel su edges."""
     rng = np.random.default_rng(0)
     n = 200_000
     bins = _low_card_bins(rng, n, 57)
@@ -50,6 +51,7 @@ def test_high_cardinality_column_keeps_parallel_su_edges():
 
 
 def test_high_cardinality_pair_serial_path_does_not_allocate_dense_table():
+    """High cardinality pair serial path does not allocate dense table."""
     rng = np.random.default_rng(1)
     n = 200_000
     bins = _low_card_bins(rng, n, 4)
@@ -61,6 +63,7 @@ def test_high_cardinality_pair_serial_path_does_not_allocate_dense_table():
 
 
 def test_wide_code_space_categorical_is_relabelled_densely():
+    """Wide code space categorical is relabelled densely."""
     rng = np.random.default_rng(2)
     n = 5_000
     dense = rng.integers(0, 10, n).astype(np.int32)
@@ -76,6 +79,7 @@ def test_wide_code_space_categorical_is_relabelled_densely():
 
 
 def test_sparse_joint_counting_is_bit_identical_to_dense():
+    """Sparse joint counting is bit identical to dense."""
     rng = np.random.default_rng(3)
     for trial in range(6):
         n = int(rng.integers(300, 6_000))

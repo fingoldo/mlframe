@@ -13,23 +13,28 @@ from mlframe.training.core.predict import _is_post_hoc_calibrated_model
 
 
 class _PostHocCalibratedModel:  # names matter: the detector matches on the class name
+    """Stand-in whose class name the post-hoc-calibration detector matches."""
     pass
 
 
 class _PostHocMultiCalibratedModel:
+    """Stand-in whose class name the multi-output post-hoc detector matches."""
     pass
 
 
 class _PlainEstimator:
+    """Stand-in that the detector must not flag."""
     pass
 
 
 def test_a_wrapper_under_the_bundle_is_detected():
+    """A wrapper under the bundle is detected."""
     bundle = types.SimpleNamespace(model=_PostHocCalibratedModel())
     assert _is_post_hoc_calibrated_model(bundle) is True
 
 
 def test_a_multi_output_wrapper_under_the_bundle_is_detected():
+    """A multi output wrapper under the bundle is detected."""
     bundle = types.SimpleNamespace(model=_PostHocMultiCalibratedModel())
     assert _is_post_hoc_calibrated_model(bundle) is True
 
@@ -40,6 +45,7 @@ def test_a_bare_wrapper_is_still_detected():
 
 
 def test_an_uncalibrated_bundle_is_not_detected():
+    """An uncalibrated bundle is not detected."""
     assert _is_post_hoc_calibrated_model(types.SimpleNamespace(model=_PlainEstimator())) is False
     assert _is_post_hoc_calibrated_model(_PlainEstimator()) is False
     assert _is_post_hoc_calibrated_model(None) is False

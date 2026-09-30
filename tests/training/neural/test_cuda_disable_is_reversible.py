@@ -11,6 +11,7 @@ from mlframe.training.neural.base import _cuda_fallback as cf
 
 @pytest.fixture(autouse=True)
 def _leave_cuda_as_found():
+    """Restore CUDA_VISIBLE_DEVICES, is_available and the disabled state afterwards."""
     prior_env, prior_fn, prior_state = os.environ.get("CUDA_VISIBLE_DEVICES"), torch.cuda.is_available, cf._CUDA_DISABLED_STATE
     yield
     cf._CUDA_DISABLED_STATE = prior_state
@@ -22,6 +23,7 @@ def _leave_cuda_as_found():
 
 
 def test_the_disable_is_recorded_and_can_be_undone(monkeypatch):
+    """The disable is recorded and can be undone."""
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
     original = torch.cuda.is_available
     cf._CUDA_DISABLED_STATE = None
@@ -37,6 +39,7 @@ def test_the_disable_is_recorded_and_can_be_undone(monkeypatch):
 
 
 def test_restoring_an_unset_variable_removes_it_again(monkeypatch):
+    """Restoring an unset variable removes it again."""
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
     cf._CUDA_DISABLED_STATE = None
     cf._disable_cuda_globally()
@@ -45,11 +48,13 @@ def test_restoring_an_unset_variable_removes_it_again(monkeypatch):
 
 
 def test_restoring_when_nothing_was_disabled_is_a_no_op():
+    """Restoring when nothing was disabled is a no op."""
     cf._CUDA_DISABLED_STATE = None
     assert cf.restore_cuda_visibility() is False
 
 
 def test_a_second_disable_keeps_the_original_state(monkeypatch):
+    """A second disable keeps the original state."""
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3")
     cf._CUDA_DISABLED_STATE = None
     cf._disable_cuda_globally()

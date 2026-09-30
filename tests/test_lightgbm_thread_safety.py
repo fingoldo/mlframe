@@ -21,6 +21,7 @@ def _fake_module():
     state = {"live": 0, "peak": 0, "lock": threading.Lock()}
 
     def _probe(*_a, **_k):
+        """Enter a guarded method: bump the live-thread counter, record the peak, and hold briefly so overlap is observable."""
         with state["lock"]:
             state["live"] += 1
             state["peak"] = max(state["peak"], state["live"])
@@ -29,9 +30,11 @@ def _fake_module():
             state["live"] -= 1
 
     class Dataset:
+        """Stand-in for lightgbm.basic.Dataset exposing a probed construct()."""
         construct = _probe
 
     class Booster:
+        """Stand-in for lightgbm.basic.Booster whose init, update and predict all go through the probe."""
         def __init__(self, *a, **k):
             _probe()
 
@@ -42,9 +45,11 @@ def _fake_module():
 
 
 def _hammer(module, n_threads=8):
+    """Run Booster/Dataset calls from n_threads threads released together by a barrier."""
     barrier = threading.Barrier(n_threads)
 
     def work():
+        """One thread's workload: wait at the barrier, then construct a Booster, update, predict and construct a Dataset."""
         barrier.wait()
         b = module.Booster()
         b.update()
@@ -59,6 +64,7 @@ def _hammer(module, n_threads=8):
 
 
 def test_guarded_methods_never_overlap_across_threads():
+    """Guarded methods never overlap across threads."""
     module, state = _fake_module()
     assert set(patch_lightgbm_basic(module)) == {f"{c}.{m}" for c, ms in GUARDED_METHODS.items() for m in ms}
     _hammer(module)
@@ -73,6 +79,7 @@ def test_the_probe_sees_overlap_without_the_guard():
 
 
 def test_patching_twice_wraps_nothing_the_second_time():
+    """Patching twice wraps nothing the second time."""
     module, _ = _fake_module()
     patch_lightgbm_basic(module)
     assert patch_lightgbm_basic(module) == []
@@ -88,6 +95,7 @@ def test_the_lock_is_reentrant():
 
 
 def test_the_switch_turns_it_off(monkeypatch):
+    """The switch turns it off."""
     monkeypatch.setenv("MLFRAME_LGB_SERIALISE", "0")
     module, _ = _fake_module()
     assert patch_lightgbm_basic(module) == []

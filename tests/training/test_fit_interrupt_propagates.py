@@ -21,6 +21,7 @@ class _Boom:
         self._message = message
 
     def fit(self, *args, **kwargs):
+        """Raise RuntimeError with the configured message."""
         raise RuntimeError(self._message)
 
 
@@ -33,16 +34,19 @@ _CB_WRAPPED = (
 
 
 def _fit(message):
+    """Run the unguarded fallback trainer on a model that fails with the message."""
     X = pd.DataFrame({"a": np.arange(10.0)})
     return _train_model_with_fallback_unguarded(_Boom(message), _Boom(message), "CatBoostClassifier", X, np.arange(10.0), {})
 
 
 def test_wrapped_interrupt_becomes_keyboard_interrupt():
+    """Wrapped interrupt becomes keyboard interrupt."""
     with pytest.raises(KeyboardInterrupt):
         _fit(_CB_WRAPPED)
 
 
 def test_other_errors_are_not_turned_into_interrupts():
+    """Other errors are not turned into interrupts."""
     with pytest.raises(Exception) as exc:
         _fit("some unrelated CatBoostError about a bad parameter")
     assert not isinstance(exc.value, KeyboardInterrupt)

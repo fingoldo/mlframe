@@ -17,6 +17,7 @@ _LEGACY = pathlib.Path(new.__file__).parent / "_benchmarks" / "su_chance_legacy.
 
 @pytest.fixture(scope="module")
 def legacy():
+    """Load the legacy SU-chance module under its own name and yield it."""
     spec = importlib.util.spec_from_file_location("su_chance_legacy", _LEGACY)
     mod = importlib.util.module_from_spec(spec)
     with pytest.MonkeyPatch.context() as mp:
@@ -26,6 +27,7 @@ def legacy():
 
 
 def _scenario(seed: int):
+    """Draw a random mix of ID-like and low-cardinality columns for the given seed."""
     rng = np.random.default_rng(seed)
     n = int(rng.choice([300, 2_000, 8_000]))
     cols = []
@@ -46,6 +48,7 @@ def _scenario(seed: int):
 
 @pytest.mark.parametrize("seed", range(40))
 def test_edge_decisions_identical_to_legacy_kernel(legacy, seed):
+    """Edge decisions identical to legacy kernel."""
     cols = _scenario(seed)
     ii, jj = np.triu_indices(len(cols), 1)
     ei, ej = ii.astype(np.int64), jj.astype(np.int64)
@@ -57,6 +60,7 @@ def test_edge_decisions_identical_to_legacy_kernel(legacy, seed):
 
 
 def test_scored_su_and_null_bit_identical_to_legacy(legacy):
+    """Scored su and null bit identical to legacy."""
     cols = _scenario(3)
     n = cols[0].shape[0]
     f = len(cols)
@@ -79,6 +83,7 @@ def test_scored_su_and_null_bit_identical_to_legacy(legacy):
 
 
 def test_group_orders_is_stable_grouping_permutation():
+    """Group orders is stable grouping permutation."""
     rng = np.random.default_rng(0)
     n = 1_000
     cols = [rng.integers(0, 40, n), rng.integers(0, 7, n)]

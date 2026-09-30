@@ -4,6 +4,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_prox
 
 
 def test_only_the_winner_is_flagged():
+    """Only the winner is flagged."""
     ranked = [{"features": (1, 2), "honest_loss": 0.30}, {"features": (3,), "honest_loss": 0.31}]
     _mark_selection_optimistic(ranked, (1, 2))
     assert ranked[0]["honest_loss_selection_optimistic"] is True

@@ -10,6 +10,7 @@ from mlframe.feature_selection.boruta_shap import BorutaShap
 
 
 def _xy():
+    """Build a small numeric frame and a binary target from its first column."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame({f"f{i}": rng.normal(size=150) for i in range(4)})
     return X, (X["f0"] > 0).astype(int)
@@ -27,6 +28,7 @@ def test_tree_models_run_with_gini(make):
 
 
 def test_a_model_without_importances_is_still_refused():
+    """A model without importances is still refused."""
     X, y = _xy()
     with pytest.raises(AttributeError, match="feature_importances_"):
         BorutaShap(model=LogisticRegression(), importance_measure="gini", classification=True, n_trials=2).fit(X, y)

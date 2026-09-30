@@ -16,6 +16,7 @@ _PACKAGES = (_SRC / "reporting", _SRC / "training" / "reporting")
 
 
 def _recorded_names() -> set:
+    """Collect the diagnostic names passed to recording calls across the scanned packages."""
     names = set()
     for pkg in _PACKAGES:
         for path in pkg.rglob("*.py"):
@@ -33,6 +34,7 @@ def _recorded_names() -> set:
 
 
 def test_catalog_lists_every_wired_diagnostic():
+    """Catalog lists every wired diagnostic."""
     recorded = _recorded_names()
     assert len(recorded) >= 20, f"only {len(recorded)} recorded diagnostics found - the scan lost its subject"
     listed = {name for name, _ in catalog._STANDALONE_DIAGNOSTICS}
@@ -41,6 +43,7 @@ def test_catalog_lists_every_wired_diagnostic():
 
 
 def test_every_catalogue_row_has_a_description():
+    """Every catalogue row has a description."""
     assert catalog._STANDALONE_DIAGNOSTICS
     for name, desc in catalog._STANDALONE_DIAGNOSTICS:
         assert name and len(desc) > 20, f"{name!r} needs a real description"

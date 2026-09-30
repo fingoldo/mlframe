@@ -8,14 +8,17 @@ from mlframe.feature_selection.wrappers.rfecv import RFECV
 
 
 class _RecordingLogit(LogisticRegression):
+    """Logistic regression that records the first column of every training set it is fitted on."""
     seen: list = []
 
     def fit(self, X, y, **kw):
+        """Record the first column of X, then fit normally."""
         type(self).seen.append(np.asarray(X)[:, 0].copy())
         return super().fit(X, y, **kw)
 
 
 def test_rfecv_frac_subsample_keeps_chronological_train_order():
+    """Rfecv frac subsample keeps chronological train order."""
     n = 300
     rng = np.random.default_rng(0)
     ts = rng.permutation(n)

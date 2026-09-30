@@ -9,6 +9,7 @@ pytest.importorskip("shap")
 
 
 def _data(n=1500, seed=0):
+    """Build a six-column frame and a binary target driven by the first two columns."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.normal(size=(n, 6)), columns=[f"f{i}" for i in range(6)])
     y = (X["f0"] + 0.8 * X["f1"] + 0.3 * rng.normal(size=n) > 0).astype(int)
@@ -16,6 +17,7 @@ def _data(n=1500, seed=0):
 
 
 def _fit(fraction):
+    """Fit a small ShapProxiedFS with the given report_holdout_fraction."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y = _data()
@@ -24,16 +26,19 @@ def _fit(fraction):
 
 
 def test_default_carves_nothing():
+    """Default carves nothing."""
     assert "report_holdout" not in _fit(0.0).shap_proxy_report_
 
 
 def test_opt_in_reports_a_loss_on_the_untouched_slice():
+    """Opt in reports a loss on the untouched slice."""
     rep = _fit(0.25).shap_proxy_report_["report_holdout"]
     assert rep["fraction"] == 0.25 and rep["selection_optimistic"] is False
     assert 0.0 < rep["loss"] < 0.25 and 50 <= rep["n_rows"] <= 120  # 25% of the 375-row holdout, a real Brier
 
 
 def test_split_is_disjoint_and_covers_the_holdout():
+    """Split is disjoint and covers the holdout."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxied_report_slice import split_report_slice
 
     idx = np.arange(100, 500)
