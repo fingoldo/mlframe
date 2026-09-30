@@ -37,6 +37,7 @@ from .configs import (
 )
 from .io import load_mlframe_model, save_mlframe_model
 from ._model_cache_fingerprint import training_fingerprint, training_fingerprint_mismatch
+from ._cache_pipeline_schema import pipeline_input_names
 
 logger = logging.getLogger(__name__)
 
@@ -100,14 +101,30 @@ def _validate_cached_model_schema(
             logger.debug("could not resolve booster feature names: %s", e)
             saved_names = None
 
-    if saved_names:
-        current_names = list(current_df.columns) if current_df is not None else []
-        if saved_names != current_names:
-            diff = set(current_names) ^ set(saved_names)
+    # Behind a fitted pre-pipeline (selector / encoder) the model's names are the pipeline OUTPUT while ``current_df`` is the pipeline INPUT, so the
+    # comparable quantity is the input the pipeline was fitted on. A pipeline that records no input names (old dumps) cannot be checked that way.
+    pipeline = getattr(loaded_model, "pre_pipeline", None)
+    pipeline_active = pipeline is not None and pipeline is not False
+    compare_names: Optional[List[str]] = saved_names
+    if pipeline_active:
+        input_names = pipeline_input_names(pipeline)
+        if input_names is None and saved_names and current_df is not None and saved_names != [str(c) for c in current_df.columns]:
+            return (
+                "the cached model sits behind a pre-pipeline that records no input column names, so its input schema cannot be compared "
+                "with the current frame (the feature names saved on the model are the pipeline's OUTPUT); keeping the conservative invalidation"
+            )
+        pipeline_active = input_names is not None
+        compare_names = input_names if input_names is not None else saved_names
+
+    if compare_names:
+        current_names = [str(c) for c in current_df.columns] if current_df is not None else []
+        if compare_names != current_names:
+            diff = set(current_names) ^ set(compare_names)
+            what = "pre-pipeline input feature-name" if pipeline_active else "feature-name"
             if diff:
                 sample = sorted(diff)[:8]
-                return f"feature-name mismatch (saved={len(saved_names)}, current={len(current_names)}); " f"symmetric diff sample={sample}"
-            return "feature-name order differs between saved model and current df"
+                return f"{what} mismatch (saved={len(compare_names)}, current={len(current_names)}); " f"symmetric diff sample={sample}"
+            return f"{what} order differs between saved model and current df"
 
     # 2. CatBoost-specific cat_features check. Only meaningful if we have
     # saved feature names (to resolve indices back to names).
@@ -119,6 +136,8 @@ def _validate_cached_model_schema(
             saved_cat_names = None
         if saved_cat_names is not None:
             current_pl_cats = set(_extract_polars_cat_columns(current_df))
+            if pipeline_active:
+                current_pl_cats &= set(saved_names)  # a selector may have dropped the column; only columns the model sees matter
             missing = current_pl_cats - saved_cat_names
             if missing:
                 return (

@@ -303,7 +303,13 @@ def _tune_decision_thresholds(
         thresholds = metadata.setdefault("decision_thresholds", {})
         paths = metadata.setdefault("decision_threshold_paths", {})
 
-        def _stamp(key: str, probs, label: str) -> None:
+        report_tuned = bool(getattr(behavior_config, "report_at_tuned_threshold", True)) and bool(verbose)
+        _fallback_targets = {
+            "val": y,
+            "test": common_params.get("test_target") if isinstance(common_params, dict) else None,
+        }
+
+        def _stamp(key: str, probs, label: str, owner=None, owner_name: str = "") -> None:
             """Record the decision threshold and how it was chosen for ``key``: tuned on ``probs``, or the 0.5 default."""
             if not tune:
                 thresholds[key], paths[key] = 0.5, "default_0.5"
@@ -316,11 +322,17 @@ def _tune_decision_thresholds(
             paths[key] = "tuned"
             if verbose:
                 logger.info("tuned decision threshold for %s: %.4f (metric=%s, val, %s)", key, thresholds[key], metric, label)
+            if report_tuned and owner is not None:
+                from ._tuned_threshold_report import log_tuned_threshold_report
+
+                log_tuned_threshold_report(
+                    label=owner_name or key, owner=owner, threshold=thresholds[key], metric=metric, fallback_targets=_fallback_targets,
+                )
 
         member_probs = [(i, m, _member_val_probs(m)) for i, m in enumerate(ens_models or [])]
         member_probs = [(i, m, p) for i, m, p in member_probs if p is not None]
         for i, m, p in member_probs:
-            _stamp(f"{target_key}|{_member_name(m, i)}", p, "member")
+            _stamp(f"{target_key}|{_member_name(m, i)}", p, "member", owner=m, owner_name=_member_name(m, i))
 
         blend_probs = None
         if ensembles is not None and chosen_flavour is not None:
@@ -328,9 +340,9 @@ def _tune_decision_thresholds(
             result = entry[0] if isinstance(entry, tuple) and entry else entry
             blend_probs = getattr(result, "val_probs", None)
         if blend_probs is not None:
-            _stamp(target_key, blend_probs, f"ensemble '{chosen_flavour}'")
+            _stamp(target_key, blend_probs, f"ensemble '{chosen_flavour}'", owner=result, owner_name=f"ensemble '{chosen_flavour}'")
         elif len(member_probs) == 1:
-            _stamp(target_key, member_probs[0][2], "single model")
+            _stamp(target_key, member_probs[0][2], "single model")  # its own report was already emitted with the member stamp above
         elif not tune:
             thresholds[target_key], paths[target_key] = 0.5, "default_0.5"
             if verbose:

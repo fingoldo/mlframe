@@ -40,11 +40,13 @@ from ._mrmr_validate_strings import (  # noqa: F401
 # All-constant features are NOT rejected here: zero-variance columns survive validation and surface as MI=0
 # in the screening loop, which is the documented downstream behaviour.
 def _dtype_kind(canon: str) -> str:
-    """Coarse kind of a canonical dtype string: int, float, bool, string, categorical, or the string itself for anything else."""
-    if canon[:1] in ("i", "u"):
-        return "int"
-    if canon[:1] == "f":
-        return "float"
+    """Coarse LOGICAL kind of a canonical dtype string: numeric, bool, string, categorical, or the string itself for anything else.
+
+    Integer and float are one kind: a nullable integer column is a float64 with NaN in its pandas view and a native Int16 in polars, so the
+    same logical column legitimately flips between them across representations, and the replay reads the same values either way.
+    """
+    if canon[:1] in ("i", "u", "f"):
+        return "numeric"
     if canon == "b":
         return "bool"
     if canon == "s":
@@ -107,8 +109,8 @@ def _snapshot_fit_dtypes(self, X) -> None:
 def _warn_transform_dtype_drift(self, X, columns) -> None:
     """Warn when a column read at transform has a different dtype kind than at fit, or is entirely missing.
 
-    An int column arriving as float, or a categorical arriving as string, changes the codes recipes key on; an all-missing selected column
-    reaches the downstream model as a live feature. None of these raise, so without a warning they give wrong values silently.
+    A numeric column arriving as a categorical or string, or a categorical arriving as string, changes the codes recipes key on; an all-missing
+    selected column reaches the downstream model as a live feature. Int <-> float is the same logical kind and does not warn. None of these raise, so without a warning they give wrong values silently.
     """
     fit_dtypes = getattr(self, "_fit_dtypes_", None)
     now = _frame_dtypes(X)

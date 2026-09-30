@@ -27,6 +27,7 @@ from pyutilz.system import get_gpuinfo_gpu_info
 from ..phases import phase
 
 from ._cb_polars_text import model_text_feature_names, text_columns_as_strings
+from ._cb_predict_null_guard import fill_nullable_cat_columns
 logger = logging.getLogger(__name__)
 
 # Guards concurrent first-time probing of the GPU info cache and the CB-GPU
@@ -491,11 +492,11 @@ def _predict_with_fallback(
     # ── 3. Sticky-pandas short-circuit (previous Polars miss) ──────────
     _pl_df = _pl_DataFrame()
     _is_cb = _model_type in CATBOOST_MODEL_TYPES
+    if _is_cb and _pl_df is not type(None) and isinstance(X, _pl_df):
+        X = fill_nullable_cat_columns(model, X)  # after the val-Pool lookup above, which is keyed on the caller's frame identity
     if _pl_df is not type(None) and isinstance(X, _pl_df) and _is_cb and getattr(model, "_mlframe_polars_fastpath_broken", False):
-        # Say WHY the frame is being converted. A production run showed this fallback on every predict with
-        # no preceding failure in the log, which reads as "CatBoost cannot take polars" -- and a probe of the
-        # installed build says otherwise. The flag is sticky per MODEL, set by one earlier dispatch miss, so
-        # naming both facts distinguishes a library limitation from this model's own history.
+        # The flag is sticky per MODEL (one earlier dispatch miss, or the build pre-flag), while the probe answers for the installed build on a
+        # fixed probe frame, so the two can disagree; the message has to say which one applies instead of asserting both.
         try:
             from mlframe.training._polars_native_support import accepts_polars
 
@@ -503,12 +504,21 @@ def _predict_with_fallback(
         except Exception as exc:
             logger.debug("polars-native probe failed (%s: %s); the message omits the library's own answer", type(exc).__name__, exc)
             _native = None
+        _miss_observed = bool(getattr(model, "_mlframe_polars_fastpath_miss_observed", False))
+        if _miss_observed and _native:
+            _detail = (
+                "The installed CatBoost accepts the probe frame, so the rejection is specific to this model's data "
+                "(typically a categorical column carrying nulls), not a library-wide gap"
+            )
+        elif _native is False:
+            _detail = "The installed CatBoost failed the polars probe frame, so the polars fastpath is unavailable on this build"
+        else:
+            _detail = "The installed CatBoost's polars support could not be probed"
         log_throttle(
             logger, "cb_sticky_pandas_predict", logging.INFO,
-            "  [predict] CatBoost frames are converted to pandas from here on because %s. The installed CatBoost %s "
-            "accept a polars frame in a probe.",
+            "  [predict] CatBoost frames are converted to pandas from here on because %s. %s.",
             _fastpath_flag_provenance(model),
-            {True: "DOES", False: "does NOT", None: "could not be probed to"}.get(_native, "could not be probed to"),
+            _detail,
         )
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
         with phase(method, model=_model_type, n_rows=n_rows):

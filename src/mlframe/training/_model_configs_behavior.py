@@ -145,6 +145,8 @@ class TrainingBehaviorConfig(BaseConfig):
     tune_decision_threshold: Union[bool, str] = "auto"
     # "balanced_accuracy" (default) recovers the Bayes-optimal operating point ~10x closer than "f1" and wins test balanced-accuracy in 29/30 imbalance x seed cells (bench_threshold_objective.py); F1 chases precision/recall trade and drifts the threshold high under imbalance.
     tune_decision_threshold_metric: str = "balanced_accuracy"  # "f1" or "balanced_accuracy"
+    # Default ON: when a binary model's threshold was tuned, log a second classification report per split at that threshold next to the 0.5 one printed at train time (val is labelled optimistic, test honest). Reporting only; set False to keep the 0.5 block alone.
+    report_at_tuned_threshold: bool = True
 
     # Default ON (2026-07-12): run ``mlframe.calibration.threshold_optimizer.optimize_decision_threshold`` on the
     # binary classification calib slice (fit on calib probs/target, disjoint from test) after finalize, storing
