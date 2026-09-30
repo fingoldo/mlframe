@@ -565,9 +565,7 @@ def _setup_per_target_mlframe_models(
     _cv_policy = _publish_suite_cv_policy(
         feature_selection_config=feature_selection_config, timestamps=timestamps, train_idx=_train_idx, group_ids=group_ids,
         split_config=getattr(ctx, "split_config", None), hyperparams_config=_target_hyperparams_config, verbose=verbose,
-        rfecv_models_params={name: rfecv_models_params.get(name) for name in (rfecv_models or [])}, common_params=common_params,
-    )
-
+        rfecv_models_params={name: rfecv_models_params.get(name) for name in (rfecv_models or [])}, common_params=common_params)
     apply_catboost_has_time(models_params, _cv_policy, _target_hyperparams_config, verbose=verbose)
 
     pre_pipelines, pre_pipeline_names = _build_pre_pipelines(

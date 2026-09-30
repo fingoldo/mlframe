@@ -533,8 +533,10 @@ def compute_batch_aucs(
 
     roc = np.empty(M, dtype=np.float64)
     pr = np.empty(M, dtype=np.float64)
+    # A (N, M) label matrix carries one label column per score column; ``fast_aucs`` takes one 1-D label vector.
+    per_column_labels = yt.ndim == 2
     for j in range(M):
-        roc[j], pr[j] = _fast_aucs(yt, ys[:, j])
+        roc[j], pr[j] = _fast_aucs(yt[:, j] if per_column_labels else yt, ys[:, j])
     return roc, pr
 
 

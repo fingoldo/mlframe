@@ -230,7 +230,9 @@ def _train_and_score_classification(train_df, test_df, tmp_path, *, model_name, 
 # Single representative seed: the OD RMSE lift via the suite is high-variance across arbitrary seeds
 # (LGB's default partly resists outliers, so some seeds show only +3% while others show +16%). Following
 # the biz_value convention "find a synthetic where the trick should clearly win", seed 42 with the tuned
-# severity gives a deterministic +16.7% lift; the floor is set well below at +8%.
+# severity gives a deterministic lift. The no-OD baseline is now far stronger than it was: the auto-loss picks a Huber
+# objective with a MAD-scaled delta for this heavy-tailed target, so the lift measured +7.9% (rmse 1.0085 -> 0.9285) where
+# the same fixture used to show +16.7% against a squared-error baseline. The floor stays 5-15% below the measured value.
 _OD_LIFT_SEED = 42
 
 
@@ -266,9 +268,9 @@ def test_outlier_detection_improves_regression_rmse(tmp_path, common_init_params
     assert train_size_no is not None and train_size_od is not None, f"metadata missing train_size: no={train_size_no}, od={train_size_od}"
 
     measured_lift = (rmse_no_od - rmse_with_od) / rmse_no_od * 100.0
-    msg = f"rmse_no_od={rmse_no_od:.4f} rmse_with_od={rmse_with_od:.4f} lift={measured_lift:+.2f}% (floor >=8.00%, measured ~16.7%)"
-    # Hard floor: dropping IF-flagged outlier rows must lift held-out RMSE by >=8%.
-    assert rmse_with_od <= rmse_no_od * 0.92, f"OD failed to lift RMSE by >=8%. {msg}"
+    msg = f"rmse_no_od={rmse_no_od:.4f} rmse_with_od={rmse_with_od:.4f} lift={measured_lift:+.2f}% (floor >=6.50%, measured ~7.9%)"
+    # Hard floor: dropping IF-flagged outlier rows must still lift held-out RMSE by >=6.5% over the robust-loss baseline.
+    assert rmse_with_od <= rmse_no_od * 0.935, f"OD failed to lift RMSE by >=6.5%. {msg}"
 
 
 # --------------------------------------------------------------------------------------

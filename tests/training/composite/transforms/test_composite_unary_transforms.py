@@ -131,8 +131,10 @@ class TestYeoJohnsonY:
         t[0] = -50.0
         y_back = yeo_johnson_y_inverse(t, params)
         assert np.all(np.isfinite(y_back))
-        assert y_back.max() <= y.max() * (1 + 1e-9)
-        assert y_back.min() >= y.min() - 1e-9
+        # The clamp lands on the fitted range up to the inverse's conditioning near the asymptote: compiled it agrees to ~1e-9, interpreted
+        # (NUMBA_DISABLE_JIT=1, libm pow instead of LLVM's) it is off by 1.4e-8 relative at lambda ~ -2. The defect this guards was a 1e6 blow-up.
+        assert y_back.max() <= y.max() * (1 + 1e-6)
+        assert y_back.min() >= y.min() - 1e-6
 
     def test_params_without_range_still_invert(self) -> None:
         """Params fitted before the T range was recorded (only ``lambda``) keep inverting unchanged."""

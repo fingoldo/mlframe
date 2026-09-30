@@ -10,6 +10,7 @@ from mlframe.feature_selection.filters.screen import (
     ScreenState,
     postprocess_candidates,
 )
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 def _make_data(n: int = 50, m: int = 4, seed: int = 0):
@@ -41,12 +42,16 @@ def _common_kwargs(factors_data, factors_nbins, targets_data, targets_nbins, **o
     return base
 
 
+@skip_under_numba_disabled_jit
 def test_screen_predictors_does_not_mutate_global_numpy_rng():
     """screen_predictors must NOT mutate the process-global numpy RNG state.
 
     Regression for the MRMR global-RNG fix: the prior code called ``np.random.seed(random_seed)`` (mutating
     the process-wide MT19937 generator, racy under threads/joblib). The modern kernels thread ``random_seed``
     into their own local generators, so the global ``np.random`` state must be byte-identical across the call.
+
+    Compiled numba keeps its own RNG state, so an ``np.random.seed`` inside a kernel never reaches NumPy's; with JIT disabled the same
+    statement runs as plain Python and does, which makes the assertion meaningless there.
     """
     fd, fn, td, tn = _make_data(seed=3)
 

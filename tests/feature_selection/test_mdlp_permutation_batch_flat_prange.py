@@ -14,6 +14,7 @@ import pytest
 from mlframe.feature_selection.filters._benchmarks.bench_mdlp_permutation_batch_flat_prange import _batch_prange_over_nodes, _level
 from mlframe.feature_selection.filters._mdlp_validated_split import _mdlp_permutation_batch_njit
 from tests._perf_paired import assert_paired_speedup
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 @pytest.mark.parametrize("n_nodes", [1, 2, 7, 32])
@@ -26,6 +27,7 @@ def test_flat_prange_accepts_match_per_node_layout(n_nodes):
     np.testing.assert_array_equal(_mdlp_permutation_batch_njit(*call), _batch_prange_over_nodes(*call))
 
 
+@skip_under_numba_disabled_jit
 @pytest.mark.skipif(numba.get_num_threads() < 2, reason="needs >= 2 numba threads to parallelise anything")
 def test_single_node_level_uses_more_than_one_thread():
     """biz_value: a single-node level is parallelised over permutations, beating the per-node prange layout."""

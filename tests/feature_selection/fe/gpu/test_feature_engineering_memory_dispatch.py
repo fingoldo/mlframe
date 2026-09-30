@@ -32,7 +32,7 @@ from mlframe.feature_selection.filters.feature_engineering import (
 @pytest.fixture
 def synthetic_pair_inputs():
     """Build a minimal but realistic input set: 200 rows, 3 columns, one prospective pair
-    and a binary target derived from a deterministic threshold on col-0."""
+    and a binary target that is the XOR of thresholds on col-0 and col-1 (a pair-only signal, so the joint gate has a genuine pair to accept)."""
     from mlframe.feature_selection.filters.info_theory import merge_vars
     from mlframe.feature_selection.filters.discretization import discretize_array
 
@@ -46,7 +46,7 @@ def synthetic_pair_inputs():
         }
     )
     data = np.column_stack([discretize_array(df[c].to_numpy(), n_bins=4, method="quantile", dtype=np.int32) for c in ("a", "b", "c")])
-    target_col = (df["a"].to_numpy() > df["a"].mean()).astype(np.int32)
+    target_col = ((df["a"].to_numpy() > df["a"].mean()) ^ (df["b"].to_numpy() > df["b"].mean())).astype(np.int32)  # a pair-only signal: neither operand alone predicts it
     data = np.column_stack([data, target_col])
     nbins = np.array([4, 4, 4, 2], dtype=np.int64)
     target_indices = np.array([3], dtype=np.int64)

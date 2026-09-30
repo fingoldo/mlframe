@@ -39,6 +39,7 @@ from sklearn.model_selection import train_test_split
 
 from mlframe.feature_selection._benchmarks.fs_hybrid.adversarial_scenarios import group_additive, xor3_plus_marginal_decoy
 from mlframe.feature_selection._benchmarks.fs_hybrid.run_experiment import CellSpec, build_arm_roster, run_cell
+from tests.feature_selection._fs_hybrid_cell_skip import skip_if_the_platform_skipped
 
 # Measured on the committed generators at seed 0, n=800. Bands are wide enough for library-version drift and
 # narrow enough that a changed bed or a broken arm falls outside them.
@@ -77,7 +78,11 @@ def _run_bed(bed: str) -> Dict[str, Dict[str, Any]]:
 @pytest.fixture(scope="module")
 def cells() -> Dict[str, Dict[str, Dict[str, Any]]]:
     """Run the whole tier-1 grid once and share it across the assertions."""
-    return {bed: _run_bed(bed) for bed in BEDS}
+    grid = {bed: _run_bed(bed) for bed in BEDS}
+    for arms in grid.values():
+        for record in arms.values():
+            skip_if_the_platform_skipped(record)
+    return grid
 
 
 def _auc(record: Dict[str, Any], model: str = "lightgbm") -> float:

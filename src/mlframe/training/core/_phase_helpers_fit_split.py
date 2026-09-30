@@ -207,6 +207,25 @@ def _multilabel_for_stratify(values: Any) -> np.ndarray:
     return arr
 
 
+def _apply_purged_embargoes(train_idx, val_idx, timestamps, split_config, verbose):
+    """E2 embargo for ``cv_strategy="purged"``: trim the newest train rows next to the holdout, and the newest val rows next to test.
+
+    Forward-walk order is [train][val][test]; trimming train only gaps train->holdout, so the val tail is trimmed too and a windowed label there cannot
+    leak into the test head (``max(val_ts) < min(test_ts)`` by the embargo width). Returns ``(train_idx, val_idx)``.
+    """
+    if getattr(split_config, "cv_strategy", "random") != "purged" or not getattr(split_config, "cv_purge", 0):
+        return train_idx, val_idx
+    _n_before = len(train_idx) if train_idx is not None else 0
+    train_idx = _apply_purge_embargo(train_idx, timestamps, int(split_config.cv_purge))
+    if verbose and train_idx is not None and len(train_idx) < _n_before:
+        logger.info("E2 embargo: dropped %d most-recent train rows (cv_purge=%d).", _n_before - len(train_idx), split_config.cv_purge)
+    _nv_before = len(val_idx) if val_idx is not None else 0
+    val_idx = _apply_val_test_embargo(val_idx, timestamps, int(split_config.cv_purge))
+    if verbose and val_idx is not None and len(val_idx) < _nv_before:
+        logger.info("E2 embargo: dropped %d most-recent val rows to gap val<->test (cv_purge=%d).", _nv_before - len(val_idx), split_config.cv_purge)
+    return train_idx, val_idx
+
+
 def _phase_train_val_test_split(
     *,
     df: pl.DataFrame | pd.DataFrame | None,
@@ -479,19 +498,7 @@ def _phase_train_val_test_split(
                 return_calib=True,
                 **_cfg_dict,
             )
-        # E2 embargo: for cv_strategy="purged", trim the newest train rows adjacent to the future holdout.
-        if getattr(split_config, "cv_strategy", "random") == "purged" and getattr(split_config, "cv_purge", 0):
-            _n_before = len(train_idx) if train_idx is not None else 0
-            train_idx = _apply_purge_embargo(train_idx, timestamps, int(split_config.cv_purge))
-            if verbose and train_idx is not None and len(train_idx) < _n_before:
-                logger.info("E2 embargo: dropped %d most-recent train rows (cv_purge=%d).", _n_before - len(train_idx), split_config.cv_purge)
-            # val<->test embargo: forward-walk order is [train][val][test]; the train trim above only gaps
-            # train->holdout. Trim the newest val rows too so a windowed label on the val tail cannot leak
-            # into the test head (guaranteeing max(val_ts) < min(test_ts) by the embargo width).
-            _nv_before = len(val_idx) if val_idx is not None else 0
-            val_idx = _apply_val_test_embargo(val_idx, timestamps, int(split_config.cv_purge))
-            if verbose and val_idx is not None and len(val_idx) < _nv_before:
-                logger.info("E2 embargo: dropped %d most-recent val rows to gap val<->test (cv_purge=%d).", _nv_before - len(val_idx), split_config.cv_purge)
+        train_idx, val_idx = _apply_purged_embargoes(train_idx, val_idx, timestamps, split_config, verbose)
     # Order ONLY the train index array by time (val/test keep the splitter's membership and order): the frames below are
     # materialised by a take with these arrays anyway, so every row-aligned artifact indexed by train_idx follows for free.
     train_idx = apply_chronological_train_order(train_idx, timestamps, split_config, metadata, verbose)

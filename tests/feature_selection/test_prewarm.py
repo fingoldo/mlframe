@@ -148,6 +148,7 @@ class TestPrewarmSmoke:
 class TestPrewarmCoverage:
     """After prewarm, key dispatchers must have at least one compiled signature -- otherwise the production hot path still pays JIT cost on first use."""
 
+    @skip_under_numba_disabled_jit
     def test_compute_mi_from_classes_has_signatures(self, warmed):
         """compute_mi_from_classes has at least one compiled signature after prewarm."""
         from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes
@@ -155,6 +156,7 @@ class TestPrewarmCoverage:
         # ``signatures`` is the public list of (dtype tuple) -> compiled-impl entries on a numba Dispatcher.
         assert len(compute_mi_from_classes.signatures) >= 1, "compute_mi_from_classes was not compiled by prewarm"
 
+    @skip_under_numba_disabled_jit
     def test_numba_utils_compiled(self, warmed):
         """The _numba_utils dispatchers have at least one compiled signature after prewarm."""
         from mlframe.feature_selection.filters._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
@@ -163,6 +165,7 @@ class TestPrewarmCoverage:
         assert len(count_cand_nbins.signatures) >= 1
         assert len(unpack_and_sort.signatures) >= 1
 
+    @skip_under_numba_disabled_jit
     def test_permutation_kernels_compiled(self, warmed):
         """The permutation-null njit kernels have at least one compiled signature after prewarm."""
         from mlframe.feature_selection.filters.permutation import parallel_mi, parallel_mi_prange, shuffle_arr
@@ -171,6 +174,7 @@ class TestPrewarmCoverage:
         assert len(parallel_mi_prange.signatures) >= 1
         assert len(shuffle_arr.signatures) >= 1
 
+    @skip_under_numba_disabled_jit
     def test_marginal_screen_njit_compiled_in_fresh_process(self):
         """_marginal_screen_njit is compiled by prewarm in a fresh subprocess (regression: wrong-arity call left it cold)."""
         # Regression sensor: the prewarm body called ``_marginal_screen_njit`` with the wrong arity (5 args, omitting ``candidate_idxs``); the swallowing
@@ -191,6 +195,7 @@ class TestPrewarmCoverage:
         res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=300)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         assert res.returncode == 0 and "OK" in res.stdout, f"stdout={res.stdout!r} stderr={res.stderr[-1500:]!r}"
 
+    @skip_under_numba_disabled_jit
     def test_discretization_dtype_matrix_compiled(self, warmed):
         """_discretize_array_impl has at least one compiled signature after prewarm."""
         # The public ``discretize_array`` is a regular Python wrapper; its njit kernel is ``_discretize_array_impl``.
@@ -199,6 +204,7 @@ class TestPrewarmCoverage:
 
         assert len(_discretize_array_impl.signatures) >= 1
 
+    @skip_under_numba_disabled_jit
     def test_renumber_joint_kernels_compiled(self, warmed):
         """The _mi_greedy_cmi_fe renumber/joint-entropy njit kernels have at least one compiled signature after prewarm."""
         # Regression sensor: create_unary_transformations' njit-wrapped LAMBDA entries (a bare numpy ufunc

@@ -29,6 +29,7 @@ the boundary that lost its version check.
 from __future__ import annotations
 
 import pathlib
+import numpy as np
 
 
 def _read_src(rel_path: str) -> str:
@@ -64,17 +65,36 @@ def test_ranker_suite_per_flavor_dump_writes_sidecar():
     assert "_wsms(artefact_path, durable=False)" in src, "Wave 19 P0 #3 regression: the sidecar call site is gone from the ranker_suite per-flavor dump loop."
 
 
-def test_calibrator_post_dump_writes_sidecar():
-    """calibration/post.py joblib.dump for each calibrator now triggers
-    the sidecar write."""
-    # calibration/post.py is a facade re-exporting train_postcalibrators from the sibling
-    # _post_train_calibrators.py (a monolith-split, not the flat-module->package split _read_src's
-    # own fallback handles) -- the sidecar wiring itself lives in that sibling.
-    src = _read_src("calibration/post.py") + _read_src("calibration/_post_train_calibrators.py")
-    assert (
-        "_write_save_meta_sidecar as _wsms" in src
-    ), "Wave 19 P1 regression: calibration/post no longer imports the _write_save_meta_sidecar helper; per-calibrator dumps have no version envelope."
-    assert "_wsms(calib_fpath, durable=False)" in src, "Wave 19 P1 regression: sidecar call site missing in calibrator post-hoc save loop."
+def test_calibrator_post_dump_writes_sidecar(tmp_path):
+    """Every calibrator dump ``train_postcalibrators`` writes gets a ``.meta.json`` version envelope beside it."""
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from pyutilz.strings import slugify
+    from sklearn.isotonic import IsotonicRegression
+
+    from mlframe.calibration.post import named_calibrator, train_postcalibrators
+    from mlframe.training import TargetTypes
+
+    rng = np.random.default_rng(0)
+    p1 = rng.random(300)
+    probs = np.column_stack([1 - p1, p1])
+    target = (p1 + rng.normal(0, 0.1, 300) > 0.5).astype(int)
+
+    class _FakeModel:
+        columns = ["y"]
+
+    (tmp_path / slugify("t") / slugify("fs") / slugify(str(TargetTypes.BINARY_CLASSIFICATION)) / slugify("m")).mkdir(parents=True)
+    fake_calibrators = [named_calibrator(IsotonicRegression(out_of_bounds="clip"), name="Iso", lib="sklearn")]
+    with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators):
+        train_postcalibrators(
+            models={"m1": _FakeModel()}, model_name="m", models_dir=str(tmp_path), target_name="t", featureset_name="fs",
+            include_patterns=["sklearn"], ensembling_method="harm", verbose=0, calib_probs_per_model=[probs], calib_target=target,
+        )
+    dumps = sorted(Path(tmp_path).rglob("*.dump"))
+    assert dumps, "train_postcalibrators wrote no calibrator dump"
+    for dump in dumps:
+        assert Path(str(dump) + ".meta.json").is_file(), f"{dump.name} has no .meta.json version envelope"
 
 
 def test_inference_read_trained_models_validates_sidecar():

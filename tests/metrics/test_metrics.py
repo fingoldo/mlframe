@@ -13,6 +13,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
+from tests.conftest import skip_under_numba_disabled_jit
 from sklearn.metrics import (
     roc_auc_score,
     average_precision_score,
@@ -376,6 +377,7 @@ class TestLogLossPerformance:
         y_score = np.random.random(n)
         return y_true, y_score
 
+    @skip_under_numba_disabled_jit
     def test_faster_than_sklearn(self, large_data):
         """Assert fast_log_loss is faster than sklearn."""
         import time
@@ -1223,6 +1225,7 @@ class TestPerformance:
         y_score = np.random.random(n)
         return y_true, y_score
 
+    @skip_under_numba_disabled_jit
     def test_custom_faster_than_sklearn_roc_auc(self, large_data):
         """Assert custom implementation is faster than sklearn for ROC AUC."""
         import time

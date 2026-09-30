@@ -8,7 +8,6 @@ confidence on the day it stops being true as on the day it was measured.
 from __future__ import annotations
 
 import orjson
-import os
 import subprocess  # nosec B404 - builds a throwaway git repository for the test; fixed argument lists only
 from pathlib import Path
 from typing import Any, List
@@ -165,4 +164,4 @@ def test_the_measured_paths_cover_the_code_the_atlas_is_about() -> None:
 
     assert "feature_selection" in joined
     assert "datasets" in joined
-    assert os.sep not in WATCHED_PATHS[0], "paths are stored posix-style so git accepts them on every platform"
+    assert all("\\" not in p for p in WATCHED_PATHS), "paths are stored posix-style so git accepts them on every platform"

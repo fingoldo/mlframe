@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from tests.conftest import skip_scale_test_under_numba_disabled_jit
 
 COLS = ["inf_0", "red_0", "red_1", "inf_1", "inf_2", "noise_0"]
 
@@ -132,6 +133,7 @@ def test_end_to_end_no_fe_shared_artifacts_and_recovery():
     assert len(set(h.raw_selected_) & set(base)) >= 3
 
 
+@skip_scale_test_under_numba_disabled_jit
 @pytest.mark.timeout(900)
 def test_fe_default_augments_and_transform_replays():
     """use_fe=True (the default): the MRMR member may engineer columns shared via X_aug; the shared FI then covers

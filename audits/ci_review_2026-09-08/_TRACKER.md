@@ -1010,3 +1010,9 @@ Fixed in one batch (commit `215348c2e`):
 
 None of these are macOS-specific bugs in the sense X5/X6 were -- they are real, pre-existing gaps a
 full unsharded run was simply the first execution shape to actually reach.
+
+## CI red on master@58715253 (2026-09-28/30), one lead that is not a test fix
+
+| Row | Finding | Disposition |
+|---|---|---|
+| X-KURT | `loss_recommendation` reverts to RMSE above excess kurtosis 20 because a fixed CatBoost `Huber:delta=1.345` collapsed on a near-zero-residual heavy-tail target. The delta is now MAD-scaled, so that premise no longer holds, yet the revert is still upfront. Measured on `test_bizvalue_outliers_earlystop` data (LightGBM, 2500 rows): after outlier removal leaves a sparse tail (kurt 203) the auto-loss picks RMSE and held-out RMSE is 67-85% WORSE than with no outlier removal (seeds 99, 2); with the revert disabled the same seeds gain +24.6% / +6.5%. Synthetic near-zero-mass tail (kurt ~70): MAD-scaled Huber trains 80-200 rounds on LightGBM/CatBoost/XGBoost, no collapse. | **FUTURE.** Next action: validate on the production TVT-like residual target that originally collapsed (the only evidence against dropping the revert), then delete the upfront branch and keep `_maybe_refit_on_degenerate_best_iter` as the safety net. `tests/training/test_loss_recommendation.py` and `test_tvt_booster_convergence_and_ct_ensemble_component_drop.py` pin the current band and need re-framing with that evidence. Not changed here: a loss-policy change needs the production-shaped validation first. |

@@ -182,6 +182,9 @@ def test_codep18_main_uses_phase_runner_namespace():
     src = _read("training/core/main.py")
     # The per-target loop lives in its own module and receives the ``pr`` namespace as an argument, so its calls count too.
     loop_src = _read("training/core/_main_train_suite_target_loop.py")
+    # The post-loop tail (recurrent / finalize / composite post) lives in _main_train_suite_phases and hands some phase functions on
+    # as ``pr_module.X`` callables (e.g. to a per-target row-policy wrapper) rather than calling them inline.
+    phases_src = _read("training/core/_main_train_suite_phases.py")
     # The consolidated import must be present.
     assert "from . import _phase_runners as pr" in src
     # And the calls should go through the phase-runner namespace -- either
@@ -198,7 +201,9 @@ def test_codep18_main_uses_phase_runner_namespace():
         "finalize_suite(",
         "run_composite_post_processing(",
     ):
-        assert any(f"{ns}.{sym}" in text for ns in ("pr", "pr_module") for text in (src, loop_src)), f"main.py does not call through pr.{sym} or pr_module.{sym}"
+        assert any(f"{ns}.{sym}" in text for ns in ("pr", "pr_module") for text in (src, loop_src, phases_src)) or any(
+            f"{ns}.{sym.rstrip('(')}," in text for ns in ("pr", "pr_module") for text in (src, loop_src, phases_src)
+        ), f"main.py does not call through (or hand on) pr.{sym} or pr_module.{sym}"
 
 
 # ---------- CODE-P1-12: recurrent_models read from ctx ----------

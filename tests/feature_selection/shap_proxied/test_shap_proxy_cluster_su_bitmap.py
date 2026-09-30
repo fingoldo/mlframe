@@ -32,6 +32,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su_bitmap imp
     pairwise_su_edges_bitmap,
     should_route_bitmap,
 )
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 def _quantile_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
@@ -71,6 +72,7 @@ def _pack_for_kernel(bins, names, hint=None):
     return _setup_su_kernel_inputs(arrays, hints)
 
 
+@skip_under_numba_disabled_jit
 def test_bitmap_vs_scalar_flag_parity_small():
     """At width=30 the two kernels return bit-identical flag matrices."""
     bins, names = _build_synthetic_bins(n_samples=400, n_features=30, n_bins=6, seed=0)
@@ -140,6 +142,7 @@ def test_bitmap_with_constant_columns():
     assert np.array_equal(scalar, bitmap)
 
 
+@skip_under_numba_disabled_jit
 def test_bitmap_speedup_at_width1000_nbins8():
     """At width=1000 / n_samples=1500 / n_bins=8 the bitmap kernel is at
     least 1.5x faster than the scalar kernel.

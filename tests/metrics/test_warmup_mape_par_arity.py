@@ -5,7 +5,10 @@ swallowed by the warmup try/except, aborting every later kernel warmup in the sa
 and would index out of bounds if it ran. This pins the call arity behaviourally.
 """
 
+from tests.conftest import skip_under_numba_disabled_jit
 
+
+@skip_under_numba_disabled_jit
 def test_warmup_calls_mape_par_kernel_with_nthr():
     """Warmup calls mape par kernel with nthr."""
     from mlframe.metrics._core_precision_mape import _max_abs_pct_error_kernel_par

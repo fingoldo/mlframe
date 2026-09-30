@@ -8,6 +8,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import skip_under_numba_disabled_jit
+
 # ---------------------------------------------------------------------------
 # Bug 1: polygamma late-binding (feature_engineering.py:621-623)
 # ---------------------------------------------------------------------------
@@ -244,6 +246,7 @@ def test_regression_cat_interactions_short_pair_mm():
 # ---------------------------------------------------------------------------
 
 
+@skip_under_numba_disabled_jit
 def test_regression_evaluate_gain_combinations_core_is_numba_dispatched():
     """``evaluation.py`` must import the numba-dispatched core directly, not pyutilz's plain-Python
     validating wrapper (``generate_combinations_recursive_njit``) -- the wrapper contains a bare

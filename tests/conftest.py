@@ -1028,6 +1028,35 @@ def cleanup_memory(request):
             print(f"[MEM] After: {mem_after:.0f} MB (delta: {mem_after - mem_before:+.0f} MB)")
 
 
+def _neutralize_colorama_init() -> None:
+    """Make ``colorama.init()`` a no-op for the whole test session.
+
+    numba builds every ``NumbaWarning`` through ``colorama.init()``, whose first call wraps ``sys.stdout``/``sys.stderr`` for good. In a test process
+    that lands inside whichever test compiles first, which is then reported as leaking a stream; which test that is depends on execution order
+    (a cacheability check and a screening test both errored at teardown this way). Coloured warning text has no value under pytest, so the call
+    is dropped at both names numba and colorama bind it to.
+    """
+    try:
+        import colorama
+        import colorama.initialise as _initialise
+    except ImportError:
+        return
+
+    def _no_init(*args, **kwargs) -> None:
+        """Replace ``colorama.init``; leaves the standard streams alone."""
+
+    colorama.init = _initialise.init = _no_init
+    try:
+        import numba.core.errors as _numba_errors
+    except ImportError:
+        return
+    if hasattr(_numba_errors, "init"):
+        _numba_errors.init = _no_init
+
+
+_neutralize_colorama_init()
+
+
 _PREVIOUS_TEST: list = [None]
 
 

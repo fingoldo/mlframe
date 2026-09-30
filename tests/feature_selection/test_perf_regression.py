@@ -25,6 +25,7 @@ import numpy as np
 import pytest
 
 from tests.conftest import running_under_xdist
+from tests.conftest import skip_under_numba_disabled_jit
 
 warnings.filterwarnings("ignore")
 
@@ -168,6 +169,7 @@ def test_perf_mi_direct_n10k_cached_under_threshold():
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+@skip_under_numba_disabled_jit
 def test_perf_prewarm_eliminates_cold_start():
     """After ``prewarm_fs_numba_cache()`` runs, a subsequent ``mi_direct`` call must complete in <100ms.
 

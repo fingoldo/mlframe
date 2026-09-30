@@ -1,8 +1,8 @@
-"""The per-target discovery frame borrows the train frame's columns instead of copying them (INT-12, PRF-15).
+"""The per-target discovery frame is a new frame that carries the train frame's feature values and never writes through to it.
 
-Discovery runs once per regression target, so a frame copy there is paid K times over the whole train frame - the one
-thing the pipeline must never do on a 100 GB input. The frame still has to be a new object (the caller's must not gain
-the injected target column), which is exactly the pair of properties asserted here: new frame, shared columns.
+Buffer sharing is deliberately not asserted: on pandas 2.x with copy-on-write off (the default, and what this project runs)
+a frame sharing the caller's buffers passes a write to the discovery frame straight into the train frame, which the
+per-target loop would then read as a feature. ``test_disc_df_does_not_copy_train_frame.py`` pins that isolation.
 """
 
 from __future__ import annotations
@@ -19,13 +19,14 @@ def _train_frame(n: int = 500) -> pd.DataFrame:
     return pd.DataFrame({"f1": rng.normal(size=n), "f2": rng.normal(size=n), "f3": rng.normal(size=n)})
 
 
-def test_the_discovery_frame_shares_the_feature_columns_with_the_train_frame():
-    """Every feature column of the discovery frame is the train frame's buffer, on any supported pandas."""
+def test_the_discovery_frame_carries_the_feature_columns_of_the_train_frame():
+    """Every feature column of the discovery frame holds the train frame's values, in the same order."""
     df = _train_frame()
     out = _build_disc_df_for_target(df, "target", np.ones(len(df)))
     assert list(df.columns), "the fixture frame has no columns to compare"
+    assert list(out.columns) == [*df.columns, "target"]
     for col in df.columns:
-        assert np.shares_memory(out[col].to_numpy(), df[col].to_numpy()), f"column '{col}' was copied (pandas {pd.__version__})"
+        np.testing.assert_array_equal(out[col].to_numpy(), df[col].to_numpy())
 
 
 def test_the_train_frame_does_not_gain_the_injected_target():
@@ -44,4 +45,4 @@ def test_an_existing_target_column_is_replaced_only_in_the_discovery_frame():
     out = _build_disc_df_for_target(df, "target", np.full(len(df), 3.0))
     np.testing.assert_allclose(out["target"].to_numpy(), 3.0)
     np.testing.assert_allclose(df["target"].to_numpy(), 0.0)
-    assert np.shares_memory(out["f1"].to_numpy(), df["f1"].to_numpy())
+    np.testing.assert_array_equal(out["f1"].to_numpy(), df["f1"].to_numpy())

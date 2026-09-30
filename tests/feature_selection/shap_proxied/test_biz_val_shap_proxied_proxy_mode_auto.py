@@ -23,6 +23,7 @@ pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
 from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+from tests.conftest import skip_scale_test_under_numba_disabled_jit
 
 
 def _shap_sel(proxy_mode, n_features, seed=0):
@@ -224,6 +225,7 @@ def test_proxy_mode_default_is_auto():
     assert sel.proxy_mode == "auto"
 
 
+@skip_scale_test_under_numba_disabled_jit
 @pytest.mark.timeout(900)
 def test_proxy_mode_additive_skips_screen_entirely():
     """The legacy escape hatch must never pay even the screen's O(P)+O(K) cost."""

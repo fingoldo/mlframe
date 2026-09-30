@@ -70,7 +70,7 @@ class TestM6TimeOrdering:
         """
         from sklearn.model_selection import TimeSeriesSplit
 
-        from mlframe.training.composite.discovery import _screening_tiny as tiny_mod
+        from mlframe.training.composite.discovery import _tiny_rerank_process as tiny_mod
 
         df = self._temporal_frame(n=900)
         ts = df["ts"].to_numpy()
@@ -86,7 +86,8 @@ class TestM6TimeOrdering:
                     yield tr, va
 
         seen_rows: list[np.ndarray] = []
-        original = tiny_mod._tiny_cv_rmse_y_scale
+        # Each spec is scored through _tiny_rerank_process, which calls the multi-seed CV bound at its own module level.
+        original = tiny_mod._tiny_cv_rmse_y_scale_multiseed
 
         def _spy(*args, **kwargs):
             """Record the time key of the sample this call scores, then run the real thing."""
@@ -97,6 +98,7 @@ class TestM6TimeOrdering:
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True, mi_sample_n=600, base_candidates=["lag"], transforms=["linear_residual", "diff"],
             tiny_model_n_estimators=25, tiny_model_cv_folds=3,
+            tiny_rerank_backend="threads",  # the spies live in this process; worker processes would not see them
         )
         disc = CompositeTargetDiscovery(cfg)
         import unittest.mock as _mock
@@ -104,7 +106,7 @@ class TestM6TimeOrdering:
         # The splitter is imported inside the scoring function, so the name to replace is sklearn's own.
         import sklearn.model_selection as _sk_ms
 
-        with _mock.patch.object(_sk_ms, "TimeSeriesSplit", _SpySplit), _mock.patch.object(tiny_mod, "_tiny_cv_rmse_y_scale", _spy):
+        with _mock.patch.object(_sk_ms, "TimeSeriesSplit", _SpySplit), _mock.patch.object(tiny_mod, "_tiny_cv_rmse_y_scale_multiseed", _spy):
             disc.fit(df, "y", ["lag", "feat"], np.arange(len(df)), time_ordering=ts)
 
         assert seen_rows, "the tiny rerank never ran, so nothing was checked"

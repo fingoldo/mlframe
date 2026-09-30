@@ -57,6 +57,7 @@ class TestPackHRealBackends:
         from mlframe.training.core._phase_train_one_target import (
             _apply_loss_recommendation_in_place,
         )
+        from mlframe.training.loss_recommendation import huber_delta_for
 
         models_params = _build_models_params()
         logger = logging.getLogger(__name__)
@@ -71,7 +72,9 @@ class TestPackHRealBackends:
         cb_loss = models_params["cb"]["model"].get_params().get("loss_function")
         lgb_obj = models_params["lgb"]["model"].get_params().get("objective")
         xgb_obj = models_params["xgb"]["model"].get_params().get("objective")
-        assert cb_loss == "Huber:delta=1.345", f"cb loss_function expected Huber:delta=1.345, got {cb_loss!r}"
+        # The delta is in raw target units, scaled to the target's robust spread (floored at 1.0), not a fixed 1.345.
+        expected = f"Huber:delta={huber_delta_for(heavy_tail_target):.6g}"
+        assert cb_loss == expected, f"cb loss_function expected {expected}, got {cb_loss!r}"
         assert lgb_obj == "huber", f"lgb objective expected huber, got {lgb_obj!r}"
         assert xgb_obj == "reg:pseudohubererror", f"xgb objective expected reg:pseudohubererror, got {xgb_obj!r}"
 
@@ -143,6 +146,7 @@ class TestPackHRealBackends:
         from mlframe.training.core._phase_train_one_target import (
             _apply_loss_recommendation_in_place,
         )
+        from mlframe.training.loss_recommendation import huber_delta_for
 
         rng = np.random.default_rng(13)
         main = rng.standard_normal(5000)
@@ -161,10 +165,9 @@ class TestPackHRealBackends:
         cb_loss = models_params["cb"]["model"].get_params().get("loss_function")
         lgb_obj = models_params["lgb"]["model"].get_params().get("objective")
         xgb_obj = models_params["xgb"]["model"].get_params().get("objective")
-        # CB Huber needs a delta; production string is "Huber:delta=1.345" but a board may
-        # reject it depending on the build -- accept either the full Huber string OR an
-        # untouched default (graceful fallback when set_params rejected). We do require
-        # LGB + XGB to be in their respective Huber variants since those are validated.
+        # CB Huber needs a delta (scaled to the target's robust spread); a build may reject the string, so accept
+        # either the full Huber string OR an untouched default (graceful fallback when set_params rejected).
+        # LGB + XGB are required to be in their respective Huber variants since those are validated.
         assert lgb_obj == "huber", f"lgb objective expected huber, got {lgb_obj!r}"
         assert xgb_obj == "reg:pseudohubererror", f"xgb objective expected reg:pseudohubererror, got {xgb_obj!r}"
-        assert cb_loss in {"Huber:delta=1.345", "RMSE"}, f"cb loss_function expected Huber or default fallback, got {cb_loss!r}"
+        assert cb_loss in {f"Huber:delta={huber_delta_for(main):.6g}", "RMSE"}, f"cb loss_function expected Huber or default fallback, got {cb_loss!r}"

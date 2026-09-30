@@ -383,8 +383,10 @@ def test_regression_evaluate_candidate_baseline_seed_is_reproducible_and_seed_se
 
     rng = np.random.default_rng(0)
     n = 200
-    factors_data = rng.integers(0, 5, size=(n, 3)).astype(np.int32)
+    # Every column must stay inside its own declared bin count: y has 2 bins, and a value of 2..4 indexes past the joint's class table
+    # (silently tolerated by compiled code, an IndexError once numba is disabled).
     factors_nbins = np.array([5, 5, 2], dtype=np.int64)
+    factors_data = np.column_stack([rng.integers(0, int(k), size=n) for k in factors_nbins]).astype(np.int32)
 
     def _fresh_kwargs():
         """Builds a fresh kwargs dict so each call starts from identical, unmutated inputs."""

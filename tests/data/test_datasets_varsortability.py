@@ -55,7 +55,13 @@ def _recovery_at(name: str, seed: int) -> Tuple[float, float]:
         return 0.0, 0.0
 
     numeric = frame.select_dtypes(include=["number"])
-    top = set(numeric.var(axis=0).sort_values(ascending=False).index[: len(answer)].astype(str))
+    variance = numeric.var(axis=0).to_numpy(dtype=np.float64)
+    # Variances equal to rounding error are a tie, and a tie has to be broken without looking at column position: the answer columns sit
+    # first in the frame, so a positional tie-break (what a plain sort does) "recovers" the key from the layout rather than from scale.
+    rounded = np.round(variance / np.mean(variance), 9)
+    tie_break = np.random.default_rng(seed).permutation(variance.size)
+    order = np.lexsort((tie_break, -rounded))
+    top = set(numeric.columns[order[: len(answer)]].astype(str))
     return float(len(top & answer) / len(answer)), float(len(answer) / max(numeric.shape[1], 1))
 
 

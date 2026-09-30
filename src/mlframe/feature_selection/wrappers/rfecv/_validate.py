@@ -73,6 +73,12 @@ def _id_like_verdict(ser: pd.Series, n_rows: int):
     return None
 
 
+def _id_like_description(ser: pd.Series, verdict) -> str:
+    """One-line description of an ``_id_like_verdict`` result for the warning: kind, dtype, distinct count, valid rows and unique fraction."""
+    kind, nunique, n_valid = verdict
+    return f"{kind}; dtype={ser.dtype}; nunique={nunique}; n={n_valid}; unique_frac={nunique / n_valid:.3f}"
+
+
 def _sanitize_X_inputs(self, X, y):
     """Apply validation warnings + the four destructive sanitise passes.
 
@@ -351,8 +357,7 @@ def _sanitize_X_inputs(self, X, y):
             except (TypeError, ValueError):
                 continue
             if _verdict is not None:
-                _kind, _nu, _nv = _verdict
-                _suspicious_hicard.append((_c, f"{_kind}; dtype={X[_c].dtype}; nunique={_nu}; n={_nv}; unique_frac={_nu / _nv:.3f}"))
+                _suspicious_hicard.append((_c, _id_like_description(X[_c], _verdict)))
             if len(_suspicious_hicard) >= 10:
                 break
         if _suspicious_hicard:

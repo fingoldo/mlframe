@@ -14,6 +14,7 @@ import pytest
 
 from mlframe.data.datasets import scenarios
 from mlframe.feature_selection._benchmarks.fs_hybrid._scm_beds import build_scm_bed, scm_bed_scenarios
+from tests.feature_selection._fs_hybrid_cell_skip import skip_if_the_platform_skipped
 
 ROWS = 1200
 
@@ -125,6 +126,7 @@ class TestRunsThroughTheHarness:
         spec = CellSpec(scenario="linear_k5_p50", arm="all-features", dataset_seed=0, cv_seed=0, protocol_version="test", config={})
 
         record = run_cell(spec, roster["all-features"], x_train, np.asarray(y_train), x_test, np.asarray(y_test), truth)
+        skip_if_the_platform_skipped(record)
         assert record["status"] == "ok", record.get("error")
         assert record["target_size"] == len(truth["base"])
         assert {"1k", "2k", "5k"} <= set(record["scores"])

@@ -233,6 +233,7 @@ class TestMatplotlibShowIPython:
         # Fake IPython module with get_ipython() returning a truthy shell, plus IPython.display.display.
         fake_ipython = types.ModuleType("IPython")
         fake_ipython.get_ipython = lambda: object()
+        fake_ipython.version_info = (9, 0, 0, "")  # matplotlib's FigureCanvasBase reads IPython.version_info on the first canvas it builds
         fake_display_mod = types.ModuleType("IPython.display")
         fake_display_mod.display = lambda fig: displayed.append(fig)
         fake_ipython.display = fake_display_mod

@@ -32,10 +32,11 @@ def _case(n=3000, seed=0):
 def test_a_retention_candidate_that_cannot_replay_is_not_kept(monkeypatch):
     """A retention candidate that cannot replay is not kept."""
     from mlframe.feature_selection.filters import MRMR, _fe_pure_form_retention
-    from mlframe.feature_selection.filters.engineered_recipes import _recipe_dispatch
+    from mlframe.feature_selection.filters.engineered_recipes import shared as _recipe_shared
 
     replay_attempts = []
-    real_apply = _recipe_dispatch.apply_recipe
+    # The subsumption guard imports ``apply_recipe`` from ``engineered_recipes.shared`` at call time, so that is the lookup site to spy on.
+    real_apply = _recipe_shared.apply_recipe
 
     def spy(recipe, *a, **k):
         """Record replay attempts on the unreplayable recipe, then delegate to the real replay."""
@@ -43,7 +44,7 @@ def test_a_retention_candidate_that_cannot_replay_is_not_kept(monkeypatch):
             replay_attempts.append(recipe.name)
         return real_apply(recipe, *a, **k)
 
-    monkeypatch.setattr(_recipe_dispatch, "apply_recipe", spy)
+    monkeypatch.setattr(_recipe_shared, "apply_recipe", spy)
     monkeypatch.setattr(_fe_pure_form_retention, "retain_usable_pure_forms", lambda *a, **k: [(_UnreplayableRecipe(), _UnreplayableRecipe.name)])
     df, y = _case()
     with warnings.catch_warnings():

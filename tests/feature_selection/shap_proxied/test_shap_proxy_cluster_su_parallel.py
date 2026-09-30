@@ -22,6 +22,7 @@ import pytest
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
     cluster_correlated_features_su,
 )
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 def _quantile_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
@@ -107,6 +108,7 @@ def test_serial_vs_parallel_below_threshold_uses_serial_path():
     assert np.array_equal(out_default, out_serial)
 
 
+@skip_under_numba_disabled_jit
 def test_parallel_kernel_speedup_at_f500():
     """Parallel kernel >= 2x faster than serial at f=500. Both runs exclude
     the kernel compile cost via a warm-up call.

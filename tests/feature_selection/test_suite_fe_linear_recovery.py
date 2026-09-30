@@ -40,6 +40,7 @@ import subprocess  # nosec B404 -- test-only local trusted subprocess invocation
 import sys
 
 import pytest
+from tests.conftest import skip_scale_test_under_numba_disabled_jit
 
 _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 # repo root (parent of ``tests/``) so the worker can ``import tests.feature_selection.*``.
@@ -140,6 +141,7 @@ _LINEAR_RECOVERY = [
 ]
 
 
+@skip_scale_test_under_numba_disabled_jit
 @pytest.mark.parametrize("gen,dist,r2_floor,span_floor,slow", _LINEAR_RECOVERY)
 def test_linear_magnitude_recovery(gen, dist, r2_floor, span_floor, slow, request):
     """``train_mlframe_models_suite(model="linear", use_mrmr=True)`` must reach the
@@ -174,6 +176,7 @@ def test_linear_magnitude_recovery(gen, dist, r2_floor, span_floor, slow, reques
         pytest.param("poly", "normal", 0.50, id="uplift-poly-normal"),
     ],
 )
+@skip_scale_test_under_numba_disabled_jit
 def test_fe_delivers_usable_signal_uplift(gen, dist, min_uplift):
     """FE must turn an un-linear-fittable target into a linearly-fittable one: linear+MRMR
     test-R2 must exceed raw-only linear test-R2 by a calibrated margin. Pre-fix the

@@ -23,6 +23,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXP
 import numpy as np
 import pandas as pd
 import pytest
+from tests.conftest import skip_scale_test_under_numba_disabled_jit
 
 
 def _make_wide(n: int, p: int, n_informative: int = 8, seed: int = 0):
@@ -42,6 +43,7 @@ def _make_wide(n: int, p: int, n_informative: int = 8, seed: int = 0):
 WALL_BUDGET_S = 500.0
 
 
+@skip_scale_test_under_numba_disabled_jit
 @pytest.mark.parametrize("p", [1000, 2000])
 def test_mrmr_core_filter_completes_wide(p):
     """MRMR core filter fit must RETURN (not hang / OOM) on a wide frame and emit a non-empty selection."""

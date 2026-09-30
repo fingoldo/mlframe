@@ -27,6 +27,7 @@ import pytest
 from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
 from mlframe.feature_selection.filters.mrmr import MRMR
 from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+from tests.conftest import skip_scale_test_under_numba_disabled_jit
 
 
 def _make_dataset():
@@ -96,6 +97,7 @@ def test_mrmr_export_artifacts_requires_opt_in():
         mrmr.export_artifacts()
 
 
+@skip_scale_test_under_numba_disabled_jit
 def test_mrmr_then_shap_proxied_fs_reuses_artifacts_e2e():
     """Pipeline test: MRMR narrows to 20 features + exports artifacts,
     ShapProxiedFS consumes the dict and skips its own univariate pre-screen."""

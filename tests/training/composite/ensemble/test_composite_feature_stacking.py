@@ -112,12 +112,13 @@ class TestPredictionsAsFeature:
             composite_predictions_as_feature(wrapper, df_bad, column_name="pred", fallback_value=0.0)
         assert any("predict failed" in rec.message for rec in caplog.records), "wrapper.predict failure must be logged at WARNING, not silently swallowed"
 
-    def test_no_frame_size_needs_permission_because_the_append_shares_the_columns(self, monkeypatch) -> None:
-        """Appending the prediction column borrows the source frame's columns, so a frame of any size goes through.
+    def test_no_frame_size_needs_permission_to_append_the_prediction_column(self, monkeypatch) -> None:
+        """A frame of any size goes through without ``allow_large_frame_copy``, and the caller's frame is left untouched.
 
         The helper used to ``df.copy()`` and therefore refused a frame above ``_FEATURE_STACK_LARGE_FRAME_BYTES`` unless the
-        caller passed ``allow_large_frame_copy``. It now appends through ``append_column``, which shares the existing blocks:
-        there is no doubled peak RAM left to ask permission for, and the flag is accepted only so old callers keep working.
+        caller passed ``allow_large_frame_copy``. It now appends through ``append_column``, so the size gate is gone and the
+        flag is accepted only so old callers keep working. Buffer sharing is not asserted: on pandas 2.x with copy-on-write off
+        ``append_column`` copies on purpose, because sharing would let a write to the result land in the caller's frame.
         """
         from mlframe.training.composite.ensemble import feature_stacking as fs_mod
 
@@ -126,7 +127,8 @@ class TestPredictionsAsFeature:
         monkeypatch.setattr(fs_mod, "_FEATURE_STACK_LARGE_FRAME_BYTES", 1)  # every frame looks "large"
         out = composite_predictions_as_feature(wrapper, df)
         assert len(out) == len(df) and "base" in out.columns
-        assert np.shares_memory(out["base"].to_numpy(), df["base"].to_numpy()), "the source frame's columns were copied"
+        np.testing.assert_array_equal(out["base"].to_numpy(), df["base"].to_numpy())
+        assert list(df.columns) == [c for c in out.columns if c != out.columns[-1]] and out.columns[-1] not in df.columns
         assert len(composite_predictions_as_feature(wrapper, df, allow_large_frame_copy=True)) == len(df)
 
 

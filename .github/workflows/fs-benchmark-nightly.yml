@@ -48,6 +48,10 @@ jobs:
     name: tier-2 benchmark (${{ inputs.tier || 'nightly' }})
     runs-on: ubuntu-latest
     timeout-minutes: 330
+    env:
+      # [tool.uv.sources] points pyutilz at git while install-pyutilz installs it from a local clone; without this uv refuses on
+      # conflicting URLs for the same package. See the note in ci.yml's test job.
+      UV_NO_SOURCES: "1"
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

@@ -18,6 +18,7 @@ import time
 
 import numpy as np
 import pytest
+from tests.conftest import perf_time_budget
 
 from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as H
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coalition_margin, proxy_loss
@@ -115,7 +116,8 @@ def test_beam_search_incremental_speedup_smoke():
     t0 = time.perf_counter()
     top = H.beam_search(phi, base, y, classification=False, metric="rmse", beam_width=50, max_card=12, top_n=20)
     dt = time.perf_counter() - t0
-    assert dt < 2.0, f"beam_search incremental path took {dt:.3f}s (budget 2.0s)"
+    budget = perf_time_budget(2.0)
+    assert dt < budget, f"beam_search incremental path took {dt:.3f}s (budget {budget:.1f}s)"
     assert top[0][0] < 0.1  # truth-recovering regime; coarse sanity, not a perf gate
 
 
@@ -196,7 +198,8 @@ def test_multistart_local_speedup_smoke():
     t0 = time.perf_counter()
     top = H.multistart_local(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(1), n_starts=8, max_card=10, top_n=10)
     dt = time.perf_counter() - t0
-    assert dt < 4.0, f"multistart_local incremental path took {dt:.3f}s (budget 4.0s)"
+    budget = perf_time_budget(4.0)
+    assert dt < budget, f"multistart_local incremental path took {dt:.3f}s (budget {budget:.1f}s)"
     assert top[0][0] < 0.2  # coarse truth-recovering sanity
 
 
@@ -210,5 +213,6 @@ def test_simulated_annealing_speedup_smoke():
     t0 = time.perf_counter()
     top = H.simulated_annealing(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(2), n_iter=2000, top_n=10)
     dt = time.perf_counter() - t0
-    assert dt < 4.0, f"simulated_annealing incremental path took {dt:.3f}s (budget 4.0s)"
+    budget = perf_time_budget(4.0)
+    assert dt < budget, f"simulated_annealing incremental path took {dt:.3f}s (budget {budget:.1f}s)"
     assert top[0][0] < 0.5  # coarse sanity; SA wider tolerance vs greedy/beam

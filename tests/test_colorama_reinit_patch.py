@@ -6,12 +6,25 @@ NumbaWarning construction goes through.
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 import mlframe
 
 pytest.importorskip("colorama")
 pytest.importorskip("numba")
+
+
+@pytest.fixture(autouse=True)
+def _restore_std_streams():
+    """colorama.init() wraps sys.stdout/sys.stderr and nothing in these tests undoes it; put the real streams back."""
+    import colorama
+
+    out, err = sys.stdout, sys.stderr
+    yield
+    colorama.deinit()
+    sys.stdout, sys.stderr = out, err
 
 
 def _fresh_patch_state(monkeypatch):

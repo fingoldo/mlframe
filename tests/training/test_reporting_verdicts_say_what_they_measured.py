@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-import ast
 import pathlib
 
 import numpy as np
@@ -30,16 +29,25 @@ class TestAPanelGridThatDoesNotExistIsNotAFailure:
     """Skipped and failed have to be different buckets."""
 
     def test_the_no_op_branch_records_skipped_rather_than_failed(self):
-        """The accounting block must have three arms, and the no-op one must not write to failed."""
-        tree = ast.parse(REPORTING_SRC.read_text(encoding="utf-8"))
-        arms = [n for n in ast.walk(tree) if isinstance(n, ast.If) and isinstance(n.test, ast.Name) and n.test.id == "_rendered_tag"]
-        assert arms, "the panel-accounting branch was not found; this test needs updating"
-        tail = ast.dump(ast.Module(body=arms[0].orelse, type_ignores=[]))
-        assert "'skipped'" in tail, "the no-op branch no longer records a skipped bucket"
+        """A regression report with no panel grid and no exception lands in ``skipped`` and leaves ``failed`` empty."""
+        from mlframe.training.reporting._reporting import _account_panel_render
+
+        metrics: dict = {}
+        _account_panel_render(metrics, "regression", None, [], "base")
+        charts = metrics["charts"]
+        assert not charts["failed"], f"a grid that does not exist was recorded as failed: {charts['failed']}"
+        assert "regression_panels" in charts["skipped"]
 
     def test_a_real_panel_failure_still_lands_in_failed(self):
-        """The bucket must keep working for the case it was meant for."""
-        assert '_charts["failed"].append(f"{_which}_panels")' in REPORTING_SRC.read_text(encoding="utf-8")
+        """The bucket must keep working for the case it was meant for: a branch that matched and then raised."""
+        from mlframe.training.reporting._reporting import _account_panel_render
+
+        metrics: dict = {}
+        _account_panel_render(metrics, "regression", None, ["boom"], "base")
+        charts = metrics["charts"]
+        assert charts["failed"] == ["regression_panels"]
+        assert charts["panel_exceptions"] == ["boom"]
+        assert not charts.get("skipped")
 
 
 class TestTheResidualVerdictMatchesTheSkew:

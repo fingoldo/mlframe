@@ -70,7 +70,7 @@ def test_cb_gpu_probe_fires_for_instance_like_alias():
     def _run(enabled):
         """Calls get_training_configs with the given enabled_models list and returns how many times the GPU probe fired."""
         # has_gpu=True triggers the probe only when CB is judged in-scope.
-        with mock.patch("mlframe.training.cb._cb_gpu_usable", return_value=False) as probe:
+        with mock.patch("mlframe.training.cb.shared.cb_gpu_usable", return_value=False) as probe:
             get_training_configs(iterations=10, has_gpu=True, enabled_models=enabled)
         return probe.call_count
 
@@ -87,7 +87,7 @@ def test_cb_gpu_probe_skipped_for_non_cb_suite():
     """Non-CB suite must NOT pay the probe -- guards against over-broad routing."""
     from mlframe.training.helpers import get_training_configs
 
-    with mock.patch("mlframe.training.cb._cb_gpu_usable", return_value=False) as probe:
+    with mock.patch("mlframe.training.cb.shared.cb_gpu_usable", return_value=False) as probe:
         get_training_configs(iterations=10, has_gpu=True, enabled_models=["lgb"])
     assert probe.call_count == 0
 

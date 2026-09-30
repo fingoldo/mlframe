@@ -20,6 +20,7 @@ from mlframe.metrics._core_auc_brier import (
     make_bootstrap_auc_resampler,
 )
 from tests.conftest import perf_speedup_floor
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 def _ref(y_true, y_score, idx):
@@ -83,6 +84,7 @@ def test_presort_two_value_scores_route_to_exact():
         assert resampler(idx) == _ref(y_true, y_score, idx)
 
 
+@skip_under_numba_disabled_jit
 def test_perf_sentinel_presort_beats_argsort():
     """Perf sentinel: the O(n) counting-gather resampler must beat the per-
     resample argsort on the 1000-bootstrap loop. Measured 1.6x-4.4x across
@@ -193,6 +195,7 @@ def test_bootstrap_metrics_skips_preslice_when_all_idx_aware():
     assert np.array_equal(r2["roc_auc"]["samples"], r2["auc_sliced"]["samples"])
 
 
+@skip_under_numba_disabled_jit
 def test_perf_sentinel_fused_beats_prior_resampler():
     """Perf sentinel for the fused kernel vs the prior 4-pass resampler shape.
     Compares the fused fast path to the exact per-resample argsort path (the

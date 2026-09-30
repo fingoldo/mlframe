@@ -12,6 +12,7 @@ import warnings
 
 import numpy as np
 import pytest
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 def _compile_without_cache_refusal(kernel, *args):
@@ -22,6 +23,7 @@ def _compile_without_cache_refusal(kernel, *args):
     return [str(w.message) for w in caught if "Cannot cache" in str(w.message)]
 
 
+@skip_under_numba_disabled_jit
 def test_the_parallel_calibration_kernel_is_cacheable():
     """The defect: the thread count read inside the kernel made numba refuse to cache it."""
     import numba
@@ -47,6 +49,7 @@ def test_the_wrapper_matches_the_serial_kernel():
     np.testing.assert_allclose(fp_p, fp_s, rtol=0, atol=1e-12)
 
 
+@skip_under_numba_disabled_jit
 @pytest.mark.parametrize("name", ["_grok_compute_mutual_information_kernel", "_chatgpt_mi_one_target", "_deepseek_compute_mutual_information_kernel"])
 def test_the_mutual_information_kernels_are_cacheable(name):
     """They were marked cache=False although nothing in them prevents caching."""

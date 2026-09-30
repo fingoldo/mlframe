@@ -10,16 +10,48 @@ per-model latency is on the slow side of its distribution.
 
 from __future__ import annotations
 
-import time
+import types
 
 import numpy as np
+import pytest
 from sklearn.metrics import mean_squared_error
 
+from mlframe.inference import time_budget_ensemble as tbe_module
 from mlframe.inference.time_budget_ensemble import TimeBudgetEnsemble
 
 
+class _VirtualClock:
+    """A clock that only moves when a stub model "takes time", so the budget arithmetic is tested exactly.
+
+    With real ``time.sleep`` the number of models that fit in a 35 ms budget depended on the host's sleep overshoot: on a loaded or
+    coarse-timer runner each 10 ms sleep took long enough that only one model fit, and the test measured the machine rather than the
+    ensemble's budget logic.
+    """
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def perf_counter(self) -> float:
+        """Current virtual time in seconds."""
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        """Advance the virtual time instead of blocking."""
+        self.now += seconds
+
+
+_CLOCK = _VirtualClock()
+
+
+@pytest.fixture(autouse=True)
+def _virtual_time(monkeypatch):
+    """Route the ensemble's clock through ``_CLOCK`` and start each test at virtual time zero."""
+    _CLOCK.now = 0.0
+    monkeypatch.setattr(tbe_module, "time", types.SimpleNamespace(perf_counter=_CLOCK.perf_counter))
+
+
 class _LatencyModel:
-    """A stub regressor whose ``predict`` call sleeps ``latency_fn()`` seconds and returns a fixed offset
+    """A stub regressor whose ``predict`` call takes ``latency_seconds`` of virtual time and returns a fixed offset
     prediction -- each additional model in an ensemble narrows the average error toward 0."""
 
     def __init__(self, true_offset: float, noise_scale: float, latency_seconds: float, rng: np.random.Generator) -> None:
@@ -30,7 +62,7 @@ class _LatencyModel:
 
     def predict(self, X):
         """Returns ``np.full(n, self.true_offset) + self._rng.normal(scale=self.noise_scale, size=n)`` (after 2 setup steps)."""
-        time.sleep(self.latency_seconds)
+        _CLOCK.sleep(self.latency_seconds)
         n = len(X)
         return np.full(n, self.true_offset) + self._rng.normal(scale=self.noise_scale, size=n)
 
@@ -59,9 +91,9 @@ def test_biz_val_time_budget_ensemble_beats_conservative_fixed_size_within_budge
         models = _make_models(rng)
         ensemble = TimeBudgetEnsemble(models, time_budget_seconds=time_budget_seconds)
 
-        t0 = time.perf_counter()
+        t0 = _CLOCK.perf_counter()
         pred_budget = ensemble.predict(np.zeros((n_rows, 1)))
-        wall = time.perf_counter() - t0
+        wall = _CLOCK.perf_counter() - t0
         max_wall_time = max(max_wall_time, wall)
 
         # Conservative-fixed baseline: only run 1 model (the minimum that's guaranteed safe even if every

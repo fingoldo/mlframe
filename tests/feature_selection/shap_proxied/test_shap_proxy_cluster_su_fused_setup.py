@@ -29,6 +29,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
     cluster_correlated_features_su,
 )
 from tests._perf_paired import assert_paired_speedup
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 def _quantile_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
@@ -136,6 +137,7 @@ def test_fused_setup_parity_with_kernel():
     assert np.array_equal(serial, parallel), "fused-setup parallel kernel diverges from serial loop at width=120"
 
 
+@skip_under_numba_disabled_jit
 def test_fused_setup_speedup_at_width_1500():
     """At width=1500, fused setup path beats two-pass setup ref by >=15%.
 

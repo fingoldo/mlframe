@@ -39,23 +39,24 @@ def test_conformal_size_is_refused_while_the_carve_is_unwired():
 
 
 def test_sum_of_fractions_validator_includes_conformal_size():
-    # 0.5 + 0.3 + 0.15 + 0.1 = 1.05 > 1.0 -> must reject, and the message must name conformal_size.
-    """Sum of fractions validator includes conformal size."""
+    """The fraction sum counts conformal_size, so an over-allocated split is refused and the message names it."""
+    # 0.5 + 0.3 + 0.15 + 0.1 = 1.05 -> must reject on the SUM, and the message must name conformal_size.
     # Matched on the SUM message specifically: the un-wired guard below it also names conformal_size, so a
     # bare "conformal_size" match would pass even if the sum check were removed entirely.
-    with pytest.raises(ValueError, match=r"must be <= 1\.0"):
+    with pytest.raises(ValueError, match=r"conformal_size \(0\.1\) = .* must be < 1\.0"):
         TrainingSplitConfig(test_size=0.5, val_size=0.3, calib_size=0.15, conformal_size=0.1)
 
 
-def test_sum_of_fractions_validator_passes_at_boundary():
-    """Fractions summing to exactly 1.0 are accepted; the bound is `> 1.0`, not `>= 1.0`.
+def test_sum_of_fractions_validator_boundary_is_exclusive():
+    """Fractions summing to exactly 1.0 leave an empty train set and are refused; just under 1.0 is accepted.
 
-    The boundary is now reached without `conformal_size`, which is refused outright while its carve is
-    un-wired -- reaching 1.0 through it would make this test pass or fail for that reason instead of the
-    sum-validator boundary it is named for.
+    Reached without `conformal_size`, which is refused outright while its carve is un-wired -- going through it
+    would make this test pass or fail for that reason instead of the sum-validator boundary it is named for.
     """
-    cfg = TrainingSplitConfig(test_size=0.4, val_size=0.2, calib_size=0.4)
-    assert cfg.test_size + cfg.val_size + cfg.calib_size == pytest.approx(1.0)
+    with pytest.raises(ValueError, match=r"must be < 1\.0 to leave rows for training"):
+        TrainingSplitConfig(test_size=0.4, val_size=0.2, calib_size=0.4)
+    cfg = TrainingSplitConfig(test_size=0.4, val_size=0.2, calib_size=0.39)
+    assert cfg.test_size + cfg.val_size + cfg.calib_size == pytest.approx(0.99)
 
 
 def test_conformal_size_rejects_out_of_range():

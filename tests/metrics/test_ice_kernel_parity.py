@@ -7,6 +7,8 @@ MEAN prediction, and the docstring called the two "bit-exact". On a Beta(2,5) be
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
 
@@ -46,6 +48,11 @@ def _reference(y_true, y_pred, kwargs):
     ])
 
 
+# Compiled, the batched kernels reproduce ``fast_ice_only`` bit for bit. Interpreted (NUMBA_DISABLE_JIT=1) the two sum in a different order, which
+# moves the last bit (5.6e-17 measured), so the exact comparison relaxes to a rounding-error bound there and only there.
+_PARITY_ATOL = 1e-12 if os.environ.get("NUMBA_DISABLE_JIT") == "1" else 0.0
+
+
 @pytest.mark.parametrize("n, nbins, skewed", [(5_000, 10, True), (20_000, 100, True), (3_000, 20, False)])
 def test_batched_kernels_match_fast_ice_only(n, nbins, skewed):
     """Batched kernels match fast ice only."""
@@ -56,7 +63,7 @@ def test_batched_kernels_match_fast_ice_only(n, nbins, skewed):
     expected = _reference(y_true, y_pred, kwargs)
     for kernel in (_batch_per_class_ice_kernel, _batch_per_class_ice_kernel_serial):
         got = np.asarray(kernel(y_true, y_pred, desc_idx, *args))
-        np.testing.assert_allclose(got, expected, rtol=0, atol=0)
+        np.testing.assert_allclose(got, expected, rtol=0, atol=_PARITY_ATOL)
 
 
 def test_a_skewed_bin_is_not_scored_at_its_centre():

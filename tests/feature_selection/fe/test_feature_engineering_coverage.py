@@ -566,7 +566,7 @@ class TestCheckProspectiveFePairs:
                 discretize_array(df["c"].to_numpy(), n_bins=4, method="quantile", dtype=np.int32),
             ]
         )
-        target_col = (df["a"].to_numpy() > df["a"].mean()).astype(np.int32)
+        target_col = ((df["a"].to_numpy() > df["a"].mean()) ^ (df["b"].to_numpy() > df["b"].mean())).astype(np.int32)  # a pair-only signal: neither operand alone predicts it
         data = np.column_stack([data, target_col])
         nbins = np.array([4, 4, 4, 2], dtype=np.int64)
         target_indices = np.array([3], dtype=np.int64)
@@ -668,7 +668,7 @@ class TestCheckProspectiveFePairs:
                 discretize_array(df["c"].to_numpy(), n_bins=4, method="quantile", dtype=np.int32),
             ]
         )
-        target_col = (df["a"].to_numpy() > df["a"].mean()).astype(np.int32)
+        target_col = ((df["a"].to_numpy() > df["a"].mean()) ^ (df["b"].to_numpy() > df["b"].mean())).astype(np.int32)  # a pair-only signal: neither operand alone predicts it
         data = np.column_stack([data, target_col])
         nbins = np.array([4, 4, 4, 2], dtype=np.int64)
         target_indices = np.array([3], dtype=np.int64)
