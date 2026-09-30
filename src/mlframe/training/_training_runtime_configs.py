@@ -502,23 +502,22 @@ class OutputConfig(BaseConfig):
     # Only an explicit save_charts=True without a data_dir is an error (see the validator below).
     save_charts: bool = True
 
-    # Default ON: all 6 registered evaluation diagnostics run by default. Names resolve against
+    # Default ON: the five cheap registered evaluation diagnostics. Names resolve against
     # ``mlframe.training.core._diagnostics_registry.DIAGNOSTICS_REGISTRY``. Results land under
     # ``metadata["diagnostics"][name]``; a diagnostic that errors or can't be sensibly run from suite-local
     # data reports ``{"error": ...}`` rather than aborting the suite, so a bad fit here never fails the suite.
-    # Five of the six (cv_informativeness, compare_cv_schemes, group_leakage, constant_group_leak,
+    # The five defaults (cv_informativeness, compare_cv_schemes, group_leakage, constant_group_leak,
     # subpopulation_drift) are cheap statistics/permutation checks over already-computed CV/fold data.
-    # ``adversarial_fold_selection`` is the outlier: it fits a full adversarial-validation classifier
-    # (train-vs-val discriminability) and is materially slower than the other five on large datasets -- kept
-    # in the default list per the "flip everything on" directive, but this is the one diagnostic worth
-    # dropping via ``run_diagnostics=[...]`` (omit it) on latency-sensitive suite runs.
+    # The sixth registered diagnostic, ``adversarial_fold_selection``, is OPT-IN: it cross-validates a LightGBM
+    # train-vs-test classifier (~37 s on 400k rows) only to suggest a "test-like" validation fold of train rows,
+    # which nothing in the suite consumes. Request it with
+    # ``OutputConfig(run_diagnostics=[..., "adversarial_fold_selection"])``.
     run_diagnostics: Optional[List[str]] = Field(
         default_factory=lambda: [
             "cv_informativeness",
             "compare_cv_schemes",
             "group_leakage",
             "constant_group_leak",
-            "adversarial_fold_selection",
             "subpopulation_drift",
         ]
     )

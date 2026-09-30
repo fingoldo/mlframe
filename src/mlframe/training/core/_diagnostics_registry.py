@@ -182,7 +182,7 @@ def adapt_adversarial_fold_selection(train_df, val_df, test_df, target_col, cat_
         kwargs.pop("return_history", None)  # keep the 2-tuple contract this adapter returns
         _fold_result = build_test_like_validation_fold(X_train=X_train, X_test=X_test, return_history=False, **kwargs)
         val_idx, remaining_idx = _fold_result[0], _fold_result[1]
-        return {"val_idx": val_idx.tolist(), "n_selected": len(val_idx), "n_remaining": len(remaining_idx)}
+        return {"val_idx": np.asarray(val_idx, dtype=np.int32), "n_selected": len(val_idx), "n_remaining": len(remaining_idx)}
     except Exception as e:
         logger.debug("diagnostics.adversarial_fold_selection failed: %s", e)
         return {"error": str(e)}
