@@ -324,7 +324,7 @@
   "feature_selection/filters/friend_graph.py::node_relevance",
   "feature_selection/filters/friend_graph.py::pairwise_mi_edge",
   "feature_selection/filters/gpu.py::mi_direct_gpu",
-  "feature_selection/filters/group_aware.py::cluster_features_by_correlation",
+  "feature_selection/filters/correlated_features.py::cluster_features_by_correlation",
   "feature_selection/filters/hermite_fe/_hermite_oracle.py::benchmark_polyeval_cpu_backends",
   "feature_selection/filters/hermite_fe/_hermite_oracle.py::get_polyeval_oracle",
   "feature_selection/filters/hermite_fe/_hermite_robust.py::heavy_tail_memo_scope",

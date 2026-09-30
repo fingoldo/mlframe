@@ -456,7 +456,7 @@ AXES: dict[str, tuple[Any, ...]] = {
     #   * premerge_clusters (default False): collapse |corr|>=premerge_corr_thr
     #     columns to one representative BEFORE the shadow-importance test, then
     #     re-expand accepted reps. True activates the in-class correlation
-    #     pre-merge path (distinct from the registry's GroupAwareMRMR wrap,
+    #     pre-merge path (distinct from the registry's CorrelatedFeaturesSelector wrap,
     #     which the FeatureSelectionConfig.boruta_shap_kwargs validator rejects
     #     -- see FS-coverage audit notes).
     "boruta_optimistic_cfg": (True, False),

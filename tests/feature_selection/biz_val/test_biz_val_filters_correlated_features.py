@@ -1,4 +1,4 @@
-"""biz_value tests for GroupAwareMRMR decision params.
+"""biz_value tests for CorrelatedFeaturesSelector decision params.
 
 Each test pins a quantitative win of a specific constructor param against its baseline / OFF value on a synthetic where the
 param should clearly succeed: corr_method='su' (catches non-monotone redundancy pearson misses), corr_threshold (collapses a
@@ -12,8 +12,8 @@ import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator
 
-from mlframe.feature_selection.filters.group_aware import (
-    GroupAwareMRMR,
+from mlframe.feature_selection.filters.correlated_features import (
+    CorrelatedFeaturesSelector,
     _redundancy_matrix,
     cluster_features_by_correlation,
 )
@@ -71,8 +71,8 @@ def test_biz_val_group_aware_corr_method_su_catches_nonmonotone_redundancy():
 def test_biz_val_group_aware_corr_threshold_collapses_collinear_cluster():
     """A tight threshold collapses the 4-member collinear cluster (reduction>0); a near-1 threshold leaves it intact (no reduction)."""
     X, y = _collinear_signal_frame()
-    tight = GroupAwareMRMR(_TopKByCorr(k=1), corr_threshold=0.9, corr_method="pearson", expand=True, min_reduction=0.05).fit(X, y)
-    loose = GroupAwareMRMR(_TopKByCorr(k=1), corr_threshold=0.999, corr_method="pearson", expand=True, min_reduction=0.05).fit(X, y)
+    tight = CorrelatedFeaturesSelector(_TopKByCorr(k=1), corr_threshold=0.9, corr_method="pearson", expand=True, min_reduction=0.05).fit(X, y)
+    loose = CorrelatedFeaturesSelector(_TopKByCorr(k=1), corr_threshold=0.999, corr_method="pearson", expand=True, min_reduction=0.05).fit(X, y)
 
     assert tight.reduction_ >= 0.40, f"tight threshold should collapse the collinear cluster; reduction={tight.reduction_:.3f}"
     assert tight.reduced_ is True
@@ -86,8 +86,8 @@ def test_biz_val_group_aware_expand_recovers_cluster_members():
     X, y = _collinear_signal_frame()
     g_idx = {i for i, c in enumerate(X.columns) if c.startswith("g")}
 
-    exp = GroupAwareMRMR(_TopKByCorr(k=1), corr_threshold=0.9, expand=True, min_reduction=0.05).fit(X, y)
-    noexp = GroupAwareMRMR(_TopKByCorr(k=1), corr_threshold=0.9, expand=False, min_reduction=0.05).fit(X, y)
+    exp = CorrelatedFeaturesSelector(_TopKByCorr(k=1), corr_threshold=0.9, expand=True, min_reduction=0.05).fit(X, y)
+    noexp = CorrelatedFeaturesSelector(_TopKByCorr(k=1), corr_threshold=0.9, expand=False, min_reduction=0.05).fit(X, y)
 
     exp_sup = set(exp.support_.tolist())
     noexp_sup = set(noexp.support_.tolist())
@@ -101,8 +101,8 @@ def test_biz_val_group_aware_min_reduction_gates_medoid_bypass():
     X, y = _collinear_signal_frame()
     # Same data + threshold; only min_reduction flips. Achieved reduction is ~0.43.
     # expand=True so the engaged path is visible in the support size (the default keeps only the medoid).
-    high_gate = GroupAwareMRMR(_TopKByCorr(k=1), corr_threshold=0.9, min_reduction=0.9, expand=True).fit(X, y)
-    low_gate = GroupAwareMRMR(_TopKByCorr(k=1), corr_threshold=0.9, min_reduction=0.05, expand=True).fit(X, y)
+    high_gate = CorrelatedFeaturesSelector(_TopKByCorr(k=1), corr_threshold=0.9, min_reduction=0.9, expand=True).fit(X, y)
+    low_gate = CorrelatedFeaturesSelector(_TopKByCorr(k=1), corr_threshold=0.9, min_reduction=0.05, expand=True).fit(X, y)
 
     assert high_gate.reduced_ is False, "min_reduction above achieved reduction must bypass the medoid path"
     assert low_gate.reduced_ is True, "min_reduction below achieved reduction must engage the medoid path"

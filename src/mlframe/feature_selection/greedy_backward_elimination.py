@@ -10,6 +10,7 @@ importance-proxy or a fixed unanimity rule.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable, List, Optional
 
@@ -17,6 +18,8 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.model_selection import BaseCrossValidator, KFold
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -134,6 +137,12 @@ def greedy_backward_elimination(
     # spurious KeyError once the index has any gaps relative to a dense 0..n-1 range.
     y_arr = np.asarray(y)
     n = len(X)
+
+    if n_repeats > 1 and getattr(cv, "deterministic_folds", False):
+        # A time- / group-ordered splitter has no seed: repeating it under different shuffles would discard its ordering, and repeating it as-is
+        # yields identical folds, so the repeat loop is skipped.
+        logger.info("greedy_backward_elimination: cv has seed-independent folds; ignoring n_repeats=%d.", n_repeats)
+        n_repeats = 1
 
     if n_repeats > 1:
         n_splits = cv.get_n_splits() if cv is not None and hasattr(cv, "get_n_splits") else 5

@@ -56,7 +56,9 @@ def coerce_gate_target(y_np: Any, n_rows: int) -> Optional[np.ndarray]:
     return None
 
 
-def build_heldout_incr_probe(*, y_gate: Optional[np.ndarray], sel_value_cols: list, random_seed: Optional[int]) -> Callable[..., float]:
+def build_heldout_incr_probe(
+    *, y_gate: Optional[np.ndarray], sel_value_cols: list, random_seed: Optional[int], cv_policy: Any = None,
+) -> Callable[..., float]:
     """Return ``probe(candidate_vals, src_vals=None) -> float``, the held-out R^2 gain of adding the candidate to the selected design.
 
     Everything that does not depend on the candidate is done once here: the split, the validation target and its centred sum of squares, and
@@ -69,6 +71,9 @@ def build_heldout_incr_probe(*, y_gate: Optional[np.ndarray], sel_value_cols: li
 
     ``candidate_vals`` may be a single column or a 2-D block of columns that only work together, such as the sin/cos legs of one adaptive
     frequency, whose individual marginals are low by construction because the phase is split across them.
+
+    ``cv_policy`` (the suite's shared ``CVPolicy``; None or i.i.d. keeps the seeded shuffle) makes the held-out third the NEWEST rows on temporal
+    data, or whole groups on grouped data, so the gate is scored on the same kind of rows the suite's own validation split uses.
     """
     if y_gate is None:
         # No usable target: the gate cannot decide, and must not silently drop columns.
@@ -78,9 +83,16 @@ def build_heldout_incr_probe(*, y_gate: Optional[np.ndarray], sel_value_cols: li
     # Seeded shuffle-then-stride, not a raw positional (idx % 3) == 0 split - the latter is not an honest i.i.d. holdout on
     # time/group/label-sorted input (this module explicitly supports sorted input elsewhere via ``groups`` / the ``temporal_agg`` FE
     # family), which can bias the held-out R^2 this gate decides on. The draw depends only on the seed and n, so it is made once.
-    perm = np.random.default_rng(0 if random_seed is None else int(random_seed)).permutation(n)
+    from mlframe.feature_selection.cv_policy import holdout_indices
+
+    seed = 0 if random_seed is None else int(random_seed)
+    policy_split = holdout_indices(cv_policy, n, 1 / 3, random_state=seed)
     va = np.zeros(n, dtype=bool)
-    va[perm[: n // 3]] = True
+    if policy_split is not None:
+        va[policy_split[1]] = True
+    else:
+        perm = np.random.default_rng(seed).permutation(n)
+        va[perm[: n // 3]] = True
     tr = ~va
     if int(tr.sum()) < 32 or int(va.sum()) < 16:
         return lambda candidate_vals, src_vals=None: 1.0

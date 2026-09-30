@@ -40,6 +40,8 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su_joint impo
     su_from_classes_sparse,
 )
 
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su_chance import veto_chance_edges as _veto_chance_edges
+
 logger = logging.getLogger(__name__)
 
 
@@ -559,6 +561,7 @@ def cluster_correlated_features_su(
     use_bitmap: bool = True,
     bitmap_min_features: int | None = None,
     bitmap_max_n_bins: int | None = None,
+    chance_correct: bool = True,
 ) -> np.ndarray:
     """Cluster features by single-linkage on ``SU(X_i, X_j) >= threshold``.
 
@@ -637,6 +640,11 @@ def cluster_correlated_features_su(
         ``pyutilz.performance.kernel_tuning.cache``
         (key ``mlframe.shap_proxied_fs.cluster_su.bitmap_max_n_bins``);
         default 12 (the iter73-bench crossover; ``_resolve_bitmap_max_n_bins``).
+
+    chance_correct
+        Default ``True``. Re-score flagged edges between high-cardinality columns against a permutation null
+        (``_shap_proxy_cluster_su_chance.veto_chance_edges``) so plug-in SU bias does not merge unrelated ID-like
+        columns; low-cardinality edges are untouched (bit-identical). ``False`` restores the raw plug-in scan.
 
     Returns
     -------
@@ -724,6 +732,8 @@ def cluster_correlated_features_su(
                 )
             ei = ei_arr.astype(np.int64, copy=False)
             ej = ej_arr.astype(np.int64, copy=False)
+            if chance_correct:
+                ei, ej = _veto_chance_edges(arrays, ei, ej, threshold)
             return np.asarray(_uf_labels(f, ei, ej))
 
     # Serial fallback only reached when use_kernel is False (small width) or packing
@@ -766,4 +776,6 @@ def cluster_correlated_features_su(
     else:
         ei = np.asarray(ei_parts, dtype=np.int64)
         ej = np.asarray(ej_parts, dtype=np.int64)
+        if chance_correct:
+            ei, ej = _veto_chance_edges(arrays, ei, ej, threshold)
     return np.asarray(_uf_labels(f, ei, ej))

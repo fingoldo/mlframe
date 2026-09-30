@@ -15,7 +15,7 @@ def _unwrap_boruta_shap(obj):
     """Return the inner ``BorutaShap`` for a pre-pipeline entry, or ``None``.
 
     Since 2026-06-03 the BorutaShap selector ships behind a default-ON
-    cluster-medoid pre-reduction (``GroupAwareMRMR(BorutaShap(...))``; validated
+    cluster-medoid pre-reduction (``CorrelatedFeaturesSelector(BorutaShap(...))``; validated
     OOS-neutral-to-positive, see ``registry._instantiate_boruta_shap``). The
     suite-wiring contract is unchanged -- exactly one BorutaShap selector,
     appended after the cheaper selectors -- so the test unwraps the wrapper

@@ -232,7 +232,7 @@ as a stronger negative than the design can support.
 4. Aggregation is **blind**: arms carry opaque IDs, the mapping lives in a separate file the aggregation and
    plotting code never reads, and the reveal happens once, after the aggregate is committed.
 5. `rfecv_bare` and `rfecv_registry_default` are **separate arms** (the registry wraps RFECV and BorutaShap
-   in a cluster-medoid `GroupAwareMRMR` with `expand=True`, which drags a whole cluster back in when its
+   in a cluster-medoid `CorrelatedFeaturesSelector` with `expand=True`, which drags a whole cluster back in when its
    medoid is selected). Same for BorutaShap.
 6. `test_negative_results_nonempty.py` fails if the generated report contains no scenario where MRMR ranks
    below median.

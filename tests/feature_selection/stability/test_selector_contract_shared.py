@@ -1,5 +1,5 @@
 """Capability-flagged shared contract over ALL registered selectors + the
-production-default GroupAware wrap + the public HybridSelector.
+production-default CorrelatedFeaturesSelector wrap + the public HybridSelector.
 
 This is the lifted home for the cross-selector sklearn-protocol + robustness
 contracts that previously existed as MRMR-only "Wave 9.1" regression files

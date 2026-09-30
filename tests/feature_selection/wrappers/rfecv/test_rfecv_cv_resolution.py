@@ -101,7 +101,9 @@ def test_timestamp_ordered_split_on_shuffled_datetimes_returns_chronological_fol
     order = np.random.default_rng(2).permutation(n)
     ts = pd.Series(pd.date_range("2024-01-01", periods=n, freq="h").to_numpy()[order])
     splitter = TimestampOrderedSplit(n_splits=3, timestamps=ts)
-    for tr, te in splitter.split(np.zeros((n, 1))):
+    folds = list(splitter.split(np.zeros((n, 1))))
+    assert len(folds) == 3
+    for tr, te in folds:
         assert ts.iloc[tr].max() < ts.iloc[te].min()
         assert ts.iloc[tr].is_monotonic_increasing and ts.iloc[te].is_monotonic_increasing
 

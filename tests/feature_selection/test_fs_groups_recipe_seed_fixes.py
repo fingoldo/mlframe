@@ -114,7 +114,7 @@ def test_a1_06_default_threshold_is_05():
 
 def test_a1_09_su_captures_nonmonotone_redundancy():
     """biz_value: SU clusters z and z**2 together (non-monotone redundancy); Pearson does not."""
-    from mlframe.feature_selection.filters.group_aware import (
+    from mlframe.feature_selection.filters.correlated_features import (
         cluster_features_by_correlation,
         _su_redundancy_matrix,
     )

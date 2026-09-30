@@ -49,7 +49,7 @@ def _component_medoid(comp: list, pair_sus: dict) -> Any:
     anchor order, so we look up both orderings). Deterministic alphabetical
     tie-break. Audit hierarchy-stability-12: the prior ``comp[0]`` picked the
     lexicographically smallest name, so the cluster label carried no statistical
-    meaning. (Mirrors the medoid convention in group_aware / _cluster_aggregate.)
+    meaning. (Mirrors the medoid convention in correlated_features / _cluster_aggregate.)
     """
     if len(comp) <= 2:
         return sorted(comp)[0]

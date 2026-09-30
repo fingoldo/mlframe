@@ -283,7 +283,7 @@ def _call_train_evaluate_with_configs(
     all_params.pop("trainset_features_stats", None)  # use function arg
     # OOF K-fold controls flow straight to the trainer, not through the config builder.
     oof_n_splits = all_params.pop("oof_n_splits", 0)
-    oof_has_time = all_params.pop("oof_has_time", False)
+    oof_has_time = all_params.pop("oof_has_time", None)
     oof_random_seed = all_params.pop("oof_random_seed", 42)
 
     # Add control params

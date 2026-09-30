@@ -1,7 +1,7 @@
-"""Regression guard: GroupAwareMRMR can wrap a sklearn-style wrapper selector
+"""Regression guard: CorrelatedFeaturesSelector can wrap a sklearn-style wrapper selector
 that exposes a BOOLEAN support_ mask (audit integration-defaults-3).
 
-GroupAwareMRMR collapses correlated clusters to medoids, fits the inner selector
+CorrelatedFeaturesSelector collapses correlated clusters to medoids, fits the inner selector
 on the medoids, then expands the support back to whole clusters. It previously
 iterated ``inner.support_`` as if it were an index array (mRMR-family); sklearn
 RFECV exposes a boolean mask, which iterated as 0/1 -> wrong clusters. The fix
@@ -14,11 +14,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
 
 def test_wraps_boolean_mask_selector_and_expands_cluster():
-    """GroupAwareMRMR normalises a wrapped sklearn selector's boolean support_ mask (vs mRMR-family index arrays) and expands the medoid pick back to its whole correlated cluster."""
+    """CorrelatedFeaturesSelector normalises a wrapped sklearn selector's boolean support_ mask (vs mRMR-family index arrays) and expands the medoid pick back to its whole correlated cluster."""
     from sklearn.feature_selection import RFECV
     from sklearn.linear_model import LogisticRegression
 
@@ -31,7 +31,7 @@ def test_wraps_boolean_mask_selector_and_expands_cluster():
     X = pd.DataFrame(cols)
     y = pd.Series((z > 0).astype(int))
 
-    g = GroupAwareMRMR(
+    g = CorrelatedFeaturesSelector(
         RFECV(LogisticRegression(max_iter=500), cv=3, min_features_to_select=1),
         corr_threshold=0.7,
         corr_method="pearson",

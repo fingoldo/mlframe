@@ -4,7 +4,7 @@ Covers the remaining wiring findings:
 
   F3  Suite RFECV now actually gets the cluster-medoid pre-reduction. The suite builds RFECV
       directly (not via ``registry._instantiate_rfecv``), so ``_build_pre_pipelines`` wraps the
-      prebuilt RFECV in GroupAwareMRMR, driven by ``FeatureSelectionConfig.rfecv_cluster_*``. The
+      prebuilt RFECV in CorrelatedFeaturesSelector, driven by ``FeatureSelectionConfig.rfecv_cluster_*``. The
       documented default-ON behaviour previously never reached the suite RFECV path.
   F4  ShapProxiedFS is reachable from the suite: ``use_shap_proxied_fs`` flag + a
       ``_build_pre_pipelines`` branch (mirroring BorutaShap). Registration -> usable.
@@ -50,7 +50,7 @@ class _FakeRFECV(BaseEstimator, TransformerMixin):
 
     Keeps the first ``keep`` columns. Implements ``set_params`` (BaseEstimator) so the suite-override
     loop in ``_build_pre_pipelines`` exercises its happy path, and ``support_`` / ``feature_names_in_``
-    so GroupAwareMRMR can read the inner selection and expand it.
+    so CorrelatedFeaturesSelector can read the inner selection and expand it.
     """
 
     def __init__(self, keep: int = 2, leakage_corr_threshold=None, mbh_adaptive_threshold=None, random_state=None):
@@ -86,12 +86,12 @@ def _build(**over):
 
 def test_f3_suite_rfecv_is_cluster_wrapped_when_default_on():
     """F3 suite rfecv is cluster wrapped when default on."""
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
     rf = _FakeRFECV(keep=2)
     pps, _names = _build(rfecv_models=["lgb"], rfecv_models_params={"lgb": rf}, rfecv_cluster_reduce=True)
     sel = pps[0]
-    assert isinstance(sel, GroupAwareMRMR), "default-ON cluster-reduce must wrap the suite RFECV"
+    assert isinstance(sel, CorrelatedFeaturesSelector), "default-ON cluster-reduce must wrap the suite RFECV"
     # The kind marker is stamped on the OUTER wrapper so _selector_kind classifies it as RFECV.
     assert getattr(sel, "_mlframe_selector_kind_") == "RFECV"
     assert sel.estimator is rf  # wraps the prebuilt, suite-overridden RFECV
@@ -99,11 +99,11 @@ def test_f3_suite_rfecv_is_cluster_wrapped_when_default_on():
 
 def test_f3_cluster_reduce_off_yields_bare_rfecv():
     """F3 cluster reduce off yields bare rfecv."""
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
     rf = _FakeRFECV(keep=2)
     pps, _ = _build(rfecv_models=["lgb"], rfecv_models_params={"lgb": rf}, rfecv_cluster_reduce=False)
-    assert not isinstance(pps[0], GroupAwareMRMR)
+    assert not isinstance(pps[0], CorrelatedFeaturesSelector)
     assert pps[0] is rf
     assert getattr(pps[0], "_mlframe_selector_kind_") == "RFECV"
 
@@ -140,7 +140,7 @@ def test_biz_f3_cluster_wrap_keeps_one_representative_of_the_correlated_cluster(
     inner selector's budget. Returning every member (``expand=True``) was measured against medoids-only over 21
     dataset-seed runs and lost nothing on OOS AUC (mean -0.0001) while returning a 20% smaller support, so the
     suite wrap (and the registry's RFECV/BorutaShap factories) now default to medoids-only
-    (bench_group_aware_expand_vs_medoids). A regression that silently disables the wrap entirely would instead
+    (bench_correlated_features_expand_vs_medoids). A regression that silently disables the wrap entirely would instead
     make the wrap's output identical to the bare RFECV's, which this still catches.
     """
     rng = np.random.default_rng(0)

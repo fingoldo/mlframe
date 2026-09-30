@@ -359,7 +359,7 @@ def test_biz_val_rfecv_nan_free_selection_unchanged():
 @pytest.mark.parametrize("mk", [_make_rfecv, _make_group_aware_rfecv], ids=["RFECV", "GroupAware(RFECV)"])
 def test_biz_val_rfecv_family_keeps_mcar_after_imputation(mk):
     """With upstream mean-imputation (the production fix for the GAP above)
-    RFECV/GroupAware no longer crash AND keep the MCAR-informative feature on
+    RFECV/CorrelatedFeaturesSelector no longer crash AND keep the MCAR-informative feature on
     a majority of seeds."""
     kept = []
     for seed in fast_subset(SEEDS, n=2):

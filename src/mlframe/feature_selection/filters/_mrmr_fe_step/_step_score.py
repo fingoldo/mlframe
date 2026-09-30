@@ -21,6 +21,7 @@ import os
 
 import numpy as np
 
+from mlframe.feature_selection.cv_policy import get_cv_policy
 from mlframe.feature_selection.filters._mrmr_fe_step._step_name_tokens import build_candidate_provenance
 
 from mlframe.utils.log_throttle import log_throttle
@@ -1166,7 +1167,7 @@ def materialise_and_finalise_fe_candidates(
                 quorum=float(getattr(self, "fe_stability_vote_quorum", 0.6)),
                 rng=np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)),
                 verbose=int(verbose),
-                diagnostics_out=_vote_diag,
+                diagnostics_out=_vote_diag, cv_policy=get_cv_policy(self),
             )
             # REJECTION LEDGER (additive): record each recipe the cross-fold vote
             # dropped, with observed=folds-passed vs threshold=quorum bar (need_eff).

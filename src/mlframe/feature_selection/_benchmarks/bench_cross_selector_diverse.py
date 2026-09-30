@@ -32,7 +32,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from mlframe.feature_selection._benchmarks._bench_shared import logreg_holdout_auc as _auc
-from mlframe.feature_selection.filters.group_aware import (
+from mlframe.feature_selection.filters.correlated_features import (
     _cluster_medoids, cluster_features_by_correlation,
 )
 

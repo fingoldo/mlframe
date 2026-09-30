@@ -129,7 +129,7 @@ def test_bayesian_blocks_dispatch_defaults_bounded_subsample(monkeypatch):
 
 
 class _AllMedoidsStub:
-    """Minimal sklearn-cloneable inner selector for GroupAwareMRMR: selects every medoid it is fit on."""
+    """Minimal sklearn-cloneable inner selector for CorrelatedFeaturesSelector: selects every medoid it is fit on."""
 
     def __init__(self, dummy: int = 0):
         """Store the single dummy hyperparameter so get_params/set_params round-trip under sklearn clone."""
@@ -152,11 +152,11 @@ class _AllMedoidsStub:
 
 
 def test_group_aware_polars_bridge_matches_pandas_clustering():
-    """GroupAwareMRMR's polars->pandas bridge must preserve per-column dtypes so a polars frame clusters identically to its pandas equivalent (no object-dtype collapse)."""
+    """CorrelatedFeaturesSelector's polars->pandas bridge must preserve per-column dtypes so a polars frame clusters identically to its pandas equivalent (no object-dtype collapse)."""
     pl = pytest.importorskip("polars")
     import pandas as pd
 
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
     rng = np.random.default_rng(0)
     n = 300
@@ -169,8 +169,8 @@ def test_group_aware_polars_bridge_matches_pandas_clustering():
     pdf = pd.DataFrame({"a": a, "b": b, "c": c, "cat": labels})
     poldf = pl.DataFrame({"a": a, "b": b, "c": c, "cat": labels})
 
-    m_pd = GroupAwareMRMR(estimator=_AllMedoidsStub(), corr_threshold=0.9).fit(pdf.copy(), y)
-    m_pl = GroupAwareMRMR(estimator=_AllMedoidsStub(), corr_threshold=0.9).fit(poldf, y)
+    m_pd = CorrelatedFeaturesSelector(estimator=_AllMedoidsStub(), corr_threshold=0.9).fit(pdf.copy(), y)
+    m_pl = CorrelatedFeaturesSelector(estimator=_AllMedoidsStub(), corr_threshold=0.9).fit(poldf, y)
     assert list(m_pl.cluster_assignments_) == list(
         m_pd.cluster_assignments_
     ), f"polars bridge diverged from pandas clustering: pl={list(m_pl.cluster_assignments_)} pd={list(m_pd.cluster_assignments_)}"

@@ -152,7 +152,7 @@ def test_build_pre_pipelines_ordinary_only():
 
 
 def _inner_rfecv(selector):
-    """Unwrap the cluster-medoid GroupAwareMRMR wrapper (default-ON for the suite's RFECV)
+    """Unwrap the cluster-medoid CorrelatedFeaturesSelector wrapper (default-ON for the suite's RFECV)
     to reach the underlying RFECV instance; returns the selector itself when not wrapped."""
     return getattr(selector, "estimator", selector)
 
@@ -175,7 +175,7 @@ def test_build_pre_pipelines_rfecv_merge():
         mrmr_kwargs={},
     )
     assert None in pipes
-    # The RFECV is wrapped in GroupAwareMRMR(expand=True) cluster-medoid pre-reduction
+    # The RFECV is wrapped in CorrelatedFeaturesSelector(expand=True) cluster-medoid pre-reduction
     # (default-ON for the suite's RFECV); the original instance is the wrapper's estimator.
     assert any(_inner_rfecv(p) is fake for p in pipes if p is not None)
     assert "cb_rfecv " in names
@@ -251,7 +251,7 @@ def test_build_pre_pipelines_rfecv_leakage_corr_threshold_applied():
         rfecv_leakage_corr_threshold=0.80,
     )
     # The override is applied to the RFECV instance before it is wrapped in the cluster-medoid
-    # GroupAwareMRMR; the real contract is the threshold reaching the RFECV, not pipe identity.
+    # CorrelatedFeaturesSelector; the real contract is the threshold reaching the RFECV, not pipe identity.
     assert _inner_rfecv(pipes[0]) is fake
     assert fake.leakage_corr_threshold == 0.80
 

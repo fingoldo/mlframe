@@ -33,13 +33,13 @@ def _mixed_frame(n: int = 200, seed: int = 0) -> pd.DataFrame:
 
 
 class TestGroupAwareRedundancyOnStringCats:
-    """``group_aware._redundancy_matrix`` / ``_su_redundancy_matrix`` must not
+    """``correlated_features._redundancy_matrix`` / ``_su_redundancy_matrix`` must not
     float-coerce raw string categorical columns (fuzz c0013)."""
 
     @pytest.mark.parametrize("method", ["spearman", "pearson", "su"])
     def test_cluster_features_by_correlation_tolerates_string_cats(self, method):
         """Cluster features by correlation tolerates string cats."""
-        from mlframe.feature_selection.filters.group_aware import (
+        from mlframe.feature_selection.filters.correlated_features import (
             cluster_features_by_correlation,
         )
 

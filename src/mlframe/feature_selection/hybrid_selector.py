@@ -292,7 +292,16 @@ class HybridSelector:
         _yv = np.asarray(y)
         _, _counts = np.unique(_yv, return_counts=True)
         _strat = y if _counts.min() >= 2 else None
-        Xtr, Xva, ytr, yva = train_test_split(X, y, test_size=0.3, random_state=self.random_state, stratify=_strat)
+        from mlframe.feature_selection.cv_policy import get_cv_policy, holdout_indices
+
+        # The shared suite split policy: newest rows / whole groups are held out on temporal / grouped data; i.i.d. keeps the stratified shuffle.
+        _policy_split = holdout_indices(get_cv_policy(self), len(X), 0.3, random_state=int(self.random_state or 0))
+        if _policy_split is not None:
+            _rows = (lambda a, i: a.iloc[i]) if hasattr(X, "iloc") else (lambda a, i: np.asarray(a)[i])
+            _ytake = (lambda i: y.iloc[i]) if hasattr(y, "iloc") else (lambda i: np.asarray(y)[i])
+            Xtr, Xva, ytr, yva = _rows(X, _policy_split[0]), _rows(X, _policy_split[1]), _ytake(_policy_split[0]), _ytake(_policy_split[1])
+        else:
+            Xtr, Xva, ytr, yva = train_test_split(X, y, test_size=0.3, random_state=self.random_state, stratify=_strat)
         m = lgb.LGBMClassifier(n_estimators=200, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1, random_state=self.random_state)
         m.fit(Xtr, ytr)
         # permutation_importance's n_jobs=-1 spins up a loky PROCESS pool per call; on the small/medium beds most
@@ -576,7 +585,7 @@ class HybridSelector:
             # to LGBMClassifier silently). This is the whole point of the explicit knob.
             raise ValueError(
                 "HybridSelector supports classification targets only; got classification=False (regression). "
-                "For regression use MRMR / RFECV / GroupAwareMRMR with a regression estimator."
+                "For regression use MRMR / RFECV / CorrelatedFeaturesSelector with a regression estimator."
             )
         if self.classification is None:
             try:
@@ -587,7 +596,7 @@ class HybridSelector:
             if _ttype not in ("binary", "multiclass", "unknown"):
                 raise ValueError(
                     f"HybridSelector supports classification targets only (binary / multiclass); got a "
-                    f"'{_ttype}' target. For regression use MRMR / RFECV / GroupAwareMRMR with a regression estimator."
+                    f"'{_ttype}' target. For regression use MRMR / RFECV / CorrelatedFeaturesSelector with a regression estimator."
                 )
             if _ttype in ("binary", "multiclass") and np.asarray(y).dtype.kind == "f":
                 # A float target that sniffs as classification (e.g. exactly 2 distinct float values) is ambiguous -

@@ -1,4 +1,4 @@
-"""Validate GroupAwareMRMR as a faithful drop-in around the REAL mlframe RFECV
+"""Validate CorrelatedFeaturesSelector as a faithful drop-in around the REAL mlframe RFECV
 (audit integration-defaults-3), plus the safety/usefulness guard. This is the
 real-path check before defaulting the cluster-medoid reduction ON in the suite.
 """
@@ -33,11 +33,11 @@ def test_groupaware_wraps_real_mlframe_rfecv():
     """Groupaware wraps real mlframe rfecv."""
     from sklearn.linear_model import LogisticRegression
 
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
     from mlframe.feature_selection.wrappers import RFECV
 
     X, y = _wide_corr()
-    g = GroupAwareMRMR(
+    g = CorrelatedFeaturesSelector(
         RFECV(estimator=LogisticRegression(max_iter=500), cv=3, verbose=0),
         corr_threshold=0.9,
         corr_method="pearson",
@@ -62,7 +62,7 @@ def test_guard_bypasses_on_uncorrelated_data():
     from sklearn.feature_selection import RFECV as SkRFECV
     from sklearn.linear_model import LogisticRegression
 
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
     rng = np.random.default_rng(1)
     n = 800
@@ -70,7 +70,7 @@ def test_guard_bypasses_on_uncorrelated_data():
     # a couple of features carry signal; none are mutually correlated
     y = pd.Series((X["f0"] + X["f1"] + 0.3 * rng.standard_normal(n) > 0).astype(int))
     est = SkRFECV(LogisticRegression(max_iter=500), cv=3, min_features_to_select=1)
-    g = GroupAwareMRMR(est, corr_threshold=0.9, corr_method="pearson", min_reduction=0.05).fit(X, y)
+    g = CorrelatedFeaturesSelector(est, corr_threshold=0.9, corr_method="pearson", min_reduction=0.05).fit(X, y)
     assert g.reduced_ is False, "uncorrelated data must bypass the medoid path"
     # bare inner selection on full X (reference)
     from sklearn.base import clone
@@ -82,15 +82,15 @@ def test_guard_bypasses_on_uncorrelated_data():
 
 def test_registry_rfecv_is_cluster_reduced_by_default():
     # The suite instantiates RFECV via the registry; medoid reduction must be
-    # DEFAULT-ON (returns a GroupAwareMRMR wrapping RFECV).
+    # DEFAULT-ON (returns a CorrelatedFeaturesSelector wrapping RFECV).
     """Registry rfecv is cluster reduced by default."""
     from sklearn.linear_model import LogisticRegression
 
     from mlframe.feature_selection import registry
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
     sel = registry.get("RFECV").instantiate(estimator=LogisticRegression(max_iter=300), cv=3, verbose=0)
-    assert isinstance(sel, GroupAwareMRMR), "RFECV must be cluster-reduced by default"
+    assert isinstance(sel, CorrelatedFeaturesSelector), "RFECV must be cluster-reduced by default"
     X, y = _wide_corr(n=700)
     sel.fit(X, y)
     assert len(list(sel.get_feature_names_out())) == len(sel.support_) >= 1
@@ -116,10 +116,10 @@ def test_groupaware_wraps_borutashap_via_accepted_names():
     # _inner_support_indices must map it back. Validates the BorutaShap drop-in.
     """Groupaware wraps borutashap via accepted names."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
     X, y = _wide_corr(n=600)
-    g = GroupAwareMRMR(
+    g = CorrelatedFeaturesSelector(
         BorutaShap(importance_measure="gini", n_trials=12, verbose=False, random_state=0),
         corr_threshold=0.9,
         corr_method="pearson",
@@ -133,10 +133,10 @@ def test_registry_borutashap_is_cluster_reduced_by_default():
     """Registry borutashap is cluster reduced by default."""
     from mlframe.feature_selection import registry
     from mlframe.feature_selection.boruta_shap import BorutaShap
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
     sel = registry.get("BorutaShap").instantiate(importance_measure="gini", n_trials=10, verbose=False, random_state=0)
-    assert isinstance(sel, GroupAwareMRMR)
+    assert isinstance(sel, CorrelatedFeaturesSelector)
     bare = registry.get("BorutaShap").instantiate(importance_measure="gini", n_trials=10, cluster_reduce=False)
     assert isinstance(bare, BorutaShap)
 
@@ -147,14 +147,14 @@ def test_groupaware_borutashap_accepted_matches_expanded_selection():
     # the inner's medoid-only accepted list.
     """Groupaware borutashap accepted matches expanded selection."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
     X, y = _wide_corr(n=600)
-    g = GroupAwareMRMR(
+    g = CorrelatedFeaturesSelector(
         BorutaShap(importance_measure="gini", n_trials=12, verbose=False, random_state=0),
         corr_threshold=0.9,
         corr_method="pearson",
     ).fit(X, y)
     assert set(g.accepted) == set(
         g.get_feature_names_out()
-    ), "GroupAwareMRMR.accepted (BorutaShap report contract) must equal the expanded selection, not the inner medoid-only accepted set"
+    ), "CorrelatedFeaturesSelector.accepted (BorutaShap report contract) must equal the expanded selection, not the inner medoid-only accepted set"

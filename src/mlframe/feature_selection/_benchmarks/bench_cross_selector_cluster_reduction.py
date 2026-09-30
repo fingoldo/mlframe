@@ -4,17 +4,17 @@ integration-defaults-3). RFECV/BorutaShap currently get no cluster-aware
 pruning; collapsing each correlated cluster to its medoid before the wrapper,
 then expanding the support back, should cut wall-clock on wide data.
 
-Uses the existing group_aware helpers (cluster_features_by_correlation +
+Uses the existing correlated_features helpers (cluster_features_by_correlation +
 _cluster_medoids) + sklearn RFECV (a clean wrapper proxy). Compares wall-clock
 and OOS AUC: RFECV-on-full-X vs RFECV-on-medoids-then-expand. Bounded p/n.
 
 RESULT (2026-06-03): WIN -> ~3.06x wall-clock speedup (1.2s -> 0.4s) with OOS AUC
 delta -0.0001 (no loss) at p=108. The wrapper runs on ~30 medoids instead of all
-108 correlated columns. GroupAwareMRMR was generalised to accept sklearn-style
+108 correlated columns. CorrelatedFeaturesSelector was generalised to accept sklearn-style
 boolean support_ so it can wrap RFECV/BorutaShap. NOTE: support_ expands to whole
 clusters (larger kept set), so wiring this default-ON into the training suite is
 a behavior change (more features kept) and left as a follow-up product call; the
-capability ships via GroupAwareMRMR(RFECV(...)).
+capability ships via CorrelatedFeaturesSelector(RFECV(...)).
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from sklearn.feature_selection import RFECV
 from sklearn.linear_model import LogisticRegression
 
 from mlframe.feature_selection._benchmarks._bench_shared import logreg_holdout_auc as _auc
-from mlframe.feature_selection.filters.group_aware import (
+from mlframe.feature_selection.filters.correlated_features import (
     _cluster_medoids,
     cluster_features_by_correlation,
 )

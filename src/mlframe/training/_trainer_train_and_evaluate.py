@@ -15,7 +15,7 @@ from functools import partial
 import os
 from os.path import exists
 from types import SimpleNamespace
-from typing import Any, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from ._reporting_configs import ConfidenceAnalysisConfig, NamingConfig, PredictionsContainer, ReportingConfig
     from ._training_runtime_configs import DataConfig, MetricsConfig, OutputConfig, TrainingControlConfig
@@ -109,6 +109,17 @@ logger = logging.getLogger("mlframe.training.trainer")
 from ._trainer_train_and_evaluate_helpers import _run_val_split_metrics, _run_test_split_metrics
 
 
+
+def _oof_train_timestamps(timestamps: Any, train_idx: Any) -> Any:
+    """Timestamps of the train rows the OOF pass folds over (None when the suite has none); a pandas Series stays one so a tz-aware dtype survives."""
+    if timestamps is None:
+        return None
+    if train_idx is None:
+        return timestamps
+    if hasattr(timestamps, "iloc"):
+        return timestamps.iloc[np.asarray(train_idx)]
+    return np.asarray(timestamps)[np.asarray(train_idx)]
+
 def train_and_evaluate_model(
     model: object,
     data: DataConfig,
@@ -124,14 +135,14 @@ def train_and_evaluate_model(
     trainset_features_stats: dict | None = None,
     trusted_root: str | None = None,
     oof_n_splits: int = 0,
-    oof_has_time: bool = False,
+    oof_has_time: Optional[bool] = None,
     oof_random_seed: int = 42,
     cur_target_name: str | None = None,
 ):
     """Train and evaluate a machine learning model with comprehensive metrics and optional caching.
 
-    ``oof_has_time`` selects the OOF splitter: when True the K-fold OOF pass uses ``TimeSeriesSplit`` (temporal honesty,
-    no future-into-past leak) instead of a shuffled ``KFold``. ``oof_random_seed`` is the suite master seed plumbed
+    ``oof_has_time`` selects the OOF splitter: when True the K-fold OOF pass forward-chains over the train rows' ``timestamps`` (temporal honesty,
+    no future-into-past leak) instead of a shuffled ``KFold``; None (the suite passes the shared split policy's decision) means False here. ``oof_random_seed`` is the suite master seed plumbed
     into the i.i.d. shuffled-KFold OOF path (replaces the historical hardcoded 42 so the OOF surface varies with the
     run seed for variance/stability analysis).
 
@@ -763,8 +774,7 @@ def train_and_evaluate_model(
                         n_splits=int(oof_n_splits),
                         random_seed=int(oof_random_seed),
                         group_ids=group_ids[train_idx] if (group_ids is not None and train_idx is not None) else None,
-                        has_time=bool(oof_has_time),
-                        sample_weight=_pre_pipeline_sample_weight,
+                        has_time=bool(oof_has_time), sample_weight=_pre_pipeline_sample_weight, timestamps=_oof_train_timestamps(timestamps, train_idx),
                     )
                     try:
                         if _oof_preds is not None:

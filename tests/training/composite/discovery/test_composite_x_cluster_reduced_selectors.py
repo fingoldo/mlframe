@@ -1,7 +1,7 @@
 """Suite-level end-to-end tests for the DEFAULT-ON cluster-medoid reduction
 (audit integration-defaults-3). Unlike TestCompositeXRFECV (which constructs a
 BARE RFECV), these drive the selectors through the REGISTRY -- the actual
-default-ON path that wraps RFECV / BorutaShap in GroupAwareMRMR -- and run the
+default-ON path that wraps RFECV / BorutaShap in CorrelatedFeaturesSelector -- and run the
 full selector -> composite-discovery integration. Covers the gap: BorutaShap had
 no suite-level test, and neither selector had its REGISTRY-wrapped form exercised
 end-to-end. The fixtures carry a correlated cluster so the medoid reduction
@@ -39,15 +39,15 @@ def _corr_cluster_frame(n=1500, seed=0, binary=False):
 
 
 class TestRegistryClusterReducedSelectorsEndToEnd:
-    """The registry returns cluster-reduced (GroupAwareMRMR-wrapped) selectors by
+    """The registry returns cluster-reduced (CorrelatedFeaturesSelector-wrapped) selectors by
     default; verify each fits, exposes a consistent selection surface, actually
     reduces on the correlated cluster, and feeds composite discovery cleanly."""
 
     def _assert_wrapped_and_consistent(self, sel, X):
         """Assert wrapped and consistent."""
-        from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+        from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
-        assert isinstance(sel, GroupAwareMRMR), "registry must default to the cluster-reduced wrap"
+        assert isinstance(sel, CorrelatedFeaturesSelector), "registry must default to the cluster-reduced wrap"
         assert sel.reduced_ is True and sel.reduction_ > 0.0, "medoid reduction must engage on the correlated cluster"
         names = list(sel.get_feature_names_out())
         assert len(names) == len(sel.support_) >= 1

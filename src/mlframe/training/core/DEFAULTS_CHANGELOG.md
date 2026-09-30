@@ -143,6 +143,15 @@ stated reason, and the bugs the flip work surfaced and fixed along the way.
   `gated_outlier` point-mass auto-detection so it only ever fires for the implicit default allowlist, never
   silently extending an explicit caller-supplied `mlframe_models=[...]` list.
 
+## Unified feature-selector split policy (default ON, `FeatureSelectionConfig.unified_cv_policy`)
+
+One decision per target (`feature_selection/cv_policy.py`: temporal / grouped / i.i.d.) now drives every selector that cross-validates or holds out rows
+internally: RFECV, ForwardSelect, GreedyBackwardElimination, ZeroImportancePruning, CascadeSelect (forward-chained `TimestampOrderedSplit` or group-isolating
+folds instead of shuffled KFold), BorutaShap / ACE (permutation) / ShapProxiedFS / HybridSelector (newest-rows or whole-group holdout), ShapProxiedFS's OOF SHAP
+(contiguous time blocks) and MRMR's held-out FE gates. A caller-supplied `cv` / `has_time` still wins. `TrainingBehaviorConfig.oof_has_time` changed from `False` to
+`None` = follow the same decision (time-aware OOF now applies whenever the suite has timestamps and its val/test split takes the newest rows; only matters when
+`oof_n_splits >= 2`). Opt out with `unified_cv_policy=False` (selectors) / `oof_has_time=False` (OOF).
+
 ## Left opt-in (wave 2)
 
 - **`TrainingBehaviorConfig.oof_n_splits` / `oof_has_time` / `oof_random_seed`**: default `0` (no OOF,

@@ -480,7 +480,7 @@ class RegistryWrappedArm(BaseArm):
     """A selector exactly as `feature_selection.registry` builds it, cluster-medoid wrapper included.
 
     The pre-registration requires RFECV and BorutaShap to be measured both bare and as the registry ships
-    them, because the registry wraps both in a `GroupAwareMRMR` with `expand=True` that drags a selected
+    them, because the registry wraps both in a `CorrelatedFeaturesSelector` with `expand=True` that drags a selected
     medoid's whole cluster back in. The registry's own factory is called rather than the wrapper being
     rebuilt here, so what is measured is what runs. The wrapper returns its support sorted by column index,
     which is a set and not an order, so the kind is `none`.

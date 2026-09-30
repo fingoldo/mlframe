@@ -6,7 +6,7 @@ fixture). This measures what that costs or buys: OOS AUC and support size for fu
 medoids only, over the same datasets (varied redundancy, the signal-in-a-non-medoid risk case, real sklearn sets) and
 three seeds.
 
-Run: ``python -m mlframe.feature_selection._benchmarks.bench_group_aware_expand_vs_medoids``
+Run: ``python -m mlframe.feature_selection._benchmarks.bench_correlated_features_expand_vs_medoids``
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from mlframe.feature_selection._benchmarks.bench_cross_selector_diverse import _risk_case
-from mlframe.feature_selection.filters.group_aware import _cluster_medoids, cluster_features_by_correlation
+from mlframe.feature_selection.filters.correlated_features import _cluster_medoids, cluster_features_by_correlation
 
 warnings.filterwarnings("ignore")
 

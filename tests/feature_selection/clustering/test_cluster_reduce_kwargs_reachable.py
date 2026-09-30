@@ -1,4 +1,4 @@
-"""Regression: the GroupAwareMRMR cluster-medoid pre-reduction wrap (default-ON for
+"""Regression: the CorrelatedFeaturesSelector cluster-medoid pre-reduction wrap (default-ON for
 both RFECV and BorutaShap) must be configurable through the public FeatureSelectionConfig.
 
 ``registry._instantiate_rfecv`` / ``_instantiate_boruta_shap`` pop ``cluster_reduce`` /
@@ -30,7 +30,7 @@ def test_rfecv_cluster_reduce_reachable_via_first_class_fields():
     fields (``rfecv_cluster_reduce`` / ``rfecv_cluster_corr_threshold`` / ``rfecv_cluster_min_reduction``),
     NOT through ``rfecv_kwargs``. The suite builds RFECV directly in ``configure_training_params`` and forwards
     ``rfecv_kwargs`` VERBATIM to ``RFECV(**rfecv_kwargs)``, so a ``cluster_reduce`` key there would TypeError in
-    ``RFECV.__init__``; ``_build_pre_pipelines`` reads the first-class fields and applies the GroupAwareMRMR wrap
+    ``RFECV.__init__``; ``_build_pre_pipelines`` reads the first-class fields and applies the CorrelatedFeaturesSelector wrap
     itself. (Contrast BorutaShap, whose registry factory POPS the cluster keys before constructing, so they ARE
     whitelisted in ``boruta_shap_kwargs``.) The pre-fix shape -- whitelisting cluster keys in ``rfecv_kwargs`` --
     was the stale proxy; the real reach is the first-class fields."""
@@ -65,10 +65,10 @@ def test_cluster_reduce_keys_drive_registry_wrap():
     """End-to-end: the keys the validator now allows actually toggle the registry wrap."""
     pytest.importorskip("shap")
     from mlframe.feature_selection.boruta_shap import BorutaShap
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
     from mlframe.feature_selection.registry import _instantiate_boruta_shap
 
     wrapped = _instantiate_boruta_shap(cluster_reduce=True, cluster_corr_threshold=0.85, cluster_min_reduction=0.1)
     bare = _instantiate_boruta_shap(cluster_reduce=False)
-    assert isinstance(wrapped, GroupAwareMRMR), "cluster_reduce=True must yield the GroupAwareMRMR medoid wrap"
-    assert isinstance(bare, BorutaShap) and not isinstance(bare, GroupAwareMRMR), "cluster_reduce=False must yield bare BorutaShap"
+    assert isinstance(wrapped, CorrelatedFeaturesSelector), "cluster_reduce=True must yield the CorrelatedFeaturesSelector medoid wrap"
+    assert isinstance(bare, BorutaShap) and not isinstance(bare, CorrelatedFeaturesSelector), "cluster_reduce=False must yield bare BorutaShap"

@@ -57,7 +57,7 @@ def _splitter_class_by_name(name: str) -> type:
     from ._group_time_series_split import GroupTimeSeriesSplit
 
     own = {"GroupTimeSeriesSplit": GroupTimeSeriesSplit, "TimestampOrderedSplit": TimestampOrderedSplit}
-    cls = own.get(name) or getattr(_skms, name, None)
+    cls = own.get(name, getattr(_skms, name, None))
     if not isinstance(cls, type) or not hasattr(cls, "split"):
         raise ValueError(f"RFECV: cv={name!r} is not a known CV splitter name (sklearn.model_selection or {sorted(own)}).")
     return cls

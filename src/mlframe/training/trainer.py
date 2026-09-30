@@ -189,6 +189,7 @@ def _compute_oof_preds(
     group_ids=None,
     has_time: bool = False,
     sample_weight=None,
+    timestamps=None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Compute K-fold OOF predictions for level-1 stacking. Returns (oof_preds, oof_probs) or (None, None) on skip.
 
@@ -196,7 +197,8 @@ def _compute_oof_preds(
     is to ensure the predictions a meta-learner sees on each training row were produced by a sub-model that did NOT
     see that row during fit. ``cross_val_predict`` returns exactly that vector (one held-out prediction per row).
 
-    Splitter selection mirrors RFECV: temporal suites (``has_time``) use ``TimeSeriesSplit`` so no future train row
+    Splitter selection mirrors the feature selectors' shared policy (``feature_selection.cv_policy``): temporal suites (``has_time``) forward-chain
+    over ``timestamps`` (row order when None; with ``group_ids``, whole groups in time order) so no future train row
     predicts a past one -- a shuffled fold leaks future-into-past on autocorrelated/non-stationary targets and yields
     optimistic, selection-biased OOF (the OOF surface drives ensemble winner selection). ``GroupKFold`` honours an
     explicit grouping signal; only the genuinely i.i.d. case uses shuffled ``KFold`` (seeded from the suite seed).
@@ -248,14 +250,18 @@ def _compute_oof_preds(
 
     method = "predict_proba" if is_classifier_model and hasattr(estimator, "predict_proba") else "predict"
 
-    if has_time and not (group_ids is not None and len(group_ids) == n_rows):
-        # Temporal suite, no groups: TimeSeriesSplit is NOT a partition (early rows are never a test fold), so
-        # cross_val_predict refuses it. Run the fold loop manually and leave the warm-up block as NaN -- no honest
-        # OOF prediction exists for rows that were never held out. This mirrors the RFECV TimeSeriesSplit path while
-        # keeping the OOF surface temporally honest (no future row predicts a past one).
+    if has_time:
+        # Forward chaining is NOT a partition (early rows are never a test fold), so cross_val_predict refuses it. Run the fold loop manually and
+        # leave the warm-up block as NaN -- no honest OOF prediction exists for rows that were never held out.
+        from mlframe.feature_selection.cv_policy import TimestampOrderedSplit
+
+        _groups_ok = group_ids is not None and len(group_ids) == n_rows
+        _time_splitter = TimestampOrderedSplit(
+            n_splits=n_splits, timestamps=timestamps, groups=np.asarray(group_ids) if _groups_ok else None,
+        )
         return _compute_oof_preds_timeseries(
             estimator=estimator, train_df=train_df, train_target=train_target,
-            method=method, n_splits=n_splits, sample_weight=sample_weight,
+            method=method, n_splits=n_splits, sample_weight=sample_weight, splitter=_time_splitter,
         )
 
     if group_ids is not None and len(group_ids) == n_rows:
@@ -309,9 +315,9 @@ def _compute_oof_preds(
 
 
 def _compute_oof_preds_timeseries(
-    *, estimator, train_df, train_target, method: str, n_splits: int, sample_weight=None
+    *, estimator, train_df, train_target, method: str, n_splits: int, sample_weight=None, splitter=None
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """Manual TimeSeriesSplit OOF: cross_val_predict can't be used (TimeSeriesSplit is not a partition).
+    """Manual forward-chaining OOF (``splitter``, default a positional ``TimeSeriesSplit``): cross_val_predict can't be used, the folds are not a partition.
 
     Returns (oof_preds, oof_probs) where the warm-up rows (those never in any test fold) are NaN. Downstream OOF
     consumers mask non-finite rows before scoring. ``sample_weight`` (aligned to ``train_df``), when given and
@@ -334,7 +340,7 @@ def _compute_oof_preds_timeseries(
             return df.iloc[idx]
         return df[idx]
 
-    tss = TimeSeriesSplit(n_splits=n_splits)
+    tss = splitter if splitter is not None else TimeSeriesSplit(n_splits=n_splits)
     oof_proba = None
     oof_pred = np.full(n_rows, np.nan, dtype=float)
     try:

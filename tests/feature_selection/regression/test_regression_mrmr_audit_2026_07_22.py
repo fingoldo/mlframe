@@ -3501,12 +3501,12 @@ def test_regression_neural_mi_scopes_sys_path_injection():
 
 # ---------------------------------------------------------------------------
 # X_SECURITY_API_PACKAGING-1 (P1): StabilityMRMR / StabilityFESelector were missing
-# get_feature_names_out(), unlike their siblings MRMR / GroupAwareMRMR in the same module.
+# get_feature_names_out(), unlike their siblings MRMR / CorrelatedFeaturesSelector in the same module.
 # ---------------------------------------------------------------------------
 
 
 def test_regression_stability_mrmr_has_get_feature_names_out():
-    """Regression: stabilityMRMR / StabilityFESelector were missing get_feature_names_out(), unlike their siblings MRMR / GroupAwareMRMR in the same
+    """Regression: stabilityMRMR / StabilityFESelector were missing get_feature_names_out(), unlike their siblings MRMR / CorrelatedFeaturesSelector in the same
     module.
     """
     from mlframe.feature_selection.filters.stability import StabilityMRMR
@@ -3541,47 +3541,48 @@ def test_regression_stability_fe_selector_has_get_feature_names_out():
 
 
 # ---------------------------------------------------------------------------
-# X_SECURITY_API_PACKAGING-3 (P2): GroupAwareMRMR.fit had zero validation of corr_threshold /
+# X_SECURITY_API_PACKAGING-3 (P2): CorrelatedFeaturesSelector.fit had zero validation of corr_threshold /
 # min_reduction, unlike StabilityMRMR's analogous knobs in the same module.
 # ---------------------------------------------------------------------------
 
 
-def test_regression_group_aware_mrmr_rejects_invalid_corr_threshold():
+def test_regression_correlated_features_selector_rejects_invalid_corr_threshold():
     """Regression: groupAwareMRMR.fit had zero validation of corr_threshold / min_reduction, unlike StabilityMRMR's analogous knobs in the same module."""
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((50, 4)), columns=["a", "b", "c", "d"])
     y = (X["a"] > 0).astype(int)
-    sel = GroupAwareMRMR(MRMR(verbose=0), corr_threshold=5.0)
+    sel = CorrelatedFeaturesSelector(MRMR(verbose=0), corr_threshold=5.0)
     with pytest.raises(ValueError, match="corr_threshold"):
         sel.fit(X, y)
 
 
-def test_regression_group_aware_mrmr_rejects_invalid_min_reduction():
+def test_regression_correlated_features_selector_rejects_invalid_min_reduction():
     """Regression guard for group aware mrmr rejects invalid min reduction."""
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((50, 4)), columns=["a", "b", "c", "d"])
     y = (X["a"] > 0).astype(int)
-    sel = GroupAwareMRMR(MRMR(verbose=0), min_reduction=1.0)
+    sel = CorrelatedFeaturesSelector(MRMR(verbose=0), min_reduction=1.0)
     with pytest.raises(ValueError, match="min_reduction"):
         sel.fit(X, y)
 
 
-def test_regression_group_aware_mrmr_default_params_still_fit():
+def test_regression_correlated_features_selector_default_params_still_fit():
     """Sanity: the new validation must not reject the class's own defaults."""
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((50, 4)), columns=["a", "b", "c", "d"])
     y = (X["a"] > 0).astype(int)
-    sel = GroupAwareMRMR(MRMR(verbose=0))
-    sel.fit(X, y)  # must not raise
+    sel = CorrelatedFeaturesSelector(MRMR(verbose=0))
+    sel.fit(X, y)
+    assert "a" in list(sel.get_feature_names_out())
 
 
 # ---------------------------------------------------------------------------

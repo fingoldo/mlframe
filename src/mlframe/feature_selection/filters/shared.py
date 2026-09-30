@@ -31,7 +31,7 @@ from ._pairwise_modular_fe import (
     cheap_modular_scan,
     escalate_modulus,
 )
-from .group_aware import (
+from .correlated_features import (
     _su_redundancy_matrix as su_redundancy_matrix,
 )
 from .permutation import (

@@ -108,6 +108,7 @@ def materialise_holdout_and_cluster(*, self, working_cols, n_features, _precompu
                         threshold=self.cluster_su_threshold,
                         feature_names=_cluster_names,
                         nbins_per_feature=_nbins_pf,
+                        chance_correct=bool(self.cluster_su_chance_correction),
                     )
                     _cluster_backend = "su"
                     _cluster_threshold = float(self.cluster_su_threshold)

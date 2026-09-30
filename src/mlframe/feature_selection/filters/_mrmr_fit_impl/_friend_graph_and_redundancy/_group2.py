@@ -12,6 +12,8 @@ import logging
 
 import numpy as np
 
+from mlframe.feature_selection.cv_policy import get_cv_policy
+
 from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._heldout_gate import (
     build_heldout_incr_probe,
     coerce_gate_target,
@@ -163,7 +165,7 @@ def _friend_graph_and_redundancy_passes_group2(
 
         _heldout_gate_ready = True
         _heldout_incr_over_selected = build_heldout_incr_probe(
-            y_gate=_y_for_hinge_gate, sel_value_cols=_sel_value_cols, random_seed=getattr(self, "random_seed", 0)
+            y_gate=_y_for_hinge_gate, sel_value_cols=_sel_value_cols, random_seed=getattr(self, "random_seed", 0), cv_policy=get_cv_policy(self),
         )
 
         if _hinge_feats:

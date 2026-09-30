@@ -905,7 +905,7 @@
   "train_and_evaluate_model": {
     "kind": "callable",
     "module": "mlframe.training._trainer_train_and_evaluate",
-    "signature": "(model:any:0:, data:any:0:, control:any:0:, metrics:any:0:, reporting:any:0:, naming:any:0:, output:any:1:None, confidence:any:1:None, predictions:any:1:None, train_od_idx:any:1:None, val_od_idx:any:1:None, trainset_features_stats:any:1:None, trusted_root:any:1:None, oof_n_splits:any:1:0, oof_has_time:any:1:False, oof_random_seed:any:1:42, cur_target_name:any:1:None)"
+    "signature": "(model:any:0:, data:any:0:, control:any:0:, metrics:any:0:, reporting:any:0:, naming:any:0:, output:any:1:None, confidence:any:1:None, predictions:any:1:None, train_od_idx:any:1:None, val_od_idx:any:1:None, trainset_features_stats:any:1:None, trusted_root:any:1:None, oof_n_splits:any:1:0, oof_has_time:any:1:None, oof_random_seed:any:1:42, cur_target_name:any:1:None)"
   },
   "train_automl_models_suite": {
     "kind": "callable",

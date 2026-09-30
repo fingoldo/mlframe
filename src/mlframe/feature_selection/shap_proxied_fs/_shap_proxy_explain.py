@@ -600,6 +600,18 @@ class _StreamingPhiVariance:
         """
         return np.clip(self.m2 / n_models, 0.0, None)
 
+def _oof_split_iter(cv_policy: Any, X, y, n: int, n_splits: int, classification: bool, rng: np.random.Generator):
+    """Out-of-fold ``(train, test)`` index pairs: the shared policy's time blocks / group folds when it applies, else a shuffled (stratified) KFold."""
+    from mlframe.feature_selection.cv_policy import partition_folds
+
+    policy_folds = partition_folds(cv_policy, n, n_splits)
+    if policy_folds is not None:
+        return iter(policy_folds)
+    if classification:
+        return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=int(rng.integers(0, 2**31 - 1))).split(X, y)
+    return KFold(n_splits=n_splits, shuffle=True, random_state=int(rng.integers(0, 2**31 - 1))).split(X)
+
+
 def compute_shap_matrix(
     model_template,
     X: pd.DataFrame,
@@ -619,8 +631,12 @@ def compute_shap_matrix(
     inner_n_jobs_cap: bool = False,
     return_per_fold_phi_mean: bool = False,
     cache_dir: Optional[Union[str, Path]] = None,
+    cv_policy: Any = None,
 ):
     """Compute the per-row SHAP value matrix + per-row base value.
+
+    ``cv_policy`` (the suite's shared ``CVPolicy``) makes the out-of-fold partition contiguous time blocks (temporal) or whole groups
+    (grouped) instead of a shuffled KFold; every row still gets exactly one out-of-fold attribution. None / i.i.d. keeps the shuffled KFold.
 
     Returns ``(phi, base, y_aligned)``, or ``(phi, base, y_aligned, phi_var)`` when
     ``return_variance`` - where ``phi_var`` (n, f) is the model-to-model attribution variance within
@@ -805,12 +821,7 @@ def compute_shap_matrix(
         return _maybe_store((phi_acc, base_arr, y.astype(np.float64)))
 
     # Out-of-fold: honest per-row attributions.
-    if classification:
-        splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=int(rng.integers(0, 2**31 - 1)))
-        split_iter = splitter.split(X, y)
-    else:
-        splitter = KFold(n_splits=n_splits, shuffle=True, random_state=int(rng.integers(0, 2**31 - 1)))
-        split_iter = splitter.split(X)
+    split_iter = _oof_split_iter(cv_policy, X, y, n, n_splits, classification, rng)
 
     phi = np.zeros((n, f), dtype=np.float64)
     base = np.zeros(n, dtype=np.float64)

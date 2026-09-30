@@ -181,7 +181,7 @@ def _sanitize_X_inputs(self, X, y):
     # so any monotone rescale is caught regardless of slope/offset, keep the FIRST column of each near-duplicate pair (column order), and drop the rest. The guard
     # is NARROW BY CONSTRUCTION: the 0.999 default fires only on a NEAR-PERFECT monotone replica - a legitimately-distinct correlated pair (corr ~0.7, even ~0.95
     # collinear-cluster mates) sits far below it and BOTH members survive, so it cannot drop a weak recoverable signal. Reducing a genuine high-VIF cluster to a
-    # representative remains the redundancy-aware GroupAwareMRMR wrapper's job (cluster_reduce=True); this is only the exact/near-exact replica case. Default on;
+    # representative remains the redundancy-aware CorrelatedFeaturesSelector wrapper's job (cluster_reduce=True); this is only the exact/near-exact replica case. Default on;
     # opt out via drop_near_dup_corr=False.
     if getattr(self, "drop_near_dup_corr", True) and isinstance(X, pd.DataFrame) and X.shape[1] > 1 and X.shape[0] >= 50:
         _thr = float(getattr(self, "near_dup_corr_threshold", 0.999))

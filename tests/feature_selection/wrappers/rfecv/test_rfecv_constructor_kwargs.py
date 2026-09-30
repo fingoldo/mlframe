@@ -78,7 +78,7 @@ def test_setattr_fallback_for_non_sklearn_instances():
 def test_sample_weight_marker_still_stamped_via_setattr():
     """Per user constraint: the suite-internal ``_mlframe_use_sample_weights_in_fs_`` marker stays as setattr
     (never routed through set_params). It is stamped on the OUTER object that enters ``pre_pipelines`` -- with
-    cluster-reduce default-ON that is the GroupAwareMRMR wrapper, which is exactly what the downstream
+    cluster-reduce default-ON that is the CorrelatedFeaturesSelector wrapper, which is exactly what the downstream
     ``_selector_kind`` / weight-aware fit driver reads it off. The pre-cluster-wrap shape (marker on the bare
     inner instance) was the stale proxy."""
     inst = _FakeRFECVWithSetParams()

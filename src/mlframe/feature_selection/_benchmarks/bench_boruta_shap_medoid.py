@@ -25,7 +25,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from mlframe.feature_selection.boruta_shap import BorutaShap
-from mlframe.feature_selection.filters.group_aware import (
+from mlframe.feature_selection.filters.correlated_features import (
     _cluster_medoids, cluster_features_by_correlation,
 )
 

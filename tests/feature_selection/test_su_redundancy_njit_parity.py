@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import mlframe.feature_selection.filters.group_aware as ga
+import mlframe.feature_selection.filters.correlated_features as ga
 
 
 def _codes_ncats_h(n, p, card, seed):

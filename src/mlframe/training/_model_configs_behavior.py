@@ -292,7 +292,9 @@ class TrainingBehaviorConfig(BaseConfig):
             raise ValueError("oof_n_splits must be 0 (no OOF) or >= 2; 1 split produces no out-of-fold predictions.")
         return self
 
-    oof_has_time: bool = False
+    # None (default) = decided by the suite's shared split policy (``feature_selection.cv_policy``): time-aware OOF when the suite has timestamps and its val/test
+    # split takes the newest rows, whole-group OOF when groups are present, else shuffled. True / False force the choice.
+    oof_has_time: Optional[bool] = None
     oof_random_seed: int = 42
 
     # Pre-pipeline LRU bound. Default 4 covers the common Linear+MLP+RFECV+catboost suite without thrashing; long-running services with bigger model rosters can bump this without monkey-patching the module global.

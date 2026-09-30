@@ -15,6 +15,8 @@ import logging
 
 import numpy as np
 
+from mlframe.feature_selection.cv_policy import get_cv_policy
+
 from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._heldout_gate import (
     build_heldout_incr_probe,
     candidate_values,
@@ -49,6 +51,7 @@ def _readd_adaptive_fourier_legs(self, *, X, cols, data, selected_vars, _eng_con
                 X=X, cols=cols, selected_vars=selected_vars, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_af
             ),
             random_seed=getattr(self, "random_seed", 0),
+            cv_policy=get_cv_policy(self),
         )
         # The legs of one adaptive frequency are judged TOGETHER, not one at a time: the phase is split across the sin and cos leg, so each leg's individual
         # marginal is low by construction (which is why the screen dropped them) and a per-leg gate would reject the very pair this protection exists to rescue.
@@ -125,6 +128,7 @@ def _readd_missingness_indicators(self, *, X, cols, data, selected_vars, _eng_co
                 X=X, cols=cols, selected_vars=selected_vars, eng_continuous_snapshot=_eng_continuous_snapshot, y_ref=_y_gate_mi
             ),
             random_seed=getattr(self, "random_seed", 0),
+            cv_policy=get_cv_policy(self),
         )
         _readd_miss = []
         for _mn in _miss_indicators:

@@ -12,6 +12,8 @@ from pyutilz.system import tqdmu
 
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, IsolationForest
 from sklearn.model_selection import train_test_split
+
+from mlframe.feature_selection.cv_policy import get_cv_policy, holdout_indices
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cluster import KMeans
 from scipy.sparse import issparse
@@ -505,9 +507,19 @@ class BorutaShap(TransformerMixin, BaseEstimator):
             _trial = int(getattr(self, "_current_trial_", 0) or 0)
             _resample = bool(getattr(self, "resample_holdout_per_trial", False)) and isinstance(_base_seed, (int, np.integer))
             _split_seed = int(_base_seed) + _trial if _resample else _base_seed
-            self.X_boruta_train, self.X_boruta_test, self.y_train, self.y_test = train_test_split(
-                self.X_boruta, self.y, test_size=0.3, random_state=_split_seed, stratify=self.stratify
-            )
+            # The shared suite split policy: on temporal / grouped data the held-out 30% is the newest rows / whole groups, so an importance
+            # that only exists in-sample (or across time) cannot beat the shadows; i.i.d. (or no policy) keeps the stratified shuffle.
+            _policy_split = holdout_indices(get_cv_policy(self), len(self.X_boruta), 0.3, random_state=int(_split_seed or 0))
+            if _policy_split is not None:
+                _tr, _te = _policy_split
+                _take_rows = (lambda a, i: a.iloc[i]) if hasattr(self.X_boruta, "iloc") else (lambda a, i: a[i])
+                self.X_boruta_train, self.X_boruta_test = _take_rows(self.X_boruta, _tr), _take_rows(self.X_boruta, _te)
+                _yt = (lambda i: self.y.iloc[i]) if hasattr(self.y, "iloc") else (lambda i: np.asarray(self.y)[i])
+                self.y_train, self.y_test = _yt(_tr), _yt(_te)
+            else:
+                self.X_boruta_train, self.X_boruta_test, self.y_train, self.y_test = train_test_split(
+                    self.X_boruta, self.y, test_size=0.3, random_state=_split_seed, stratify=self.stratify
+                )
             self.Train_model(self.X_boruta_train, self.y_train)
 
         elif train_or_test.lower() == "train":

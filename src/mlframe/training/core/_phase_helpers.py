@@ -844,7 +844,7 @@ def _build_suite_common_params_dict(
     # ``TrainingBehaviorConfig.oof_n_splits >= 2`` to opt in.
     if behavior_config is not None:
         common["oof_n_splits"] = int(getattr(behavior_config, "oof_n_splits", 0) or 0)
-        common["oof_has_time"] = bool(getattr(behavior_config, "oof_has_time", False))
+        common["oof_has_time"] = getattr(behavior_config, "oof_has_time", None)
         common["oof_random_seed"] = int(getattr(behavior_config, "oof_random_seed", 42))
     return common
 

@@ -18,11 +18,11 @@ rather than written a third time.
 
 **The MRMR class's own variants**, which are the other half of the plan's question -- MRMR as an
 ALGORITHM versus MRMR as this repository's IMPLEMENTATION with its gates. The `pld` relevance path, the
-RelaxMRMR term switched on inside MRMR, the tree-rescued subclass, the cluster-medoid `GroupAwareMRMR`
+RelaxMRMR term switched on inside MRMR, the tree-rescued subclass, the cluster-medoid `CorrelatedFeaturesSelector`
 wrapper with expansion on and off, and `StabilityMRMR`.
 
 Each arm's `score_kind` was set by running it and looking at what it exposes, not by reading its
-docstring. The greedy variants return their selection order. `GroupAwareMRMR` returns its support SORTED
+docstring. The greedy variants return their selection order. `CorrelatedFeaturesSelector` returns its support SORTED
 BY INDEX -- a set, not an order -- so it declares `none`; publishing that as a selection order would score
 column position. `StabilityMRMR` exposes a selection probability for every column, which is a genuine
 continuous score.
@@ -41,7 +41,7 @@ __all__ = [
     "IT_SCORERS",
     "InformationGreedyArm",
     "MRMRVariantArm",
-    "GroupAwareMRMRArm",
+    "CorrelatedFeaturesSelectorArm",
     "StabilityMRMRArm",
 ]
 
@@ -178,8 +178,8 @@ def _bare_mrmr(max_runtime_mins: float, random_seed: int) -> Any:
     return MRMR(verbose=0, fe_max_steps=0, n_jobs=-1, random_seed=random_seed, max_runtime_mins=max_runtime_mins)
 
 
-class GroupAwareMRMRArm(BaseArm):
-    """MRMR inside the cluster-medoid `GroupAwareMRMR` wrapper, with cluster expansion on or off.
+class CorrelatedFeaturesSelectorArm(BaseArm):
+    """MRMR inside the cluster-medoid `CorrelatedFeaturesSelector` wrapper, with cluster expansion on or off.
 
     With `expand=True` a chosen medoid drags its whole cluster back in -- measured on a probe bed, it
     returned the medoid AND its near-copy. That is the registry's default and the reason this arm exists
@@ -199,10 +199,10 @@ class GroupAwareMRMRArm(BaseArm):
 
     def _compute(self, X: pd.DataFrame, y: np.ndarray) -> Dict[str, Any]:
         """Fit the wrapped MRMR and read the final support as a set."""
-        from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+        from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
         names = _feature_names(X)
-        model = GroupAwareMRMR(_bare_mrmr(self.max_runtime_mins, self.random_seed), corr_threshold=self.corr_threshold, expand=self.expand)
+        model = CorrelatedFeaturesSelector(_bare_mrmr(self.max_runtime_mins, self.random_seed), corr_threshold=self.corr_threshold, expand=self.expand)
         model.fit(X, pd.Series(np.asarray(y)))
         selected = [str(c) for c in model.get_feature_names_out() if str(c) in set(names)]
         return {

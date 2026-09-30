@@ -177,7 +177,7 @@ def compensable_pair(seed: int = 0, n: int = 5000, n_noise: int = 30) -> Tuple[p
         "relevant": ["comp_a", "comp_b"],
         "noise": [*noise, "cluster_decoy"],
         "interaction_operands": ["comp_a", "comp_b"],
-        "expected_to_break": ("mrmr", "group_aware_mrmr", "cluster_aggregate", "univariate_ht", "knockoffs"),
+        "expected_to_break": ("mrmr", "mrmr-grouped", "cluster_aggregate", "univariate_ht", "knockoffs"),
         "notes": "The pair is jointly decisive and individually weak; de-duplicating the correlated cluster erases the signal.",
     }
     return _finalize(name, seed, cols, y, truth)
@@ -423,7 +423,7 @@ def latent_replicates_private_delta(
         "jointly_necessary_group": group,
         "delta_weights": {name: float(delta_weights[i]) for i, name in enumerate(group)},
         "must_keep_whole": True,
-        "expected_to_break": ("mrmr", "group_aware_mrmr", "cluster_aggregate", "shap_proxied"),
+        "expected_to_break": ("mrmr", "mrmr-grouped", "cluster_aggregate", "shap_proxied"),
         "notes": "Redundancy that is JOINTLY NECESSARY: aggregating the cluster averages the private deltas away.",
     }
     return _finalize(name, seed, cols, y, truth)

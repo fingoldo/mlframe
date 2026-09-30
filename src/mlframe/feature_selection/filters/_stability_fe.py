@@ -370,7 +370,7 @@ class StabilityFESelector(TransformerMixin, BaseEstimator):
 
     def get_feature_names_out(self, input_features=None):
         """Selected feature names (sklearn transformer contract).
-        was missing entirely, unlike ``MRMR``/``GroupAwareMRMR``/``StabilityMRMR``
+        was missing entirely, unlike ``MRMR``/``CorrelatedFeaturesSelector``/``StabilityMRMR``
         in the same module - a ``Pipeline([("sel", StabilityFESelector(...)), ...]).get_feature_names_out()``
         raised ``AttributeError`` even though ``transform()`` already returns a well-defined column subset.
         Recomputes the SAME stable-AND-reproducible column set ``transform()`` builds (raw columns the

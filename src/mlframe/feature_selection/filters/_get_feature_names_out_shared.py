@@ -1,6 +1,6 @@
 """Shared ``get_feature_names_out`` sklearn-transformer-contract implementation for selectors that
 expose an integer ``support_`` index array into ``feature_names_in_``: independently duplicated
-across ``stability.py`` / ``group_aware.py``, consolidated here so a fix can't silently drift out of
+across ``stability.py`` / ``correlated_features.py``, consolidated here so a fix can't silently drift out of
 sync across copies.
 """
 from __future__ import annotations

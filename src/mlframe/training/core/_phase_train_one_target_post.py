@@ -28,7 +28,7 @@ logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 # mlframe-private selector markers applied to MRMR / RFECV via ``setattr`` in ``_build_pre_pipelines``; sklearn.clone()
 # strips non-constructor attributes, so they must be re-asserted on the per-strategy clone (esp. the weight-aware flag,
 # without which ``_passthrough_cols_fit_transform`` never forwards ``sample_weight`` and weight-aware FS is inert).
-_SELECTOR_STICKY_ATTRS = ("_mlframe_use_sample_weights_in_fs_", "_mlframe_selector_kind_", "_mlframe_identity_cache_override_")
+_SELECTOR_STICKY_ATTRS = ("_mlframe_use_sample_weights_in_fs_", "_mlframe_selector_kind_", "_mlframe_identity_cache_override_", "_mlframe_cv_policy_")
 
 
 def _forward_selector_sticky_attrs(src, dst):

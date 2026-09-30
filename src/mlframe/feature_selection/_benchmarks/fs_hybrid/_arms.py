@@ -21,7 +21,7 @@ The roster spans the paradigms Phase 0 needs a verdict on:
   without which no "mlframe wins" claim is falsifiable;
 * ``mrmr`` / ``rfecv`` / ``boruta-shap`` / ``shap-proxied`` -- mlframe selectors driven BARE (not through
   ``feature_selection.registry``, whose factories wrap RFECV and BorutaShap in a cluster-medoid
-  ``GroupAwareMRMR(expand=True)`` by default).
+  ``CorrelatedFeaturesSelector(expand=True)`` by default).
 """
 
 from __future__ import annotations
@@ -816,7 +816,7 @@ class RFECVArm(BaseArm):
 
 
 class BorutaShapArm(BaseArm):
-    """``boruta_shap.BorutaShap`` driven BARE (the registry factory wraps it in ``GroupAwareMRMR``).
+    """``boruta_shap.BorutaShap`` driven BARE (the registry factory wraps it in ``CorrelatedFeaturesSelector``).
 
     ``history_x`` accumulates one per-trial SHAP-importance row per column (NaN-padded once a column is
     dropped from the run), so a per-feature ``nanmean`` is a real continuous score with full coverage.

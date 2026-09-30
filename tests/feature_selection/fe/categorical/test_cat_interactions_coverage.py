@@ -1724,7 +1724,7 @@ class TestOrchestratorCombined:
     # !coverage-deferred: group-aware shuffle path (_group_aware_shuffle)
     # is currently unreachable from run_cat_interaction_step -- the
     # ``groups_col`` config knob is plumbed at the MRMR layer but never
-    # surfaced into cat_interactions.py. Covered separately by test_group_aware.
+    # surfaced into cat_interactions.py. Covered separately by test_correlated_features.
 
     # !coverage-deferred: Westfall-Young full path
     # (_compute_westfall_young_corrected_p) requires

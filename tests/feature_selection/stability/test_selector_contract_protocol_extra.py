@@ -24,7 +24,7 @@ inherits them automatically:
 Capability asymmetries are made VISIBLE via ``pytest.xfail`` (never a silent
 skip): a selector that lacks get_feature_names_out, lacks set_output, or whose
 get_feature_names_out ignores ``input_features`` (a declared sklearn-parity gap
-for RFECV / GroupAware / ShapProxiedFS) takes an explicit xfail branch keyed off
+for RFECV / CorrelatedFeaturesSelector / ShapProxiedFS) takes an explicit xfail branch keyed off
 the MEASURED behaviour, so a regression that flips a HARD-asserting selector
 (MRMR's column-drift raise, every selector's gfno(None)==gfno(cols)) goes red.
 
@@ -137,7 +137,7 @@ class TestGetFeatureNamesOutInputFeatures:
         # After fitting on a bare ndarray, feature_names_in_ are synthesized
         # placeholders; the sklearn protocol lets a caller re-inject real names
         # via input_features. MRMR honours this for the raw selected columns;
-        # RFECV / GroupAware / ShapProxiedFS legitimately ignore input_features
+        # RFECV / CorrelatedFeaturesSelector / ShapProxiedFS legitimately ignore input_features
         # (declared parity gap) -- branch on the measured behaviour so the gap is
         # visible and a MRMR regression that drops the propagation goes red.
         if not spec.has_gfno:

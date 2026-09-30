@@ -23,43 +23,23 @@ from typing import Any, Optional, Tuple
 import numpy as np
 from sklearn.model_selection import TimeSeriesSplit
 
-from mlframe.feature_selection.wrappers.rfecv._timestamp_ordered_split import TimestampOrderedSplit
+from mlframe.feature_selection.cv_policy import TimestampOrderedSplit, cv_is_temporal
 
 logger = logging.getLogger(__name__)
 
 _RFECV_DEFAULT_N_SPLITS = 3
 
 
-def _has_sequential_part(size: Optional[float], shuffle: bool, sequential_fraction: Optional[float]) -> bool:
-    """Whether a holdout of this size takes any rows from the time-sorted block (mirrors ``_calculate_split_sizes``)."""
-    if not size:
-        return False
-    if sequential_fraction is not None:
-        return sequential_fraction > 0
-    return not shuffle
-
-
 def rfecv_cv_is_temporal(timestamps: Any, split_config: Any, hyperparams_config: Any) -> Tuple[bool, str]:
-    """``(temporal, reason)`` for the suite's RFECV CV; ``reason`` is logged so the choice is never a mystery."""
+    """``(temporal, reason)`` for the suite's RFECV CV: the shared decision plus RFECV's own explicit-``cv`` / ``cv_shuffle`` opt-outs."""
     fields_set: set = set(getattr(hyperparams_config, "model_fields_set", None) or ())
-    if "has_time" in fields_set:
-        has_time = bool(getattr(hyperparams_config, "has_time", False))
-        return has_time, f"hyperparams_config.has_time={has_time} was set explicitly"
-    if timestamps is None:
-        return False, "the suite has no timestamps"
     user_kwargs = (getattr(hyperparams_config, "rfecv_kwargs", None) or {}) if "rfecv_kwargs" in fields_set else {}
+    override: Optional[str] = None
     if user_kwargs.get("cv") is not None:
-        return False, "hyperparams_config.rfecv_kwargs sets cv explicitly"
-    if user_kwargs.get("cv_shuffle") is True:
-        return False, "hyperparams_config.rfecv_kwargs sets cv_shuffle=True"
-    if split_config is not None and str(getattr(split_config, "cv_strategy", "random")) in ("timeseries", "purged"):
-        return True, f"split_config.cv_strategy={split_config.cv_strategy!r}"
-    if split_config is not None and not (
-        _has_sequential_part(split_config.test_size, split_config.shuffle_test, split_config.test_sequential_fraction)
-        or _has_sequential_part(split_config.val_size, split_config.shuffle_val, split_config.val_sequential_fraction)
-    ):
-        return False, "timestamps are present but the val and test splits are both fully shuffled"
-    return True, "timestamps are present and the val/test split takes the newest rows"
+        override = "hyperparams_config.rfecv_kwargs sets cv explicitly"
+    elif user_kwargs.get("cv_shuffle") is True:
+        override = "hyperparams_config.rfecv_kwargs sets cv_shuffle=True"
+    return cv_is_temporal(timestamps, split_config, hyperparams_config, override)
 
 
 def _auto_n_splits(cv: Any) -> Optional[int]:

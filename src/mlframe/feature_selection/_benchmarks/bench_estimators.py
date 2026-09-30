@@ -9,7 +9,7 @@ Compares:
 * Plug-in (legacy, discretized)
 * MRMR + Adaptive Besag-Clifford permutation (parallelism="bc")
 * MRMR + Stability Selection (Meinshausen-Buhlmann bootstrap)
-* MRMR + GroupAware (correlation pre-clustering)
+* MRMR + CorrelatedFeaturesSelector (correlation pre-clustering)
 * KSG top-K (no significance test)
 * KSG + permutation significance test
 
@@ -160,14 +160,14 @@ def main():
 
     _bench_method("StabilityMRMR (B=5)", _stability, X, y, inf, args.n_runs)
 
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
 
     def _group(X, y):
-        g = GroupAwareMRMR(estimator=MRMR(**base_kw), corr_threshold=0.9)
+        g = CorrelatedFeaturesSelector(estimator=MRMR(**base_kw), corr_threshold=0.9)
         g.fit(X, y)
         return g.support_
 
-    _bench_method("GroupAwareMRMR (corr>=0.9)", _group, X, y, inf, args.n_runs)
+    _bench_method("CorrelatedFeaturesSelector (corr>=0.9)", _group, X, y, inf, args.n_runs)
 
 
 if __name__ == "__main__":

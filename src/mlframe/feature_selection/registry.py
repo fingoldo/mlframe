@@ -103,23 +103,23 @@ def _instantiate_mrmr(**kwargs):
 
 
 def _instantiate_rfecv(**kwargs):
-    """Registry factory for RFECV: builds the base RFECV then optionally wraps it in a cluster-medoid GroupAwareMRMR pre-reduction (default ON here)."""
+    """Registry factory for RFECV: builds the base RFECV then optionally wraps it in a cluster-medoid CorrelatedFeaturesSelector pre-reduction (default ON here)."""
     # Go through the public re-export so the underscore module remains an implementation detail.
     from mlframe.feature_selection.wrappers import RFECV
     # cluster-medoid pre-reduction is DEFAULT-ON for RFECV instantiated through THIS factory (MRMR / BorutaShap
     # ranker paths). The training suite does NOT build RFECV through this factory - it constructs RFECV directly
-    # in configure_training_params and wraps it in GroupAwareMRMR inside _build_pre_pipelines, driven by the
+    # in configure_training_params and wraps it in CorrelatedFeaturesSelector inside _build_pre_pipelines, driven by the
     # FeatureSelectionConfig.rfecv_cluster_* fields (so the default-ON behaviour holds for the suite RFECV too). Broad validation
     # (bench_cross_selector_diverse: synthetic make_classification with varied
     # redundancy + a signal-in-non-medoid risk case + real breast_cancer / wine /
     # digits) showed OOS AUC delta in [-0.0004, +0.0081] - never materially
     # hurts - with ~1.4-1.9x wall-clock on genuinely correlated data. The
-    # GroupAwareMRMR guard bypasses the medoid path (running the bare RFECV on
+    # CorrelatedFeaturesSelector guard bypasses the medoid path (running the bare RFECV on
     # full X) whenever the clustering eliminates < cluster_min_reduction of the
     # features, so it is a no-op on near-uncorrelated data. Only the medoid of
     # each selected cluster is kept: returning the whole cluster handed back the
     # near-copies the wrap removes, and medoids matched it on OOS AUC across 21
-    # dataset-seed runs incl. a signal-in-a-non-medoid case (bench_group_aware_expand_vs_medoids). Set
+    # dataset-seed runs incl. a signal-in-a-non-medoid case (bench_correlated_features_expand_vs_medoids). Set
     # ``cluster_reduce=False`` to get the bare RFECV.
     cluster_reduce = bool(kwargs.pop("cluster_reduce", True))
     corr_threshold = float(kwargs.pop("cluster_corr_threshold", 0.9))
@@ -132,15 +132,15 @@ def _instantiate_rfecv(**kwargs):
     base = RFECV(**kwargs)
     if not cluster_reduce:
         return base
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
-    return GroupAwareMRMR(
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
+    return CorrelatedFeaturesSelector(
         base, corr_threshold=corr_threshold, corr_method=corr_method,
         expand=False, min_reduction=min_reduction,
     )
 
 
 def _instantiate_boruta_shap(**kwargs):
-    """Registry factory for BorutaShap: builds the base selector then optionally wraps it in a cluster-medoid GroupAwareMRMR pre-reduction (default ON here)."""
+    """Registry factory for BorutaShap: builds the base selector then optionally wraps it in a cluster-medoid CorrelatedFeaturesSelector pre-reduction (default ON here)."""
     # Lazy import: BorutaShap pulls in shap + matplotlib + seaborn (~2s).
     from mlframe.feature_selection.boruta_shap import BorutaShap
     # 2026-06-03 (audit integration-defaults-3): cluster-medoid pre-reduction
@@ -150,7 +150,7 @@ def _instantiate_boruta_shap(**kwargs):
     # collapsing redundant copies to one medoid CLEANS the per-feature SHAP test
     # rather than diluting it across near-duplicates). Speedup is modest here but
     # grows with redundancy width; the min_reduction guard makes it a no-op (bare
-    # BorutaShap on full X) when clustering reduces little. GroupAwareMRMR reads
+    # BorutaShap on full X) when clustering reduces little. CorrelatedFeaturesSelector reads
     # BorutaShap's ``accepted`` names via _inner_support_indices. cluster_reduce=
     # False restores bare BorutaShap.
     cluster_reduce = bool(kwargs.pop("cluster_reduce", True))
@@ -160,8 +160,8 @@ def _instantiate_boruta_shap(**kwargs):
     base = BorutaShap(**kwargs)
     if not cluster_reduce:
         return base
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
-    return GroupAwareMRMR(
+    from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
+    return CorrelatedFeaturesSelector(
         base, corr_threshold=corr_threshold, corr_method=corr_method,
         expand=False, min_reduction=min_reduction,
     )

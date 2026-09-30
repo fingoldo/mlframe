@@ -1,7 +1,7 @@
-"""Tests for ``mlframe.feature_selection.filters.group_aware``.
+"""Tests for ``mlframe.feature_selection.filters.correlated_features``.
 
 Covers ``cluster_features_by_correlation``, ``_cluster_medoids`` and the
-``GroupAwareMRMR`` wrapper. Includes a fast biz-value check that the medoid
+``CorrelatedFeaturesSelector`` wrapper. Includes a fast biz-value check that the medoid
 of N noisy copies of a latent variable is one of the least-noisy members.
 """
 
@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.feature_selection.filters.group_aware import (
-    GroupAwareMRMR,
+from mlframe.feature_selection.filters.correlated_features import (
+    CorrelatedFeaturesSelector,
     _cluster_medoids,
     _numeric_codes_frame,
     _redundancy_matrix,
@@ -239,7 +239,7 @@ def test_biz_medoid_picks_central_column():
 
 
 # ================================================================================================
-# GroupAwareMRMR smoke: wrapper expands medoid selection back to full clusters
+# CorrelatedFeaturesSelector smoke: wrapper expands medoid selection back to full clusters
 # ================================================================================================
 
 
@@ -265,7 +265,7 @@ class _FakeInner:
         return self
 
 
-def test_group_aware_mrmr_expands_to_cluster_members():
+def test_correlated_features_expands_to_cluster_members():
     """When ``expand=True``, ``support_`` covers every original column in any selected cluster."""
     rng = np.random.default_rng(9)
     n = 200
@@ -282,7 +282,7 @@ def test_group_aware_mrmr_expands_to_cluster_members():
     )
     y = rng.standard_normal(n)
 
-    wrapper = GroupAwareMRMR(estimator=_FakeInner(k=1), corr_threshold=0.9, expand=True)
+    wrapper = CorrelatedFeaturesSelector(estimator=_FakeInner(k=1), corr_threshold=0.9, expand=True)
     wrapper.fit(X, y)
 
     # One cluster selected, but both members of that cluster appear in support_.
@@ -291,13 +291,13 @@ def test_group_aware_mrmr_expands_to_cluster_members():
     expected = np.where(wrapper.cluster_assignments_ == selected_cluster)[0]
     assert sorted(wrapper.support_.tolist()) == sorted(expected.tolist())
     # Non-expanding path returns only the medoid of each selected cluster.
-    wrapper_no_expand = GroupAwareMRMR(estimator=_FakeInner(k=1), corr_threshold=0.9, expand=False)
+    wrapper_no_expand = CorrelatedFeaturesSelector(estimator=_FakeInner(k=1), corr_threshold=0.9, expand=False)
     wrapper_no_expand.fit(X, y)
     assert len(wrapper_no_expand.support_) == 1
 
 
 class TestDuplicateColumnNames:
-    """GroupAwareMRMR must not crash on duplicate column labels.
+    """CorrelatedFeaturesSelector must not crash on duplicate column labels.
 
     Duplicate names arise routinely after FE expansion (repeated lags, one-hot level collisions). ``X[label]`` then returns a DataFrame,
     whose ``.dtype`` access raised ``AttributeError`` inside ``_numeric_codes_frame``. The fix iterates positionally via ``.iloc[:, j]``.
@@ -306,7 +306,7 @@ class TestDuplicateColumnNames:
     @pytest.mark.parametrize("method", ["pearson", "spearman", "su"])
     def test_redundancy_methods_handle_duplicate_names(self, method):
         """Redundancy methods handle duplicate names."""
-        from mlframe.feature_selection.filters.group_aware import _redundancy_matrix
+        from mlframe.feature_selection.filters.correlated_features import _redundancy_matrix
 
         rng = np.random.default_rng(0)
         n = 300
@@ -339,7 +339,7 @@ class TestDuplicateColumnNames:
         y = (sig + 0.3 * rng.standard_normal(n) > 0).astype(int)
         X = pd.DataFrame(np.c_[sig, sig + 1e-6 * rng.standard_normal(n), rng.standard_normal(n), rng.standard_normal(n)])
         X.columns = ["s", "s", "n", "n"]
-        sel = GroupAwareMRMR(_FakeInner(k=1), corr_threshold=0.9, corr_method="pearson", min_reduction=0.0, expand=True)
+        sel = CorrelatedFeaturesSelector(_FakeInner(k=1), corr_threshold=0.9, corr_method="pearson", min_reduction=0.0, expand=True)
         sel.fit(X, y)
         assert len(sel.support_) > 0
         # With expand=True the selected signal cluster expands to BOTH duplicate-named members.
@@ -348,7 +348,7 @@ class TestDuplicateColumnNames:
 
 
 class TestRedundancyMatrixComputedOnce:
-    """GroupAwareMRMR.fit must build the p x p redundancy matrix ONCE, not once per clustering + once per medoid pick.
+    """CorrelatedFeaturesSelector.fit must build the p x p redundancy matrix ONCE, not once per clustering + once per medoid pick.
 
     The matrix is a function of (X, corr_method) alone; rebuilding it for the medoid pass was a redundant O(p^2) SU/corr
     pass. fit now computes it once and threads it through both via ``precomputed_corr``. This pins the single build so a
@@ -357,7 +357,7 @@ class TestRedundancyMatrixComputedOnce:
 
     def test_fit_builds_redundancy_matrix_once(self, monkeypatch):
         """Fit builds redundancy matrix once."""
-        import mlframe.feature_selection.filters.group_aware as _ga
+        import mlframe.feature_selection.filters.correlated_features as _ga
         from sklearn.feature_selection import SelectKBest, f_classif
 
         calls = {"n": 0}
@@ -372,12 +372,12 @@ class TestRedundancyMatrixComputedOnce:
             columns=[f"c{i}" for i in range(6)],
         )
         y = (X["c0"] + X["c2"] > 0).astype(int)
-        _ga.GroupAwareMRMR(estimator=SelectKBest(f_classif, k=2), corr_threshold=0.8).fit(X, y)
+        _ga.CorrelatedFeaturesSelector(estimator=SelectKBest(f_classif, k=2), corr_threshold=0.8).fit(X, y)
         assert calls["n"] == 1, f"redundancy matrix rebuilt {calls['n']}x per fit (expected 1 -- the double-compute regressed)"
 
     def test_precomputed_corr_is_byte_identical(self):
         """Precomputed corr is byte identical."""
-        from mlframe.feature_selection.filters.group_aware import _redundancy_matrix
+        from mlframe.feature_selection.filters.correlated_features import _redundancy_matrix
 
         rng = np.random.default_rng(2)
         X = pd.DataFrame(rng.standard_normal((150, 5)), columns=list("abcde"))
@@ -417,7 +417,7 @@ def test_su_redundancy_lowcard_codes_searchsorted_equals_dict_map():
 
 def test_prune_rank_deficient_skips_non_numeric_columns():
     """_prune_rank_deficient did ``X.iloc[:, idx].to_numpy(dtype=float)`` unconditionally, so any
-    non-numeric column reaching GroupAwareMRMR (e.g. a raw categorical/object column, or a fuzz
+    non-numeric column reaching CorrelatedFeaturesSelector (e.g. a raw categorical/object column, or a fuzz
     "weird_cat_content" sentinel like the literal string "null") raised
     ``ValueError: could not convert string to float`` instead of being left untouched -- surfaced by
     the bug-hunt fuzz suite (2026-07-05, RFECV group-aware wrapper on an un-encoded categorical column).
@@ -433,7 +433,7 @@ def test_prune_rank_deficient_skips_non_numeric_columns():
     cat = np.array(["null" if i % 7 == 0 else "a" for i in range(n)])
     df = pd.DataFrame({"x1": x1, "x2": x2, "x3": x3, "x4": x4, "cat": cat})
 
-    kept = GroupAwareMRMR._prune_rank_deficient(df, [0, 1, 2, 3, 4])
+    kept = CorrelatedFeaturesSelector._prune_rank_deficient(df, [0, 1, 2, 3, 4])
     kept_names = [df.columns[i] for i in kept]
 
     assert "cat" in kept_names, "non-numeric column must survive untouched, not crash"
@@ -442,7 +442,7 @@ def test_prune_rank_deficient_skips_non_numeric_columns():
 
     # Regression: the numeric-only path (no categorical column present) must be UNCHANGED.
     numeric_only = df[["x1", "x2", "x3", "x4"]]
-    kept_numeric = GroupAwareMRMR._prune_rank_deficient(numeric_only, [0, 1, 2, 3])
+    kept_numeric = CorrelatedFeaturesSelector._prune_rank_deficient(numeric_only, [0, 1, 2, 3])
     assert [numeric_only.columns[i] for i in kept_numeric] == ["x1", "x2", "x4"]
 
 
@@ -451,7 +451,7 @@ def test_numeric_codes_frame_skips_unhashable_embedding_column():
     redundancy clustering. An embedding column (object dtype, one ndarray per row) is non-numeric but
     its values are themselves unhashable, so ``pd.factorize`` raised ``TypeError: unhashable type:
     'numpy.ndarray'`` and aborted the whole redundancy matrix -- surfaced by the bug-hunt fuzz suite
-    (c0062, GroupAwareMRMR redundancy matrix on a frame carrying an embedding column). The column-count/
+    (c0062, CorrelatedFeaturesSelector redundancy matrix on a frame carrying an embedding column). The column-count/
     order invariant this function promises callers must still hold -- the embedding column survives as
     a neutral (all-zero) code column rather than being dropped or crashing.
     """

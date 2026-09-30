@@ -13,7 +13,7 @@ from __future__ import annotations
 
 
 def _rfecv_selectors(pipelines):
-    """The suite's RFECV is wrapped in GroupAwareMRMR (cluster-medoid pre-reduction, default-ON) before it
+    """The suite's RFECV is wrapped in CorrelatedFeaturesSelector (cluster-medoid pre-reduction, default-ON) before it
     enters pre_pipelines, with the suite markers stamped on the OUTER wrapper. Identify the RFECV-kind
     selectors by the dedicated dispatch marker rather than ``isinstance(p, RFECV)`` (which the wrapper isn't)."""
     return [p for p in pipelines if getattr(p, "_mlframe_selector_kind_", None) == "RFECV"]

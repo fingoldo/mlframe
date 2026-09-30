@@ -54,6 +54,25 @@ class _NonPicklingCacheView:
         return (dict, ())
 
 
+# Selector kinds that read the shared split policy (RFECV gets it through ``apply_temporal_cv_to_rfecv``; custom pre-pipelines are the caller's own).
+_CV_POLICY_SELECTOR_KINDS = frozenset(
+    {"MRMR", "BorutaShap", "ShapProxiedFS", "ACE", "ForwardSelect", "GreedyBackwardElimination", "ZeroImportancePruning", "CascadeSelect"}
+)
+
+
+def _wire_cv_policies(pre_pipelines: list, cv_policy: Any, target_type: Any) -> list:
+    """Hand the suite's shared split policy (see ``feature_selection.cv_policy``) to every built selector that reads it; returns ``pre_pipelines``."""
+    if cv_policy is None:
+        return pre_pipelines
+    from mlframe.feature_selection.cv_policy import wire_selector_policy
+
+    is_classification = target_type is not None and "regression" not in str(target_type).lower()
+    for selector in pre_pipelines:
+        if getattr(selector, "_mlframe_selector_kind_", None) in _CV_POLICY_SELECTOR_KINDS:
+            wire_selector_policy(selector, cv_policy, classification=is_classification)
+    return pre_pipelines
+
+
 def _build_pre_pipelines(
     use_ordinary_models: bool,
     rfecv_models: list[str],
@@ -81,7 +100,7 @@ def _build_pre_pipelines(
     mrmr_identity_cache: dict | None = None,
     target_type: Any = None,
     fs_random_seed: int | None = None,
-    fs_use_groups: bool = False,
+    fs_use_groups: bool = False, cv_policy: Any = None,
     rfecv_cluster_reduce: bool = True,
     rfecv_cluster_corr_threshold: float = 0.9,
     rfecv_cluster_min_reduction: float = 0.05,
@@ -161,13 +180,13 @@ def _build_pre_pipelines(
             # via configure_training_params) rather than through ``registry._instantiate_rfecv``, so the
             # registry's default-ON wrap never reached the suite RFECV path. Apply it HERE so the documented
             # "cluster-medoid is DEFAULT-ON for the suite's RFECV" actually holds: wrap the prebuilt (and now
-            # suite-overridden) RFECV in GroupAwareMRMR, keeping each selected cluster's medoid. The GroupAwareMRMR.min_reduction guard
+            # suite-overridden) RFECV in CorrelatedFeaturesSelector, keeping each selected cluster's medoid. The CorrelatedFeaturesSelector.min_reduction guard
             # makes this a no-op (bare RFECV on full X) on near-uncorrelated data, so it only acts where genuine
             # correlated redundancy exists. Multi-seed validated SAFE (OOS AUC delta >= -0.01).
             _selector_obj = _rfecv_instance
             if rfecv_cluster_reduce:
-                from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
-                _selector_obj = GroupAwareMRMR(
+                from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
+                _selector_obj = CorrelatedFeaturesSelector(
                     _rfecv_instance,
                     corr_threshold=float(rfecv_cluster_corr_threshold),
                     corr_method=str(rfecv_cluster_corr_method),
@@ -248,7 +267,7 @@ def _build_pre_pipelines(
     if use_shap_proxied_fs:
         # Registry-driven dispatch (mirrors BorutaShap). The ShapProxiedFS spec hides the lazy-import (shap +
         # a tree booster) behind ``instantiate`` so it only loads when this branch fires. ShapProxiedFS clusters
-        # correlated features internally, so it is intentionally NOT wrapped in the GroupAwareMRMR cluster-medoid
+        # correlated features internally, so it is intentionally NOT wrapped in the CorrelatedFeaturesSelector cluster-medoid
         # reduction (the registry instantiate does not wrap it either).
         from mlframe.feature_selection.registry import get as _get_selector_spec
         _sp_spec = _get_selector_spec("ShapProxiedFS")
@@ -334,4 +353,4 @@ def _build_pre_pipelines(
             pre_pipelines.append(_cloned)
             pre_pipeline_names.append(f"{pipeline_name} ")
 
-    return pre_pipelines, pre_pipeline_names
+    return _wire_cv_policies(pre_pipelines, cv_policy, target_type), pre_pipeline_names

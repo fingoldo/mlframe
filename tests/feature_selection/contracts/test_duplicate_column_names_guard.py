@@ -1,6 +1,6 @@
 """Duplicate column-name input-validation guards across the feature selectors.
 
-Generalises the GroupAwareMRMR duplicate-name fix: a selector that iterates columns by
+Generalises the CorrelatedFeaturesSelector duplicate-name fix: a selector that iterates columns by
 label (``X[name]``) returns a DataFrame instead of a Series on duplicate names, and the
 downstream ``.dtype`` access raises ``AttributeError`` (or the wrapped booster raises a
 cryptic error). Each selector below now either handles duplicate names cleanly

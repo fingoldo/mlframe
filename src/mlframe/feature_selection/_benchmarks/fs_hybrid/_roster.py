@@ -173,7 +173,7 @@ def build_full_roster(
 
 def _add_information_family(roster: Dict[str, Callable[[], BaseArm]], kk: int, rs: int) -> None:
     """One arm per information-theoretic criterion, plus the MRMR class's own variants."""
-    from ._arms_it_family import IT_SCORERS, GroupAwareMRMRArm, InformationGreedyArm, MRMRVariantArm, StabilityMRMRArm
+    from ._arms_it_family import IT_SCORERS, CorrelatedFeaturesSelectorArm, InformationGreedyArm, MRMRVariantArm, StabilityMRMRArm
 
     # The greedy order runs to 5k so the widest matched-K row has an order to read, not only the first k.
     for scorer in IT_SCORERS:
@@ -181,8 +181,8 @@ def _add_information_family(roster: Dict[str, Callable[[], BaseArm]], kk: int, r
     roster["mrmr-pld"] = lambda: MRMRVariantArm("mrmr-pld", {"mrmr_relevance_algo": "pld"}, random_seed=rs)
     roster["mrmr-relax"] = lambda: MRMRVariantArm("mrmr-relax", {"relaxmrmr_alpha": 1.0}, random_seed=rs)
     roster["mrmr-tree-rescued"] = lambda: MRMRVariantArm("mrmr-tree-rescued", {}, random_seed=rs, tree_rescued=True)
-    roster["mrmr-grouped"] = lambda: GroupAwareMRMRArm(expand=False, random_seed=rs)
-    roster["mrmr-grouped-expand"] = lambda: GroupAwareMRMRArm(expand=True, random_seed=rs)
+    roster["mrmr-grouped"] = lambda: CorrelatedFeaturesSelectorArm(expand=False, random_seed=rs)
+    roster["mrmr-grouped-expand"] = lambda: CorrelatedFeaturesSelectorArm(expand=True, random_seed=rs)
     roster["mrmr-stability"] = lambda: StabilityMRMRArm(random_seed=rs)
 
 

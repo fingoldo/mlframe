@@ -159,7 +159,7 @@ class RFECV(TransformerMixin, BaseEstimator):
 
     """
 
-    # RFECV rejects duplicate input column names at fit entry (_fit_init guard); the GroupAwareMRMR wrapper reads this flag to surface that rejection when RFECV is the inner selector (the inner only sees the deduped cluster medoids, so the wrapper must guard on its behalf).
+    # RFECV rejects duplicate input column names at fit entry (_fit_init guard); the CorrelatedFeaturesSelector wrapper reads this flag to surface that rejection when RFECV is the inner selector (the inner only sees the deduped cluster medoids, so the wrapper must guard on its behalf).
     rejects_duplicate_feature_names = True
 
     def __init__(
@@ -420,7 +420,7 @@ class RFECV(TransformerMixin, BaseEstimator):
         # the redundant copy into support_. Uses |Spearman| (rank) so any monotone rescale is caught regardless of slope/offset; keeps the FIRST of each pair. NARROW
         # BY CONSTRUCTION: the 0.999 default fires only on a near-perfect monotone replica - a legitimately-distinct correlated pair (corr ~0.7, even ~0.95 cluster
         # mates) sits far below it and BOTH survive, so it cannot drop a weak recoverable signal. Reducing a genuine high-VIF cluster to a representative remains the
-        # redundancy-aware GroupAwareMRMR wrapper's job (cluster_reduce=True). Set False to disable.
+        # redundancy-aware CorrelatedFeaturesSelector wrapper's job (cluster_reduce=True). Set False to disable.
         drop_near_dup_corr: bool = True,
         near_dup_corr_threshold: float = 0.999,
         # nan_in_X_policy: how to handle NaN cells in X at fit entry, mirroring MRMR's native-NaN contract for cross-selector

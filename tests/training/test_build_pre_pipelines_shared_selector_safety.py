@@ -44,7 +44,7 @@ class TestBuildPrePipelinesNeverFitsSharedSelector:
         """The RFECV pre_pipeline entry must come back unfitted.
 
         ``rfecv_cluster_reduce=False`` keeps the bare RFECV as the returned entry -- the default-ON
-        ``GroupAwareMRMR`` wrapper reports ``check_is_fitted`` == True right after construction (its
+        ``CorrelatedFeaturesSelector`` wrapper reports ``check_is_fitted`` == True right after construction (its
         own, unrelated sklearn-convention quirk: it sets a trailing-underscore attribute in
         ``__init__``, not in ``fit``), which is orthogonal to what this test pins.
         """

@@ -3,6 +3,9 @@
 The pairwise kernel used to size one ``max_nb x max_nb`` int64 joint buffer per outer row, so a single ~200k-level
 column requested ~320 GB: a MemoryError on Windows, and under numba's omp layer on Linux a silently swallowed worker
 exception that returned an all-zero flag matrix (no feature ever clustered).
+
+The clustering calls here pass ``chance_correct=False``: they pin the raw plug-in kernels' edges, whereas the default chance correction deliberately unlinks
+near-unique (``K > n/2``) column pairs, which carry no evidence of dependence (``test_shap_proxy_cluster_su_chance.py``).
 """
 
 from __future__ import annotations
@@ -41,7 +44,7 @@ def test_high_cardinality_column_keeps_parallel_su_edges():
     bins["id_a"] = rng.integers(0, n, n).astype(np.int32)
     bins["id_b"] = bins["id_a"].copy()
     names = list(bins)
-    labels = cluster_correlated_features_su(bins, threshold=0.5, feature_names=names, use_gpu=False)
+    labels = cluster_correlated_features_su(bins, threshold=0.5, feature_names=names, use_gpu=False, chance_correct=False)
     assert labels[names.index("f0")] == labels[names.index("f1")]
     assert labels[names.index("id_a")] == labels[names.index("id_b")]
 
@@ -53,7 +56,7 @@ def test_high_cardinality_pair_serial_path_does_not_allocate_dense_table():
     bins["id_a"] = rng.integers(0, n, n).astype(np.int32)
     bins["id_b"] = bins["id_a"].copy()
     names = list(bins)
-    labels = cluster_correlated_features_su(bins, threshold=0.5, feature_names=names, use_parallel=False)
+    labels = cluster_correlated_features_su(bins, threshold=0.5, feature_names=names, use_parallel=False, chance_correct=False)
     assert labels[names.index("id_a")] == labels[names.index("id_b")]
 
 

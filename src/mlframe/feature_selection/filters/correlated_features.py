@@ -1,4 +1,4 @@
-"""Group-aware mRMR via correlation-based pre-clustering.
+"""Correlated-features selector: correlation-cluster pre-reduction to medoids, then any inner selector on the medoids.
 
 Vanilla mRMR with high-correlation feature sets (one-hot expansion, repeated lags, calibration variants of the same sensor) selects ONE
 representative and discards the rest. Often the operator wants the **group**, not just one member - either to display them together in
@@ -8,7 +8,7 @@ Two-step approach:
 
 1. ``cluster_features_by_correlation(X, threshold=0.9, ...)`` - greedy clustering: every pair with ``|corr| > threshold`` ends in the
    same cluster (single-linkage on the correlation graph). Returns a ``cluster_id`` per feature.
-2. ``GroupAwareMRMR(estimator, ...).fit(X, y)`` - runs mRMR on the per-cluster medoids (the feature with highest mean abs-corr to its
+2. ``CorrelatedFeaturesSelector(estimator, ...).fit(X, y)`` - runs mRMR on the per-cluster medoids (the feature with highest mean abs-corr to its
    cluster mates) and keeps the medoid of each selected cluster (``expand=True`` returns every member instead).
    ``cluster_assignments_`` and ``selected_clusters_`` are exposed for inspection.
 
@@ -269,7 +269,7 @@ def _cluster_medoids(
 
 # TransformerMixin (not SelectorMixin): the wrapped mRMR estimator's transform can add engineered features,
 # so it is not a pure mask-based selector and SelectorMixin's mask-only contract would be wrong here.
-class GroupAwareMRMR(TransformerMixin, BaseEstimator):
+class CorrelatedFeaturesSelector(TransformerMixin, BaseEstimator):
     """Wraps an mRMR-family estimator with correlation pre-clustering.
 
     .fit fits the inner estimator on cluster medoids; .transform / .support_ keep the medoid of each selected cluster.
@@ -277,7 +277,7 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
     ``expand`` (default False): True returns every member of a selected cluster instead. Returning the whole cluster hands the
     caller back the near-copies the wrapper exists to remove (max VIF 510 on the multicollinear-pollution fixture); medoids
     only matched it on OOS AUC over 21 dataset-seed runs (mean -0.0001, worst -0.0028, including the signal-in-a-non-medoid
-    risk case) with a 20% smaller support (``_benchmarks/bench_group_aware_expand_vs_medoids.py``).
+    risk case) with a 20% smaller support (``_benchmarks/bench_correlated_features_expand_vs_medoids.py``).
 
     Attributes after fit:
     * ``cluster_assignments_`` - per-original-feature cluster id.
@@ -312,7 +312,7 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
     @staticmethod
     def _inner_support_indices(inner, columns):
         """Integer column indices the inner selector kept, normalising across
-        selector conventions so GroupAwareMRMR wraps any of them:
+        selector conventions so CorrelatedFeaturesSelector wraps any of them:
           * ``support_`` - boolean mask OR index array (sklearn RFECV, mRMR);
           * ``get_support()`` - sklearn SelectorMixin;
           * ``accepted`` - list of kept column NAMES (BorutaShap).
@@ -335,7 +335,7 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
             pos = {str(c): i for i, c in enumerate(columns)}
             return np.array([pos[str(c)] for c in accepted if str(c) in pos], dtype=np.int64)
         raise AttributeError(
-            f"{type(inner).__name__} exposes no support_/get_support()/accepted; " f"GroupAwareMRMR cannot map its selection back to clusters."
+            f"{type(inner).__name__} exposes no support_/get_support()/accepted; " f"CorrelatedFeaturesSelector cannot map its selection back to clusters."
         )
 
     @staticmethod
@@ -358,7 +358,7 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
         if not numeric_mask.all():
             non_numeric_idx = idx[~numeric_mask]
             numeric_idx = idx[numeric_mask]
-            kept_numeric = GroupAwareMRMR._prune_rank_deficient(X, numeric_idx)
+            kept_numeric = CorrelatedFeaturesSelector._prune_rank_deficient(X, numeric_idx)
             return np.sort(np.concatenate([kept_numeric, non_numeric_idx]))
         block = X.iloc[:, idx].to_numpy(dtype=float)
         finite = np.all(np.isfinite(block), axis=0)
@@ -397,9 +397,9 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
         # degenerate-but-non-crashing clustering (everything one cluster, or every feature its own
         # cluster) with no warning.
         if not (0.0 < float(self.corr_threshold) <= 1.0):
-            raise ValueError(f"GroupAwareMRMR: corr_threshold must be in (0, 1]; got {self.corr_threshold!r}.")
+            raise ValueError(f"CorrelatedFeaturesSelector: corr_threshold must be in (0, 1]; got {self.corr_threshold!r}.")
         if not (0.0 <= float(self.min_reduction) < 1.0):
-            raise ValueError(f"GroupAwareMRMR: min_reduction must be in [0, 1); got {self.min_reduction!r}.")
+            raise ValueError(f"CorrelatedFeaturesSelector: min_reduction must be in [0, 1); got {self.min_reduction!r}.")
         # **fit_params (e.g. ``groups`` for a GroupKFold cv, ``sample_weight``)
         # are row-aligned, so they pass straight through to the inner selector
         # whether it fits on the medoid subset or the full X (same rows).
@@ -419,11 +419,11 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
         except ImportError:
             pass
         is_df = isinstance(X, pd.DataFrame)
-        # GroupAwareMRMR itself tolerates duplicate column names (FE-expansion lag/one-hot collisions - positional ``.iloc`` throughout the corr / medoid pass), so it does NOT blanket-reject. But when the inner selector itself rejects duplicate names (RFECV's _fit_init guard), the wrapper must surface that rejection at its OWN fit entry: the inner only sees the cluster-MEDOID subset (deduped), so without this propagation a duplicate-named X would silently slip past the inner's guard. Mirrors the inner contract for the wrapped-RFECV path while leaving the graceful MRMR-inner path untouched.
+        # CorrelatedFeaturesSelector itself tolerates duplicate column names (FE-expansion lag/one-hot collisions - positional ``.iloc`` throughout the corr / medoid pass), so it does NOT blanket-reject. But when the inner selector itself rejects duplicate names (RFECV's _fit_init guard), the wrapper must surface that rejection at its OWN fit entry: the inner only sees the cluster-MEDOID subset (deduped), so without this propagation a duplicate-named X would silently slip past the inner's guard. Mirrors the inner contract for the wrapped-RFECV path while leaving the graceful MRMR-inner path untouched.
         if is_df and X.columns.has_duplicates and getattr(self.estimator, "rejects_duplicate_feature_names", False):
             dup_names = X.columns[X.columns.duplicated()].unique().tolist()
             raise ValueError(
-                f"GroupAwareMRMR.fit: the wrapped {type(self.estimator).__name__} rejects duplicate column names: {dup_names[:10]}. "
+                f"CorrelatedFeaturesSelector.fit: the wrapped {type(self.estimator).__name__} rejects duplicate column names: {dup_names[:10]}. "
                 f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
             )
         if not is_df:
@@ -446,7 +446,7 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
         # "Group" here means a discovered cluster of correlated columns, not a user-supplied groups column; the suite applies this wrap to its RFECV by
         # default, so the line names the opt-out for users who never asked for it.
         logger.info(
-            "GroupAwareMRMR correlation-cluster pre-reduction (not a groups column): %d original features -> %d clusters of |%s corr| > %.2f "
+            "CorrelatedFeaturesSelector correlation-cluster pre-reduction (not a groups column): %d original features -> %d clusters of |%s corr| > %.2f "
             "(reduction=%.1f%%, min_reduction=%.1f%%, applied=%s); %s runs on %s. "
             "Opt out in the training suite with FeatureSelectionConfig(rfecv_cluster_reduce=False).",
             n_feat, n_clusters, self.corr_method, self.corr_threshold, 100.0 * reduction, 100.0 * float(self.min_reduction), self.reduced_,
@@ -479,7 +479,7 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
         # Map the inner selector's kept medoids back to clusters via the
         # convention-agnostic helper (support_ index/mask, get_support(), or
         # BorutaShap's ``accepted`` names). 2026-06-03 (audit integration-
-        # defaults-3): lets GroupAwareMRMR wrap ANY wrapper selector
+        # defaults-3): lets CorrelatedFeaturesSelector wrap ANY wrapper selector
         # (RFECV / BorutaShap) - a MEASURED ~1.4-3x wall-clock win with no OOS
         # loss - by running the wrapper on the cluster medoids instead of every
         # redundant column.
@@ -509,7 +509,7 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
         names = [X.columns[int(i)] for i in np.asarray(self.support_, dtype=np.int64)]
         n_pruned = int(n_before_prune) - len(names)
         logger.info(
-            "GroupAwareMRMR: kept %d of %d original features (%d of %d clusters selected by %s%s%s): [%s]",
+            "CorrelatedFeaturesSelector: kept %d of %d original features (%d of %d clusters selected by %s%s%s): [%s]",
             len(names), int(X.shape[1]), len(self.selected_clusters_), len(self.cluster_medoid_indices_), type(self.estimator).__name__,
             ", all members of each" if self.expand and self.reduced_ else "",
             f"; {n_pruned} dropped as exact linear combinations of other kept columns" if n_pruned > 0 else "",
@@ -559,7 +559,7 @@ class GroupAwareMRMR(TransformerMixin, BaseEstimator):
         """Transparently expose the fitted inner selector's attributes (e.g. the
         training-suite's ``_selector_kind`` / ``_mlframe_use_sample_weights_in_fs_``
         markers, RFECV's ``cv_results_`` etc.) so this wrapper is a faithful
-        drop-in. Only consulted for attributes GroupAwareMRMR does NOT define
+        drop-in. Only consulted for attributes CorrelatedFeaturesSelector does NOT define
         itself (support_, transform, get_feature_names_out, etc. stay the
         wrapper's expanded versions). Guarded against pre-fit recursion.
         """

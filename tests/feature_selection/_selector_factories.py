@@ -252,7 +252,7 @@ def _make_group_aware_rfecv(task: str = "binary"):
     """Fast, unfitted GroupAware(RFECV) built through the production registry for the contract battery."""
     # The PRODUCTION-DEFAULT wrap the training suite instantiates via the registry
     # (cluster_reduce=True). Built through the registry so the contract exercises
-    # the exact default-ON code path users get, not a hand-rolled GroupAwareMRMR.
+    # the exact default-ON code path users get, not a hand-rolled CorrelatedFeaturesSelector.
     from mlframe.feature_selection import registry
 
     return registry.get("RFECV").instantiate(

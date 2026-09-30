@@ -194,6 +194,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMix
         cluster_backend: str = "auto",
         cluster_su_auto_max_features: int | None = None,
         cluster_su_n_bins: int = 10,
+        cluster_su_chance_correction: bool = True,
         prescreen_top: int | None = None,
         # ``prescreen_ranking`` (gt_03, default "mean_abs_phi"): which per-feature vector drives the
         # prescreen top-K cut. "banzhaf" swaps in an MSR-Banzhaf semivalue estimate over the SAME
@@ -558,6 +559,9 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMix
             int(cluster_su_auto_max_features) if cluster_su_auto_max_features is not None else _resolve_cluster_su_auto_max_features()
         )
         self.cluster_su_n_bins = int(cluster_su_n_bins)
+        # Default True: SU edges between high-cardinality columns are re-scored against a permutation null so plug-in SU bias (two independent
+        # 10k-level columns score SU~0.56 at n=556k) does not merge unrelated ID-like columns; low-cardinality edges are untouched. False = raw plug-in.
+        self.cluster_su_chance_correction = bool(cluster_su_chance_correction)
         self.prescreen_top = prescreen_top
         if str(prescreen_ranking).lower() not in ("mean_abs_phi", "banzhaf"):
             raise ValueError(f"prescreen_ranking must be 'mean_abs_phi' or 'banzhaf'; got {prescreen_ranking!r}")

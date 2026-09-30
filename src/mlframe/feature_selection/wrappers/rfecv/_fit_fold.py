@@ -93,6 +93,18 @@ def _fit_accepts_sample_weight(fit_func) -> bool:
     return "sample_weight" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
+def _subsample_train_index(train_index, frac, fold_seed):
+    """A ``frac`` subsample of the fold's train rows in the fold's own row order: under a time-ordered CV ``train_index`` is chronological and the nested
+    early-stopping split holds out its tail, which a shuffled subsample would turn into random rows. The RNG is per fold (no shared ``self._rng``) so parallel folds do not race."""
+    if not frac:
+        return train_index
+    size = int(len(train_index) * frac)
+    if size <= 10:
+        return train_index
+    local_rng = np.random.default_rng(fold_seed)
+    return train_index[np.sort(local_rng.choice(len(train_index), size=size, replace=False))]
+
+
 def _eval_fold_body(
     nfold,
     train_index,
@@ -136,12 +148,7 @@ def _eval_fold_body(
 
     current_features = _apply_fold_prescreen(self, train_index, current_features)
 
-    if frac:
-        size = int(len(train_index) * frac)
-        if size > 10:
-            # Per-fold local RNG seeded deterministically; avoids races on self._rng when joblib runs folds in parallel.
-            local_rng = np.random.default_rng(fold_seed)
-            train_index = local_rng.choice(train_index, size=size, replace=False)
+    train_index = _subsample_train_index(train_index, frac, fold_seed)
 
     # Actual fit/score uses must_include + optimiser's pick. current_features already lives in the search-universe complement (must_include filtered out at fit entry), so concatenation never duplicates.
     if must_include_resolved:

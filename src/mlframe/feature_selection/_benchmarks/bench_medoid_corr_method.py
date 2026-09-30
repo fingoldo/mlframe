@@ -1,7 +1,7 @@
 """Bench: cluster-medoid correlation method Pearson vs SU (A1-09).
 
 The default cluster-medoid pre-reduction (registry._instantiate_rfecv / _instantiate_boruta_shap, wrapped in
-GroupAwareMRMR) used Pearson-only correlation, which sees only linear/monotone redundancy. Symmetric
+CorrelatedFeaturesSelector) used Pearson-only correlation, which sees only linear/monotone redundancy. Symmetric
 Uncertainty (SU) additionally captures non-linear / non-monotone redundancy (e.g. x and x**2). This bench
 compares the two clustering methods across multiple seeds + scenarios on a downstream tree model's OOS AUC,
 to decide whether SU should be the default.
@@ -31,7 +31,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
-from mlframe.feature_selection.filters.group_aware import cluster_features_by_correlation, _cluster_medoids
+from mlframe.feature_selection.filters.correlated_features import cluster_features_by_correlation, _cluster_medoids
 
 
 def _make_scenario(kind: str, seed: int, n: int = 2000):

@@ -320,7 +320,7 @@
   "src/mlframe/feature_selection/wrappers/rfecv/_fit.py::fit::quiet_substitution#3": "pre-existing, recorded when the check was wired; not yet triaged",
   "src/mlframe/feature_selection/wrappers/rfecv/_fit_fold.py::_eval_fold_body::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
   "src/mlframe/feature_selection/wrappers/rfecv/_fit_setup.py::resolve_effective_n_jobs::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
-  "src/mlframe/feature_selection/wrappers/rfecv/_group_time_series_split.py::GroupTimeSeriesSplit._ordered_unique::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
+  "src/mlframe/feature_selection/_cv_splitters.py::GroupTimeSeriesSplit._ordered_unique::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
   "src/mlframe/training/composite/discovery/_fit_multibase.py::apply_multi_base_forward_stepwise::admit_on_error": "keeps the single-base spec, which already passed every gate, when only the optional multi-base extension fails (logged at WARNING)",
   "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::apply_honest_oof_floor::finite_guarded_reject": "a NaN honest-OOF measurement is degenerate and keeps its CV rank by design; an inf (collapse) score is rejected afterwards by _reject_unscored_specs"
 }

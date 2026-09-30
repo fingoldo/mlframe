@@ -14,8 +14,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_holdout import split_search_and_holdout
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
     _apply_min_selected_ratio, _resolve_adaptive_prescreen_width, _resolve_adaptive_n_anchors, _resolve_knee_prescreen_cap,
     ShapProxiedNoCandidatesError, resolve_effective_min_features, unit_importance_to_feature_map)
@@ -229,7 +228,7 @@ class ShapProxiedFitMixin:
         # Disjoint holdout for honest re-validation + trust guard (avoids winner's curse).
         stratify = y if self.classification else None
         idx_all = np.arange(len(X))
-        idx_search, idx_hold = train_test_split(idx_all, test_size=self.holdout_size, random_state=int(self.random_state), shuffle=True, stratify=stratify)
+        idx_search, idx_hold = split_search_and_holdout(self, idx_all, len(X), stratify)
         idx_hold, _report_slice = split_report_slice(idx_hold, X, y, getattr(self, "report_holdout_fraction", 0.0), self.classification, int(self.random_state))
         # Wide-frame split with deferred holdout materialisation. At C4 (width=20000, n_rows=10000) the original frame is 1.49 GiB, the search slice (75% rows) is 1.12 GiB, and the holdout
         # slice (25% rows) is 381 MiB; the legacy back-to-back
@@ -439,7 +438,7 @@ class ShapProxiedFitMixin:
                 n_estimators_cap=self.oof_shap_n_estimators,
                 inner_n_jobs_cap=self.inner_n_jobs_cap,
                 return_per_fold_phi_mean=want_per_fold_phi,
-                cache_dir=self.cache_dir)
+                cache_dir=self.cache_dir, cv_policy=getattr(self, "_search_cv_policy", None))
         if want_var and want_per_fold_phi:
             phi, base, y_phi, phi_var, per_fold_phi_mean = shap_out
         elif want_var:
