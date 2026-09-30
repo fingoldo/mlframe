@@ -208,4 +208,3 @@ def test_no_breadcrumbs_without_an_open_faulthandler_file(monkeypatch):
     with phases.phase("x"):
         pass  # must not raise
     assert written == [], written
-

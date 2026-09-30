@@ -314,7 +314,7 @@ def test_a_recursive_inverse_served_row_by_row_with_history_is_local(name: str):
             isolated.append(abs(float(_call_inverse(t, T + e_i, b_fit, params, g_fit)[i] - y0[i])))
             kw = {"history_y": y_fit[:i]}
             if t.requires_groups:
-                kw.update(groups=g_fit[i:i + 1], history_groups=g_fit[:i])
+                kw.update(groups=g_fit[i : i + 1], history_groups=g_fit[:i])
 
             def one(th, kw=kw):
                 return float(t.inverse(np.array([th]), None, params, **kw)[0])

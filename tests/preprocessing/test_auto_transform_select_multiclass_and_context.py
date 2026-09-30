@@ -44,6 +44,6 @@ def test_context_ranking_only_sees_the_rows_it_is_given():
     df = pd.DataFrame({"x": base, "leaky": leaky, "mild": mild})
 
     assert _top_correlated_context_columns(df, "x", ["leaky", "mild"], 1) == ["leaky"], "over the whole frame the leak wins"
-    assert _top_correlated_context_columns(df, "x", ["leaky", "mild"], 1, rows=np.arange(100)) == ["mild"], (
-        "on the train rows alone the leak is noise, so the genuine relationship must be chosen"
-    )
+    assert _top_correlated_context_columns(df, "x", ["leaky", "mild"], 1, rows=np.arange(100)) == [
+        "mild"
+    ], "on the train rows alone the leak is noise, so the genuine relationship must be chosen"

@@ -170,14 +170,13 @@ def _build(strategy: str, comps, names, P, y):
         return Ens.from_uniform_weights(component_models=comps, component_names=names)
     if strategy == "oof_weighted":
         rmses = [float(np.sqrt(np.mean((P[:, j] - y) ** 2))) for j in range(P.shape[1])]
-        return Ens.from_train_metrics(component_models=comps, component_names=names, component_oof_rmse=rmses,
-                                      baseline_oof_rmse=float(np.std(y)))
+        return Ens.from_train_metrics(component_models=comps, component_names=names, component_oof_rmse=rmses, baseline_oof_rmse=float(np.std(y)))
     if strategy == "nnls_stack":
         return Ens.from_nnls_stack(component_models=comps, component_names=names, component_predictions=P, y_train=y)
     if strategy == "linear_stack":
         return Ens.from_linear_stack(component_models=comps, component_names=names, component_predictions=P, y_train=y)
     if strategy.startswith("meta_"):
-        return build_meta_stack_ensemble(Ens, comps, names, P, y, stacker=strategy[len("meta_"):])
+        return build_meta_stack_ensemble(Ens, comps, names, P, y, stacker=strategy[len("meta_") :])
     raise KeyError(strategy)
 
 

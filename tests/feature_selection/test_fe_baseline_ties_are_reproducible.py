@@ -15,4 +15,3 @@ def test_the_best_baseline_among_ties_is_chosen_by_name(monkeypatch):
     monkeypatch.setattr(hf, "_plugin_mi_classif_batch_njit", lambda X, y, nb: np.array([0.3, 0.3, 0.1]))
     name, _arr, mi = fb.best_trivial_pair(np.zeros(10), np.zeros(10), np.zeros(10, dtype=int))
     assert (name, mi) == ("alpha", 0.3), "of the two tied maxima, the name must win, not the position"
-

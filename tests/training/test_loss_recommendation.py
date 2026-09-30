@@ -208,4 +208,3 @@ def test_heavy_tail_analyzer_gives_catboost_the_same_scaled_delta() -> None:
     _apply_heavy_tail_huber_overrides(5.0, knobs, lambda *a: None, huber_delta_for(y))
     assert knobs["cb_kwargs"]["loss_function"] == f"Huber:delta={huber_delta_for(y):.6g}"
     assert huber_delta_for(y) > 100.0
-

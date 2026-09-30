@@ -8,7 +8,6 @@ future change cannot silently flip to the regressing behaviour, and documents th
 """
 
 
-
 def test_jmim_exponent_discount_only_is_off_by_default(monkeypatch):
     # Read per call and passed to the njit kernel as an argument; with no env override it must be OFF (exponent applied).
     """Jmim exponent discount only is off by default."""

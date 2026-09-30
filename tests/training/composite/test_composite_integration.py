@@ -276,12 +276,7 @@ class TestCompositeIntegration:
         """
         models, metadata, _df, _records = opted_in_suite
         regression = models.get("regression") or models.get(__import__("mlframe.training.configs", fromlist=["TargetTypes"]).TargetTypes.REGRESSION) or {}
-        spec_names = {
-            spec["name"]
-            for by_target in metadata.get("composite_target_specs", {}).values()
-            for specs in by_target.values()
-            for spec in specs
-        }
+        spec_names = {spec["name"] for by_target in metadata.get("composite_target_specs", {}).values() for specs in by_target.values() for spec in specs}
         ensemble_keys = [k for k in regression if k.startswith("_CT_ENSEMBLE__")]
         composite_keys = [k for k in regression if k in spec_names]
         assert composite_keys + ensemble_keys, f"neither a composite nor an ensemble entry; keys {list(regression)}"

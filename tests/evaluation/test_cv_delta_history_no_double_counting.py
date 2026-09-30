@@ -27,7 +27,6 @@ def test_a_selection_loop_does_not_narrow_its_own_band():
     baseline = np.array([0.80, 0.82, 0.79, 0.81, 0.83])
     rng = np.random.default_rng(1)
     bands = [
-        triage_cv_delta(baseline, baseline + rng.normal(0, 0.005, 5), "feature_engineering", history=history, min_history_dof=1)["band"]
-        for _ in range(40)
+        triage_cv_delta(baseline, baseline + rng.normal(0, 0.005, 5), "feature_engineering", history=history, min_history_dof=1)["band"] for _ in range(40)
     ]
     assert bands[-1] == bands[0], "the band moved although no new information about the noise arrived"

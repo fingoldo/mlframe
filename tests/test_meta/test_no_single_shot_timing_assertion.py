@@ -104,10 +104,7 @@ def _timing_helpers(func: ast.AST) -> set:
     The njit sentinel timed both legs through a local ``_wall`` helper, so neither ``np_t`` nor ``nj_t`` was assigned from a
     timer call directly and the comparison between them was invisible to this scan.
     """
-    return {
-        node.name for node in ast.walk(func)
-        if isinstance(node, _FUNC_NODES) and node is not func and any(_is_timer_call(sub) for sub in ast.walk(node))
-    }
+    return {node.name for node in ast.walk(func) if isinstance(node, _FUNC_NODES) and node is not func and any(_is_timer_call(sub) for sub in ast.walk(node))}
 
 
 # The least slack a relative timing race may have. Two measurements taken on a shared runner move independently by far

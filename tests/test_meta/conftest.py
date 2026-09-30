@@ -95,4 +95,3 @@ def cleanup_memory():
     per test, about 7 of test_shared_checks_wired.py's 12 minutes. The cache is meant to live for the session anyway.
     """
     yield
-
