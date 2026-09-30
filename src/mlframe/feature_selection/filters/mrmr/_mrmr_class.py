@@ -18,6 +18,7 @@ import logging
 import os
 import sys
 import threading
+import time
 import warnings
 from collections import OrderedDict
 from collections.abc import Iterable, MutableMapping, Sequence
@@ -187,6 +188,7 @@ from ._mrmr_class_shared import _mrmr_y_columns  # noqa: F401 - re-exported for 
 from ._mrmr_class_config import _MRMRConfigMixin
 from ._mrmr_class_transform import _MRMRTransformMixin
 from ._mrmr_class_fit_helpers import _MRMRFitHelpersMixin
+from ._mrmr_fit_log import log_mrmr_fit_summary
 
 # SelectorMixin ADDED purely for the isinstance(x, SelectorMixin) contract and its
 # ``inverse_transform``/``get_feature_names_out`` conveniences - MRMR's OWN ``transform()`` (defined directly on
@@ -3376,11 +3378,15 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             )
         try:
             self._enter_active_fit_scope()
+            _t_fit0 = time.perf_counter()
             try:
                 if _MACOS_NUMBA_PARALLEL_FIT_LOCK is not None:
                     with _MACOS_NUMBA_PARALLEL_FIT_LOCK:
-                        return self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
-                return self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+                        _fitted = self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+                else:
+                    _fitted = self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+                log_mrmr_fit_summary(self, time.perf_counter() - _t_fit0)
+                return _fitted
             finally:
                 self._exit_active_fit_scope()
         finally:

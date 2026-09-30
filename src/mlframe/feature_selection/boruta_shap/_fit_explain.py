@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mlframe.feature_selection._selection_log import logs_fit
 from mlframe.utils.misc import get_pipeline_last_element
 from pyutilz.system import tqdmu
 
@@ -267,6 +268,11 @@ def _fit_with_subsample_stability(self, X, y):
     return self
 
 
+def _selection_summary(self):
+    return self.selected_features_, int(self.n_features_in_), f"{len(self.accepted)} accepted, {len(self.tentative)} tentative, {len(self.rejected)} rejected"
+
+
+@logs_fit("BorutaShap", _selection_summary)
 def fit(self, X, y):
     """
     The main body of the program this method it computes the following

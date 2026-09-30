@@ -14,7 +14,17 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
+from mlframe.feature_selection._selection_log import logs_selection, n_columns
 
+
+def _summ(res, b):
+    names = res["feature_names"]
+    kept = [n for n, d in zip(names, res["decision"]) if d == "confirmed"]
+    n_tent = sum(1 for d in res["decision"] if d == "tentative")
+    return kept, len(names), f"{n_tent} tentative, {res['n_rounds_run']} round(s)"
+
+
+@logs_selection("boruta_select", _summ)
 def boruta_select(
     X: Any,
     y: np.ndarray,

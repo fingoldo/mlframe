@@ -29,6 +29,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from mlframe.feature_selection._selection_log import logs_fit
 from mlframe.utils.misc import rng_hygienic_fit
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,10 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
                         assigned[j] = True; ms.append(cols[j])
             members[cols[i]] = ms
     return reps, members
+
+
+def _selection_summary(sel):
+    return sel.selected_features_, int(sel.n_features_in_), f"+{sel.n_engineered_} engineered", len(sel.selected_features_) - int(sel.n_engineered_)
 
 
 class HybridSelector:
@@ -547,6 +552,7 @@ class HybridSelector:
         return [c for c in dict.fromkeys(expanded) if c in X.columns]
 
     # ------------------------------------------------------------------ fit / transform
+    @logs_fit("HybridSelector", _selection_summary)
     @rng_hygienic_fit
     def fit(self, X, y):
         """Run the full hybrid pipeline: bridge to a pandas view, validate a classification target, run MRMR (stage 0,

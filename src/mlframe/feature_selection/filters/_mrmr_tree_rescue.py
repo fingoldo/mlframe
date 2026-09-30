@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 import warnings
 
 import numpy as np
@@ -186,6 +187,12 @@ class MRMRTreeRescued(MRMR):
 
     def fit(self, X, y, *args, **kwargs):
         """Fit MRMR normally, then apply the gated tree-importance rescue on top of the resulting ``support_``."""
+        t0 = time.perf_counter()
         super().fit(X, y, *args, **kwargs)
+        n_before = int(np.asarray(self.support_).size) if hasattr(self, "support_") else 0
         self._apply_tree_rescue(X, y)
+        if hasattr(self, "support_") and int(np.asarray(self.support_).size) != n_before:
+            from .mrmr._mrmr_fit_log import log_mrmr_fit_summary
+
+            log_mrmr_fit_summary(self, time.perf_counter() - t0)
         return self

@@ -23,6 +23,7 @@ permutation importance instead of the in-bag native importance (removes the impu
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Sequence
 
@@ -32,6 +33,7 @@ from mlframe.feature_selection.cv_policy import get_cv_policy
 from sklearn.base import BaseEstimator, TransformerMixin
 
 from ._linear_masking import DEFAULT_MASKING_R2, drop_linearly_masked
+from ._selection_log import log_selection, logs_selection, quiet_fit
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +185,11 @@ def _one_replicate_importances(
     return imps[:p], imps[p:]
 
 
+def _summ(res, b):
+    return res.selected_features, len(res.feature_names), None
+
+
+@logs_selection("ace_select", _summ)
 def ace_select(
     X,
     y,
@@ -389,9 +396,11 @@ class ACESelector(TransformerMixin, BaseEstimator):
         self.mask_redundant = mask_redundant
         self.masking_r2 = masking_r2
 
+    @quiet_fit
     def fit(self, X, y=None):
         """Run ``ace_select`` once and materialise the sklearn selector attributes (``support_``,
         ``selected_features_``, ``feature_names_in_``) in input-column order."""
+        t0 = time.perf_counter()
         result = ace_select(
             X, y, estimator=self.estimator,
             n_replicates=self.n_replicates, contrast_percentile=self.contrast_percentile,
@@ -404,6 +413,7 @@ class ACESelector(TransformerMixin, BaseEstimator):
         self.n_features_in_ = len(result.feature_names)
         self.support_ = np.asarray(result.accepted, dtype=bool)
         self.selected_features_ = [str(c) for c in result.selected_features]
+        log_selection(logger, "ACESelector", len(self.selected_features_), self.n_features_in_, self.selected_features_, elapsed=time.perf_counter() - t0)
         return self
 
     def transform(self, X):

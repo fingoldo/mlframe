@@ -14,12 +14,15 @@ inclusion frequency as a numpy float vector for downstream stability plots.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 import numpy as np
 
 from ._get_feature_names_out_shared import get_feature_names_out_support_based
 from sklearn.base import BaseEstimator, TransformerMixin, clone
+
+from mlframe.feature_selection._selection_log import log_selection, quiet_nested
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +112,7 @@ class StabilityMRMR(TransformerMixin, BaseEstimator):
         ``selection_probabilities_``, ``support_`` (features with frequency >= ``support_threshold``), and the Meinshausen-Buhlmann PFER bound
         ``pfer_bound_`` (only defined at ``sample_fraction == 0.5`` and ``support_threshold > 0.5``, NaN otherwise)."""
         from joblib import Parallel, delayed
+        t_fit0 = time.perf_counter()
         # Input validation.
         # Pre-fix:
         #   * sample_fraction=0.05 with n=10 -> sub_size=int(0.5)=0,
@@ -181,7 +185,8 @@ class StabilityMRMR(TransformerMixin, BaseEstimator):
             y_sub = y.iloc[idx] if hasattr(y, "iloc") else y[idx]
             est = clone(self.estimator)
             try:
-                est.fit(X_sub, y_sub)
+                with quiet_nested():
+                    est.fit(X_sub, y_sub)
                 return _support_to_indices(est.support_, n_features)
             except Exception as exc:
                 # one degenerate bootstrap subsample (e.g. a class dropped
@@ -251,6 +256,11 @@ class StabilityMRMR(TransformerMixin, BaseEstimator):
             self.pfer_bound_ = float("nan")
         if hasattr(X, "columns"):
             self.feature_names_in_ = list(X.columns)
+        _names = [self.feature_names_in_[i] for i in self.support_] if hasattr(self, "feature_names_in_") else [int(i) for i in self.support_]
+        log_selection(
+            logger, "StabilityMRMR", len(self.support_), n_features, _names, elapsed=time.perf_counter() - t_fit0,
+            extra=f"frequency >= {self.support_threshold} over {_effective_n_bootstraps} bootstrap(s)", respect_quiet=True,
+        )
         return self
 
     def transform(self, X, y=None):

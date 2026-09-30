@@ -44,6 +44,7 @@ import numpy as np
 import pandas as pd
 
 from sklearn.base import BaseEstimator, TransformerMixin
+from mlframe.feature_selection._selection_log import logs_fit
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -287,6 +288,12 @@ def stability_select_fe(
     }
 
 
+def _selection_summary(sel):
+    names = [str(n) for n in sel.get_feature_names_out()]
+    n_eng = max(len(names) - int(np.asarray(sel.full_mrmr_.support_).size), 0)
+    return names, int(sel.n_features_in_), f"+{n_eng} engineered, {len(sel.stable_set_)} stable over {sel.n_bootstraps} bootstrap(s)", len(names) - n_eng
+
+
 class StabilityFESelector(TransformerMixin, BaseEstimator):
     """sklearn-compatible wrapper around ``stability_select_fe``.
 
@@ -328,6 +335,7 @@ class StabilityFESelector(TransformerMixin, BaseEstimator):
         self.support_threshold = support_threshold
         self.random_state = random_state
 
+    @logs_fit("StabilityFESelector", _selection_summary)
     def fit(self, X, y):
         """Run bootstrap-based stability selection to get the stable feature set, then fit ONE MRMR on the full data (not a subsample) so ``transform`` can replay auditable recipes rather than a subsample-shadowed variant."""
         result = stability_select_fe(
@@ -349,6 +357,7 @@ class StabilityFESelector(TransformerMixin, BaseEstimator):
         full = MRMR(**(self.base_mrmr_params or {}))
         full.fit(X_pd, y_pd)
         self.full_mrmr_ = full
+        self.n_features_in_ = int(X_pd.shape[1])
         return self
 
     def transform(self, X):

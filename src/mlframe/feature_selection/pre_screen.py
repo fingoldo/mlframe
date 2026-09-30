@@ -40,7 +40,15 @@ try:
 except ImportError:
     pd = None
 
+from ._selection_log import logs_selection
 
+
+def _summ(res, b):
+    df = b.arguments["train_df"]
+    return res, int(df.shape[1]) if hasattr(df, "shape") and len(df.shape) == 2 else len(res), "constant / near-all-null columns"
+
+
+@logs_selection("pre_screen", _summ, what="dropped")
 def compute_unsupervised_drops(
     train_df,
     variance_threshold: float = 0.0,

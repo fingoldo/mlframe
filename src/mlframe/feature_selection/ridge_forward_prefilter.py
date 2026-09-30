@@ -33,7 +33,14 @@ from sklearn.linear_model import Ridge, RidgeClassifier
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
 
+from ._selection_log import logs_selection
 
+
+def _summ(res, b):
+    return res, len(b.arguments["feature_names"]), "ridge-coefficient prefilter pool"
+
+
+@logs_selection("ridge_coefficient_prefilter", _summ)
 def ridge_coefficient_prefilter(
     X: np.ndarray,
     y: np.ndarray,

@@ -18,6 +18,8 @@ from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
+from ._selection_log import logs_selection, n_columns
+
 
 @dataclass
 class MarginalGainStep:
@@ -37,6 +39,12 @@ class ForwardSelectReport:
     stopped_early: bool = False
 
 
+def _summ(res, b):
+    sel = res[0] if isinstance(res, tuple) else res
+    return sel, n_columns(b.arguments["X"]), None
+
+
+@logs_selection("forward_select", _summ)
 def forward_select(
     X: Any,
     y: np.ndarray,

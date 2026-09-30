@@ -27,6 +27,8 @@ from typing import List, Optional, Sequence, Union
 
 import numpy as np
 
+from ._selection_log import logs_selection
+
 FloatMatrix = Union[np.ndarray, "object"]  # ndarray or a pandas DataFrame with columns named like ranked_features
 
 
@@ -129,6 +131,12 @@ def _diverse_ranking(ranked_features: Sequence[str], clusters: dict, rotation: i
     return ordered
 
 
+def _summ(res, b):
+    largest = max(res, key=len) if res else []
+    return largest, len(b.arguments["ranked_features"]), f"largest of {len(res)} subset(s), sizes {sorted({len(x) for x in res})}"
+
+
+@logs_selection("varying_size_top_k_subsets", _summ)
 def varying_size_top_k_subsets(
     ranked_features: Sequence[str],
     sizes: Sequence[int],

@@ -16,7 +16,14 @@ from typing import Any, Callable, List, Optional, Sequence
 
 import numpy as np
 
+from ._selection_log import logs_selection, n_columns
 
+
+def _summ(res, b):
+    return res, n_columns(b.arguments["X"]), "surviving unanimous permutation pruning"
+
+
+@logs_selection("unanimous_permutation_prune", _summ)
 def unanimous_permutation_prune(
     X: Any,
     y: np.ndarray,

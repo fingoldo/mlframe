@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 # Parent helpers used by the moved bodies (defined before the parent's bottom re-export, so this top-level import is cycle-safe).
 # _PRE_PIPELINE_CACHE* / _approx_entry_bytes etc. come through _pipeline_helpers's own canonical
 # re-export of _pipeline_cache.py -- imported once there, not duplicated here.
+from ._pipeline_selector_log import log_selector_retention
 from ._pipeline_helpers import (  # noqa: F401
     _PRE_PIPELINE_CACHE,
     _PRE_PIPELINE_CACHE_LOCK,
@@ -247,6 +248,7 @@ def _apply_pre_pipeline_transforms(
                             groups=groups,
                             sample_weight=sample_weight,
                         )
+                        log_selector_retention(feature_selector, pre_pipeline, _input_cols, train_df)
                     if verbose:
                         log_ram_usage()
                     if val_df is not None:
@@ -342,22 +344,8 @@ def _apply_pre_pipeline_transforms(
                     groups=groups,
                     sample_weight=sample_weight,
                 )
-                # One-glance FS-retention log so operators don't need to crack open metadata pickles
-                # to see how many columns the selector kept. Emitted at INFO regardless of verbose so
-                # every selector's kept/dropped counts are visible in default logs (one line per FS fit).
-                try:
-                    _kept = train_df.shape[1] if hasattr(train_df, "shape") and len(train_df.shape) == 2 else None
-                    _input_n = len(_input_cols) if _input_cols is not None else None
-                    if _kept is not None and _input_n is not None:
-                        _selector = _extract_feature_selector(pre_pipeline)
-                        _selector_label = type(_selector).__name__ if _selector is not None else type(pre_pipeline).__name__
-                        logger.info(
-                            "FS selector %s retained %d of %d features (dropped %d)",
-                            _selector_label, _kept, _input_n, max(_input_n - _kept, 0),
-                        )
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
+                # Emitted at INFO regardless of verbose so every selector's kept/dropped counts and dropped names are visible in default logs.
+                log_selector_retention(_extract_feature_selector(pre_pipeline), pre_pipeline, _input_cols, train_df)
                 if verbose:
                     log_ram_usage()
                 # 0-feature short-circuit: when MRMR/RFECV selects no features,

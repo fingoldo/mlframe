@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.stochastic_bandit_selection import _stochastic_bandit_selection_core
+from mlframe.feature_selection._selection_log import logs_selection
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,11 @@ class EnsembleSelectionResult:
     """Each seed's full selected set (locked-in ∪ best subset), in seed order."""
 
 
+def _summ(res, b):
+    return res.union_top_feats, int(b.arguments["X"].shape[1]), f"union over {len(b.arguments['seeds'])} seed(s)"
+
+
+@logs_selection("stochastic_bandit_selection_ensemble", _summ)
 def stochastic_bandit_selection_ensemble(
     estimator: Any,
     X: pd.DataFrame,

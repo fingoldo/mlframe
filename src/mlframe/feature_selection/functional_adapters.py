@@ -11,13 +11,19 @@ selectors.
 """
 from __future__ import annotations
 
+import logging
+import time
+
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 
+from ._selection_log import log_selection, quiet_fit
 from .cascade_select import cascade_select
 from .forward_select import forward_select
 from .greedy_backward_elimination import greedy_backward_elimination
 from .zero_importance_pruning import iterative_zero_importance_pruning
+
+logger = logging.getLogger(__name__)
 
 
 def _is_classification_target(y: np.ndarray) -> bool:
@@ -147,6 +153,11 @@ def _numeric_view_for_selection(X):
 class _FunctionalSelectorBase(TransformerMixin, BaseEstimator):
     """Shared fit/transform/get_support plumbing for the functional-utility adapters below."""
 
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if "fit" in cls.__dict__:
+            cls.fit = quiet_fit(cls.__dict__["fit"])
+
     def transform(self, X):
         """Column-select X down to the fitted support mask."""
         from sklearn.exceptions import NotFittedError
@@ -198,6 +209,11 @@ class _FunctionalSelectorBase(TransformerMixin, BaseEstimator):
         # selected_features_ (get_feature_names_out's source) in the same naming convention as
         # feature_names_in_ regardless of whether `selected` was positional or name-based.
         self.selected_features_ = [n for n, keep in zip(names, self.support_) if keep]
+        t0 = getattr(self, "_fit_t0", None)
+        log_selection(
+            logger, type(self).__name__, len(self.selected_features_), len(names), self.selected_features_,
+            elapsed=None if t0 is None else time.perf_counter() - t0,
+        )
 
 
 class ForwardSelectSelector(_FunctionalSelectorBase):
@@ -226,6 +242,7 @@ class ForwardSelectSelector(_FunctionalSelectorBase):
 
     def fit(self, X, y=None):
         """Run forward_select on X/y and record the selected feature names."""
+        self._fit_t0 = time.perf_counter()
         from sklearn.base import clone
 
         base_estimator = self.estimator if self.estimator is not None else _default_tree_estimator(y, self.random_state)
@@ -271,6 +288,7 @@ class GreedyBackwardEliminationSelector(_FunctionalSelectorBase):
 
     def fit(self, X, y=None):
         """Run greedy_backward_elimination on X/y and record the selected feature names."""
+        self._fit_t0 = time.perf_counter()
         base_estimator = self.estimator if self.estimator is not None else _default_tree_estimator(y, self.random_state)
         scoring = self.scoring if self.scoring is not None else _default_pointwise_scoring(y)
 
@@ -306,6 +324,7 @@ class ZeroImportancePruningSelector(_FunctionalSelectorBase):
 
     def fit(self, X, y=None):
         """Run iterative_zero_importance_pruning on X/y and record the selected feature names."""
+        self._fit_t0 = time.perf_counter()
         base_estimator = self.estimator if self.estimator is not None else _default_tree_estimator(y, self.random_state)
         scoring = self.scoring if self.scoring is not None else _default_pointwise_scoring(y)
 
@@ -345,6 +364,7 @@ class CascadeSelectSelector(_FunctionalSelectorBase):
 
     def fit(self, X, y=None):
         """Run cascade_select on X/y and record the selected feature names."""
+        self._fit_t0 = time.perf_counter()
         import pandas as pd
         from sklearn.base import clone
 

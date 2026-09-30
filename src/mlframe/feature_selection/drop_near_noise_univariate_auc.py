@@ -18,8 +18,16 @@ import numpy as np
 import pandas as pd
 
 from mlframe.preprocessing.align_feature_direction import batch_univariate_auc
+from ._selection_log import logs_selection
 
 
+def _summ(res, b):
+    cols = b.arguments.get("columns")
+    n = len(cols) if cols is not None else int(b.arguments["df"].select_dtypes("number").shape[1])
+    return res, n, f"within tolerance {b.arguments.get('tolerance', 0.02)} of chance AUC"
+
+
+@logs_selection("drop_near_noise_univariate_auc", _summ, what="dropped")
 def drop_near_noise_univariate_auc(
     df: pd.DataFrame,
     y: np.ndarray,

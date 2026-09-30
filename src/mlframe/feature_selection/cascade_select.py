@@ -26,8 +26,15 @@ import numpy as np
 
 from mlframe.feature_selection.filters.shared import boruta_select
 from .forward_select import forward_select
+from ._selection_log import logs_selection, n_columns
 
 
+def _summ(res, b):
+    extra = f"boruta confirmed {len(res.get('boruta_confirmed') or [])}, forward selected {len(res.get('forward_selected') or [])}"
+    return res.get("final_selected") or [], n_columns(b.arguments["X"]), extra
+
+
+@logs_selection("cascade_select", _summ)
 def cascade_select(
     X: Any,
     y: np.ndarray,

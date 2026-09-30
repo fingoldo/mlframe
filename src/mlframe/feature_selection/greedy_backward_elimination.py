@@ -19,6 +19,8 @@ import pandas as pd
 from sklearn.base import clone
 from sklearn.model_selection import BaseCrossValidator, KFold
 
+from ._selection_log import logs_selection, n_columns
+
 logger = logging.getLogger(__name__)
 
 
@@ -79,6 +81,12 @@ def _cv_score_repeated(
     return float(np.mean([_cv_score(estimator, X, y_arr, folds, scoring) for folds in repeat_folds]))
 
 
+def _summ(res, b):
+    sel = res[0] if isinstance(res, tuple) else res
+    return sel, n_columns(b.arguments["X"]), None
+
+
+@logs_selection("greedy_backward_elimination", _summ)
 def greedy_backward_elimination(
     estimator: Any,
     X: pd.DataFrame,

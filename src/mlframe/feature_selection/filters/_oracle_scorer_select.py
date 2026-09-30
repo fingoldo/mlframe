@@ -213,9 +213,10 @@ class OracleScorerSelector:
         """
         fp = self.fingerprint(X, y)
         learned = self._learned_scorer(fp)
-        if learned is not None:
-            return learned
-        return self._cold_start_scorer(X, y)
+        source = "learned from oracle history" if learned is not None else "cold-start cascade"
+        scorer = learned if learned is not None else self._cold_start_scorer(X, y)
+        logger.info("OracleScorerSelector: recommended scorer %r for X=%s (%s; pool of %d scorers).", scorer, getattr(X, "shape", "?"), source, len(self.scorer_names))
+        return scorer
 
     def _learned_scorer(self, fp: Mapping[str, Any]) -> Optional[str]:
         """Return the oracle's confident best scorer for this fingerprint

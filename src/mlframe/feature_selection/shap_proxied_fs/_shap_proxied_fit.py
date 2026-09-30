@@ -18,6 +18,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxied_holdout import spli
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
     _apply_min_selected_ratio, _resolve_adaptive_prescreen_width, _resolve_adaptive_n_anchors, _resolve_knee_prescreen_cap,
     ShapProxiedNoCandidatesError, resolve_effective_min_features, unit_importance_to_feature_map)
+from mlframe.feature_selection._selection_log import logs_fit
 from mlframe.utils.misc import rng_hygienic_fit
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_report_slice import score_on_report_slice, split_report_slice
 
@@ -142,6 +143,7 @@ class ShapProxiedFitMixin:
         return run_search(self, optimizer, phi, base, y)
 
     # ------------------------------------------------------------------ fit
+    @logs_fit("ShapProxiedFS", lambda self: (self.selected_features_, int(self.n_features_in_), None))
     @rng_hygienic_fit
     def fit(self, X, y):
         """Fit the SHAP-proxied selector: compute OOF SHAP values, run the configured proxy-search optimizer, then apply the budget-gated refinement stages (revalidation, ablation, cluster-refine) before finalising the selected subset."""

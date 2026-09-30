@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.preprocessing.align_feature_direction import batch_univariate_auc
+from ._selection_log import logs_selection
 
 
 def _univariate_signal(values: np.ndarray, y_arr: np.ndarray) -> float:
@@ -67,6 +68,13 @@ def _raw_column_signal(df: pd.DataFrame, raw_col: str, y_arr: np.ndarray, n_fold
     return _univariate_signal(values, y_arr)
 
 
+def _summ(res, b):
+    df = b.arguments["df"]
+    kept = set(res.columns)
+    return [c for c in df.columns if c not in kept], int(df.shape[1]), "raw columns superseded by derived embedding/encoding columns"
+
+
+@logs_selection("drop_raw_after_embedding", _summ, what="dropped")
 def drop_raw_after_embedding(
     df: pd.DataFrame,
     raw_to_derived: Dict[str, Sequence[str]],

@@ -14,8 +14,14 @@ from typing import Any, Callable, Dict, List
 import numpy as np
 
 from .cascade_select import cascade_select
+from ._selection_log import logs_selection, n_columns
 
 
+def _summ(res, b):
+    return res["stable_selected"], n_columns(b.arguments["X"]), f"stability_threshold={b.arguments.get('stability_threshold', 0.6)}"
+
+
+@logs_selection("cascade_select_stable", _summ)
 def cascade_select_stable(
     X: Any,
     y: np.ndarray,

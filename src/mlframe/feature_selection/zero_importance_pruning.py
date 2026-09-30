@@ -23,6 +23,8 @@ import pandas as pd
 from sklearn.base import clone
 from sklearn.model_selection import KFold
 
+from ._selection_log import logs_selection, n_columns
+
 
 @dataclass(frozen=True)
 class PruningRound:
@@ -60,6 +62,12 @@ def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[
     return float(np.mean(scores))
 
 
+def _summ(res, b):
+    sel = res[0] if isinstance(res, tuple) else res
+    return sel, n_columns(b.arguments["X"]), None
+
+
+@logs_selection("iterative_zero_importance_pruning", _summ)
 def iterative_zero_importance_pruning(
     estimator: Any,
     X: pd.DataFrame,

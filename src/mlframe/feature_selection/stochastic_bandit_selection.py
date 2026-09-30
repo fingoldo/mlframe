@@ -17,6 +17,8 @@ import pandas as pd
 from sklearn.base import clone
 from sklearn.model_selection import KFold
 
+from ._selection_log import logs_selection
+
 
 def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
     """Mean CV score of a fresh clone of ``estimator`` fit/scored over ``cv``'s folds."""
@@ -98,6 +100,11 @@ def _stochastic_bandit_selection_core(
     return best_subset, locked_in_feats
 
 
+def _summ(res, b):
+    return res, int(b.arguments["X"].shape[1]), None
+
+
+@logs_selection("stochastic_bandit_selection", _summ)
 def stochastic_bandit_selection(
     estimator: Any,
     X: pd.DataFrame,
