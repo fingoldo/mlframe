@@ -73,6 +73,32 @@ def _wire_cv_policies(pre_pipelines: list, cv_policy: Any, target_type: Any) -> 
     return pre_pipelines
 
 
+def _seeded_kwargs(kwargs: dict[str, Any] | None, fs_random_seed: int | None) -> dict[str, Any]:
+    """Copy of ``kwargs`` with ``random_state`` defaulted from the suite seed; an explicit ``random_state`` always wins."""
+    out = dict(kwargs or {})
+    if fs_random_seed is not None and "random_state" not in out:
+        out["random_state"] = int(fs_random_seed)
+    return out
+
+
+def _apply_rfecv_overrides(rfecv: Any, overrides: dict[str, Any]) -> None:
+    """Set ``overrides`` on an RFECV instance through ``set_params``; an unknown key raises with the offending names.
+
+    ``cv_n_splits`` is the config-level spelling of a fold count (``get_training_configs`` consumes it the same way): it becomes
+    ``cv=<int>`` unless an explicit ``cv`` is given.
+    """
+    overrides = dict(overrides)
+    n_splits = overrides.pop("cv_n_splits", None)
+    if n_splits is not None and "cv" not in overrides:
+        overrides["cv"] = int(n_splits)
+    if not overrides:
+        return
+    try:
+        rfecv.set_params(**overrides)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"FeatureSelectionConfig.rfecv_kwargs / rfecv_* levers not accepted by {type(rfecv).__name__}: {sorted(overrides)} ({exc})") from exc
+
+
 def _build_pre_pipelines(
     use_ordinary_models: bool,
     rfecv_models: list[str],
@@ -105,6 +131,7 @@ def _build_pre_pipelines(
     rfecv_cluster_corr_threshold: float = 0.9,
     rfecv_cluster_min_reduction: float = 0.05,
     rfecv_cluster_corr_method: str = "pearson",
+    rfecv_overrides: dict[str, Any] | None = None,
 ) -> tuple[list[Any], list[str]]:
     """Build lists of pre-pipelines and their names for feature selection.
 
@@ -164,6 +191,11 @@ def _build_pre_pipelines(
             else:
                 for _k, _v in _rfecv_overrides.items():
                     setattr(_rfecv_instance, _k, _v)
+            # ``FeatureSelectionConfig.rfecv_kwargs`` (with its first-class ``rfecv_*`` levers already folded in) is the operator's
+            # explicit word on the suite's RFECV: applied last and strictly, so an unknown or misspelled key raises here instead of
+            # being swallowed by the attribute fallback above.
+            if rfecv_overrides:
+                _apply_rfecv_overrides(_rfecv_instance, rfecv_overrides)
             # Reproducibility: when the operator did not pin an RFECV random_state, default it from the
             # split seed so the whole pipeline (split + FS + model) is reproducible from one seed. An
             # explicitly-set random_state is left untouched.
@@ -252,7 +284,7 @@ def _build_pre_pipelines(
         # set ``classification`` explicitly in boruta_shap_kwargs AND
         # target_type is known, derive it from target_type so the inner
         # RandomForestRegressor is picked on regression targets.
-        _bs_kwargs = dict(boruta_shap_kwargs or {})
+        _bs_kwargs = _seeded_kwargs(boruta_shap_kwargs, fs_random_seed)
         if "classification" not in _bs_kwargs and target_type is not None:
             _tt_str = str(target_type).lower()
             # TargetTypes enum stringifies to e.g. "targettypes.regression"; substring match handles
@@ -274,7 +306,7 @@ def _build_pre_pipelines(
         # ShapProxiedFS, like BorutaShap, defaults ``classification=True`` (inner classifier). Auto-derive it
         # from target_type when the caller did not pin it, so a regression target picks the regressor inner model
         # instead of crashing on continuous y.
-        _sp_kwargs = dict(shap_proxied_fs_kwargs or {})
+        _sp_kwargs = _seeded_kwargs(shap_proxied_fs_kwargs, fs_random_seed)
         if "classification" not in _sp_kwargs and target_type is not None:
             _is_regression = "regression" in str(target_type).lower()
             _sp_kwargs["classification"] = not _is_regression
@@ -290,10 +322,8 @@ def _build_pre_pipelines(
         # no ``classification`` key to fill from target_type here.
         from mlframe.feature_selection.registry import get as _get_selector_spec
         _ace_spec = _get_selector_spec("ACE")
-        _ace_kwargs = dict(ace_kwargs or {})
         # Reproducibility: default ACE's seed from the split seed when the operator didn't pin one. Explicit wins.
-        if fs_random_seed is not None and "random_state" not in _ace_kwargs:
-            _ace_kwargs["random_state"] = int(fs_random_seed)
+        _ace_kwargs = _seeded_kwargs(ace_kwargs, fs_random_seed)
         _ace = _ace_spec.instantiate(**_ace_kwargs)
         _ace._mlframe_selector_kind_ = "ACE"
         pre_pipelines.append(_ace)
@@ -304,7 +334,7 @@ def _build_pre_pipelines(
         # list; the ForwardSelectSelector adapter exposes the sklearn fit/get_support/transform contract.
         from mlframe.feature_selection.registry import get as _get_selector_spec
         _fwd_spec = _get_selector_spec("ForwardSelect")
-        _fwd = _fwd_spec.instantiate(**dict(forward_select_kwargs or {}))
+        _fwd = _fwd_spec.instantiate(**_seeded_kwargs(forward_select_kwargs, fs_random_seed))
         _fwd._mlframe_selector_kind_ = "ForwardSelect"
         pre_pipelines.append(_fwd)
         pre_pipeline_names.append("ForwardSelect ")
@@ -312,7 +342,7 @@ def _build_pre_pipelines(
     if use_greedy_backward_elimination_fs:
         from mlframe.feature_selection.registry import get as _get_selector_spec
         _gbe_spec = _get_selector_spec("GreedyBackwardElimination")
-        _gbe = _gbe_spec.instantiate(**dict(greedy_backward_elimination_kwargs or {}))
+        _gbe = _gbe_spec.instantiate(**_seeded_kwargs(greedy_backward_elimination_kwargs, fs_random_seed))
         _gbe._mlframe_selector_kind_ = "GreedyBackwardElimination"
         pre_pipelines.append(_gbe)
         pre_pipeline_names.append("GreedyBackwardElimination ")
@@ -320,7 +350,7 @@ def _build_pre_pipelines(
     if use_zero_importance_pruning_fs:
         from mlframe.feature_selection.registry import get as _get_selector_spec
         _zip_spec = _get_selector_spec("ZeroImportancePruning")
-        _zip = _zip_spec.instantiate(**dict(zero_importance_pruning_kwargs or {}))
+        _zip = _zip_spec.instantiate(**_seeded_kwargs(zero_importance_pruning_kwargs, fs_random_seed))
         _zip._mlframe_selector_kind_ = "ZeroImportancePruning"
         pre_pipelines.append(_zip)
         pre_pipeline_names.append("ZeroImportancePruning ")
@@ -328,7 +358,7 @@ def _build_pre_pipelines(
     if use_cascade_select_fs:
         from mlframe.feature_selection.registry import get as _get_selector_spec
         _cas_spec = _get_selector_spec("CascadeSelect")
-        _cas = _cas_spec.instantiate(**dict(cascade_select_kwargs or {}))
+        _cas = _cas_spec.instantiate(**_seeded_kwargs(cascade_select_kwargs, fs_random_seed))
         _cas._mlframe_selector_kind_ = "CascadeSelect"
         pre_pipelines.append(_cas)
         pre_pipeline_names.append("CascadeSelect ")

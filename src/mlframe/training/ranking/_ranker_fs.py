@@ -559,6 +559,7 @@ def _run_wrapper_selectors(X_df, y_arr, groups, fsc, rfecv_models, target_type, 
         rfecv_cluster_corr_threshold=float(getattr(fsc, "rfecv_cluster_corr_threshold", 0.9)),
         rfecv_cluster_min_reduction=float(getattr(fsc, "rfecv_cluster_min_reduction", 0.05)),
         rfecv_cluster_corr_method=str(getattr(fsc, "rfecv_cluster_corr_method", "pearson")),
+        rfecv_overrides=dict(getattr(fsc, "rfecv_kwargs", None) or {}) or None,
         target_type=target_type, fs_random_seed=fs_random_seed,
     )
     y_ser = pd.Series(y_arr, name="relevance")

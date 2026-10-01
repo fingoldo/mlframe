@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from typing import ClassVar
 from pydantic import Field, field_validator, model_validator
 from ._inert_fields import InertFieldsWarningMixin
 
@@ -67,13 +66,9 @@ class FeatureSelectionConfig(InertFieldsWarningMixin, BaseConfig):
         RFECV selectors to build, from ``RFECV_MODEL_NAMES`` (``"cb_rfecv"``, ``"lgb_rfecv"``, ``"xgb_rfecv"``); a bare ``"cb"`` is
         canonicalised to ``"cb_rfecv"``. Unknown names raise at construction.
     rfecv_kwargs : dict, optional
-        Arguments for RFECV. Expected keys: step, min_features_to_select, cv, scoring.
+        RFECV constructor parameters applied to every suite RFECV after it is built (the first-class ``rfecv_*`` levers are folded
+        into it). Keys are checked against ``RFECV.__init__`` at construction and again when set on the instance.
     """
-
-    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
-    INERT_FIELDS: ClassVar[dict[str, str]] = {
-        "rfecv_kwargs": "RFECV kwargs reach the wrapper through rfecv_models_params",
-    }
 
     # Default FS is UNSUPERVISED-ONLY: only the variance==0 / nulls>99% pre-screen (pre_screen_unsupervised)
     # runs by default; no supervised filter is applied unless the operator opts into MRMR / RFECV / BorutaShap.

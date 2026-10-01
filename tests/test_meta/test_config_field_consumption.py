@@ -72,7 +72,6 @@ _USER_DEFERRED_DEAD: dict[str, str] = {
     # responsible subsystem author rewires.
     "AutoMLConfig.automl_show_fi": "shadowed by FeatureSelectionConfig.show_fi; AutoML branch reads the latter",
     "EnsemblingConfig.accumulator": "accumulator strategy knob — single-strategy hardcoded in current build",
-    "FeatureSelectionConfig.rfecv_kwargs": "RFECV kwargs threading from FSConfig not yet wired; users pass via rfecv_models_params direct dict",
     "PreprocessingBackendConfig.fallback_to_sklearn": "auto-fallback already implicit in pipeline.py:_apply_polars_ds; flag never read",
     "QuantileRegressionConfig.point_estimate_alpha": "point estimate currently hardcoded to 0.5 (median) inside quantile dispatch",
     "QuantileRegressionConfig.coverage_pairs": "coverage_pairs validator exists on the config but reporting path uses alphas directly",
@@ -278,7 +277,6 @@ def test_every_config_field_has_a_consumer():
 # Fields whose validation reads the rest of the config: the full constructor call that sets them legally.
 _DEFERRED_DEAD_PROBES: dict[str, dict] = {
     # The key set is validated against RFECV's signature, and kwargs without models are refused outright.
-    "FeatureSelectionConfig.rfecv_kwargs": {"rfecv_kwargs": {"cv": 3}, "rfecv_models": ["lgb"]},
     # Each pair has to be drawn from the configured alphas.
     "QuantileRegressionConfig.coverage_pairs": {"coverage_pairs": ((0.1, 0.5),)},
 }

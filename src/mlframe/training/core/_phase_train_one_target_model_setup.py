@@ -596,6 +596,7 @@ def _setup_per_target_mlframe_models(
         rfecv_cluster_corr_threshold=feature_selection_config.rfecv_cluster_corr_threshold,
         rfecv_cluster_min_reduction=feature_selection_config.rfecv_cluster_min_reduction,
         rfecv_cluster_corr_method=feature_selection_config.rfecv_cluster_corr_method,
+        rfecv_overrides=feature_selection_config.rfecv_kwargs,
         use_sample_weights_in_fs=feature_selection_config.use_sample_weights_in_fs,
         mrmr_identity_cache=(ctx._mrmr_identity_cache if getattr(feature_selection_config, "mrmr_identity_cache_scope", "ctx") == "ctx" else None),
         # Thread target_type so BorutaShap can auto-derive
