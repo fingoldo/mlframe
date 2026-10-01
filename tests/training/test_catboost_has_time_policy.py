@@ -100,6 +100,7 @@ def test_real_fit_with_has_time_reaches_model():
 
 
 def test_catboost_wrapped_by_metamodel_gets_has_time():
+    """Catboost wrapped by metamodel gets has time."""
     from sklearn.calibration import CalibratedClassifierCV
 
     wrapped = CalibratedClassifierCV(CatBoostClassifier(iterations=3, verbose=0, allow_writing_files=False))

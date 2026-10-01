@@ -3,7 +3,7 @@ all-relevant test with SHAP importances instead of Boruta's original impurity/pe
 importance, for a model-agnostic, more stable relevance signal."""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from sklearn.utils import check_random_state, check_X_y
 from sklearn.base import TransformerMixin, BaseEstimator
@@ -130,22 +130,22 @@ class BorutaShap(TransformerMixin, BaseEstimator):
 
     def __init__(
         self,
-        model=None,
-        importance_measure="gini",
+        model: Any = None,
+        importance_measure: str = "gini",
         permutation_n_repeats: int = 5,
-        classification=True,
-        percentile=99,
-        pvalue=0.05,
-        n_trials=150,
-        random_state=0,
+        classification: bool = True,
+        percentile: float = 99,
+        pvalue: float = 0.05,
+        n_trials: int = 150,
+        random_state: int = 0,
         sample: bool = False,
-        train_or_test="train",
+        train_or_test: Literal["train", "test"] = "train",
         resample_holdout_per_trial: bool = False,
         premerge_clusters: bool = False,
         premerge_corr_thr: float = 0.92,
         normalize: bool = True,
         verbose: bool = True,
-        stratify=None,
+        stratify: Any = None,
         optimistic: bool = True,
         fit_params: Optional[dict] = None,
         stability_subsamples: int = 0,

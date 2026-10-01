@@ -27,6 +27,7 @@ pytest.importorskip("catboost")
 
 
 def _run(df, data_dir):
+    """Run."""
     pipeline = Pipeline([("sel", SelectKBest(f_classif, k=2).set_output(transform="pandas"))])
     return train_mlframe_models_suite(
         df=df, target_name="tgt", model_name="mdl", features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(regression=False),
@@ -38,6 +39,7 @@ def _run(df, data_dir):
 
 
 def _scores(models):
+    """Scores."""
     return {e.model_name: {s: {k: v for k, v in (e.metrics.get(s) or {}).items() if isinstance(v, (int, float))} for s in ("val", "test")}
             for per_target in models.values() for entries in per_target.values() for e in entries}
 
@@ -48,6 +50,7 @@ def test_selector_model_is_loaded_not_retrained_on_rerun(tmp_path, monkeypatch, 
     original_fit = SelectKBest.fit
 
     def spy(self, *args, **kwargs):
+        """Spy."""
         fits.append(1)
         return original_fit(self, *args, **kwargs)
 
@@ -86,16 +89,19 @@ def test_changed_input_columns_still_invalidate_selector_model(tmp_path, monkeyp
 
 
 class _Named:
+    """Named."""
     def __init__(self, names):
         self.feature_names_in_ = np.asarray(names, dtype=object)
 
 
 class _OutModel:
+    """OutModel."""
     def __init__(self, names):
         self.feature_names_ = list(names)
 
 
 def test_validator_compares_pipeline_input_not_model_output():
+    """Validator compares pipeline input not model output."""
     raw = pd.DataFrame({"a": [1.0], "b": [2.0], "c": [3.0]})
     loaded = SimpleNamespace(model=_OutModel(["b"]), pre_pipeline=Pipeline([("sel", _Named(["a", "b", "c"]))]))
     assert _validate_cached_model_schema(loaded, raw) is None
@@ -103,6 +109,7 @@ def test_validator_compares_pipeline_input_not_model_output():
 
 
 def test_validator_keeps_conservative_invalidation_when_pipeline_records_no_input_names():
+    """Validator keeps conservative invalidation when pipeline records no input names."""
     raw = pd.DataFrame({"a": [1.0], "b": [2.0], "c": [3.0]})
     loaded = SimpleNamespace(model=_OutModel(["b"]), pre_pipeline=Pipeline([("sel", SimpleNamespace())]))
     reason = _validate_cached_model_schema(loaded, raw)
@@ -110,6 +117,7 @@ def test_validator_keeps_conservative_invalidation_when_pipeline_records_no_inpu
 
 
 def test_validator_without_pipeline_keeps_model_name_comparison():
+    """Validator without pipeline keeps model name comparison."""
     raw = pd.DataFrame({"a": [1.0], "b": [2.0]})
     loaded = SimpleNamespace(model=_OutModel(["a", "b"]), pre_pipeline=None)
     assert _validate_cached_model_schema(loaded, raw) is None

@@ -30,6 +30,7 @@ from ._selection_log import logs_selection, n_columns
 
 
 def _summ_cascade_select(res, b):
+    """Selection-summary fragment of ``cascade_select`` for the end-of-fit log."""
     extra = f"boruta confirmed {len(res.get('boruta_confirmed') or [])}, forward selected {len(res.get('forward_selected') or [])}"
     return res.get("final_selected") or [], n_columns(b.arguments["X"]), extra
 

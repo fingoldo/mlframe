@@ -99,11 +99,13 @@ def logs_selection(name: str, extract: Extractor, *, what: str = "selected") -> 
     """
 
     def deco(fn: F) -> F:
+        """Decorate ``fn`` so its call is timed and its selection summary logged."""
         sig = inspect.signature(fn)
         logger = logging.getLogger(fn.__module__)
 
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
+            """Call ``fn`` with nested selector logs quieted, then log the selection summary."""
             outer_quiet = getattr(_nested, "depth", 0) > 0
             t0 = time.perf_counter()
             with quiet_nested():
@@ -127,6 +129,7 @@ def quiet_fit(fn: F) -> F:
 
     @functools.wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
+        """Call ``fn`` with nested selector logs quieted."""
         with quiet_nested():
             return fn(*args, **kwargs)
 
@@ -142,10 +145,12 @@ def logs_fit(name: str, describe: Callable[[Any], Tuple[Any, ...]]) -> Callable[
     """
 
     def deco(fn: F) -> F:
+        """Decorate a selector's ``fit`` so it is timed and its summary logged."""
         logger = logging.getLogger(fn.__module__)
 
         @functools.wraps(fn)
         def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+            """Run ``fit`` with nested selector logs quieted, then log the K-of-N summary."""
             t0 = time.perf_counter()
             with quiet_nested():
                 result = fn(self, *args, **kwargs)

@@ -18,6 +18,7 @@ from ._selection_log import logs_selection, n_columns
 
 
 def _summ_cascade_select_stability(res, b):
+    """Selection-summary fragment of ``cascade_select_stability`` for the end-of-fit log."""
     return res["stable_selected"], n_columns(b.arguments["X"]), f"stability_threshold={b.arguments.get('stability_threshold', 0.6)}"
 
 

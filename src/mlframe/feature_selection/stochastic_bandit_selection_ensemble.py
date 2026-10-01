@@ -44,6 +44,7 @@ class EnsembleSelectionResult:
 
 
 def _summ_stochastic_bandit_selection_ensemble(res, b):
+    """Selection-summary fragment of ``stochastic_bandit_selection_ensemble`` for the end-of-fit log."""
     return res.union_top_feats, int(b.arguments["X"].shape[1]), f"union over {len(b.arguments['seeds'])} seed(s)"
 
 

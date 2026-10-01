@@ -22,6 +22,7 @@ from ._selection_log import logs_selection
 
 
 def _summ_drop_near_noise_univariate_auc(res, b):
+    """Selection-summary fragment of ``drop_near_noise_univariate_auc`` for the end-of-fit log."""
     cols = b.arguments.get("columns")
     n = len(cols) if cols is not None else int(b.arguments["df"].select_dtypes("number").shape[1])
     return res, n, f"within tolerance {b.arguments.get('tolerance', 0.02)} of chance AUC"

@@ -592,7 +592,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # lever in the FE search - hence 1 by default. Set ``fe_max_steps=2`` when the fused
         # single-column form matters (the composite-feedforward and F2 cross-signal suites pin it
         # explicitly); ``fe_max_engineered_operands`` (default 8) bounds the O(k^2) pair blow-up there.
-        fe_max_steps=1,
+        fe_max_steps: int = 1,
         # after the FE step appends engineered columns, run ONE more
         # screening pass over the AUGMENTED pool (raw + engineered) so the
         # engineered columns - which are already quantised bin-code columns -
@@ -849,8 +849,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # the pair carried genuine interaction signal. Flipping to 3
         # aligns FE permutation count with screening-side
         # ``full_npermutations=3``; cost ~3% FE wall time.
-        fe_npermutations=3,
-        fe_ntop_features=0,
+        fe_npermutations: int = 3,
+        fe_ntop_features: int = 0,
         # ENGINEERED-OPERAND FEED-FORWARD CAP. At FE step k>1 the
         # operand pool also carries the engineered columns selected by the prior
         # step(s), so the pair search can build COMPOSITES of two engineered
@@ -865,8 +865,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # (raw-only operands, the pre-2026-06-08 behaviour); a negative value means
         # "no cap" (feed back every selected engineered operand).
         fe_max_engineered_operands: int = 8,
-        fe_unary_preset="medium",
-        fe_binary_preset="minimal",
+        fe_unary_preset: str = "medium",
+        fe_binary_preset: str = "minimal",
         # ``fe_max_pair_features`` default 1->10:
         # pre-fix only ONE pair per FE step was evaluated. On a dataset
         # with 50 features (1225 candidate pairs ranked by prevalence-
@@ -1247,7 +1247,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Cat-FE (categorical feature interactions): single dataclass consolidating ~22 cat_fe_* knobs.
         # ``None`` = default CatFEConfig() with ``enable=True`` and conservative production settings (cat-FE
         # shows measurable wins; XOR biz_value test, 0 regressions). Restore legacy via CatFEConfig(enable=False).
-        cat_fe_config=None,
+        cat_fe_config: Any = None,
         # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly pre-2026-05-15. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
         fit_cache_max: int = 4,
         # Byte-size cap on top of fit_cache_max (a 1k-feature suite carrying 4 cached MRMR instances can
@@ -1413,7 +1413,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # coarse histogram, and picks tau at the valley between the two
         # SU modes; falls back to 0.7 when the distribution is unimodal).
         # Numeric values keep the legacy fixed-tau behaviour bit-identical.
-        dcd_tau_cluster=0.7,
+        dcd_tau_cluster: float = 0.7,
         dcd_distance: str = "su",
         # Cross-cluster hierarchy (post-fit ``cluster_hierarchy_`` accessor): merge two DCD clusters
         # into one "super" node when their inter-cluster tau exceeds this threshold, up to

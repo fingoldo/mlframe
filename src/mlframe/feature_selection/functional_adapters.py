@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any, Optional
 
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -221,13 +222,13 @@ class ForwardSelectSelector(_FunctionalSelectorBase):
 
     def __init__(
         self,
-        estimator=None,
+        estimator: Any = None,
         *,
-        scoring=None,
+        scoring: Any = None,
         cv: int = 5,
-        max_features=None,
+        max_features: Optional[int] = None,
         min_improvement: float = 0.0,
-        patience=None,
+        patience: Optional[int] = None,
         significance_level: float = 0.05,
         random_state: int = 0,
     ):
@@ -267,10 +268,10 @@ class GreedyBackwardEliminationSelector(_FunctionalSelectorBase):
 
     def __init__(
         self,
-        estimator=None,
+        estimator: Any = None,
         *,
-        scoring=None,
-        cv=None,
+        scoring: Any = None,
+        cv: Any = None,
         min_features: int = 1,
         tol: float = 0.0,
         n_repeats: int = 1,
@@ -305,13 +306,13 @@ class ZeroImportancePruningSelector(_FunctionalSelectorBase):
 
     def __init__(
         self,
-        estimator=None,
+        estimator: Any = None,
         *,
-        scoring=None,
-        cv=None,
+        scoring: Any = None,
+        cv: Any = None,
         importance_threshold: float = 0.0,
         max_rounds: int = 20,
-        importance_fn=None,
+        importance_fn: Any = None,
         random_state: int = 0,
     ):
         self.estimator = estimator
@@ -341,16 +342,16 @@ class CascadeSelectSelector(_FunctionalSelectorBase):
 
     def __init__(
         self,
-        estimator=None,
+        estimator: Any = None,
         *,
         n_boruta_iterations: int = 20,
         boruta_alpha: float = 0.05,
-        forward_max_features=None,
+        forward_max_features: Optional[int] = None,
         forward_min_improvement: float = 0.0,
         cv: int = 5,
-        scoring=None,
+        scoring: Any = None,
         random_state: int = 42,
-        rfecv_kwargs=None,
+        rfecv_kwargs: Optional[dict] = None,
     ):
         self.estimator = estimator
         self.n_boruta_iterations = n_boruta_iterations

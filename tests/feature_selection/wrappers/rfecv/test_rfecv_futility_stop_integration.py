@@ -10,11 +10,13 @@ from mlframe.feature_selection.wrappers import RFECV
 
 
 def _dense(n=3000, p=14, informative=14, seed=0):
+    """Dense."""
     X, y = make_regression(n, p, n_informative=informative, noise=20.0, random_state=seed, shuffle=False)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), y
 
 
 def _fit(X, y, **kw):
+    """Fit."""
     return RFECV(estimator=Ridge(1.0), cv=5, random_state=0, verbose=0, **kw).fit(X, y)
 
 
@@ -26,6 +28,7 @@ def dense_fits():
 
 
 def test_stops_before_exhausting_the_search_and_keeps_the_same_set(dense_fits):
+    """Stops before exhausting the search and keeps the same set."""
     full, stopped = dense_fits
     assert len(full.eval_trace_) == 14
     assert len(stopped.eval_trace_) < len(full.eval_trace_)
@@ -35,12 +38,14 @@ def test_stops_before_exhausting_the_search_and_keeps_the_same_set(dense_fits):
 
 
 def test_on_by_default_with_an_explicit_opt_out(dense_fits):
+    """On by default with an explicit opt out."""
     full, _ = dense_fits
     assert full.futility_verdict_ is None and len(full.eval_trace_) == 14
     assert RFECV(estimator=Ridge()).futility_stop is True
 
 
 def test_fit_summary_reports_the_futility_stop_reason_with_evidence(dense_fits, caplog):
+    """Fit summary reports the futility stop reason with evidence."""
     _, stopped = dense_fits
     from mlframe.feature_selection.wrappers.rfecv._fit_summary import build_rfecv_fit_summary
 
@@ -49,6 +54,7 @@ def test_fit_summary_reports_the_futility_stop_reason_with_evidence(dense_fits, 
 
 
 def test_pure_noise_extra_features_keep_the_selection_identical_whether_or_not_the_search_is_cut():
+    """Pure noise extra features keep the selection identical whether or not the search is cut."""
     X, y = _dense(p=14, informative=3)
     full, stopped = _fit(X, y, futility_stop=False), _fit(X, y, futility_stop=True)
     assert len(stopped.eval_trace_) <= len(full.eval_trace_)
@@ -57,12 +63,14 @@ def test_pure_noise_extra_features_keep_the_selection_identical_whether_or_not_t
 
 @pytest.mark.parametrize("kw", [{"n_features_selection_rule": "argmax"}, {"n_features_selection_rule": "one_se_min"}, {"feature_cost": 1e-4}, {"max_nfeatures": 10}])
 def test_not_armed_for_rules_where_shrinking_can_still_change_the_pick(kw):
+    """Not armed for rules where shrinking can still change the pick."""
     X, y = _dense()
     sel = _fit(X, y, futility_stop=True, **kw)
     assert sel.futility_verdict_ is None
 
 
 def test_grouped_config_carries_the_knobs():
+    """Grouped config carries the knobs."""
     from mlframe.feature_selection.wrappers.rfecv._configs import SearchConfig
 
     sel = RFECV(estimator=Ridge(), search_config=SearchConfig(futility_stop=True, futility_min_iters=7, futility_alpha=0.1))
@@ -70,5 +78,6 @@ def test_grouped_config_carries_the_knobs():
 
 
 def test_bad_anchor_is_rejected_at_construction():
+    """Bad anchor is rejected at construction."""
     with pytest.raises(ValueError, match="futility_anchor"):
         RFECV(estimator=Ridge(), futility_anchor="nope")

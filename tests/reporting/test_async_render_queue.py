@@ -381,6 +381,7 @@ def test_submit_render_reports_the_specs_nested_array_bytes_to_the_queue():
     seen = {}
 
     class _Q:
+        """Q."""
         backend = "thread"
 
         def submit(self, fn, *args, **kwargs):

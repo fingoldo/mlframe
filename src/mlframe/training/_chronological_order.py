@@ -59,9 +59,9 @@ def timestamps_sort_keys(timestamps: Any) -> Optional[np.ndarray]:
         nat = np.isnat(values)
         return np.where(nat, _INT64_MAX, keys) if nat.any() else keys
     if kind in "iub":
-        return values
+        return np.asarray(values)
     if kind == "f":
-        return values  # NaN sorts last under numpy's stable sort; the sortedness check treats a NaN as a violation via ``_nondecreasing``
+        return np.asarray(values)  # NaN sorts last under numpy's stable sort; the sortedness check treats a NaN as a violation via ``_nondecreasing``
     return None
 
 

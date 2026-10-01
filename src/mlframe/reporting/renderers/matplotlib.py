@@ -223,7 +223,7 @@ def _set_panel_title(ax, title) -> None:
     width_in = panel_w if (panel_w is not None and panel_w > 0.0) else _TITLE_REF_WIDTH_IN
     lines = wrap_text_to_width(title, fontsize=_TITLE_FONTSIZE, width_in=width_in, fallback_chars=fallback)
     ax.set_title("\n".join(lines), fontsize=_TITLE_FONTSIZE)
-    ax._mlframe_raw_title = title  # type: ignore[attr-defined]  # kept so the post-layout pass can rewrap against the width the panel really got
+    ax._mlframe_raw_title = title  # kept so the post-layout pass can rewrap against the width the panel really got
 
 
 def _rewrap_panel_titles_after_layout(fig) -> None:

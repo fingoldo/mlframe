@@ -54,10 +54,12 @@ class _SourceCache:
 
 
 def _is_catboost(estimator: Any) -> bool:
+    """True for a CatBoost classifier or regressor."""
     return type(estimator).__name__ in ("CatBoostClassifier", "CatBoostRegressor")
 
 
 def _digest(*arrays: Any) -> bytes:
+    """Blake2b digest of the arrays' contents (None is hashed as a marker)."""
     h = hashlib.blake2b(digest_size=16)
     for a in arrays:
         if a is None:
@@ -71,6 +73,7 @@ def _digest(*arrays: Any) -> bytes:
 
 
 def _get_cache(source: Any) -> Optional[_SourceCache]:
+    """The border cache bound to ``source``, or None when there is none for that object."""
     key = id(source)
     with _LOCK:
         cache = _CACHES.get(key)
@@ -106,6 +109,7 @@ def is_supported(estimator: Any, fit_params: dict) -> bool:
 
 
 def _write_subset_borders(fold: _FoldBorders, fit_features: list, path: str) -> None:
+    """Write the fold's quantization borders for ``fit_features`` to ``path``, renumbering columns to the subset order."""
     with open(path, "w") as fh:
         for new_idx, name in enumerate(fit_features):
             for row in fold.lines.get(name, ()):
@@ -113,6 +117,7 @@ def _write_subset_borders(fold: _FoldBorders, fit_features: list, path: str) -> 
 
 
 def _harvest(pool: Any, fit_features: list, fold: _FoldBorders) -> None:
+    """Save the pool's quantization borders into ``fold`` through a temporary file."""
     fd, path = tempfile.mkstemp(suffix=".borders.tsv")
     os.close(fd)
     try:

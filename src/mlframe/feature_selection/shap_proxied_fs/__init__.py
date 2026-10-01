@@ -21,7 +21,7 @@ sklearn contract mirrors BorutaShap: ``support_`` (bool mask in input-column ord
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -48,7 +48,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMix
 
     def __init__(
         self,
-        model=None,
+        model: Any = None,
         classification: bool = True,
         metric: Optional[str] = None,
         optimizer: str = "auto",

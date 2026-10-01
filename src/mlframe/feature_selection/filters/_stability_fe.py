@@ -289,6 +289,7 @@ def stability_select_fe(
 
 
 def _selection_summary(sel):
+    """Selection-summary fragment of this selector for the end-of-fit log."""
     names = [str(n) for n in sel.get_feature_names_out()]
     n_eng = max(len(names) - int(np.asarray(sel.full_mrmr_.support_).size), 0)
     return names, int(sel.n_features_in_), f"+{n_eng} engineered, {len(sel.stable_set_)} stable over {sel.n_bootstraps} bootstrap(s)", len(names) - n_eng

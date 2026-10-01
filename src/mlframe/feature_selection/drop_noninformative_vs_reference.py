@@ -42,6 +42,7 @@ def _noninformative_columns_vs_one_reference(
 
 
 def _summ_drop_noninformative_vs_reference(res, b):
+    """Selection-summary fragment of ``drop_noninformative_vs_reference`` for the end-of-fit log."""
     cols = b.arguments.get("feature_cols")
     n = len(cols) if cols is not None else int(b.arguments["df"].shape[1])
     return res, n, "non-informative vs reference cohort"

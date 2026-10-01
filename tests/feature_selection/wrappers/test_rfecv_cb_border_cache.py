@@ -157,6 +157,7 @@ def test_feature_selection_config_rfecv_kwargs_accepts_cb_cached_borders():
 
 
 def test_border_cache_not_reused_across_different_quantization_params():
+    """Border cache not reused across different quantization params."""
     X, y, _ = _frame(2)
     Xt, yt, Xv, yv = X.iloc[:1000], y.iloc[:1000], X.iloc[1000:], y.iloc[1000:]
     src = type("Src", (), {})()

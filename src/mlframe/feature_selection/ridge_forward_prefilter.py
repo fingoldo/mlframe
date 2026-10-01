@@ -37,6 +37,7 @@ from ._selection_log import logs_selection
 
 
 def _summ_ridge_forward_prefilter(res, b):
+    """Selection-summary fragment of ``ridge_forward_prefilter`` for the end-of-fit log."""
     return res, len(b.arguments["feature_names"]), "ridge-coefficient prefilter pool"
 
 

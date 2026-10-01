@@ -82,6 +82,7 @@ def test_calibrator_post_dump_writes_sidecar(tmp_path):
     target = (p1 + rng.normal(0, 0.1, 300) > 0.5).astype(int)
 
     class _FakeModel:
+        """FakeModel."""
         columns = ["y"]
 
     (tmp_path / slugify("t") / slugify("fs") / slugify(str(TargetTypes.BINARY_CLASSIFICATION)) / slugify("m")).mkdir(parents=True)

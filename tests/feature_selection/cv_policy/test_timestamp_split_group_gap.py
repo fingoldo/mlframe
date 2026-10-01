@@ -5,6 +5,7 @@ from mlframe.feature_selection._cv_splitters import TimestampOrderedSplit
 
 
 def test_grouped_path_forwards_gap_embargo():
+    """Grouped path forwards gap embargo."""
     n_groups, per = 20, 5
     groups = np.repeat(np.arange(n_groups), per)
     ts = np.arange(len(groups))

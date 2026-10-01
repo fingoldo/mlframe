@@ -20,6 +20,7 @@ from mlframe.feature_selection._selection_log import logs_selection
 
 
 def _summ_null_importance(res, b):
+    """Selection-summary fragment of ``null_importance`` for the end-of-fit log."""
     mask = np.asarray(res["keep_mask"], dtype=bool)
     X = b.arguments["X"]
     cols = getattr(X, "columns", None)

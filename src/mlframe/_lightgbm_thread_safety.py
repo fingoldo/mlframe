@@ -39,8 +39,10 @@ def serialisation_enabled() -> bool:
 
 
 def _serialised(fn: Callable) -> Callable:
+    """Wrap ``fn`` so every call holds the LightGBM native lock."""
     @functools.wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
+        """Run ``fn`` under the LightGBM native lock."""
         with LGB_NATIVE_LOCK:
             return fn(*args, **kwargs)
 

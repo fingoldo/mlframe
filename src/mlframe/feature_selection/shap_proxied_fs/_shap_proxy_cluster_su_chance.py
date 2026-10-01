@@ -31,6 +31,7 @@ _INSERTION_SORT_MAX: int = 96
 
 @njit(nogil=True, cache=True)
 def _entropy(counts: np.ndarray, n: int) -> float:
+    """Entropy of the class counts ``counts`` over ``n`` rows (nats)."""
     h = 0.0
     for c in counts:
         if c > 0:

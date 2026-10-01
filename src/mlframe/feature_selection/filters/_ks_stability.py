@@ -18,6 +18,7 @@ from mlframe.feature_selection._selection_log import logs_selection
 
 
 def _summ_ks_stability(res, b):
+    """Selection-summary fragment of ``ks_stability`` for the end-of-fit log."""
     unstable = res.loc[~res["stable"].astype(bool), "column"] if len(res) else []
     return list(unstable), len(res), "train/test distribution shift (KS)"
 

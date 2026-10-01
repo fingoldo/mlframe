@@ -158,6 +158,7 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
 
 
 def _selection_summary(sel):
+    """Selection-summary fragment of this selector for the end-of-fit log."""
     return sel.selected_features_, int(sel.n_features_in_), f"+{sel.n_engineered_} engineered", len(sel.selected_features_) - int(sel.n_engineered_)
 
 

@@ -27,12 +27,14 @@ class MixedScoresError(ValueError):
 
 
 def _transform_of(item: Any) -> Optional[str]:
+    """Transform name of a spec given as a dict or an object."""
     if isinstance(item, dict):
         return item.get("transform_name")
     return getattr(item, "transform_name", None)
 
 
 def _name_of(item: Any) -> str:
+    """Name of a spec given as a string, a dict or an object."""
     if isinstance(item, str):
         return item
     if isinstance(item, dict):
@@ -70,6 +72,7 @@ def rank_specs(
     sign = -1.0 if descending else 1.0
 
     def order(pair):
+        """Sort key: finite scores first, ordered by the signed value."""
         it, s = pair
         v = float(s.value)
         finite = math.isfinite(v)

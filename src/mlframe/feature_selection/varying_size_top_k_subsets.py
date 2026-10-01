@@ -132,6 +132,7 @@ def _diverse_ranking(ranked_features: Sequence[str], clusters: dict, rotation: i
 
 
 def _summ_varying_size_top_k_subsets(res, b):
+    """Selection-summary fragment of ``varying_size_top_k_subsets`` for the end-of-fit log."""
     largest = max(res, key=len) if res else []
     return largest, len(b.arguments["ranked_features"]), f"largest of {len(res)} subset(s), sizes {sorted({len(x) for x in res})}"
 

@@ -20,11 +20,13 @@ catboost = pytest.importorskip("catboost")
 
 
 def _frames(dtype, n=300, seed=0):
+    """Frames."""
     rng = np.random.default_rng(seed)
     cats = [f"c{i}" for i in range(5)]
     y = (rng.random(n) > 0.5).astype(int)
 
     def build(nulls: bool) -> pl.DataFrame:
+        """Build."""
         vals = [cats[i] for i in rng.integers(0, 5, n)]
         if nulls:
             for i in range(0, n, 7):
@@ -35,6 +37,7 @@ def _frames(dtype, n=300, seed=0):
 
 
 def _fitted(dtype):
+    """Fitted."""
     fit_df, nullable_df, y = _frames(dtype)
     model = catboost.CatBoostClassifier(iterations=3, verbose=0, cat_features=["a"], thread_count=1, allow_writing_files=False)
     model.fit(fit_df, y)
@@ -75,17 +78,21 @@ def test_sticky_pandas_message_does_not_contradict_itself(caplog):
     from mlframe.training.trainer import _predict_with_fallback
 
     class _Fake:
+        """Fake."""
         _mlframe_polars_fastpath_broken = True
         _mlframe_polars_fastpath_miss_observed = True
         feature_names_ = ["a"]
 
         def _get_cat_feature_indices(self):
+            """Get cat feature indices."""
             return []
 
         def _get_text_feature_indices(self):
+            """Get text feature indices."""
             return []
 
         def predict(self, X):
+            """Predict."""
             return np.zeros(len(X))
 
     _Fake.__name__ = "CatBoostClassifier"

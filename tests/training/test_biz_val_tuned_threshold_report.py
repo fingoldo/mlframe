@@ -20,9 +20,11 @@ LOGGER = "mlframe.training.core._phase_train_one_target"
 
 
 def _member(n: int = 4000, seed: int = 0):
+    """Member."""
     rng = np.random.default_rng(seed)
 
     def split():
+        """Split."""
         y = (rng.random(n) < 0.3).astype(np.int64)
         p1 = np.clip(0.18 + 0.30 * y + rng.normal(0, 0.07, n), 0.01, 0.99)  # positives centre near 0.48: a 0.5 cut misses most of them
         return y, np.column_stack([1.0 - p1, p1])
@@ -34,6 +36,7 @@ def _member(n: int = 4000, seed: int = 0):
 
 
 def _run(caplog, *, target_type=TargetTypes.BINARY_CLASSIFICATION, **cfg):
+    """Run."""
     member, yv = _member()
     behavior = SimpleNamespace(tune_decision_threshold="auto", tune_decision_threshold_metric="balanced_accuracy", **cfg)
     metadata: dict = {}

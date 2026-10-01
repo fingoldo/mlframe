@@ -94,6 +94,7 @@ def _cv_skill(est, X, y, *, classification: bool, folds: int, random_state: int)
 
 
 def _summ_hetero_vote(res, b):
+    """Selection-summary fragment of ``hetero_vote`` for the end-of-fit log."""
     return res[0], n_columns(b.arguments["X"]), f"{res[1].get('n_models', 0)} panel model(s)"
 
 

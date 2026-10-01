@@ -269,6 +269,7 @@ def _fit_with_subsample_stability(self, X, y):
 
 
 def _selection_summary(self):
+    """Selection-summary fragment of this selector for the end-of-fit log."""
     return self.selected_features_, int(self.n_features_in_), f"{len(self.accepted)} accepted, {len(self.tentative)} tentative, {len(self.rejected)} rejected"
 
 

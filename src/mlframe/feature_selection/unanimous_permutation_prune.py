@@ -20,6 +20,7 @@ from ._selection_log import logs_selection, n_columns
 
 
 def _summ_unanimous_permutation_prune(res, b):
+    """Selection-summary fragment of ``unanimous_permutation_prune`` for the end-of-fit log."""
     return res, n_columns(b.arguments["X"]), "surviving unanimous permutation pruning"
 
 

@@ -101,6 +101,7 @@ def _stochastic_bandit_selection_core(
 
 
 def _summ_stochastic_bandit_selection(res, b):
+    """Selection-summary fragment of ``stochastic_bandit_selection`` for the end-of-fit log."""
     return res, int(b.arguments["X"].shape[1]), None
 
 

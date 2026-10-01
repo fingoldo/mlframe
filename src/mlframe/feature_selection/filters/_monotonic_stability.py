@@ -18,6 +18,7 @@ from mlframe.feature_selection._selection_log import logs_selection
 
 
 def _summ_monotonic_stability(res, b):
+    """Selection-summary fragment of ``monotonic_stability`` for the end-of-fit log."""
     stable = res["stable"].astype(bool) if len(res) else res.get("stable", [])
     return [f for f, s in zip(res["feature"], stable) if s], len(res), "sign-stable across group subsamples"
 

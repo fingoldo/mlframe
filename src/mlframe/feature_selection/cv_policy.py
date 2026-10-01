@@ -83,6 +83,7 @@ class CVPolicy:
 
     @property
     def temporal(self) -> bool:
+        """True when the policy splits by time."""
         return self.kind == "temporal"
 
     def subset(self, idx: np.ndarray) -> "CVPolicy":
@@ -93,6 +94,7 @@ class CVPolicy:
         return CVPolicy(self.kind, self.reason, _take(self.timestamps, idx), _take(self.groups, idx))
 
     def _held_len(self) -> Optional[int]:
+        """Length of the timestamps or groups the policy holds, or None when it holds none."""
         held = self.timestamps if self.kind == "temporal" else self.groups
         return None if held is None else len(held)
 
@@ -173,9 +175,11 @@ class BoundGroupKFold:
         self.groups = groups
 
     def get_n_splits(self, X: Any = None, y: Any = None, groups: Any = None) -> int:
+        """Number of folds."""
         return self.n_splits
 
     def split(self, X: Any = None, y: Any = None, groups: Any = None) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """Yield GroupKFold folds over the groups bound at construction or passed here."""
         g = groups if groups is not None else self.groups
         if g is None:
             raise ValueError("BoundGroupKFold: no groups were bound and none were passed to split (they are not pickled).")
@@ -209,6 +213,7 @@ def build_cv_splitter(
 
 
 def _chronological_positions(policy: CVPolicy, n: int) -> Optional[np.ndarray]:
+    """Positions that put the policy's rows in time order, or None when the policy does not match ``n`` rows."""
     return chronological_order(policy.timestamps) if policy.matches(n) else None
 
 

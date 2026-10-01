@@ -44,6 +44,7 @@ from ._selection_log import logs_selection
 
 
 def _summ_pre_screen(res, b):
+    """Selection-summary fragment of ``pre_screen`` for the end-of-fit log."""
     df = b.arguments["train_df"]
     return res, int(df.shape[1]) if hasattr(df, "shape") and len(df.shape) == 2 else len(res), "constant / near-all-null columns"
 

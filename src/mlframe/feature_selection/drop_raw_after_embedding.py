@@ -69,6 +69,7 @@ def _raw_column_signal(df: pd.DataFrame, raw_col: str, y_arr: np.ndarray, n_fold
 
 
 def _summ_drop_raw_after_embedding(res, b):
+    """Selection-summary fragment of ``drop_raw_after_embedding`` for the end-of-fit log."""
     df = b.arguments["df"]
     kept = set(res.columns)
     return [c for c in df.columns if c not in kept], int(df.shape[1]), "raw columns superseded by derived embedding/encoding columns"

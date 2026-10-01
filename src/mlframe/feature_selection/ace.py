@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -186,6 +186,7 @@ def _one_replicate_importances(
 
 
 def _summ_ace(res, b):
+    """Selection-summary fragment of ``ace`` for the end-of-fit log."""
     return res.selected_features, len(res.feature_names), None
 
 
@@ -371,7 +372,7 @@ class ACESelector(TransformerMixin, BaseEstimator):
 
     def __init__(
         self,
-        estimator=None,
+        estimator: Any = None,
         *,
         n_replicates: int = 20,
         contrast_percentile: float = _DEFAULT_CONTRAST_PERCENTILE,

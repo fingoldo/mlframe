@@ -18,6 +18,7 @@ from mlframe.feature_selection._selection_log import logs_selection
 
 
 def _summ_boruta(res, b):
+    """Selection-summary fragment of ``boruta`` for the end-of-fit log."""
     names = res["feature_names"]
     kept = [n for n, d in zip(names, res["decision"]) if d == "confirmed"]
     n_tent = sum(1 for d in res["decision"] if d == "tentative")
