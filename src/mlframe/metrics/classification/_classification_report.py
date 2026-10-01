@@ -250,6 +250,7 @@ def fast_calibration_report(
     verbose: bool = False,
     group_ids: Optional[np.ndarray] = None,
     binary_threshold: float = 0.5,
+    tuned_threshold: Optional[float] = None,
     _precomputed_aucs: Optional[Tuple[float, float]] = None,
     dpi: Optional[int] = None,
     **ice_kwargs,
@@ -430,6 +431,11 @@ def fast_calibration_report(
     except (ValueError, TypeError, FloatingPointError) as _ext_err:
         logger.debug("title-token extras (KS/MCC/BSS) skipped: %s", _ext_err)
 
+    tuned_prf = (np.nan, np.nan, np.nan)
+    if tuned_threshold is not None and np.isfinite(tuned_threshold) and "PRF_TUNED" in title_metrics_tokens:
+        _t_tp, _t_fp, _t_tn, _t_fn = _confusion_counts_binary_dispatch(_yt_int, y_pred >= tuned_threshold)
+        tuned_prf = precision_recall_f1_from_counts(_t_tp, _t_fp, _t_fn)
+
     fragments = []
     for token in title_metrics_tokens:
         rendered = render_title_metric_token(
@@ -458,6 +464,7 @@ def fast_calibration_report(
             f1=f1,
             ks=ks_val, mcc=mcc_val, bss=bss_val,
             binary_threshold=binary_threshold,
+            tuned_threshold=tuned_threshold, tuned_precision=tuned_prf[0], tuned_recall=tuned_prf[1], tuned_f1=tuned_prf[2],
         )
         if rendered:
             fragments.append(rendered)

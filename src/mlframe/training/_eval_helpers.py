@@ -451,6 +451,8 @@ def _compute_split_metrics(
     y_train_envelope_stats: Any = None,
     reporting_config: Any = None,
     split_timestamps=None,
+    f1_opt_threshold: float | None = None,
+    tune_f1_threshold: bool = False,
 ):
     """Unified metrics computation for train/val/test splits."""
     # Derive columns from df if available (for feature importance)
@@ -547,6 +549,8 @@ def _compute_split_metrics(
         target_type=target_type,
         y_train_envelope_stats=y_train_envelope_stats,
         reporting_config=reporting_config,
+        f1_opt_threshold=f1_opt_threshold,
+        tune_f1_threshold=tune_f1_threshold,
     )
 
     _render_split_diagnostics(

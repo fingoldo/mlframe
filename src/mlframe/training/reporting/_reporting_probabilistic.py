@@ -124,6 +124,28 @@ def _aggregate_per_class_metrics(metrics: dict, per_class_blocks: list, supports
             metrics[f"weighted_{key}"] = float((arr * w).sum() / w.sum()) if vals and w.sum() > 0 else float("nan")
 
 
+def _resolve_f1_opt_threshold(is_binary_positive: bool, y_true: Any, y_score: Any, given: float | None, tune_here: bool, metrics: Any) -> float | None:
+    """F1-optimal decision threshold for the title's tuned block: the one handed in (the val-tuned one, for test), else tuned on this split when asked.
+
+    A threshold tuned here is recorded in ``metrics['f1_opt_threshold']`` so the test report can reuse it unchanged -- the test number must
+    not be optimised on test labels.
+    """
+    if not is_binary_positive:
+        return None
+    if given is not None:
+        return float(given)
+    if not tune_here:
+        return None
+    from mlframe.metrics.classification._threshold_optimization import optimal_threshold
+
+    thr, _ = optimal_threshold(np.asarray(y_true), np.asarray(y_score), metric="f1")
+    if not np.isfinite(thr):
+        return None
+    if isinstance(metrics, dict):
+        metrics["f1_opt_threshold"] = float(thr)
+    return float(thr)
+
+
 def report_probabilistic_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -167,6 +189,8 @@ def report_probabilistic_model_perf(
     fairness_calibration_charts: bool = True,
     calibration_by_feature_charts: bool = True,
     calibration_heatmap_2d_charts: bool = True,
+    f1_opt_threshold: float | None = None,
+    tune_f1_threshold: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate a detailed performance report for probabilistic classification models.
@@ -535,6 +559,9 @@ def report_probabilistic_model_perf(
             _fcr_kwargs["base_path"] = _class_base_path
         if title_metrics_tokens is not None:
             _fcr_kwargs["title_metrics_tokens"] = title_metrics_tokens
+        _f1_thr = _resolve_f1_opt_threshold(len(classes) == 2 and class_id == 1, y_true, y_score, f1_opt_threshold, tune_f1_threshold, metrics)
+        if _f1_thr is not None:
+            _fcr_kwargs["tuned_threshold"] = _f1_thr
         # calibration binning strategy (auto/uniform/quantile) from ReportingConfig; default "auto" already picks
         # quantile under rare-event base rates. reliability_show_ci toggles the Wilson-CI band on the reliability
         # diagram and reaches the chart via fast_calibration_report -> build_calibration_spec(show_wilson_ci=...).

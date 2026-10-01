@@ -141,19 +141,39 @@ class TestThresholdDependentMetricsNameTheirThreshold:
 
     def test_the_threshold_appears_in_the_fragment(self):
         """Without it the three numbers are unattributable."""
-        out = render_title_metric_token("PR_AUC", binary_threshold=0.5, **_token_args())
+        out = render_title_metric_token("PRF", binary_threshold=0.5, **_token_args())
         assert "@0.50: [PR=" in out
 
     def test_a_non_default_threshold_is_the_one_reported(self):
         """A tuned decision threshold is exactly the case where the reader must not assume 0.5."""
-        out = render_title_metric_token("PR_AUC", binary_threshold=0.23, **_token_args())
+        out = render_title_metric_token("PRF", binary_threshold=0.23, **_token_args())
         assert "@0.23: [PR=" in out
 
     def test_an_omitted_threshold_degrades_to_the_old_bare_label(self):
         """Callers that never computed one still render, rather than printing a made-up 0.50."""
-        out = render_title_metric_token("PR_AUC", **_token_args())
+        out = render_title_metric_token("PRF", **_token_args())
         assert "PR=" in out
         assert "@" not in out
+
+    def test_the_pr_auc_token_carries_no_threshold_block(self):
+        """The threshold-dependent trio has its own token, so PR AUC is a clean threshold-free summary."""
+        out = render_title_metric_token("PR_AUC", binary_threshold=0.5, **_token_args())
+        assert out == "PR AUC=0.800"
+
+    def test_the_tuned_block_names_the_f1_optimal_threshold_and_its_own_metrics(self):
+        """The F1-optimal block reports the precision/recall/F1 measured AT that threshold, not the 0.5 ones."""
+        out = render_title_metric_token("PRF_TUNED", tuned_threshold=0.37, tuned_precision=0.5, tuned_recall=0.7, tuned_f1=0.583, **_token_args())
+        assert out == "@F1-opt(val) 0.37: [PR=50.00%,RE=70.00%,F1=58.30%]"
+
+    def test_the_tuned_block_is_absent_without_a_threshold(self):
+        """A split with no val-tuned threshold prints nothing rather than a made-up one."""
+        assert render_title_metric_token("PRF_TUNED", **_token_args()) == ""
+
+    def test_the_default_template_puts_the_threshold_blocks_after_the_threshold_free_metrics(self):
+        """KS / MCC / BSS come before the @threshold groups, and both groups are on by default."""
+        from mlframe.metrics.calibration import DEFAULT_TITLE_METRICS_TOKENS
+
+        assert DEFAULT_TITLE_METRICS_TOKENS[-3:] == ("BSS", "PRF", "PRF_TUNED")
 
     def test_the_threshold_free_aucs_are_left_alone(self):
         """Attaching a threshold to ROC AUC would be the same defect in the opposite direction."""

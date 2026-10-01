@@ -223,6 +223,39 @@ def _set_panel_title(ax, title) -> None:
     width_in = panel_w if (panel_w is not None and panel_w > 0.0) else _TITLE_REF_WIDTH_IN
     lines = wrap_text_to_width(title, fontsize=_TITLE_FONTSIZE, width_in=width_in, fallback_chars=fallback)
     ax.set_title("\n".join(lines), fontsize=_TITLE_FONTSIZE)
+    ax._mlframe_raw_title = title  # type: ignore[attr-defined]  # kept so the post-layout pass can rewrap against the width the panel really got
+
+
+def _rewrap_panel_titles_after_layout(fig) -> None:
+    """Rewrap every panel title against the axes width constrained layout actually gave it.
+
+    ``_set_panel_title`` runs while the panels are being drawn, before layout: a panel that later shares its row with a colorbar or
+    outside legend is 7.4in wide there but 10in wide once placed, so the title broke at the early width and left a third of the line
+    empty (``w=recency`` pushed to its own line with room to spare). Layout is executed once here, without a draw, and each title is
+    wrapped again with the measured post-layout width.
+    """
+    eng = fig.get_layout_engine()
+    if eng is None:
+        return
+    try:
+        eng.execute(fig)
+        fig_w = float(fig.get_size_inches()[0])
+        titled = [ax for ax in fig.axes if getattr(ax, "_mlframe_raw_title", None)]
+        for ax in titled:
+            raw = getattr(ax, "_mlframe_raw_title", None)
+            if raw:
+                pos = ax.get_position()
+                width_in = float(pos.width) * fig_w
+                if len(titled) == 1:
+                    # The only titled panel: no neighbour's title to collide with, and a title is centred on its axes, so it may run as far
+                    # either side as the nearer figure edge allows -- a colorbar beside the axes shifts the centre left of the figure's.
+                    centre = float(pos.x0 + pos.width / 2.0)
+                    width_in = max(width_in, 2.0 * min(centre, 1.0 - centre) * fig_w)
+                if width_in > 0.0:
+                    lines = wrap_text_to_width(raw, fontsize=_TITLE_FONTSIZE, width_in=width_in, fallback_chars=panel_title_wrap_chars((width_in, 0), 1))
+                    ax.set_title("\n".join(lines), fontsize=_TITLE_FONTSIZE)
+    except Exception:
+        logger.debug("post-layout title rewrap failed; keeping the pre-layout wrap", exc_info=True)
 
 
 def _apply_asinh_x(ax: Any, linear_width: float, axis: str = "x") -> None:
@@ -410,6 +443,7 @@ class MatplotlibRenderer:
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                     logger.debug("suppressed: %s", e)
                     pass
+        _rewrap_panel_titles_after_layout(fig)
         if _sup_text:
             # Centred in its own band. Left to constrained_layout's own placement the multi-line case lands on
             # the axes; anchored here it cannot, because the band is exactly what the axes rectangle excludes.

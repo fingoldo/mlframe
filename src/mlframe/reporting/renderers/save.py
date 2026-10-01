@@ -326,6 +326,95 @@ def render_and_save(
     return render_and_save_now(spec, output, base_path, keep_handles=keep_handles, interactive=interactive, format_subfolders=format_subfolders)
 
 
+def _run_backends(_backends: list, _do_backend: Any, failed_backends: Optional[list]) -> list:
+    """Run every ``(backend, formats)`` pipeline (one daemon thread each when there are several) and return the ``(backend, fig)`` pairs that succeeded.
+
+    A render that raises or exceeds the per-backend timeout is counted in the render-failure stats, logged once per throttle window and, when
+    ``failed_backends`` is given, named there; it never propagates to the caller.
+    """
+    if len(_backends) > 1:
+        from concurrent.futures import TimeoutError as _FutureTimeout
+        # One DAEMON thread per backend, each = one render+save pipeline. This used to be a
+        # ``with ThreadPoolExecutor(...)`` block: its ``__exit__`` calls ``shutdown(wait=True)``, which JOINS
+        # the worker the 60s timeout below had just "abandoned", so a slow or wedged render still blocked the
+        # caller indefinitely. Deep-nightly shards 15/16 hung exactly there (main thread in
+        # ``_wait_for_tstate_lock`` under this block, 3.7h with no output until the job cap), and the
+        # non-daemon executor threads would also have held up interpreter exit.
+        _futures = [_start_daemon_task(_do_backend, backend, fmts) for backend, fmts in _backends]
+        _results = []
+        for f in _futures:
+            try:
+                _results.append(f.result(timeout=_BACKEND_RENDER_TIMEOUT_S))
+            except _FutureTimeout:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                _record_render_failure(timed_out=True)
+                if failed_backends is not None:
+                    failed_backends.append("timeout")
+                log_throttle(
+                    logger, "render_save_backend_future_timeout", logging.WARNING,
+                    "render_and_save: backend future exceeded %ss; the worker thread is abandoned and one "
+                    "chart is dropped. See get_render_failure_stats(). ", _BACKEND_RENDER_TIMEOUT_S, exc_info=True,
+                )
+            except Exception:
+                _record_render_failure(timed_out=False)
+                if failed_backends is not None:
+                    failed_backends.append("backend")
+                log_throttle(
+                    logger, "render_save_backend_future_failed", logging.WARNING,
+                    "render_and_save: backend future failed; one render output dropped. " "See get_render_failure_stats().",
+                    exc_info=True,
+                )
+    else:
+        # Single-backend path: skip the thread pool overhead, but still go through the SAME try/except +
+        # _record_render_failure bookkeeping the multi-backend path uses a few lines above -- this is the
+        # COMMON case (most call sites request one backend), and a bare list comprehension here previously
+        # neither counted a rendering exception in get_render_failure_stats() (undercounting the suite-end
+        # "N charts silently dropped" summary) nor caught it, so it propagated to whatever called
+        # render_and_save -- some call sites outside this cluster invoke it with no wrapping try/except of
+        # their own.
+        _results = []
+        for backend, fmts in _backends:
+            try:
+                _results.append(_do_backend(backend, fmts))
+            except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate (see the multi-backend branch above)
+                _record_render_failure(timed_out=False)
+                if failed_backends is not None:
+                    failed_backends.append(backend)
+                log_throttle(
+                    logger, "render_save_single_backend_failed", logging.WARNING,
+                    "render_and_save: single-backend render failed; one render output dropped. " "See get_render_failure_stats().",
+                    exc_info=True,
+                )
+    return _results
+
+
+def _finish_backend_outputs(_results: list, interactive: bool, keep_handles: bool, handles: Dict[str, Any]) -> None:
+    """Main-thread tail of a render: inline ``show`` for interactive sessions, then hand over or release each figure."""
+    for backend, fig in _results:
+        # Save-only backends are never shown inline: with the default two-backend ``plot_outputs`` the cell
+        # otherwise received the interactive plotly figure AND a static matplotlib duplicate of the same
+        # data. Their files are written exactly as before -- only the redundant cell output is dropped.
+        if interactive and backend not in _SAVE_ONLY_BACKENDS:
+            try:
+                renderer = get_renderer(backend)
+                renderer.show(fig)
+            except Exception as e:
+                logger.debug(
+                    "render_and_save: %s renderer.show() failed (%s: %s); "
+                    "on-disk save unaffected", backend, type(e).__name__, e,
+                )
+        if keep_handles:
+            handles[backend] = fig
+        elif backend == "matplotlib":
+            # Unconditional now: the figure was never handed to a display hook, so nothing else holds a
+            # reference. Previously the interactive branch left it open, leaking ~1MB per chart in a
+            # notebook session precisely where suites emit the most figures.
+            try:
+                import matplotlib.pyplot as plt
+                plt.close(fig)
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("matplotlib figure close failed: %s", e)
+
+
 def render_and_save_now(
     spec: FigureSpec,
     output: PlotOutputSpec,
@@ -432,85 +521,8 @@ def render_and_save_now(
         record_chart_render(chart_type_of(base_path), time.perf_counter() - _t0, backend=backend)
         return backend, fig
 
-    if len(_backends) > 1:
-        from concurrent.futures import TimeoutError as _FutureTimeout
-        # One DAEMON thread per backend, each = one render+save pipeline. This used to be a
-        # ``with ThreadPoolExecutor(...)`` block: its ``__exit__`` calls ``shutdown(wait=True)``, which JOINS
-        # the worker the 60s timeout below had just "abandoned", so a slow or wedged render still blocked the
-        # caller indefinitely. Deep-nightly shards 15/16 hung exactly there (main thread in
-        # ``_wait_for_tstate_lock`` under this block, 3.7h with no output until the job cap), and the
-        # non-daemon executor threads would also have held up interpreter exit.
-        _futures = [_start_daemon_task(_do_backend, backend, fmts) for backend, fmts in _backends]
-        _results = []
-        for f in _futures:
-            try:
-                _results.append(f.result(timeout=_BACKEND_RENDER_TIMEOUT_S))
-            except _FutureTimeout:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                _record_render_failure(timed_out=True)
-                if failed_backends is not None:
-                    failed_backends.append("timeout")
-                log_throttle(
-                    logger, "render_save_backend_future_timeout", logging.WARNING,
-                    "render_and_save: backend future exceeded %ss; the worker thread is abandoned and one "
-                    "chart is dropped. See get_render_failure_stats(). ", _BACKEND_RENDER_TIMEOUT_S, exc_info=True,
-                )
-            except Exception:
-                _record_render_failure(timed_out=False)
-                if failed_backends is not None:
-                    failed_backends.append("backend")
-                log_throttle(
-                    logger, "render_save_backend_future_failed", logging.WARNING,
-                    "render_and_save: backend future failed; one render output dropped. " "See get_render_failure_stats().",
-                    exc_info=True,
-                )
-    else:
-        # Single-backend path: skip the thread pool overhead, but still go through the SAME try/except +
-        # _record_render_failure bookkeeping the multi-backend path uses a few lines above -- this is the
-        # COMMON case (most call sites request one backend), and a bare list comprehension here previously
-        # neither counted a rendering exception in get_render_failure_stats() (undercounting the suite-end
-        # "N charts silently dropped" summary) nor caught it, so it propagated to whatever called
-        # render_and_save -- some call sites outside this cluster invoke it with no wrapping try/except of
-        # their own.
-        _results = []
-        for backend, fmts in _backends:
-            try:
-                _results.append(_do_backend(backend, fmts))
-            except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate (see the multi-backend branch above)
-                _record_render_failure(timed_out=False)
-                if failed_backends is not None:
-                    failed_backends.append(backend)
-                log_throttle(
-                    logger, "render_save_single_backend_failed", logging.WARNING,
-                    "render_and_save: single-backend render failed; one render output dropped. " "See get_render_failure_stats().",
-                    exc_info=True,
-                )
-
-    # Main-thread post-processing: interactive show + cleanup. Both touch
-    # pyplot / Jupyter display hooks that are NOT thread-safe.
-    for backend, fig in _results:
-        # Save-only backends are never shown inline: with the default two-backend ``plot_outputs`` the cell
-        # otherwise received the interactive plotly figure AND a static matplotlib duplicate of the same
-        # data. Their files are written exactly as before -- only the redundant cell output is dropped.
-        if interactive and backend not in _SAVE_ONLY_BACKENDS:
-            try:
-                renderer = get_renderer(backend)
-                renderer.show(fig)
-            except Exception as e:
-                logger.debug(
-                    "render_and_save: %s renderer.show() failed (%s: %s); "
-                    "on-disk save unaffected", backend, type(e).__name__, e,
-                )
-        if keep_handles:
-            handles[backend] = fig
-        elif backend == "matplotlib":
-            # Unconditional now: the figure was never handed to a display hook, so nothing else holds a
-            # reference. Previously the interactive branch left it open, leaking ~1MB per chart in a
-            # notebook session precisely where suites emit the most figures.
-            try:
-                import matplotlib.pyplot as plt
-                plt.close(fig)
-            except Exception as e:  # nosec B110 - optional dependency import guard
-                logger.debug("matplotlib figure close failed: %s", e)
+    _results = _run_backends(_backends, _do_backend, failed_backends)
+    _finish_backend_outputs(_results, bool(interactive), keep_handles, handles)
 
     return handles if keep_handles else None
 

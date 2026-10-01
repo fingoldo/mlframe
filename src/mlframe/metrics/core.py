@@ -113,6 +113,8 @@ TITLE_METRIC_TOKENS: frozenset = frozenset({
     # ROC_AUC for a chart-title operator; still computed into metrics
     # dict (under "Gini") for downstream callers that report on it.
     "KS", "MCC", "BSS",
+    # Threshold-dependent PR/RE/F1 at the 0.5 threshold (PRF) and at the F1-optimal threshold chosen on val (PRF_TUNED).
+    "PRF", "PRF_TUNED",
 })
 
 

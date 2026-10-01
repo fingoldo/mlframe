@@ -817,6 +817,8 @@ class TestCalibration:
                 "KS",
                 "MCC",
                 "BSS",
+                "PRF",
+                "PRF_TUNED",
             }
         )
 
@@ -837,6 +839,8 @@ class TestCalibration:
             "KS",
             "MCC",
             "BSS",
+            "PRF",
+            "PRF_TUNED",
         )
 
     def test_render_token_ice(self):

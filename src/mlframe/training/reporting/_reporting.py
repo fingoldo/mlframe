@@ -380,6 +380,8 @@ def report_model_perf(
     quantile_alphas: Sequence[float] | None = None,
     y_train_envelope_stats: Any = None,
     reporting_config: Any = None,
+    f1_opt_threshold: float | None = None,
+    tune_f1_threshold: bool = False,
 ) -> tuple[np.ndarray, np.ndarray | None]:
     """
     Generate a unified performance report for both classifiers and regressors.
@@ -524,6 +526,8 @@ def report_model_perf(
                 fairness_calibration_charts=_fairness_calibration_charts,
                 calibration_by_feature_charts=_calibration_by_feature_charts,
                 calibration_heatmap_2d_charts=_calibration_heatmap_2d_charts,
+                f1_opt_threshold=f1_opt_threshold,
+                tune_f1_threshold=tune_f1_threshold,
             )
     else:
         with phase(

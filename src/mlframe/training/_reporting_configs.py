@@ -41,6 +41,8 @@ _REPORTING_ALLOWED_TITLE_TOKENS: FrozenSet[str] = frozenset({
     # Gini deliberately NOT a token: =2*AUC-1, redundant with ROC_AUC for
     # chart-title use; available in metrics dict as "Gini" anyway.
     "KS", "MCC", "BSS",
+    # PR/RE/F1 at the 0.5 threshold, and at the F1-optimal threshold tuned on val.
+    "PRF", "PRF_TUNED",
 })
 
 
@@ -127,7 +129,7 @@ class ReportingConfig(BaseConfig):
     # not in default (it's algebraically derivable from ROC_AUC).
     # ``BR`` rather than ``BR_DECOMP``: the decomposition renders as ``BR=20.5%(RL0.0%+U23.8%-RS3.2%)``, the
     # longest token in the headline and the one a reader cannot decode without knowing the Murphy identity.
-    title_metrics_template: str = "ICE BR ECE CMAEW LL ROC_AUC PR_AUC KS MCC BSS"
+    title_metrics_template: str = "ICE BR ECE CMAEW LL ROC_AUC PR_AUC KS MCC BSS PRF PRF_TUNED"
     # Populated by the model_validator after title_metrics_template is validated.
     # Stored as a tuple so downstream hot-path code (fast_calibration_report)
     # never has to re-parse the string. Do not set directly - it is overwritten

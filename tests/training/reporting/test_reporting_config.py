@@ -52,6 +52,8 @@ class TestReportingConfigTitleTemplate:
             "KS",
             "MCC",
             "BSS",
+            "PRF",
+            "PRF_TUNED",
         )
 
     def test_custom_template_is_parsed_in_order(self):

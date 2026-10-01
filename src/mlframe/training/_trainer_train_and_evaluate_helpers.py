@@ -25,6 +25,7 @@ def _run_val_split_metrics(_val_cfg, metrics, has_test, common_metrics_params):
         probs=sprobs,
         details=sdet,
         has_other_splits=has_test,
+        tune_f1_threshold=True,
         **common_metrics_params,
     )
 
@@ -43,5 +44,6 @@ def _run_test_split_metrics(_run_test, metrics, test_df, test_target, test_idx, 
         probs=test_probs,
         details=test_details,
         has_other_splits=False,
+        f1_opt_threshold=metrics["val"].get("f1_opt_threshold") if isinstance(metrics.get("val"), dict) else None,
         **common_metrics_params,
     )

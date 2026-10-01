@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 # The decomposition is still available by asking for ``BR_DECOMP`` explicitly.
 DEFAULT_TITLE_METRICS_TOKENS: tuple = (
     "ICE", "BR", "ECE", "CMAEW", "LL",
-    "ROC_AUC", "PR_AUC", "KS", "MCC", "BSS",
+    "ROC_AUC", "PR_AUC", "KS", "MCC", "BSS", "PRF", "PRF_TUNED",
 )
 
 
@@ -102,6 +102,10 @@ def render_title_metric_token(
     mcc: float = np.nan,
     bss: float = np.nan,
     binary_threshold: Optional[float] = None,
+    tuned_threshold: Optional[float] = None,
+    tuned_precision: float = np.nan,
+    tuned_recall: float = np.nan,
+    tuned_f1: float = np.nan,
 ) -> str:
     """Render one calibration-report title fragment for a token.
 
@@ -166,15 +170,18 @@ def render_title_metric_token(
         if mean_group_pr_auc is not None and not np.isnan(mean_group_pr_auc):
             suffix = f"[{mean_group_pr_auc:.{ndigits}f}]"
         if np.isnan(pr_auc):
-            base = f"PR AUC=N/A{suffix}"
-        else:
-            base = f"PR AUC={pr_auc:.{ndigits}f}{suffix}"
-        # PR/RE/F1 are threshold-dependent, unlike the two AUCs beside them; printing them bare invited reading them as
-        # threshold-free summaries. The threshold is named ONCE, in front of the bracketed group it governs, rather
-        # than repeated on each of the three -- one label for one fact.
+            return f"PR AUC=N/A{suffix}"
+        return f"PR AUC={pr_auc:.{ndigits}f}{suffix}"
+    if token == "PRF":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+        # PR/RE/F1 are threshold-dependent, unlike the two AUCs, so they get their own token (the template places it after
+        # the threshold-free metrics) and the threshold is named ONCE, in front of the bracketed group it governs.
         prf = f"PR={precision * 100:.{pct_digits}f}%,RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
-        group = f"@{binary_threshold:.2f}: [{prf}]" if binary_threshold is not None else prf
-        return f"{base}, {group}"
+        return f"@{binary_threshold:.2f}: [{prf}]" if binary_threshold is not None else prf
+    if token == "PRF_TUNED":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+        if tuned_threshold is None or np.isnan(tuned_threshold):
+            return ""
+        prf = f"PR={tuned_precision * 100:.{pct_digits}f}%,RE={tuned_recall * 100:.{pct_digits}f}%,F1={tuned_f1 * 100:.{pct_digits}f}%"
+        return f"@F1-opt(val) {tuned_threshold:.2f}: [{prf}]"
     if token == "KS":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         if np.isnan(ks):
             return "KS=N/A"
