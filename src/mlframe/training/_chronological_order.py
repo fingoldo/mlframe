@@ -16,9 +16,18 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["timestamps_sort_keys", "chronological_order_index", "apply_chronological_train_order"]
+__all__ = ["naive_utc_series", "timestamps_sort_keys", "chronological_order_index", "apply_chronological_train_order"]
 
 _INT64_MAX = np.iinfo(np.int64).max
+
+
+def naive_utc_series(series: pd.Series) -> pd.Series:
+    """tz-aware values -> UTC-naive; object dtype -> parsed datetimes (unparseable -> NaT); anything else unchanged."""
+    if isinstance(series.dtype, pd.DatetimeTZDtype):
+        return series.dt.tz_convert("UTC").dt.tz_localize(None)
+    if series.dtype == object:
+        return pd.to_datetime(series, utc=True, errors="coerce").dt.tz_localize(None)
+    return series
 
 
 def timestamps_sort_keys(timestamps: Any) -> Optional[np.ndarray]:
@@ -37,11 +46,7 @@ def timestamps_sort_keys(timestamps: Any) -> Optional[np.ndarray]:
             return None
     if isinstance(timestamps, (pd.Series, pd.Index)):
         series = pd.Series(timestamps) if isinstance(timestamps, pd.Index) else timestamps
-        if isinstance(series.dtype, pd.DatetimeTZDtype):
-            series = series.dt.tz_convert("UTC").dt.tz_localize(None)
-        elif series.dtype == object:
-            series = pd.to_datetime(series, utc=True, errors="coerce").dt.tz_localize(None)
-        values = series.to_numpy()
+        values = naive_utc_series(series).to_numpy()
     else:
         values = np.asarray(timestamps)
         if values.dtype == object:

@@ -448,7 +448,8 @@ def select_optimal_nfeatures_(
         _mean = np.array(cv_mean_perf)
         _std = np.array(cv_std_perf)
         if np.isfinite(_mean[_full_pos]) and np.isfinite(_mean[_zero_pos]):
-            _full_se = _std[_full_pos] if np.isfinite(_std[_full_pos]) else 0.0
+            _full_se = float(band_half_width(_std, fold_counts(self, checked_nfeatures), band_kind)[_full_pos])
+            _full_se = _full_se if np.isfinite(_full_se) else 0.0
             if _mean[_full_pos] + _full_se < _mean[_zero_pos]:
                 _cap = min(p_in, max(20, p_in // 3))
                 _ranking = _rank_features_by_importance(
@@ -528,7 +529,7 @@ def select_optimal_nfeatures_(
             # at >= that N - i.e. the point past which adding features yields no SE-significant gain. Sits
             # between one_se_max (keeps ~all on flat tails) and one_se_min/knee (over-prunes a flat curve to a
             # tiny N): it stops where the curve flattened, capturing the full achievable score parsimoniously.
-            _se = std_arr[best_mean_idx]
+            _se = band_half_width(std_arr, fold_counts(self, checked_nfeatures), band_kind)[best_mean_idx]
             _order = sorted(nz_idx, key=lambda i: nfeatures_arr[i])
             best_idx = _order[-1]
             for _pos, _i in enumerate(_order):

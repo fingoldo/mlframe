@@ -16,6 +16,8 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from .._chronological_order import naive_utc_series
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["timestamps_are_chronological", "decide_catboost_has_time", "apply_catboost_has_time"]
@@ -26,11 +28,7 @@ def timestamps_are_chronological(timestamps: Any) -> bool:
     if timestamps is None or len(timestamps) < 2:
         return False
     series = timestamps if isinstance(timestamps, pd.Series) else pd.Series(np.asarray(timestamps))
-    if isinstance(series.dtype, pd.DatetimeTZDtype):
-        series = series.dt.tz_convert("UTC").dt.tz_localize(None)
-    elif series.dtype == object:
-        series = pd.to_datetime(series, utc=True, errors="coerce").dt.tz_localize(None)
-    values = series.to_numpy()
+    values = naive_utc_series(series).to_numpy()
     if values.dtype.kind in "mM":
         if np.isnat(values).any():
             return False
@@ -79,12 +77,16 @@ def apply_catboost_has_time(models_params: Optional[Dict[str, Any]], policy: Any
         if model is None or not hasattr(model, "get_params"):
             continue
         try:
-            keys = [k for k in model.get_params(deep=True) if k == "has_time" or k.endswith("__has_time")]
+            params = model.get_params(deep=True)
+            keys = [k for k in params if k == "has_time" or k.endswith("__has_time")]
         except Exception as exc:
             logger.debug("get_params failed while looking for has_time: %s", exc)
             continue
         if not keys and type(model).__module__.startswith("catboost"):
             keys = ["has_time"]  # CatBoost reports only explicitly-set params
+        elif not keys:
+            # A wrapper (calibration etc.) around CatBoost: the nested model's has_time is only reported when explicitly set, so address it by name.
+            keys = [f"{k}__has_time" for k, v in params.items() if "__" not in k and type(v).__module__.startswith("catboost")]
         if keys:
             targets.append((model, keys))
     if not targets:

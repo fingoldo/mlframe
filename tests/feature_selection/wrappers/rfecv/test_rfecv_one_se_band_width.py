@@ -70,3 +70,27 @@ def test_unknown_rule_still_rejected():
     """Unknown rule still rejected."""
     with pytest.raises(ValueError):
         _pick("one_se_medium", k=3)
+
+
+def _pick_custom(rule: str, nf, mean, std, k: int, p: int, n_samples: int) -> int:
+    names = [f"f{i}" for i in range(p)]
+    fake = SimpleNamespace(
+        n_features_selection_rule=rule, mean_perf_weight=1.0, std_perf_weight=0.0, max_nfeatures=None, feature_names_in_=names,
+        n_features_in_=p, _n_samples_fit_=n_samples, conduct_final_voting=False, verbose=0,
+        selected_features_={n: names[:n] for n in nf}, _per_fold_scores={n: [0.9] * k for n in nf}, feature_importances_={},
+    )
+    select_optimal_nfeatures_(fake, checked_nfeatures=nf, cv_mean_perf=mean, cv_std_perf=std, feature_cost=0.0, smooth_perf=0)
+    return int(fake.n_features_)
+
+
+def test_plateau_band_is_standard_error_not_fold_std():
+    nf, mean, std = [0, 5, 10, 20, 40], [0.50, 0.80, 0.875, 0.895, 0.90], [0.0, 0.03, 0.03, 0.03, 0.03]
+    assert _pick_custom("plateau", nf, mean, std, k=9, p=40, n_samples=5000) == 20
+    assert _pick_custom("plateau", nf, mean, std, k=1, p=40, n_samples=5000) == 10
+
+
+def test_p_ge_n_fp_control_cap_uses_standard_error():
+    # Full set is 0.015 below the dummy; fold-std (0.03) would hide that, the standard error (0.03/3 = 0.01) does not.
+    nf, mean, std = [0, 60], [0.50, 0.485], [0.0, 0.03]
+    assert _pick_custom("one_se_max", nf, mean, std, k=9, p=60, n_samples=50) == 20
+    assert _pick_custom("one_se_max", nf, mean, std, k=1, p=60, n_samples=50) == 60

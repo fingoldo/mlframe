@@ -97,3 +97,12 @@ def test_real_fit_with_has_time_reaches_model():
     model.fit(X, y, cat_features=["c"])
     assert model.get_params()["has_time"] is True
     assert model.predict_proba(X).shape == (n, 2)
+
+
+def test_catboost_wrapped_by_metamodel_gets_has_time():
+    from sklearn.calibration import CalibratedClassifierCV
+
+    wrapped = CalibratedClassifierCV(CatBoostClassifier(iterations=3, verbose=0, allow_writing_files=False))
+    mp = {"cb": {"model": wrapped}}
+    assert apply_catboost_has_time(mp, _policy(_ts()), ModelHyperparamsConfig()) is True
+    assert wrapped.get_params(deep=True)["estimator__has_time"] is True
