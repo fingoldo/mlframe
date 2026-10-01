@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from mlframe.reporting._async_render import ReportRenderQueue
-from mlframe.reporting._async_render_hooks import render_queue_scope, resolve_async_render
+from mlframe.reporting.async_render_hooks import render_queue_scope, resolve_async_render
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers.save import render_and_save, set_format_subfolders
 from mlframe.reporting.spec import FigureSpec, LinePanelSpec
@@ -239,9 +239,9 @@ def test_resolve_async_render_needs_saved_charts(setting, save_charts, data_dir,
 
 def test_auto_needs_three_physical_cores(monkeypatch):
     """'auto' stays synchronous on a machine with fewer than three physical cores and turns on at three."""
-    monkeypatch.setattr("mlframe.reporting._async_render_hooks.physical_core_count", lambda: 2)
+    monkeypatch.setattr("mlframe.reporting.async_render_hooks.physical_core_count", lambda: 2)
     assert resolve_async_render("auto", save_charts=True, data_dir="/x") is False
-    monkeypatch.setattr("mlframe.reporting._async_render_hooks.physical_core_count", lambda: 3)
+    monkeypatch.setattr("mlframe.reporting.async_render_hooks.physical_core_count", lambda: 3)
     assert resolve_async_render("auto", save_charts=True, data_dir="/x") is True
 
 
@@ -276,7 +276,7 @@ def test_join_stamps_metadata_names_failures_and_logs_the_summary_once(caplog):
     """The suite-level join writes ``metadata["async_render"]``, lists failed artifacts by name, and does not repeat the summary line when nothing new arrived."""
     import logging
 
-    from mlframe.reporting._async_render_hooks import join_suite_render_queue
+    from mlframe.reporting.async_render_hooks import join_suite_render_queue
 
     def _fail():
         """Raises, to produce one failed artifact."""
@@ -286,7 +286,7 @@ def test_join_stamps_metadata_names_failures_and_logs_the_summary_once(caplog):
     q.submit(lambda: 1, name="fine_chart")
     q.submit(_fail, name="broken_chart")
     meta: dict = {}
-    with caplog.at_level(logging.INFO, logger="mlframe.reporting._async_render_hooks"):
+    with caplog.at_level(logging.INFO, logger="mlframe.reporting.async_render_hooks"):
         join_suite_render_queue(q, meta)
         join_suite_render_queue(q, meta, final=True)
     summary_lines = [r for r in caplog.records if "render done" in r.getMessage()]
@@ -297,7 +297,7 @@ def test_join_stamps_metadata_names_failures_and_logs_the_summary_once(caplog):
 
 def test_start_suite_render_queue_never_raises_and_respects_off(monkeypatch):
     """A queue that cannot be built leaves the suite inline (None); ``async_render=False`` and missing charts give None without building anything."""
-    from mlframe.reporting import _async_render_hooks as hooks
+    from mlframe.reporting import async_render_hooks as hooks
 
     class _Cfg:
         """Config stand-in."""

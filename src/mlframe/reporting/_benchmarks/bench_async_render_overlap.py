@@ -58,7 +58,7 @@ def _render_all_sync(items: List[Tuple[Any, Any, str]]) -> float:
 def _overlapped(items: List[Tuple[Any, Any, str]], backend: str, workers: int, train_kwargs: Dict[str, Any]) -> Tuple[float, float]:
     """Submit every render to a queue, train on the main thread, then join. Returns ``(wall, train_seconds)``."""
     from mlframe.reporting._async_render import ReportRenderQueue
-    from mlframe.reporting._async_render_hooks import _render_spec_task
+    from mlframe.reporting.async_render_hooks import _render_spec_task
 
     q = ReportRenderQueue(backend=backend, workers=workers)
     if backend == "process":

@@ -800,7 +800,7 @@ def train_and_evaluate_model(
 
     metrics_out: dict[str, Any] = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
 
-    from mlframe.reporting._async_render_hooks import log_render_queued, render_queued_mark
+    from mlframe.reporting.async_render_hooks import log_render_queued, render_queued_mark
 
     _render_mark = render_queued_mark()
     if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:

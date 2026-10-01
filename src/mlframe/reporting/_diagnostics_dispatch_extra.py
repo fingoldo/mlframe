@@ -375,7 +375,7 @@ def build_combined_html_report(
     if not base_path or not chart_paths or not _outputs:
         return None
     try:
-        from mlframe.reporting._async_render_hooks import active_render_queue
+        from mlframe.reporting.async_render_hooks import active_render_queue
         from mlframe.reporting.renderers.save import _use_format_subfolders, resolve_output_path
 
         queue = active_render_queue()
@@ -462,7 +462,7 @@ def render_decile_table_diagnostic(
         return False
     try:
         out = base_path + "_decile_table"
-        from mlframe.reporting._async_render_hooks import active_render_queue
+        from mlframe.reporting.async_render_hooks import active_render_queue
 
         queue = active_render_queue()
         if queue is not None:

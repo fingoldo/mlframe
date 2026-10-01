@@ -312,7 +312,7 @@ def render_and_save(
     call is queued and returns ``None`` immediately; the file appears when the worker finishes and is guaranteed by the suite's
     final join. Interactive sessions, ``keep_handles`` and unsaved renders always run inline, in order.
     """
-    from mlframe.reporting._async_render_hooks import active_render_queue, submit_render
+    from mlframe.reporting.async_render_hooks import active_render_queue, submit_render
 
     queue = active_render_queue()
     if queue is not None and base_path and not keep_handles and defer:

@@ -104,7 +104,7 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
             # wrote straight to the flat name, so with the per-format subfolder layout on they landed BESIDE the
             # png/ and html/ directories every render_and_save chart went into -- visible in a production output
             # dir as a handful of loose decile_table / fiplot / shap / report files.
-            from mlframe.reporting._async_render_hooks import active_render_queue, submit_figure_save
+            from mlframe.reporting.async_render_hooks import active_render_queue, submit_figure_save
             from mlframe.reporting.renderers.save import resolve_output_path
 
             _path = resolve_output_path(base_path, "matplotlib", "png", multi_output=False)

@@ -33,7 +33,7 @@ def _workload(iters: int) -> Tuple[float, float]:
 
 def _render_loop(specs: List[Tuple[Any, Any, str, dict]], out: str, stop: threading.Event) -> None:
     """Render the captured specs repeatedly until ``stop`` is set."""
-    from mlframe.reporting._async_render_hooks import _render_spec_task
+    from mlframe.reporting.async_render_hooks import _render_spec_task
 
     k = 0
     while not stop.is_set():
@@ -48,7 +48,7 @@ def _process_render_loop(specs_path: str, out: str, stop_path: str) -> None:
     """Process-backend body: the same loop, stopped by the presence of ``stop_path``."""
     with open(specs_path, "rb") as fh:
         specs = pickle.load(fh)
-    from mlframe.reporting._async_render_hooks import _render_spec_task
+    from mlframe.reporting.async_render_hooks import _render_spec_task
 
     k = 0
     while not os.path.exists(stop_path):

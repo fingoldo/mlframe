@@ -142,7 +142,7 @@ def test_async_suite_saves_the_same_artifacts_and_numbers_as_the_sync_suite(tmp_
 
     assert _rebase(sync_acc, sync_dir) == _rebase(async_acc, async_dir)
 
-    from mlframe.reporting._async_render_hooks import active_render_queue
+    from mlframe.reporting.async_render_hooks import active_render_queue
 
     assert active_render_queue() is None, "the suite must leave no active render queue behind on its thread"
     stamp = async_meta["async_render"]

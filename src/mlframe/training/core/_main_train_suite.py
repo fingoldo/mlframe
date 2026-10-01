@@ -322,7 +322,7 @@ def train_mlframe_models_suite(
     _flag_snapshot = capture_process_flag_snapshot(ctx)
     # Background rendering: the queue is thread-local-active for this suite, so the save chokepoints defer to it only when called
     # from this thread, and the ``finally`` below guarantees every queued artifact is finished before the call returns.
-    from mlframe.reporting._async_render_hooks import join_suite_render_queue, set_active_render_queue, start_suite_render_queue
+    from mlframe.reporting.async_render_hooks import join_suite_render_queue, set_active_render_queue, start_suite_render_queue
 
     _render_queue = start_suite_render_queue(
         ctx.reporting_config, save_charts=bool(ctx.save_charts), data_dir=ctx.data_dir, verbose=bool(verbose),

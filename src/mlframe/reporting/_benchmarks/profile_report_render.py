@@ -78,7 +78,7 @@ def main(argv: List[str] | None = None) -> int:
     ap.add_argument("--queue", default="", choices=["", "thread", "process"])
     ap.add_argument("--top", type=int, default=30)
     a = ap.parse_args(argv)
-    from mlframe.reporting._async_render_hooks import render_queue_scope
+    from mlframe.reporting.async_render_hooks import render_queue_scope
     from mlframe.reporting.renderers import chart_timings_snapshot, reset_chart_timings
     from mlframe.reporting.renderers.save import set_format_subfolders
 

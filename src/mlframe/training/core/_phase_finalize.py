@@ -697,7 +697,7 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     # Every queued chart must be on disk (and any failure reconciled into the charts accounting) before the metadata is persisted
     # and the chart summary below counts files.
     try:
-        from mlframe.reporting._async_render_hooks import active_render_queue, join_suite_render_queue
+        from mlframe.reporting.async_render_hooks import active_render_queue, join_suite_render_queue
 
         join_suite_render_queue(active_render_queue(), ctx.metadata)
     except Exception as _ar_err:

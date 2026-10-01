@@ -154,7 +154,7 @@ def submit_render(queue: ReportRenderQueue, spec: Any, output: Any, base_path: s
     """Queue one FigureSpec render; the file name in ``base_path`` labels any failure."""
     if queue.backend == "thread":
         spec = snapshot_spec(spec)
-    queue.submit(_render_spec_task, spec, output, base_path, subfolders, name=_label_of(base_path))
+    queue.submit(_render_spec_task, spec, output, base_path, subfolders, name=_label_of(base_path), payload_bytes=_tree_nbytes(spec, 1 << 62))
 
 
 def submit_figure_save(queue: ReportRenderQueue, fig: Any, path: str) -> bool:

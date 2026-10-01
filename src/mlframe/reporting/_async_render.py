@@ -244,6 +244,9 @@ def capture_render_state(nice: int = 0) -> Dict[str, Any]:
     return state
 
 
+_MAIN_HIDE_LOCK = threading.RLock()
+
+
 @contextmanager
 def _workers_do_not_reimport_main() -> Iterator[None]:
     """Spawn-start workers without letting them re-execute the caller's ``__main__`` script.
@@ -254,18 +257,21 @@ def _workers_do_not_reimport_main() -> Iterator[None]:
     tasks only reference ``mlframe`` functions, so the workers have no need of ``__main__``; its ``__file__`` / ``__spec__`` are hidden
     for the moment the workers start, which is when ``multiprocessing`` snapshots them.
     """
-    main = sys.modules.get("__main__")
-    saved = {}
-    if main is not None:
-        for attr in ("__file__", "__spec__"):
-            if attr in vars(main):
-                saved[attr] = vars(main)[attr]
-                setattr(main, attr, None)
-    try:
-        yield
-    finally:
-        for attr, val in saved.items():
-            setattr(main, attr, val)
+    # Process-global state: the suite thread and the dispatcher thread can both launch, and an unserialised second entry would "save" the
+    # already-hidden values and later restore None over the real ones.
+    with _MAIN_HIDE_LOCK:
+        main = sys.modules.get("__main__")
+        saved = {}
+        if main is not None:
+            for attr in ("__file__", "__spec__"):
+                if attr in vars(main):
+                    saved[attr] = vars(main)[attr]
+                    setattr(main, attr, None)
+        try:
+            yield
+        finally:
+            for attr, val in saved.items():
+                setattr(main, attr, val)
 
 
 class ReportRenderQueue:
@@ -386,6 +392,7 @@ class ReportRenderQueue:
         name: str = "",
         after_pending: bool = False,
         on_done: Optional[Callable[[Future], None]] = None,
+        payload_bytes: int = 0,
         **kwargs: Any,
     ) -> Future:
         """Queue ``fn(*args, **kwargs)`` and return a future for its value.
@@ -393,6 +400,7 @@ class ReportRenderQueue:
         ``name`` labels the artifact in failure messages. ``after_pending`` starts the task only after everything submitted
         earlier has finished. ``on_done`` runs later on the thread that calls ``join``/``close`` (never on a worker), so it
         may safely touch caller-owned structures such as a metadata dict. ndarray arguments are handed over per the backend.
+        ``payload_bytes`` is the size of arrays nested inside container arguments (a spec), which the byte cap cannot see on its own.
         The call blocks while the queue is over its byte/task caps.
         """
         label = name if name else getattr(fn, "__name__", "task")
@@ -402,6 +410,7 @@ class ReportRenderQueue:
             return proxy
         try:
             call_args, call_kwargs, descs, nbytes = self._prepare(args, kwargs)
+            nbytes += max(int(payload_bytes), 0)
         except Exception as exc:
             self._fail_now(proxy, label, exc)
             return proxy

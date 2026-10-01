@@ -338,3 +338,88 @@ def test_process_workers_do_not_rerun_an_unguarded_main_script(tmp_path):
     lines = proc.stdout.splitlines()
     assert sum(1 for ln in lines if ln.startswith("BODY-RUN")) == 1, proc.stdout + proc.stderr[-2000:]
     assert "DONE 1 0" in lines, proc.stdout + proc.stderr[-2000:]
+
+
+def test_back_pressure_counts_arrays_nested_in_a_container_payload():
+    """A spec-like container argument hides its arrays from the per-argument size scan; ``payload_bytes`` must still count against the cap."""
+    gate = threading.Event()
+
+    def _hold(payload):
+        """Blocks until the test releases it."""
+        gate.wait(timeout=30)
+        return len(payload)
+
+    nested = (np.zeros(400_000),)  # 3.2 MB inside a tuple
+    q = ReportRenderQueue(backend="thread", workers=1, max_pending_mb=4.0)
+    try:
+        q.submit(_hold, nested, name="first", payload_bytes=nested[0].nbytes)
+        done = threading.Event()
+
+        def _second():
+            """Submit from a helper thread so the test can observe that it blocks."""
+            q.submit(_hold, nested, name="second", payload_bytes=nested[0].nbytes)
+            done.set()
+
+        t = threading.Thread(target=_second, daemon=True)
+        t.start()
+        assert not done.wait(timeout=0.5), "second submit must block: 3.2MB of nested arrays is pending under a 4MB cap"
+        gate.set()
+        assert done.wait(timeout=30)
+        t.join(timeout=30)
+    finally:
+        gate.set()
+        q.close()
+
+
+def test_submit_render_reports_the_specs_nested_array_bytes_to_the_queue():
+    """``submit_render`` must hand the queue the spec's real array size, or the byte cap never engages on the production path."""
+    from mlframe.reporting.async_render_hooks import submit_render
+    from mlframe.reporting.spec import FigureSpec, LinePanelSpec
+
+    y = np.zeros(10_000)
+    spec = FigureSpec(suptitle="t", panels=((LinePanelSpec(x=np.arange(10_000.0), y=y, title="c", xlabel="i", ylabel="v"),),), figsize=(6.0, 3.0))
+    seen = {}
+
+    class _Q:
+        backend = "thread"
+
+        def submit(self, fn, *args, **kwargs):
+            """Capture the size hint."""
+            seen.update(kwargs)
+
+    submit_render(_Q(), spec, None, "out/fig.png", False)
+    assert seen["payload_bytes"] >= 2 * y.nbytes
+
+
+def test_hiding_main_is_serialised_across_threads(monkeypatch):
+    """Two threads inside the context at once must not leave ``__main__.__file__`` hidden once both are done."""
+    import sys
+
+    from mlframe.reporting._async_render import _workers_do_not_reimport_main
+
+    main = sys.modules["__main__"]
+    monkeypatch.setattr(main, "__file__", "/x/main.py", raising=False)
+    a_in, release, b_release = threading.Event(), threading.Event(), threading.Event()
+
+    def _a():
+        """Holds the context open until released."""
+        with _workers_do_not_reimport_main():
+            a_in.set()
+            release.wait(timeout=30)
+
+    def _b():
+        """Enters while the first thread is inside."""
+        a_in.wait(timeout=30)
+        with _workers_do_not_reimport_main():
+            b_release.wait(timeout=30)
+
+    ta, tb = threading.Thread(target=_a), threading.Thread(target=_b)
+    ta.start()
+    a_in.wait(timeout=30)
+    tb.start()
+    time.sleep(0.3)
+    release.set()
+    ta.join(timeout=30)
+    b_release.set()
+    tb.join(timeout=30)
+    assert main.__file__ == "/x/main.py"
