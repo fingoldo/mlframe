@@ -834,6 +834,7 @@ DEP002 = [
     "polars-talib",  # imported through importlib.import_module in feature_engineering/financial.py, which deptry cannot see: the statement form typed the name differently where the package is and is not installed
     "codespell", "deptry", "interrogate", "vulture", "yamllint",  # invoked by pre-commit hooks as `python -m ...`, never imported
     "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette",
+    "pycddlib-standalone",  # the non-win32 twin of the win32-only `pycddlib` (same `cdd` module); on Windows it is never installed, so deptry cannot map it to its module
     "py-ci-shared",  # invoked as `python -m py_ci_shared.*` CLI/pre-commit-hook commands, never `import py_ci_shared`
     "statsmodels",  # the [stats] extra is for users and benchmarks/bench_robust_linres_1M.py; src/ computes ACF with numpy since statsmodels' import broke under pandas 3
 ]
@@ -876,6 +877,9 @@ DEP001 = [
     # `concepts`, not because they're newly-introduced imports.
     "cupy", "cupyx", "cupy_backends", "kaleido", "torchvision", "dtaidistance", "bottleneck",
     "model_diagnostics", "mlxtend",
+    # triton (neural/_triton_bootstrap.py, _muon_triton_kernel.py): installed only with the CUDA torch wheels, so a Windows or CPU
+    # checkout never resolves it and deptry reports DEP001; where it does resolve it is DEP003 (listed below).
+    "triton",
 ]
 
 # DEP003 (transitive dependency imported directly): mirrors DEP002's stance -- these are pulled in
@@ -903,7 +907,7 @@ DEP003 = [
     # guarded import as transitive instead of missing -- still not a reason to harden the dep.
     "pynvml",
     "filelock", "cpuinfo", "kaleido", "torchvision", "torchmetrics", "lightning_fabric",
-    "pytorch_lightning", "triton", "networkx", "llvmlite", "dtaidistance", "mlxtend", "sympy",
+    "pytorch_lightning", "triton", "experiment_impact_tracker", "networkx", "llvmlite", "dtaidistance", "mlxtend", "sympy",
     "bottleneck", "ortools", "yaml", "model_diagnostics", "finance", "concepts",
     # tests/-scoped additions (2026-07-17, see the DEP001 comment above for the scan-scope context):
     # transitive deps of already-declared direct deps, imported directly from test code -- thinc is

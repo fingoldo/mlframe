@@ -848,10 +848,6 @@
       "count": 2,
       "note": ""
     },
-    "training/test_meta_json_sidecar_propagation.py::test_calibrator_post_dump_writes_sidecar::text held in `src`": {
-      "count": 2,
-      "note": ""
-    },
     "training/test_meta_json_sidecar_propagation.py::test_inference_read_trained_models_validates_sidecar::text held in `src`": {
       "count": 2,
       "note": ""
@@ -926,10 +922,6 @@
     },
     "training/test_prediction_envelope_clip.py::test_source_has_envelope_clip_wiring::text held in `src`": {
       "count": 2,
-      "note": ""
-    },
-    "training/test_reporting_verdicts_say_what_they_measured.py::test_a_real_panel_failure_still_lands_in_failed::reads a source file": {
-      "count": 1,
       "note": ""
     },
     "training/test_reporting_verdicts_say_what_they_measured.py::test_the_scorer_is_chosen_by_target_type::text held in `src`": {

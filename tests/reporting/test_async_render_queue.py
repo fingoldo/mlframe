@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from mlframe.reporting._async_render import (
+    RenderSummary,
     ReportRenderQueue,
     SharedArrayPool,
     _shutdown_live_queues,
@@ -280,17 +281,34 @@ def test_close_is_idempotent_and_submit_after_close_reports_failure():
     q.close()
     q.close()
     fut = q.submit(_sum_task, np.ones(2), name="late")
-    assert fut.exception() is not None
+    failure = fut.exception()
+    assert isinstance(failure, RuntimeError) and "closed" in str(failure), failure
 
 
 def test_summary_accounts_overlap():
     """``overlapped_seconds`` is worker time minus the time the submitter had to wait, so a fully hidden task counts as overlapped."""
+    done = threading.Event()
+
+    def _hold(seconds: float) -> None:
+        """Busy for at least ``seconds`` of the worker's own clock, then signal; the caller never waits on it."""
+        end = time.perf_counter() + seconds
+        while time.perf_counter() < end:
+            time.sleep(0.001)
+        done.set()
+
     q = ReportRenderQueue(backend="thread", workers=1)
-    q.submit(time.sleep, 0.3, name="sleepy")
-    time.sleep(0.5)  # the caller is busy elsewhere while the task runs
+    q.submit(_hold, 0.3, name="sleepy")
+    assert done.wait(timeout=30)  # the caller is busy elsewhere until the task has finished
     summary = q.close()
-    assert summary.completed == 1 and summary.busy_seconds >= 0.25
-    assert summary.overlapped_seconds >= 0.2
+    assert summary.completed == 1 and summary.busy_seconds >= 0.3  # a lower bound the task guarantees for itself
+    assert summary.blocked_seconds < summary.busy_seconds, "the caller waited as long as the task ran, so nothing was hidden"
+    assert summary.overlapped_seconds == pytest.approx(summary.busy_seconds - summary.blocked_seconds)
+
+
+def test_overlap_is_busy_time_minus_blocked_time():
+    """The arithmetic itself, without a clock: worker time less the caller's wait, never below zero."""
+    assert RenderSummary(busy_seconds=0.3, blocked_seconds=0.05).overlapped_seconds == pytest.approx(0.25)
+    assert RenderSummary(busy_seconds=0.1, blocked_seconds=0.5).overlapped_seconds == 0.0
 
 
 def test_interpreter_exit_hook_unlinks_segments_of_an_unclosed_queue():
@@ -408,19 +426,24 @@ def test_hiding_main_is_serialised_across_threads(monkeypatch):
             a_in.set()
             release.wait(timeout=30)
 
+    b_in = threading.Event()
+
     def _b():
         """Enters while the first thread is inside."""
         a_in.wait(timeout=30)
         with _workers_do_not_reimport_main():
+            b_in.set()
             b_release.wait(timeout=30)
 
     ta, tb = threading.Thread(target=_a), threading.Thread(target=_b)
     ta.start()
     a_in.wait(timeout=30)
     tb.start()
-    time.sleep(0.3)
+    # While ``a`` holds the context ``b`` must stay outside it; an unserialised ``b`` gets in within microseconds.
+    assert not b_in.wait(timeout=0.3), "the second thread entered the context while the first still held it"
     release.set()
     ta.join(timeout=30)
+    assert b_in.wait(timeout=30), "the second thread never got in after the first left"
     b_release.set()
     tb.join(timeout=30)
     assert main.__file__ == "/x/main.py"

@@ -50,59 +50,7 @@ def _process_special_values(
     if verbose:
         logger.info("%s %s%s...", "Identifying" if drop_columns else "Counting", kind, "s" if not kind.endswith("columns") else "")
 
-    if is_polars:
-        # Polars: use provided expr_func
-        assert expr_func is not None, "_process_special_values: expr_func is required on the polars branch"
-        _expr = expr_func()
-        assert _expr is not None, "_process_special_values: expr_func must return a polars Expr on the polars branch"
-        qos_df = df.select(_expr)
-
-        if drop_columns:
-            # For constant detection, we get boolean indicators
-            if len(qos_df) > 0:
-                constant_cols = [col for col, is_const in zip(qos_df.columns, qos_df.row(0)) if is_const]
-            else:
-                constant_cols = []
-            errors_df = pl.DataFrame({"column": constant_cols, "nerrors": [1] * len(constant_cols)}, schema={"column": pl.String, "nerrors": pl.Int64})
-        else:
-            if len(qos_df) > 0:
-                errors_df = pl.DataFrame({"column": qos_df.columns, "nerrors": qos_df.row(0)}).filter(pl.col("nerrors") > 0).sort("nerrors", descending=True)
-            else:
-                errors_df = pl.DataFrame({"column": [], "nerrors": []}, schema={"column": pl.String, "nerrors": pl.Int64})
-        _nrows, ncols = df.shape
-    else:
-        # Pandas: different handling
-        if drop_columns:
-            # For constant column detection
-            if "numeric" in kind:
-                # Numeric constants: min == max would miss all-NaN columns
-                # (``NaN == NaN`` is False under IEEE-754 semantics, so the
-                # comparison silently treats an all-NaN column as non-constant
-                # and leaves it in the frame). Use ``nunique(dropna=False)``
-                # which counts NaN as its own bucket: pure-NaN -> 1, mixed
-                # NaN+value -> 2+, all-equal numeric -> 1. Matches the polars
-                # branch which treats all-NaN columns as constant.
-                constant_cols = [col for col in df.select_dtypes(include="number").columns if df[col].nunique(dropna=False) <= 1]  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
-            else:
-                # Categorical constants: n_unique == 1
-                constant_cols = [col for col in df.select_dtypes(exclude="number").columns if df[col].nunique() == 1]  # type: ignore[union-attr]
-            errors_df = pd.DataFrame({"column": constant_cols, "nerrors": [1] * len(constant_cols)})
-        else:
-            # For NaN/null/inf detection - use vectorized operations
-            numeric_df = df.select_dtypes(include="number")  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
-            if "NaN" in kind:
-                nerrors_series = numeric_df.isna().sum()
-            elif "null" in kind:
-                nerrors_series = numeric_df.isnull().sum()
-            elif "infinite" in kind:
-                nerrors_series = np.isinf(numeric_df).sum()
-            else:
-                nerrors_series = pd.Series(dtype=int)
-
-            # Filter to non-zero and convert to DataFrame
-            nerrors_series = nerrors_series[nerrors_series > 0].sort_values(ascending=False)
-            errors_df = pd.DataFrame({"column": nerrors_series.index.tolist(), "nerrors": nerrors_series.values})
-        _nrows, ncols = df.shape
+    errors_df, ncols = _scan_special_values(is_polars, expr_func, df, drop_columns, kind)
 
     # Log and handle errors
     if len(errors_df) > 0:
@@ -159,6 +107,64 @@ def _process_special_values(
                 log_ram_usage()
 
     return df
+
+
+def _scan_special_values(is_polars, expr_func, df, drop_columns, kind):
+    """Per-column error counts (or, with ``drop_columns``, the constant columns) as a two-column frame, plus the frame's column count."""
+    if is_polars:
+        # Polars: use provided expr_func
+        assert expr_func is not None, "_process_special_values: expr_func is required on the polars branch"
+        _expr = expr_func()
+        assert _expr is not None, "_process_special_values: expr_func must return a polars Expr on the polars branch"
+        qos_df = df.select(_expr)
+
+        if drop_columns:
+            # For constant detection, we get boolean indicators
+            if len(qos_df) > 0:
+                constant_cols = [col for col, is_const in zip(qos_df.columns, qos_df.row(0)) if is_const]
+            else:
+                constant_cols = []
+            errors_df = pl.DataFrame({"column": constant_cols, "nerrors": [1] * len(constant_cols)}, schema={"column": pl.String, "nerrors": pl.Int64})
+        else:
+            if len(qos_df) > 0:
+                errors_df = pl.DataFrame({"column": qos_df.columns, "nerrors": qos_df.row(0)}).filter(pl.col("nerrors") > 0).sort("nerrors", descending=True)
+            else:
+                errors_df = pl.DataFrame({"column": [], "nerrors": []}, schema={"column": pl.String, "nerrors": pl.Int64})
+        _nrows, ncols = df.shape
+    else:
+        # Pandas: different handling
+        if drop_columns:
+            # For constant column detection
+            if "numeric" in kind:
+                # Numeric constants: min == max would miss all-NaN columns
+                # (``NaN == NaN`` is False under IEEE-754 semantics, so the
+                # comparison silently treats an all-NaN column as non-constant
+                # and leaves it in the frame). Use ``nunique(dropna=False)``
+                # which counts NaN as its own bucket: pure-NaN -> 1, mixed
+                # NaN+value -> 2+, all-equal numeric -> 1. Matches the polars
+                # branch which treats all-NaN columns as constant.
+                constant_cols = [col for col in df.select_dtypes(include="number").columns if df[col].nunique(dropna=False) <= 1]
+            else:
+                # Categorical constants: n_unique == 1
+                constant_cols = [col for col in df.select_dtypes(exclude="number").columns if df[col].nunique() == 1]
+            errors_df = pd.DataFrame({"column": constant_cols, "nerrors": [1] * len(constant_cols)})
+        else:
+            # For NaN/null/inf detection - use vectorized operations
+            numeric_df = df.select_dtypes(include="number")
+            if "NaN" in kind:
+                nerrors_series = numeric_df.isna().sum()
+            elif "null" in kind:
+                nerrors_series = numeric_df.isnull().sum()
+            elif "infinite" in kind:
+                nerrors_series = np.isinf(numeric_df).sum()
+            else:
+                nerrors_series = pd.Series(dtype=int)
+
+            # Filter to non-zero and convert to DataFrame
+            nerrors_series = nerrors_series[nerrors_series > 0].sort_values(ascending=False)
+            errors_df = pd.DataFrame({"column": nerrors_series.index.tolist(), "nerrors": nerrors_series.values})
+        _nrows, ncols = df.shape
+    return errors_df, ncols
 
 
 def process_nans(df: pl.DataFrame | pd.DataFrame, fill_value: float = 0.0, verbose: int = 1) -> pl.DataFrame | pd.DataFrame:

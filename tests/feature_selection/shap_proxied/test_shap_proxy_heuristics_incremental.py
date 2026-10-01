@@ -14,11 +14,9 @@ Tests pin:
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pytest
-from tests.conftest import perf_time_budget
 
 from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as H
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coalition_margin, proxy_loss
@@ -99,25 +97,51 @@ def test_greedy_forward_topn_bit_identical_to_reference(medium_problem):
         assert np.isclose(loss, ref), f"key={key}: cached {loss} vs ref {ref}"
 
 
-def test_beam_search_incremental_speedup_smoke():
-    """Beam at a width where the incremental path matters: must complete inside budget.
+_INCREMENTAL = ("loss_from_parent", "loss_from_parent_drop", "loss_from_parent_swap")
 
-    We do not pin a hard speedup factor (CI noise), but the wall must stay well under
-    the un-optimised baseline timing of ~0.75s observed locally; budget 2.0s leaves
-    headroom for slower CI machines while still failing if a regression doubles cost.
+
+@pytest.fixture
+def evaluation_counts(monkeypatch):
+    """Counts of the evaluator's FULL recomputations (``loss`` / ``loss_with_margin``) and INCREMENTAL updates (one O(n) vector op each)."""
+    counts = {"full": 0, "incremental": 0}
+
+    def _wrap(name, bucket):
+        """Replace ``H._Evaluator.<name>`` with a counting wrapper that adds to ``counts[bucket]``."""
+        original = getattr(H._Evaluator, name)
+
+        def counted(self, *args, **kwargs):
+            """Count the call, then run the real method."""
+            counts[bucket] += 1
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(H._Evaluator, name, counted)
+
+    for name in ("loss", "loss_with_margin"):
+        _wrap(name, "full")
+    for name in _INCREMENTAL:
+        _wrap(name, "incremental")
+    return counts
+
+
+def _assert_incremental_dominates(counts, algorithm):
+    """The speed-up is structural: nearly every candidate is scored from its parent's margin, not recomputed from scratch.
+
+    A regression to the O(n * f * |current|^2) full path shows up as full recomputations matching the incremental count; unlike a wall-clock
+    budget this does not move with CI load.
     """
+    assert counts["incremental"] > 0, f"{algorithm} never used the incremental path"
+    assert counts["incremental"] >= 20 * counts["full"], f"{algorithm} recomputed from scratch too often: {counts}"
+
+
+def test_beam_search_incremental_speedup_smoke(evaluation_counts):
+    """Beam at a width where the incremental path matters: candidates are scored from their parent's margin."""
     rng = np.random.default_rng(0)
     n, f, k = 600, 40, 8
     phi = rng.normal(size=(n, f)).astype(np.float64)
     base = np.full(n, 0.1)
     y = base + phi[:, :k].sum(axis=1) + 0.05 * rng.normal(size=n)
-    # warmup numba
-    H.beam_search(phi, base, y, classification=False, metric="rmse", beam_width=4, max_card=4, top_n=5)
-    t0 = time.perf_counter()
     top = H.beam_search(phi, base, y, classification=False, metric="rmse", beam_width=50, max_card=12, top_n=20)
-    dt = time.perf_counter() - t0
-    budget = perf_time_budget(2.0)
-    assert dt < budget, f"beam_search incremental path took {dt:.3f}s (budget {budget:.1f}s)"
+    _assert_incremental_dominates(evaluation_counts, "beam_search")
     assert top[0][0] < 0.1  # truth-recovering regime; coarse sanity, not a perf gate
 
 
@@ -183,36 +207,28 @@ def test_simulated_annealing_topn_matches_reference(medium_problem):
         assert np.isclose(loss, ref), f"key={key}: cached {loss} vs ref {ref}"
 
 
-def test_multistart_local_speedup_smoke():
-    """multistart_local at width=50, max_card=10: incremental path stays well inside budget.
+def test_multistart_local_speedup_smoke(evaluation_counts):
+    """multistart_local at width=50, max_card=10: every swap/add/drop trial is one O(n) update of the parent's margin.
 
-    Baseline (pre-iter88) reduce-from-scratch traversal of N*f swap candidates per outer
-    hill-climb iteration is roughly O(n * f * |current|^2); incremental cuts to one O(n)
-    vector op per trial. Budget 4.0s leaves headroom; regression doubling cost would breach.
+    Reducing from scratch per trial is roughly O(n * f * |current|^2) per hill-climb iteration.
     """
     rng = np.random.default_rng(0)
     n, f, k = 500, 50, 8
     phi = rng.normal(size=(n, f)).astype(np.float64)
     base = np.full(n, 0.1)
     y = base + phi[:, :k].sum(axis=1) + 0.05 * rng.normal(size=n)
-    t0 = time.perf_counter()
     top = H.multistart_local(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(1), n_starts=8, max_card=10, top_n=10)
-    dt = time.perf_counter() - t0
-    budget = perf_time_budget(4.0)
-    assert dt < budget, f"multistart_local incremental path took {dt:.3f}s (budget {budget:.1f}s)"
+    _assert_incremental_dominates(evaluation_counts, "multistart_local")
     assert top[0][0] < 0.2  # coarse truth-recovering sanity
 
 
-def test_simulated_annealing_speedup_smoke():
-    """simulated_annealing at width=40, n_iter=2000: budget 4.0s for incremental path."""
+def test_simulated_annealing_speedup_smoke(evaluation_counts):
+    """simulated_annealing at width=40, n_iter=2000: each move is scored incrementally from the current state."""
     rng = np.random.default_rng(0)
     n, f, k = 500, 40, 8
     phi = rng.normal(size=(n, f)).astype(np.float64)
     base = np.full(n, 0.1)
     y = base + phi[:, :k].sum(axis=1) + 0.05 * rng.normal(size=n)
-    t0 = time.perf_counter()
     top = H.simulated_annealing(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(2), n_iter=2000, top_n=10)
-    dt = time.perf_counter() - t0
-    budget = perf_time_budget(4.0)
-    assert dt < budget, f"simulated_annealing incremental path took {dt:.3f}s (budget {budget:.1f}s)"
+    _assert_incremental_dominates(evaluation_counts, "simulated_annealing")
     assert top[0][0] < 0.5  # coarse sanity; SA wider tolerance vs greedy/beam

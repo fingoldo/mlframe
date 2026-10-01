@@ -118,7 +118,6 @@
   "src/mlframe/training/_helpers_training_configs.py::get_training_configs": 44,
   "src/mlframe/training/_io_save.py::save_mlframe_model": 34,
   "src/mlframe/training/_iterative_stratification_njit.py::_iterative_stratification_njit": 35,
-  "src/mlframe/training/_nan_processing.py::_process_special_values": 26,
   "src/mlframe/training/_trainer_configure.py::configure_training_params": 87,
   "src/mlframe/training/_trainer_train_and_evaluate.py::train_and_evaluate_model": 86,
   "src/mlframe/training/_training_loop.py::_train_model_with_fallback_unguarded": 83,

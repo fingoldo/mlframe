@@ -24,7 +24,7 @@ import os
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings
 from collections import defaultdict
-from typing import Optional
+from typing import Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -541,7 +541,7 @@ class HybridSelector:
             rep_members = {c: [c] for c in reps}
         driver = str(self.boruta_driver).lower()
         # held-out permutation needs the 30% split (train_or_test="test"); gini works in-bag.
-        tot = "test" if driver == "permutation" else "train"
+        tot: Literal["train", "test"] = "test" if driver == "permutation" else "train"
         b = BorutaShap(model=RandomForestClassifier(n_estimators=80, n_jobs=-1, random_state=self.random_state),
                        importance_measure=self.boruta_driver, permutation_n_repeats=2, classification=True,
                        n_trials=50, percentile=95, train_or_test=tot, verbose=False, random_state=self.random_state)
