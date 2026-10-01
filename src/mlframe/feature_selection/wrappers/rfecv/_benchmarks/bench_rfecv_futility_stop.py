@@ -152,8 +152,12 @@ def replay_unit(u: dict, anchor: str, min_iters: int, alpha: float, patience_fra
 def summarize(units: list) -> str:
     """Per-setting table over all units plus the per-unit detail of the non-equivalent cases of the recommended setting."""
     units = [u for u in units if "error" not in u]
-    out = [f"units: {len(units)}; mean trace length {np.mean([len(u['trace']) for u in units]):.1f}; live-vs-replayed pick agreement "
-           f"{np.mean([u['n_kept_live'] == u['pick_replayed'] for u in units]):.3f}"]
+    out = [
+        (
+            f"units: {len(units)}; mean trace length {np.mean([len(u['trace']) for u in units]):.1f}; live-vs-replayed pick agreement "
+            f"{np.mean([u['n_kept_live'] == u['pick_replayed'] for u in units]):.3f}"
+        )
+    ]
     out.append("anchor min_iters alpha patience | stop_rate  iters_saved(all)  time_saved(all)  same_N  d_OOS(all)  n_diff  d_OOS(diff only)")
     for an, mi, al, pf in GRID:
         r = [replay_unit(u, an, mi, al, pf) for u in units]

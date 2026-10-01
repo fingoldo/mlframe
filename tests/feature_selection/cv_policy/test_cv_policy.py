@@ -187,7 +187,7 @@ def test_policy_shares_arrays_on_deepcopy_and_drops_them_from_pickle(shuffled_ts
     """Policy shares arrays on deepcopy and drops them from pickle."""
     policy = CVPolicy("temporal", "t", shuffled_ts)
     assert copy.deepcopy(policy).timestamps is shuffled_ts
-    restored = pickle.loads(pickle.dumps(policy))
+    restored = pickle.loads(pickle.dumps(policy))  # nosec B301 - round-trip of an object this code just pickled
     assert restored.timestamps is None and restored.kind == "temporal"
     assert holdout_indices(restored, N, 0.25) is None
 

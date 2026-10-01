@@ -65,7 +65,7 @@ def _artifacts(root) -> Dict[str, str]:
                 raw = fh.read()
             if f.endswith(".html"):
                 raw = _UUID.sub(b"UUID", raw)
-            out[os.path.join(rel_base, f)] = hashlib.sha1(raw).hexdigest()
+            out[os.path.join(rel_base, f)] = hashlib.sha1(raw, usedforsecurity=False).hexdigest()
     return out
 
 
@@ -87,7 +87,7 @@ def _numbers(obj: Any, path: str = "") -> Dict[str, str]:
                 continue
             out.update(_numbers(v, f"{path}.{k}"))
     elif isinstance(obj, np.ndarray):
-        out[path] = hashlib.sha1(np.ascontiguousarray(obj).tobytes()).hexdigest()
+        out[path] = hashlib.sha1(np.ascontiguousarray(obj).tobytes(), usedforsecurity=False).hexdigest()
     elif isinstance(obj, (int, float, str, bool, type(None), np.floating, np.integer)):
         out[path] = repr(obj)
     return out
@@ -113,7 +113,7 @@ def _charts_accounting(obj: Any, path: str = "") -> Dict[str, Any]:
 
 def _shm() -> set:
     """This process's shared-memory segments currently present (other test processes may own their own)."""
-    return {n for n in os.listdir("/dev/shm") if n.startswith(f"mlframe_rq_{os.getpid()}_")} if os.path.isdir("/dev/shm") else set()
+    return {n for n in os.listdir("/dev/shm") if n.startswith(f"mlframe_rq_{os.getpid()}_")} if os.path.isdir("/dev/shm") else set()  # nosec B108 - POSIX shared-memory mount, not a temp file
 
 
 def test_async_suite_saves_the_same_artifacts_and_numbers_as_the_sync_suite(tmp_path):

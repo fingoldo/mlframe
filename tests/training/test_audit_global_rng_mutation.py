@@ -265,15 +265,11 @@ def test_no_library_code_calls_set_random_seed() -> None:
     """
     exempt = ("_benchmarks", "scripts", "examples", "notebooks")
 
-    # OPEN FINDING, not an accepted exception. RFECV.fit reseeds process-global random / numpy /
-    # cupy / numba (and torch when configured) from `random_state`, clobbering the streams of any
-    # sibling code in the same process -- the exact defect this audit class exists for, and the one
-    # `_preserve_global_numpy_rng_state` was written to fix everywhere else. It is listed here
-    # rather than silently baselined because the fix is a real refactor: `fit` is ~480 lines with
-    # three return points, so the seed has to become a `with` block over nearly all of it (or the
-    # sampling it covers has to be carved out), which is more than this test conversion should
-    # carry. Found 2026-09-03 by this test, which is why it is worth having.
-    known_open = {"feature_selection/wrappers/rfecv/_fit.py:371"}
+    # RFECV.fit reseeds the process-global streams from `random_state` so sub-estimators with random_state=None are reproducible
+    # inside the fit. The reseed is isolated by `RFECV.fit` being wrapped in `preserve_global_rng` (rfecv/__init__.py), which
+    # `test_rfecv_fit_leaves_the_callers_global_rng_untouched` drives; the call site is keyed by file, not line, so an unrelated
+    # edit above it does not break this sensor.
+    known_open = {"feature_selection/wrappers/rfecv/_fit.py"}
 
     offenders = []
     for path in sorted(MLFRAME_ROOT.rglob("*.py")):
@@ -290,7 +286,7 @@ def test_no_library_code_calls_set_random_seed() -> None:
             func = node.func
             name = func.id if isinstance(func, ast.Name) else (func.attr if isinstance(func, ast.Attribute) else None)
             if name == "set_random_seed":
-                offenders.append(f"{rel}:{node.lineno}")
+                offenders.append(rel if rel in known_open else f"{rel}:{node.lineno}")
 
     unexpected = sorted(set(offenders) - known_open)
     assert not unexpected, f"library code reseeds the process-global RNGs at: {unexpected}"
@@ -428,3 +424,23 @@ def test_compute_iia_does_not_mutate_global_np_rng() -> None:
         pass  # the method signature might mismatch; we only care about RNG state.
     post = np.random.get_state()
     np.testing.assert_array_equal(pre[1], post[1])
+
+
+def test_rfecv_fit_leaves_the_callers_global_rng_untouched() -> None:
+    """RFECV.fit seeds the global streams internally, but the caller's numpy and ``random`` streams resume exactly where they were."""
+    import random
+
+    import pandas as pd
+    from sklearn.datasets import make_regression
+    from sklearn.linear_model import Ridge
+
+    from mlframe.feature_selection.wrappers import RFECV
+
+    X, y = make_regression(600, 6, n_informative=6, noise=10.0, random_state=0)
+    X = pd.DataFrame(X, columns=[f"f{i}" for i in range(6)])
+    np.random.seed(123)
+    random.seed(123)
+    expected_np, expected_py = np.random.get_state()[1].copy(), random.getstate()
+    RFECV(estimator=Ridge(1.0), cv=3, random_state=7, verbose=0).fit(X, y)
+    assert np.array_equal(np.random.get_state()[1], expected_np)
+    assert random.getstate() == expected_py

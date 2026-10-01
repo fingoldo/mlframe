@@ -282,6 +282,9 @@ def _scatter_panel(
         xlabel="Predictions",
         ylabel="True values",
         perfect_fit_line=True,
+        # Not squared: a square panel in a stacked figure shrinks to a narrow column under the full-width panels above it; the y=x line
+        # still spans the data hull, so over/under-prediction reads the same at the cost of the 45-degree angle.
+        equal_aspect=False,
         point_color="steelblue",
         point_alpha=0.3,
         point_size=10.0,

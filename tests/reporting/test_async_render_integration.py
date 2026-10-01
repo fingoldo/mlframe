@@ -35,7 +35,7 @@ def _digests(root: str) -> dict:
                 raw = fh.read()
             if f.endswith(".html"):
                 raw = _UUID.sub("UUID", raw.decode("utf-8")).encode("utf-8")
-            out[os.path.relpath(p, root)] = hashlib.sha1(raw).hexdigest()
+            out[os.path.relpath(p, root)] = hashlib.sha1(raw, usedforsecurity=False).hexdigest()
     return out
 
 
@@ -258,7 +258,7 @@ def test_decile_table_worker_builds_and_saves_the_same_png_from_handed_over_arra
     assert render_decile_table_diagnostic(y_true=y, y_score=score, plot_outputs="matplotlib[png]", base_path=str(tmp_path / "sync" / "m_test"), metrics_dict=sync_m)
     async_m: dict = {}
     own = f"mlframe_rq_{os.getpid()}_"
-    before = {n_ for n_ in os.listdir("/dev/shm") if n_.startswith(own)} if os.path.isdir("/dev/shm") else set()
+    before = {n_ for n_ in os.listdir("/dev/shm") if n_.startswith(own)} if os.path.isdir("/dev/shm") else set()  # nosec B108 - POSIX shared-memory mount, not a temp file
     q = ReportRenderQueue(backend=backend, workers=1)
     with render_queue_scope(q):
         assert render_decile_table_diagnostic(y_true=y, y_score=score, plot_outputs="matplotlib[png]", base_path=str(tmp_path / "async" / "m_test"), metrics_dict=async_m)
@@ -268,7 +268,7 @@ def test_decile_table_worker_builds_and_saves_the_same_png_from_handed_over_arra
     assert (tmp_path / "async" / "m_test_decile_table.png").read_bytes() == (tmp_path / "sync" / "m_test_decile_table.png").read_bytes()
     assert sync_m["charts"]["saved"] == async_m["charts"]["saved"] == ["decile_table"]
     assert sync_m["charts"]["paths"][0].replace("sync", "X") == async_m["charts"]["paths"][0].replace("async", "X")
-    after = {n_ for n_ in os.listdir("/dev/shm") if n_.startswith(own)} if os.path.isdir("/dev/shm") else set()
+    after = {n_ for n_ in os.listdir("/dev/shm") if n_.startswith(own)} if os.path.isdir("/dev/shm") else set()  # nosec B108 - POSIX shared-memory mount, not a temp file
     assert after == before
 
 

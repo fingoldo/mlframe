@@ -132,7 +132,7 @@ def test_timestamp_ordered_split_shares_timestamps_on_deepcopy_and_drops_them_fr
     ts = np.arange(30)[::-1].copy()
     splitter = TimestampOrderedSplit(n_splits=3, timestamps=ts)
     assert copy.deepcopy(splitter).timestamps is ts
-    restored = pickle.loads(pickle.dumps(splitter))
+    restored = pickle.loads(pickle.dumps(splitter))  # nosec B301 - round-trip of an object this code just pickled
     assert restored.timestamps is None
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         list(restored.split(np.zeros(30)))

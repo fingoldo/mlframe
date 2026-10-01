@@ -27,6 +27,7 @@ Scope: only ``one_se_max`` (``auto`` resolves to it) with ``feature_cost == 0`` 
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from functools import lru_cache
@@ -35,6 +36,8 @@ from typing import Any, Optional, Sequence
 import numpy as np
 
 from ._one_se_band import band_half_width, split_rule_band
+
+logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 FUTILITY_RULES = ("auto", "one_se_max", "one_se_max_foldstd")
 _MIN_TREND_WINDOW = 4
@@ -131,7 +134,7 @@ def _trending_up(recent: Sequence[float], x: Optional[Sequence[float]] = None, s
 
 def patience_for(remaining: int, patience_frac: float, floor: int = 2) -> int:
     """Flat-stretch length demanded before quitting: a fraction of the iterations still available, never below ``floor``."""
-    return max(floor, int(math.ceil(patience_frac * max(remaining, 0))))
+    return max(floor, math.ceil(patience_frac * max(remaining, 0)))
 
 
 def futility_verdict(
@@ -225,3 +228,26 @@ def remaining_iterations(self: Any, state: Any, n_total: int, max_refits: Option
         if mean_s > 0:
             left = min(left, max(int((max_runtime_mins * 60 - elapsed_s) / mean_s), 0))
     return int(left)
+
+
+def check_futility_stop(self: Any, state: Any, n_total: int, max_refits: Optional[int], max_runtime_mins: Optional[float], elapsed_s: float, verbose: Any) -> bool:
+    """Evaluate the futility stop after an iteration: records ``futility_verdict_`` on the selector and, when it fires, sets ``state.stop_reason`` and returns True."""
+    verdict = futility_verdict(
+        state.eval_trace,
+        min_iters=int(self.futility_min_iters),
+        alpha=float(self.futility_alpha),
+        patience_frac=float(self.futility_patience_frac),
+        remaining=remaining_iterations(self, state, n_total, max_refits, max_runtime_mins, elapsed_s),
+        full_n=n_total,
+        anchor=str(self.futility_anchor),
+        rule=str(self.n_features_selection_rule),
+        mean_w=float(self.mean_perf_weight),
+        std_w=float(self.std_perf_weight),
+    )
+    self.futility_verdict_ = verdict
+    if not verdict.stop:
+        return False
+    if verbose:
+        logger.info("RFECV: %s; stopping.", verdict.describe())
+    state.stop_reason = verdict.describe()
+    return True

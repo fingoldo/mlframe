@@ -43,7 +43,7 @@ def test_calibrated_rfecv_scorer_survives_stdlib_pickle_roundtrip(data):
     df, y = data
     out = _configure(df, y, ["lgb"], calibrated=True)
     rfecv = out[3]  # lgb_rfecv
-    restored = pickle.loads(pickle.dumps(rfecv))
+    restored = pickle.loads(pickle.dumps(rfecv))  # nosec B301 - round-trip of an object this code just pickled
     assert "fs_and_hpt_integral_calibration_error" in repr(restored.scoring)
 
     rng = np.random.default_rng(1)
@@ -60,7 +60,7 @@ def test_xgb_default_eval_metric_survives_stdlib_pickle_roundtrip(data):
     df, y = data
     out = _configure(df, y, ["xgb"], calibrated=False)
     est = out[1]["xgb"]["model"]
-    restored = pickle.loads(pickle.dumps(est))
+    restored = pickle.loads(pickle.dumps(est))  # nosec B301 - round-trip of an object this code just pickled
     metric = restored.get_params()["eval_metric"]
     assert metric.__name__ == "neg_ovr_roc_auc_score"
     yt = np.array([0, 1, 0, 1, 1, 0])

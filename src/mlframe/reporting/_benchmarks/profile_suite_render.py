@@ -49,7 +49,7 @@ def dir_manifest(root: str) -> Dict[str, str]:
             if os.sep + "models" + os.sep in p or p.endswith((".dump", ".joblib", ".pkl", ".cbm", ".zst")):
                 continue
             with open(p, "rb") as fh:
-                out[os.path.relpath(p, root)] = hashlib.sha1(fh.read()).hexdigest()
+                out[os.path.relpath(p, root)] = hashlib.sha1(fh.read(), usedforsecurity=False).hexdigest()
     return out
 
 

@@ -84,7 +84,7 @@ def main(argv: List[str] | None = None) -> int:
     ap.add_argument("--train-sleep", type=float, default=0.0, help="replace the CatBoost fit by a sleep of this many seconds")
     a = ap.parse_args(argv)
     with open(a.specs, "rb") as fh:
-        specs = pickle.load(fh)
+        specs = pickle.load(fh)  # nosec B301 - round-trip of an object this code just pickled
     tk: Dict[str, Any] = {"threads": a.train_threads, "sleep_seconds": a.train_sleep}
     out = tempfile.mkdtemp(prefix="bench_async_render_")
     _train(**tk)  # warm

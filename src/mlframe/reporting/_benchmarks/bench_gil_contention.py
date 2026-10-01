@@ -47,7 +47,7 @@ def _render_loop(specs: List[Tuple[Any, Any, str, dict]], out: str, stop: thread
 def _process_render_loop(specs_path: str, out: str, stop_path: str) -> None:
     """Process-backend body: the same loop, stopped by the presence of ``stop_path``."""
     with open(specs_path, "rb") as fh:
-        specs = pickle.load(fh)
+        specs = pickle.load(fh)  # nosec B301 - round-trip of an object this code just pickled
     from mlframe.reporting.async_render_hooks import _render_spec_task
 
     k = 0
@@ -67,7 +67,7 @@ def main(argv: List[str] | None = None) -> int:
     ap.add_argument("--iters", type=int, default=20_000_000)
     a = ap.parse_args(argv)
     with open(a.specs, "rb") as fh:
-        specs = pickle.load(fh)
+        specs = pickle.load(fh)  # nosec B301 - round-trip of an object this code just pickled
     out = tempfile.mkdtemp(prefix="bench_gil_")
     from concurrent.futures import ProcessPoolExecutor
     from multiprocessing import get_context

@@ -75,7 +75,7 @@ def test_subsample_cache_not_pickled():
     v, y = _data(5_000)
     m.evaluate((v,), y, None)
     assert m._sample_idx
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 - round-trip of an object this code just pickled
     assert m2._sample_idx == {}
     assert m2.evaluate((v,), y, None)[0] == m.evaluate((v,), y, None)[0]
 

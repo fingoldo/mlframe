@@ -69,7 +69,7 @@ def test_single_fold_is_conservative():
 def test_nan_fold_is_conservative():
     tr = _trace([0.0] * 8)
     n, scores = tr[3]
-    tr[3] = (n, (float("nan"),) + scores[1:])
+    tr[3] = (n, (float("nan"), *scores[1:]))
     assert not _verdict(tr, min_iters=3).stop
 
 

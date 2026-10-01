@@ -1,9 +1,6 @@
 """Real small RFECV fits around the futility stop: it cuts the search short where the full set is the pick and never changes the selection."""
 from __future__ import annotations
 
-import logging
-
-import numpy as np
 import pandas as pd
 import pytest
 from sklearn.datasets import make_regression

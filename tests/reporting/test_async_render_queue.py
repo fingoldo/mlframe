@@ -23,7 +23,7 @@ from mlframe.reporting._async_render import (
 def _shm_segments() -> set:
     """Names of THIS process's shared-memory segments in /dev/shm (another pytest process may own segments of its own at the same time)."""
     try:
-        return {n for n in os.listdir("/dev/shm") if n.startswith(f"mlframe_rq_{os.getpid()}_")}
+        return {n for n in os.listdir("/dev/shm") if n.startswith(f"mlframe_rq_{os.getpid()}_")}  # nosec B108 - POSIX shared-memory mount, not a temp file
     except FileNotFoundError:
         return set()
 
@@ -298,7 +298,7 @@ def test_interpreter_exit_hook_unlinks_segments_of_an_unclosed_queue():
     before = _shm_segments()
     q = ReportRenderQueue(backend="process", workers=1, shm_min_bytes=1)
     desc = q._pool.share(np.arange(50_000, dtype=np.float64))  # type: ignore[union-attr]
-    assert desc.name in _shm_segments() or not os.path.isdir("/dev/shm")
+    assert desc.name in _shm_segments() or not os.path.isdir("/dev/shm")  # nosec B108 - POSIX shared-memory mount, not a temp file
     _shutdown_live_queues()
     assert _shm_segments() == before
 

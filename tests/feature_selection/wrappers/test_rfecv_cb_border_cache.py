@@ -123,7 +123,7 @@ def test_cb_cached_borders_param_default_true_and_roundtrips():
     assert r.cb_cached_borders is True and r.get_params()["cb_cached_borders"] is True
     off = RFECV(estimator=CatBoostClassifier(verbose=0), cb_cached_borders=False)
     assert clone(off).cb_cached_borders is False
-    assert pickle.loads(pickle.dumps(off)).cb_cached_borders is False
+    assert pickle.loads(pickle.dumps(off)).cb_cached_borders is False  # nosec B301 - round-trip of an object this code just pickled
 
 
 def test_cb_cached_borders_param_false_disables_fast_path_and_true_uses_it(monkeypatch):
