@@ -230,7 +230,7 @@ class TimestampOrderedSplit:
             )
             yield from GroupKFold(n_splits=min(self.n_splits, n_groups)).split(order, groups=np.asarray(groups))
             return
-        for tr, te in GroupTimeSeriesSplit(n_splits=self.n_splits).split(groups=groups_in_time_order):
+        for tr, te in GroupTimeSeriesSplit(n_splits=self.n_splits, gap=self.gap).split(groups=groups_in_time_order):
             yield order[tr], order[te]
 
     def __deepcopy__(self, memo: dict) -> "TimestampOrderedSplit":

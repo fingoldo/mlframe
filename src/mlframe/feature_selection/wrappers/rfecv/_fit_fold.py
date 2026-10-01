@@ -361,7 +361,7 @@ def _eval_fold_body(
             _fit_key = getattr(_fitted.fit, "__func__", _fitted.fit)
             if _fit_accepts_sample_weight(_fit_key):
                 _per_est_fit_params["sample_weight"] = _fold_train_sw
-        _fast_done = getattr(self, "cb_cached_borders", True) and _try_cached_border_fit(
+        _fast_done = getattr(self, "cb_cached_borders", True) and frac is None and _try_cached_border_fit(
             _fitted, source=X_estimator if X_estimator is not None else X, X_train=X_train, y_train=y_train, fit_features=fit_features,
             fit_params=_per_est_fit_params, train_rows=(train_index if true_train_index is None else train_index[true_train_index]),
             sample_weight=_fold_train_sw,

@@ -160,8 +160,9 @@ def fit_catboost_with_cached_borders(
         if cat is None:
             cat = params.get("cat_features")
         pool = Pool(X_train, y_train, cat_features=list(cat) if cat is not None and len(cat) else None, weight=sample_weight)
-        fkey = _digest(train_rows, y_train if not hasattr(y_train, "to_numpy") else y_train.to_numpy(), sample_weight)
         qkw = {k: params[k] for k in _QUANT_PARAMS if params.get(k) is not None}
+        qkey = np.frombuffer(repr(sorted(qkw.items())).encode(), dtype=np.uint8)
+        fkey = _digest(train_rows, y_train if not hasattr(y_train, "to_numpy") else y_train.to_numpy(), sample_weight, qkey)
         with _LOCK:
             fold = cache.folds.get(fkey)
             if fold is None:

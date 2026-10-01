@@ -154,3 +154,22 @@ def test_feature_selection_config_rfecv_kwargs_accepts_cb_cached_borders():
     assert cfg.rfecv_kwargs == {"cb_cached_borders": False}
     with pytest.raises(ValueError, match="unknown key"):
         FeatureSelectionConfig(rfecv_models=["cb_rfecv"], rfecv_kwargs={"cb_cached_border": False})
+
+
+def test_border_cache_not_reused_across_different_quantization_params():
+    X, y, _ = _frame(2)
+    Xt, yt, Xv, yv = X.iloc[:1000], y.iloc[:1000], X.iloc[1000:], y.iloc[1000:]
+    src = type("Src", (), {})()
+    cols = list(X.columns)
+    preds = {}
+    for bc in (16, 254):
+        m = CatBoostClassifier(iterations=25, depth=4, verbose=0, allow_writing_files=False, random_seed=3, border_count=bc)
+        assert cbc.fit_catboost_with_cached_borders(
+            m, source=src, X_train=Xt, y_train=yt, fit_features=cols, fit_params={"eval_set": (Xv, yv)}, train_rows=np.arange(1000),
+        )
+        ref = CatBoostClassifier(iterations=25, depth=4, verbose=0, allow_writing_files=False, random_seed=3, border_count=bc)
+        ref.fit(Xt, yt, eval_set=(Xv, yv))
+        assert np.array_equal(m.predict_proba(Xv), ref.predict_proba(Xv))
+        preds[bc] = m.predict_proba(Xv)
+    assert cbc._get_cache(src).hits == 0
+    assert not np.array_equal(preds[16], preds[254])
