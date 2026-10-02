@@ -102,98 +102,7 @@ def _hybrid_orth_family_variants_group2(
     # basis) and Layer 7 cluster_aggregate (swaps cluster to PC1/mean_z as a
     # new raw feature WITHOUT a basis expansion). Recipe kind
     # ``orth_cluster_basis``; replay reads X only, no y.
-    if _fe_family_on("fe_hybrid_orth_cluster_basis_enable", False):
-        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
-        try:
-            from ..._orthogonal_cluster_basis_fe import (
-                hybrid_orth_mi_cluster_basis_fe_with_recipes,
-            )
-            from ..._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
-            # W6: record abs-MAD floor kills in the cluster-basis stage into
-            # the FE rejection ledger (pure-record; selection unchanged).
-            _cb_step = int(getattr(self, "_fe_steps_executed_", -1))
-
-            def _cb_reject_sink(**_kw):
-                """Reject-sink callback for the per-cluster shared-basis FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
-                _record_fe_rejection(self, step=_cb_step, **_kw)
-
-            _y_for_cb = _y_np
-            _y_for_cb = encode_y_for_classif_mi(_y_for_cb)
-            # Restrict to RAW source columns - engineered columns from
-            # prior stages would create recipes whose src_names reference
-            # an engineered column absent at transform.
-            _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
-            if getattr(self, "factors_names_to_use", None):
-                _cb_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
-            else:
-                _cb_cols = [c for c in X.columns if c not in _hybrid_already_appended]
-            _cb_aggregator = str(
-                getattr(
-                    self,
-                    "fe_hybrid_orth_cluster_basis_aggregator",
-                    "mean_z",
-                )
-            )
-            _cb_degrees = tuple(
-                int(d)
-                for d in getattr(
-                    self,
-                    "fe_hybrid_orth_cluster_basis_degrees",
-                    (2, 3),
-                )
-            )
-            _cb_top_k = int(
-                getattr(
-                    self,
-                    "fe_hybrid_orth_cluster_basis_top_k",
-                    3,
-                )
-            )
-            # Cluster detection reuses the diff-basis corr threshold as a
-            # sensible default (same calibration: 0.7 is the reflection-
-            # cluster floor). We deliberately do NOT share the same
-            # constructor argument so callers can tune diff-basis and
-            # cluster-basis independently.
-            _cb_corr = float(
-                getattr(
-                    self,
-                    "fe_hybrid_orth_diff_basis_corr_threshold",
-                    0.7,
-                )
-            )
-            _X_before_cb_cols = list(X.columns)
-            X_cb, _cb_scores, _cb_recipes = fe_decide_on_subsample(
-                hybrid_orth_mi_cluster_basis_fe_with_recipes,
-                X,
-                _y_for_cb,
-                subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_cb_cols,
-                aggregator=_cb_aggregator,
-                degrees=_cb_degrees,
-                corr_threshold=_cb_corr,
-                top_k=_cb_top_k,
-                reject_sink=_cb_reject_sink,
-            )
-            _cb_appended = [c for c in X_cb.columns if c not in _X_before_cb_cols]
-            if _cb_appended:
-                X = fe_append_columns(X, fe_extract_columns(X_cb, _cb_appended))
-                self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cb_appended)
-                for _r in _cb_recipes:
-                    _hybrid_orth_pre_recipes[_r.name] = _r
-                if verbose:
-                    logger.info(
-                        "MRMR.fit hybrid_orth cluster-basis: appended %d " "engineered column(s): %s",
-                        len(_cb_appended),
-                        _cb_appended[:8],
-                    )
-        except Exception as _cb_exc:
-            logger.warning(
-                "MRMR.fit hybrid_orth cluster-basis FE raised %s: %s; " "continuing without cluster-basis columns.",
-                type(_cb_exc).__name__,
-                _cb_exc,
-            )
+    X = _stage_cluster_basis(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
     # 2026-05-31 Layer 62 — BOOTSTRAP-STABLE MI ranking for the hybrid
     # orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Replaces the Layer 21 point-estimate MI gate
@@ -203,70 +112,7 @@ def _hybrid_orth_family_variants_group2(
     # changes - so recipes reuse the ``orth_univariate`` kind and replay
     # is shared. Restrict to RAW columns to avoid recipes referencing
     # already-engineered columns absent at transform.
-    if _fe_family_on("fe_hybrid_orth_bootstrap_enable", False):
-        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
-        try:
-            from ..._orthogonal_bootstrap_mi_fe import (
-                hybrid_orth_mi_bootstrap_fe_with_recipes,
-            )
-
-            _y_for_boot = _y_np
-            _y_for_boot = encode_y_for_classif_mi(_y_for_boot)
-            _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
-            if getattr(self, "factors_names_to_use", None):
-                _boot_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
-            else:
-                _boot_cols = [c for c in X.columns if c not in _hybrid_already_appended]
-            # Orthogonal/polynomial bootstrap FE converts operands to float; a raw categorical / string column would raise
-            # "could not convert string to float" and (via the broad except below) silently drop the entire bootstrap-stable pass.
-            # Scope to numeric/raw columns the same way the conditional-FE families do, instead of swallowing the failure.
-            _boot_cols = _orth_fe_numeric_cols(X, _boot_cols)
-            _boot_degrees = tuple(int(d) for d in getattr(
-                self, "fe_hybrid_orth_degrees", (2, 3),
-            ))
-            _boot_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
-            _boot_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
-            _boot_n = int(getattr(
-                self, "fe_hybrid_orth_bootstrap_n_boot", 10,
-            ))
-            _boot_frac = float(getattr(
-                self, "fe_hybrid_orth_bootstrap_sample_fraction", 0.8,
-            ))
-            _boot_seed = int(getattr(self, "random_seed", 0) or 0)
-            _X_before_boot_cols = list(X.columns)
-            X_boot, _boot_scores, _boot_recipes = fe_decide_on_subsample(
-                hybrid_orth_mi_bootstrap_fe_with_recipes,
-                X,
-                _y_for_boot,
-                subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_boot_cols,
-                degrees=_boot_degrees,
-                basis=_boot_basis,
-                top_k=_boot_top_k,
-                n_boot=_boot_n,
-                sample_fraction=_boot_frac,
-                seed=_boot_seed,
-            )
-            _boot_appended = [c for c in X_boot.columns if c not in _X_before_boot_cols]
-            if _boot_appended:
-                X = fe_append_columns(X, fe_extract_columns(X_boot, _boot_appended))
-                self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_boot_appended)
-                for _r in _boot_recipes:
-                    _hybrid_orth_pre_recipes[_r.name] = _r
-                if verbose:
-                    logger.info(
-                        "MRMR.fit hybrid_orth bootstrap-stable: appended " "%d engineered column(s): %s",
-                        len(_boot_appended),
-                        _boot_appended[:8],
-                    )
-        except Exception as _boot_exc:
-            logger.warning(
-                "MRMR.fit hybrid_orth bootstrap-stable FE raised %s: %s; " "continuing without bootstrap-stable columns.",
-                type(_boot_exc).__name__,
-                _boot_exc,
-            )
+    X = _stage_bootstrap(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
     # 2026-05-31 Layer 63 — THREE-GATE + K-fold OOF MI ranking for the
     # hybrid orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Layer 21 ranks engineered columns with a
@@ -364,10 +210,191 @@ def _hybrid_orth_family_variants_group2(
     # engineered columns are bit-equal to Layer 21 - only the SCORING
     # (and therefore the selection) changes - so recipes reuse the
     # ``orth_univariate`` kind and replay is shared infrastructure.
+    X = _stage_ksg(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+    # 2026-06-01 Layer 66 — COPULA-MI ranking for the hybrid orth-poly FE
+    # (independent opt-in; does NOT require fe_hybrid_orth_enable). Each
+    # variable is rank-transformed to a uniform on (0, 1) before MI is
+    # estimated, so the score is INVARIANT under any strictly-monotone
+    # transform of either variable. Wins on heavy-tailed / skewed signals
+    # where the plug-in's qcut on raw values piles tail observations into
+    # one bin and hides genuine dependence. Engineered VALUES bit-equal to
+    # Layer 21 -> recipes reuse the ``orth_univariate`` kind.
+
+    return X
+
+
+def _stage_cluster_basis(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose):
+    """Run the hybrid-orth cluster-basis family when it is enabled."""
+    if _fe_family_on("fe_hybrid_orth_cluster_basis_enable", False):
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        try:
+            from mlframe.feature_selection.filters._orthogonal_cluster_basis_fe import (
+                hybrid_orth_mi_cluster_basis_fe_with_recipes,
+            )
+            from mlframe.feature_selection.filters._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+            # W6: record abs-MAD floor kills in the cluster-basis stage into
+            # the FE rejection ledger (pure-record; selection unchanged).
+            _cb_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+            def _cb_reject_sink(**_kw):
+                """Reject-sink callback for the per-cluster shared-basis FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                _record_fe_rejection(self, step=_cb_step, **_kw)
+
+            _y_for_cb = _y_np
+            _y_for_cb = encode_y_for_classif_mi(_y_for_cb)
+            # Restrict to RAW source columns - engineered columns from
+            # prior stages would create recipes whose src_names reference
+            # an engineered column absent at transform.
+            _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
+            if getattr(self, "factors_names_to_use", None):
+                _cb_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
+            else:
+                _cb_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+            _cb_aggregator = str(
+                getattr(
+                    self,
+                    "fe_hybrid_orth_cluster_basis_aggregator",
+                    "mean_z",
+                )
+            )
+            _cb_degrees = tuple(
+                int(d)
+                for d in getattr(
+                    self,
+                    "fe_hybrid_orth_cluster_basis_degrees",
+                    (2, 3),
+                )
+            )
+            _cb_top_k = int(
+                getattr(
+                    self,
+                    "fe_hybrid_orth_cluster_basis_top_k",
+                    3,
+                )
+            )
+            # Cluster detection reuses the diff-basis corr threshold as a
+            # sensible default (same calibration: 0.7 is the reflection-
+            # cluster floor). We deliberately do NOT share the same
+            # constructor argument so callers can tune diff-basis and
+            # cluster-basis independently.
+            _cb_corr = float(
+                getattr(
+                    self,
+                    "fe_hybrid_orth_diff_basis_corr_threshold",
+                    0.7,
+                )
+            )
+            _X_before_cb_cols = list(X.columns)
+            X_cb, _cb_scores, _cb_recipes = fe_decide_on_subsample(
+                hybrid_orth_mi_cluster_basis_fe_with_recipes,
+                X,
+                _y_for_cb,
+                subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                cols=_cb_cols,
+                aggregator=_cb_aggregator,
+                degrees=_cb_degrees,
+                corr_threshold=_cb_corr,
+                top_k=_cb_top_k,
+                reject_sink=_cb_reject_sink,
+            )
+            _cb_appended = [c for c in X_cb.columns if c not in _X_before_cb_cols]
+            if _cb_appended:
+                X = fe_append_columns(X, fe_extract_columns(X_cb, _cb_appended))
+                self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cb_appended)
+                for _r in _cb_recipes:
+                    _hybrid_orth_pre_recipes[_r.name] = _r
+                if verbose:
+                    logger.info(
+                        "MRMR.fit hybrid_orth cluster-basis: appended %d " "engineered column(s): %s",
+                        len(_cb_appended),
+                        _cb_appended[:8],
+                    )
+        except Exception as _cb_exc:
+            logger.warning(
+                "MRMR.fit hybrid_orth cluster-basis FE raised %s: %s; " "continuing without cluster-basis columns.",
+                type(_cb_exc).__name__,
+                _cb_exc,
+            )
+    return X
+
+
+def _stage_bootstrap(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose):
+    """Run the hybrid-orth bootstrap family when it is enabled."""
+    if _fe_family_on("fe_hybrid_orth_bootstrap_enable", False):
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        try:
+            from mlframe.feature_selection.filters._orthogonal_bootstrap_mi_fe import (
+                hybrid_orth_mi_bootstrap_fe_with_recipes,
+            )
+
+            _y_for_boot = _y_np
+            _y_for_boot = encode_y_for_classif_mi(_y_for_boot)
+            _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
+            if getattr(self, "factors_names_to_use", None):
+                _boot_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
+            else:
+                _boot_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+            # Orthogonal/polynomial bootstrap FE converts operands to float; a raw categorical / string column would raise
+            # "could not convert string to float" and (via the broad except below) silently drop the entire bootstrap-stable pass.
+            # Scope to numeric/raw columns the same way the conditional-FE families do, instead of swallowing the failure.
+            _boot_cols = _orth_fe_numeric_cols(X, _boot_cols)
+            _boot_degrees = tuple(int(d) for d in getattr(
+                self, "fe_hybrid_orth_degrees", (2, 3),
+            ))
+            _boot_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
+            _boot_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+            _boot_n = int(getattr(
+                self, "fe_hybrid_orth_bootstrap_n_boot", 10,
+            ))
+            _boot_frac = float(getattr(
+                self, "fe_hybrid_orth_bootstrap_sample_fraction", 0.8,
+            ))
+            _boot_seed = int(getattr(self, "random_seed", 0) or 0)
+            _X_before_boot_cols = list(X.columns)
+            X_boot, _boot_scores, _boot_recipes = fe_decide_on_subsample(
+                hybrid_orth_mi_bootstrap_fe_with_recipes,
+                X,
+                _y_for_boot,
+                subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                cols=_boot_cols,
+                degrees=_boot_degrees,
+                basis=_boot_basis,
+                top_k=_boot_top_k,
+                n_boot=_boot_n,
+                sample_fraction=_boot_frac,
+                seed=_boot_seed,
+            )
+            _boot_appended = [c for c in X_boot.columns if c not in _X_before_boot_cols]
+            if _boot_appended:
+                X = fe_append_columns(X, fe_extract_columns(X_boot, _boot_appended))
+                self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_boot_appended)
+                for _r in _boot_recipes:
+                    _hybrid_orth_pre_recipes[_r.name] = _r
+                if verbose:
+                    logger.info(
+                        "MRMR.fit hybrid_orth bootstrap-stable: appended " "%d engineered column(s): %s",
+                        len(_boot_appended),
+                        _boot_appended[:8],
+                    )
+        except Exception as _boot_exc:
+            logger.warning(
+                "MRMR.fit hybrid_orth bootstrap-stable FE raised %s: %s; " "continuing without bootstrap-stable columns.",
+                type(_boot_exc).__name__,
+                _boot_exc,
+            )
+    return X
+
+
+def _stage_ksg(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose):
+    """Run the hybrid-orth KSG family when it is enabled."""
     if _fe_family_on("fe_hybrid_orth_ksg_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
-            from ..._orthogonal_ksg_mi_fe import (
+            from mlframe.feature_selection.filters._orthogonal_ksg_mi_fe import (
                 hybrid_orth_mi_ksg_fe_with_recipes,
             )
 
@@ -433,13 +460,4 @@ def _hybrid_orth_family_variants_group2(
                 type(_ksg_exc).__name__,
                 _ksg_exc,
             )
-    # 2026-06-01 Layer 66 — COPULA-MI ranking for the hybrid orth-poly FE
-    # (independent opt-in; does NOT require fe_hybrid_orth_enable). Each
-    # variable is rank-transformed to a uniform on (0, 1) before MI is
-    # estimated, so the score is INVARIANT under any strictly-monotone
-    # transform of either variable. Wins on heavy-tailed / skewed signals
-    # where the plug-in's qcut on raw values piles tail observations into
-    # one bin and hides genuine dependence. Engineered VALUES bit-equal to
-    # Layer 21 -> recipes reuse the ``orth_univariate`` kind.
-
     return X

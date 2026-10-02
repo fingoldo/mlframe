@@ -128,44 +128,7 @@ def _sanitize_X_inputs(self, X, y):
     # drift. Vectorised across ALL dtypes via DataFrame.nunique() so constant categorical / string / bool columns are also caught.
     # E6: also treat numeric columns with variance < 1e-12 as zero-variance (e.g. constant floats with numerical
     # noise around the same value, or near-constant categorical encodings). Pre-fix used strict nunique<=1 only and missed these.
-    if isinstance(X, pd.DataFrame) and X.shape[1] > 0:
-        try:
-            nunique = X.nunique(dropna=True)
-            degenerate = nunique[nunique <= 1].index.tolist()
-            # Add near-zero-variance numeric columns.
-            from pandas.api.types import is_numeric_dtype as _is_num
-            for _c in X.columns:
-                if _c in degenerate:
-                    continue
-                if _is_num(X[_c]):
-                    try:
-                        _v = float(np.nanvar(X[_c].to_numpy(dtype=float, na_value=np.nan)))
-                    except (TypeError, ValueError):
-                        continue
-                    if _v < 1e-12:
-                        degenerate.append(_c)
-        except TypeError:
-            # Fallback for exotic dtypes that nunique() can't hash.
-            degenerate = []
-            for col in X.columns:
-                series = X[col]
-                if series.isna().all():
-                    degenerate.append(col)
-                else:
-                    try:
-                        if series.nunique(dropna=True) <= 1:
-                            degenerate.append(col)
-                    except TypeError:
-                        continue
-        if degenerate:
-            if getattr(self, "verbose", 0):
-                logger.info(
-                    "RFECV: dropping %d zero-variance / all-null column(s) "
-                    "before fit so they cannot leak into ``support_`` or "
-                    "trip a transform-time column-set drift later: %s",
-                    len(degenerate), degenerate,
-                )
-            X = X.drop(columns=degenerate)
+    X = _drop_degenerate_columns(self, X)
 
     # Drop exact-duplicate columns (numeric AND categorical). Without this, RFECV's voting splits the importance of a duplicated feature across all copies,
     # biasing selection toward isolated noise features whose FI isn't diluted. ``pandas.util.hash_array`` is dtype-agnostic and treats NaN as a single sentinel,
@@ -227,6 +190,83 @@ def _sanitize_X_inputs(self, X, y):
     # collinear-cluster mates) sits far below it and BOTH members survive, so it cannot drop a weak recoverable signal. Reducing a genuine high-VIF cluster to a
     # representative remains the redundancy-aware CorrelatedFeaturesSelector wrapper's job (cluster_reduce=True); this is only the exact/near-exact replica case. Default on;
     # opt out via drop_near_dup_corr=False.
+    X = _drop_near_duplicate_columns(self, X, _group_protected)
+
+    # Drop ID-like sequence columns: a near-unique column whose sorted distinct values are (near-)perfectly affine-spaced is an enumerated row-id / index /
+    # counter (or affine of one). It carries ZERO generalisable signal - the values ARE the sample order - yet a tree estimator memorises it via split-frequency
+    # bias and admits it into support_, where it cannot generalise. Dropping it is as safe as dropping a constant. The guard is NARROW BY CONSTRUCTION: it requires
+    # both near-uniqueness AND a near-zero spacing coefficient-of-variation, so a continuous real signal (a Normal column has sorted-gap CV ~O(1)) and a hash-style
+    # random id (irregular gaps) are NEVER caught - it cannot drop a weak recoverable signal (which is either low-cardinality-binnable or continuous, both with
+    # high spacing CV). Default on; opt out via drop_id_like_sequences=False.
+    if getattr(self, "drop_id_like_sequences", True) and isinstance(X, pd.DataFrame) and X.shape[1] > 0:
+        _n = X.shape[0]
+        _ratio_thr = float(getattr(self, "id_like_ratio_threshold", 0.999))
+        _cv_thr = float(getattr(self, "id_like_spacing_cv", 1e-3))
+        X = _screen_id_like_columns(self, _n, X, _group_protected, _ratio_thr, _cv_thr)
+
+    # must_exclude: drop named columns at fit entry so they never enter the optimiser's universe.
+    X = _drop_must_exclude_columns(self, X)
+
+    # E5: warn on high-cardinality integer / int-encoded
+    # columns that look like hashes / IDs. They pass Pearson leak (low corr),
+    # but tree FI inflates them via split-frequency bias. Knockoffs assume
+    # Gaussian and become meaningless. Integer dtype (or integer-valued float), n_rows >= 50, and unique fraction > 0.5 for monotonic / large-range
+    # (hash-like) columns or > 0.9 for other integer columns; see _id_like_verdict.
+    _warn_suspicious_high_cardinality(X)
+
+    # Target-leakage early warning: Pearson correlation between each numeric feature and y.
+    # Common leak shapes: ID columns that encode the target, post-hoc enrichments, target-encoded categoricals computed on the full set.
+    _suspicious: list = []
+    X = _screen_target_leakage(self, X, y, _suspicious)
+
+    return X
+
+
+def _drop_degenerate_columns(self, X):
+    """Drop all-null and constant columns."""
+    if isinstance(X, pd.DataFrame) and X.shape[1] > 0:
+        try:
+            nunique = X.nunique(dropna=True)
+            degenerate = nunique[nunique <= 1].index.tolist()
+            # Add near-zero-variance numeric columns.
+            from pandas.api.types import is_numeric_dtype as _is_num
+            for _c in X.columns:
+                if _c in degenerate:
+                    continue
+                if _is_num(X[_c]):
+                    try:
+                        _v = float(np.nanvar(X[_c].to_numpy(dtype=float, na_value=np.nan)))
+                    except (TypeError, ValueError):
+                        continue
+                    if _v < 1e-12:
+                        degenerate.append(_c)
+        except TypeError:
+            # Fallback for exotic dtypes that nunique() can't hash.
+            degenerate = []
+            for col in X.columns:
+                series = X[col]
+                if series.isna().all():
+                    degenerate.append(col)
+                else:
+                    try:
+                        if series.nunique(dropna=True) <= 1:
+                            degenerate.append(col)
+                    except TypeError:
+                        continue
+        if degenerate:
+            if getattr(self, "verbose", 0):
+                logger.info(
+                    "RFECV: dropping %d zero-variance / all-null column(s) "
+                    "before fit so they cannot leak into ``support_`` or "
+                    "trip a transform-time column-set drift later: %s",
+                    len(degenerate), degenerate,
+                )
+            X = X.drop(columns=degenerate)
+    return X
+
+
+def _drop_near_duplicate_columns(self, X, _group_protected):
+    """Drop columns that are near-duplicates of another by correlation."""
     if getattr(self, "drop_near_dup_corr", True) and isinstance(X, pd.DataFrame) and X.shape[1] > 1 and X.shape[0] >= 50:
         _thr = float(getattr(self, "near_dup_corr_threshold", 0.999))
         from pandas.api.types import is_numeric_dtype as _is_num_dup
@@ -265,57 +305,54 @@ def _sanitize_X_inputs(self, X, y):
                             len(_dup_drop), _thr, _dup_drop,
                         )
                     X = X.drop(columns=_dup_drop)
+    return X
 
-    # Drop ID-like sequence columns: a near-unique column whose sorted distinct values are (near-)perfectly affine-spaced is an enumerated row-id / index /
-    # counter (or affine of one). It carries ZERO generalisable signal - the values ARE the sample order - yet a tree estimator memorises it via split-frequency
-    # bias and admits it into support_, where it cannot generalise. Dropping it is as safe as dropping a constant. The guard is NARROW BY CONSTRUCTION: it requires
-    # both near-uniqueness AND a near-zero spacing coefficient-of-variation, so a continuous real signal (a Normal column has sorted-gap CV ~O(1)) and a hash-style
-    # random id (irregular gaps) are NEVER caught - it cannot drop a weak recoverable signal (which is either low-cardinality-binnable or continuous, both with
-    # high spacing CV). Default on; opt out via drop_id_like_sequences=False.
-    if getattr(self, "drop_id_like_sequences", True) and isinstance(X, pd.DataFrame) and X.shape[1] > 0:
-        _n = X.shape[0]
-        _ratio_thr = float(getattr(self, "id_like_ratio_threshold", 0.999))
-        _cv_thr = float(getattr(self, "id_like_spacing_cv", 1e-3))
-        if _n >= 50:
-            from pandas.api.types import is_numeric_dtype as _is_num_id
-            _id_like: list = []
-            for _c in X.columns:
-                if _c in _group_protected or not _is_num_id(X[_c]):
-                    continue
-                _ser = X[_c]
-                try:
-                    _nu = int(_ser.nunique(dropna=True))
-                except (TypeError, ValueError):
-                    continue
-                if _nu < _ratio_thr * _n:
-                    continue
-                try:
-                    _vsort = np.sort(_ser.dropna().to_numpy(dtype=float))
-                except (TypeError, ValueError):
-                    continue
-                _vsort = _vsort[np.isfinite(_vsort)]
-                if _vsort.size < 50:
-                    continue
-                _d = np.diff(_vsort)
-                _d = _d[_d > 0]
-                if _d.size < max(10, 0.5 * _vsort.size):
-                    continue
-                _md = float(_d.mean())
-                if _md <= 0:
-                    continue
-                if float(_d.std()) / _md <= _cv_thr:
-                    _id_like.append(_c)
-            if _id_like:
-                if getattr(self, "verbose", 0):
-                    logger.info(
-                        "RFECV: dropping %d ID-like sequence column(s) (near-unique + affine-spaced row-id / index / counter) "
-                        "before fit so they cannot leak into ``support_`` via tree split-frequency bias: %s. "
-                        "Set drop_id_like_sequences=False to keep them.",
-                        len(_id_like), _id_like,
-                    )
-                X = X.drop(columns=_id_like)
 
-    # must_exclude: drop named columns at fit entry so they never enter the optimiser's universe.
+def _screen_id_like_columns(self, _n, X, _group_protected, _ratio_thr, _cv_thr):
+    """Drop ID-like columns."""
+    if _n >= 50:
+        from pandas.api.types import is_numeric_dtype as _is_num_id
+        _id_like: list = []
+        for _c in X.columns:
+            if _c in _group_protected or not _is_num_id(X[_c]):
+                continue
+            _ser = X[_c]
+            try:
+                _nu = int(_ser.nunique(dropna=True))
+            except (TypeError, ValueError):
+                continue
+            if _nu < _ratio_thr * _n:
+                continue
+            try:
+                _vsort = np.sort(_ser.dropna().to_numpy(dtype=float))
+            except (TypeError, ValueError):
+                continue
+            _vsort = _vsort[np.isfinite(_vsort)]
+            if _vsort.size < 50:
+                continue
+            _d = np.diff(_vsort)
+            _d = _d[_d > 0]
+            if _d.size < max(10, 0.5 * _vsort.size):
+                continue
+            _md = float(_d.mean())
+            if _md <= 0:
+                continue
+            if float(_d.std()) / _md <= _cv_thr:
+                _id_like.append(_c)
+        if _id_like:
+            if getattr(self, "verbose", 0):
+                logger.info(
+                    "RFECV: dropping %d ID-like sequence column(s) (near-unique + affine-spaced row-id / index / counter) "
+                    "before fit so they cannot leak into ``support_`` via tree split-frequency bias: %s. "
+                    "Set drop_id_like_sequences=False to keep them.",
+                    len(_id_like), _id_like,
+                )
+            X = X.drop(columns=_id_like)
+    return X
+
+
+def _drop_must_exclude_columns(self, X):
+    """Drop the must_exclude columns at fit entry."""
     if self.must_exclude and isinstance(X, pd.DataFrame):
         _drop = [c for c in self.must_exclude if c in X.columns]
         if _drop:
@@ -339,12 +376,11 @@ def _sanitize_X_inputs(self, X, y):
                     "RFECV: must_exclude has %d name(s) not in X (silently ignored): %s",
                     len(_missing), _missing[:20],
                 )
+    return X
 
-    # E5: warn on high-cardinality integer / int-encoded
-    # columns that look like hashes / IDs. They pass Pearson leak (low corr),
-    # but tree FI inflates them via split-frequency bias. Knockoffs assume
-    # Gaussian and become meaningless. Integer dtype (or integer-valued float), n_rows >= 50, and unique fraction > 0.5 for monotonic / large-range
-    # (hash-like) columns or > 0.9 for other integer columns; see _id_like_verdict.
+
+def _warn_suspicious_high_cardinality(X):
+    """Warn about suspicious high-cardinality integer columns."""
     if isinstance(X, pd.DataFrame) and X.shape[0] >= 50:  # W9: unconditional, see rationale above
         from pandas.api.types import is_numeric_dtype as _is_num
         _suspicious_hicard: list = []
@@ -369,9 +405,9 @@ def _sanitize_X_inputs(self, X, y):
                 len(_suspicious_hicard), _suspicious_hicard[:10],
             )
 
-    # Target-leakage early warning: Pearson correlation between each numeric feature and y.
-    # Common leak shapes: ID columns that encode the target, post-hoc enrichments, target-encoded categoricals computed on the full set.
-    _suspicious: list = []
+
+def _screen_target_leakage(self, X, y, _suspicious):
+    """Drop columns whose correlation with the target suggests leakage."""
     if self.leakage_corr_threshold is not None and isinstance(X, pd.DataFrame) and X.shape[0] >= 30:
         try:
             _y_arr = np.asarray(y, dtype=float).ravel()
@@ -429,5 +465,4 @@ def _sanitize_X_inputs(self, X, y):
                     X = X.drop(columns=_non_pinned_leaky_cols)
             else:
                 logger.warning(_msg)
-
     return X

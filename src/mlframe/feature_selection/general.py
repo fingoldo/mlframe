@@ -167,13 +167,7 @@ def estimate_features_relevancy(
     # What MI implementation is the fastest for current machine?
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    if not mi_algorithms_ranking:
-        base_mi_algos = [chatgpt_compute_mutual_information, grok_compute_mutual_information, deepseek_compute_mutual_information]
-
-        if benchmark_mi_algorithms:
-            mi_algorithms_ranking = benchmark_mi_algos(base_mi_algos=base_mi_algos, verbose=verbose)
-        else:
-            mi_algorithms_ranking = base_mi_algos
+    mi_algorithms_ranking = _default_mi_algorithms(mi_algorithms_ranking, benchmark_mi_algorithms, verbose)
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # for each of the targets, compute joint freqs and then MI for each of the "normal" columns:
@@ -269,6 +263,31 @@ def estimate_features_relevancy(
     # once here (not per target) since the codes are the same across targets.
     occupied_bins_per_col = np.array([_occupied_bins(arr[:, j]) for j in range(bins.shape[1])], dtype=np.int64)
 
+    features_usefulness = _aggregate_permuted_mis_per_target(target_indices, target_columns, all_permuted_mis, current_permuted_mis, verbose, occupied_bins_per_col, original_mi_results, n_samples, bins, permuted_max_mi_quantile, min_mi_prevalence, max_permuted_prevalence_percent, fdr_alpha, features_usefulness)
+
+    for feature_idx, feature_name in enumerate(bins.columns):
+        if features_usefulness[feature_idx] == 0 and feature_idx not in target_indices:
+            columns_to_drop.append(feature_name)
+
+    _warn_on_dropped_columns(columns_to_drop, verbose, max_log_text_width)
+
+    return columns_to_drop, original_mi_results, all_permuted_mis, mi_algorithms_ranking
+
+
+def _default_mi_algorithms(mi_algorithms_ranking, benchmark_mi_algorithms, verbose):
+    """Pick the default MI algorithms, optionally benchmarking them."""
+    if not mi_algorithms_ranking:
+        base_mi_algos = [chatgpt_compute_mutual_information, grok_compute_mutual_information, deepseek_compute_mutual_information]
+
+        if benchmark_mi_algorithms:
+            mi_algorithms_ranking = benchmark_mi_algos(base_mi_algos=base_mi_algos, verbose=verbose)
+        else:
+            mi_algorithms_ranking = base_mi_algos
+    return mi_algorithms_ranking
+
+
+def _aggregate_permuted_mis_per_target(target_indices, target_columns, all_permuted_mis, current_permuted_mis, verbose, occupied_bins_per_col, original_mi_results, n_samples, bins, permuted_max_mi_quantile, min_mi_prevalence, max_permuted_prevalence_percent, fdr_alpha, features_usefulness):
+    """Aggregate the permuted MI values per target column."""
     for target_idx, target_col_idx in enumerate(target_indices):
         target_name = target_columns[target_idx]
 
@@ -335,11 +354,11 @@ def estimate_features_relevancy(
             )
 
         features_usefulness += (target_features_usefulness >= 3).astype(np.int32)  # all three tests must be passed
+    return features_usefulness
 
-    for feature_idx, feature_name in enumerate(bins.columns):
-        if features_usefulness[feature_idx] == 0 and feature_idx not in target_indices:
-            columns_to_drop.append(feature_name)
 
+def _warn_on_dropped_columns(columns_to_drop, verbose, max_log_text_width):
+    """Warn about the columns dropped as useless."""
     if columns_to_drop:
         if verbose:
             logger.warning(
@@ -347,8 +366,6 @@ def estimate_features_relevancy(
                 f"{len(columns_to_drop):_}",
                 textwrap.shorten(", ".join(columns_to_drop), width=max_log_text_width),
             )
-
-    return columns_to_drop, original_mi_results, all_permuted_mis, mi_algorithms_ranking
 
 
 def run_efs(

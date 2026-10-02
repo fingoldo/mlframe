@@ -8,6 +8,8 @@ section this fans out from and the ``(selected_vars, cols, data, nbins)`` thread
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 import warnings
 
@@ -169,10 +171,51 @@ def _friend_graph_and_redundancy_passes_group1(
     # marginal relevance, so a zero-marginal operand keeps its full joint-MI resolution.
     _iac_max_order = getattr(self, "interactions_max_order", None)
     # No selected-count guard: the screen seeds operands the greedy never selected, so an empty support is a valid input.
+    selected_vars = _synergy_screen_pass(self, _iac_max_order, cols, X, classes_y, fe_to_pandas, selected_vars, verbose)
+
+    # RAW-RETENTION: re-add SCREENING-confirmed genuine raw features
+    # that the post-FE re-selection dropped, UNLESS a SINGLE-PARENT engineered child
+    # substitutes them (the prefer-engineered raw->transform swap, which is a
+    # legitimate, intended replacement). Screening permutation-validated these raw
+    # columns as genuine; at small n an engineered feature can absorb a weak genuine
+    # one as a redundant near-duplicate and the re-selection then drops the clean raw
+    # signal entirely (measured: a genuine X5 at n=500, and both operands of a
+    # pair-interaction target, dropped from support_). A raw feature only legitimately
+    # leaves the support when a sole-parent transform of it survives.
+    _prefe_raw = getattr(self, "_prefe_screened_raw_", None)
+    selected_vars = _prefe_raw_sole_parent_pass(self, _prefe_raw, selected_vars, cols, data, target_indices, nbins, verbose)
+
+    selected_vars = readd_protected_columns(
+        self,
+        X=X,
+        cols=cols,
+        data=data,
+        selected_vars=selected_vars,
+        _eng_continuous_snapshot=_eng_continuous_snapshot,
+        _y_np=_y_np,
+        hybrid_orth_pre_recipes=_hybrid_orth_pre_recipes,
+        miss_ind_pre_recipes=_miss_ind_pre_recipes,
+        verbose=verbose,
+    )
+
+    # HINGE / CHANGE-POINT DEFERRED MATERIALISATION: the hinge stage
+    # ran BEFORE the pair-FE loop (it needs the raw source columns) but DEFERRED
+    # appending its legs so they could not perturb composite recovery. Now that the
+    # FE loop has settled (composites recovered untouched), materialise the buffered
+    # legs into the candidate matrix (``data`` bin-codes / ``cols`` / ``nbins``),
+    # the augmented frame ``X``, and the recipe registry, then let the protection
+    # block below re-add the deserving ones into ``selected_vars``. Skipped wholesale
+    # when nothing was detected (legacy / no-kink path: the buffer is empty).
+
+    return selected_vars, cols, data, nbins
+
+
+def _synergy_screen_pass(self, _iac_max_order, cols, X, classes_y, fe_to_pandas, selected_vars, verbose):
+    """Run the synergy screen over operand combinations of the configured max order."""
     if int(_iac_max_order if _iac_max_order is not None else 1) >= 2:
         try:
-            from ..._fe_synergy_screen import detect_synergy_combos
-            from ..._mi_greedy_cmi_fe import _quantile_bin
+            from mlframe.feature_selection.filters._fe_synergy_screen import detect_synergy_combos
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
 
             _raw_set_syn = set(self.feature_names_in_)
             _cand_syn = [i for i, _nm in enumerate(cols) if _nm in _raw_set_syn]
@@ -180,7 +223,7 @@ def _friend_graph_and_redundancy_passes_group1(
             # whole fit frame. Every `fe_to_pandas` in the sibling cascade is size-gated for exactly that
             # reason; this one was not, so a 32 GB polars frame became a 64 GB peak on a screen that is an
             # optional enrichment. Skip it above the eager-materialise ceiling rather than whole-copy.
-            from ..._fe_frame_ops import fe_polars_exceeds
+            from mlframe.feature_selection.filters._fe_frame_ops import fe_polars_exceeds
 
             if 2 <= len(_cand_syn) <= 60 and fe_polars_exceeds(X):
                 warnings.warn(
@@ -232,19 +275,13 @@ def _friend_graph_and_redundancy_passes_group1(
                         )
         except Exception as _syn_exc:
             logger.warning("MRMR n-way synergy seeding failed: %s; keeping support.", _syn_exc)
+    return selected_vars
 
-    # RAW-RETENTION: re-add SCREENING-confirmed genuine raw features
-    # that the post-FE re-selection dropped, UNLESS a SINGLE-PARENT engineered child
-    # substitutes them (the prefer-engineered raw->transform swap, which is a
-    # legitimate, intended replacement). Screening permutation-validated these raw
-    # columns as genuine; at small n an engineered feature can absorb a weak genuine
-    # one as a redundant near-duplicate and the re-selection then drops the clean raw
-    # signal entirely (measured: a genuine X5 at n=500, and both operands of a
-    # pair-interaction target, dropped from support_). A raw feature only legitimately
-    # leaves the support when a sole-parent transform of it survives.
-    _prefe_raw = getattr(self, "_prefe_screened_raw_", None)
+
+def _prefe_raw_sole_parent_pass(self, _prefe_raw, selected_vars, cols, data, target_indices, nbins, verbose):
+    """Drop raw operands from the support when a sole-parent transform of them survives."""
     if _prefe_raw and len(selected_vars):
-        from ..._confirm_predictor import _extract_single_raw_parent
+        from mlframe.feature_selection.filters._confirm_predictor import _extract_single_raw_parent
 
         _raw_names_set = set(self.feature_names_in_)
         _cur_names = set(np.asarray(cols)[np.asarray(selected_vars, dtype=np.intp)])
@@ -281,20 +318,10 @@ def _friend_graph_and_redundancy_passes_group1(
         # keeping the protective unconditional re-add at small n (the regime the
         # protection was built and validated for) and for raws NOT consumed by any
         # surviving engineered feature (the originally-intended absorbed-by-unrelated case).
-        from ..._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RR_TOK_SPLIT
 
         # Map each raw-operand name -> list of surviving ENGINEERED survivor column indices that consume it.
         _eng_operands_of: dict = {}  # raw_name -> list[engineered survivor col idx]
-        for _v in selected_vars:
-            _vname = cols[_v]
-            if _vname in _raw_names_set:
-                continue
-            for _tok in _RR_TOK_SPLIT.split(_vname):
-                if not _tok:
-                    continue
-                _base = _tok if _tok in _raw_names_set else (_tok.split("__", 1)[0] if "__" in _tok else None)
-                if _base in _raw_names_set:
-                    _eng_operands_of.setdefault(_base, []).append(_v)
+        _engineered_operand_map(selected_vars, cols, _raw_names_set, _eng_operands_of)
         # Sample-size scope: the small-n regime the protection was BUILT and
         # validated for (n=500 / 2000 / 3000 fixtures). At large n the post-FE re-selection's
         # conditional-MI redundancy term is statistically reliable - its drop of a redundant
@@ -344,7 +371,7 @@ def _friend_graph_and_redundancy_passes_group1(
         # effort: a kernel failure falls through to the permissive re-add (never drop a
         # screening-confirmed raw on an estimator error).
         try:
-            from ...permutation import mi_direct as _mi_direct_rr
+            from mlframe.feature_selection.filters.permutation import mi_direct as _mi_direct_rr
         except Exception as exc:
             logger.debug("mrmr: mi_direct import/binding failed for the raw-redundancy significance probe; probe disabled: %r", exc, exc_info=True)
             _mi_direct_rr = None  # type: ignore[assignment]
@@ -398,35 +425,13 @@ def _friend_graph_and_redundancy_passes_group1(
         # conditional-excess verdict ``drop_redundant_raw_operands`` uses, so this is the
         # authoritative drop. Byte-identical when no fusion fired (the set is empty).
         _fused_dropped_raw = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
-        _readd = []
-        _dropped_redundant = []
-        _dropped_insignificant = []
+        _readd: list[Any] = []
+        _dropped_redundant: list[Any] = []
+        _dropped_insignificant: list[Any] = []
         # name -> index map built once (O(F)) instead of a ``.index()`` rescan of ``cols`` per
         # ``_rn`` (O(F) each) - turns the O(K*F) loop below into O(K+F).
         _prefe_cols_idx = {nm: i for i, nm in enumerate(cols)}
-        for _rn in _prefe_raw:
-            if _rn in _cur_names or _rn in _substituted:
-                continue
-            if _rn in _fused_dropped_raw:
-                _dropped_redundant.append(_rn)
-                continue
-            _idx = _prefe_cols_idx.get(_rn)
-            if _idx is None:
-                continue
-            if _idx in _sv_set:
-                continue
-            _eng_cols = _eng_operands_of.get(_rn)
-            if _eng_cols and not _rr_raw_is_relevant_given_engineered(_eng_cols):
-                # Fully captured by a surviving engineered child -> respect the
-                # re-selection's redundancy verdict (the OLD CORRECT behaviour).
-                _dropped_redundant.append(_rn)
-                continue
-            if not _rr_raw_is_significant(_idx):
-                # Screen false positive (pure noise within its own null) -> do not re-add.
-                _dropped_insignificant.append(_rn)
-                continue
-            _readd.append(_idx)
-            _sv_set.add(_idx)
+        _substitute_prefe_raw_operands(_prefe_raw, _cur_names, _substituted, _fused_dropped_raw, _dropped_redundant, _prefe_cols_idx, _sv_set, _eng_operands_of, _rr_raw_is_relevant_given_engineered, _rr_raw_is_significant, _dropped_insignificant, _readd)
         if _dropped_insignificant and verbose:
             logger.info(
                 "MRMR raw-retention: withheld %d screening-flagged raw feature(s) that " "sit WITHIN their permutation null (p>=%.2f -- genuine-screen noise, not " "re-added): %s",
@@ -448,27 +453,47 @@ def _friend_graph_and_redundancy_passes_group1(
                 len(_dropped_redundant),
                 _dropped_redundant,
             )
+    return selected_vars
 
-    selected_vars = readd_protected_columns(
-        self,
-        X=X,
-        cols=cols,
-        data=data,
-        selected_vars=selected_vars,
-        _eng_continuous_snapshot=_eng_continuous_snapshot,
-        _y_np=_y_np,
-        hybrid_orth_pre_recipes=_hybrid_orth_pre_recipes,
-        miss_ind_pre_recipes=_miss_ind_pre_recipes,
-        verbose=verbose,
-    )
 
-    # HINGE / CHANGE-POINT DEFERRED MATERIALISATION: the hinge stage
-    # ran BEFORE the pair-FE loop (it needs the raw source columns) but DEFERRED
-    # appending its legs so they could not perturb composite recovery. Now that the
-    # FE loop has settled (composites recovered untouched), materialise the buffered
-    # legs into the candidate matrix (``data`` bin-codes / ``cols`` / ``nbins``),
-    # the augmented frame ``X``, and the recipe registry, then let the protection
-    # block below re-add the deserving ones into ``selected_vars``. Skipped wholesale
-    # when nothing was detected (legacy / no-kink path: the buffer is empty).
+def _engineered_operand_map(selected_vars, cols, _raw_names_set, _eng_operands_of):
+    """Map each selected engineered column to the raw operands it was built from."""
+    from mlframe.feature_selection.filters._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RR_TOK_SPLIT
 
-    return selected_vars, cols, data, nbins
+    for _v in selected_vars:
+        _vname = cols[_v]
+        if _vname in _raw_names_set:
+            continue
+        for _tok in _RR_TOK_SPLIT.split(_vname):
+            if not _tok:
+                continue
+            _base = _tok if _tok in _raw_names_set else (_tok.split("__", 1)[0] if "__" in _tok else None)
+            if _base in _raw_names_set:
+                _eng_operands_of.setdefault(_base, []).append(_v)
+
+
+def _substitute_prefe_raw_operands(_prefe_raw, _cur_names, _substituted, _fused_dropped_raw, _dropped_redundant, _prefe_cols_idx, _sv_set, _eng_operands_of, _rr_raw_is_relevant_given_engineered, _rr_raw_is_significant, _dropped_insignificant, _readd):
+    """Substitute each pre-FE raw operand by its surviving sole-parent transform."""
+    for _rn in _prefe_raw:
+        if _rn in _cur_names or _rn in _substituted:
+            continue
+        if _rn in _fused_dropped_raw:
+            _dropped_redundant.append(_rn)
+            continue
+        _idx = _prefe_cols_idx.get(_rn)
+        if _idx is None:
+            continue
+        if _idx in _sv_set:
+            continue
+        _eng_cols = _eng_operands_of.get(_rn)
+        if _eng_cols and not _rr_raw_is_relevant_given_engineered(_eng_cols):
+            # Fully captured by a surviving engineered child -> respect the
+            # re-selection's redundancy verdict (the OLD CORRECT behaviour).
+            _dropped_redundant.append(_rn)
+            continue
+        if not _rr_raw_is_significant(_idx):
+            # Screen false positive (pure noise within its own null) -> do not re-add.
+            _dropped_insignificant.append(_rn)
+            continue
+        _readd.append(_idx)
+        _sv_set.add(_idx)

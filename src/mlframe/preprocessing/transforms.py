@@ -98,19 +98,8 @@ def prepare_df_for_catboost(
         # beyond ~2**24.
         _INT_BOOL_TO_F32 = (pl.Int8, pl.Int16, pl.Int32, pl.UInt8, pl.UInt16, pl.UInt32, pl.Boolean)
         _INT_TO_F64 = (pl.Int64, pl.UInt64)
-        numeric_exprs = []
-        for var in cols_ordered:
-            if var not in cat_features and var not in text_features:
-                dtype = df[var].dtype
-                # Gate on the (free) dtype-membership lookup BEFORE the full-column is_null().any() scan: a Float32/Float64 column (the
-                # common 10M ML-feature case) is never cast here regardless of null status, so scanning its nulls first only to discard
-                # the result is pure waste. Only the castable nullable-int/bool columns need the scan.
-                if dtype in _INT_BOOL_TO_F32:
-                    if df[var].is_null().any():
-                        numeric_exprs.append(pl.col(var).cast(pl.Float32))
-                elif dtype in _INT_TO_F64:
-                    if df[var].is_null().any():
-                        numeric_exprs.append(pl.col(var).cast(pl.Float64))
+        numeric_exprs: list[Any] = []
+        _scan_column_dtypes_for_catboost(cols_ordered, cat_features, text_features, df, _INT_BOOL_TO_F32, numeric_exprs, pl, _INT_TO_F64)
         if numeric_exprs:
             df = df.with_columns(numeric_exprs)
 
@@ -175,79 +164,100 @@ def prepare_df_for_catboost(
         # takes minutes per column and was the root of a hang observed
         # 2026-04-19 in the CB pandas fallback path.
         text_feature_set = set(text_features or [])
-        for var in tqdmu(cols_ordered, desc="Processing categorical features for CatBoost...", leave=False):
-            if var in text_feature_set:
-                continue
-            if isinstance(df[var].dtype, pd.CategoricalDtype):
-                if df[var].isna().any():
-                    # CRITICAL: never do ``astype(str)`` on a Categorical to
-                    # fill NaN. pandas materializes ``categories._values`` as
-                    # a fixed-width Unicode array sized by
-                    # ``len(categories) × max_str_len × 4``. On columns where
-                    # Polars passed through an untrimmed global string-pool
-                    # dictionary (3.3M unique categories, 6133-char longest
-                    # string seen in prod 2026-04-19), that's a 75+ GiB
-                    # allocation → MemoryError.
-                    #
-                    # Instead, operate on the integer codes: add ``na_filler``
-                    # to the category list (O(1) dict growth) and fillna
-                    # (O(n_rows) code update, no string materialization).
-                    cats = df[var].cat.categories
-                    if na_filler not in cats:
-                        df[var] = df[var].cat.add_categories([na_filler])
-                    df[var] = df[var].fillna(na_filler)
-                if var not in cat_features:
-                    if verbose:
-                        logger.info("%s appended to cat_features", var)
-                    cat_features.append(var)
-            else:
-                if var in cat_features:
-                    if df[var].isna().any():
-                        df[var] = df[var].fillna(na_filler)
-                    if ensure_categorical:
-                        try:
-                            df[var] = df[var].astype("category")
-                        except Exception:
-                            log_throttle(logger, "catboost_prep_pandas_categorical_convert_failed", logging.WARNING, "Could not convert column %s to categorical.", var)
-                            if skipped_columns is not None:
-                                skipped_columns.append(var)
-                elif pd.api.types.is_extension_array_dtype(df[var].dtype):
-                    # Nullable extension dtypes (Int64, Float64, boolean, etc.) use pd.NA,
-                    # which CatBoost cannot handle — convert to numpy floats so pd.NA → np.nan.
-                    # Preserve precision: Float32Dtype must stay float32 (callers explicitly
-                    # chose narrow precision for memory/GPU); Int8/16/32 and Boolean fit
-                    # exactly into float32, only Int64/UInt64/Float64 need float64.
-                    try:
-                        src = df[var].dtype
-                        target: type
-                        if isinstance(src, pd.Float32Dtype):
-                            target = np.float32
-                        elif isinstance(src, pd.Float64Dtype):
-                            target = np.float64
-                        elif isinstance(src, (pd.Int8Dtype, pd.Int16Dtype, pd.Int32Dtype, pd.UInt8Dtype, pd.UInt16Dtype, pd.UInt32Dtype, pd.BooleanDtype)):
-                            target = np.float32
-                        else:
-                            # Int64 / UInt64 / unknown extension: widen to float64.
-                            target = np.float64
-                        df[var] = df[var].astype(target)
-                    except Exception as _e_cast:
-                        # Sibling branch at L179 logs WARN; this pd.NA-clearing
-                        # branch was added later WITHOUT a log. Silent failure
-                        # here leaves the nullable extension dtype intact, then
-                        # CatBoost crashes downstream on pd.NA -- the exact
-                        # corruption this code targets to PREVENT.
-                        log_throttle(
-                            logger, "catboost_prep_extension_dtype_convert_failed", logging.WARNING,
-                            "Could not convert extension-dtype column %s "
-                            "(dtype=%s, target=%s) for CatBoost: %s. "
-                            "Column still carries pd.NA which CatBoost cannot "
-                            "handle - downstream fit/predict will fail loudly.",
-                            var, df[var].dtype, target, _e_cast,
-                        )
-                        if skipped_columns is not None:
-                            skipped_columns.append(var)
+        _prepare_pandas_categoricals_for_catboost(cols_ordered, text_feature_set, df, na_filler, cat_features, verbose, ensure_categorical, skipped_columns)
 
     return df
+
+
+def _scan_column_dtypes_for_catboost(cols_ordered, cat_features, text_features, df, _INT_BOOL_TO_F32, numeric_exprs, pl, _INT_TO_F64):
+    """Scan the column dtypes that decide the CatBoost preparation."""
+    for var in cols_ordered:
+        if var not in cat_features and var not in text_features:
+            dtype = df[var].dtype
+            # Gate on the (free) dtype-membership lookup BEFORE the full-column is_null().any() scan: a Float32/Float64 column (the
+            # common 10M ML-feature case) is never cast here regardless of null status, so scanning its nulls first only to discard
+            # the result is pure waste. Only the castable nullable-int/bool columns need the scan.
+            if dtype in _INT_BOOL_TO_F32:
+                if df[var].is_null().any():
+                    numeric_exprs.append(pl.col(var).cast(pl.Float32))
+            elif dtype in _INT_TO_F64:
+                if df[var].is_null().any():
+                    numeric_exprs.append(pl.col(var).cast(pl.Float64))
+
+
+def _prepare_pandas_categoricals_for_catboost(cols_ordered, text_feature_set, df, na_filler, cat_features, verbose, ensure_categorical, skipped_columns):
+    """Prepare the categorical columns of a pandas frame for CatBoost."""
+    for var in tqdmu(cols_ordered, desc="Processing categorical features for CatBoost...", leave=False):
+        if var in text_feature_set:
+            continue
+        if isinstance(df[var].dtype, pd.CategoricalDtype):
+            if df[var].isna().any():
+                # CRITICAL: never do ``astype(str)`` on a Categorical to
+                # fill NaN. pandas materializes ``categories._values`` as
+                # a fixed-width Unicode array sized by
+                # ``len(categories) × max_str_len × 4``. On columns where
+                # Polars passed through an untrimmed global string-pool
+                # dictionary (3.3M unique categories, 6133-char longest
+                # string seen in prod 2026-04-19), that's a 75+ GiB
+                # allocation → MemoryError.
+                #
+                # Instead, operate on the integer codes: add ``na_filler``
+                # to the category list (O(1) dict growth) and fillna
+                # (O(n_rows) code update, no string materialization).
+                cats = df[var].cat.categories
+                if na_filler not in cats:
+                    df[var] = df[var].cat.add_categories([na_filler])
+                df[var] = df[var].fillna(na_filler)
+            if var not in cat_features:
+                if verbose:
+                    logger.info("%s appended to cat_features", var)
+                cat_features.append(var)
+        else:
+            if var in cat_features:
+                if df[var].isna().any():
+                    df[var] = df[var].fillna(na_filler)
+                if ensure_categorical:
+                    try:
+                        df[var] = df[var].astype("category")
+                    except Exception:
+                        log_throttle(logger, "catboost_prep_pandas_categorical_convert_failed", logging.WARNING, "Could not convert column %s to categorical.", var)
+                        if skipped_columns is not None:
+                            skipped_columns.append(var)
+            elif pd.api.types.is_extension_array_dtype(df[var].dtype):
+                # Nullable extension dtypes (Int64, Float64, boolean, etc.) use pd.NA,
+                # which CatBoost cannot handle — convert to numpy floats so pd.NA → np.nan.
+                # Preserve precision: Float32Dtype must stay float32 (callers explicitly
+                # chose narrow precision for memory/GPU); Int8/16/32 and Boolean fit
+                # exactly into float32, only Int64/UInt64/Float64 need float64.
+                try:
+                    src = df[var].dtype
+                    target: type
+                    if isinstance(src, pd.Float32Dtype):
+                        target = np.float32
+                    elif isinstance(src, pd.Float64Dtype):
+                        target = np.float64
+                    elif isinstance(src, (pd.Int8Dtype, pd.Int16Dtype, pd.Int32Dtype, pd.UInt8Dtype, pd.UInt16Dtype, pd.UInt32Dtype, pd.BooleanDtype)):
+                        target = np.float32
+                    else:
+                        # Int64 / UInt64 / unknown extension: widen to float64.
+                        target = np.float64
+                    df[var] = df[var].astype(target)
+                except Exception as _e_cast:
+                    # Sibling branch at L179 logs WARN; this pd.NA-clearing
+                    # branch was added later WITHOUT a log. Silent failure
+                    # here leaves the nullable extension dtype intact, then
+                    # CatBoost crashes downstream on pd.NA -- the exact
+                    # corruption this code targets to PREVENT.
+                    log_throttle(
+                        logger, "catboost_prep_extension_dtype_convert_failed", logging.WARNING,
+                        "Could not convert extension-dtype column %s "
+                        "(dtype=%s, target=%s) for CatBoost: %s. "
+                        "Column still carries pd.NA which CatBoost cannot "
+                        "handle - downstream fit/predict will fail loudly.",
+                        var, df[var].dtype, target, _e_cast,
+                    )
+                    if skipped_columns is not None:
+                        skipped_columns.append(var)
 
 
 def prepare_df_for_xgboost(

@@ -554,22 +554,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     # cudaErrorIllegalAddress (a hard GPU crash). Screen the HOST codes here (cheap min/max) so an
     # upstream OOB surfaces as a clear ValueError. Skipped when the codes are resident (binner-produced,
     # already on-device): re-syncing them would defeat the resident-handoff and they are dense by contract.
-    if d_disc_resident is None:
-        _dmin = int(disc_2d.min()); _dmax = int(disc_2d.max())
-        _kx_max = int(np.asarray(factors_nbins, dtype=np.int64).max())
-        if _dmin < 0 or _dmax >= _kx_max:
-            raise ValueError(
-                "batch_mi_with_noise_gate_cuda_resident disc_2d codes out of range "
-                "(min=%d, max=%d) for nbins max=%d; a -1 sentinel or over-range code would index "
-                "outside the device histogram (illegal address)." % (_dmin, _dmax, _kx_max)
-            )
-        if classes_y.size:
-            _cy_min = int(classes_y.min()); _cy_max = int(classes_y.max())
-            _ky = int(freqs_y.shape[0])
-            if _cy_min < 0 or _cy_max >= _ky:
-                raise ValueError(
-                    "batch_mi_with_noise_gate_cuda_resident classes_y out of range " "(min=%d, max=%d) for K_y=%d (illegal address)." % (_cy_min, _cy_max, _ky)
-                )
+    _bin_range_for_host_discrete(d_disc_resident, disc_2d, factors_nbins, classes_y, freqs_y)
     # Lever C: HW-aware + KTC-tuned threads/block for the batched-hist launch (default 128 left
     # the SM ~1/16 occupied; the row-loop parallelises across threads). When the caller did not pin a count
     # (threads_per_block is None) look the per-host tuned count up from the kernel_tuning_cache (candidate set
@@ -693,6 +678,26 @@ def batch_mi_with_noise_gate_cuda_resident(
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
     perm_mis = [out_mi[i] for i in range(1, P)]
     return _gate_from_mi(original_mi, perm_mis, nperm, min_nonzero_confidence)
+
+
+def _bin_range_for_host_discrete(d_disc_resident, disc_2d, factors_nbins, classes_y, freqs_y):
+    """Derive the host-side discrete value range when no resident device copy exists."""
+    if d_disc_resident is None:
+        _dmin = int(disc_2d.min()); _dmax = int(disc_2d.max())
+        _kx_max = int(np.asarray(factors_nbins, dtype=np.int64).max())
+        if _dmin < 0 or _dmax >= _kx_max:
+            raise ValueError(
+                "batch_mi_with_noise_gate_cuda_resident disc_2d codes out of range "
+                "(min=%d, max=%d) for nbins max=%d; a -1 sentinel or over-range code would index "
+                "outside the device histogram (illegal address)." % (_dmin, _dmax, _kx_max)
+            )
+        if classes_y.size:
+            _cy_min = int(classes_y.min()); _cy_max = int(classes_y.max())
+            _ky = int(freqs_y.shape[0])
+            if _cy_min < 0 or _cy_max >= _ky:
+                raise ValueError(
+                    "batch_mi_with_noise_gate_cuda_resident classes_y out of range " "(min=%d, max=%d) for K_y=%d (illegal address)." % (_cy_min, _cy_max, _ky)
+                )
 
 
 def batch_mi_with_noise_gate_cuda(

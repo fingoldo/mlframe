@@ -511,20 +511,7 @@ class _DatasetReuseMixin:
                 # in X_val raises "train and valid dataset categorical_feature do not match". Align X_val's categorical
                 # columns to the train frame's exact CategoricalDtype. Only X_val (the small val frame) is rebuilt -- via
                 # assign for BlockManager reuse of un-cast columns -- the (potentially huge) train frame X is never touched.
-                if hasattr(X, "columns") and hasattr(X_val, "columns"):
-                    _val_cols = set(X_val.columns)
-                    _realign: dict = {}
-                    for _c, _dt in X.dtypes.items():
-                        if str(_dt) != "category" or _c not in _val_cols or _c in _realign:
-                            continue
-                        try:
-                            if X_val[_c].dtype != _dt:
-                                _realign[_c] = X_val[_c].astype(_dt)
-                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                            logger.debug("suppressed: %s", e)
-                            pass
-                    if _realign:
-                        X_val = X_val.assign(**_realign)
+                X_val = self._realign_val_columns(X, X_val)
                 w_val_inline = pair_seq[2] if len(pair_seq) >= 3 else None
                 # Transform val labels through the encoder for classifier;
                 # regressor returns y unchanged.
@@ -625,34 +612,7 @@ class _DatasetReuseMixin:
         # list-of-strings go into params; callables go to feval. Mirrors
         # LGBMModel.fit's handling.
         feval = None
-        if eval_metric is not None:
-            metric_strs: list[str] = []
-            feval_callables: list[Any] = []
-            metrics_iter = eval_metric if isinstance(eval_metric, (list, tuple)) else [eval_metric]
-            for m in metrics_iter:
-                if callable(m):
-                    feval_callables.append(m)
-                elif isinstance(m, str):
-                    metric_strs.append(m)
-            if metric_strs:
-                # Merge with any pre-existing metric in params (preserve
-                # both rather than overwrite -- LGBM accepts a list).
-                existing = params.get("metric")
-                if existing is None:
-                    params["metric"] = metric_strs if len(metric_strs) > 1 else metric_strs[0]
-                elif isinstance(existing, list):
-                    params["metric"] = existing + metric_strs
-                else:
-                    params["metric"] = [existing, *metric_strs]
-            if feval_callables:
-                # Wrap user callables in _EvalFunctionWrapper so the
-                # native lgb.train sees the (preds, dataset) -> (name,
-                # value, higher_is_better) shape it expects, while the
-                # mlframe callable keeps its sklearn-style
-                # (y_true, y_pred[, weight[, group]]) signature. Mirror
-                # of LGBMModel.fit's eval-metric wiring.
-                wrapped = [_EvalFunctionWrapper(f) for f in feval_callables]
-                feval = wrapped if len(wrapped) > 1 else wrapped[0]
+        feval = self._split_eval_metrics(eval_metric, params, feval)
 
         # ---- Native lgb.train() --------------------------------------
         evals_result: dict = {}
@@ -699,7 +659,7 @@ class _DatasetReuseMixin:
             num_boost_round=int(n_estimators),
             valid_sets=valid_sets or None,
             valid_names=valid_names or None,
-            feval=feval,  # type: ignore[arg-type]  # _EvalFunctionWrapper is runtime-callable-compatible; lightgbm stubs don't model wrapper classes
+            feval=feval,
             callbacks=train_callbacks or None,
             init_model=init_model,
         )
@@ -746,6 +706,58 @@ class _DatasetReuseMixin:
             self._class_weight = getattr(self, "class_weight", None)
 
         return self
+
+    @staticmethod
+    def _realign_val_columns(X, X_val):
+        """Realign the validation frame columns with the train frame."""
+        if hasattr(X, "columns") and hasattr(X_val, "columns"):
+            _val_cols = set(X_val.columns)
+            _realign: dict = {}
+            for _c, _dt in X.dtypes.items():
+                if str(_dt) != "category" or _c not in _val_cols or _c in _realign:
+                    continue
+                try:
+                    if X_val[_c].dtype != _dt:
+                        _realign[_c] = X_val[_c].astype(_dt)
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed: %s", e)
+                    pass
+            if _realign:
+                X_val = X_val.assign(**_realign)
+        return X_val
+
+    @staticmethod
+    def _split_eval_metrics(eval_metric, params, feval):
+        """Split the eval metrics into builtin metric names and callables."""
+        if eval_metric is not None:
+            metric_strs: list[str] = []
+            feval_callables: list[Any] = []
+            metrics_iter = eval_metric if isinstance(eval_metric, (list, tuple)) else [eval_metric]
+            for m in metrics_iter:
+                if callable(m):
+                    feval_callables.append(m)
+                elif isinstance(m, str):
+                    metric_strs.append(m)
+            if metric_strs:
+                # Merge with any pre-existing metric in params (preserve
+                # both rather than overwrite -- LGBM accepts a list).
+                existing = params.get("metric")
+                if existing is None:
+                    params["metric"] = metric_strs if len(metric_strs) > 1 else metric_strs[0]
+                elif isinstance(existing, list):
+                    params["metric"] = existing + metric_strs
+                else:
+                    params["metric"] = [existing, *metric_strs]
+            if feval_callables:
+                # Wrap user callables in _EvalFunctionWrapper so the
+                # native lgb.train sees the (preds, dataset) -> (name,
+                # value, higher_is_better) shape it expects, while the
+                # mlframe callable keeps its sklearn-style
+                # (y_true, y_pred[, weight[, group]]) signature. Mirror
+                # of LGBMModel.fit's eval-metric wiring.
+                wrapped = [_EvalFunctionWrapper(f) for f in feval_callables]
+                feval = wrapped if len(wrapped) > 1 else wrapped[0]
+        return feval
 
     # ------------------------------------------------------------------
     # Subclass hooks

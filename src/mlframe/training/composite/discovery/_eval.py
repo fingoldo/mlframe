@@ -476,10 +476,7 @@ def _eval_one_transform_impl(
         # narrows further (not just NaN-producing rows -- any refined validity rule) must have
         # that SAME narrowing applied to the screen sample the probe reads, or the T_std/y_std
         # ratio is computed over rows the fit itself does not consider valid.
-        if _dcf is not None and isinstance(fitted_params, dict):
-            _valid_screen_fitted = np.asarray(_dcf(y_screen, base_screen, fitted_params), dtype=bool)
-            if _valid_screen_fitted.shape == _valid_screen_probe.shape:
-                _valid_screen_probe = _valid_screen_probe & _valid_screen_fitted
+        _valid_screen_probe = _narrow_probe_valid_mask(_dcf, fitted_params, y_screen, base_screen, _valid_screen_probe)
         _y_screen_valid = y_screen[_valid_screen_probe].astype(np.float64)
         _base_screen_valid = base_screen[_valid_screen_probe].astype(np.float64)
         _t_screen_full = call_transform(transform, "forward", _y_screen_valid, _base_screen_valid, fitted_params)
@@ -517,12 +514,7 @@ def _eval_one_transform_impl(
     # the SAME row population -- otherwise mi_gain compares MI over different
     # rows (mi_t excludes NaN-T rows inside the binner, mi_y_compare keeps
     # them) and the gate sees an apples-to-oranges delta.
-    if _dcf is not None and isinstance(fitted_params, dict):
-        valid_screen_fitted = np.asarray(
-            _dcf(y_screen, base_screen, fitted_params), dtype=bool,
-        )
-        if valid_screen_fitted.shape == valid_screen.shape:
-            valid_screen = valid_screen & valid_screen_fitted
+    valid_screen = _narrow_screen_valid_mask(_dcf, fitted_params, y_screen, base_screen, valid_screen)
     if valid_screen.sum() < 50:
         _local.append(self._reject(
             base, transform_name, mi_y_for_base, valid_frac,
@@ -687,3 +679,23 @@ def _eval_one_transform_impl(
         "failures": failures if bootstrap_n > 0 else [],
     })
     return _local
+
+
+def _narrow_probe_valid_mask(_dcf, fitted_params, y_screen, base_screen, _valid_screen_probe):
+    """Narrow the probe validity mask by the mask recomputed with the fitted transform parameters."""
+    if _dcf is not None and isinstance(fitted_params, dict):
+        _valid_screen_fitted = np.asarray(_dcf(y_screen, base_screen, fitted_params), dtype=bool)
+        if _valid_screen_fitted.shape == _valid_screen_probe.shape:
+            _valid_screen_probe = _valid_screen_probe & _valid_screen_fitted
+    return _valid_screen_probe
+
+
+def _narrow_screen_valid_mask(_dcf, fitted_params, y_screen, base_screen, valid_screen):
+    """Narrow the screen validity mask by the mask recomputed with the fitted transform parameters."""
+    if _dcf is not None and isinstance(fitted_params, dict):
+        valid_screen_fitted = np.asarray(
+            _dcf(y_screen, base_screen, fitted_params), dtype=bool,
+        )
+        if valid_screen_fitted.shape == valid_screen.shape:
+            valid_screen = valid_screen & valid_screen_fitted
+    return valid_screen

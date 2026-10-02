@@ -354,10 +354,28 @@ def _hybrid_orth_family_variants_group3(
     # current support union with y. Selection: same absolute floor as
     # Layers 65 / 66 / 67 / 71 / 72. Engineered VALUES bit-equal to Layer
     # 21 -> recipes reuse the ``orth_univariate`` kind.
+    X = _stage_tc(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+    # 2026-06-01 Layer 74 — CMIM (Conditional Mutual Information
+    # Maximisation, Fleuret 2004) redundancy-aware ranking for hybrid
+    # orth-poly FE (independent opt-in; does NOT require
+    # fe_hybrid_orth_enable). Each engineered candidate is scored by the
+    # WORST-CASE conditional MI against EACH selected support member
+    # individually: ``min_j CMI(X_cand; Y | X_j)``. Companion to JMIM
+    # (Layer 72): CMIM penalises redundancy via the conditioning
+    # operator while JMIM rewards complementarity via the joint MI.
+    # Selection: same absolute floor as Layers 65 / 66 / 67 / 71 / 72 /
+    # 73. Engineered VALUES bit-equal to Layer 21 -> recipes reuse the
+    # ``orth_univariate`` kind.
+
+    return X
+
+
+def _stage_tc(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose):
+    """Run the hybrid-orth total-correlation family when it is enabled."""
     if _fe_family_on("fe_hybrid_orth_tc_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
-            from ..._orthogonal_total_correlation_fe import (
+            from mlframe.feature_selection.filters._orthogonal_total_correlation_fe import (
                 hybrid_orth_mi_tc_fe_with_recipes,
             )
 
@@ -424,16 +442,4 @@ def _hybrid_orth_family_variants_group3(
                 type(_tc_exc).__name__,
                 _tc_exc,
             )
-    # 2026-06-01 Layer 74 — CMIM (Conditional Mutual Information
-    # Maximisation, Fleuret 2004) redundancy-aware ranking for hybrid
-    # orth-poly FE (independent opt-in; does NOT require
-    # fe_hybrid_orth_enable). Each engineered candidate is scored by the
-    # WORST-CASE conditional MI against EACH selected support member
-    # individually: ``min_j CMI(X_cand; Y | X_j)``. Companion to JMIM
-    # (Layer 72): CMIM penalises redundancy via the conditioning
-    # operator while JMIM rewards complementarity via the joint MI.
-    # Selection: same absolute floor as Layers 65 / 66 / 67 / 71 / 72 /
-    # 73. Engineered VALUES bit-equal to Layer 21 -> recipes reuse the
-    # ``orth_univariate`` kind.
-
     return X

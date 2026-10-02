@@ -699,49 +699,13 @@ def _phase_auto_detect_feature_types(
     # blocks Arrow bridge, ~32x faster than naive to_pandas on multi-col selects), then
     # peel the per-column numpy arrays from the resulting DataFrame view. Pandas-branch is
     # unchanged because pandas ``_frame[col]`` is already a Series view (no extra copy).
-    dropped_high_card_data = {}
+    dropped_high_card_data: dict[Any, Any] = {}
     if auto_high_card_drop:
         # Per-split single-pass materialisation for polars frames; pandas branch is per-col
         # (cheap Series view).
         _per_split_views: dict[str, Any] = {}
-        for _label, _frame in (("train", train_df), ("val", val_df), ("test", test_df)):
-            if _frame is None:
-                continue
-            _cols = _frame.columns if hasattr(_frame, "columns") else []
-            _present = [c for c in auto_high_card_drop if c in _cols]
-            if not _present:
-                continue
-            if isinstance(_frame, pl.DataFrame):
-                try:
-                    # Single select over ALL needed columns; Arrow split-blocks bridge.
-                    from mlframe.training.utils import get_pandas_view_of_polars_df as _get_pd_view
-
-                    _per_split_views[_label] = _get_pd_view(_frame.select(_present))
-                except Exception as e:
-                    logger.debug("get_pandas_view_of_polars_df failed for split %r, falling back to to_pandas(): %s", _label, e)
-                    # Fallback to bare to_pandas on the multi-col select; still 1 batch vs N.
-                    try:
-                        _per_split_views[_label] = _frame.select(_present).to_pandas()
-                    except Exception as e2:
-                        logger.debug("to_pandas() fallback also failed for split %r: %s", _label, e2)
-                        _per_split_views[_label] = None
-            else:
-                _per_split_views[_label] = _frame
-        for _col in auto_high_card_drop:
-            _col_frames = {}
-            for _label in ("train", "val", "test"):
-                _view = _per_split_views.get(_label)
-                if _view is None:
-                    continue
-                if _col not in getattr(_view, "columns", []):
-                    continue
-                try:
-                    _col_frames[_label] = np.asarray(_view[_col])
-                except Exception as e:
-                    logger.debug("swallowed exception in _phase_helpers_fit_split.py: %s", e)
-                    continue
-            if _col_frames:
-                dropped_high_card_data[_col] = _col_frames
+        _log_auto_high_card_drop(train_df, val_df, test_df, auto_high_card_drop, _per_split_views)
+        _drop_auto_high_card_columns(auto_high_card_drop, _per_split_views, dropped_high_card_data)
         train_df = _drop_cols_df(train_df, auto_high_card_drop)
         val_df = _drop_cols_df(val_df, auto_high_card_drop)
         test_df = _drop_cols_df(test_df, auto_high_card_drop)
@@ -784,24 +748,7 @@ def _phase_auto_detect_feature_types(
             # Track per-column val-only category counts so operators see the implicit Enum-domain widening (memory: feedback_observability_loud).
             # Without this log the train+val union is silent. Behaviour stays unchanged; only observability improves.
             _val_only_diag: dict[str, tuple[int, list]] = {}
-            for _c in _str_cols:
-                try:
-                    _u_train = train_df.select(pl.col(_c).drop_nulls().unique())[_c].to_list()
-                    _u_val: list = []
-                    if val_df is not None and _c in set(val_df.columns):
-                        try:
-                            _u_val = val_df.select(pl.col(_c).drop_nulls().unique())[_c].to_list()
-                        except Exception as e:
-                            logger.debug("computing val-side unique domain for column %r failed: %s", _c, e)
-                            _u_val = []
-                    _enum_domains[_c] = sorted(set(_u_train) | set(_u_val), key=str)
-                    _train_set = set(_u_train)
-                    _val_only = [v for v in _u_val if v not in _train_set]
-                    if _val_only:
-                        _val_only_diag[_c] = (len(_val_only), _val_only[:5])
-                except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                    logger.debug("swallowed exception in _phase_helpers_fit_split.py: %s", e)
-                    pass
+            _log_string_column_unions(_str_cols, train_df, val_df, _enum_domains, _val_only_diag)
             if _val_only_diag:
                 # INFO-level. This widening is intentional (val=ES detector must not silently null-cast); the log only surfaces what was previously invisible.
                 _summary = ", ".join(f"{c}:{n}" for c, (n, _) in _val_only_diag.items())
@@ -870,6 +817,74 @@ def _phase_auto_detect_feature_types(
         text_emb_set,
         dropped_high_card_data,
     )
+
+
+def _log_auto_high_card_drop(train_df, val_df, test_df, auto_high_card_drop, _per_split_views):
+    """Log the auto-detected high-cardinality columns per split."""
+    for _label, _frame in (("train", train_df), ("val", val_df), ("test", test_df)):
+        if _frame is None:
+            continue
+        _cols = _frame.columns if hasattr(_frame, "columns") else []
+        _present = [c for c in auto_high_card_drop if c in _cols]
+        if not _present:
+            continue
+        if isinstance(_frame, pl.DataFrame):
+            try:
+                # Single select over ALL needed columns; Arrow split-blocks bridge.
+                from mlframe.training.utils import get_pandas_view_of_polars_df as _get_pd_view
+
+                _per_split_views[_label] = _get_pd_view(_frame.select(_present))
+            except Exception as e:
+                logger.debug("get_pandas_view_of_polars_df failed for split %r, falling back to to_pandas(): %s", _label, e)
+                # Fallback to bare to_pandas on the multi-col select; still 1 batch vs N.
+                try:
+                    _per_split_views[_label] = _frame.select(_present).to_pandas()
+                except Exception as e2:
+                    logger.debug("to_pandas() fallback also failed for split %r: %s", _label, e2)
+                    _per_split_views[_label] = None
+        else:
+            _per_split_views[_label] = _frame
+
+
+def _drop_auto_high_card_columns(auto_high_card_drop, _per_split_views, dropped_high_card_data):
+    """Drop the auto-detected high-cardinality columns from every split."""
+    for _col in auto_high_card_drop:
+        _col_frames = {}
+        for _label in ("train", "val", "test"):
+            _view = _per_split_views.get(_label)
+            if _view is None:
+                continue
+            if _col not in getattr(_view, "columns", []):
+                continue
+            try:
+                _col_frames[_label] = np.asarray(_view[_col])
+            except Exception as e:
+                logger.debug("swallowed exception in _phase_helpers_fit_split.py: %s", e)
+                continue
+        if _col_frames:
+            dropped_high_card_data[_col] = _col_frames
+
+
+def _log_string_column_unions(_str_cols, train_df, val_df, _enum_domains, _val_only_diag):
+    """Log the train+val category unions of the string columns."""
+    for _c in _str_cols:
+        try:
+            _u_train = train_df.select(pl.col(_c).drop_nulls().unique())[_c].to_list()
+            _u_val: list = []
+            if val_df is not None and _c in set(val_df.columns):
+                try:
+                    _u_val = val_df.select(pl.col(_c).drop_nulls().unique())[_c].to_list()
+                except Exception as e:
+                    logger.debug("computing val-side unique domain for column %r failed: %s", _c, e)
+                    _u_val = []
+            _enum_domains[_c] = sorted(set(_u_train) | set(_u_val), key=str)
+            _train_set = set(_u_train)
+            _val_only = [v for v in _u_val if v not in _train_set]
+            if _val_only:
+                _val_only_diag[_c] = (len(_val_only), _val_only[:5])
+        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.debug("swallowed exception in _phase_helpers_fit_split.py: %s", e)
+            pass
 
 
 # Sibling-module re-export. The 517-LOC ``_phase_fit_pipeline`` body

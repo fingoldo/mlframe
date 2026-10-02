@@ -357,20 +357,7 @@ def analyze_feature_distribution(
 
     # --- categorical: high cardinality ---
     high_card_features: list[str] = []
-    for c in categorical_cols:
-        try:
-            n_unique = polars_cat_nunique[c] if c in polars_cat_nunique else int(df[c].nunique(dropna=False))
-        except TypeError:
-            # An object column whose values are themselves unhashable (e.g. an embedding column
-            # storing one ndarray per row) was classified "categorical" by the numeric/bool dtype
-            # dispatch above (it's neither), but nunique() needs hashable values. Not meaningfully
-            # "high cardinality" in the categorical sense -- skip it from this check rather than
-            # crash the whole analyzer (fuzz c0030: caught upstream by a blanket except, but this
-            # is the actual unhashable site -- fix it here instead of leaving it to the catch-all).
-            continue
-        if n_unique > high_cardinality_max:
-            high_card_features.append(c)
-            _add_warning(c, f"high_cardinality(n_unique={n_unique} > {high_cardinality_max})")
+    _high_cardinality_categoricals(categorical_cols, polars_cat_nunique, df, high_cardinality_max, high_card_features, _add_warning)
     if high_card_features:
         pathologies.append(f"high_cardinality_categorical(n={len(high_card_features)})")
         diagnostics["high_cardinality_features"] = list(high_card_features)
@@ -379,63 +366,7 @@ def analyze_feature_distribution(
 
     # --- redundant pairs (numeric only; skip the dropped low-var/nan-heavy set) ---
     candidate_numeric = [c for c in numeric_cols if c not in low_var_features and c not in nan_heavy_features]
-    if len(candidate_numeric) > redundancy_max_numeric_features:
-        diagnostics["redundancy_skipped"] = (
-            f"n_numeric={len(candidate_numeric)} > cap={redundancy_max_numeric_features}; "
-            "pairwise correlation O(n^2) would be too costly. Lower the threshold via "
-            "redundancy_max_numeric_features or pre-filter."
-        )
-    elif len(candidate_numeric) >= 2:
-        # Sample rows for the corrcoef pass. Pearson correlation
-        # estimation is stable at ~100k rows -- the difference between
-        # 100k and 4M is < 0.001 absolute correlation. Caps the
-        # to_numpy() materialise + corrcoef BLAS at small constant cost.
-        # 2026-05-26 prod 4.1M x 195 was 132s under the prior full-frame
-        # path; sampling to 100k drops to ~3s.
-        n_full = len(df)
-        if n_full > _REDUNDANT_SAMPLE_MAX_ROWS:
-            # Random (not systematic-stride) sampling: a fixed stride can alias with
-            # periodic structure in the data (e.g. weekly/seasonal patterns), biasing
-            # the correlation estimate. Fixed random_state keeps the sample -- and the
-            # resulting pathology report -- reproducible across runs on the same data.
-            df_sample = df[candidate_numeric].sample(n=_REDUNDANT_SAMPLE_MAX_ROWS, random_state=0)
-        else:
-            df_sample = df[candidate_numeric]
-        # float32 halves the materialisation footprint without measurably
-        # affecting the |corr| >= 0.95 redundancy threshold (5 decimal
-        # places of precision).
-        sub = df_sample.to_numpy(dtype=np.float32, na_value=np.float32("nan"))
-        if not sub.flags.writeable:
-            sub = np.array(sub, copy=True)
-        col_means = np.nanmean(sub, axis=0)
-        col_means = np.where(np.isfinite(col_means), col_means, np.float32(0.0))
-        # Vectorised NaN fill: avoids the 195-iter Python loop that paid
-        # ~100s on 4.1M rows under the prior implementation.
-        nan_mask = ~np.isfinite(sub)
-        if nan_mask.any():
-            sub = np.where(nan_mask, col_means[None, :], sub)
-        pairs = _pairwise_redundant_features(sub, candidate_numeric, threshold=redundant_corr_threshold)
-        if pairs:
-            pathologies.append(f"redundant_feature_pairs(n={len(pairs)})")
-            diagnostics["redundant_feature_pairs"] = [{"a": a, "b": b, "corr": c} for a, b, c in pairs[:50]]  # cap log to top 50
-            # Explicit top-10 listing so the operator can spot
-            # surprising correlations directly in the run log without
-            # digging into metadata. Pairs are already sorted by
-            # descending |corr| in _pairwise_redundant_features.
-            # 2026-05-26 user request: high pair count (203) is a
-            # diagnostic, not a perf problem; surfacing the strongest
-            # pairs makes it actionable (e.g. flag a same-signal-
-            # twice mistake in feature engineering).
-            _top10 = pairs[:10]
-            _top10_str = ", ".join(f"{a}~={b}(|r|={c:.3f})" for a, b, c in _top10)
-            logger.info(
-                "[feature_distribution_analyzer] top-%d redundant pairs "
-                "(|corr|>=%.2f): %s",
-                len(_top10), redundant_corr_threshold, _top10_str,
-            )
-            for a, b, _corr in pairs:
-                _add_warning(a, f"redundant_with({b}, corr={_corr:.3f})")
-                _add_warning(b, f"redundant_with({a}, corr={_corr:.3f})")
+    _redundant_numeric_pairs(candidate_numeric, redundancy_max_numeric_features, diagnostics, df, redundant_corr_threshold, pathologies, _add_warning)
 
     # --- target leakage (only if y supplied) ---
     if y is not None and len(candidate_numeric) > 0:
@@ -522,3 +453,82 @@ def analyze_feature_distribution(
         diagnostics=diagnostics,
         knob_overrides=knob_overrides,
     )
+
+
+def _high_cardinality_categoricals(categorical_cols, polars_cat_nunique, df, high_cardinality_max, high_card_features, _add_warning):
+    """Find the high-cardinality categorical columns."""
+    for c in categorical_cols:
+        try:
+            n_unique = polars_cat_nunique[c] if c in polars_cat_nunique else int(df[c].nunique(dropna=False))
+        except TypeError:
+            # An object column whose values are themselves unhashable (e.g. an embedding column
+            # storing one ndarray per row) was classified "categorical" by the numeric/bool dtype
+            # dispatch above (it's neither), but nunique() needs hashable values. Not meaningfully
+            # "high cardinality" in the categorical sense -- skip it from this check rather than
+            # crash the whole analyzer (fuzz c0030: caught upstream by a blanket except, but this
+            # is the actual unhashable site -- fix it here instead of leaving it to the catch-all).
+            continue
+        if n_unique > high_cardinality_max:
+            high_card_features.append(c)
+            _add_warning(c, f"high_cardinality(n_unique={n_unique} > {high_cardinality_max})")
+
+
+def _redundant_numeric_pairs(candidate_numeric, redundancy_max_numeric_features, diagnostics, df, redundant_corr_threshold, pathologies, _add_warning):
+    """Find the redundant numeric pairs."""
+    if len(candidate_numeric) > redundancy_max_numeric_features:
+        diagnostics["redundancy_skipped"] = (
+            f"n_numeric={len(candidate_numeric)} > cap={redundancy_max_numeric_features}; "
+            "pairwise correlation O(n^2) would be too costly. Lower the threshold via "
+            "redundancy_max_numeric_features or pre-filter."
+        )
+    elif len(candidate_numeric) >= 2:
+        # Sample rows for the corrcoef pass. Pearson correlation
+        # estimation is stable at ~100k rows -- the difference between
+        # 100k and 4M is < 0.001 absolute correlation. Caps the
+        # to_numpy() materialise + corrcoef BLAS at small constant cost.
+        # 2026-05-26 prod 4.1M x 195 was 132s under the prior full-frame
+        # path; sampling to 100k drops to ~3s.
+        n_full = len(df)
+        if n_full > _REDUNDANT_SAMPLE_MAX_ROWS:
+            # Random (not systematic-stride) sampling: a fixed stride can alias with
+            # periodic structure in the data (e.g. weekly/seasonal patterns), biasing
+            # the correlation estimate. Fixed random_state keeps the sample -- and the
+            # resulting pathology report -- reproducible across runs on the same data.
+            df_sample = df[candidate_numeric].sample(n=_REDUNDANT_SAMPLE_MAX_ROWS, random_state=0)
+        else:
+            df_sample = df[candidate_numeric]
+        # float32 halves the materialisation footprint without measurably
+        # affecting the |corr| >= 0.95 redundancy threshold (5 decimal
+        # places of precision).
+        sub = df_sample.to_numpy(dtype=np.float32, na_value=np.float32("nan"))
+        if not sub.flags.writeable:
+            sub = np.array(sub, copy=True)
+        col_means = np.nanmean(sub, axis=0)
+        col_means = np.where(np.isfinite(col_means), col_means, np.float32(0.0))
+        # Vectorised NaN fill: avoids the 195-iter Python loop that paid
+        # ~100s on 4.1M rows under the prior implementation.
+        nan_mask = ~np.isfinite(sub)
+        if nan_mask.any():
+            sub = np.where(nan_mask, col_means[None, :], sub)
+        pairs = _pairwise_redundant_features(sub, candidate_numeric, threshold=redundant_corr_threshold)
+        if pairs:
+            pathologies.append(f"redundant_feature_pairs(n={len(pairs)})")
+            diagnostics["redundant_feature_pairs"] = [{"a": a, "b": b, "corr": c} for a, b, c in pairs[:50]]  # cap log to top 50
+            # Explicit top-10 listing so the operator can spot
+            # surprising correlations directly in the run log without
+            # digging into metadata. Pairs are already sorted by
+            # descending |corr| in _pairwise_redundant_features.
+            # 2026-05-26 user request: high pair count (203) is a
+            # diagnostic, not a perf problem; surfacing the strongest
+            # pairs makes it actionable (e.g. flag a same-signal-
+            # twice mistake in feature engineering).
+            _top10 = pairs[:10]
+            _top10_str = ", ".join(f"{a}~={b}(|r|={c:.3f})" for a, b, c in _top10)
+            logger.info(
+                "[feature_distribution_analyzer] top-%d redundant pairs "
+                "(|corr|>=%.2f): %s",
+                len(_top10), redundant_corr_threshold, _top10_str,
+            )
+            for a, b, _corr in pairs:
+                _add_warning(a, f"redundant_with({b}, corr={_corr:.3f})")
+                _add_warning(b, f"redundant_with({a}, corr={_corr:.3f})")

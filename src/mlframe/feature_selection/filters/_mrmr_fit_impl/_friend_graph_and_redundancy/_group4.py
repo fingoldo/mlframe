@@ -258,6 +258,13 @@ def _friend_graph_and_redundancy_passes_group4(
     # every other selected raw) is untouched, so this never over-drops. Byte-identical
     # when no two selected raws are monotone twins. Shares the
     # ``fe_drop_redundant_raw_operands`` toggle (off restores the prior behaviour).
+    selected_vars = _drop_redundant_raw_operands_pass(self, X, selected_vars, cols, data, cached_MIs, verbose)
+
+    return selected_vars, cols, data, nbins
+
+
+def _drop_redundant_raw_operands_pass(self, X, selected_vars, cols, data, cached_MIs, verbose):
+    """Drop raw operands made redundant by their engineered monotone twins."""
     if getattr(self, "fe_drop_redundant_raw_operands", True) and isinstance(X, pd.DataFrame) and len(selected_vars) >= 2:
         try:
             _MONO_TWIN_RHO = 0.99
@@ -273,7 +280,7 @@ def _friend_graph_and_redundancy_passes_group4(
                         continue
                     if _cv.shape[0] == _mt_n and np.all(np.isfinite(_cv)) and _cv.std() > 1e-12:
                         _mt_ranks[_v] = pd.Series(_cv).rank(method="average").to_numpy()
-                from ..._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit as _mt_corr_njit
+                from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit as _mt_corr_njit
                 _mt_keep: list[int] = []
                 _mt_drop: set[int] = set()
                 # Keep order = selection order, so an earlier-selected twin is preferred on a tie.
@@ -302,7 +309,7 @@ def _friend_graph_and_redundancy_passes_group4(
                     else:
                         # Drop the LOWER-relevance twin; if the candidate out-scores the kept twin,
                         # displace the kept one instead. Unknown relevance on either side keeps both.
-                        from ._monotone_twin import monotone_twin_to_drop
+                        from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._monotone_twin import monotone_twin_to_drop
 
                         _mt_victim = monotone_twin_to_drop(_v, _twin_of, cached_MIs if isinstance(cached_MIs, dict) else {})
                         if _mt_victim is None:
@@ -327,5 +334,4 @@ def _friend_graph_and_redundancy_passes_group4(
                 "MRMR raw monotone-twin drop failed: %s; keeping the un-pruned support.",
                 _exc_mt,
             )
-
-    return selected_vars, cols, data, nbins
+    return selected_vars

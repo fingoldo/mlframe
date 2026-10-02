@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import nullcontext  # noqa: F401 -- kept for parity with the parent's import surface
-from typing import Optional
+from typing import Optional, Any
 
 import numpy as np
 
@@ -149,36 +149,10 @@ def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
     # chart is exactly the thing that grows with the data, and 100 regimes is not an exotic input.
     _suffix = plotly_axis_suffix(fig, row, col, len(fig._grid_ref[0]) if getattr(fig, "_grid_ref", None) else 1)
     _xref, _yref = f"x{_suffix}", f"y{_suffix}"
-    _span_shapes = []
-    _span_traces = []
-    _span_annotations = []
-    for _vspan_i, span in enumerate(p.vspans or ()):
-        vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
-        vlabel = span[4] if len(span) > 4 else ""
-        _span_shapes.append(
-            go.layout.Shape(type="rect", xref=_xref, yref=f"{_yref} domain", x0=vx0, x1=vx1, y0=0, y1=1,
-                            fillcolor=_rgba(vcolor, valpha), line=dict(width=0), layer="below")
-        )
-        if vlabel:
-            # No native per-vrect legend in plotly; the invisible scatter proxy carries the label INTO the
-            # legend, and the annotation carries it onto the band itself -- which is the only one that survives
-            # on a multi-panel interactive figure, where the legend is off (hover identifies the series).
-            _span_traces.append(
-                go.Scatter(x=[None], y=[None], mode="markers",
-                           marker=dict(size=8, color=_rgba(vcolor, max(valpha, 0.3)), symbol="square"),
-                           name=vlabel, showlegend=True)
-            )
-            # Staggered by measured overlap: every vspan label used to be stamped at the same y just
-            # above the panel, so two adjacent regimes -- which is what a regime chart is FOR -- printed
-            # on top of each other. The colour still ties each label to its band. Hanging DOWNWARD from
-            # the top of the plot area, like the vline labels below and for the same reason: stacked
-            # upward, the top row lands in the subplot title's strip and prints over it -- seen in the
-            # render, with "recovery" written across "regimes and change points".
-            _span_annotations.append(
-                go.layout.Annotation(x=vx0, y=1.0, xref=_xref, yref=f"{_yref} domain", yanchor="top", xanchor="left",
-                                     xshift=3, yshift=-3 - _STACKED_LABEL_SHIFT_PX * _vspan_rows[_vspan_i],
-                                     text=vlabel, showarrow=False, font=dict(size=8, color=vcolor))
-            )
+    _span_shapes: list[Any] = []
+    _span_traces: list[Any] = []
+    _span_annotations: list[Any] = []
+    _add_vspans(p, _span_shapes, go, _xref, _yref, _span_traces, _span_annotations, _vspan_rows)
     if _span_shapes:
         fig.layout.shapes = tuple(fig.layout.shapes) + tuple(_span_shapes)
     if _span_traces:
@@ -254,6 +228,39 @@ def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
     fig.update_yaxes(**_ykw)
     if has_secondary:
         fig.update_yaxes(title_text=p.secondary_ylabel, row=row, col=col, secondary_y=True, showgrid=False)
+
+
+def _add_vspans(p, _span_shapes, go, _xref, _yref, _span_traces, _span_annotations, _vspan_rows):
+    """Add the vertical spans to the line panel."""
+    from mlframe.reporting.renderers.plotly import _STACKED_LABEL_SHIFT_PX
+
+    for _vspan_i, span in enumerate(p.vspans or ()):
+        vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
+        vlabel = span[4] if len(span) > 4 else ""
+        _span_shapes.append(
+            go.layout.Shape(type="rect", xref=_xref, yref=f"{_yref} domain", x0=vx0, x1=vx1, y0=0, y1=1,
+                            fillcolor=_rgba(vcolor, valpha), line=dict(width=0), layer="below")
+        )
+        if vlabel:
+            # No native per-vrect legend in plotly; the invisible scatter proxy carries the label INTO the
+            # legend, and the annotation carries it onto the band itself -- which is the only one that survives
+            # on a multi-panel interactive figure, where the legend is off (hover identifies the series).
+            _span_traces.append(
+                go.Scatter(x=[None], y=[None], mode="markers",
+                           marker=dict(size=8, color=_rgba(vcolor, max(valpha, 0.3)), symbol="square"),
+                           name=vlabel, showlegend=True)
+            )
+            # Staggered by measured overlap: every vspan label used to be stamped at the same y just
+            # above the panel, so two adjacent regimes -- which is what a regime chart is FOR -- printed
+            # on top of each other. The colour still ties each label to its band. Hanging DOWNWARD from
+            # the top of the plot area, like the vline labels below and for the same reason: stacked
+            # upward, the top row lands in the subplot title's strip and prints over it -- seen in the
+            # render, with "recovery" written across "regimes and change points".
+            _span_annotations.append(
+                go.layout.Annotation(x=vx0, y=1.0, xref=_xref, yref=f"{_yref} domain", yanchor="top", xanchor="left",
+                                     xshift=3, yshift=-3 - _STACKED_LABEL_SHIFT_PX * _vspan_rows[_vspan_i],
+                                     text=vlabel, showarrow=False, font=dict(size=8, color=vcolor))
+            )
 
 def _is_datetime_like(v) -> bool:
     """True if ``v`` is a ``numpy.datetime64`` or a stdlib ``datetime``/``date``; gates the datetime-safe vline path since ``fig.add_vline`` raises ``TypeError`` on datetime x."""

@@ -225,36 +225,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # A knob counts as "not overridden by the caller" when it still equals the corresponding config
     # baseline default, which is an approximation: a caller who explicitly passes the default value
     # is indistinguishable from one who left it alone, and gets the auto-tuned value instead.
-    if getattr(self, "auto_tune", False) and not getattr(self, "_auto_tune_applied_", False):
-        try:
-            from .._auto_tune import DataFingerprint, suggest_configs, explain_suggestion
-            _fp = DataFingerprint.from_xy(X, y)
-            _sc, _fic, _rc = suggest_configs(_fp)
-            _decision: dict = {"fingerprint": _fp, "explanation": explain_suggestion(_fp)}
-            # For each suggested field, apply IFF the current attribute is at its constructor default.
-            # We approximate "default" by comparing to the SearchConfig / FIConfig / RobustnessConfig
-            # baseline defaults (no kwargs passed).
-            from ._configs import SearchConfig, FIConfig, RobustnessConfig
-            _baselines = (SearchConfig(), FIConfig(), RobustnessConfig())
-            _applied: dict = {}
-            for _cfg, _baseline in zip((_sc, _fic, _rc), _baselines):
-                _set_fields = getattr(_cfg, "model_fields_set", None)
-                if not _set_fields:
-                    continue
-                for _k in _set_fields:
-                    _user_val = getattr(self, _k, None)
-                    _baseline_val = getattr(_baseline, _k, None)
-                    if _user_val == _baseline_val:
-                        # User didn't override this knob; apply the auto-tune suggestion.
-                        setattr(self, _k, getattr(_cfg, _k))
-                        _applied[_k] = getattr(_cfg, _k)
-            _decision["applied"] = _applied
-            self.auto_tune_decision_ = _decision
-            self._auto_tune_applied_ = True
-            if getattr(self, "verbose", 0):
-                logger.info("RFECV auto_tune: %s", _decision["explanation"])
-        except Exception as _exc:
-            logger.warning("auto_tune skipped (%s): %s", type(_exc).__name__, _exc)
+    _apply_auto_tune(self, X, y)
 
     X, y, signature, _polars_time_series_hint, _init_skip = _init_fit_state(
         self, X, y, groups, sample_weight,
@@ -276,27 +247,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # regression test to A/B numpy-vs-pandas on the SAME seeded fixture, and available as a safety
     # opt-out should any estimator ever misbehave on numpy input.
     _force_pandas = bool(getattr(self, "_force_pandas_estimator_path", False))
-    if (not _force_pandas) and isinstance(X, pd.DataFrame):
-        try:
-            from pandas.api.types import is_numeric_dtype as _is_num, is_bool_dtype as _is_bool
-            # All columns must be numeric/bool AND have a finite-supporting dtype. NaN is fine (LightGBM /
-            # tree handles it; float64 carries NaN bit-identically); object / category / string disqualify.
-            _all_numeric = bool(len(X.columns)) and all(_is_num(X[c]) or _is_bool(X[c]) for c in X.columns)
-        except Exception as e:
-            logger.debug("all-numeric dtype check failed, assuming not all-numeric: %s", e)
-            _all_numeric = False
-        if _all_numeric:
-            try:
-                # ``to_numpy(dtype=float64)`` materialises pyarrow-backed nullable numerics into a plain C
-                # float64 array too (pd.NA -> nan); the try/except + shape guard below rejects any dtype
-                # that fails to cast cleanly, so those callers transparently keep the pandas path.
-                _np = np.ascontiguousarray(X.to_numpy(dtype=np.float64))
-                if _np.shape == (int(X.shape[0]), int(X.shape[1])) and _np.dtype == np.float64:
-                    X_estimator = _np
-                    col_pos = {name: i for i, name in enumerate(X.columns)}
-            except (TypeError, ValueError):
-                X_estimator = None
-                col_pos = None
+    X_estimator, col_pos = _numpy_view_of_numeric_X(_force_pandas, X, X_estimator, col_pos)
 
     # ``estimators`` (list) supersedes the singular ``estimator``. Work with a list internally; singular path is a len-1 list.
     # Score per fold = mean across estimators; FI runs stored under separate keys so the voting layer treats each estimator's
@@ -410,22 +361,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     _prescreen = getattr(self, "prescreen", None)
     self._prescreen_fold_universes = None
     self._prescreen_full_features = None
-    if _prescreen is not None and len(original_features) > 0:
-        # Stash the PRE-prescreen universe so the nested per-fold prescreen (below) can re-derive, on each fold's
-        # train rows, which of these features would survive - a feature kept globally only via test-fold leakage
-        # then drops out of the folds where it fails the train-only prescreen.
-        if getattr(self, "prescreen_nested", True):
-            self._prescreen_full_features = list(original_features)
-        _kept = _apply_prescreen(
-            self, X=X, y=y, candidate_features=original_features, verbose=verbose,
-        )
-        if len(_kept) > 0 and list(_kept) != list(original_features):
-            if verbose:
-                logger.info(
-                    "RFECV prescreen=%s: %d -> %d features (keeping %d after prescreen).",
-                    _prescreen, len(original_features), len(_kept), len(_kept),
-                )
-            original_features = list(_kept)
+    original_features = _stash_prescreen_universe(self, _prescreen, original_features, X, y, verbose)
 
     cv, val_cv, early_stopping_rounds = _resolve_cv_and_val_cv(
         cv=cv, X=X, y=y, groups=groups, estimator=estimator,
@@ -485,42 +421,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     _n_candidates = len(original_features)
     _eff_n_repeats = int(getattr(self, "n_repeats", 5))
     self._wide_data_fi_applied_ = None
-    if getattr(self, "wide_data_fi_fallback", True) and isinstance(importance_getter, str) and importance_getter in _perm_getters:
-        _threshold = int(getattr(self, "wide_data_fi_threshold", 200))
-        if _n_candidates > _threshold:
-            self._wide_data_fi_applied_ = {
-                "reason": "fallback_to_native",
-                "n_candidates": _n_candidates,
-                "threshold": _threshold,
-                "from_importance_getter": importance_getter,
-                "to_importance_getter": "auto",
-            }
-            if verbose:
-                logger.info(
-                    "RFECV wide-data guard: %d candidate features > wide_data_fi_threshold=%d; "
-                    "falling back from importance_getter=%r to native 'auto' for the elimination ranking "
-                    "(permutation FI is ~O(p*n_repeats) rescores/fold and would blow the runtime budget). "
-                    "Set wide_data_fi_fallback=False to keep exact permutation FI.",
-                    _n_candidates, _threshold, importance_getter,
-                )
-            importance_getter = "auto"
-        else:
-            _cap = int(getattr(self, "wide_data_fi_n_repeats", 2))
-            if _eff_n_repeats > _cap and _n_candidates > max(1, _threshold // 4):
-                self._wide_data_fi_applied_ = {
-                    "reason": "capped_n_repeats",
-                    "n_candidates": _n_candidates,
-                    "threshold": _threshold,
-                    "from_n_repeats": _eff_n_repeats,
-                    "to_n_repeats": _cap,
-                }
-                if verbose:
-                    logger.info(
-                        "RFECV wide-data guard: %d candidate features; capping permutation n_repeats %d -> %d "
-                        "to keep per-iteration cost in budget.",
-                        _n_candidates, _eff_n_repeats, _cap,
-                    )
-                _eff_n_repeats = _cap
+    _eff_n_repeats, importance_getter = _wide_data_importance_fallback(self, importance_getter, _perm_getters, _n_candidates, verbose, _eff_n_repeats)
     # Effective n_repeats consumed by the per-fold permutation FI + stability bootstraps; read via the private attr so
     # the user-facing self.n_repeats is never mutated by the guard.
     self._effective_n_repeats = _eff_n_repeats
@@ -663,3 +564,125 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         logger.debug("suppressed: %s", e)
         pass
     return self
+
+
+def _numpy_view_of_numeric_X(_force_pandas, X, X_estimator, col_pos):
+    """Build the numpy view of an all-numeric pandas X for estimators that prefer it."""
+    if (not _force_pandas) and isinstance(X, pd.DataFrame):
+        try:
+            from pandas.api.types import is_numeric_dtype as _is_num, is_bool_dtype as _is_bool
+            # All columns must be numeric/bool AND have a finite-supporting dtype. NaN is fine (LightGBM /
+            # tree handles it; float64 carries NaN bit-identically); object / category / string disqualify.
+            _all_numeric = bool(len(X.columns)) and all(_is_num(X[c]) or _is_bool(X[c]) for c in X.columns)
+        except Exception as e:
+            logger.debug("all-numeric dtype check failed, assuming not all-numeric: %s", e)
+            _all_numeric = False
+        if _all_numeric:
+            try:
+                # ``to_numpy(dtype=float64)`` materialises pyarrow-backed nullable numerics into a plain C
+                # float64 array too (pd.NA -> nan); the try/except + shape guard below rejects any dtype
+                # that fails to cast cleanly, so those callers transparently keep the pandas path.
+                _np = np.ascontiguousarray(X.to_numpy(dtype=np.float64))
+                if _np.shape == (int(X.shape[0]), int(X.shape[1])) and _np.dtype == np.float64:
+                    X_estimator = _np
+                    col_pos = {name: i for i, name in enumerate(X.columns)}
+            except (TypeError, ValueError):
+                X_estimator = None
+                col_pos = None
+    return X_estimator, col_pos
+
+
+def _apply_auto_tune(self, X, y):
+    """Apply the auto-tuned configuration once when auto_tune is on."""
+    if getattr(self, "auto_tune", False) and not getattr(self, "_auto_tune_applied_", False):
+        try:
+            from mlframe.feature_selection.wrappers._auto_tune import DataFingerprint, suggest_configs, explain_suggestion
+            _fp = DataFingerprint.from_xy(X, y)
+            _sc, _fic, _rc = suggest_configs(_fp)
+            _decision: dict = {"fingerprint": _fp, "explanation": explain_suggestion(_fp)}
+            # For each suggested field, apply IFF the current attribute is at its constructor default.
+            # We approximate "default" by comparing to the SearchConfig / FIConfig / RobustnessConfig
+            # baseline defaults (no kwargs passed).
+            from mlframe.feature_selection.wrappers.rfecv._configs import SearchConfig, FIConfig, RobustnessConfig
+            _baselines = (SearchConfig(), FIConfig(), RobustnessConfig())
+            _applied: dict = {}
+            for _cfg, _baseline in zip((_sc, _fic, _rc), _baselines):
+                _set_fields = getattr(_cfg, "model_fields_set", None)
+                if not _set_fields:
+                    continue
+                for _k in _set_fields:
+                    _user_val = getattr(self, _k, None)
+                    _baseline_val = getattr(_baseline, _k, None)
+                    if _user_val == _baseline_val:
+                        # User didn't override this knob; apply the auto-tune suggestion.
+                        setattr(self, _k, getattr(_cfg, _k))
+                        _applied[_k] = getattr(_cfg, _k)
+            _decision["applied"] = _applied
+            self.auto_tune_decision_ = _decision
+            self._auto_tune_applied_ = True
+            if getattr(self, "verbose", 0):
+                logger.info("RFECV auto_tune: %s", _decision["explanation"])
+        except Exception as _exc:
+            logger.warning("auto_tune skipped (%s): %s", type(_exc).__name__, _exc)
+
+
+def _stash_prescreen_universe(self, _prescreen, original_features, X, y, verbose):
+    """Stash the pre-prescreen feature universe for the per-fold prescreen."""
+    if _prescreen is not None and len(original_features) > 0:
+        # Stash the PRE-prescreen universe so the nested per-fold prescreen (below) can re-derive, on each fold's
+        # train rows, which of these features would survive - a feature kept globally only via test-fold leakage
+        # then drops out of the folds where it fails the train-only prescreen.
+        if getattr(self, "prescreen_nested", True):
+            self._prescreen_full_features = list(original_features)
+        _kept = _apply_prescreen(
+            self, X=X, y=y, candidate_features=original_features, verbose=verbose,
+        )
+        if len(_kept) > 0 and list(_kept) != list(original_features):
+            if verbose:
+                logger.info(
+                    "RFECV prescreen=%s: %d -> %d features (keeping %d after prescreen).",
+                    _prescreen, len(original_features), len(_kept), len(_kept),
+                )
+            original_features = list(_kept)
+    return original_features
+
+
+def _wide_data_importance_fallback(self, importance_getter, _perm_getters, _n_candidates, verbose, _eff_n_repeats):
+    """Switch to the fallback importance getter on wide data."""
+    if getattr(self, "wide_data_fi_fallback", True) and isinstance(importance_getter, str) and importance_getter in _perm_getters:
+        _threshold = int(getattr(self, "wide_data_fi_threshold", 200))
+        if _n_candidates > _threshold:
+            self._wide_data_fi_applied_ = {
+                "reason": "fallback_to_native",
+                "n_candidates": _n_candidates,
+                "threshold": _threshold,
+                "from_importance_getter": importance_getter,
+                "to_importance_getter": "auto",
+            }
+            if verbose:
+                logger.info(
+                    "RFECV wide-data guard: %d candidate features > wide_data_fi_threshold=%d; "
+                    "falling back from importance_getter=%r to native 'auto' for the elimination ranking "
+                    "(permutation FI is ~O(p*n_repeats) rescores/fold and would blow the runtime budget). "
+                    "Set wide_data_fi_fallback=False to keep exact permutation FI.",
+                    _n_candidates, _threshold, importance_getter,
+                )
+            importance_getter = "auto"
+        else:
+            _cap = int(getattr(self, "wide_data_fi_n_repeats", 2))
+            if _eff_n_repeats > _cap and _n_candidates > max(1, _threshold // 4):
+                self._wide_data_fi_applied_ = {
+                    "reason": "capped_n_repeats",
+                    "n_candidates": _n_candidates,
+                    "threshold": _threshold,
+                    "from_n_repeats": _eff_n_repeats,
+                    "to_n_repeats": _cap,
+                }
+                if verbose:
+                    logger.info(
+                        "RFECV wide-data guard: %d candidate features; capping permutation n_repeats %d -> %d "
+                        "to keep per-iteration cost in budget.",
+                        _n_candidates, _eff_n_repeats, _cap,
+                    )
+                _eff_n_repeats = _cap
+    return _eff_n_repeats, importance_getter

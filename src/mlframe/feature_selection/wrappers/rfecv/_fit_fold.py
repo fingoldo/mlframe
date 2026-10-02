@@ -248,25 +248,7 @@ def _eval_fold_body(
         # When current_features holds integer indices (ndarray X path), set-membership against string column names always misses; in that case the user-supplied lists pass through unfiltered (the inner estimator can deal with missing column references on its own).
         _features_are_integer = len(current_features) > 0 and isinstance(current_features[0], (int, np.integer))
         _current_set = set(current_features) if not _features_are_integer else None
-        for _k, _v in fit_params.items():
-            if _k == "cat_features":
-                if "cat_features" in temp_fit_params:
-                    # temp's index-based cat_features wins; drop outer name list.
-                    continue
-                if _v and _current_set is not None:
-                    _filtered = [c for c in _v if c in _current_set]
-                    _filtered_fit_params[_k] = _filtered or None
-                elif _v:
-                    _filtered_fit_params[_k] = _v
-                continue
-            if _k in ("text_features", "embedding_features") and _v:
-                if _current_set is not None:
-                    _filtered = [c for c in _v if c in _current_set]
-                    _filtered_fit_params[_k] = _filtered or None
-                else:
-                    _filtered_fit_params[_k] = _v
-                continue
-            _filtered_fit_params[_k] = _v
+        _filter_fold_fit_params(fit_params, temp_fit_params, _current_set, _filtered_fit_params)
         temp_fit_params.update(_filtered_fit_params)
 
     else:
@@ -292,21 +274,7 @@ def _eval_fold_body(
     fitted_estimator = clone(estimator)
 
     # Dynamic CB ``text_processing`` calibration for THIS fold's clone (not the outer estimator). RFECV folds are typically much smaller than the outer training set; with CB's default ``occurrence_lower_bound=50`` words that occur < 50 times in the fold are pruned, leaving an empty dictionary and HANGING CB's C++ ``_train`` loop. ``compute_cb_text_processing`` returns a config that scales the floor proportionally to fold rows, or None when the fold is large enough.
-    if val_cv and has_early_stopping_support(estimator_type):
-        _temp_text_feats = _filtered_fit_params.get("text_features") or []
-        if _temp_text_feats and "CatBoost" in type(fitted_estimator).__name__:
-            from mlframe.training.helpers import compute_cb_text_processing
-
-            _fold_rows = X_train.shape[0] if hasattr(X_train, "shape") else None
-            _tp = compute_cb_text_processing(_fold_rows) if _fold_rows is not None else None
-            if _tp is not None and hasattr(fitted_estimator, "set_params"):
-                try:
-                    fitted_estimator.set_params(text_processing=_tp)
-                except Exception as _tp_exc:
-                    logger.warning(
-                        "RFECV inner fold: failed to set CB text_processing "
-                        "(fold_rows=%s, exc=%s).", _fold_rows, _tp_exc,
-                    )
+    _calibrate_catboost_text_processing(val_cv, estimator_type, _filtered_fit_params, fitted_estimator, X_train)
 
     # Empty-train guard: heavy upstream filtering (small n + outlier_detection + trainset_aging_limit) can collapse X_train / y_train to 0 rows on a CV fold; CatBoost then raises "Labels variable is empty" deep in C++ Pool init. Skip the fold cleanly with a NaN score; sklearn's RFECV does the same on degenerate inner folds.
     _x_n = X_train.shape[0] if hasattr(X_train, "shape") else None
@@ -414,27 +382,7 @@ def _eval_fold_body(
             # Sign-harmony aggregation (importance_agg='dispatched'): also stash the SIGNED, scale-corrected
             # coef for the linear family so the cross-fold aggregator can detect sign flips. Tree / kernel
             # families and the legacy path skip this (None / no native coef -> no-op).
-            if getattr(self, "importance_agg", "legacy") == "dispatched" and getattr(self, "_fi_family", None) == "linear":
-                try:
-                    from .._helpers_importance_agg import get_signed_linear_coef
-                    _signed_full = get_signed_linear_coef(
-                        model=_fitted, current_features=fit_features, train_data=X_train,
-                        multiclass_coef_aggregation=getattr(self, "multiclass_coef_aggregation", "max"),
-                        coef_scale_source=getattr(self, "coef_scale_source", "train"),
-                    )
-                except Exception as e:
-                    logger.debug("signed-coefficient extraction failed for this fold: %s", e)
-                    _signed_full = None
-                if _signed_full is not None:
-                    if must_include_resolved:
-                        _mset = set(must_include_resolved)
-                        _signed = {k: v for k, v in _signed_full.items() if k not in _mset}
-                    else:
-                        _signed = _signed_full
-                    _store = getattr(self, "_signed_importances", None)
-                    if _store is not None:
-                        with _FOLD_STATE_LOCK:
-                            _store[_key] = _signed
+            _record_signed_linear_coef(self, _fitted, fit_features, X_train, must_include_resolved, _key)
         if keep_estimators:
             with _FOLD_STATE_LOCK:
                 fitted_estimators[_key] = _fitted
@@ -469,3 +417,70 @@ def _eval_fold_body(
             )
         with _FOLD_STATE_LOCK:
             dummy_scores.append(_dummy)
+
+
+def _filter_fold_fit_params(fit_params, temp_fit_params, _current_set, _filtered_fit_params):
+    """Filter the fit parameters down to those valid for this fold clone."""
+    for _k, _v in fit_params.items():
+        if _k == "cat_features":
+            if "cat_features" in temp_fit_params:
+                # temp's index-based cat_features wins; drop outer name list.
+                continue
+            if _v and _current_set is not None:
+                _filtered = [c for c in _v if c in _current_set]
+                _filtered_fit_params[_k] = _filtered or None
+            elif _v:
+                _filtered_fit_params[_k] = _v
+            continue
+        if _k in ("text_features", "embedding_features") and _v:
+            if _current_set is not None:
+                _filtered = [c for c in _v if c in _current_set]
+                _filtered_fit_params[_k] = _filtered or None
+            else:
+                _filtered_fit_params[_k] = _v
+            continue
+        _filtered_fit_params[_k] = _v
+
+
+def _calibrate_catboost_text_processing(val_cv, estimator_type, _filtered_fit_params, fitted_estimator, X_train):
+    """Scale the CatBoost text-processing floor to the row count of this fold."""
+    if val_cv and has_early_stopping_support(estimator_type):
+        _temp_text_feats = _filtered_fit_params.get("text_features") or []
+        if _temp_text_feats and "CatBoost" in type(fitted_estimator).__name__:
+            from mlframe.training.helpers import compute_cb_text_processing
+
+            _fold_rows = X_train.shape[0] if hasattr(X_train, "shape") else None
+            _tp = compute_cb_text_processing(_fold_rows) if _fold_rows is not None else None
+            if _tp is not None and hasattr(fitted_estimator, "set_params"):
+                try:
+                    fitted_estimator.set_params(text_processing=_tp)
+                except Exception as _tp_exc:
+                    logger.warning(
+                        "RFECV inner fold: failed to set CB text_processing "
+                        "(fold_rows=%s, exc=%s).", _fold_rows, _tp_exc,
+                    )
+
+
+def _record_signed_linear_coef(self, _fitted, fit_features, X_train, must_include_resolved, _key):
+    """Record the signed linear coefficients for the dispatched importance aggregation."""
+    if getattr(self, "importance_agg", "legacy") == "dispatched" and getattr(self, "_fi_family", None) == "linear":
+        try:
+            from mlframe.feature_selection.wrappers._helpers_importance_agg import get_signed_linear_coef
+            _signed_full = get_signed_linear_coef(
+                model=_fitted, current_features=fit_features, train_data=X_train,
+                multiclass_coef_aggregation=getattr(self, "multiclass_coef_aggregation", "max"),
+                coef_scale_source=getattr(self, "coef_scale_source", "train"),
+            )
+        except Exception as e:
+            logger.debug("signed-coefficient extraction failed for this fold: %s", e)
+            _signed_full = None
+        if _signed_full is not None:
+            if must_include_resolved:
+                _mset = set(must_include_resolved)
+                _signed = {k: v for k, v in _signed_full.items() if k not in _mset}
+            else:
+                _signed = _signed_full
+            _store = getattr(self, "_signed_importances", None)
+            if _store is not None:
+                with _FOLD_STATE_LOCK:
+                    _store[_key] = _signed

@@ -69,7 +69,7 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     """Render a scatter panel: subsamples above ``_SCATTER_MAX_POINTS`` (preserving extremes, rasterized), then layers optional error bars, highlighted worst-K points, trend line, overlay band/line, y=x reference and inline labels/colorbar/legend on top."""
     # Lazy, function-local, matching the plotly sibling: the parent module imports this one at its own bottom,
     # so a module-level ``from .matplotlib import ...`` would be a hard cycle. By call time the parent is loaded.
-    from .matplotlib import _EDGE_LABEL_FLIP_FRACTION, _err_to_mpl, _set_panel_title
+    from .matplotlib import _err_to_mpl, _set_panel_title
 
     x = np.asarray(p.x)
     y = np.asarray(p.y)
@@ -184,6 +184,31 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
         ox_grid, oy_grid, olabel = p.overlay_line
         ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color=OVERLAY_LINE, linestyle="-", linewidth=1.8, zorder=4, label=olabel)
 
+    _draw_perfect_fit_line(p, n, x, y, ax)
+    if p.xlim is not None:
+        ax.set_xlim(*p.xlim)
+    if p.ylim is not None:
+        ax.set_ylim(*p.ylim)
+
+    _draw_inline_labels(p, ax)
+
+    if p.colorbar_label and color_arr is not None:
+        _add_colorbar(fig, sc, ax, cbar_axes, p)
+
+    ax.set_xlabel(p.xlabel)
+    ax.set_ylabel(p.ylabel)
+    _set_panel_title(ax, p.title)
+    if p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None or p.overlay_band is not None or p.highlight_indices is not None:
+        if p.legend_outside:
+            ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=8, framealpha=0.7, borderaxespad=0.0)
+        else:
+            ax.legend(loc=(p.legend_loc if p.legend_loc is not None else "best"), fontsize=8, framealpha=0.7)
+    if p.grid:
+        ax.grid(True, alpha=0.3)
+
+
+def _draw_perfect_fit_line(p, n, x, y, ax):
+    """Draw the y=x perfect-fit line and square the panel."""
     if p.perfect_fit_line and n > 0:
         # Span y=x over the UNION of both axes (so it stays the diagonal even when prediction collapse makes
         # y constant) and square the panel so y=x is a true 45-degree line.
@@ -212,10 +237,11 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
         # The flag used to be read only inside the perfect-fit branch, so asking for a square panel
         # without that diagonal silently did nothing.
         ax.set_aspect("equal", "box")
-    if p.xlim is not None:
-        ax.set_xlim(*p.xlim)
-    if p.ylim is not None:
-        ax.set_ylim(*p.ylim)
+
+
+def _draw_inline_labels(p, ax):
+    """Draw the inline point labels."""
+    from mlframe.reporting.renderers.matplotlib import _EDGE_LABEL_FLIP_FRACTION
 
     if p.inline_labels:
         _lab_colors = p.inline_label_colors if p.inline_label_colors is not None else ()
@@ -254,20 +280,6 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
                 lx, ly, txt, fontsize=8, ha=_ha, va=_va, color=_colour, zorder=6,
                 path_effects=[_pe.withStroke(linewidth=1.6, foreground=("black" if _colour == "white" else "white"))],
             )
-
-    if p.colorbar_label and color_arr is not None:
-        _add_colorbar(fig, sc, ax, cbar_axes, p)
-
-    ax.set_xlabel(p.xlabel)
-    ax.set_ylabel(p.ylabel)
-    _set_panel_title(ax, p.title)
-    if p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None or p.overlay_band is not None or p.highlight_indices is not None:
-        if p.legend_outside:
-            ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=8, framealpha=0.7, borderaxespad=0.0)
-        else:
-            ax.legend(loc=(p.legend_loc if p.legend_loc is not None else "best"), fontsize=8, framealpha=0.7)
-    if p.grid:
-        ax.grid(True, alpha=0.3)
 
 
 __all__ = ["_scatter"]

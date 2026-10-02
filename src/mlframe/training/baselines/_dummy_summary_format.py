@@ -126,14 +126,7 @@ def format_suite_end_summary(
             # is a silent scale mismatch -- the inverted dummy is the only
             # same-scale comparison. ``primary_metric`` decomposes as
             # ``<split>_<metric>`` (e.g. ``val_RMSE`` -> split ``val``, metric ``RMSE``).
-            if not _used_raw_y_dummy:
-                _ys = rep_dict.get("y_scale_strongest_metrics")
-                if isinstance(_ys, dict) and "_" in primary_metric:
-                    _split_key, _metric_key = primary_metric.split("_", 1)
-                    _ys_val = _ys.get(_split_key, {}).get(_metric_key)
-                    if _ys_val is not None and np.isfinite(_ys_val):
-                        dummy_val = float(_ys_val)
-                        strongest = f"{strongest} [y-scale inv]"
+            dummy_val, strongest = _y_scale_strongest_metric(_used_raw_y_dummy, rep_dict, primary_metric, strongest, dummy_val)
 
             # Best model metric lookup (optional). Considers BOTH the single best
             # individual model AND the cross-target ensemble (NNLS-stack etc.), then
@@ -228,14 +221,7 @@ def format_suite_end_summary(
 
             # ALL_BASELINES_BELOW_RANDOM (binary only): every classifier
             # baseline has AUC < 0.5 -> label flip suspected.
-            if str(target_type) == "binary_classification":
-                aucs = [row.get("val_AUC") for row in data.values() if row.get("val_AUC") is not None and np.isfinite(row.get("val_AUC", float("nan")))]
-                if aucs and all(a < 0.5 for a in aucs):
-                    warn_lines.append(
-                        f"[DUMMY_BASELINES] WARN ALL_BASELINES_BELOW_RANDOM "
-                        f"target='{target_name}' -- check target_label_encoder "
-                        f"direction; check sign of cost_function."
-                    )
+            _warn_suspected_label_flip(target_type, data, warn_lines, target_name)
 
             _strongest_label = str(strongest)
             lines.append(
@@ -246,10 +232,7 @@ def format_suite_end_summary(
             )
 
     # PARTIAL_FAILURE WARN -- emitted once per target with failures.
-    if failures_metadata:
-        for target_type, by_name in failures_metadata.items():
-            for target_name, err_msg in by_name.items():
-                warn_lines.append(f"[DUMMY_BASELINES] WARN PARTIAL_FAILURE " f"target='{target_name}' ({target_type}) -- {err_msg}")
+    _format_partial_failures(failures_metadata, warn_lines)
 
     lines.extend(warn_lines)
     if best_model_metrics_by_target is not None:
@@ -261,6 +244,39 @@ def format_suite_end_summary(
         )
 
     return "\n".join(lines)
+
+
+def _y_scale_strongest_metric(_used_raw_y_dummy, rep_dict, primary_metric, strongest, dummy_val):
+    """Pick the strongest y-scale metric for the primary metric split."""
+    if not _used_raw_y_dummy:
+        _ys = rep_dict.get("y_scale_strongest_metrics")
+        if isinstance(_ys, dict) and "_" in primary_metric:
+            _split_key, _metric_key = primary_metric.split("_", 1)
+            _ys_val = _ys.get(_split_key, {}).get(_metric_key)
+            if _ys_val is not None and np.isfinite(_ys_val):
+                dummy_val = float(_ys_val)
+                strongest = f"{strongest} [y-scale inv]"
+    return dummy_val, strongest
+
+
+def _warn_suspected_label_flip(target_type, data, warn_lines, target_name):
+    """Warn when every dummy baseline has a validation AUC below 0.5."""
+    if str(target_type) == "binary_classification":
+        aucs = [row.get("val_AUC") for row in data.values() if row.get("val_AUC") is not None and np.isfinite(row.get("val_AUC", float("nan")))]
+        if aucs and all(a < 0.5 for a in aucs):
+            warn_lines.append(
+                f"[DUMMY_BASELINES] WARN ALL_BASELINES_BELOW_RANDOM "
+                f"target='{target_name}' -- check target_label_encoder "
+                f"direction; check sign of cost_function."
+            )
+
+
+def _format_partial_failures(failures_metadata, warn_lines):
+    """Emit the partial-failure warning once per target with failures."""
+    if failures_metadata:
+        for target_type, by_name in failures_metadata.items():
+            for target_name, err_msg in by_name.items():
+                warn_lines.append(f"[DUMMY_BASELINES] WARN PARTIAL_FAILURE " f"target='{target_name}' ({target_type}) -- {err_msg}")
 
 
 def _pick_rmse(metric_dict: dict) -> "float | None":

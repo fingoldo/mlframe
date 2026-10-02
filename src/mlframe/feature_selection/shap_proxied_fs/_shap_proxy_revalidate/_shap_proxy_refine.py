@@ -60,7 +60,7 @@ def _winner_from_per_candidate(per_candidate, candidates, member_cols, lambda_st
     winner; used INSIDE the model-round loop to test winner stability across consecutive rounds
     when ``adaptive_n_models=True``. Returns ``None`` when ``per_candidate`` is empty.
     """
-    ranked = []
+    ranked: list[Any] = []
     for ci, (_proxy_loss_val, idx) in enumerate(candidates):
         if ci not in per_candidate or not per_candidate[ci]:
             continue
@@ -302,14 +302,7 @@ def revalidate_top_n(
             seeds_per_cand = len(round_seeds[0]) if round_seeds and round_seeds[0] else 1
             batch_sizes: list[int] = []
             cur = 0
-            while cur < n_total:
-                if cur == 0:
-                    step = min(ucb_min_eval_size_eff, n_total - cur)
-                else:
-                    step = min(max(1, outer_workers // max(1, seeds_per_cand)), n_total - cur)
-                    step = max(step, 1)
-                batch_sizes.append(step)
-                cur += step
+            _plan_ucb_batch_sizes(cur, n_total, ucb_min_eval_size_eff, outer_workers, seeds_per_cand, batch_sizes)
             pos = 0
             for step in batch_sizes:
                 batch_candidate_idx = [int(proxy_order[pos + j]) for j in range(step)]
@@ -375,16 +368,8 @@ def revalidate_top_n(
             prev_winner = cur_winner
             prev_winner_members = cur_winner_members
 
-    ranked = []
-    for ci, (proxy_loss_val, idx) in enumerate(candidates):
-        if ci not in per_candidate:
-            continue
-        scores = np.asarray(per_candidate[ci], dtype=np.float64)
-        mean, std = float(scores.mean()), float(scores.std())
-        # Parsimony cardinality = deployed feature count (expanded members), not unit count.
-        ranked.append(dict(features=tuple(idx), n_members=len(member_cols[ci]),
-                           proxy_loss=float(proxy_loss_val),
-                           honest_loss=mean, honest_std=std, stable_score=mean + lambda_stab * std))
+    ranked: list[Any] = []
+    _collect_candidate_scores(candidates, per_candidate, ranked, member_cols, lambda_stab)
     ranked.sort(key=lambda d: d["stable_score"])
     if ranked:
         best_score = ranked[0]["stable_score"]
@@ -411,21 +396,7 @@ def revalidate_top_n(
     # same subset (e.g. when ablation later refits the winner, that fit is the cache hit). Same
     # design as within_cluster_refine's final full-template re-evaluation. When cap is None the
     # ranking trials already used the full template and this is a guaranteed cache hit (no extra fit).
-    if best_idx and cap is not None:
-        winner_cols = _expand(best_idx, unit_to_members)
-        winner_full_loss = _honest_loss(
-            model_template, X_search, y_search, X_holdout, y_holdout, winner_cols, classification, metric, cache=cache, disk_cache=disk_cache
-        )
-        # Update the reported entry for the chosen winner. Find it in ranked by features identity.
-        for d in ranked:
-            if d["features"] == best_idx:
-                d["honest_loss"] = float(winner_full_loss)
-                # std measured at capped template (n_models samples); winner's full-template eval is a
-                # single fit so its std is not refreshed - the capped-template std remains as a
-                # cross-seed-stability proxy. Update stable_score to reflect the new mean.
-                d["stable_score"] = float(winner_full_loss) + lambda_stab * d["honest_std"]
-                d["honest_loss_capped"] = float(np.asarray(per_candidate[next(i for i, (_, ix) in enumerate(candidates) if tuple(ix) == best_idx)]).mean())
-                break
+    _cap_best_unit_members(best_idx, cap, unit_to_members, model_template, X_search, y_search, X_holdout, y_holdout, classification, metric, cache, disk_cache, ranked, lambda_stab, per_candidate, candidates)
     _mark_selection_optimistic(ranked, best_idx)  # the winner's holdout loss is a min over candidates
 
     # Same-size (in member columns) random-subset baseline for the winner (winner's-curse context).
@@ -464,6 +435,50 @@ def revalidate_top_n(
         baseline["ucb"] = ucb_info
     baseline["paired_one_se"] = paired_info
     return best_idx, ranked, baseline
+
+
+def _plan_ucb_batch_sizes(cur, n_total, ucb_min_eval_size_eff, outer_workers, seeds_per_cand, batch_sizes):
+    """Plan the UCB evaluation batch sizes covering all candidates."""
+    while cur < n_total:
+        if cur == 0:
+            step = min(ucb_min_eval_size_eff, n_total - cur)
+        else:
+            step = min(max(1, outer_workers // max(1, seeds_per_cand)), n_total - cur)
+            step = max(step, 1)
+        batch_sizes.append(step)
+        cur += step
+
+
+def _cap_best_unit_members(best_idx, cap, unit_to_members, model_template, X_search, y_search, X_holdout, y_holdout, classification, metric, cache, disk_cache, ranked, lambda_stab, per_candidate, candidates):
+    """Cap the members of the best unit when a cap is set."""
+    if best_idx and cap is not None:
+        winner_cols = _expand(best_idx, unit_to_members)
+        winner_full_loss = _honest_loss(
+            model_template, X_search, y_search, X_holdout, y_holdout, winner_cols, classification, metric, cache=cache, disk_cache=disk_cache
+        )
+        # Update the reported entry for the chosen winner. Find it in ranked by features identity.
+        for d in ranked:
+            if d["features"] == best_idx:
+                d["honest_loss"] = float(winner_full_loss)
+                # std measured at capped template (n_models samples); winner's full-template eval is a
+                # single fit so its std is not refreshed - the capped-template std remains as a
+                # cross-seed-stability proxy. Update stable_score to reflect the new mean.
+                d["stable_score"] = float(winner_full_loss) + lambda_stab * d["honest_std"]
+                d["honest_loss_capped"] = float(np.asarray(per_candidate[next(i for i, (_, ix) in enumerate(candidates) if tuple(ix) == best_idx)]).mean())
+                break
+
+
+def _collect_candidate_scores(candidates, per_candidate, ranked, member_cols, lambda_stab):
+    """Collect the scored candidates that reached per-candidate evaluation."""
+    for ci, (proxy_loss_val, idx) in enumerate(candidates):
+        if ci not in per_candidate:
+            continue
+        scores = np.asarray(per_candidate[ci], dtype=np.float64)
+        mean, std = float(scores.mean()), float(scores.std())
+        # Parsimony cardinality = deployed feature count (expanded members), not unit count.
+        ranked.append(dict(features=tuple(idx), n_members=len(member_cols[ci]),
+                           proxy_loss=float(proxy_loss_val),
+                           honest_loss=mean, honest_std=std, stable_score=mean + lambda_stab * std))
 
 
 def active_learning_revalidate(

@@ -254,22 +254,7 @@ def compute_probabilistic_multiclass_error(
     # fuzz c0000 / c0008 (cb / multilabel target) - without the stack, the
     # ``y_true == class_id`` fall-through raised ``truth value of array
     # ambiguous`` on the cell-array comparison.
-    if isinstance(y_true, np.ndarray) and y_true.dtype == object and y_true.ndim == 1 and y_true.shape[0] > 0:
-        _first = y_true[0]
-        if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
-            try:
-                y_true = np.stack([np.asarray(c) for c in y_true], axis=0)
-            except Exception as _e_stack:
-                # Silent pass was the prior behaviour: stack failure left
-                # y_true as object-of-arrays, then the multilabel auto-detect
-                # branch below couldn't pick it up and the metric routed
-                # through the wrong code path silently. DEBUG-log (not WARN,
-                # the multilabel detection is best-effort) so the trail
-                # exists for triage.
-                logger.debug(
-                    "compute_probabilistic_multiclass_error: y_true stack " "failed (%s); multilabel auto-detect may misroute.",
-                    _e_stack,
-                )
+    y_true = _unwrap_object_array_y_true(y_true)
     if not multilabel and isinstance(y_true, np.ndarray) and y_true.ndim == 2 and y_true.shape[1] == len(probs):
         multilabel = True
         logger.debug("compute_probabilistic_multiclass_error: detected multilabel y_true shape, enabling multilabel mode.")
@@ -434,6 +419,27 @@ def compute_probabilistic_multiclass_error(
         # per-class recompute rather than indexing a missing entry.
         return total_error, {}
     return total_error
+
+
+def _unwrap_object_array_y_true(y_true):
+    """Unwrap an object-dtype y_true holding per-row arrays into a regular array."""
+    if isinstance(y_true, np.ndarray) and y_true.dtype == object and y_true.ndim == 1 and y_true.shape[0] > 0:
+        _first = y_true[0]
+        if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
+            try:
+                y_true = np.stack([np.asarray(c) for c in y_true], axis=0)
+            except Exception as _e_stack:
+                # Silent pass was the prior behaviour: stack failure left
+                # y_true as object-of-arrays, then the multilabel auto-detect
+                # branch below couldn't pick it up and the metric routed
+                # through the wrong code path silently. DEBUG-log (not WARN,
+                # the multilabel detection is best-effort) so the trail
+                # exists for triage.
+                logger.debug(
+                    "compute_probabilistic_multiclass_error: y_true stack " "failed (%s); multilabel auto-detect may misroute.",
+                    _e_stack,
+                )
+    return y_true
 
 
 def _accepts_sample_weight(metric: Callable) -> bool:

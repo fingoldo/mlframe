@@ -510,16 +510,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             raise ValueError(f"CompositeTargetEstimator: unknown fallback_predict {self.fallback_predict!r}; " "choose 'y_train_median' or 'nan'.")
         base_columns = self._resolve_base_columns()
         # Unary y-transforms (cbrt_y, log_y, ...) have ``requires_base=False`` and must not require a base column. Feed a zeros placeholder so downstream calls keep their (y, base, params) signatures without branching.
-        if not transform.requires_base:
-            y_arr = _to_1d_numpy(y).astype(np.float64)
-            base_arr = np.zeros_like(y_arr)
-        else:
-            if not base_columns:
-                raise ValueError("CompositeTargetEstimator: either base_column (str) or " "base_columns (sequence) must be supplied.")
-            y_arr = _to_1d_numpy(y).astype(np.float64)
-            base_arr = self._extract_base_for_transform(X, base_columns)
-            if len(y_arr) != len(base_arr):
-                raise ValueError(f"CompositeTargetEstimator.fit: y has {len(y_arr)} rows but X " f"has {len(base_arr)} -- caller passed misaligned inputs.")
+        base_arr, y_arr = self._resolve_base_array(transform, y, base_columns, X)
 
         # Apply domain check before fitting transform params: invalid
         # rows must NOT bias the OLS / MAD computation.
@@ -553,18 +544,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
                 if _valid_fitted.shape == valid.shape:
                     valid = valid & _valid_fitted
         n_invalid = int((~valid).sum())
-        if n_invalid > 0:
-            if not self.drop_invalid_rows:
-                raise DomainViolationError(
-                    f"CompositeTargetEstimator.fit: transform '{self.transform_name}' "
-                    f"requires domain conditions; {n_invalid} of {len(y_arr)} rows violate. "
-                    "Set drop_invalid_rows=True to drop them automatically."
-                )
-            logger.info(
-                "[CompositeTargetEstimator] dropping %d/%d (%.2f%%) rows "
-                "violating domain of transform '%s'.",
-                n_invalid, len(y_arr), 100.0 * n_invalid / len(y_arr), self.transform_name,
-            )
+        self._handle_invalid_rows(n_invalid, y_arr)
 
         y_train = y_arr[valid]
         base_train = base_arr[valid]
@@ -804,6 +784,35 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             "t_clip_high_hits": 0,
         }
         return self
+
+    def _resolve_base_array(self, transform, y, base_columns, X):
+        """Resolve the base array, feeding zeros for unary transforms."""
+        if not transform.requires_base:
+            y_arr = _to_1d_numpy(y).astype(np.float64)
+            base_arr = np.zeros_like(y_arr)
+        else:
+            if not base_columns:
+                raise ValueError("CompositeTargetEstimator: either base_column (str) or " "base_columns (sequence) must be supplied.")
+            y_arr = _to_1d_numpy(y).astype(np.float64)
+            base_arr = self._extract_base_for_transform(X, base_columns)
+            if len(y_arr) != len(base_arr):
+                raise ValueError(f"CompositeTargetEstimator.fit: y has {len(y_arr)} rows but X " f"has {len(base_arr)} -- caller passed misaligned inputs.")
+        return base_arr, y_arr
+
+    def _handle_invalid_rows(self, n_invalid, y_arr):
+        """Raise or warn about the rows outside the transform domain."""
+        if n_invalid > 0:
+            if not self.drop_invalid_rows:
+                raise DomainViolationError(
+                    f"CompositeTargetEstimator.fit: transform '{self.transform_name}' "
+                    f"requires domain conditions; {n_invalid} of {len(y_arr)} rows violate. "
+                    "Set drop_invalid_rows=True to drop them automatically."
+                )
+            logger.info(
+                "[CompositeTargetEstimator] dropping %d/%d (%.2f%%) rows "
+                "violating domain of transform '%s'.",
+                n_invalid, len(y_arr), 100.0 * n_invalid / len(y_arr), self.transform_name,
+            )
 
 
 # Method rebinding from sibling carves. Done at module bottom so the parent class is fully constructed; identity preserved (parent.X is sibling.X) which keeps isinstance / hasattr / sklearn introspection unchanged.

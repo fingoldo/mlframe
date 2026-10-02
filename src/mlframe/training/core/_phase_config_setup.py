@@ -196,19 +196,7 @@ def setup_configuration(
         )
         _setup_t_prev = _now
 
-    if feature_handling_config is not None:
-        try:
-            from mlframe.training.feature_handling import FeatureHandlingConfig
-            if isinstance(feature_handling_config, FeatureHandlingConfig):
-                if mlframe_models:
-                    feature_handling_config.validate_against_models(list(mlframe_models))
-                if verbose:
-                    logger.info(
-                        "[fhc] FeatureHandlingConfig active; resolved plan: %s",
-                        feature_handling_config.describe(short=True),
-                    )
-        except ImportError:  # pragma: no cover
-            pass
+    _validate_feature_handling_config(feature_handling_config, mlframe_models, verbose)
     _step_done("feature_handling_config validate")
 
     preprocessing_config = _ensure_config(preprocessing_config, PreprocessingConfig, {})
@@ -258,23 +246,7 @@ def setup_configuration(
         _inline_display = getattr(reporting_config, "plot_inline_display", None)
         _inline_display_prior_set = False  # whether we successfully captured a prior to restore
         _inline_display_prior = None
-        if _inline_display is not None:
-            try:
-                from mlframe.reporting.renderers.save import (
-                    set_inline_display_mode as _set_idm,
-                    get_inline_display_mode as _get_idm,
-                )
-                try:
-                    _inline_display_prior = _get_idm()
-                    _inline_display_prior_set = True
-                except (AttributeError, NameError):
-                    # Older renderers.save without get_inline_display_mode: skip restore (best-effort).
-                    pass
-                _set_idm(_inline_display)
-                if _inline_display_prior_set:
-                    _flag_restores.append(lambda _v=_inline_display_prior: _set_idm(_v))
-            except ImportError:
-                pass
+        _inline_display_prior, _inline_display_prior_set = _resolve_inline_display(_inline_display, _flag_restores, _inline_display_prior, _inline_display_prior_set)
         # Same set-and-restore shape as the inline-display override above, and the same reason for the thread-local:
         # two suites running concurrently must not flip each other's output layout mid-run.
         _subfolders = getattr(reporting_config, "plot_format_subfolders", None)
@@ -376,59 +348,7 @@ def setup_configuration(
         if _short_circuit_active:
             output_config.plot_file = ""
 
-        if verbose:
-            # Must match ``_setup_helpers.setup_directories``, which writes charts to
-            # ``<data_dir>/charts/<target_name>/<model_name>/<target_type>/<cur_target_name>/`` (every segment
-            # slugified). The previous string named ``<data_dir>/<models_dir>/<model_name>`` -- the MODELS
-            # directory, unslugified, missing the target_name segment entirely -- so anyone who followed this
-            # log line looked in a directory charts are never written to and concluded rendering had failed.
-            # target_type / cur_target_name are only known inside the per-target loop, hence the trailing "...".
-            from mlframe.training.core._setup_helpers import slugify as _slugify
-
-            _plot_dir = f"{data_dir}/charts/{_slugify(target_name)}/{_slugify(model_name)}/..." if data_dir and save_charts else "(no save)"
-            if _short_circuit_active:
-                logger.info(
-                    "[reporting] save_charts=%s, interactive=%s -- " "cal-plot short-circuit ACTIVE: clearing plot_file so " "chart rendering is skipped entirely",
-                    save_charts,
-                    _is_interactive_logp,
-                )
-            else:
-                logger.info(
-                    "[reporting] save_charts=%s, plot_dir=%s, interactive=%s -- "
-                    "cal-plot short-circuit INACTIVE (charts will render)",
-                    save_charts, _plot_dir, _is_interactive_logp,
-                )
-            try:
-                _po = getattr(reporting_config, "plot_outputs", "") or ""
-            except NameError:
-                _po = ""
-            # Warn ONLY when the PLOTLY backend itself emits a kaleido raster (png/svg/pdf) -- NOT when the
-            # raster comes from matplotlib. The old ``"plotly" in _po and "png" in _po`` test false-fired on
-            # the DEFAULT ``plotly[html] + matplotlib[png]`` (html via plotly, png via matplotlib, ZERO
-            # kaleido), scaring operators into thinking kaleido dominated wall-time when it never ran.
-            _plotly_kaleido = False
-            if save_charts and _po:
-                try:
-                    from mlframe.reporting.output import parse_plot_output_dsl as _parse_po
-                    for _bk, _fmts in _parse_po(_po).backends:
-                        if _bk == "plotly" and (set(_fmts) & {"png", "svg", "pdf"}):
-                            _plotly_kaleido = True
-                            break
-                except Exception as e:  # -- parse failure -> fall back to the substring heuristic
-                    logger.debug("plotly output-format parse failed, using substring heuristic: %s", e)
-                    _plotly_kaleido = "plotly" in _po and ("png" in _po or "svg" in _po or "pdf" in _po)
-            if _plotly_kaleido:
-                logger.warning(
-                    "[reporting] plot_outputs=%r emits PNG via kaleido, which "
-                    "spawns ~12-15s per chart on Chromium reload (Win/Linux). "
-                    "On large datasets (n>=1M, multi-model x val+test x "
-                    "ensembles) this can dominate wall-time by minutes. For "
-                    "fast runs use plot_outputs='matplotlib[png]' (10-20x "
-                    "faster, no Chromium overhead) or 'plotly[html]' (HTML-"
-                    "only, no kaleido at all -- HTML is interactive in jupyter "
-                    "and shareable as a file).",
-                    _po,
-                )
+        _log_chart_locations(verbose, data_dir, save_charts, target_name, model_name, _short_circuit_active, _is_interactive_logp, reporting_config)
 
         outlier_detector = outlier_detection_config.detector
         od_val_set = outlier_detection_config.apply_to_val
@@ -588,3 +508,99 @@ def setup_configuration(
             _restore_process_flag_quietly(_restore)
         raise
     return ctx
+
+
+def _validate_feature_handling_config(feature_handling_config, mlframe_models, verbose):
+    """Validate the feature-handling config."""
+    if feature_handling_config is not None:
+        try:
+            from mlframe.training.feature_handling import FeatureHandlingConfig
+            if isinstance(feature_handling_config, FeatureHandlingConfig):
+                if mlframe_models:
+                    feature_handling_config.validate_against_models(list(mlframe_models))
+                if verbose:
+                    logger.info(
+                        "[fhc] FeatureHandlingConfig active; resolved plan: %s",
+                        feature_handling_config.describe(short=True),
+                    )
+        except ImportError:  # pragma: no cover
+            pass
+
+
+def _resolve_inline_display(_inline_display, _flag_restores, _inline_display_prior, _inline_display_prior_set):
+    """Resolve the inline chart display backend."""
+    if _inline_display is not None:
+        try:
+            from mlframe.reporting.renderers.save import (
+                set_inline_display_mode as _set_idm,
+                get_inline_display_mode as _get_idm,
+            )
+            try:
+                _inline_display_prior = _get_idm()
+                _inline_display_prior_set = True
+            except (AttributeError, NameError):
+                # Older renderers.save without get_inline_display_mode: skip restore (best-effort).
+                pass
+            _set_idm(_inline_display)
+            if _inline_display_prior_set:
+                _flag_restores.append(lambda _v=_inline_display_prior: _set_idm(_v))
+        except ImportError:
+            pass
+    return _inline_display_prior, _inline_display_prior_set
+
+
+def _log_chart_locations(verbose, data_dir, save_charts, target_name, model_name, _short_circuit_active, _is_interactive_logp, reporting_config):
+    """Log where the charts of this run are written."""
+    if verbose:
+        # Must match ``_setup_helpers.setup_directories``, which writes charts to
+        # ``<data_dir>/charts/<target_name>/<model_name>/<target_type>/<cur_target_name>/`` (every segment
+        # slugified). The previous string named ``<data_dir>/<models_dir>/<model_name>`` -- the MODELS
+        # directory, unslugified, missing the target_name segment entirely -- so anyone who followed this
+        # log line looked in a directory charts are never written to and concluded rendering had failed.
+        # target_type / cur_target_name are only known inside the per-target loop, hence the trailing "...".
+        from mlframe.training.core._setup_helpers import slugify as _slugify
+
+        _plot_dir = f"{data_dir}/charts/{_slugify(target_name)}/{_slugify(model_name)}/..." if data_dir and save_charts else "(no save)"
+        if _short_circuit_active:
+            logger.info(
+                "[reporting] save_charts=%s, interactive=%s -- " "cal-plot short-circuit ACTIVE: clearing plot_file so " "chart rendering is skipped entirely",
+                save_charts,
+                _is_interactive_logp,
+            )
+        else:
+            logger.info(
+                "[reporting] save_charts=%s, plot_dir=%s, interactive=%s -- "
+                "cal-plot short-circuit INACTIVE (charts will render)",
+                save_charts, _plot_dir, _is_interactive_logp,
+            )
+        try:
+            _po = getattr(reporting_config, "plot_outputs", "") or ""
+        except NameError:
+            _po = ""
+        # Warn ONLY when the PLOTLY backend itself emits a kaleido raster (png/svg/pdf) -- NOT when the
+        # raster comes from matplotlib. The old ``"plotly" in _po and "png" in _po`` test false-fired on
+        # the DEFAULT ``plotly[html] + matplotlib[png]`` (html via plotly, png via matplotlib, ZERO
+        # kaleido), scaring operators into thinking kaleido dominated wall-time when it never ran.
+        _plotly_kaleido = False
+        if save_charts and _po:
+            try:
+                from mlframe.reporting.output import parse_plot_output_dsl as _parse_po
+                for _bk, _fmts in _parse_po(_po).backends:
+                    if _bk == "plotly" and (set(_fmts) & {"png", "svg", "pdf"}):
+                        _plotly_kaleido = True
+                        break
+            except Exception as e:  # -- parse failure -> fall back to the substring heuristic
+                logger.debug("plotly output-format parse failed, using substring heuristic: %s", e)
+                _plotly_kaleido = "plotly" in _po and ("png" in _po or "svg" in _po or "pdf" in _po)
+        if _plotly_kaleido:
+            logger.warning(
+                "[reporting] plot_outputs=%r emits PNG via kaleido, which "
+                "spawns ~12-15s per chart on Chromium reload (Win/Linux). "
+                "On large datasets (n>=1M, multi-model x val+test x "
+                "ensembles) this can dominate wall-time by minutes. For "
+                "fast runs use plot_outputs='matplotlib[png]' (10-20x "
+                "faster, no Chromium overhead) or 'plotly[html]' (HTML-"
+                "only, no kaleido at all -- HTML is interactive in jupyter "
+                "and shareable as a file).",
+                _po,
+            )

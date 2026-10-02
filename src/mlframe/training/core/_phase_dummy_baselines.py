@@ -235,28 +235,8 @@ def run_dummy_baselines(
                 )
                 _emit_val = bool(getattr(reporting_config, "compute_valset_metrics", True))
                 _emit_test = bool(getattr(reporting_config, "compute_testset_metrics", True))
-                if _emit_val and _strongest_val_raw is not None and _has_rows(current_val_target):
-                    _vp, _vpr = _split_preds_probs(_strongest_val_raw, target_type)
-                    _common_val = dict(_common)
-                    if plot_file:
-                        _common_val["plot_file"] = f"{plot_file}_dummy_{_db_report.strongest}_val"
-                    report_model_perf(
-                        targets=current_val_target,
-                        preds=_vp, probs=_vpr,
-                        report_title="VAL (DUMMY) ",
-                        **_common_val,
-                    )
-                if _emit_test and _strongest_test_raw is not None and _has_rows(current_test_target):
-                    _tp, _tpr = _split_preds_probs(_strongest_test_raw, target_type)
-                    _common_test = dict(_common)
-                    if plot_file:
-                        _common_test["plot_file"] = f"{plot_file}_dummy_{_db_report.strongest}_test"
-                    report_model_perf(
-                        targets=current_test_target,
-                        preds=_tp, probs=_tpr,
-                        report_title="TEST (DUMMY) ",
-                        **_common_test,
-                    )
+                _emit_val_dummy_baselines(_emit_val, _strongest_val_raw, current_val_target, _split_preds_probs, target_type, _common, plot_file, _db_report)
+                _emit_test_dummy_baselines(_emit_test, _strongest_test_raw, current_test_target, _split_preds_probs, target_type, _common, plot_file, _db_report)
             except Exception as _plot_err:  # best-effort: the dummy report path is non-critical; training continues regardless
                 # Include input types in the warning so the "truth value of a Index is
                 # ambiguous"-style pandas booleanness errors can be triaged without
@@ -279,13 +259,7 @@ def run_dummy_baselines(
         # Invert strongest dummy preds to y-scale so the verdict block compares both numbers on the same scale.
         _specs_for_tt = metadata.get("composite_target_specs", {}).get(str(target_type), {})
         _matching_spec = None
-        for _tname_specs in _specs_for_tt.values():
-            for _s in _tname_specs or []:
-                if _s.get("name") == cur_target_name:
-                    _matching_spec = _s
-                    break
-            if _matching_spec is not None:
-                break
+        _matching_spec = _find_target_spec(_specs_for_tt, cur_target_name, _matching_spec)
         if _matching_spec is not None and _db_report.strongest is not None and _db_report.extras.get("strongest_val_preds") is not None:
             try:
                 from ..composite import get_transform
@@ -377,3 +351,45 @@ def run_dummy_baselines(
         })
 
     return metadata
+
+
+def _emit_val_dummy_baselines(_emit_val, _strongest_val_raw, current_val_target, _split_preds_probs, target_type, _common, plot_file, _db_report):
+    """Emit the validation-split dummy baseline reports."""
+    if _emit_val and _strongest_val_raw is not None and _has_rows(current_val_target):
+        _vp, _vpr = _split_preds_probs(_strongest_val_raw, target_type)
+        _common_val = dict(_common)
+        if plot_file:
+            _common_val["plot_file"] = f"{plot_file}_dummy_{_db_report.strongest}_val"
+        report_model_perf(
+            targets=current_val_target,
+            preds=_vp, probs=_vpr,
+            report_title="VAL (DUMMY) ",
+            **_common_val,
+        )
+
+
+def _emit_test_dummy_baselines(_emit_test, _strongest_test_raw, current_test_target, _split_preds_probs, target_type, _common, plot_file, _db_report):
+    """Emit the test-split dummy baseline reports."""
+    if _emit_test and _strongest_test_raw is not None and _has_rows(current_test_target):
+        _tp, _tpr = _split_preds_probs(_strongest_test_raw, target_type)
+        _common_test = dict(_common)
+        if plot_file:
+            _common_test["plot_file"] = f"{plot_file}_dummy_{_db_report.strongest}_test"
+        report_model_perf(
+            targets=current_test_target,
+            preds=_tp, probs=_tpr,
+            report_title="TEST (DUMMY) ",
+            **_common_test,
+        )
+
+
+def _find_target_spec(_specs_for_tt, cur_target_name, _matching_spec):
+    """Find the dummy-baseline spec of the current target."""
+    for _tname_specs in _specs_for_tt.values():
+        for _s in _tname_specs or []:
+            if _s.get("name") == cur_target_name:
+                _matching_spec = _s
+                break
+        if _matching_spec is not None:
+            break
+    return _matching_spec
