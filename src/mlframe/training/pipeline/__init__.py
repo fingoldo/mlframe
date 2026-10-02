@@ -648,75 +648,7 @@ def create_polarsds_pipeline(
     # declared since 2026-04 but never connected, so NaN in numeric
     # columns survived the pipeline and crashed downstream models.
     # Sensor tests in ``tests/training/test_imputer_wiring.py``.
-    if config.imputer_strategy is not None:
-        # Numeric-only target: text/string/categorical columns are
-        # handled by the categorical encoder, not here. Reuse the same
-        # column filter as the scaler so the two stay aligned.
-        _imputable_cols = [name for name, dtype in train_df.schema.items() if dtype.is_numeric() and not dtype == pl.Boolean]
-        if _imputable_cols:
-            # polars-ds ``Blueprint.impute`` (and our mode path's ``fill_null``)
-            # only fill polars NULL -- they leave float ``NaN`` untouched. Real
-            # frames carry NaN from numpy/pandas origin and FE ratios (0/0, log
-            # of non-positive), so NaN would survive the imputer and reach the
-            # scaler / downstream model despite this step. Convert NaN -> NULL on
-            # the float imputable columns first so every missing marker is filled.
-            _float_imputable = [c for c in _imputable_cols if train_df.schema[c].is_float()]
-            if _float_imputable:
-                bp = bp.with_columns(*[pl.when(pl.col(_c).is_nan()).then(None).otherwise(pl.col(_c)).alias(_c) for _c in _float_imputable])
-
-            # ``config.imputer_strategy`` has been canonicalised by the
-            # validator to one of {mean, median, mode}. mean / median map
-            # directly to polars-ds's ``Blueprint.impute``; ``mode`` does NOT
-            # -- polars-ds's mode-impute does ``pl.col(...).mode().list.first()``
-            # which raises ``expected List data type ... got Float32`` on polars
-            # versions where ``Series.mode()`` returns a flat (non-List) result.
-            # Compute the per-column mode natively and fill_null with the scalar
-            # so the broken polars-ds code path is bypassed (version-safe).
-            # A column with NO finite value (all-NULL / all-NaN degenerate column, e.g. the fuzz axis'
-            # ``num_null``) has no statistic to impute from -- polars-ds computes ``median``/``mean`` as
-            # None and ``fill_null(None)`` raises "must specify either a fill value or strategy". Exclude
-            # such columns from the strategy-based impute step below.
-            def _has_finite_value(_name: str) -> bool:
-                """True iff column ``_name`` has at least one non-null (and, for floats, non-NaN) value."""
-                _s = train_df.get_column(_name)
-                if train_df.schema[_name].is_float():
-                    return _s.drop_nulls().drop_nans().len() > 0
-                return _s.drop_nulls().len() > 0
-            _impute_targets = [c for c in _imputable_cols if _has_finite_value(c)]
-            # An excluded (all-NULL/all-NaN) column must NOT be left null on the assumption that a
-            # downstream "constant-column dropper" removes it -- that dropper is the user-controlled
-            # ``remove_constant_columns_cfg`` flag (default True, but a real user CAN set it False to
-            # keep a fixed column layout across train/val/test), so a null column previously survived
-            # all the way to strict NaN-intolerant models (PytorchLightningEstimator's own guard
-            # correctly refuses NaN input rather than silently producing all-NaN predictions -- fuzz
-            # surfaced this on models=[linear,mlp] + recurrent_model=lstm + remove_constant_columns=False,
-            # 2026-07-06). Fill with 0.0, mirroring the ``SimpleImputer(keep_empty_features=True)``
-            # convention already used for the sklearn imputer path (``_setup_helpers.py`` /
-            # ``_predict_guards.py``): the column stays FINITE (uninformative, not missing) regardless
-            # of whether the constant-column dropper is enabled.
-            _all_null_targets = [c for c in _imputable_cols if c not in _impute_targets]
-            if _all_null_targets:
-                bp = bp.with_columns(*[pl.col(c).fill_null(0.0) for c in _all_null_targets])
-            if config.imputer_strategy == "mode":
-                _mode_exprs = []
-                for _c in _impute_targets:
-                    _base = pl.col(_c).drop_nulls()
-                    if train_df.schema[_c].is_float():
-                        _base = _base.drop_nans()
-                    _mv = train_df.select(_base.mode().sort().first().alias(_c)).item()
-                    if _mv is not None:
-                        _mode_exprs.append(pl.col(_c).fill_null(_mv).alias(_c))
-                if _mode_exprs:
-                    bp = bp.with_columns(*_mode_exprs)
-            elif _impute_targets:
-                bp = bp.impute(_impute_targets, method=config.imputer_strategy)
-            if verbose:
-                logger.info(
-                    "  Imputer wired: strategy=%s on %d numeric columns",
-                    config.imputer_strategy, len(_imputable_cols),
-                )
-        elif verbose:
-            logger.info("  No numeric columns to impute; skipping imputer step")
+    bp = _add_imputer_step(config, train_df, bp, verbose)
 
     # Add scaling. polars-ds's ``robust_scale`` divides by ``q_high - q_low``
     # which collapses to zero (or NaN) for all-constant or all-null
@@ -818,6 +750,80 @@ def create_polarsds_pipeline(
         log_ram_usage()
 
     return pipeline
+
+
+def _add_imputer_step(config, train_df, bp, verbose):
+    """Append the configured imputer for the numeric columns to the pipeline builder; returns the extended builder."""
+    if config.imputer_strategy is not None:
+        # Numeric-only target: text/string/categorical columns are
+        # handled by the categorical encoder, not here. Reuse the same
+        # column filter as the scaler so the two stay aligned.
+        _imputable_cols = [name for name, dtype in train_df.schema.items() if dtype.is_numeric() and not dtype == pl.Boolean]
+        if _imputable_cols:
+            # polars-ds ``Blueprint.impute`` (and our mode path's ``fill_null``)
+            # only fill polars NULL -- they leave float ``NaN`` untouched. Real
+            # frames carry NaN from numpy/pandas origin and FE ratios (0/0, log
+            # of non-positive), so NaN would survive the imputer and reach the
+            # scaler / downstream model despite this step. Convert NaN -> NULL on
+            # the float imputable columns first so every missing marker is filled.
+            _float_imputable = [c for c in _imputable_cols if train_df.schema[c].is_float()]
+            if _float_imputable:
+                bp = bp.with_columns(*[pl.when(pl.col(_c).is_nan()).then(None).otherwise(pl.col(_c)).alias(_c) for _c in _float_imputable])
+
+            # ``config.imputer_strategy`` has been canonicalised by the
+            # validator to one of {mean, median, mode}. mean / median map
+            # directly to polars-ds's ``Blueprint.impute``; ``mode`` does NOT
+            # -- polars-ds's mode-impute does ``pl.col(...).mode().list.first()``
+            # which raises ``expected List data type ... got Float32`` on polars
+            # versions where ``Series.mode()`` returns a flat (non-List) result.
+            # Compute the per-column mode natively and fill_null with the scalar
+            # so the broken polars-ds code path is bypassed (version-safe).
+            # A column with NO finite value (all-NULL / all-NaN degenerate column, e.g. the fuzz axis'
+            # ``num_null``) has no statistic to impute from -- polars-ds computes ``median``/``mean`` as
+            # None and ``fill_null(None)`` raises "must specify either a fill value or strategy". Exclude
+            # such columns from the strategy-based impute step below.
+            def _has_finite_value(_name: str) -> bool:
+                """True iff column ``_name`` has at least one non-null (and, for floats, non-NaN) value."""
+                _s = train_df.get_column(_name)
+                if train_df.schema[_name].is_float():
+                    return bool(_s.drop_nulls().drop_nans().len() > 0)
+                return bool(_s.drop_nulls().len() > 0)
+            _impute_targets = [c for c in _imputable_cols if _has_finite_value(c)]
+            # An excluded (all-NULL/all-NaN) column must NOT be left null on the assumption that a
+            # downstream "constant-column dropper" removes it -- that dropper is the user-controlled
+            # ``remove_constant_columns_cfg`` flag (default True, but a real user CAN set it False to
+            # keep a fixed column layout across train/val/test), so a null column previously survived
+            # all the way to strict NaN-intolerant models (PytorchLightningEstimator's own guard
+            # correctly refuses NaN input rather than silently producing all-NaN predictions -- fuzz
+            # surfaced this on models=[linear,mlp] + recurrent_model=lstm + remove_constant_columns=False,
+            # 2026-07-06). Fill with 0.0, mirroring the ``SimpleImputer(keep_empty_features=True)``
+            # convention already used for the sklearn imputer path (``_setup_helpers.py`` /
+            # ``_predict_guards.py``): the column stays FINITE (uninformative, not missing) regardless
+            # of whether the constant-column dropper is enabled.
+            _all_null_targets = [c for c in _imputable_cols if c not in _impute_targets]
+            if _all_null_targets:
+                bp = bp.with_columns(*[pl.col(c).fill_null(0.0) for c in _all_null_targets])
+            if config.imputer_strategy == "mode":
+                _mode_exprs = []
+                for _c in _impute_targets:
+                    _base = pl.col(_c).drop_nulls()
+                    if train_df.schema[_c].is_float():
+                        _base = _base.drop_nans()
+                    _mv = train_df.select(_base.mode().sort().first().alias(_c)).item()
+                    if _mv is not None:
+                        _mode_exprs.append(pl.col(_c).fill_null(_mv).alias(_c))
+                if _mode_exprs:
+                    bp = bp.with_columns(*_mode_exprs)
+            elif _impute_targets:
+                bp = bp.impute(_impute_targets, method=config.imputer_strategy)
+            if verbose:
+                logger.info(
+                    "  Imputer wired: strategy=%s on %d numeric columns",
+                    config.imputer_strategy, len(_imputable_cols),
+                )
+        elif verbose:
+            logger.info("  No numeric columns to impute; skipping imputer step")
+    return bp
 
 
 def _warn_on_schema_drift(

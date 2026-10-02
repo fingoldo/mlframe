@@ -571,6 +571,66 @@ def get_model_feature_importances(
     feature_importances: Optional[np.ndarray] = None
     # Per-feature dispersion (permutation / CUDA-permutation only); native tree-gain / coef have none.
     feature_importances_std: Optional[np.ndarray] = None
+    feature_importances = _importances_from_inner_estimator(inner, X, y, sample_weight, feature_importances)
+    if feature_importances is None and not hasattr(inner, "feature_importances_") and not hasattr(inner, "coef_"):
+        # Non-native source: try the NN-specific paths first when the
+        # model is a torch Module wrapper. ``nn_fi_method``:
+        #   * "auto"            -> Captum IG if available, else permutation.
+        #                          When CUDA + torch model + n_features
+        #                          >= 50, the permutation fallback uses
+        #                          the GPU-batched kernel (~3x speedup).
+        #   * "captum"          -> Captum IG only; None if unavailable.
+        #   * "first_layer"     -> ``|W1|.sum(axis=hidden)`` proxy
+        #                          (ultra-fast but recall@10 only 40-90%
+        #                          on bench; opt-in for quick-screen).
+        #   * "permutation"     -> Force CPU sklearn permutation fallback.
+        #   * "permutation_cuda"-> Force the CUDA-batched kernel
+        #                          (skips when no CUDA / not a torch model).
+        net = _torch_module_from_model(model)
+        if nn_fi_method == "first_layer" and net is not None:
+            feature_importances = _first_layer_weight_importance(net)
+        elif nn_fi_method in ("auto", "captum") and net is not None and X is not None:
+            feature_importances = _captum_integrated_gradients_importance(net, X)
+            if feature_importances is None and nn_fi_method == "auto" and y is not None:
+                # Captum unavailable -> try CUDA-batched permutation when
+                # n_features justifies the warmup amortisation.
+                _n_feats = X.shape[1] if hasattr(X, "shape") and len(X.shape) == 2 else None
+                if net is not None and _n_feats is not None and _n_feats >= _CUDA_PERM_MIN_FEATURES:
+                    feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
+                if feature_importances is None:
+                    feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form
+        elif nn_fi_method == "permutation_cuda" and net is not None and X is not None and y is not None:
+            feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
+            if feature_importances is None:
+                logger.info("CUDA-batched FI unavailable; falling back to threading permutation.")
+                feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form
+        elif X is not None and y is not None:
+            feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form
+
+    if feature_importances is not None:
+        feature_importances = np.asarray(feature_importances, dtype=np.float64)
+        # Length mismatch -> the proxy applied to the wrong layer
+        # (e.g. an embedding-prefixed net). Don't return mis-sized FI.
+        if columns is not None and len(columns) > 0 and feature_importances.size != len(columns):
+            logger.warning(
+                "FI length mismatch: %d values vs %d columns; skipping.",
+                feature_importances.size, len(columns),
+            )
+            return (None, None) if return_std else None
+        if feature_importances_std is not None:
+            feature_importances_std = np.asarray(feature_importances_std, dtype=np.float64)
+            if feature_importances_std.shape != feature_importances.shape:
+                feature_importances_std = None
+        if return_df:
+            feature_importances = pd.DataFrame({"feature": columns, "importance": feature_importances})
+
+    if return_std:
+        return feature_importances, feature_importances_std
+    return feature_importances
+
+
+def _importances_from_inner_estimator(inner, X, y, sample_weight, feature_importances):
+    """Importances of the unwrapped estimator: its own feature_importances_, collapsed coef_, a wrapped base estimator, or a permutation fallback."""
     if hasattr(inner, "feature_importances_"):
         feature_importances = np.asarray(inner.feature_importances_)
     elif hasattr(inner, "coef_"):
@@ -675,60 +735,6 @@ def get_model_feature_importances(
                 feature_importances = np.median(np.abs(stacked), axis=0)
             else:
                 feature_importances = np.mean(per_child, axis=0)
-    if feature_importances is None and not hasattr(inner, "feature_importances_") and not hasattr(inner, "coef_"):
-        # Non-native source: try the NN-specific paths first when the
-        # model is a torch Module wrapper. ``nn_fi_method``:
-        #   * "auto"            -> Captum IG if available, else permutation.
-        #                          When CUDA + torch model + n_features
-        #                          >= 50, the permutation fallback uses
-        #                          the GPU-batched kernel (~3x speedup).
-        #   * "captum"          -> Captum IG only; None if unavailable.
-        #   * "first_layer"     -> ``|W1|.sum(axis=hidden)`` proxy
-        #                          (ultra-fast but recall@10 only 40-90%
-        #                          on bench; opt-in for quick-screen).
-        #   * "permutation"     -> Force CPU sklearn permutation fallback.
-        #   * "permutation_cuda"-> Force the CUDA-batched kernel
-        #                          (skips when no CUDA / not a torch model).
-        net = _torch_module_from_model(model)
-        if nn_fi_method == "first_layer" and net is not None:
-            feature_importances = _first_layer_weight_importance(net)
-        elif nn_fi_method in ("auto", "captum") and net is not None and X is not None:
-            feature_importances = _captum_integrated_gradients_importance(net, X)
-            if feature_importances is None and nn_fi_method == "auto" and y is not None:
-                # Captum unavailable -> try CUDA-batched permutation when
-                # n_features justifies the warmup amortisation.
-                _n_feats = X.shape[1] if hasattr(X, "shape") and len(X.shape) == 2 else None
-                if net is not None and _n_feats is not None and _n_feats >= _CUDA_PERM_MIN_FEATURES:
-                    feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
-                if feature_importances is None:
-                    feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form
-        elif nn_fi_method == "permutation_cuda" and net is not None and X is not None and y is not None:
-            feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
-            if feature_importances is None:
-                logger.info("CUDA-batched FI unavailable; falling back to threading permutation.")
-                feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form
-        elif X is not None and y is not None:
-            feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form
-
-    if feature_importances is not None:
-        feature_importances = np.asarray(feature_importances, dtype=np.float64)
-        # Length mismatch -> the proxy applied to the wrong layer
-        # (e.g. an embedding-prefixed net). Don't return mis-sized FI.
-        if columns is not None and len(columns) > 0 and feature_importances.size != len(columns):
-            logger.warning(
-                "FI length mismatch: %d values vs %d columns; skipping.",
-                feature_importances.size, len(columns),
-            )
-            return (None, None) if return_std else None
-        if feature_importances_std is not None:
-            feature_importances_std = np.asarray(feature_importances_std, dtype=np.float64)
-            if feature_importances_std.shape != feature_importances.shape:
-                feature_importances_std = None
-        if return_df:
-            feature_importances = pd.DataFrame({"feature": columns, "importance": feature_importances})
-
-    if return_std:
-        return feature_importances, feature_importances_std
     return feature_importances
 
 

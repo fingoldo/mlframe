@@ -59,6 +59,24 @@ def showcase_features_and_targets(
 
         display(_style_with_caption(non_floats, "Non-float32 dtypes"))
 
+    _showcase_target_distributions(target_by_type, in_jupyter, random_seed, max_hist_samples)
+
+    if in_jupyter:
+        from IPython.display import display
+
+        display(head)
+
+        tail = df.tail(5)
+        if isinstance(df, pl.DataFrame):
+            tail = get_pandas_view_of_polars_df(tail)
+
+        display(tail)
+
+
+def _showcase_target_distributions(target_by_type, in_jupyter, random_seed, max_hist_samples):
+    """Show the distribution of every target of every target type: a histogram plus summary statistics, in Jupyter or on stdout."""
+    from IPython.display import display
+
     for target_type, targets in target_by_type.items():
         for target_name, target in targets.items():
             line = f"{target_type} {target_name}"
@@ -150,14 +168,3 @@ def showcase_features_and_targets(
                         display(desc_data)
                     else:
                         print(desc_data)
-
-    if in_jupyter:
-        from IPython.display import display
-
-        display(head)
-
-        tail = df.tail(5)
-        if isinstance(df, pl.DataFrame):
-            tail = get_pandas_view_of_polars_df(tail)
-
-        display(tail)

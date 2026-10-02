@@ -188,6 +188,30 @@ def _finalize_fit_results(
 
     # feature_groups: all-or-nothing decision per group. If ANY member of group G is in support_, ALL members are added; if NONE, all
     # stay out. Resolves the "5 collinear copies" caveat at config level when the operator knows the group structure.
+    _expand_support_by_feature_groups(self, verbose)
+
+    # Refresh the params slot with POST-fit values before storing: fit resolves some params in place
+    # (``scoring=None -> make_scorer(...)``, ``force_parallel`` thread pinning on the wrapped estimator),
+    # so the entry-time params fingerprint would never match the NEXT fit's ``get_params`` and identical
+    # refits would never skip. The data slots (shapes/hashes/columns) stay as computed at fit entry.
+    from ._fit_init import _current_params_signature
+
+    self.signature = (*signature[:-1], _current_params_signature(self))
+
+    # Cache resolved column list so transform() avoids per-call reconstruction.
+    self._selected_cols_cache = None
+    support = getattr(self, "support_", None)
+    if support is not None and len(support) > 0:
+        if isinstance(support[0], (bool, np.bool_)):
+            self._selected_cols_cache = [col for col, selected in zip(self.feature_names_in_, support) if selected]
+        else:
+            self._selected_cols_cache = [self.feature_names_in_[i] for i in support]
+
+    _persist_fitted_estimators(self, estimator=estimator, fitted_estimators=fitted_estimators, verbose=verbose)
+
+
+def _expand_support_by_feature_groups(self, verbose):
+    """Add every member of a feature group any of whose members was selected, so a known group of collinear copies is kept whole."""
     if self.feature_groups and hasattr(self, "support_") and len(self.support_) > 0:
         # Convert support_ to bool-mask form for uniform handling.
         if isinstance(self.support_[0], (bool, np.bool_)):
@@ -216,25 +240,6 @@ def _finalize_fit_results(
                 )
             self.support_ = support_mask
             self.n_features_ = int(support_mask.sum())
-
-    # Refresh the params slot with POST-fit values before storing: fit resolves some params in place
-    # (``scoring=None -> make_scorer(...)``, ``force_parallel`` thread pinning on the wrapped estimator),
-    # so the entry-time params fingerprint would never match the NEXT fit's ``get_params`` and identical
-    # refits would never skip. The data slots (shapes/hashes/columns) stay as computed at fit entry.
-    from ._fit_init import _current_params_signature
-
-    self.signature = (*signature[:-1], _current_params_signature(self))
-
-    # Cache resolved column list so transform() avoids per-call reconstruction.
-    self._selected_cols_cache = None
-    support = getattr(self, "support_", None)
-    if support is not None and len(support) > 0:
-        if isinstance(support[0], (bool, np.bool_)):
-            self._selected_cols_cache = [col for col, selected in zip(self.feature_names_in_, support) if selected]
-        else:
-            self._selected_cols_cache = [self.feature_names_in_[i] for i in support]
-
-    _persist_fitted_estimators(self, estimator=estimator, fitted_estimators=fitted_estimators, verbose=verbose)
 
 
 def _persist_fitted_estimators(self, *, estimator, fitted_estimators, verbose):

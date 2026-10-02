@@ -427,6 +427,13 @@ def _validate_input_columns_against_metadata(
     # SOFT-WARN on benign differences the pipeline casts transparently (float32<->float64, etc.).
     # Silent pass on old metadata files predating model_schemas.
     model_schemas = metadata.get("model_schemas")
+    _validate_against_model_schemas(model_schemas, df, metadata)
+
+    return df
+
+
+def _validate_against_model_schemas(model_schemas, df, metadata):
+    """Check the live frame against every trained model's recorded input schema and fingerprint, warning or raising on a mismatch."""
     if model_schemas:
         live_hash, live_schema = compute_model_input_fingerprint(
             df,
@@ -510,8 +517,6 @@ def _validate_input_columns_against_metadata(
                     model_file_name,
                     "; ".join(lines),
                 )
-
-    return df
 
 
 # Feature-type detection lives in a sibling: this file crossed the 1000-LOC budget. Re-exported so existing

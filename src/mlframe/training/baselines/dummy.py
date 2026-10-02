@@ -565,13 +565,7 @@ def compute_dummy_baselines(
     # under explicit keys that the renderer reads by name. Memory
     # cost: 2 x n_split float arrays per target, freed once the
     # renderer consumes them.
-    if strongest is not None:
-        sv = val_preds.get(strongest)
-        st = test_preds.get(strongest)
-        if sv is not None:
-            extras["strongest_val_preds"] = np.asarray(sv)
-        if st is not None:
-            extras["strongest_test_preds"] = np.asarray(st)
+    _attach_strongest_baseline_preds(strongest, val_preds, test_preds, extras)
 
     elapsed_s = _time.time() - t0
     report = BaselineReport(
@@ -603,6 +597,17 @@ def compute_dummy_baselines(
             logger.debug("[dummy-baselines] target='%s' overlay plot failed (%s); skipping", target_name, _ov_err)
 
     return report
+
+
+def _attach_strongest_baseline_preds(strongest, val_preds, test_preds, extras):
+    """Put the strongest baseline's val and test predictions into extras for the renderer."""
+    if strongest is not None:
+        sv = val_preds.get(strongest)
+        st = test_preds.get(strongest)
+        if sv is not None:
+            extras["strongest_val_preds"] = np.asarray(sv)
+        if st is not None:
+            extras["strongest_test_preds"] = np.asarray(st)
 
 
 # ---------------------------------------------------------------------

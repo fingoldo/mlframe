@@ -329,10 +329,7 @@ def feature_handling_apply(
                 # Raise here with the actual shape so the wiring bug is visible at the call site.
                 _tt = train_target
                 _shape = None
-                if hasattr(_tt, "shape"):
-                    _shape = _tt.shape
-                elif hasattr(_tt, "ndim"):
-                    _shape = (len(_tt),) if _tt.ndim == 1 else None
+                _shape = _shape_of(_tt, _shape)
                 if _shape is not None and len(_shape) > 1 and _shape[1] > 1:
                     raise ValueError(
                         f"target encoder method={cat_spec.method!r} on column {col!r}: train_target is "
@@ -384,6 +381,15 @@ def feature_handling_apply(
         detection_decisions=decisions,
         feature_names=list(train_asm.feature_names),
     )
+
+
+def _shape_of(_tt, _shape):
+    """Shape of an array-like target, (n,) for a 1-D one without a shape attribute, else None."""
+    if hasattr(_tt, "shape"):
+        _shape = _tt.shape
+    elif hasattr(_tt, "ndim"):
+        _shape = (len(_tt),) if _tt.ndim == 1 else None
+    return _shape
 
 
 # =====================================================================

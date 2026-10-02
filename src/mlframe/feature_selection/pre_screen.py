@@ -137,116 +137,121 @@ def compute_unsupervised_drops(
     if pd is not None and isinstance(train_df, pd.DataFrame):
         null_cutoff = null_fraction_threshold * n_rows
         col_labels = list(train_df.columns)
-        for col_pos, col_name in enumerate(col_labels):
-            if col_name in protected:
-                continue
-            # Positional access (``.iloc[:, col_pos]``) always yields a Series; ``train_df[col_name]`` returns a DataFrame on duplicate column names, whose ``.dtype`` access raises.
-            col = train_df.iloc[:, col_pos]
-            # SparseDtype-aware null check: ``Series.isna()`` on a
-            # pd.SparseDtype column with ``fill_value=NaN`` returns True
-            # for every UNFILLED cell, conflating sparse storage (which
-            # is by design "mostly fill_value") with "mostly null". For
-            # TF-IDF passthrough (tfidf_keep_sparse=True default), 50
-            # vocab features on a 1k-row frame land ~99% unfilled and
-            # the pre-screen dropped EVERY tfidf column. Detect sparse
-            # and count nulls only among the explicitly-stored values
-            # (``sp_values``), which represents the real non-fill data
-            # the model will actually see.
-            _is_sparse = isinstance(col.dtype, pd.SparseDtype)
-            try:
-                if _is_sparse:
-                    sp_arr = col.values  # pd.arrays.SparseArray
-                    fill_v = sp_arr.fill_value
-                    fill_is_nan = isinstance(fill_v, float) and np.isnan(fill_v)
-                    # null_count = NaN in fill + NaN in stored sp_values
-                    sp_vals = np.asarray(sp_arr.sp_values)
-                    n_stored = sp_vals.size
-                    n_unfilled = n_rows - n_stored
-                    stored_nan_count = int(np.isnan(sp_vals).sum()) if sp_vals.dtype.kind == "f" else 0
-                    null_count = (n_unfilled if fill_is_nan else 0) + stored_nan_count
-                else:
-                    # Fast null-count path (bit-identical to ``col.isna().sum()``): for a plain numpy
-                    # float column, ``isna`` is exactly ``np.isnan`` on the underlying buffer, but
-                    # ``col.isna()`` allocates a fresh boolean Series + dispatches through pandas'
-                    # nanops before summing (~6x slower per cProfile 2026-06-12: 61us -> 11us/col).
-                    # For numpy integer / bool columns no value can be null, so the count is exactly 0
-                    # without touching the data at all. Every other dtype (object/None, datetime/NaT,
-                    # nullable Int/Float ext, category, etc.) falls back to the exact ``isna().sum()``.
-                    _np_dt = col.dtype
-                    if _np_dt == np.float64 or _np_dt == np.float32:
-                        null_count = int(np.isnan(col.to_numpy()).sum())
-                    elif _np_dt == np.int64 or _np_dt == np.int32 or _np_dt == np.int16 or _np_dt == np.int8 or _np_dt == bool:  # noqa: E721 - numpy dtype `==` comparison is intended
-                        null_count = 0
-                    else:
-                        null_count = int(col.isna().sum())
-            except Exception as e:
-                logger.debug("isna().sum() failed for column %r, treating as 0: %s", col_name, e)
-                null_count = 0
-            if null_count > null_cutoff:
-                drops.add(col_name)
-                continue
-            # ``np.issubdtype(col.dtype, np.number)`` raises TypeError on pandas
-            # extension dtypes (CategoricalDtype, StringDtype, DatetimeTZDtype) because
-            # those are NOT numpy dtypes. Pre-fix the raise bubbled out of this function
-            # entirely on any frame containing a Categorical / String column, taking the
-            # whole pre-screen pass down with it. Use pd.api.types.is_numeric_dtype which
-            # handles every pandas extension dtype gracefully (returns False for cats /
-            # strings, True for the nullable Int / Float ExtensionDtypes).
-            if not pd.api.types.is_numeric_dtype(col.dtype):
-                continue
-            try:
-                # Sparse columns: variance computed over just the stored (non-fill) values ignores the
-                # fill-value mass entirely - a sparse column with 999 fill cells and one stored value 5.0
-                # has a true population variance of ~0.025 (genuinely informative), but variance-of-stored
-                # alone reports 0.0 (a single stored value has zero variance by definition) and drops it.
-                # Worse, ANY number of identically-valued stored entries (e.g. a rare binary flag stored as
-                # three 1.0s among a thousand 0.0s) hits the same false-zero. Reconstruct the closed-form
-                # population variance over the FULL column (stored cells + implicit fill-value cells)
-                # instead, ignoring NaN cells the same way plain nanvar does.
-                if _is_sparse:
-                    sp_vals = np.asarray(col.values.sp_values, dtype=np.float64)
-                    finite_sp = sp_vals[~np.isnan(sp_vals)]
-                    fill_value = float(col.values.fill_value)
-                    n_total = int(col.shape[0])
-                    n_fill_cells = n_total - sp_vals.size  # implicit (non-stored) cells, always == fill_value
-                    n_fill_valid = 0 if np.isnan(fill_value) else n_fill_cells
-                    n_valid = int(finite_sp.size) + n_fill_valid
-                    if n_valid <= 1:
-                        var_val = 0.0
-                    else:
-                        # The fill term is added only when there ARE valid fill cells. n_fill_valid is
-                        # already 0 for a NaN fill, but 0 * nan is nan, not 0, so keeping the term in the
-                        # expression poisons the whole variance and the column is then dropped by the
-                        # is-nan branch below - defeating this entire sparse-aware path, which exists to
-                        # stop NaN-filled TF-IDF columns being screened out.
-                        sum_valid = float(finite_sp.sum())
-                        if n_fill_valid:
-                            sum_valid += n_fill_valid * fill_value
-                        mean_valid = sum_valid / n_valid
-                        # Centred, not `sumsq/n - mean**2`. The raw-sum form has a cancellation floor of
-                        # ~2.2e-16 * mean**2, so for a sparse price column with fill_value 1e6 that floor is
-                        # 2.2e-4 while a genuine within-column variance of 1e-6 sits three orders BELOW it: the
-                        # result is noise with a random sign, and there is no `max(var, 0)` clamp, so a negative
-                        # one reads as "less variance than the cutoff" and the column is permanently dropped --
-                        # reintroducing, in a different regime, exactly the false drop this branch exists to
-                        # prevent. Centring keeps the single pass and the closed-form fill term.
-                        dev = finite_sp - mean_valid
-                        sumsq_centred = float(np.dot(dev, dev))
-                        if n_fill_valid:
-                            sumsq_centred += n_fill_valid * (fill_value - mean_valid) ** 2
-                        var_val = sumsq_centred / n_valid
-                else:
-                    var_val = float(col.var())
-            except (TypeError, ValueError):
-                var_val = None
-            if var_val is None or np.isnan(var_val):
-                drops.add(col_name)
-                continue
-            if var_val <= _var_cutoff:
-                drops.add(col_name)
+        _scan_columns_for_unsupervised_drops(col_labels, protected, train_df, n_rows, null_cutoff, drops, _var_cutoff)
         return sorted(drops)
 
     return []
+
+
+def _scan_columns_for_unsupervised_drops(col_labels, protected, train_df, n_rows, null_cutoff, drops, _var_cutoff):
+    """Append to drops every non-protected column that is mostly null, constant, or below the variance cutoff."""
+    for col_pos, col_name in enumerate(col_labels):
+        if col_name in protected:
+            continue
+        # Positional access (``.iloc[:, col_pos]``) always yields a Series; ``train_df[col_name]`` returns a DataFrame on duplicate column names, whose ``.dtype`` access raises.
+        col = train_df.iloc[:, col_pos]
+        # SparseDtype-aware null check: ``Series.isna()`` on a
+        # pd.SparseDtype column with ``fill_value=NaN`` returns True
+        # for every UNFILLED cell, conflating sparse storage (which
+        # is by design "mostly fill_value") with "mostly null". For
+        # TF-IDF passthrough (tfidf_keep_sparse=True default), 50
+        # vocab features on a 1k-row frame land ~99% unfilled and
+        # the pre-screen dropped EVERY tfidf column. Detect sparse
+        # and count nulls only among the explicitly-stored values
+        # (``sp_values``), which represents the real non-fill data
+        # the model will actually see.
+        _is_sparse = isinstance(col.dtype, pd.SparseDtype)
+        try:
+            if _is_sparse:
+                sp_arr = col.values  # pd.arrays.SparseArray
+                fill_v = sp_arr.fill_value
+                fill_is_nan = isinstance(fill_v, float) and np.isnan(fill_v)
+                # null_count = NaN in fill + NaN in stored sp_values
+                sp_vals = np.asarray(sp_arr.sp_values)
+                n_stored = sp_vals.size
+                n_unfilled = n_rows - n_stored
+                stored_nan_count = int(np.isnan(sp_vals).sum()) if sp_vals.dtype.kind == "f" else 0
+                null_count = (n_unfilled if fill_is_nan else 0) + stored_nan_count
+            else:
+                # Fast null-count path (bit-identical to ``col.isna().sum()``): for a plain numpy
+                # float column, ``isna`` is exactly ``np.isnan`` on the underlying buffer, but
+                # ``col.isna()`` allocates a fresh boolean Series + dispatches through pandas'
+                # nanops before summing (~6x slower per cProfile 2026-06-12: 61us -> 11us/col).
+                # For numpy integer / bool columns no value can be null, so the count is exactly 0
+                # without touching the data at all. Every other dtype (object/None, datetime/NaT,
+                # nullable Int/Float ext, category, etc.) falls back to the exact ``isna().sum()``.
+                _np_dt = col.dtype
+                if _np_dt == np.float64 or _np_dt == np.float32:
+                    null_count = int(np.isnan(col.to_numpy()).sum())
+                elif _np_dt == np.int64 or _np_dt == np.int32 or _np_dt == np.int16 or _np_dt == np.int8 or _np_dt == bool:  # noqa: E721 - numpy dtype `==` comparison is intended
+                    null_count = 0
+                else:
+                    null_count = int(col.isna().sum())
+        except Exception as e:
+            logger.debug("isna().sum() failed for column %r, treating as 0: %s", col_name, e)
+            null_count = 0
+        if null_count > null_cutoff:
+            drops.add(col_name)
+            continue
+        # ``np.issubdtype(col.dtype, np.number)`` raises TypeError on pandas
+        # extension dtypes (CategoricalDtype, StringDtype, DatetimeTZDtype) because
+        # those are NOT numpy dtypes. Pre-fix the raise bubbled out of this function
+        # entirely on any frame containing a Categorical / String column, taking the
+        # whole pre-screen pass down with it. Use pd.api.types.is_numeric_dtype which
+        # handles every pandas extension dtype gracefully (returns False for cats /
+        # strings, True for the nullable Int / Float ExtensionDtypes).
+        if not pd.api.types.is_numeric_dtype(col.dtype):
+            continue
+        try:
+            # Sparse columns: variance computed over just the stored (non-fill) values ignores the
+            # fill-value mass entirely - a sparse column with 999 fill cells and one stored value 5.0
+            # has a true population variance of ~0.025 (genuinely informative), but variance-of-stored
+            # alone reports 0.0 (a single stored value has zero variance by definition) and drops it.
+            # Worse, ANY number of identically-valued stored entries (e.g. a rare binary flag stored as
+            # three 1.0s among a thousand 0.0s) hits the same false-zero. Reconstruct the closed-form
+            # population variance over the FULL column (stored cells + implicit fill-value cells)
+            # instead, ignoring NaN cells the same way plain nanvar does.
+            if _is_sparse:
+                sp_vals = np.asarray(col.values.sp_values, dtype=np.float64)
+                finite_sp = sp_vals[~np.isnan(sp_vals)]
+                fill_value = float(col.values.fill_value)
+                n_total = int(col.shape[0])
+                n_fill_cells = n_total - sp_vals.size  # implicit (non-stored) cells, always == fill_value
+                n_fill_valid = 0 if np.isnan(fill_value) else n_fill_cells
+                n_valid = int(finite_sp.size) + n_fill_valid
+                if n_valid <= 1:
+                    var_val = 0.0
+                else:
+                    # The fill term is added only when there ARE valid fill cells. n_fill_valid is
+                    # already 0 for a NaN fill, but 0 * nan is nan, not 0, so keeping the term in the
+                    # expression poisons the whole variance and the column is then dropped by the
+                    # is-nan branch below - defeating this entire sparse-aware path, which exists to
+                    # stop NaN-filled TF-IDF columns being screened out.
+                    sum_valid = float(finite_sp.sum())
+                    if n_fill_valid:
+                        sum_valid += n_fill_valid * fill_value
+                    mean_valid = sum_valid / n_valid
+                    # Centred, not `sumsq/n - mean**2`. The raw-sum form has a cancellation floor of
+                    # ~2.2e-16 * mean**2, so for a sparse price column with fill_value 1e6 that floor is
+                    # 2.2e-4 while a genuine within-column variance of 1e-6 sits three orders BELOW it: the
+                    # result is noise with a random sign, and there is no `max(var, 0)` clamp, so a negative
+                    # one reads as "less variance than the cutoff" and the column is permanently dropped --
+                    # reintroducing, in a different regime, exactly the false drop this branch exists to
+                    # prevent. Centring keeps the single pass and the closed-form fill term.
+                    dev = finite_sp - mean_valid
+                    sumsq_centred = float(np.dot(dev, dev))
+                    if n_fill_valid:
+                        sumsq_centred += n_fill_valid * (fill_value - mean_valid) ** 2
+                    var_val = sumsq_centred / n_valid
+            else:
+                var_val = float(col.var())
+        except (TypeError, ValueError):
+            var_val = None
+        if var_val is None or np.isnan(var_val):
+            drops.add(col_name)
+            continue
+        if var_val <= _var_cutoff:
+            drops.add(col_name)
 
 
 def apply_drops(df, drop_cols: list[str]):

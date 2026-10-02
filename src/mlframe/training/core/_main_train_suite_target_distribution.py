@@ -243,6 +243,12 @@ def _maybe_auto_drop_after_feature_analyzer(
     val_df = _drop(val_df, drop_list)
     test_df = _drop(test_df, drop_list)
     metadata.setdefault("feature_distribution_report", {})["auto_dropped_columns"] = list(drop_list)
+    _log_auto_drop_rules(verbose, fd_report, _dup_threshold, drop_list, train_cols, behavior_config)
+    return train_df, val_df, test_df, drop_list
+
+
+def _log_auto_drop_rules(verbose, fd_report, _dup_threshold, drop_list, train_cols, behavior_config):
+    """Log which rule removed each auto-dropped column, not just how many went."""
     if verbose:
         # Report WHICH RULE removed each column, not just how many went. The pre-fix line named a count
         # and 8 sample names, so a run that discarded 30% of its features looked identical whether the
@@ -282,7 +288,6 @@ def _maybe_auto_drop_after_feature_analyzer(
             _preview = ", ".join(_cs[:8]) + (f", ... (+{len(_cs) - 8} more)" if len(_cs) > 8 else "")
             logger.info("[mini-HPT]   %s -> %s", _r, _preview)
         _warn_structural_nan_drops(_by_reason.get(_nan_label) or [], fd_report, behavior_config, _NAN_FRACTION_THRESHOLD)
-    return train_df, val_df, test_df, drop_list
 
 
 def _flag_target_named_features(train_df: Any, target_by_type: Any, metadata: dict) -> None:

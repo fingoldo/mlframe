@@ -450,6 +450,12 @@ class PlotlyRenderer:
         fig.update_yaxes(gridcolor=_GRID_COLOR, gridwidth=1)
         # Heatmap ticks are budgeted against the axes' real extent, and the margins that decide that extent
         # are only final here -- while the panels were being drawn they were still plotly's defaults.
+        self._apply_panel_tick_budgets(spec, fig)
+        apply_interactivity(fig, spec, static_legend=static_legend)
+        return fig
+
+    def _apply_panel_tick_budgets(self, spec: Any, fig: Any) -> None:
+        """Cap the tick count of every heatmap and bar panel so axes stay legible."""
         from ._plotly_heatmap import apply_heatmap_tick_budget
 
         for _r, _row in enumerate(spec.panels, start=1):
@@ -461,8 +467,6 @@ class PlotlyRenderer:
                 elif isinstance(_panel, ViolinPanelSpec):
                     _kept = [(np.asarray(g, dtype=float), lab) for g, lab in zip(_panel.groups, _panel.group_labels)]
                     self._violin_tick_budget(fig, [(g[np.isfinite(g)], lab) for g, lab in _kept if g[np.isfinite(g)].size > 0], _r, _c)
-        apply_interactivity(fig, spec, static_legend=static_legend)
-        return fig
 
     def save(self, fig: Any, path: str, fmt: str) -> None:
         """Write ``fig`` to ``path`` in ``fmt`` (case-insensitive): ``html`` via ``write_html``, ``json`` via ``to_json``, ``png/svg/pdf`` via kaleido (falls back to html with a WARN if kaleido is missing). Raises ``ValueError`` on an unsupported format."""

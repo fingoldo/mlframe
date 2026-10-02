@@ -256,58 +256,7 @@ def report_probabilistic_model_perf(
     tuple
         (preds, probs) - class predictions and probability arrays.
     """
-    if probs is None:
-        # Lazy import avoids circular: trainer.py already imports from
-        # evaluation.py at module level.
-        from mlframe.training.trainer import _predict_with_fallback
-        try:
-            # _predict_with_fallback handles the CatBoost Polars-fastpath
-            # dispatcher miss ("No matching signature found") symmetrically
-            # with fit's fallback. Any OTHER error (model has no
-            # predict_proba, returns NotImplemented, or a non-CB TypeError)
-            # bubbles to the outer except and hits the predict() fallback
-            # path below -- with the same Polars fallback wrapping so we
-            # don't retry into the same dispatcher miss.
-            probs = np.asarray(_predict_with_fallback(model, df, method="predict_proba"))
-        except (AttributeError, TypeError, NotImplementedError):
-            logger.warning("predict_proba not available for %s, using predict() instead", type(model).__name__, exc_info=True)
-            preds_fallback = np.asarray(_predict_with_fallback(model, df, method="predict"))
-
-            if model is not None and hasattr(model, "classes_"):
-                n_classes = len(model.classes_)
-                # Wave 24 P2 fix (2026-05-20): pre-fix
-                # ``np.searchsorted(classes_, preds_fallback)`` had two
-                # latent bugs: (a) sort-contract on classes_ was assumed
-                # but not asserted; (b) any preds_fallback value NOT in
-                # classes_ returned index == n_classes which IndexError'd
-                # on the subsequent ``probs[..., class_indices] = 1.0``.
-                # Use a dict lookup with explicit fallback to the first
-                # class for unseen predictions; WARN-log unseen counts.
-                _class_to_idx = {c: i for i, c in enumerate(model.classes_)}
-                _unseen = 0
-                _class_indices_list = []
-                for _p in preds_fallback:
-                    if _p in _class_to_idx:
-                        _class_indices_list.append(_class_to_idx[_p])
-                    else:
-                        _class_indices_list.append(0)
-                        _unseen += 1
-                class_indices = np.asarray(_class_indices_list, dtype=np.int64)
-                if _unseen > 0:
-                    logger.warning(
-                        "report_perf: %d/%d predict() outputs were NOT in "
-                        "model.classes_=%r; mapping them to class-0 for "
-                        "the proba-fallback one-hot encoding. The model's "
-                        "predict() returned values outside the training "
-                        "label set -- check for a buggy estimator.",
-                        _unseen, len(preds_fallback), list(model.classes_),
-                    )
-            else:
-                n_classes = len(np.unique(preds_fallback))
-                class_indices = preds_fallback.astype(int)
-
-            probs = np.zeros((len(preds_fallback), n_classes))
-            probs[np.arange(len(preds_fallback)), class_indices] = 1.0
+    probs = _predict_probs_if_missing(probs, model, df)
 
     if preds is None:
         # Multilabel target -> (N, K) probs, threshold
@@ -931,6 +880,63 @@ def report_probabilistic_model_perf(
         )
 
     return preds, probs
+
+
+def _predict_probs_if_missing(probs, model, df):
+    """Compute class probabilities from the model when the caller did not supply them."""
+    if probs is None:
+        # Lazy import avoids circular: trainer.py already imports from
+        # evaluation.py at module level.
+        from mlframe.training.trainer import _predict_with_fallback
+        try:
+            # _predict_with_fallback handles the CatBoost Polars-fastpath
+            # dispatcher miss ("No matching signature found") symmetrically
+            # with fit's fallback. Any OTHER error (model has no
+            # predict_proba, returns NotImplemented, or a non-CB TypeError)
+            # bubbles to the outer except and hits the predict() fallback
+            # path below -- with the same Polars fallback wrapping so we
+            # don't retry into the same dispatcher miss.
+            probs = np.asarray(_predict_with_fallback(model, df, method="predict_proba"))
+        except (AttributeError, TypeError, NotImplementedError):
+            logger.warning("predict_proba not available for %s, using predict() instead", type(model).__name__, exc_info=True)
+            preds_fallback = np.asarray(_predict_with_fallback(model, df, method="predict"))
+
+            if model is not None and hasattr(model, "classes_"):
+                n_classes = len(model.classes_)
+                # Wave 24 P2 fix (2026-05-20): pre-fix
+                # ``np.searchsorted(classes_, preds_fallback)`` had two
+                # latent bugs: (a) sort-contract on classes_ was assumed
+                # but not asserted; (b) any preds_fallback value NOT in
+                # classes_ returned index == n_classes which IndexError'd
+                # on the subsequent ``probs[..., class_indices] = 1.0``.
+                # Use a dict lookup with explicit fallback to the first
+                # class for unseen predictions; WARN-log unseen counts.
+                _class_to_idx = {c: i for i, c in enumerate(model.classes_)}
+                _unseen = 0
+                _class_indices_list = []
+                for _p in preds_fallback:
+                    if _p in _class_to_idx:
+                        _class_indices_list.append(_class_to_idx[_p])
+                    else:
+                        _class_indices_list.append(0)
+                        _unseen += 1
+                class_indices = np.asarray(_class_indices_list, dtype=np.int64)
+                if _unseen > 0:
+                    logger.warning(
+                        "report_perf: %d/%d predict() outputs were NOT in "
+                        "model.classes_=%r; mapping them to class-0 for "
+                        "the proba-fallback one-hot encoding. The model's "
+                        "predict() returned values outside the training "
+                        "label set -- check for a buggy estimator.",
+                        _unseen, len(preds_fallback), list(model.classes_),
+                    )
+            else:
+                n_classes = len(np.unique(preds_fallback))
+                class_indices = preds_fallback.astype(int)
+
+            probs = np.zeros((len(preds_fallback), n_classes))
+            probs[np.arange(len(preds_fallback)), class_indices] = 1.0
+    return probs
 
 
 # calibration/fairness render helpers carved to _reporting_probabilistic_calib.py (1k-LOC ceiling).

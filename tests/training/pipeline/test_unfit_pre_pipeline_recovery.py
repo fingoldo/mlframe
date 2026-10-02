@@ -144,6 +144,7 @@ def test_recovery_branch_lives_in_predict_py():
     target_names = {
         "predict_from_models",
         "_apply_pre_pipeline_with_passthrough",
+        "_transform_with_model_pre_pipeline",  # the recovery block, split out of the function above
         "predict_mlframe_models_suite",
     }
     targets = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in target_names]

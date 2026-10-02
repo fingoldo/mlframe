@@ -599,34 +599,7 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     fairness_reports: dict[str, Any] = {}
     _selected_features_per_model: dict = {}
     _selected_features_union: set = set()
-    for _ttype, _by_name in (ctx.models or {}).items():
-        if not isinstance(_by_name, dict):
-            continue
-        for _tname, _entries in _by_name.items():
-            if not isinstance(_entries, list):
-                continue
-            for _entry in _entries:
-                # Fairness lift: model.metrics[split].fairness_report -> flat metadata key.
-                _m_metrics = getattr(_entry, "metrics", None)
-                if isinstance(_m_metrics, dict):
-                    for _split in ("test", "val", "train"):
-                        _split_metrics = _m_metrics.get(_split)
-                        if isinstance(_split_metrics, dict) and "fairness_report" in _split_metrics:
-                            _key = f"{_ttype}__{_tname}__{getattr(_entry, 'model_name', type(unwrap_target_wrapper(getattr(_entry, 'model', _entry))).__name__)}__{_split}"
-                            fairness_reports[_key] = _split_metrics["fairness_report"]
-                # Selected-features capture: entry.columns -> metadata + entry.selected_features_.
-                _cols = getattr(_entry, "columns", None)
-                if _cols is None:
-                    continue
-                _mn = getattr(_entry, "model_name", None) or ""
-                _sf_key = f"{_ttype}/{_tname}/{_mn}" if _mn else f"{_ttype}/{_tname}"
-                _selected_features_per_model[_sf_key] = list(_cols)
-                _selected_features_union.update(_cols)
-                try:
-                    _entry.selected_features_ = list(_cols)
-                except Exception as e:
-                    logger.debug("swallowed exception in _phase_finalize.py: %s", e)
-                    pass
+    _collect_fairness_reports(ctx, fairness_reports, _selected_features_per_model, _selected_features_union)
     if fairness_reports:
         ctx.metadata["fairness_report"] = fairness_reports
 
@@ -787,3 +760,35 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     restore_process_flags(ctx.artifacts)
 
     return ctx.metadata
+
+
+def _collect_fairness_reports(ctx, fairness_reports, _selected_features_per_model, _selected_features_union):
+    """Gather per-model fairness reports from the trained models' metrics."""
+    for _ttype, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            for _entry in _entries:
+                # Fairness lift: model.metrics[split].fairness_report -> flat metadata key.
+                _m_metrics = getattr(_entry, "metrics", None)
+                if isinstance(_m_metrics, dict):
+                    for _split in ("test", "val", "train"):
+                        _split_metrics = _m_metrics.get(_split)
+                        if isinstance(_split_metrics, dict) and "fairness_report" in _split_metrics:
+                            _key = f"{_ttype}__{_tname}__{getattr(_entry, 'model_name', type(unwrap_target_wrapper(getattr(_entry, 'model', _entry))).__name__)}__{_split}"
+                            fairness_reports[_key] = _split_metrics["fairness_report"]
+                # Selected-features capture: entry.columns -> metadata + entry.selected_features_.
+                _cols = getattr(_entry, "columns", None)
+                if _cols is None:
+                    continue
+                _mn = getattr(_entry, "model_name", None) or ""
+                _sf_key = f"{_ttype}/{_tname}/{_mn}" if _mn else f"{_ttype}/{_tname}"
+                _selected_features_per_model[_sf_key] = list(_cols)
+                _selected_features_union.update(_cols)
+                try:
+                    _entry.selected_features_ = list(_cols)
+                except Exception as e:
+                    logger.debug("swallowed exception in _phase_finalize.py: %s", e)
+                    pass

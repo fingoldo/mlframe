@@ -300,12 +300,7 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     if _fill_bf_batch_njit is not None and all(i >= 0 for i in _bf_ids):
         finite = np.zeros(P * KBF, dtype=np.bool_)
         _fill_bf_batch_njit(h_a_arr, h_b_arr, cand_valid, np.asarray(_bf_ids, dtype=np.int64), X_batch, finite)
-        for r_row in range(P * KBF):
-            if finite[r_row]:
-                if r_row != nc:
-                    X_batch[nc] = X_batch[r_row]
-                col_meta.append((r_row // KBF, r_row % KBF))
-                nc += 1
+        nc = _compact_finite_candidate_rows(P, KBF, finite, nc, X_batch, col_meta)
     else:
         for p in range(P):
             if not cand_valid[p]:
@@ -365,6 +360,17 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
             best_raws[p] = raw
             best_idxs[p] = k
     return best_scores, best_raws, best_idxs
+
+
+def _compact_finite_candidate_rows(P, KBF, finite, nc, X_batch, col_meta):
+    """Move the finite candidate rows of X_batch to the front, recording each one's (pair, basis-function) index; returns the new row count."""
+    for r_row in range(P * KBF):
+        if finite[r_row]:
+            if r_row != nc:
+                X_batch[nc] = X_batch[r_row]
+            col_meta.append((r_row // KBF, r_row % KBF))
+            nc += 1
+    return nc
 
 
 def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,

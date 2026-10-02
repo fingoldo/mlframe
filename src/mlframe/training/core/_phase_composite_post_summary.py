@@ -48,76 +48,7 @@ def _run_suite_end_dummy_baselines_summary(
                     if _nm:
                         _names.add(_nm)
             _composite_names_by_tt[str(_tt_str)] = _names
-        for _tt, _by_name in metadata.get("dummy_baselines", {}).items():
-            for _tname, _rep_dict in _by_name.items():
-                _pm = _rep_dict.get("primary_metric")
-                if not _pm or not _pm.startswith("val_"):
-                    continue
-                _metric_name = _pm[len("val_") :]
-                _model_list = models.get(_tt, {}).get(_tname, [])
-                if not _model_list:
-                    continue
-                # Registry dispatcher: substring whitelist missed MAPE / MSE / ICE / brier / KL /
-                # perplexity -- those would silently route through the
-                # else-branch and pick the WORST model as "best" for the
-                # suite-end verdict block.
-                from ..metrics_registry import metric_name_higher_is_better as _mhb
-                _direction = _mhb(_metric_name)
-                _is_minimize = True if _direction is None else (not _direction)
-                # For composite targets prefer y-scale metrics (post-inverse, comparable to raw / y-scale dummy).
-                _yscale_by_tt = metadata.get("composite_target_y_scale_metrics", {}).get(str(_tt), {})
-                # A composite target HAS a key here (possibly an empty list); a raw target does not.
-                _is_composite = _tname in _yscale_by_tt or _tname in _composite_names_by_tt.get(str(_tt), set())
-                _yscale_entries = _yscale_by_tt.get(_tname, [])
-                _best_val: float | None = None
-                _best_name = "-"
-                _best_split = None  # "val" or "test" -- track for tag
-                _best_model = None  # the raw model picked, whose TEST metric the composite-vs-raw verdict compares on
-                if _yscale_entries:
-                    for _ye in _yscale_entries:
-                        _split_metric = _ye.get("metrics", {}).get("val", {})
-                        _v = _split_metric.get(_metric_name)
-                        if _v is None or not np.isfinite(_v):
-                            continue
-                        if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
-                            _best_val = float(_v)
-                            _best_name = _ye.get("model_name") or "Composite"
-                            _best_split = "val"
-                    # y-scale entries may carry only TEST metrics (no finite val); fall back to those before declaring "-".
-                    if _best_val is None:
-                        for _ye in _yscale_entries:
-                            _split_metric = _ye.get("metrics", {}).get("test", {})
-                            _v = _split_metric.get(_metric_name)
-                            if _v is None or not np.isfinite(_v):
-                                continue
-                            if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
-                                _best_val = float(_v)
-                                _best_name = _ye.get("model_name") or "Composite"
-                                _best_split = "test"
-                # When y-scale entries are absent OR carry no usable metric, fall through to the T-scale model-list metrics.
-                # NOT for composite targets: their model_list metrics are on the T (residual) scale, while the dummy this
-                # is compared against is y-scale -- mixing them produced a FALSE "TASK_NON_TRIVIAL_AND_MODELS_HEALTHY"
-                # verdict (a residual RMSE of ~1.5 "beat" a y-scale dummy RMSE of ~13 by 9x while the model's actual
-                # y-scale R^2 was -146). For a composite with no usable y-scale metric, leave best_model unset so the
-                # verdict honestly shows "-" rather than an apples-to-oranges lift.
-                if _best_val is None and not _is_composite:
-                    # Prefer VAL metrics (aligned with the dummy's val_* primary_metric). Fall back to TEST when no model in the
-                    # slot has a val metric: the verdict then tags "(test)" so the operator sees the cross-split comparison, which
-                    # is still more informative than "-" (prod: val metrics were unpopulated while Ridge had TEST RMSE=11.63).
-                    for _best_split in ("val", "test"):
-                        _best_model, _best_val = _best_entry_on(_model_list, _best_split, _metric_name, _is_minimize)
-                        if _best_model is not None:
-                            _best_name = getattr(_best_model, "model_name", None) or type(getattr(_best_model, "model", _best_model)).__name__
-                            break
-                if _best_val is not None:
-                    # Tag the model name with "(test fallback)" so the
-                    # operator can spot val-vs-test cross-comparisons.
-                    _display_name = f"{_best_name} (test fallback)" if _best_split == "test" else _best_name
-                    _best_metrics[(str(_tt), str(_tname))] = {
-                        _pm: _best_val,
-                        "model_name": _display_name,
-                        f"test_{_metric_name}": _entry_metric(_best_model, "test", _metric_name) if _best_model is not None else None,
-                    }
+        _collect_best_model_metrics(metadata, models, _composite_names_by_tt, _best_metrics)
         # composite -> raw target map so the verdict block uses the raw median(y_raw) constant as the trivial baseline
         # (not the inverted-T fake baseline that uses fitted alpha).
         _composite_to_raw: dict[tuple[str, str], str] = {}
@@ -154,6 +85,80 @@ def _run_suite_end_dummy_baselines_summary(
             "[DUMMY_BASELINES] suite-end summary failed: %s",
             _db_summary_err,
         )
+
+
+def _collect_best_model_metrics(metadata, models, _composite_names_by_tt, _best_metrics):
+    """Fill _best_metrics with the best val-ranked model of each (target type, target) and its test metric, for the end-of-suite baselines table."""
+    for _tt, _by_name in metadata.get("dummy_baselines", {}).items():
+        for _tname, _rep_dict in _by_name.items():
+            _pm = _rep_dict.get("primary_metric")
+            if not _pm or not _pm.startswith("val_"):
+                continue
+            _metric_name = _pm[len("val_") :]
+            _model_list = models.get(_tt, {}).get(_tname, [])
+            if not _model_list:
+                continue
+            # Registry dispatcher: substring whitelist missed MAPE / MSE / ICE / brier / KL /
+            # perplexity -- those would silently route through the
+            # else-branch and pick the WORST model as "best" for the
+            # suite-end verdict block.
+            from mlframe.training.metrics_registry import metric_name_higher_is_better as _mhb
+            _direction = _mhb(_metric_name)
+            _is_minimize = True if _direction is None else (not _direction)
+            # For composite targets prefer y-scale metrics (post-inverse, comparable to raw / y-scale dummy).
+            _yscale_by_tt = metadata.get("composite_target_y_scale_metrics", {}).get(str(_tt), {})
+            # A composite target HAS a key here (possibly an empty list); a raw target does not.
+            _is_composite = _tname in _yscale_by_tt or _tname in _composite_names_by_tt.get(str(_tt), set())
+            _yscale_entries = _yscale_by_tt.get(_tname, [])
+            _best_val: float | None = None
+            _best_name = "-"
+            _best_split = None  # "val" or "test" -- track for tag
+            _best_model = None  # the raw model picked, whose TEST metric the composite-vs-raw verdict compares on
+            if _yscale_entries:
+                for _ye in _yscale_entries:
+                    _split_metric = _ye.get("metrics", {}).get("val", {})
+                    _v = _split_metric.get(_metric_name)
+                    if _v is None or not np.isfinite(_v):
+                        continue
+                    if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
+                        _best_val = float(_v)
+                        _best_name = _ye.get("model_name") or "Composite"
+                        _best_split = "val"
+                # y-scale entries may carry only TEST metrics (no finite val); fall back to those before declaring "-".
+                if _best_val is None:
+                    for _ye in _yscale_entries:
+                        _split_metric = _ye.get("metrics", {}).get("test", {})
+                        _v = _split_metric.get(_metric_name)
+                        if _v is None or not np.isfinite(_v):
+                            continue
+                        if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
+                            _best_val = float(_v)
+                            _best_name = _ye.get("model_name") or "Composite"
+                            _best_split = "test"
+            # When y-scale entries are absent OR carry no usable metric, fall through to the T-scale model-list metrics.
+            # NOT for composite targets: their model_list metrics are on the T (residual) scale, while the dummy this
+            # is compared against is y-scale -- mixing them produced a FALSE "TASK_NON_TRIVIAL_AND_MODELS_HEALTHY"
+            # verdict (a residual RMSE of ~1.5 "beat" a y-scale dummy RMSE of ~13 by 9x while the model's actual
+            # y-scale R^2 was -146). For a composite with no usable y-scale metric, leave best_model unset so the
+            # verdict honestly shows "-" rather than an apples-to-oranges lift.
+            if _best_val is None and not _is_composite:
+                # Prefer VAL metrics (aligned with the dummy's val_* primary_metric). Fall back to TEST when no model in the
+                # slot has a val metric: the verdict then tags "(test)" so the operator sees the cross-split comparison, which
+                # is still more informative than "-" (prod: val metrics were unpopulated while Ridge had TEST RMSE=11.63).
+                for _best_split in ("val", "test"):
+                    _best_model, _best_val = _best_entry_on(_model_list, _best_split, _metric_name, _is_minimize)
+                    if _best_model is not None:
+                        _best_name = getattr(_best_model, "model_name", None) or type(getattr(_best_model, "model", _best_model)).__name__
+                        break
+            if _best_val is not None:
+                # Tag the model name with "(test fallback)" so the
+                # operator can spot val-vs-test cross-comparisons.
+                _display_name = f"{_best_name} (test fallback)" if _best_split == "test" else _best_name
+                _best_metrics[(str(_tt), str(_tname))] = {
+                    _pm: _best_val,
+                    "model_name": _display_name,
+                    f"test_{_metric_name}": _entry_metric(_best_model, "test", _metric_name) if _best_model is not None else None,
+                }
 
 
 def _metric_better(a: float, b: float, is_min: bool) -> bool:

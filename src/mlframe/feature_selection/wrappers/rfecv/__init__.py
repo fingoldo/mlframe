@@ -73,6 +73,23 @@ logger = logging.getLogger(__name__)
 _N_FEATURES_SELECTION_RULES = ("auto", "argmax", "one_se_min", "one_se_max", "one_se_min_foldstd", "one_se_max_foldstd", "plateau")
 
 
+def _overlay_explicit_config_fields(params: dict, configs: tuple) -> None:
+    """Overlay each config's explicitly-set fields onto ``params`` (in place), keys already in ``params`` only."""
+    for _cfg in configs:
+        if _cfg is None:
+            continue
+        _set_fields = getattr(_cfg, "model_fields_set", None)
+        if _set_fields is not None:
+            _dump = {k: getattr(_cfg, k) for k in _set_fields}
+        elif hasattr(_cfg, "model_dump"):
+            _dump = _cfg.model_dump()
+        else:
+            _dump = {k: v for k, v in vars(_cfg).items() if not k.startswith("_")}
+        for _k, _v in _dump.items():
+            if _k in params:
+                params[_k] = _v
+
+
 class RFECV(TransformerMixin, BaseEstimator):
     """Finds subset of features having best CV score, by iterative narrowing down set of top_n candidates having highest importance, as per estimator's FI scores.
 
@@ -617,19 +634,7 @@ class RFECV(TransformerMixin, BaseEstimator):
         # of a config object do NOT clobber explicit flat values, so a caller
         # who passes ``RFECV(estimator=lr, max_refits=20)`` AND a default
         # ``SearchConfig()`` keeps max_refits=20.
-        for _cfg in (search_config, fi_config, robustness_config):
-            if _cfg is None:
-                continue
-            _set_fields = getattr(_cfg, "model_fields_set", None)
-            if _set_fields is not None:
-                _dump = {k: getattr(_cfg, k) for k in _set_fields}
-            elif hasattr(_cfg, "model_dump"):
-                _dump = _cfg.model_dump()
-            else:
-                _dump = {k: v for k, v in vars(_cfg).items() if not k.startswith("_")}
-            for _k, _v in _dump.items():
-                if _k in params:
-                    params[_k] = _v
+        _overlay_explicit_config_fields(params, (search_config, fi_config, robustness_config))
         # postfix="" - see mlframe.calibration.post's identical fix comment: this class reads
         # attributes back by their bare param name, but store_params_in_object()'s default postfix
         # changed to "_param_" without every caller being updated.

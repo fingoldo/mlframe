@@ -561,6 +561,13 @@ def _apply_pre_pipeline_with_passthrough(
                         model_name, _pc, type(_stash_err).__name__, _stash_err,
                     )
 
+    input_for_model = _transform_with_model_pre_pipeline(model_obj, input_for_model, _stashed_passthrough, model_name, model)
+
+    return input_for_model
+
+
+def _transform_with_model_pre_pipeline(model_obj, input_for_model, _stashed_passthrough, model_name, model):
+    """Run the model's own pre_pipeline on the input, mirror the fit-time GBM-safe column rename, and re-attach the stashed passthrough columns."""
     try:
         input_for_model = model_obj.pre_pipeline.transform(input_for_model)
         # Mirror the fit-time GBM-safe rename (_trainer_train_and_evaluate.py's train_df/val_df/test_df
@@ -651,7 +658,6 @@ def _apply_pre_pipeline_with_passthrough(
             model_name, type(_pp_exc).__name__,
             str(_pp_exc).splitlines()[0][:160],
         )
-
     return input_for_model
 
 

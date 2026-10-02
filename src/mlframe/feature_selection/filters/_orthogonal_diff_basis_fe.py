@@ -269,44 +269,7 @@ def generate_diff_basis_features(
     if not degrees:
         return pd.DataFrame(index=X.index), {}
     # ---- Step 1: resolve the pair list (explicit or auto-detected).
-    if pairs is None:
-        detected = detect_correlated_pairs(
-            X, cols, corr_threshold=pair_corr_threshold, max_pairs=max_pairs,
-        )
-        pair_corr_map = {(a, b): c for (a, b, c) in detected}
-        pairs_norm = [(a, b) for (a, b, _) in detected]
-    else:
-        pairs_norm = []
-        pair_corr_map = {}
-        for pair in pairs:
-            if len(pair) != 2:
-                raise ValueError(f"generate_diff_basis_features: every entry in ``pairs`` " f"must be a 2-tuple; got {pair!r}.")
-            a, b = pair
-            if a not in X.columns or b not in X.columns:
-                log_throttle(
-                    logger, "diff_basis_pair_missing_column", logging.WARNING,
-                    "generate_diff_basis_features: pair (%r, %r) skipped; "
-                    "column missing from X.", a, b,
-                )
-                continue
-            if not (pd.api.types.is_numeric_dtype(X[a]) and pd.api.types.is_numeric_dtype(X[b])):
-                log_throttle(
-                    logger, "diff_basis_pair_non_numeric_dtype", logging.WARNING,
-                    "generate_diff_basis_features: pair (%r, %r) skipped; "
-                    "non-numeric dtype.", a, b,
-                )
-                continue
-            pairs_norm.append((a, b))
-            # Compute correlation for diagnostics; not gating an explicit pair. Reuses the
-            # already-float64 `_dt` hoisted above (do not reassign it here - it's still in
-            # scope for the Step 3 candidate-value loop below).
-            arr_a = np.asarray(X[a].to_numpy(), dtype=_dt)
-            arr_b = np.asarray(X[b].to_numpy(), dtype=_dt)
-            mask = np.isfinite(arr_a) & np.isfinite(arr_b)
-            if mask.sum() >= 8 and float(arr_a[mask].std()) > 1e-12 and float(arr_b[mask].std()) > 1e-12:
-                pair_corr_map[(a, b)] = float(abs(np.corrcoef(arr_a[mask], arr_b[mask])[0, 1]))
-            else:
-                pair_corr_map[(a, b)] = 0.0
+    pair_corr_map, pairs_norm = _resolve_pairs_and_corr(pairs, X, cols, pair_corr_threshold, max_pairs, _dt)
     if not pairs_norm:
         return pd.DataFrame(index=X.index), {}
 
@@ -453,6 +416,49 @@ def generate_diff_basis_features(
             "basis_params": info.get("basis_params"),
         }
     return pd.DataFrame(out_cols, index=X.index), meta
+
+
+def _resolve_pairs_and_corr(pairs, X, cols, pair_corr_threshold, max_pairs, _dt):
+    """Step 1: the pair list (the explicit one, or the auto-detected correlated pairs) and the pair -> correlation map."""
+    if pairs is None:
+        detected = detect_correlated_pairs(
+            X, cols, corr_threshold=pair_corr_threshold, max_pairs=max_pairs,
+        )
+        pair_corr_map = {(a, b): c for (a, b, c) in detected}
+        pairs_norm = [(a, b) for (a, b, _) in detected]
+    else:
+        pairs_norm = []
+        pair_corr_map = {}
+        for pair in pairs:
+            if len(pair) != 2:
+                raise ValueError(f"generate_diff_basis_features: every entry in ``pairs`` " f"must be a 2-tuple; got {pair!r}.")
+            a, b = pair
+            if a not in X.columns or b not in X.columns:
+                log_throttle(
+                    logger, "diff_basis_pair_missing_column", logging.WARNING,
+                    "generate_diff_basis_features: pair (%r, %r) skipped; "
+                    "column missing from X.", a, b,
+                )
+                continue
+            if not (pd.api.types.is_numeric_dtype(X[a]) and pd.api.types.is_numeric_dtype(X[b])):
+                log_throttle(
+                    logger, "diff_basis_pair_non_numeric_dtype", logging.WARNING,
+                    "generate_diff_basis_features: pair (%r, %r) skipped; "
+                    "non-numeric dtype.", a, b,
+                )
+                continue
+            pairs_norm.append((a, b))
+            # Compute correlation for diagnostics; not gating an explicit pair. Reuses the
+            # already-float64 `_dt` hoisted above (do not reassign it here - it's still in
+            # scope for the Step 3 candidate-value loop below).
+            arr_a = np.asarray(X[a].to_numpy(), dtype=_dt)
+            arr_b = np.asarray(X[b].to_numpy(), dtype=_dt)
+            mask = np.isfinite(arr_a) & np.isfinite(arr_b)
+            if mask.sum() >= 8 and float(arr_a[mask].std()) > 1e-12 and float(arr_b[mask].std()) > 1e-12:
+                pair_corr_map[(a, b)] = float(abs(np.corrcoef(arr_a[mask], arr_b[mask])[0, 1]))
+            else:
+                pair_corr_map[(a, b)] = 0.0
+    return pair_corr_map, pairs_norm
 
 
 def hybrid_orth_mi_diff_basis_fe(

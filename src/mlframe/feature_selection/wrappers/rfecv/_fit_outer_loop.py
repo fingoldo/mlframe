@@ -346,36 +346,7 @@ def run_outer_loop_iteration(
     update_best_and_noimprove(self, state, final_score, len(current_features), was_stored)
 
     # Persist outer-loop state so a crash mid-run is recoverable. fitted_estimators is intentionally NOT pickled (CB / RF ensembles dominate file size); they are re-fit on resume when needed. Save errors are logged but do not abort the fit.
-    if self.checkpoint_path is not None:
-        try:
-            self._save_checkpoint({
-                "version": self._CHECKPOINT_VERSION,
-                "signature": signature,
-                "nsteps": state.nsteps,
-                "evaluated_scores_mean": dict(state.evaluated_scores_mean),
-                "evaluated_scores_std": dict(state.evaluated_scores_std),
-                "feature_importances": dict(state.feature_importances),
-                "selected_features_per_nfeatures": dict(state.selected_features_per_nfeatures),
-                "prev_score": state.prev_score,
-                "prev_nfeatures": state.prev_nfeatures,
-                "n_noimproving_iters": state.n_noimproving_iters,
-                "best_nfeatures": state.best_nfeatures,
-                "best_iter": state.best_iter,
-                "best_score": state.best_score,
-                "dummy_scores": list(state.dummy_scores),
-                "optimizer": state.Optimizer,
-            })
-        except Exception as _ckpt_exc:
-            if verbose:
-                logger.warning(
-                    "RFECV: checkpoint save at nsteps=%d failed: %s",
-                    state.nsteps, _ckpt_exc,
-                )
-            else:
-                logger.debug(
-                    "RFECV: checkpoint save at nsteps=%d failed: %s",
-                    state.nsteps, _ckpt_exc,
-                )
+    _save_outer_loop_checkpoint(self, signature, state, verbose)
 
     if len(state.evaluated_scores_mean) == 2:
         # If the first explored subset (whatever MBH seeded; default seed = 2 features) is already worse than the dummy at 0 features, there's no point continuing.
@@ -460,3 +431,37 @@ def run_outer_loop_iteration(
         return IterationOutcome.BREAK
 
     return IterationOutcome.CONTINUE
+
+
+def _save_outer_loop_checkpoint(self, signature, state, verbose):
+    """Persist the outer-loop state to the checkpoint file when a checkpoint path is configured."""
+    if self.checkpoint_path is not None:
+        try:
+            self._save_checkpoint({
+                "version": self._CHECKPOINT_VERSION,
+                "signature": signature,
+                "nsteps": state.nsteps,
+                "evaluated_scores_mean": dict(state.evaluated_scores_mean),
+                "evaluated_scores_std": dict(state.evaluated_scores_std),
+                "feature_importances": dict(state.feature_importances),
+                "selected_features_per_nfeatures": dict(state.selected_features_per_nfeatures),
+                "prev_score": state.prev_score,
+                "prev_nfeatures": state.prev_nfeatures,
+                "n_noimproving_iters": state.n_noimproving_iters,
+                "best_nfeatures": state.best_nfeatures,
+                "best_iter": state.best_iter,
+                "best_score": state.best_score,
+                "dummy_scores": list(state.dummy_scores),
+                "optimizer": state.Optimizer,
+            })
+        except Exception as _ckpt_exc:
+            if verbose:
+                logger.warning(
+                    "RFECV: checkpoint save at nsteps=%d failed: %s",
+                    state.nsteps, _ckpt_exc,
+                )
+            else:
+                logger.debug(
+                    "RFECV: checkpoint save at nsteps=%d failed: %s",
+                    state.nsteps, _ckpt_exc,
+                )

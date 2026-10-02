@@ -348,21 +348,7 @@ def confirm_recipes_cross_fold(
         # Scale the quorum to the number of folds actually evaluated so a recipe
         # that could not replay on a fold is not unfairly penalised.
         need_eff = need if evaluated == k else math.ceil(q * evaluated)
-        if passes < need_eff:
-            failed.add(eng_name)
-            if diagnostics_out is not None:
-                diagnostics_out[eng_name] = {
-                    "passes": int(passes),
-                    "evaluated": int(evaluated),
-                    "need_eff": int(need_eff),
-                    "src_names": src,
-                }
-            if verbose:
-                logger.info(
-                    "Stability vote: DROPPED engineered '%s' -- cleared the held-out uplift "
-                    "gate in only %d/%d folds (quorum %d).",
-                    eng_name, passes, evaluated, need_eff,
-                )
+        _reject_recipe_below_quorum(passes, need_eff, failed, eng_name, diagnostics_out, evaluated, src, verbose)
 
     if failed and verbose:
         logger.info(
@@ -371,3 +357,22 @@ def confirm_recipes_cross_fold(
             len(failed), len(voted), k, q,
         )
     return failed
+
+
+def _reject_recipe_below_quorum(passes, need_eff, failed, eng_name, diagnostics_out, evaluated, src, verbose):
+    """Reject a recipe that passed fewer folds than the quorum asks for: add it to failed and record the pass counts for the diagnostics."""
+    if passes < need_eff:
+        failed.add(eng_name)
+        if diagnostics_out is not None:
+            diagnostics_out[eng_name] = {
+                "passes": int(passes),
+                "evaluated": int(evaluated),
+                "need_eff": int(need_eff),
+                "src_names": src,
+            }
+        if verbose:
+            logger.info(
+                "Stability vote: DROPPED engineered '%s' -- cleared the held-out uplift "
+                "gate in only %d/%d folds (quorum %d).",
+                eng_name, passes, evaluated, need_eff,
+            )

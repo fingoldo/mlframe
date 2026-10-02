@@ -656,6 +656,29 @@ def combine_probs(
         elif _wsum != 1.0:
             weights_arr = weights_arr / _wsum
 
+    combined = _combine_stacked_by_flavour(flav, stacked, weights_arr, rrf_k)
+
+    # NaN/inf fallback to arithmetic mean. Train side ran this AFTER the flavour reduce;
+    # predict now does the same so a single NaN cell doesn't poison the whole batch.
+    non_finite_mask = ~np.isfinite(combined)
+    if non_finite_mask.any():
+        _arith = _finite_member_mean(stacked, weights_arr)
+        # Wave 78 (2026-05-21): hard-assert shape contract -- np.where broadcasts
+        # silently on shape mismatch, which would silently produce wrong-shape
+        # ensemble output if a future flavour returns a different reduce shape.
+        assert (
+            combined.shape == _arith.shape
+        ), f"ensemble combine: shape mismatch combined={combined.shape} vs arith fallback={_arith.shape}"  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
+        combined = np.where(non_finite_mask, _arith, combined)
+
+    if ensure_prob_limits:
+        combined = np.clip(combined, 0.0, 1.0)
+
+    return np.asarray(combined)
+
+
+def _combine_stacked_by_flavour(flav, stacked, weights_arr, rrf_k):
+    """Combine the stacked per-model probabilities row-wise by the named flavour (harm, arithm, median, quad, qube, geo, rrf, rank_average), honouring the weights where the flavour takes them."""
     if flav == "harm":
         # Harmonic mean: when any model predicts exactly 0, HM is defined as 0.
         any_zero = (stacked == 0).any(axis=0)
@@ -725,7 +748,7 @@ def combine_probs(
     elif flav == "rank_average":
         # Rank-average fusion (mean of per-member row-ranks). Lazy import breaks the base<->selection cycle. Like RRF it
         # is a scale-invariant RANK score (not a calibrated probability); ``weights_arr`` is honoured when supplied.
-        from .selection import rank_average_blend
+        from mlframe.models.ensembling.selection import rank_average_blend
         combined = rank_average_blend(stacked, normalise=True, weights=weights_arr.tolist() if weights_arr is not None else None)
     else:
         # Unrecognised flavour -> arithmetic mean fallback (matches the legacy predict-side default).
@@ -733,24 +756,7 @@ def combine_probs(
             combined = np.average(stacked, axis=0, weights=weights_arr)
         else:
             combined = np.mean(stacked, axis=0)
-
-    # NaN/inf fallback to arithmetic mean. Train side ran this AFTER the flavour reduce;
-    # predict now does the same so a single NaN cell doesn't poison the whole batch.
-    non_finite_mask = ~np.isfinite(combined)
-    if non_finite_mask.any():
-        _arith = _finite_member_mean(stacked, weights_arr)
-        # Wave 78 (2026-05-21): hard-assert shape contract -- np.where broadcasts
-        # silently on shape mismatch, which would silently produce wrong-shape
-        # ensemble output if a future flavour returns a different reduce shape.
-        assert (
-            combined.shape == _arith.shape
-        ), f"ensemble combine: shape mismatch combined={combined.shape} vs arith fallback={_arith.shape}"  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
-        combined = np.where(non_finite_mask, _arith, combined)
-
-    if ensure_prob_limits:
-        combined = np.clip(combined, 0.0, 1.0)
-
-    return np.asarray(combined)
+    return combined
 
 
 def build_predictive_kwargs(train_data, test_data, val_data, is_regression: bool):
