@@ -219,9 +219,11 @@ MRMR.set_params = _mrmr_set_params_func
 # Semi-supervised fit helper - importable from the ``mrmr`` namespace so callers can
 # ``from mlframe.feature_selection.filters.mrmr import fit_with_unlabeled`` without reaching into the sibling path.
 from .._semi_supervised_fe import fit_with_unlabeled
+from . import _mrmr_param_constants as param_constants  # public name: the accepted-value tuples of the string parameters
 
 __all__ = [
     "MRMR",
+    "param_constants",
     "fit_with_unlabeled",
     "histogram",
     "_astropy_histogram",

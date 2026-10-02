@@ -296,10 +296,7 @@ def test_feature_selection_report_lands_on_metadata_with_mrmr(synthetic_binary_8
 
     df = synthetic_binary_8feat
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-    fs_cfg = FeatureSelectionConfig(
-        use_mrmr_fs=True,
-        mrmr_kwargs={"verbose": 0},
-    )
+    fs_cfg = FeatureSelectionConfig(mrmr={"verbose": 0})
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         _result = train_mlframe_models_suite(

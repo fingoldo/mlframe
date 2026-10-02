@@ -89,7 +89,7 @@ def _run(combo, tmp_path):
                 "subpopulation_drift",
             ],
         ),
-        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
+        feature_selection_config=FeatureSelectionConfig(),
         **_configs_for_combo(combo),
     )
     return trained, meta

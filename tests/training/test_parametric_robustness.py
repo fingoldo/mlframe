@@ -368,7 +368,7 @@ class TestTrainSuiteRobustness:
             mlframe_models=["xgb"],
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
+            feature_selection_config=FeatureSelectionConfig(),
             hyperparams_config=ModelHyperparamsConfig(
                 iterations=5,
                 early_stopping_rounds=3,
@@ -441,7 +441,7 @@ class TestTrainSuiteRobustness:
             mlframe_models=["cb"],
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
+            feature_selection_config=FeatureSelectionConfig(),
             hyperparams_config=ModelHyperparamsConfig(
                 iterations=5,
                 early_stopping_rounds=3,

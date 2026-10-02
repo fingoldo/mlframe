@@ -27,7 +27,9 @@ def test_a_label_matrix_is_scored_column_by_column_on_the_cpu_backend():
     """Each column's AUCs equal scikit-learn's on that column's own labels."""
     labels, scores = _one_vs_rest()
     roc, pr = compute_batch_aucs(labels, scores, force_backend="cpu")
-    for j in range(labels.shape[1]):
+    columns = list(range(labels.shape[1]))
+    assert len(columns) > 1
+    for j in columns:
         assert roc[j] == pytest.approx(roc_auc_score(labels[:, j], scores[:, j]), abs=1e-12)
         assert pr[j] == pytest.approx(average_precision_score(labels[:, j], scores[:, j]), abs=1e-9)
 

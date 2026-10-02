@@ -34,6 +34,7 @@ from ._mbh_optimizer import _build_mbh_optimizer
 from ._finalize import _finalize_fit_results
 from ._fit_summary import log_rfecv_fit_summary
 from ._checkpoint import _maybe_resume_from_checkpoint
+from ._futility_stop import publish_outer_loop_outputs
 from ._must_include import _resolve_must_include
 from ._fit_init import _init_fit_state
 from ._fit_setup import (
@@ -524,7 +525,6 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # the user-facing self.n_repeats is never mutated by the guard.
     self._effective_n_repeats = _eff_n_repeats
 
-    self.futility_verdict_ = None
     state = OuterLoopState(
         evaluated_scores_mean=evaluated_scores_mean,
         evaluated_scores_std=evaluated_scores_std,
@@ -618,9 +618,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         if outcome is IterationOutcome.BREAK:
             break
 
-    # Stash per-fold scores so finalize can build cv_results_["splitK_test_score"] (sklearn parity).
-    self._per_fold_scores = dict(state.per_fold_scores)
-    self.eval_trace_ = list(state.eval_trace)
+    publish_outer_loop_outputs(self, state)
 
     # Truncated SFFS final-pass swap: run K paired swaps on the best subset found - replace each of the K worst-FI kept features with each of the K best-FI dropped features, accept any swap that improves the CV score. Uses sklearn.cross_val_score directly so it does NOT honour fit_params / val_cv / early stopping.
     _finalize_fit_results(

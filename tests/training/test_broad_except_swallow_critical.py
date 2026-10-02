@@ -68,11 +68,7 @@ def test_pre_screen_apply_drops_failure_is_atomic_no_partial_drop(caplog, monkey
 
     train_df = pd.DataFrame({"good": np.arange(20.0), "const": np.ones(20)})
     val_df = pd.DataFrame({"good": np.arange(10.0), "const": np.ones(10)})
-    fs_cfg = SimpleNamespace(
-        pre_screen_unsupervised=True,
-        pre_screen_variance_threshold=0.0,
-        pre_screen_null_fraction_threshold=0.99,
-    )
+    fs_cfg = SimpleNamespace(pre_screen=SimpleNamespace(enable=True, variance_threshold=0.0, null_fraction_threshold=0.99))
     ctx = SimpleNamespace(
         feature_selection_config=fs_cfg,
         _pre_screen_done=False,

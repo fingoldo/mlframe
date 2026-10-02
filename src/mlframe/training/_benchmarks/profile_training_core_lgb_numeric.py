@@ -76,7 +76,7 @@ def _profile_one(n_rows: int, models: tuple[str, ...], seed: int, top_n: int) ->
     df = _make_numeric_cat_frame(n_rows, seed=seed)
     n_cols = len(df.columns)
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
-    fs_cfg = FeatureSelectionConfig(use_mrmr_fs=False, use_boruta_shap=False)
+    fs_cfg = FeatureSelectionConfig()
 
     profiler = cProfile.Profile()
     status = "OK"

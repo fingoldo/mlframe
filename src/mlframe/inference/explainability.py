@@ -186,10 +186,6 @@ def compute_shap_on_cv(
                 base_values.append(shap_values.base_values)
             logger.info("Got shap values.")
 
-            # shap_interaction_values=explainer.shap_interaction_values(X)
-            # interaction_values.append(shap_interaction_values.values)
-            # interaction_base_values.append(shap_interaction_values.base_values)
-
         else:
 
             from catboost import EFstrType  # pylint: disable=import-outside-toplevel

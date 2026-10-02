@@ -576,29 +576,10 @@ def _setup_per_target_mlframe_models(
         use_mrmr_fs=use_mrmr_fs,
         mrmr_kwargs=mrmr_kwargs,
         custom_pre_pipelines=custom_pre_pipelines,
-        rfecv_leakage_corr_threshold=feature_selection_config.rfecv_leakage_corr_threshold,
-        rfecv_mbh_adaptive_threshold=feature_selection_config.rfecv_mbh_adaptive_threshold,
-        use_boruta_shap=feature_selection_config.use_boruta_shap,
-        boruta_shap_kwargs=feature_selection_config.boruta_shap_kwargs,
-        use_shap_proxied_fs=feature_selection_config.use_shap_proxied_fs,
-        shap_proxied_fs_kwargs=feature_selection_config.shap_proxied_fs_kwargs,
-        use_ace_fs=feature_selection_config.use_ace_fs,
-        ace_kwargs=feature_selection_config.ace_kwargs,
-        use_forward_select_fs=feature_selection_config.use_forward_select_fs,
-        forward_select_kwargs=feature_selection_config.forward_select_kwargs,
-        use_greedy_backward_elimination_fs=feature_selection_config.use_greedy_backward_elimination_fs,
-        greedy_backward_elimination_kwargs=feature_selection_config.greedy_backward_elimination_kwargs,
-        use_zero_importance_pruning_fs=feature_selection_config.use_zero_importance_pruning_fs,
-        zero_importance_pruning_kwargs=feature_selection_config.zero_importance_pruning_kwargs,
-        use_cascade_select_fs=feature_selection_config.use_cascade_select_fs,
-        cascade_select_kwargs=feature_selection_config.cascade_select_kwargs,
-        rfecv_cluster_reduce=feature_selection_config.rfecv_cluster_reduce,
-        rfecv_cluster_corr_threshold=feature_selection_config.rfecv_cluster_corr_threshold,
-        rfecv_cluster_min_reduction=feature_selection_config.rfecv_cluster_min_reduction,
-        rfecv_cluster_corr_method=feature_selection_config.rfecv_cluster_corr_method,
-        rfecv_overrides=feature_selection_config.rfecv_kwargs,
-        use_sample_weights_in_fs=feature_selection_config.use_sample_weights_in_fs,
-        mrmr_identity_cache=(ctx._mrmr_identity_cache if getattr(feature_selection_config, "mrmr_identity_cache_scope", "ctx") == "ctx" else None),
+        **feature_selection_config.pre_pipeline_kwargs(),
+        mrmr_identity_cache=(
+            ctx._mrmr_identity_cache if feature_selection_config.mrmr is None or feature_selection_config.mrmr.identity_cache_scope == "ctx" else None
+        ),
         # Thread target_type so BorutaShap can auto-derive
         # ``classification=False`` for regression targets (otherwise the
         # default RandomForestClassifier crashes on continuous y inside

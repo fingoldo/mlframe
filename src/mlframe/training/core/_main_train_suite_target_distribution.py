@@ -63,7 +63,7 @@ def _nan_signal_columns_to_keep(candidates: list, fd_report: Any, behavior_confi
     """
     _warn_map_nan = getattr(fd_report, "feature_warnings", {}) or {}
     nan_only = [_c for _c in candidates if (_warn_map_nan.get(_c) or []) and all(str(_m).startswith("nan_fraction") for _m in _warn_map_nan.get(_c) or [])]
-    _null_bar = float(getattr(getattr(behavior_config, "feature_selection_config", None), "pre_screen_null_fraction_threshold", 0.99))
+    _null_bar = float(getattr(getattr(getattr(behavior_config, "feature_selection_config", None), "pre_screen", None), "null_fraction_threshold", 0.99))
     _too_empty = [_c for _c in nan_only if _nan_fraction_of(fd_report, _c) > _null_bar]
     if not _too_empty:
         return nan_only
@@ -86,7 +86,7 @@ def _warn_structural_nan_drops(nan_dropped: list, fd_report: Any, behavior_confi
     advice for 9 columns directly under the line saying all 9 were dropped because the pre-screen would drop them anyway.
     The format string also rendered ``99%%`` -- ``%%%%`` under a single logging substitution.
     """
-    null_bar = float(getattr(getattr(behavior_config, "feature_selection_config", None), "pre_screen_null_fraction_threshold", 0.99))
+    null_bar = float(getattr(getattr(getattr(behavior_config, "feature_selection_config", None), "pre_screen", None), "null_fraction_threshold", 0.99))
     decided_here = [c for c in nan_dropped if _nan_fraction_of(fd_report, c) <= null_bar]
     if len(decided_here) < 5:
         return

@@ -81,7 +81,7 @@ def _profile_one(target_type: str, n_rows: int, models: tuple[str, ...], seed: i
     # no composite discovery, no ensembles, no diagnostics/dummy baselines, no
     # save/predict. This isolates the train-core path (FTE -> split -> preprocess
     # pipeline -> single hgb fit -> metrics) that EVERY suite call runs.
-    fs_cfg = FeatureSelectionConfig(use_mrmr_fs=False, use_boruta_shap=False)
+    fs_cfg = FeatureSelectionConfig()
 
     profiler = cProfile.Profile()
     status = "OK"

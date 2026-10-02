@@ -58,6 +58,7 @@ def default_worker_count() -> int:
 
         physical = psutil.cpu_count(logical=False) or 0
     except Exception:
+        logger.debug("async render: psutil physical core count unavailable", exc_info=True)
         physical = 0
     if physical <= 0:
         physical = max(1, (os.cpu_count() or 2) // 2)
@@ -71,6 +72,7 @@ def physical_core_count() -> int:
 
         physical = psutil.cpu_count(logical=False) or 0
     except Exception:
+        logger.debug("async render: psutil physical core count unavailable", exc_info=True)
         physical = 0
     return physical if physical > 0 else max(1, (os.cpu_count() or 2) // 2)
 
@@ -154,7 +156,7 @@ def _shutdown_live_queues() -> None:
         try:
             q.close(wait=False)
         except Exception:  # noqa: PERF203 -- per-queue fault isolation; nosec B110 - interpreter is exiting, nothing left to report to
-            pass
+            logger.debug("async render: closing a live queue at exit failed", exc_info=True)
 
 
 atexit.register(_shutdown_live_queues)
@@ -234,13 +236,13 @@ def capture_render_state(nice: int = 0) -> Dict[str, Any]:
 
         state["rcparams"] = {k: v for k, v in matplotlib.rcParams.items() if k not in ("backend",)}
     except Exception:  # nosec B110 - matplotlib optional
-        pass
+        logger.debug("async render: matplotlib rcParams not captured", exc_info=True)
     try:
         import plotly.io as pio
 
         state["plotly_template"] = pio.templates.default
     except Exception:  # nosec B110 - plotly optional
-        pass
+        logger.debug("async render: plotly template not captured", exc_info=True)
     return state
 
 
@@ -313,7 +315,7 @@ class ReportRenderQueue:
         if backend not in ("thread", "process"):
             raise ValueError(f"backend must be 'thread' or 'process', got {backend!r}")
         self.backend = backend
-        self.workers = int(workers) if workers else default_worker_count()
+        self.workers = default_worker_count() if workers is None or int(workers) == 0 else int(workers)
         self.name = name
         self._shm_min = int(shm_min_bytes)
         self._snapshot_max = int(snapshot_max_mb * 1024 * 1024)
@@ -366,6 +368,7 @@ class ReportRenderQueue:
                     try:
                         item()
                     except Exception as exc:
+                        logger.debug("async render: dispatcher item raised", exc_info=True)
                         self._record_internal_failure("render queue dispatcher", exc)
 
             self._dispatcher = threading.Thread(target=_loop, name=f"{self.name}-dispatch", daemon=True)
@@ -412,6 +415,7 @@ class ReportRenderQueue:
             call_args, call_kwargs, descs, nbytes = self._prepare(args, kwargs)
             nbytes += max(int(payload_bytes), 0)
         except Exception as exc:
+            logger.debug("async render: preparing the task failed", exc_info=True)
             self._fail_now(proxy, label, exc)
             return proxy
         waited = self._gate.acquire(nbytes)
@@ -435,6 +439,7 @@ class ReportRenderQueue:
                     with _workers_do_not_reimport_main():
                         inner = ex.submit(_process_entry, fn, call_args, call_kwargs, descs)
             except Exception as exc:
+                logger.debug("async render: submit to the worker pool failed", exc_info=True)
                 self._settle_error(proxy, label, exc, nbytes, descs)
                 return
             inner.add_done_callback(lambda f: self._settle(proxy, label, f, nbytes, descs))
@@ -577,6 +582,7 @@ class ReportRenderQueue:
             try:
                 hook(fut)
             except Exception as exc:  # noqa: PERF203 -- per-hook fault isolation is intentional
+                logger.debug("async render: completion hook raised", exc_info=True)
                 self._record_internal_failure("completion hook", exc)
         return self.summary()
 

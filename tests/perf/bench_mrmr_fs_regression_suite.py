@@ -53,9 +53,9 @@ def run_once(
     tmp_dir = tempfile.mkdtemp(prefix="mlframe_iter145_")
     try:
         if rfecv:
-            fs_cfg = FeatureSelectionConfig(use_mrmr_fs=False, rfecv_models=["lgb_rfecv"])
+            fs_cfg = FeatureSelectionConfig(rfecv={"models": ["lgb_rfecv"]})
         else:
-            fs_cfg = FeatureSelectionConfig(use_mrmr_fs=not no_mrmr)
+            fs_cfg = FeatureSelectionConfig(mrmr=(True if not no_mrmr else None))
         train_mlframe_models_suite(
             df=df,
             target_name="iter145",

@@ -163,7 +163,7 @@ def test_e2e_ltr_suite_group_aware_fs_drops_confounder():
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             target_type=TargetTypes.LEARNING_TO_RANK,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"quantization_nbins": 8}),
+            feature_selection_config=FeatureSelectionConfig(mrmr={"quantization_nbins": 8}),
             reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False),
             output_config=OutputConfig(data_dir=d, models_dir="models", save_charts=False),
             verbose=0,

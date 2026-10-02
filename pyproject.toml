@@ -821,6 +821,7 @@ check-class-attributes = false       # ditto for dataclass/NamedTuple attribute 
 # GHSA comment next to each declaration in [project.optional-dependencies]/[build-system] above)
 # -- never imported directly by mlframe itself, by design.
 DEP002 = [
+    "uncertainty-calibration", "pycddlib-standalone", "polars-ds",  # declared extras whose import name deptry cannot map unless the package is installed (`calibration`, `cdd`, `polars_ds`)
     "catboost", "xgboost", "lightgbm", "torch", "cupy", "shap", "optuna",
     "tqdm", "portalocker", "sentencepiece", "flaml", "altair", "hvplot", "vegafusion", "vl-convert-python", "ipywidgets",
     "anywidget",  # ipywidgets 8's own runtime backend for custom widgets -- the progress widget fails to render without it, but nothing here imports it by name
@@ -880,6 +881,7 @@ DEP001 = [
     # triton (neural/_triton_bootstrap.py, _muon_triton_kernel.py): installed only with the CUDA torch wheels, so a Windows or CPU
     # checkout never resolves it and deptry reports DEP001; where it does resolve it is DEP003 (listed below).
     "triton",
+    "calibration",  # the module of uncertainty-calibration: DEP001 where it is not installed, resolved (and declared) where it is
 ]
 
 # DEP003 (transitive dependency imported directly): mirrors DEP002's stance -- these are pulled in
@@ -920,6 +922,10 @@ DEP003 = [
     # installed independently of numba, which already guarantees its presence whenever the GPU path
     # (the only place this patch runs) is reachable at all.
     "colorama",
+    # Optional libraries imported inside try/except ImportError guards that are NOT declared dependencies (hnswlib is deliberately kept out of the
+    # extras, see the transformer_ann comment above). Like `finance` / `concepts`, deptry reports them as DEP001 "missing" in a clean checkout
+    # (already ignored above) and as DEP003 "transitive" wherever the package happens to be installed, as on a dev box with the optional stacks.
+    "polars_ds", "ngboost", "tensorflow", "keras", "hnswlib", "sksurv", "experiment_impact_tracker", "lightautoml", "sklearnex", "mist_statinf", "gudhi",
 ]
 
 # ---------------------------------------------------------------------------

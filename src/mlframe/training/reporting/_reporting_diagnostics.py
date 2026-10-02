@@ -249,6 +249,29 @@ def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metr
         return None
 
 
+def _predictions_worse_than_the_mean(y_arr: Any, y_pred: Any) -> bool:
+    """Whether a regression model's predictions have R^2 < 0 on the reported rows (a perf heuristic; any failure counts as "not collapsed").
+
+    R^2 < 0 means worse than predicting the mean, so there is NO learnable structure to slice or explain. It triggers regardless of prediction spread:
+    the constant collapse (pred_std ~ 0) AND the group-OOD-shift collapse (high pred_std but predictions drift far off, e.g. R^2=-333 on an
+    extrapolating per-well base) are both pathological.
+    """
+    if y_arr is None or y_pred is None or len(y_pred) != len(y_arr):
+        return False
+    try:
+        ya = np.asarray(y_arr, dtype=np.float64).ravel()
+        yp = np.asarray(y_pred, dtype=np.float64).ravel()
+        finite = np.isfinite(ya) & np.isfinite(yp)
+        if int(finite.sum()) <= 2:
+            return False
+        ss_res = float(np.sum((ya[finite] - yp[finite]) ** 2))
+        ss_tot = float(np.sum((ya[finite] - ya[finite].mean()) ** 2))
+        return (ss_tot > 0) and (1.0 - ss_res / ss_tot < 0.0)
+    except Exception as e:  # -- collapse gate is a perf heuristic; never abort reporting
+        logger.debug("collapse-gate R^2 computation failed: %s", e)
+        return False
+
+
 def _render_post_fit_diagnostics(
     *,
     targets,
@@ -339,23 +362,7 @@ def _render_post_fit_diagnostics(
     # EXPENSIVE diagnostics carry no signal to slice/explain and just burn minutes of slice_finder
     # combo-enumeration + Chromium/kaleido PDP/SHAP charts per collapsed (composite) target. Detect it
     # cheaply from the predictions already in hand and skip those panels; cheap tabular diagnostics run.
-    _collapsed = False
-    if task == "regression" and y_arr is not None and y_pred is not None and len(y_pred) == len(y_arr):
-        try:
-            _ya = np.asarray(y_arr, dtype=np.float64).ravel()
-            _yp = np.asarray(y_pred, dtype=np.float64).ravel()
-            _fin = np.isfinite(_ya) & np.isfinite(_yp)
-            if int(_fin.sum()) > 2:
-                _ss_res = float(np.sum((_ya[_fin] - _yp[_fin]) ** 2))
-                _ss_tot = float(np.sum((_ya[_fin] - _ya[_fin].mean()) ** 2))
-                # A model with R^2 < 0 is worse than predicting the mean -> NO learnable structure to
-                # slice/explain. Trigger on R^2 < 0 regardless of prediction spread: the constant-collapse
-                # (pred_std ~ 0) AND the group-OOD-shift collapse (HIGH pred_std but predictions drift far
-                # off, e.g. addres/diff on an extrapolating per-well base, R^2=-333) are both pathological.
-                _collapsed = (_ss_tot > 0) and (1.0 - _ss_res / _ss_tot < 0.0)
-        except Exception as e:  # -- collapse gate is a perf heuristic; never abort reporting
-            logger.debug("collapse-gate R^2 computation failed: %s", e)
-            _collapsed = False
+    _collapsed = task == "regression" and _predictions_worse_than_the_mean(y_arr, y_pred)
     if _collapsed and getattr(cfg, "skip_expensive_diagnostics_on_collapse", True):
         logger.info(
             "[diagnostics] %s [%s]: R2<0 (predictions worse than the mean -- collapse / OOD-shift) -- "

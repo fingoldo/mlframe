@@ -277,12 +277,12 @@ class TestInlineDisplayOptOut:
 
     def test_setter_helper_controls_display_decision(self, monkeypatch):
         """``set_inline_display_mode`` drives the display decision (via a per-thread override) without
-        callers manipulating ``os.environ``. The contract is the resulting ``_detect_interactive_session``
+        callers manipulating ``os.environ``. The contract is the resulting ``detect_interactive_session``
         verdict, not the storage mechanism."""
         from mlframe.reporting.renderers.save import (
             set_inline_display_mode,
             get_inline_display_mode,
-            _detect_interactive_session,
+            detect_interactive_session,
         )
 
         # Clean slate
@@ -297,26 +297,26 @@ class TestInlineDisplayOptOut:
             monkeypatch.delattr(sys, "ps1")
 
         # auto-detect → False (no kernel + no env var + no override)
-        assert _detect_interactive_session() is False
+        assert detect_interactive_session() is False
         assert get_inline_display_mode() is None
 
         # Force True
         set_inline_display_mode(True)
-        assert _detect_interactive_session() is True
+        assert detect_interactive_session() is True
         assert get_inline_display_mode() is True
         # The override must NOT leak into the process-wide env (isolates concurrent suites).
         assert "MLFRAME_PLOT_INLINE_DISPLAY" not in os.environ
 
         # Force False
         set_inline_display_mode(False)
-        assert _detect_interactive_session() is False
+        assert detect_interactive_session() is False
         assert get_inline_display_mode() is False
         assert "MLFRAME_PLOT_INLINE_DISPLAY" not in os.environ
 
         # Clear → falls back to auto-detect (False with no kernel)
         set_inline_display_mode(None)
         assert get_inline_display_mode() is None
-        assert _detect_interactive_session() is False
+        assert detect_interactive_session() is False
 
         # Reject garbage
         with pytest.raises(ValueError):
@@ -353,19 +353,19 @@ class TestInlineDisplayOptOut:
 
     def test_env_var_fallback_when_no_override(self, monkeypatch):
         """With no per-thread override, the external MLFRAME_PLOT_INLINE_DISPLAY env var still applies."""
-        from mlframe.reporting.renderers.save import get_inline_display_mode, _detect_interactive_session
+        from mlframe.reporting.renderers.save import get_inline_display_mode, detect_interactive_session
 
         monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "1")
         assert get_inline_display_mode() is True
-        assert _detect_interactive_session() is True
+        assert detect_interactive_session() is True
         monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "0")
         assert get_inline_display_mode() is False
-        assert _detect_interactive_session() is False
+        assert detect_interactive_session() is False
 
     def test_unrecognized_env_value_falls_through_to_auto_detect(self, monkeypatch):
         """A typo in the env var (``MLFRAME_PLOT_INLINE_DISPLAY=maybe``)
         must not silently flip behavior — falls through to auto-detect."""
-        from mlframe.reporting.renderers.save import _detect_interactive_session
+        from mlframe.reporting.renderers.save import detect_interactive_session
         import builtins
         import sys
 
@@ -375,4 +375,4 @@ class TestInlineDisplayOptOut:
             monkeypatch.delattr(sys, "ps1")
         monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "maybe")
         # Falls through to auto-detect (False without IPython markers).
-        assert _detect_interactive_session() is False
+        assert detect_interactive_session() is False

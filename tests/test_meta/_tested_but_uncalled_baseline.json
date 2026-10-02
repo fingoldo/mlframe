@@ -63,8 +63,5 @@
   "src/mlframe/training/composite/transforms/_nonlinear_ewma_fracdiff.py::_frac_diff_inverse_compute_batched": "batched frac-diff inverse kernel for many specs at once; kept beside the single-spec kernel production runs",
   "src/mlframe/training/composite/transforms/linear.py::_linear_residual_fit_closed": "scalar closed-form OLS reference the batched solver is bit-identical to",
   "src/mlframe/training/composite/transforms/naming.py::list_transforms": "public API exported for callers; no suite path calls it",
-  "src/mlframe/training/composite/transforms/unary.py::_yj_inverse_scalar": "scalar reference of the vectorised Yeo-Johnson inverse",
-  "src/mlframe/training/composite/transforms/unary.py::chain_bivariate_then_unary_fit": "generic chain building block for callers composing chains by hand; registered chains are built by the chain factory in nonlinear.py",
-  "src/mlframe/training/composite/transforms/unary.py::chain_bivariate_then_unary_forward": "generic chain building block for callers composing chains by hand; registered chains are built by the chain factory in nonlinear.py",
-  "src/mlframe/training/composite/transforms/unary.py::chain_bivariate_then_unary_inverse": "generic chain building block for callers composing chains by hand; registered chains are built by the chain factory in nonlinear.py"
+  "src/mlframe/training/composite/transforms/unary.py::_yj_inverse_scalar": "scalar reference of the vectorised Yeo-Johnson inverse"
 }

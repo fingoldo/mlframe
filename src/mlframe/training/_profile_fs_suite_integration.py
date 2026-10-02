@@ -45,8 +45,7 @@ def _run_once():
     df = _make_frame()
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     fs_cfg = FeatureSelectionConfig(
-        use_mrmr_fs=True,
-        mrmr_kwargs={"verbose": 0, "use_simple_mode": True, "max_runtime_mins": 0.3},
+        mrmr={"verbose": 0, "use_simple_mode": True, "max_runtime_mins": 0.3},
     )
     with tempfile.TemporaryDirectory() as d:
         with warnings.catch_warnings():

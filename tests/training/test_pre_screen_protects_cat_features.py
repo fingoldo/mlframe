@@ -87,11 +87,11 @@ def test_compute_unsupervised_drops_handles_pandas_nullable_int():
     assert "const_nullable_int" in drops
 
 
-class _FSCfg:
-    """Groups tests covering f s cfg."""
-    pre_screen_unsupervised = True
-    pre_screen_variance_threshold = 0.0
-    pre_screen_null_fraction_threshold = 0.99
+def _FSCfg():
+    """The real config with the pre-screen at its defaults (enabled, variance 0.0, null fraction 0.99)."""
+    from mlframe.training.configs import FeatureSelectionConfig
+
+    return FeatureSelectionConfig()
 
 
 def _make_prescreen_ctx(df, *, cat_features=(), text_features=(), embedding_features=(), target_by_type=None):

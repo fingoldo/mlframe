@@ -5,7 +5,7 @@ NOTE: These are regression sensors, not scientific benchmarks. Synthetic data pa
 stably visible across all seeds. If a wiring/logic change breaks feature selection
 tomorrow, these tests will catch it. They do NOT prove the features work on real-world data.
 
-Exercises the suite-level knobs ``use_mrmr_fs`` / ``mrmr_kwargs`` and
+Exercises the suite-level ``mrmr`` / ``rfecv`` sub-configs and
 ``rfecv_models`` / ``rfecv_params`` on ``train_mlframe_models_suite`` and
 asserts the contract a user actually cares about:
 
@@ -22,7 +22,7 @@ Test 3 — **Exposes selected features for inspection.** After a FS-enabled
          selected feature list.
 
 Notes:
-- Uses MRMR (``use_mrmr_fs=True``) as the main selector — cheap to run on a
+- Uses MRMR (``mrmr=...``) as the main selector — cheap to run on a
   55-column dataset vs RFECV's wrapper sweep which is slow on CI.
 - RFECV is covered by a single smoke parametrize in Test 2 to prove both
   selector surfaces honor the runtime-lower contract on wide data.
@@ -183,8 +183,7 @@ def _run_suite(df, tmp_path, *, use_mrmr=False, rfecv=False, iters=30):
     )
     fs_kwargs = {}
     if use_mrmr:
-        fs_kwargs["use_mrmr_fs"] = True
-        fs_kwargs["mrmr_kwargs"] = {
+        fs_kwargs["mrmr"] = {
             "verbose": 0,
             "max_runtime_mins": 1,
             "n_workers": 1,
@@ -202,8 +201,7 @@ def _run_suite(df, tmp_path, *, use_mrmr=False, rfecv=False, iters=30):
             "min_relevance_gain": 0.01,
         }
     if rfecv:
-        fs_kwargs["rfecv_models"] = ["cb_rfecv"]
-        fs_kwargs["rfecv_kwargs"] = {"max_runtime_mins": 1, "max_refits": 3, "cv": 2}
+        fs_kwargs["rfecv"] = {"models": ["cb"], "max_runtime_mins": 1, "max_refits": 3, "cv": 2}
     if fs_kwargs:
         kwargs["feature_selection_config"] = FeatureSelectionConfig(**fs_kwargs)
     t0 = time.perf_counter()

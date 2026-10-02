@@ -28,7 +28,6 @@ from tests.training._fuzz_combo import (
     enumerate_combos,
     log_combo_outcome,
     xfail_reason,
-    build_mrmr_kwargs,
 )
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
@@ -41,7 +40,6 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 from mlframe.training import (
     OutputConfig,
     OutlierDetectionConfig,
-    FeatureSelectionConfig,
     ReportingConfig,
     ConfidenceAnalysisConfig,
 )
@@ -65,7 +63,7 @@ from tests.training._fuzz_suite_helpers import (
     _recurrent_config_for_combo,
     _outlier_detector_for_combo,
     _custom_pre_pipelines_for_combo,
-    _boruta_shap_kwargs_for_combo,
+    _feature_selection_config_for_combo,
     _maybe_to_parquet,
     _preprocessing_for_combo,
     _skip_if_deps_missing,
@@ -212,6 +210,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         _effective_target_type = "regression"
     _combo_tt = {
         "regression": _TT.REGRESSION,
+        "quantile_regression": _TT.QUANTILE_REGRESSION,
         "binary_classification": _TT.BINARY_CLASSIFICATION,
         "multiclass_classification": _TT.MULTICLASS_CLASSIFICATION,
         "multilabel_classification": _TT.MULTILABEL_CLASSIFICATION,
@@ -537,74 +536,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 detector=outlier_detector,
                 apply_to_val=combo.apply_outlier_to_val_cfg,
             ),
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=combo.use_mrmr_fs,
-                # 2026-07-13 -- Batch A: all four flipped True by default;
-                # fs_new_selectors_enabled_cfg exercises the now-non-default
-                # opt-out (False) path for all four together.
-                **_safe_cfg_kwargs(
-                    FeatureSelectionConfig,
-                    use_forward_select_fs=combo.fs_new_selectors_enabled_cfg,
-                    use_greedy_backward_elimination_fs=combo.fs_new_selectors_enabled_cfg,
-                    use_zero_importance_pruning_fs=combo.fs_new_selectors_enabled_cfg,
-                    use_cascade_select_fs=combo.fs_new_selectors_enabled_cfg,
-                ),
-                # 2026-05-18 -- delegate to shared builder. Adding a new
-                # MRMR axis now only edits build_mrmr_kwargs_from_flat in
-                # _fuzz_combo.py; the pytest suite + 1M harness both
-                # consume the same builder.
-                mrmr_kwargs=build_mrmr_kwargs(combo),
-                # rfecv_models: pass exactly the canonical estimator (None when
-                # the combo would mis-use it) — wrap in a single-element list
-                # because the field expects List[str].
-                rfecv_models=([combo._canonical_rfecv_estimator()] if _rfecv_on else None),
-                custom_pre_pipelines=custom_pre or {},
-                # 2026-05-21 iter151 P1-7/P1-8/P2-16/P2-17/P2-18a/P2-18b:
-                # FS-related fill-ins from the audit. Each canonicalised in
-                # FuzzCombo.canonical_key when the gating axis is off.
-                use_boruta_shap=combo.use_boruta_shap_cfg,
-                # 2026-05-21 iter151: BorutaShap fuzz-speed knobs + 2026-06-03/04
-                # FS-coverage axes + 5-min budget, built by the signature-guarded
-                # helper so a knob that is not yet committed is dropped rather than
-                # rejected by the boruta_shap_kwargs validator. None when off.
-                boruta_shap_kwargs=_boruta_shap_kwargs_for_combo(combo),
-                use_sample_weights_in_fs=combo.use_sample_weights_in_fs_cfg,
-                mrmr_identity_cache_scope=combo.mrmr_identity_cache_scope_cfg,
-                skip_identity_equivalent_pre_pipelines=combo.skip_identity_equivalent_pre_pipelines_cfg,
-                rfecv_leakage_corr_threshold=combo.rfecv_leakage_corr_threshold_cfg,
-                rfecv_mbh_adaptive_threshold=combo.rfecv_mbh_adaptive_threshold_cfg,
-                # 2026-05-22 iter170 deep FS knobs (defensive).
-                **_safe_cfg_kwargs(
-                    FeatureSelectionConfig,
-                    rfecv_n_features_selection_rule=(combo.rfecv_n_features_selection_rule_cfg if _rfecv_on else None),
-                    rfecv_stability_selection=(combo.rfecv_stability_selection_cfg if _rfecv_on else False),
-                    rfecv_leakage_action=combo.rfecv_leakage_action_cfg,
-                    # 2026-05-28 pre_screen_null_fraction_threshold axis -- the
-                    # null-fraction sibling of the existing variance threshold
-                    # axis. Gated on fs_pre_screen_unsupervised_cfg in
-                    # canonical_key; thread the value through unconditionally
-                    # here (the suite already builds the FS config only when
-                    # the pre-screen branch fires).
-                    pre_screen_null_fraction_threshold=combo.fs_pre_screen_null_fraction_threshold_cfg,
-                    # 2026-06-03 FS-coverage audit -- these two axes were
-                    # sampled + canonicalised (distinct dedup buckets) and
-                    # applied in _build_combo, BUT the value never reached
-                    # FeatureSelectionConfig, so every combo ran with the field
-                    # defaults (pre_screen_unsupervised=True, variance=0.0). The
-                    # False / 0.01 samples were INERT. Thread them through here
-                    # so the unsupervised-prescreen OFF branch + the non-zero
-                    # variance-floor drop branch actually exercise.
-                    pre_screen_unsupervised=combo.fs_pre_screen_unsupervised_cfg,
-                    pre_screen_variance_threshold=combo.fs_pre_screen_variance_threshold_cfg,
-                    # RFECV first-class lever fields (D-surface). canonical_key collapses each to the dataclass default
-                    # unless an RFECV selector is in the chain, so they never split dedup buckets when RFECV is off --
-                    # but that's DEDUP identity only, not the value passed here, so gate on ``_rfecv_on`` too (else a
-                    # non-default sample folds into rfecv_kwargs with rfecv_models=None and raises).
-                    rfecv_enable_permutation_importance=(combo.rfecv_enable_permutation_importance_cfg if _rfecv_on else False),
-                    rfecv_prescreen=(combo.rfecv_prescreen_cfg if _rfecv_on else None),
-                    rfecv_swap_top_k=(combo.rfecv_swap_top_k_cfg if _rfecv_on else None),
-                ),
-            ),
+            feature_selection_config=_feature_selection_config_for_combo(combo, _rfecv_on, custom_pre),
             # Chart rendering is OFF by default (the ~150-combo × ~5-fig run compounds to >2 GB and historically blew up pytest's traceback
             # formatter with MemoryError / INTERNALERROR, 2026-04-27). The enable_viz_rendering_cfg axis turns it ON for a gated subset (small
             # n_rows tier only, see canonical_key) so the chart/report-generation code (perf chart, FI, calibration/reliability, slice_finder,

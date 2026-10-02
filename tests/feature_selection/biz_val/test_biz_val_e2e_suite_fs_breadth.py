@@ -239,7 +239,7 @@ def test_biz_val_suite_mrmr_multiclass_excludes_noise():
         df,
         fte,
         TargetTypes.MULTICLASS_CLASSIFICATION,
-        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_mrmr_kw),
+        FeatureSelectionConfig(mrmr=_mrmr_kw),
     )
     used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model produced (use_mrmr_fs=True ignored?)"
@@ -273,7 +273,7 @@ def test_biz_val_suite_rfecv_regression_excludes_noise():
         df,
         fte,
         TargetTypes.REGRESSION,
-        FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
+        FeatureSelectionConfig(rfecv={"models": ["cb_rfecv"]}),
     )
     used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no RFECV-branch model produced (rfecv_models ignored?)"
@@ -329,7 +329,7 @@ def test_biz_val_suite_mrmr_mixed_features_excludes_noise():
         df,
         fte,
         TargetTypes.BINARY_CLASSIFICATION,
-        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+        FeatureSelectionConfig(mrmr=_MRMR_KW),
     )
     used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model produced on mixed-feature frame"
@@ -386,7 +386,7 @@ def test_biz_val_suite_mrmr_reduces_multicollinear_pollution():
         df,
         fte,
         TargetTypes.BINARY_CLASSIFICATION,
-        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+        FeatureSelectionConfig(mrmr=_MRMR_KW),
     )
     used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model on multicollinear frame"
@@ -433,7 +433,7 @@ def test_biz_val_suite_mrmr_fs_isolated_from_other_stages():
         df,
         fte,
         TargetTypes.BINARY_CLASSIFICATION,
-        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+        FeatureSelectionConfig(mrmr=_MRMR_KW),
     )
 
     used, _fs_model = _fs_model_used_features(inner)
@@ -484,7 +484,7 @@ def test_biz_val_suite_mrmr_ltr_excludes_noise():
         df,
         fte,
         TargetTypes.LEARNING_TO_RANK,
-        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+        FeatureSelectionConfig(mrmr=_MRMR_KW),
     )
     used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model produced for LtR (use_mrmr_fs=True ignored?)"
@@ -550,7 +550,7 @@ def test_biz_val_suite_mrmr_quantile_regression_excludes_noise():
         df,
         fte,
         TargetTypes.QUANTILE_REGRESSION,
-        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+        FeatureSelectionConfig(mrmr=_MRMR_KW),
     )
     _assert_noise_excluded(inner, signal_cols, noise_cols)
     _assert_suite_predicts(df, _res, _meta, fte)
@@ -568,7 +568,7 @@ def test_biz_val_suite_mrmr_multilabel_excludes_noise():
         df,
         fte,
         TargetTypes.MULTILABEL_CLASSIFICATION,
-        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+        FeatureSelectionConfig(mrmr=_MRMR_KW),
     )
     _assert_noise_excluded(inner, signal_cols, noise_cols)
     _assert_suite_predicts(df, _res, _meta, fte)
@@ -586,7 +586,7 @@ def test_biz_val_suite_mrmr_multi_target_regression_excludes_noise():
         df,
         fte,
         TargetTypes.MULTI_TARGET_REGRESSION,
-        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+        FeatureSelectionConfig(mrmr=_MRMR_KW),
     )
     _assert_noise_excluded(inner, signal_cols, noise_cols)
     _assert_suite_predicts(df, _res, _meta, fte)

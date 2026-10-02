@@ -406,6 +406,61 @@ def _polars_schema_drift(model: Any, X: Any) -> str:
     return "; ".join(parts) + "."
 
 
+def _fill_cb_cat_nan_sentinel(model: Any, X: pd.DataFrame) -> pd.DataFrame:
+    """Fill NaN cells of the model's categorical columns with ``__MISSING__`` before ``predict``; returns ``X`` (a shallow copy when it changed).
+
+    CatBoost.predict() rejects category-dtype columns containing NaN cells with "Invalid type for cat_feature ... NaN: cat_features must be integer
+    or string". The OOV-null mode of the joint train+val categorical alignment leaves val/test rows with values not in the joint union as NaN;
+    without this guard predict crashes the moment a held-out row carries an unseen cat value. Mirrors the training-time ``__MISSING__`` fill the
+    suite uses at fit time.
+    """
+    try:
+        _feat_names_list = list(getattr(model, "feature_names_", []) or [])
+        _cat_idx_list = list(getattr(model, "_get_cat_feature_indices", lambda: [])() or [])
+        _cat_names = [_feat_names_list[i] for i in _cat_idx_list if 0 <= i < len(_feat_names_list)]
+        _cat_in_df = [c for c in _cat_names if c in X.columns]
+        if _cat_in_df:
+            _has_any_nan_in_cat = any(X[c].isna().any() for c in _cat_in_df)
+            if _has_any_nan_in_cat:
+                # Shallow copy: only the cat columns carrying NaN are reassigned below; deep-copying a 100+ GB predict frame to mutate a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+                X = X.copy(deep=False) if not getattr(X, "_mlframe_filled", False) else X
+                for _c in _cat_in_df:
+                    if X[_c].isna().any():
+                        _orig = X[_c]
+                        X[_c] = _orig.astype("string").fillna("__MISSING__")
+                        if isinstance(_orig.dtype, pd.CategoricalDtype):
+                            X[_c] = X[_c].astype("category")
+                X._mlframe_filled = True
+    except Exception as e:
+        logger.debug("swallowed exception in _cb_pool.py: %s", e)
+        pass
+    return X
+
+
+def _sticky_pandas_detail(model: Any) -> str:
+    """Why the CatBoost polars fastpath is off for this model, for the one-off INFO line (says which of the two possible reasons applies)."""
+    # The flag is sticky per MODEL (one earlier dispatch miss, or the build pre-flag), while the probe answers for the installed build on a
+    # fixed probe frame, so the two can disagree; the message has to say which one applies instead of asserting both.
+    try:
+        from mlframe.training._polars_native_support import accepts_polars
+
+        _native = accepts_polars("catboost")
+    except Exception as exc:
+        logger.debug("polars-native probe failed (%s: %s); the message omits the library's own answer", type(exc).__name__, exc)
+        _native = None
+    _miss_observed = bool(getattr(model, "_mlframe_polars_fastpath_miss_observed", False))
+    if _miss_observed and _native:
+        _detail = (
+            "The installed CatBoost accepts the probe frame, so the rejection is specific to this model's data "
+            "(typically a categorical column carrying nulls), not a library-wide gap"
+        )
+    elif _native is False:
+        _detail = "The installed CatBoost failed the polars probe frame, so the polars fastpath is unavailable on this build"
+    else:
+        _detail = "The installed CatBoost's polars support could not be probed"
+    return _detail
+
+
 def _predict_with_fallback(
     model: Any,
     X: Any,
@@ -440,34 +495,8 @@ def _predict_with_fallback(
     )
 
     # ── 0. CB cat-feature NaN sentinel-fill at predict time ──────────
-    # CatBoost.predict() rejects category-dtype columns containing NaN
-    # cells with "Invalid type for cat_feature ... NaN: cat_features must
-    # be integer or string". The OOV-null mode of the joint train+val
-    # categorical alignment leaves val/test rows with values not in the
-    # joint union as NaN; without this guard predict crashes the moment a
-    # held-out row carries an unseen cat value. Mirror the training-time
-    # ``__MISSING__`` fill the suite uses at fit time.
     if _model_type in CATBOOST_MODEL_TYPES and isinstance(X, pd.DataFrame):
-        try:
-            _feat_names_list = list(getattr(model, "feature_names_", []) or [])
-            _cat_idx_list = list(getattr(model, "_get_cat_feature_indices", lambda: [])() or [])
-            _cat_names = [_feat_names_list[i] for i in _cat_idx_list if 0 <= i < len(_feat_names_list)]
-            _cat_in_df = [c for c in _cat_names if c in X.columns]
-            if _cat_in_df:
-                _has_any_nan_in_cat = any(X[c].isna().any() for c in _cat_in_df)
-                if _has_any_nan_in_cat:
-                    # Shallow copy: only the cat columns carrying NaN are reassigned below; deep-copying a 100+ GB predict frame to mutate a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
-                    X = X.copy(deep=False) if not getattr(X, "_mlframe_filled", False) else X
-                    for _c in _cat_in_df:
-                        if X[_c].isna().any():
-                            _orig = X[_c]
-                            X[_c] = _orig.astype("string").fillna("__MISSING__")
-                            if isinstance(_orig.dtype, pd.CategoricalDtype):
-                                X[_c] = X[_c].astype("category")
-                    X._mlframe_filled = True
-        except Exception as e:
-            logger.debug("swallowed exception in _cb_pool.py: %s", e)
-            pass
+        X = _fill_cb_cat_nan_sentinel(model, X)
 
     # ── 1. LGBM Polars → pandas auto-convert ──────────────────────────
     X = _ensure_lgbm_gets_pandas(model, X, method)
@@ -495,25 +524,7 @@ def _predict_with_fallback(
     if _is_cb and _pl_df is not type(None) and isinstance(X, _pl_df):
         X = fill_nullable_cat_columns(model, X)  # after the val-Pool lookup above, which is keyed on the caller's frame identity
     if _pl_df is not type(None) and isinstance(X, _pl_df) and _is_cb and getattr(model, "_mlframe_polars_fastpath_broken", False):
-        # The flag is sticky per MODEL (one earlier dispatch miss, or the build pre-flag), while the probe answers for the installed build on a
-        # fixed probe frame, so the two can disagree; the message has to say which one applies instead of asserting both.
-        try:
-            from mlframe.training._polars_native_support import accepts_polars
-
-            _native = accepts_polars("catboost")
-        except Exception as exc:
-            logger.debug("polars-native probe failed (%s: %s); the message omits the library's own answer", type(exc).__name__, exc)
-            _native = None
-        _miss_observed = bool(getattr(model, "_mlframe_polars_fastpath_miss_observed", False))
-        if _miss_observed and _native:
-            _detail = (
-                "The installed CatBoost accepts the probe frame, so the rejection is specific to this model's data "
-                "(typically a categorical column carrying nulls), not a library-wide gap"
-            )
-        elif _native is False:
-            _detail = "The installed CatBoost failed the polars probe frame, so the polars fastpath is unavailable on this build"
-        else:
-            _detail = "The installed CatBoost's polars support could not be probed"
+        _detail = _sticky_pandas_detail(model)
         log_throttle(
             logger, "cb_sticky_pandas_predict", logging.INFO,
             "  [predict] CatBoost frames are converted to pandas from here on because %s. %s.",

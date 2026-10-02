@@ -37,7 +37,7 @@ def test_pre_reduction_log_explains_correlation_clusters_and_opt_out(caplog):
     first = next(m for m in _messages(caplog) if "original features ->" in m)
     assert "correlation-cluster pre-reduction (not a groups column)" in first
     assert "6 original features -> 4 clusters" in first
-    assert "FeatureSelectionConfig(rfecv_cluster_reduce=False)" in first
+    assert "FeatureSelectionConfig(rfecv={'cluster': {'enable': False}})" in first
 
 
 def test_fit_logs_kept_original_feature_count_and_names(caplog):

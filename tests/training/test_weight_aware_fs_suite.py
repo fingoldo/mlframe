@@ -122,23 +122,7 @@ def _mrmr_fs_config(use_sample_weights_in_fs: bool, *, selection_quality: bool =
     pick whose own warning says the support carries no signal, so those assertions were reading noise. Measured
     on the flag_true case: fast mode fails, exact mode passes in 116s, affordable where the answer has to be
     real. ``fe_max_steps=0`` stays on either way -- no test in this file checks FE quality."""
-    return FeatureSelectionConfig(
-        use_mrmr_fs=True,
-        use_sample_weights_in_fs=use_sample_weights_in_fs,
-        mrmr_kwargs={
-            "verbose": 0,
-            "max_runtime_mins": 1,
-            "n_workers": 1,
-            "quantization_nbins": 5,
-            "use_simple_mode": True,
-            "random_seed": _SEED,
-            "nbins_strategy_kwargs": {"mdlp_fast_mode": not selection_quality},  # 20-80x faster per column; see the docstring
-            "fe_max_steps": 0,  # this test only checks sample_weight forwarding + target types, not FE quality --
-            # the FE stage's joblib.Parallel dispatch doesn't inherit max_runtime_mins (thread-local deadline,
-            # documented gap: doesn't cross the joblib worker boundary), so it stayed the dominant cost even
-            # after mdlp_fast_mode (313s -> 301s, barely moved) under NUMBA_DISABLE_JIT=1.
-        },
-    )
+    return FeatureSelectionConfig(use_sample_weights_in_fs=use_sample_weights_in_fs, mrmr={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'random_seed': _SEED, 'nbins_strategy_kwargs': {'mdlp_fast_mode': not selection_quality}, 'fe_max_steps': 0})
 
 
 def _install_mrmr_fit_spy(monkeypatch):

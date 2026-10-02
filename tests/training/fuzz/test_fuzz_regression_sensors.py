@@ -144,10 +144,7 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
         use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         verbose=0,
-        feature_selection_config=FeatureSelectionConfig(
-            use_mrmr_fs=combo.use_mrmr_fs,
-            mrmr_kwargs=mrmr_kwargs,
-        ),
+        feature_selection_config=FeatureSelectionConfig(mrmr=(mrmr_kwargs if combo.use_mrmr_fs else None)),
         pipeline_config=PreprocessingBackendConfig(
             prefer_polarsds=combo.prefer_polarsds,
         ),

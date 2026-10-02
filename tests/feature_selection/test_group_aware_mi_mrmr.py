@@ -121,15 +121,16 @@ def test_group_aware_keeps_sign_flipping_within_group_signal():
 
 
 def test_fs_config_lever_folds_group_aware_mi_into_mrmr_kwargs():
-    """The ``FeatureSelectionConfig.mrmr_group_aware_mi`` first-class lever folds into ``mrmr_kwargs`` (D-surface)."""
+    """The group-aware MI knobs are MRMR constructor parameters carried by ``FeatureSelectionConfig(mrmr=...)``."""
     from mlframe.training._feature_selection_config import FeatureSelectionConfig
 
-    cfg = FeatureSelectionConfig(use_mrmr_fs=True, mrmr_group_aware_mi=True, mrmr_group_mi_min_rows=25, mrmr_group_mi_aggregate="equal")
-    assert cfg.mrmr_kwargs["group_aware_mi"] is True
-    assert cfg.mrmr_kwargs["group_mi_min_rows"] == 25
-    assert cfg.mrmr_kwargs["group_mi_aggregate"] == "equal"
-    # default off -> merges nothing (byte-identical to today)
-    assert not (FeatureSelectionConfig().mrmr_kwargs or {}).get("group_aware_mi")
+    cfg = FeatureSelectionConfig(mrmr={"group_aware_mi": True, "group_mi_min_rows": 25, "group_mi_aggregate": "equal"})
+    kwargs = cfg.selector_kwargs("mrmr")
+    assert kwargs["group_aware_mi"] is True
+    assert kwargs["group_mi_min_rows"] == 25
+    assert kwargs["group_mi_aggregate"] == "equal"
+    # default off -> MRMR is not configured at all
+    assert FeatureSelectionConfig().selector_kwargs("mrmr") is None
 
 
 def test_fit_cache_key_folds_groups_signature():

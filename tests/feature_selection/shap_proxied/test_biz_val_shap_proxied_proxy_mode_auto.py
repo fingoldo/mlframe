@@ -166,15 +166,18 @@ def test_biz_val_proxy_mode_auto_gate_silent_on_additive_bed():
     X, y = _pure_additive_bed(n=2000, p_noise=194, n_informative=6, seed=0)
     n_features = X.shape[1]
 
-    sel_add = _shap_sel("additive", n_features)
-    t0 = time.perf_counter()
-    sel_add.fit(X, y)
-    add_wall = time.perf_counter() - t0
+    def _best_of_three(mode):
+        """The last fitted selector and the fastest of three fit walls (one shared-runner hiccup must not decide a 1.10x ratio)."""
+        walls = []
+        for _ in range(3):
+            sel = _shap_sel(mode, n_features)
+            t0 = time.perf_counter()
+            sel.fit(X, y)
+            walls.append(time.perf_counter() - t0)
+        return sel, min(walls)
 
-    sel_auto = _shap_sel("auto", n_features)
-    t0 = time.perf_counter()
-    sel_auto.fit(X, y)
-    auto_wall = time.perf_counter() - t0
+    sel_add, add_wall = _best_of_three("additive")
+    sel_auto, auto_wall = _best_of_three("auto")
 
     rep = sel_auto.shap_proxy_report_.get("su_seeded_interactions", {})
     assert rep.get("n_kept_pairs", -1) == 0, f"screen unexpectedly kept pairs on a purely additive bed: {rep}"

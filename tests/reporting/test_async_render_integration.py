@@ -49,6 +49,7 @@ def test_async_render_matches_inline_render_file_for_file(tmp_path):
         for i, y in enumerate(ys):
             render_and_save(_spec(y), _DSL, os.path.join(sync_dir, f"fig{i}"), interactive=False)
         with ReportRenderQueue(backend="thread", workers=1) as q, render_queue_scope(q):
+            assert ys
             for i, y in enumerate(ys):
                 assert render_and_save(_spec(y), _DSL, os.path.join(async_dir, f"fig{i}"), interactive=False) is None
             summary = q.join()

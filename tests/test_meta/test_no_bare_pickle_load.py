@@ -24,6 +24,9 @@ _SRC_ROOT = _REPO_ROOT / "src" / "mlframe"
 # Express the whitelist as POSIX-rel paths so the test runs identically on Windows.
 WHITELIST: set[str] = {
     "src/mlframe/utils/safe_pickle.py",  # the helper that implements safe_load
+    # reporting benches: load the spec file they pickled themselves a few lines earlier in the same run (a temp file this process wrote).
+    "src/mlframe/reporting/_benchmarks/bench_async_render_overlap.py",
+    "src/mlframe/reporting/_benchmarks/bench_gil_contention.py",
     # round4 fs_hybrid benchmark scripts: standalone dev benches (never imported by prod) that load
     # ONLY their own self-produced local checkpoint caches under a fixed bench dir -- the file path is
     # author-controlled, never attacker-controlled, so the safe_pickle sidecar gate adds no security value here.

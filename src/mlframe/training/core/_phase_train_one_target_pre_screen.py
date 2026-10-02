@@ -30,7 +30,7 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
     re-fire the screen on every target.
     """
     _fs_cfg = ctx.feature_selection_config
-    if not (_fs_cfg is not None and getattr(_fs_cfg, "pre_screen_unsupervised", False) and not ctx._pre_screen_done):
+    if not (_fs_cfg is not None and getattr(getattr(_fs_cfg, "pre_screen", None), "enable", False) and not ctx._pre_screen_done):
         return
     try:
         # Canonical home is ``mlframe.feature_selection.pre_screen`` (not under ``.filters``).
@@ -102,8 +102,8 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
         )
         _drops = compute_unsupervised_drops(
             _train_for_screen,
-            variance_threshold=getattr(_fs_cfg, "pre_screen_variance_threshold", 0.0),
-            null_fraction_threshold=getattr(_fs_cfg, "pre_screen_null_fraction_threshold", 0.99),
+            variance_threshold=getattr(getattr(_fs_cfg, "pre_screen", None), "variance_threshold", 0.0),
+            null_fraction_threshold=getattr(getattr(_fs_cfg, "pre_screen", None), "null_fraction_threshold", 0.99),
             protected_columns=_protected,
         )
         ctx._pre_screen_dropped_cols = list(_drops)
@@ -143,8 +143,8 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
                 logger.info(
                     "[pre-screen] dropped %d column(s) suite-wide (variance=%s, null_fraction>%s): %s",
                     len(_drops),
-                    getattr(_fs_cfg, "pre_screen_variance_threshold", 0.0),
-                    getattr(_fs_cfg, "pre_screen_null_fraction_threshold", 0.99),
+                    getattr(getattr(_fs_cfg, "pre_screen", None), "variance_threshold", 0.0),
+                    getattr(getattr(_fs_cfg, "pre_screen", None), "null_fraction_threshold", 0.99),
                     _drops[:20] + (["..."] if len(_drops) > 20 else []),
                 )
     except Exception as _e:

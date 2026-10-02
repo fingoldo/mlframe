@@ -319,7 +319,8 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         if (combo.test_size_cfg + 0.1 + _calib_eff) >= 1.0:
             _calib_eff = None
     # conformal_size is a SECOND holdout; the split-config validator enforces test + val(0.1) + calib + conformal <= 1.0.
-    _conformal_eff = combo.conformal_size_cfg
+    # TrainingSplitConfig rejects conformal_size until a production path carves the slice, so the axis stays inert.
+    _conformal_eff = None
     if _conformal_eff is not None:
         if (combo.test_size_cfg + 0.1 + (_calib_eff or 0.0) + _conformal_eff) > 1.0:
             _conformal_eff = None
@@ -963,3 +964,51 @@ def _assert_serialization_roundtrip(trained, data_dir: str, combo) -> None:
     # (the trained pipeline / model). Not asserting specific type — the
     # wrapper class can evolve; catching "can't unpickle" is the goal.
     assert obj is not None, f"I4: joblib.load returned None for {files[0]}"
+
+
+def _feature_selection_config_for_combo(combo: FuzzCombo, rfecv_on: bool, custom_pre_pipelines=None):
+    """Nested ``FeatureSelectionConfig`` for ``combo``: a selector is enabled by writing its sub-config, so each axis that is off writes nothing.
+
+    RFECV levers are written only when an RFECV selector is in the chain (``rfecv_on``), because a non-default lever on a disabled selector has
+    nowhere to go.
+    """
+    from mlframe.training.configs import FeatureSelectionConfig
+    from ._fuzz_combo import build_mrmr_kwargs
+
+    selectors = {}
+    if combo.use_mrmr_fs:
+        selectors["mrmr"] = {**(build_mrmr_kwargs(combo) or {}), "identity_cache_scope": combo.mrmr_identity_cache_scope_cfg}
+    if combo.fs_new_selectors_enabled_cfg:
+        for name in ("forward_select", "greedy_backward_elimination", "zero_importance_pruning", "cascade_select"):
+            selectors[name] = True
+    boruta = _boruta_shap_kwargs_for_combo(combo)
+    if boruta is not None:
+        selectors["boruta_shap"] = boruta
+    elif combo.use_boruta_shap_cfg:
+        selectors["boruta_shap"] = True
+    if rfecv_on:
+        rfecv = {
+            "models": [combo._canonical_rfecv_estimator()],
+            "leakage_corr_threshold": combo.rfecv_leakage_corr_threshold_cfg,
+            "mbh_adaptive_threshold": combo.rfecv_mbh_adaptive_threshold_cfg,
+            "leakage_action": combo.rfecv_leakage_action_cfg,
+            "n_features_selection_rule": combo.rfecv_n_features_selection_rule_cfg,
+            "stability_selection": combo.rfecv_stability_selection_cfg,
+            "prescreen": combo.rfecv_prescreen_cfg,
+            "swap_top_k": combo.rfecv_swap_top_k_cfg,
+        }
+        if combo.rfecv_enable_permutation_importance_cfg:
+            rfecv["importance_getter"] = "permutation"
+        selectors["rfecv"] = {k: v for k, v in rfecv.items() if v is not None}
+    pre_screen = {
+        "enable": combo.fs_pre_screen_unsupervised_cfg,
+        "variance_threshold": combo.fs_pre_screen_variance_threshold_cfg,
+        "null_fraction_threshold": combo.fs_pre_screen_null_fraction_threshold_cfg,
+    }
+    return FeatureSelectionConfig(
+        **selectors,
+        custom_pre_pipelines=custom_pre_pipelines or {},
+        pre_screen={k: v for k, v in pre_screen.items() if v is not None},
+        use_sample_weights_in_fs=combo.use_sample_weights_in_fs_cfg,
+        skip_identity_equivalent_pre_pipelines=combo.skip_identity_equivalent_pre_pipelines_cfg,
+    )

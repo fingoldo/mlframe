@@ -299,14 +299,14 @@ def test_ace_config_flag_and_kwargs_validation():
     """Ace config flag and kwargs validation."""
     from mlframe.training._feature_selection_config import FeatureSelectionConfig
 
-    cfg = FeatureSelectionConfig(use_ace_fs=True, ace_kwargs={"n_replicates": 10})
-    assert cfg.use_ace_fs is True and cfg.ace_kwargs == {"n_replicates": 10}
-    # kwargs without the master flag is a loud config error (mirrors shap-proxied).
-    with pytest.raises(ValueError):
-        FeatureSelectionConfig(ace_kwargs={"n_replicates": 10})
+    cfg = FeatureSelectionConfig(ace={"n_replicates": 10})
+    assert cfg.selector_kwargs("ace") == {"n_replicates": 10}
+    assert FeatureSelectionConfig().selector_kwargs("ace") is None
+    with pytest.raises(ValueError, match="no_such_knob"):
+        FeatureSelectionConfig(ace={"no_such_knob": 10})
     # unknown kwarg key rejected at config time.
     with pytest.raises(ValueError):
-        FeatureSelectionConfig(use_ace_fs=True, ace_kwargs={"not_a_real_knob": 1})
+        FeatureSelectionConfig(ace={"not_a_real_knob": 1})
 
 
 def test_compare_selectors_jaccard_matches_core_implementation():

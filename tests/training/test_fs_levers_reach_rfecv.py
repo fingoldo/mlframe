@@ -1,7 +1,6 @@
-"""The first-class ``rfecv_*`` levers and ``rfecv_kwargs`` of FeatureSelectionConfig reach the RFECV the suite builds.
+"""The ``rfecv`` sub-config of FeatureSelectionConfig reaches the RFECV the suite builds.
 
-They used to fold into ``rfecv_kwargs`` and stop there: nothing read the dict, so ``rfecv_must_include`` and the other seven
-levers changed the config but not the selector.
+The levers (``must_include`` and the other seven) used to fold into a dict nothing read, so they changed the config but not the selector.
 """
 
 from __future__ import annotations
@@ -23,24 +22,14 @@ def _built_rfecv(fsc: FeatureSelectionConfig):
         use_mrmr_fs=False,
         mrmr_kwargs={},
         rfecv_cluster_reduce=False,
-        rfecv_overrides=fsc.rfecv_kwargs,
+        **{"rfecv_leakage_corr_threshold": fsc.rfecv.leakage_corr_threshold, "rfecv_overrides": fsc.rfecv.to_kwargs()},
     )
     return pre[0]
 
 
 def test_every_lever_reaches_the_rfecv_instance():
     """Each lever lands on the constructor parameter it folds into."""
-    fsc = FeatureSelectionConfig(
-        rfecv_models=["cb"],
-        rfecv_must_include=["a"],
-        rfecv_must_exclude=["b"],
-        rfecv_feature_groups={"g": ["c", "d"]},
-        rfecv_n_features_selection_rule="one_se_max",
-        rfecv_enable_stability_selection=True,
-        rfecv_enable_permutation_importance=True,
-        rfecv_prescreen="univariate_ht",
-        rfecv_swap_top_k=2,
-    )
+    fsc = FeatureSelectionConfig(rfecv={'models': ['cb'], 'must_include': ['a'], 'must_exclude': ['b'], 'feature_groups': {'g': ['c', 'd']}, 'n_features_selection_rule': 'one_se_max', 'stability_selection': True, 'prescreen': 'univariate_ht', 'swap_top_k': 2, 'importance_getter': 'permutation'})
     rfecv = _built_rfecv(fsc)
     assert list(rfecv.must_include) == ["a"]
     assert list(rfecv.must_exclude) == ["b"]
@@ -52,22 +41,16 @@ def test_every_lever_reaches_the_rfecv_instance():
     assert rfecv.swap_top_k == 2
 
 
-def test_rfecv_kwargs_reach_the_instance_and_cv_n_splits_becomes_cv():
-    """A plain constructor key is applied, and the config-level fold count becomes ``cv=<int>``."""
-    rfecv = _built_rfecv(FeatureSelectionConfig(rfecv_models=["cb"], rfecv_kwargs={"max_runtime_mins": 7.0, "cv_n_splits": 4}))
+def test_plain_constructor_parameters_reach_the_instance():
+    """Any ``RFECV.__init__`` parameter written in the sub-config is applied, ``cv`` included."""
+    rfecv = _built_rfecv(FeatureSelectionConfig(rfecv={"max_runtime_mins": 7.0, "cv": 4, "models": ["cb"]}))
     assert rfecv.max_runtime_mins == 7.0
     assert rfecv.cv == 4
 
 
-def test_an_explicit_cv_wins_over_cv_n_splits():
-    """``cv_n_splits`` only fills in a missing ``cv``."""
-    rfecv = _built_rfecv(FeatureSelectionConfig(rfecv_models=["cb"], rfecv_kwargs={"cv": 3, "cv_n_splits": 9}))
-    assert rfecv.cv == 3
-
-
 def test_an_unset_config_leaves_the_instance_alone():
     """No lever, no override: the RFECV keeps its constructor defaults."""
-    rfecv = _built_rfecv(FeatureSelectionConfig(rfecv_models=["cb"]))
+    rfecv = _built_rfecv(FeatureSelectionConfig(rfecv={"models": ["cb"]}))
     assert rfecv.must_include is None and rfecv.swap_top_k == 0 and rfecv.n_features_selection_rule == "auto"
 
 

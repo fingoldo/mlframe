@@ -19,8 +19,8 @@ from mlframe.training.pipeline import _per_target_supervised_fe as ptsfe
 def _ctx(frame):
     """A minimal suite context carrying ``frame`` as the train frame, with unsupervised pre-screening on."""
     return SimpleNamespace(
-        feature_selection_config=SimpleNamespace(pre_screen_unsupervised=True, pre_screen_variance_threshold=0.0,
-                                                 pre_screen_null_fraction_threshold=0.99),
+        feature_selection_config=SimpleNamespace(
+            pre_screen=SimpleNamespace(enable=True, variance_threshold=0.0, null_fraction_threshold=0.99)),
         _pre_screen_done=False, _pre_screen_dropped_cols=[], target_by_type={"regression": {"y1": None, "y2": None}},
         cat_features=[], verbose=0, metadata={}, slug_to_original_target_type={},
         filtered_train_df=frame, filtered_val_df=None, train_df_pd=frame, val_df_pd=None, test_df_pd=None,

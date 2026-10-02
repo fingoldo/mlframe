@@ -177,9 +177,9 @@ def start_suite_render_queue(reporting_config: Any, *, save_charts: bool, data_d
         if not resolve_async_render(setting, save_charts=save_charts, data_dir=data_dir):
             return None
         if str(setting).strip().lower() == "auto":
-            from mlframe.reporting.renderers.save import _detect_interactive_session
+            from mlframe.reporting.renderers.save import detect_interactive_session
 
-            if _detect_interactive_session():
+            if detect_interactive_session():
                 return None  # inline display must stay in order; nothing would be deferred anyway
         backend = str(getattr(reporting_config, "async_render_backend", "thread"))
         cap_mb = float(getattr(reporting_config, "async_render_max_pending_mb", 512.0))

@@ -542,55 +542,55 @@ def _render_prediction_stability_panels(ctx: "TrainingContext") -> None:
         logger.info("[prediction_stability] rendered %d ensemble member-disagreement panel(s).", _n)
 
 
+def _run_best_effort_passes(ctx: Any, passes: tuple) -> None:
+    """Run each ``(tag, pass)`` on ``ctx`` in order; a pass that raises is logged under its tag and never stops the rest."""
+    for tag, fn in passes:
+        _run_best_effort_pass(ctx, tag, fn)
+
+
+def _run_best_effort_pass(ctx: Any, tag: str, fn: Any) -> None:
+    """Run one finalize pass; a raise is logged (throttled, keyed by ``tag``) and swallowed."""
+    try:
+        fn(ctx)
+    except Exception as err:
+        log_throttle(logger, f"finalize_pass_{tag}", logging.WARNING, "[%s] finalize pass failed: %s", tag, err)
+
+
+def _join_async_charts(ctx: Any) -> None:
+    """Wait for the suite's async chart queue and fold its failures into ``ctx.metadata``; a failing join is logged, never raised."""
+    try:
+        from mlframe.reporting.async_render_hooks import active_render_queue, join_suite_render_queue
+
+        join_suite_render_queue(active_render_queue(), ctx.metadata)
+    except Exception as _ar_err:
+        logger.warning("[async-render] join before finalize failed: %s", _ar_err)
+
+
 def finalize_suite(ctx: TrainingContext) -> dict:
     """Aggregate fairness reports, save metadata, emit phase/rendering summaries, surface selected features.
 
     Returns ``ctx.metadata`` (also mutated in-place) so legacy callers keeping a ``metadata = finalize_suite(ctx)`` rebind keep working.
     """
-    # Auto-calibrate per-target models on the disjoint calib slice (calib_size>0) BEFORE the metadata /
-    # ensemble-composition walks so they see the calibrated wrappers + stamped calibrated_<split>_probs.
-    try:
-        _auto_calibrate_on_calib_slice(ctx)
-    except Exception as _cal_err:
-        logger.warning("[calib] auto-calibration pass failed: %s", _cal_err)
-
-    # Flag binary isotonic calibrators fit above that are tracking per-point noise. ON by default (check_isotonic_overfit_risk).
-    try:
-        _isotonic_overfit_risk_check(ctx)
-    except Exception as _iso_err:
-        logger.warning("[isotonic_risk] finalize pass failed: %s", _iso_err)
-
-    # Fit an optimized binary decision threshold (+ optional per-cohort / cv report) on the calib slice. ON by default (auto_optimize_threshold).
-    try:
-        _optimize_decision_threshold_on_calib_slice(ctx)
-    except Exception as _thr_err:
-        logger.warning("[threshold_optimizer] finalize pass failed: %s", _thr_err)
-
-    # Opt-in: apply monotone point recalibration to regression models (before conformal so it scores the
-    # recalibrated, shipped predictor). Default OFF; no-op unless explicitly enabled.
-    try:
-        _recalibrate_regression_on_calib_slice(ctx)
-    except Exception as _recal_err:
-        logger.warning("[regression_recal] finalize pass failed: %s", _recal_err)
-
-    # Shrink weakly-discriminative regression targets' predictions toward neutral. ON by default (apply_confidence_shrinkage).
-    try:
-        _apply_confidence_shrinkage_to_regression(ctx)
-    except Exception as _shrink_err:
-        logger.warning("[confidence_shrinkage] finalize pass failed: %s", _shrink_err)
-
-    # Additive, best-effort: stamp regression conformal intervals + achieved test coverage into metadata.
-    try:
-        _conformal_on_calib_slice(ctx)
-    except Exception as _conf_err:
-        logger.warning("[conformal] finalize pass failed: %s", _conf_err)
+    # Best-effort passes, in order: auto-calibrate on the disjoint calib slice BEFORE the metadata / ensemble-composition walks so they see the
+    # calibrated wrappers; flag tracking-per-point-noise isotonic calibrators (ON by default); fit the optimized binary decision threshold on the
+    # calib slice (ON by default); opt-in monotone point recalibration of regression models (before conformal, so conformal scores the shipped
+    # predictor); shrink weakly-discriminative regression targets toward neutral (ON by default); stamp regression conformal intervals + achieved
+    # test coverage (additive).
+    _run_best_effort_passes(
+        ctx,
+        (
+            ("calib", _auto_calibrate_on_calib_slice),
+            ("isotonic_risk", _isotonic_overfit_risk_check),
+            ("threshold_optimizer", _optimize_decision_threshold_on_calib_slice),
+            ("regression_recal", _recalibrate_regression_on_calib_slice),
+            ("confidence_shrinkage", _apply_confidence_shrinkage_to_regression),
+            ("conformal", _conformal_on_calib_slice),
+        ),
+    )
 
     report_skipped_and_inert_steps(ctx)
     # Advisory: map the target-distribution analyzer verdict to a recommended composite estimator (E3).
-    try:
-        _stamp_composite_estimator_recommendation(ctx)
-    except Exception as _rec_err:
-        logger.warning("[estimator_recommendation] finalize pass failed: %s", _rec_err)
+    _run_best_effort_passes(ctx, (("estimator_recommendation", _stamp_composite_estimator_recommendation),))
 
     # Single pass over ctx.models that collects BOTH the per-split fairness reports
     # (lifted from model.metrics) AND the per-entry selected-features list (mirrored to
@@ -669,12 +669,7 @@ def finalize_suite(ctx: TrainingContext) -> dict:
 
     # Every queued chart must be on disk (and any failure reconciled into the charts accounting) before the metadata is persisted
     # and the chart summary below counts files.
-    try:
-        from mlframe.reporting.async_render_hooks import active_render_queue, join_suite_render_queue
-
-        join_suite_render_queue(active_render_queue(), ctx.metadata)
-    except Exception as _ar_err:
-        logger.warning("[async-render] join before finalize failed: %s", _ar_err)
+    _join_async_charts(ctx)
 
     # ``verbose=0`` silences the duplicate "Saved metadata to ..." log line; main.py already saved partway.
     _finalize_and_save_metadata(ctx, verbose=0)
