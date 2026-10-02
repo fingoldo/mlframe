@@ -224,6 +224,32 @@ def _validate_inputs(self, X, y):
     # it only ran AFTER the copy). Now: only FLOAT columns are selected (ints are skipped before any array
     # construction, not after), and each is scanned ONE AT A TIME so at most one column's worth of memory
     # is ever materialized, with an early exit on the first inf found - never a `(n, p)` dense copy.
+    _check_input_columns(X)
+    # All-same y: raise (symmetric with RFECV.fit's single-class y validation). Constant y has H(y)=0 so
+    # every MI(X_j, y) = 0; the entire MRMR pipeline produces zero-information output.
+    # Multilabel y is (N, K): require that AT LEAST ONE label column has variation
+    # (a single dead label is normal; all dead labels means the whole y is constant).
+    try:
+        _y_arr = np.asarray(y)
+        # pd.unique hashes instead of sorting, so an object target of unorderable values (None, mixed types) is counted too.
+        if _y_arr.ndim == 2:
+            _per_col_unique = [len(pd.unique(_y_arr[:, _j])) for _j in range(_y_arr.shape[1])]
+            _y_is_constant = max(_per_col_unique) == 1 if _per_col_unique else True
+        else:
+            _y_is_constant = len(pd.unique(_y_arr.ravel())) == 1
+        if _y_is_constant:
+            raise ValueError(
+                "MRMR.fit: target y has only 1 unique value. H(y)=0 " "so all features have MI(X_j, y)=0 by construction. " "Drop or rebuild y before fitting."
+            )
+    except ValueError:
+        raise  # re-raise our own ValueError
+    except Exception as exc:
+        logger.warning("MRMR.fit: the constant-target check failed (%s: %s); a single-valued y was NOT rejected", type(exc).__name__, exc, exc_info=True)
+    return X
+
+
+def _check_input_columns(X):
+    """Check the transform input's columns against the fitted schema."""
     try:
         _float_col_arrays: list = []
         try:
@@ -269,27 +295,6 @@ def _validate_inputs(self, X, y):
         raise  # re-raise our own ValueError
     except Exception as exc:
         logger.warning("MRMR.fit: the +/-inf input scan failed (%s: %s); inf values, if any, were NOT rejected and will produce undefined bins", type(exc).__name__, exc)
-    # All-same y: raise (symmetric with RFECV.fit's single-class y validation). Constant y has H(y)=0 so
-    # every MI(X_j, y) = 0; the entire MRMR pipeline produces zero-information output.
-    # Multilabel y is (N, K): require that AT LEAST ONE label column has variation
-    # (a single dead label is normal; all dead labels means the whole y is constant).
-    try:
-        _y_arr = np.asarray(y)
-        # pd.unique hashes instead of sorting, so an object target of unorderable values (None, mixed types) is counted too.
-        if _y_arr.ndim == 2:
-            _per_col_unique = [len(pd.unique(_y_arr[:, _j])) for _j in range(_y_arr.shape[1])]
-            _y_is_constant = max(_per_col_unique) == 1 if _per_col_unique else True
-        else:
-            _y_is_constant = len(pd.unique(_y_arr.ravel())) == 1
-        if _y_is_constant:
-            raise ValueError(
-                "MRMR.fit: target y has only 1 unique value. H(y)=0 " "so all features have MI(X_j, y)=0 by construction. " "Drop or rebuild y before fitting."
-            )
-    except ValueError:
-        raise  # re-raise our own ValueError
-    except Exception as exc:
-        logger.warning("MRMR.fit: the constant-target check failed (%s: %s); a single-valued y was NOT rejected", type(exc).__name__, exc, exc_info=True)
-    return X
 
 
 def _recipe_reachable_columns(X, recipes) -> list:

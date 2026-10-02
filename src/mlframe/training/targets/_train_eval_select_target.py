@@ -124,92 +124,7 @@ def select_target(
 
     train_t = _to_arr(_select(target, train_idx))
 
-    if target_type == TargetTypes.REGRESSION:
-        from .._format import format_metric as _fmt
-        from ..composite.transforms import is_composite_target
-        _is_composite = is_composite_target(cur_target_name or model_name, composite_names)
-        _tag = "MTRESID" if _is_composite else "MTTR"
-        if train_t is not None and train_t.size > 0:
-            model_name += f" {_tag}={_fmt(train_t.mean())}"
-        else:
-            model_name += f" MT={_fmt(target.mean())}"
-    elif target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
-        target_arr = target if isinstance(target, np.ndarray) else np.asarray(target)
-        if train_t is not None and train_t.ndim == 2 and train_t.shape[0] > 0:
-            rates = train_t.mean(axis=0)
-            summary = ",".join(f"{p*100:.0f}" for p in rates)
-            model_name += f" MLTR={summary}%"
-        elif target_arr.ndim == 2:
-            per_label_pos = target_arr.mean(axis=0)
-            summary = ",".join(f"{p*100:.0f}%" for p in per_label_pos)
-            model_name += f" ML={summary}"
-        else:
-            model_name += " ML=?"
-    else:
-        # Binary / multiclass -- train rate on the model_name; per-split
-        # contextual rates are appended downstream in _compute_split_metrics.
-
-        def _binary_pos_rate(arr):
-            """Robust binary-positive-rate computation."""
-            if arr is None:
-                return None
-            try:
-                if hasattr(arr, "to_numpy"):
-                    arr_np = arr.to_numpy()
-                else:
-                    arr_np = np.asarray(arr)
-                if arr_np.dtype == object and arr_np.size > 0 and isinstance(arr_np.flat[0], np.ndarray):
-                    arr_np = np.concatenate([np.asarray(a).ravel() for a in arr_np.ravel()])
-                arr_np = arr_np.ravel()
-                size = arr_np.size
-                if size == 0:
-                    return None
-                count = int(np.asarray(arr_np == 1, dtype=bool).sum())
-                return float(count) / size
-            except Exception as exc:
-                logger.debug("_binary_pos_rate: coercion failed, positive-rate unavailable: %s", exc)
-                return None
-
-        train_perc = _binary_pos_rate(train_t)
-
-        if train_perc is not None:
-            model_name += f" BTTR={train_perc*100:.0f}%"
-            perc = train_perc
-        else:
-            # No train indices -- fall back to whole-target rate.
-            if isinstance(target, (pl.Series, pd.Series)):
-                vlcnts = target.value_counts(normalize=True)
-            elif isinstance(target, np.ndarray):
-                vlcnts = pd.Series(target).value_counts(normalize=True)
-            else:
-                raise TypeError(f"target must be np.ndarray, pd.Series, or pl.Series, " f"got {type(target).__name__}")
-            if isinstance(target, pl.Series):
-                assert isinstance(vlcnts, pl.DataFrame)
-                vlcnts = vlcnts.filter(pl.col(target.name) == 1)
-                perc = vlcnts["proportion"][0] if len(vlcnts) > 0 else 0
-            else:
-                assert isinstance(vlcnts, pd.Series)
-                perc = vlcnts.loc[1] if 1 in vlcnts.index else 0
-            model_name += f" BT={perc*100:.0f}%"
-
-        # Degenerate-target guard.
-        if 0.0 < perc < 1.0:
-            if perc < 1e-3 or perc > (1.0 - 1e-3):
-                logger.warning(
-                    "select_target: extreme class imbalance for '%s' "
-                    "(positive rate %.4f%%). Training may converge on "
-                    "the majority class; AUC metrics will be noisy.",
-                    model_name, perc * 100,
-                )
-        else:
-            logger.warning(
-                "select_target: degenerate classification target '%s' "
-                "has only one class (positive rate=%.0f%%). ROC AUC / "
-                "PR AUC are undefined; scorer will return NaN and "
-                "early-stopping will stall. Fix the target threshold or "
-                "pre-filter the data upstream.",
-                model_name, perc * 100,
-            )
+    model_name = _select_regression_target(target_type, cur_target_name, model_name, composite_names, train_t, target)
     logger.debug("select_target: model_name=%s", model_name)
 
     # Ensure configs have defaults
@@ -302,3 +217,94 @@ def select_target(
         xgb_rfecv=xgb_rfecv,
     )
     return common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs
+
+
+def _select_regression_target(target_type, cur_target_name, model_name, composite_names, train_t, target):
+    """Select the target for the regression target type."""
+    if target_type == TargetTypes.REGRESSION:
+        from mlframe.training._format import format_metric as _fmt
+        from mlframe.training.composite.transforms import is_composite_target
+        _is_composite = is_composite_target(cur_target_name or model_name, composite_names)
+        _tag = "MTRESID" if _is_composite else "MTTR"
+        if train_t is not None and train_t.size > 0:
+            model_name += f" {_tag}={_fmt(train_t.mean())}"
+        else:
+            model_name += f" MT={_fmt(target.mean())}"
+    elif target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
+        target_arr = target if isinstance(target, np.ndarray) else np.asarray(target)
+        if train_t is not None and train_t.ndim == 2 and train_t.shape[0] > 0:
+            rates = train_t.mean(axis=0)
+            summary = ",".join(f"{p*100:.0f}" for p in rates)
+            model_name += f" MLTR={summary}%"
+        elif target_arr.ndim == 2:
+            per_label_pos = target_arr.mean(axis=0)
+            summary = ",".join(f"{p*100:.0f}%" for p in per_label_pos)
+            model_name += f" ML={summary}"
+        else:
+            model_name += " ML=?"
+    else:
+        # Binary / multiclass -- train rate on the model_name; per-split
+        # contextual rates are appended downstream in _compute_split_metrics.
+
+        def _binary_pos_rate(arr):
+            """Robust binary-positive-rate computation."""
+            if arr is None:
+                return None
+            try:
+                if hasattr(arr, "to_numpy"):
+                    arr_np = arr.to_numpy()
+                else:
+                    arr_np = np.asarray(arr)
+                if arr_np.dtype == object and arr_np.size > 0 and isinstance(arr_np.flat[0], np.ndarray):
+                    arr_np = np.concatenate([np.asarray(a).ravel() for a in arr_np.ravel()])
+                arr_np = arr_np.ravel()
+                size = arr_np.size
+                if size == 0:
+                    return None
+                count = int(np.asarray(arr_np == 1, dtype=bool).sum())
+                return float(count) / size
+            except Exception as exc:
+                logger.debug("_binary_pos_rate: coercion failed, positive-rate unavailable: %s", exc)
+                return None
+
+        train_perc = _binary_pos_rate(train_t)
+
+        if train_perc is not None:
+            model_name += f" BTTR={train_perc*100:.0f}%"
+            perc = train_perc
+        else:
+            # No train indices -- fall back to whole-target rate.
+            if isinstance(target, (pl.Series, pd.Series)):
+                vlcnts = target.value_counts(normalize=True)
+            elif isinstance(target, np.ndarray):
+                vlcnts = pd.Series(target).value_counts(normalize=True)
+            else:
+                raise TypeError(f"target must be np.ndarray, pd.Series, or pl.Series, " f"got {type(target).__name__}")
+            if isinstance(target, pl.Series):
+                assert isinstance(vlcnts, pl.DataFrame)
+                vlcnts = vlcnts.filter(pl.col(target.name) == 1)
+                perc = vlcnts["proportion"][0] if len(vlcnts) > 0 else 0
+            else:
+                assert isinstance(vlcnts, pd.Series)
+                perc = vlcnts.loc[1] if 1 in vlcnts.index else 0
+            model_name += f" BT={perc*100:.0f}%"
+
+        # Degenerate-target guard.
+        if 0.0 < perc < 1.0:
+            if perc < 1e-3 or perc > (1.0 - 1e-3):
+                logger.warning(
+                    "select_target: extreme class imbalance for '%s' "
+                    "(positive rate %.4f%%). Training may converge on "
+                    "the majority class; AUC metrics will be noisy.",
+                    model_name, perc * 100,
+                )
+        else:
+            logger.warning(
+                "select_target: degenerate classification target '%s' "
+                "has only one class (positive rate=%.0f%%). ROC AUC / "
+                "PR AUC are undefined; scorer will return NaN and "
+                "early-stopping will stall. Fix the target threshold or "
+                "pre-filter the data upstream.",
+                model_name, perc * 100,
+            )
+    return model_name

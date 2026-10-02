@@ -87,6 +87,54 @@ def _build_feature_selection_report(
             logger.debug("computing dropped_features failed: %s", e)
             _report["dropped_features"] = None
 
+    _mrmr_selection_report(_kind, _report, _all_in, kept_columns, selector)
+
+    # Registry-driven per-selector extraction (architecture: consume FeatureSelectorSpec.report_extract).
+    # Selectors registered with a ``report_extract`` (e.g. ShapProxiedFS) get their scores / reason map filled
+    # here without a hard-coded branch above, so adding a selector's report logic lives next to its spec. Only
+    # fills fields the hard-coded branches left empty -- the built-in MRMR/RFECV/BorutaShap branches still win.
+    if _kind is not None:
+        try:
+            from mlframe.feature_selection.registry import get as _get_selector_spec
+            _spec = _get_selector_spec(_kind)
+            _extract = getattr(_spec, "report_extract", None)
+            if callable(_extract):
+                _frag = _extract(selector, kept_columns)
+                if isinstance(_frag, dict):
+                    for _k in ("scores", "reason_per_feature"):
+                        if _report.get(_k) is None and _frag.get(_k) is not None:
+                            _report[_k] = _frag[_k]
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+            pass
+
+    # Friend-graph post-analysis summary (MRMR only; absent on other selectors). Compact,
+    # JSON-serializable: per-class counts, suspected-sink / pruned feature names, and per-node
+    # entropy / relevance / redundancy stats. A failed read must never abort the run.
+    try:
+        _fg = getattr(selector, "friend_graph_", None)
+        if _fg is not None and hasattr(_fg, "to_meta"):
+            _report["friend_graph"] = _fg.to_meta()
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed: %s", e)
+        pass
+
+    # Clustered-feature aggregation summary (MRMR only). Lists each denoised aggregate built from a
+    # correlated-reflection cluster: its name, chosen combiner method, member features, and the
+    # MI(aggregate;y) vs best-member-MI gain. Already JSON-serializable. Read must never abort the run.
+    try:
+        _ca = getattr(selector, "cluster_aggregate_", None)
+        if _ca:
+            _report["cluster_aggregate"] = _ca
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed: %s", e)
+        pass
+
+    return _report
+
+
+def _mrmr_selection_report(_kind, _report, _all_in, kept_columns, selector):
+    """Build the feature-selection report for an MRMR selector."""
     if _kind == "MRMR":
         # MRMR exposes ``support_`` as integer indices into ``feature_names_in_``; no per-feature score.
         _report["scores"] = None
@@ -105,35 +153,7 @@ def _build_feature_selection_report(
         # wider-subset runs. Legacy callers/stubs supply ndarray-valued rows aligned to
         # ``feature_names_in_``; both shapes are aggregated here. ``ranking_`` (when present) gives the
         # per-feature elimination order surfaced as the reason below.
-        try:
-            _fi_dict = getattr(selector, "feature_importances_", None)
-            if isinstance(_fi_dict, dict) and _fi_dict:
-                _acc: dict = {}
-                for _row in _fi_dict.values():
-                    _items: Any
-                    if isinstance(_row, dict):
-                        _items = _row.items()
-                    elif _all_in is not None:
-                        _vals = np.asarray(_row, dtype=np.float64).ravel()
-                        if _vals.shape[0] != len(_all_in):
-                            continue
-                        _items = zip(_all_in, _vals)
-                    else:
-                        continue
-                    for _feat, _val in _items:
-                        try:
-                            _fval = float(_val)
-                        except (TypeError, ValueError):
-                            continue
-                        if np.isnan(_fval):
-                            continue
-                        _acc.setdefault(str(_feat), []).append(_fval)
-                _scores = {_f: float(np.mean(_vals)) for _f, _vals in _acc.items() if _vals}
-                if _scores:
-                    _report["scores"] = _scores
-        except Exception as e:
-            logger.debug("computing per-feature accumulated scores failed: %s", e)
-            _report["scores"] = None
+        _rfecv_importances_report(selector, _all_in, _report)
         # Ranking-based reason
         try:
             _ranking = getattr(selector, "ranking_", None)
@@ -183,48 +203,38 @@ def _build_feature_selection_report(
             logger.debug("suppressed: %s", e)
             pass
 
-    # Registry-driven per-selector extraction (architecture: consume FeatureSelectorSpec.report_extract).
-    # Selectors registered with a ``report_extract`` (e.g. ShapProxiedFS) get their scores / reason map filled
-    # here without a hard-coded branch above, so adding a selector's report logic lives next to its spec. Only
-    # fills fields the hard-coded branches left empty -- the built-in MRMR/RFECV/BorutaShap branches still win.
-    if _kind is not None:
-        try:
-            from mlframe.feature_selection.registry import get as _get_selector_spec
-            _spec = _get_selector_spec(_kind)
-            _extract = getattr(_spec, "report_extract", None)
-            if callable(_extract):
-                _frag = _extract(selector, kept_columns)
-                if isinstance(_frag, dict):
-                    for _k in ("scores", "reason_per_feature"):
-                        if _report.get(_k) is None and _frag.get(_k) is not None:
-                            _report[_k] = _frag[_k]
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
 
-    # Friend-graph post-analysis summary (MRMR only; absent on other selectors). Compact,
-    # JSON-serializable: per-class counts, suspected-sink / pruned feature names, and per-node
-    # entropy / relevance / redundancy stats. A failed read must never abort the run.
+def _rfecv_importances_report(selector, _all_in, _report):
+    """Build the RFECV feature-importance section of the selection report."""
     try:
-        _fg = getattr(selector, "friend_graph_", None)
-        if _fg is not None and hasattr(_fg, "to_meta"):
-            _report["friend_graph"] = _fg.to_meta()
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
-
-    # Clustered-feature aggregation summary (MRMR only). Lists each denoised aggregate built from a
-    # correlated-reflection cluster: its name, chosen combiner method, member features, and the
-    # MI(aggregate;y) vs best-member-MI gain. Already JSON-serializable. Read must never abort the run.
-    try:
-        _ca = getattr(selector, "cluster_aggregate_", None)
-        if _ca:
-            _report["cluster_aggregate"] = _ca
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
-
-    return _report
+        _fi_dict = getattr(selector, "feature_importances_", None)
+        if isinstance(_fi_dict, dict) and _fi_dict:
+            _acc: dict = {}
+            for _row in _fi_dict.values():
+                _items: Any
+                if isinstance(_row, dict):
+                    _items = _row.items()
+                elif _all_in is not None:
+                    _vals = np.asarray(_row, dtype=np.float64).ravel()
+                    if _vals.shape[0] != len(_all_in):
+                        continue
+                    _items = zip(_all_in, _vals)
+                else:
+                    continue
+                for _feat, _val in _items:
+                    try:
+                        _fval = float(_val)
+                    except (TypeError, ValueError):
+                        continue
+                    if np.isnan(_fval):
+                        continue
+                    _acc.setdefault(str(_feat), []).append(_fval)
+            _scores = {_f: float(np.mean(_vals)) for _f, _vals in _acc.items() if _vals}
+            if _scores:
+                _report["scores"] = _scores
+    except Exception as e:
+        logger.debug("computing per-feature accumulated scores failed: %s", e)
+        _report["scores"] = None
 
 
 def _maybe_run_feature_handling_apply(

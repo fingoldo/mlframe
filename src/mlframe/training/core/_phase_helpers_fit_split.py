@@ -275,156 +275,7 @@ def _phase_train_val_test_split(
     _MAX_COMPOSITE_CARDINALITY = 200 if _cap is None else int(_cap)
     _bucket_stratify_enabled = bool(getattr(split_config, "bucket_stratify", True))
     _stratify_y = None
-    if timestamps is None and isinstance(target_by_type, dict):
-        _classification_targets: list[Any] = []
-        _multilabel_target = None
-        for _tt, _named in target_by_type.items():
-            _tt_name = getattr(_tt, "name", str(_tt)).upper()
-            if "MULTILABEL" in _tt_name:
-                # Multilabel arrives as (N, K) ndarray under one key; capture and stop.
-                if isinstance(_named, dict):
-                    _ml_vals = next(iter(_named.values()), None)
-                else:
-                    _ml_vals = _named
-                _multilabel_target = _ml_vals
-                continue
-            if "CLASS" in _tt_name and isinstance(_named, dict):
-                _classification_targets.extend(_tv for _tv in _named.values() if _tv is not None)
-        if _multilabel_target is not None:
-            try:
-                _ml_arr = _multilabel_for_stratify(_multilabel_target)
-                if _ml_arr.ndim == 2 and _ml_arr.shape[1] >= 1:
-                    # Prefer the proper iterative-stratification path when available.
-                    try:
-                        from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa: F401
-
-                        _stratify_y = _ml_arr
-                    except ImportError:
-                        # Best-effort fallback: stratify on the first label column. Better
-                        # than nothing when one of the K labels is the rare class.
-                        _first = _ml_arr[:, 0]
-                        _u, _c = np.unique(_first, return_counts=True)
-                        if len(_u) >= 2 and _c.min() >= 2:
-                            _stratify_y = _first
-                        else:
-                            logger.warning(
-                                "Auto-stratify: multilabel first-label fallback has %d "
-                                "unique values with min-count=%d (need >=2 + min-count>=2); "
-                                "stratification disabled. val/test slices may be class-degenerate.",
-                                len(_u),
-                                int(_c.min()) if len(_c) else 0,
-                            )
-            except Exception as _strat_err:
-                logger.warning(
-                    "Auto-stratify: multilabel build failed (%s: %s); shuffled-only splits.",
-                    type(_strat_err).__name__,
-                    _strat_err,
-                )
-                _stratify_y = None
-        elif len(_classification_targets) == 1:
-            try:
-                _arr = _stratify_codes(_classification_targets[0])
-                if _arr.ndim == 1:
-                    _u, _c = np.unique(_arr, return_counts=True)
-                    if len(_u) >= 2 and _c.min() >= 2:
-                        _stratify_y = _arr
-                    else:
-                        # Surface so the rare-imbalance scenario (single-class slice OR
-                        # rare-class with one sample) isn't misdiagnosed as random-seed
-                        # flakiness when val ends up all-class-0. Pre-fix this branch
-                        # silently flipped to shuffled-only.
-                        logger.warning(
-                            "Auto-stratify: single classification target has %d unique "
-                            "classes with min-count=%d (need >=2 + min-count>=2); "
-                            "stratification disabled. val/test slices may be class-degenerate.",
-                            len(_u),
-                            int(_c.min()) if len(_c) else 0,
-                        )
-            except Exception as _strat_err:
-                logger.warning(
-                    "Auto-stratify: single-target build failed (%s: %s); shuffled-only splits.",
-                    type(_strat_err).__name__,
-                    _strat_err,
-                )
-                _stratify_y = None
-        elif len(_classification_targets) > 1:
-            try:
-                _arrs = [_stratify_codes(_t) for _t in _classification_targets]
-                _n = len(_arrs[0])
-                if all(_a.ndim == 1 and len(_a) == _n for _a in _arrs):
-                    # Composite key: each row maps to an integer class id from
-                    # (val_t0, val_t1, ..., val_tK) tuple. np.unique on stacked (N, K)
-                    # returns_inverse for the encoding in one pass.
-                    _stack = np.stack(_arrs, axis=1)
-                    _, _composite_ids = np.unique(_stack, axis=0, return_inverse=True)
-                    _u, _c = np.unique(_composite_ids, return_counts=True)
-                    if 2 <= len(_u) <= _MAX_COMPOSITE_CARDINALITY and _c.min() >= 2:
-                        _stratify_y = _composite_ids
-                    elif len(_u) < 2 or _c.min() < 2:
-                        logger.warning(
-                            "Auto-stratify: composite key has %d distinct row-tuples with "
-                            "min-count=%d (need >=2 + min-count>=2); stratification disabled. "
-                            "val/test slices may be class-degenerate.",
-                            len(_u),
-                            int(_c.min()) if len(_c) else 0,
-                        )
-                    elif len(_u) > _MAX_COMPOSITE_CARDINALITY:
-                        # Surface the silent fallback to shuffled-only splits so operators
-                        # know auto-stratification was abandoned on multi-head targets that
-                        # exceed the composite-cardinality cap; otherwise they re-discover
-                        # the all-class-0-val-slice bug under heavy class imbalance.
-                        logger.warning(
-                            "Auto-stratify: composite key has %d distinct row-tuples > "
-                            "_MAX_COMPOSITE_CARDINALITY=%d; falling back to UNstratified "
-                            "shuffle splits. Rare-class imbalance may produce all-one-class "
-                            "val/test slices. Reduce the number of classification heads or "
-                            "pre-compute a stratify_y manually to restore stratification.",
-                            len(_u),
-                            _MAX_COMPOSITE_CARDINALITY,
-                        )
-            except Exception as e:
-                logger.debug("classification stratify_y construction failed: %s", e)
-                _stratify_y = None
-        # Regression bucket-stratify: when no classification stratify_y was set above AND bucket_stratify is enabled (default True), bin regression targets into deciles (quartiles for n<5000) and stratify on bucket ids. Prevents heavy-tail / multimodal regression from concentrating tail rows in val or test (the same all-one-class hazard classification stratification already prevents). Skipped when a classification path already populated _stratify_y, when timestamps drive a temporal split, or when only a single distinct target value is present.
-        if _stratify_y is None and _bucket_stratify_enabled and timestamps is None:
-            _regression_targets: list[Any] = []
-            for _tt, _named in target_by_type.items():
-                _tt_name = getattr(_tt, "name", str(_tt)).upper()
-                if "REGRESSION" in _tt_name or "QUANTILE" in _tt_name:
-                    if isinstance(_named, dict):
-                        _regression_targets.extend(_tv for _tv in _named.values() if _tv is not None)
-            if _regression_targets:
-                try:
-                    _y_reg = np.asarray(_regression_targets[0]).astype(np.float64)
-                    if _y_reg.ndim == 1 and len(_y_reg) > 0:
-                        _finite = np.isfinite(_y_reg)
-                        if _finite.sum() >= 10:
-                            _n_bins = 10 if _finite.sum() >= 5000 else 4
-                            _quantiles = np.linspace(0.0, 1.0, _n_bins + 1)[1:-1]
-                            _edges = np.unique(np.quantile(_y_reg[_finite], _quantiles))
-                            _buckets = np.where(_finite, np.digitize(_y_reg, _edges), -1)  # a missing label is its own stratum, not the top bucket
-                            _u, _c = np.unique(_buckets, return_counts=True)
-                            if len(_u) >= 2 and _c.min() >= 2:
-                                _stratify_y = _buckets
-                                logger.info(
-                                    "Bucket-stratify: regression target binned into %d quantile buckets (min/median/max bucket count=%d/%d/%d). Prevents heavy-tail rows from concentrating in val or test.",
-                                    len(_u),
-                                    int(_c.min()),
-                                    int(np.median(_c)),
-                                    int(_c.max()),
-                                )
-                            else:
-                                logger.info(
-                                    "Bucket-stratify: regression bucket distribution too sparse for stratification (n_buckets=%d, min_count=%d); fall back to shuffled split.",
-                                    len(_u),
-                                    int(_c.min()) if len(_c) else 0,
-                                )
-                except Exception as _bucket_err:
-                    logger.warning(
-                        "Bucket-stratify: regression binning failed (%s: %s); shuffled-only splits.",
-                        type(_bucket_err).__name__,
-                        _bucket_err,
-                    )
+    _stratify_y = _stratify_labels_for_split(timestamps, target_by_type, _MAX_COMPOSITE_CARDINALITY, _bucket_stratify_enabled, _stratify_y)
     # Group-aware splitting opt-in: when the extractor produced ``group_ids`` and
     # ``split_config.use_groups`` is set, route through GroupShuffleSplit.
     _groups = group_ids if (split_config.use_groups and group_ids is not None and len(group_ids) > 0) else None
@@ -614,6 +465,167 @@ def _phase_train_val_test_split(
         calib_details=calib_details,
         calib_df=calib_df,
     )
+
+
+def _stratify_labels_for_split(timestamps, target_by_type, _MAX_COMPOSITE_CARDINALITY, _bucket_stratify_enabled, _stratify_y):
+    """Derive the stratification labels for the split from the target mapping when no timestamps were passed."""
+    if timestamps is None and isinstance(target_by_type, dict):
+        _classification_targets: list[Any] = []
+        _multilabel_target = None
+        for _tt, _named in target_by_type.items():
+            _tt_name = getattr(_tt, "name", str(_tt)).upper()
+            if "MULTILABEL" in _tt_name:
+                # Multilabel arrives as (N, K) ndarray under one key; capture and stop.
+                if isinstance(_named, dict):
+                    _ml_vals = next(iter(_named.values()), None)
+                else:
+                    _ml_vals = _named
+                _multilabel_target = _ml_vals
+                continue
+            if "CLASS" in _tt_name and isinstance(_named, dict):
+                _classification_targets.extend(_tv for _tv in _named.values() if _tv is not None)
+        _stratify_y = _classification_stratify_labels(_multilabel_target, _classification_targets, _MAX_COMPOSITE_CARDINALITY, _stratify_y)
+        # Regression bucket-stratify: when no classification stratify_y was set above AND bucket_stratify is enabled (default True), bin regression targets into deciles (quartiles for n<5000) and stratify on bucket ids. Prevents heavy-tail / multimodal regression from concentrating tail rows in val or test (the same all-one-class hazard classification stratification already prevents). Skipped when a classification path already populated _stratify_y, when timestamps drive a temporal split, or when only a single distinct target value is present.
+        if _stratify_y is None and _bucket_stratify_enabled and timestamps is None:
+            _regression_targets: list[Any] = []
+            for _tt, _named in target_by_type.items():
+                _tt_name = getattr(_tt, "name", str(_tt)).upper()
+                if "REGRESSION" in _tt_name or "QUANTILE" in _tt_name:
+                    if isinstance(_named, dict):
+                        _regression_targets.extend(_tv for _tv in _named.values() if _tv is not None)
+            if _regression_targets:
+                try:
+                    _y_reg = np.asarray(_regression_targets[0]).astype(np.float64)
+                    if _y_reg.ndim == 1 and len(_y_reg) > 0:
+                        _finite = np.isfinite(_y_reg)
+                        if _finite.sum() >= 10:
+                            _n_bins = 10 if _finite.sum() >= 5000 else 4
+                            _quantiles = np.linspace(0.0, 1.0, _n_bins + 1)[1:-1]
+                            _edges = np.unique(np.quantile(_y_reg[_finite], _quantiles))
+                            _buckets = np.where(_finite, np.digitize(_y_reg, _edges), -1)  # a missing label is its own stratum, not the top bucket
+                            _u, _c = np.unique(_buckets, return_counts=True)
+                            if len(_u) >= 2 and _c.min() >= 2:
+                                _stratify_y = _buckets
+                                logger.info(
+                                    "Bucket-stratify: regression target binned into %d quantile buckets (min/median/max bucket count=%d/%d/%d). Prevents heavy-tail rows from concentrating in val or test.",
+                                    len(_u),
+                                    int(_c.min()),
+                                    int(np.median(_c)),
+                                    int(_c.max()),
+                                )
+                            else:
+                                logger.info(
+                                    "Bucket-stratify: regression bucket distribution too sparse for stratification (n_buckets=%d, min_count=%d); fall back to shuffled split.",
+                                    len(_u),
+                                    int(_c.min()) if len(_c) else 0,
+                                )
+                except Exception as _bucket_err:
+                    logger.warning(
+                        "Bucket-stratify: regression binning failed (%s: %s); shuffled-only splits.",
+                        type(_bucket_err).__name__,
+                        _bucket_err,
+                    )
+    return _stratify_y
+
+
+def _classification_stratify_labels(_multilabel_target, _classification_targets, _MAX_COMPOSITE_CARDINALITY, _stratify_y):
+    """Build stratify labels from the classification and multilabel targets."""
+    if _multilabel_target is not None:
+        try:
+            _ml_arr = _multilabel_for_stratify(_multilabel_target)
+            if _ml_arr.ndim == 2 and _ml_arr.shape[1] >= 1:
+                # Prefer the proper iterative-stratification path when available.
+                try:
+                    from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa: F401
+
+                    _stratify_y = _ml_arr
+                except ImportError:
+                    # Best-effort fallback: stratify on the first label column. Better
+                    # than nothing when one of the K labels is the rare class.
+                    _first = _ml_arr[:, 0]
+                    _u, _c = np.unique(_first, return_counts=True)
+                    if len(_u) >= 2 and _c.min() >= 2:
+                        _stratify_y = _first
+                    else:
+                        logger.warning(
+                            "Auto-stratify: multilabel first-label fallback has %d "
+                            "unique values with min-count=%d (need >=2 + min-count>=2); "
+                            "stratification disabled. val/test slices may be class-degenerate.",
+                            len(_u),
+                            int(_c.min()) if len(_c) else 0,
+                        )
+        except Exception as _strat_err:
+            logger.warning(
+                "Auto-stratify: multilabel build failed (%s: %s); shuffled-only splits.",
+                type(_strat_err).__name__,
+                _strat_err,
+            )
+            _stratify_y = None
+    elif len(_classification_targets) == 1:
+        try:
+            _arr = _stratify_codes(_classification_targets[0])
+            if _arr.ndim == 1:
+                _u, _c = np.unique(_arr, return_counts=True)
+                if len(_u) >= 2 and _c.min() >= 2:
+                    _stratify_y = _arr
+                else:
+                    # Surface so the rare-imbalance scenario (single-class slice OR
+                    # rare-class with one sample) isn't misdiagnosed as random-seed
+                    # flakiness when val ends up all-class-0. Pre-fix this branch
+                    # silently flipped to shuffled-only.
+                    logger.warning(
+                        "Auto-stratify: single classification target has %d unique "
+                        "classes with min-count=%d (need >=2 + min-count>=2); "
+                        "stratification disabled. val/test slices may be class-degenerate.",
+                        len(_u),
+                        int(_c.min()) if len(_c) else 0,
+                    )
+        except Exception as _strat_err:
+            logger.warning(
+                "Auto-stratify: single-target build failed (%s: %s); shuffled-only splits.",
+                type(_strat_err).__name__,
+                _strat_err,
+            )
+            _stratify_y = None
+    elif len(_classification_targets) > 1:
+        try:
+            _arrs = [_stratify_codes(_t) for _t in _classification_targets]
+            _n = len(_arrs[0])
+            if all(_a.ndim == 1 and len(_a) == _n for _a in _arrs):
+                # Composite key: each row maps to an integer class id from
+                # (val_t0, val_t1, ..., val_tK) tuple. np.unique on stacked (N, K)
+                # returns_inverse for the encoding in one pass.
+                _stack = np.stack(_arrs, axis=1)
+                _, _composite_ids = np.unique(_stack, axis=0, return_inverse=True)
+                _u, _c = np.unique(_composite_ids, return_counts=True)
+                if 2 <= len(_u) <= _MAX_COMPOSITE_CARDINALITY and _c.min() >= 2:
+                    _stratify_y = _composite_ids
+                elif len(_u) < 2 or _c.min() < 2:
+                    logger.warning(
+                        "Auto-stratify: composite key has %d distinct row-tuples with "
+                        "min-count=%d (need >=2 + min-count>=2); stratification disabled. "
+                        "val/test slices may be class-degenerate.",
+                        len(_u),
+                        int(_c.min()) if len(_c) else 0,
+                    )
+                elif len(_u) > _MAX_COMPOSITE_CARDINALITY:
+                    # Surface the silent fallback to shuffled-only splits so operators
+                    # know auto-stratification was abandoned on multi-head targets that
+                    # exceed the composite-cardinality cap; otherwise they re-discover
+                    # the all-class-0-val-slice bug under heavy class imbalance.
+                    logger.warning(
+                        "Auto-stratify: composite key has %d distinct row-tuples > "
+                        "_MAX_COMPOSITE_CARDINALITY=%d; falling back to UNstratified "
+                        "shuffle splits. Rare-class imbalance may produce all-one-class "
+                        "val/test slices. Reduce the number of classification heads or "
+                        "pre-compute a stratify_y manually to restore stratification.",
+                        len(_u),
+                        _MAX_COMPOSITE_CARDINALITY,
+                    )
+        except Exception as e:
+            logger.debug("classification stratify_y construction failed: %s", e)
+            _stratify_y = None
+    return _stratify_y
 
 
 def _phase_auto_detect_feature_types(
