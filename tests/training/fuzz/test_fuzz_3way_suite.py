@@ -176,24 +176,7 @@ def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, reques
             use_mlframe_ensembles=combo.use_ensembles,
             outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=combo.use_mrmr_fs,
-                custom_pre_pipelines=custom_pre or {},
-                mrmr_kwargs=(
-                    {
-                        "verbose": 0,
-                        "max_runtime_mins": 1,
-                        "n_workers": 1,
-                        "quantization_nbins": 5,
-                        "use_simple_mode": True,
-                        "min_nonzero_confidence": 0.9,
-                        "max_consec_unconfirmed": 3,
-                        "full_npermutations": 3,
-                    }
-                    if combo.use_mrmr_fs
-                    else None
-                ),
-            ),
+            feature_selection_config=FeatureSelectionConfig(custom_pre_pipelines=custom_pre or {}, mrmr=({'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3} if combo.use_mrmr_fs else None)),
             **_configs_for_combo(combo),
         )
         if not trained:

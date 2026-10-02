@@ -82,21 +82,95 @@ def _seeded_kwargs(kwargs: dict[str, Any] | None, fs_random_seed: int | None) ->
 
 
 def _apply_rfecv_overrides(rfecv: Any, overrides: dict[str, Any]) -> None:
-    """Set ``overrides`` on an RFECV instance through ``set_params``; an unknown key raises with the offending names.
-
-    ``cv_n_splits`` is the config-level spelling of a fold count (``get_training_configs`` consumes it the same way): it becomes
-    ``cv=<int>`` unless an explicit ``cv`` is given.
-    """
-    overrides = dict(overrides)
-    n_splits = overrides.pop("cv_n_splits", None)
-    if n_splits is not None and "cv" not in overrides:
-        overrides["cv"] = int(n_splits)
-    if not overrides:
-        return
+    """Set ``overrides`` on an RFECV instance through ``set_params``; an unknown key raises with the offending names."""
     try:
         rfecv.set_params(**overrides)
     except (ValueError, TypeError) as exc:
         raise ValueError(f"FeatureSelectionConfig.rfecv_kwargs / rfecv_* levers not accepted by {type(rfecv).__name__}: {sorted(overrides)} ({exc})") from exc
+
+
+def _prepare_rfecv_selector(
+    _rfecv_instance: Any,
+    *,
+    leakage_corr_threshold: float | None,
+    mbh_adaptive_threshold: int,
+    overrides: dict[str, Any] | None,
+    fs_random_seed: int | None,
+    cluster: tuple[bool, float, float, str],
+    use_sample_weights_in_fs: bool,
+) -> Any:
+    """Apply the suite's overrides, seed and cluster-medoid wrap to one prebuilt RFECV and stamp the suite markers; returns the object that enters the pre-pipelines."""
+    cluster_reduce, cluster_corr_threshold, cluster_min_reduction, cluster_corr_method = cluster
+    # Suite-level overrides win over the RFECV defaults. Use sklearn's ``set_params`` instead of raw
+    # ``setattr`` so any future property-setter side effects (e.g. recomputing a derived bound) fire as
+    # the constructor would; ``set_params`` is the documented sklearn API for post-construction kwarg
+    # overrides and validates the parameter names against ``get_params``. Falls back to ``setattr`` for
+    # non-BaseEstimator instances used in tests / custom wrappers that don't implement set_params.
+    _rfecv_overrides = {
+        "leakage_corr_threshold": leakage_corr_threshold,
+        "mbh_adaptive_threshold": mbh_adaptive_threshold,
+    }
+    _set_params = getattr(_rfecv_instance, "set_params", None)
+    if callable(_set_params):
+        try:
+            _set_params(**_rfecv_overrides)
+        except (ValueError, TypeError):
+            for _k, _v in _rfecv_overrides.items():
+                setattr(_rfecv_instance, _k, _v)
+    else:
+        for _k, _v in _rfecv_overrides.items():
+            setattr(_rfecv_instance, _k, _v)
+    # The ``FeatureSelectionConfig.rfecv`` sub-config's written fields is the operator's
+    # explicit word on the suite's RFECV: applied last and strictly, so an unknown or misspelled key raises here instead of
+    # being swallowed by the attribute fallback above.
+    if overrides:
+        _apply_rfecv_overrides(_rfecv_instance, overrides)
+    # Reproducibility: when the operator did not pin an RFECV random_state, default it from the
+    # split seed so the whole pipeline (split + FS + model) is reproducible from one seed. An
+    # explicitly-set random_state is left untouched.
+    if fs_random_seed is not None and getattr(_rfecv_instance, "random_state", None) is None:
+        _seed_set = getattr(_rfecv_instance, "set_params", None)
+        if callable(_seed_set):
+            try:
+                _seed_set(random_state=int(fs_random_seed))
+            except (ValueError, TypeError):
+                _rfecv_instance.random_state = int(fs_random_seed)
+        else:
+            _rfecv_instance.random_state = int(fs_random_seed)
+    # Cluster-medoid pre-reduction for the suite's RFECV. The suite builds RFECV directly (above,
+    # via configure_training_params) rather than through ``registry._instantiate_rfecv``, so the
+    # registry's default-ON wrap never reached the suite RFECV path. Apply it HERE so the documented
+    # "cluster-medoid is DEFAULT-ON for the suite's RFECV" actually holds: wrap the prebuilt (and now
+    # suite-overridden) RFECV in CorrelatedFeaturesSelector, keeping each selected cluster's medoid. The CorrelatedFeaturesSelector.min_reduction guard
+    # makes this a no-op (bare RFECV on full X) on near-uncorrelated data, so it only acts where genuine
+    # correlated redundancy exists. Multi-seed validated SAFE (OOS AUC delta >= -0.01).
+    _selector_obj = _rfecv_instance
+    if cluster_reduce:
+        from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
+        _selector_obj = CorrelatedFeaturesSelector(
+            _rfecv_instance,
+            corr_threshold=float(cluster_corr_threshold),
+            corr_method=str(cluster_corr_method),
+            expand=False,
+            min_reduction=float(cluster_min_reduction),
+        )
+    # Suite-internal markers stamped on the OUTER object that enters pre_pipelines (the wrapper when
+    # cluster-reduce is on, else the bare RFECV): ``_selector_kind`` reads them off this object directly
+    # and the weight-aware fit driver / sklearn.clone sticky-attr forwarding operate on it.
+    _selector_obj._mlframe_use_sample_weights_in_fs_ = bool(use_sample_weights_in_fs)
+    # Dedicated dispatch marker so downstream report-build / cache code can identify the selector
+    # kind without class-name string matching or abusing the weight-marker as a type tag.
+    _selector_obj._mlframe_selector_kind_ = "RFECV"
+    return _selector_obj
+
+
+def _instantiate_functional_selector(name: str, kwargs: dict[str, Any] | None, fs_random_seed: int | None) -> Any:
+    """Build one functional-utility selector (ForwardSelect / GreedyBackwardElimination / ZeroImportancePruning / CascadeSelect) through the registry, seeded from the suite seed."""
+    from mlframe.feature_selection.registry import get as _get_selector_spec
+
+    selector = _get_selector_spec(name).instantiate(**_seeded_kwargs(kwargs, fs_random_seed))
+    selector._mlframe_selector_kind_ = name
+    return selector
 
 
 def _build_pre_pipelines(
@@ -171,68 +245,16 @@ def _build_pre_pipelines(
         raise ValueError(f"Unknown RFECV model(s): {unknown_rfecv_models}. " f"Available: {list(rfecv_models_params.keys())}")
     for rfecv_model_name in rfecv_models:
         _rfecv_instance = rfecv_models_params[rfecv_model_name]
-        # Suite-level overrides win over the RFECV defaults. Use sklearn's ``set_params`` instead of raw
-        # ``setattr`` so any future property-setter side effects (e.g. recomputing a derived bound) fire as
-        # the constructor would; ``set_params`` is the documented sklearn API for post-construction kwarg
-        # overrides and validates the parameter names against ``get_params``. Falls back to ``setattr`` for
-        # non-BaseEstimator instances used in tests / custom wrappers that don't implement set_params.
         if _rfecv_instance is not None:
-            _rfecv_overrides = {
-                "leakage_corr_threshold": rfecv_leakage_corr_threshold,
-                "mbh_adaptive_threshold": rfecv_mbh_adaptive_threshold,
-            }
-            _set_params = getattr(_rfecv_instance, "set_params", None)
-            if callable(_set_params):
-                try:
-                    _set_params(**_rfecv_overrides)
-                except (ValueError, TypeError):
-                    for _k, _v in _rfecv_overrides.items():
-                        setattr(_rfecv_instance, _k, _v)
-            else:
-                for _k, _v in _rfecv_overrides.items():
-                    setattr(_rfecv_instance, _k, _v)
-            # ``FeatureSelectionConfig.rfecv_kwargs`` (with its first-class ``rfecv_*`` levers already folded in) is the operator's
-            # explicit word on the suite's RFECV: applied last and strictly, so an unknown or misspelled key raises here instead of
-            # being swallowed by the attribute fallback above.
-            if rfecv_overrides:
-                _apply_rfecv_overrides(_rfecv_instance, rfecv_overrides)
-            # Reproducibility: when the operator did not pin an RFECV random_state, default it from the
-            # split seed so the whole pipeline (split + FS + model) is reproducible from one seed. An
-            # explicitly-set random_state is left untouched.
-            if fs_random_seed is not None and getattr(_rfecv_instance, "random_state", None) is None:
-                _seed_set = getattr(_rfecv_instance, "set_params", None)
-                if callable(_seed_set):
-                    try:
-                        _seed_set(random_state=int(fs_random_seed))
-                    except (ValueError, TypeError):
-                        _rfecv_instance.random_state = int(fs_random_seed)
-                else:
-                    _rfecv_instance.random_state = int(fs_random_seed)
-            # Cluster-medoid pre-reduction for the suite's RFECV. The suite builds RFECV directly (above,
-            # via configure_training_params) rather than through ``registry._instantiate_rfecv``, so the
-            # registry's default-ON wrap never reached the suite RFECV path. Apply it HERE so the documented
-            # "cluster-medoid is DEFAULT-ON for the suite's RFECV" actually holds: wrap the prebuilt (and now
-            # suite-overridden) RFECV in CorrelatedFeaturesSelector, keeping each selected cluster's medoid. The CorrelatedFeaturesSelector.min_reduction guard
-            # makes this a no-op (bare RFECV on full X) on near-uncorrelated data, so it only acts where genuine
-            # correlated redundancy exists. Multi-seed validated SAFE (OOS AUC delta >= -0.01).
-            _selector_obj = _rfecv_instance
-            if rfecv_cluster_reduce:
-                from mlframe.feature_selection.filters.correlated_features import CorrelatedFeaturesSelector
-                _selector_obj = CorrelatedFeaturesSelector(
-                    _rfecv_instance,
-                    corr_threshold=float(rfecv_cluster_corr_threshold),
-                    corr_method=str(rfecv_cluster_corr_method),
-                    expand=False,
-                    min_reduction=float(rfecv_cluster_min_reduction),
-                )
-            # Suite-internal markers stamped on the OUTER object that enters pre_pipelines (the wrapper when
-            # cluster-reduce is on, else the bare RFECV): ``_selector_kind`` reads them off this object directly
-            # and the weight-aware fit driver / sklearn.clone sticky-attr forwarding operate on it.
-            _selector_obj._mlframe_use_sample_weights_in_fs_ = bool(use_sample_weights_in_fs)
-            # Dedicated dispatch marker so downstream report-build / cache code can identify the selector
-            # kind without class-name string matching or abusing the weight-marker as a type tag.
-            _selector_obj._mlframe_selector_kind_ = "RFECV"
-            _rfecv_instance = _selector_obj
+            _rfecv_instance = _prepare_rfecv_selector(
+                _rfecv_instance,
+                leakage_corr_threshold=rfecv_leakage_corr_threshold,
+                mbh_adaptive_threshold=rfecv_mbh_adaptive_threshold,
+                overrides=rfecv_overrides,
+                fs_random_seed=fs_random_seed,
+                cluster=(rfecv_cluster_reduce, rfecv_cluster_corr_threshold, rfecv_cluster_min_reduction, rfecv_cluster_corr_method),
+                use_sample_weights_in_fs=use_sample_weights_in_fs,
+            )
         pre_pipelines.append(_rfecv_instance)
         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
@@ -329,39 +351,15 @@ def _build_pre_pipelines(
         pre_pipelines.append(_ace)
         pre_pipeline_names.append("ACE ")
 
-    if use_forward_select_fs:
-        # Registry-driven dispatch (mirrors ACE). ForwardSelect is a plain function returning a selected-column
-        # list; the ForwardSelectSelector adapter exposes the sklearn fit/get_support/transform contract.
-        from mlframe.feature_selection.registry import get as _get_selector_spec
-        _fwd_spec = _get_selector_spec("ForwardSelect")
-        _fwd = _fwd_spec.instantiate(**_seeded_kwargs(forward_select_kwargs, fs_random_seed))
-        _fwd._mlframe_selector_kind_ = "ForwardSelect"
-        pre_pipelines.append(_fwd)
-        pre_pipeline_names.append("ForwardSelect ")
-
-    if use_greedy_backward_elimination_fs:
-        from mlframe.feature_selection.registry import get as _get_selector_spec
-        _gbe_spec = _get_selector_spec("GreedyBackwardElimination")
-        _gbe = _gbe_spec.instantiate(**_seeded_kwargs(greedy_backward_elimination_kwargs, fs_random_seed))
-        _gbe._mlframe_selector_kind_ = "GreedyBackwardElimination"
-        pre_pipelines.append(_gbe)
-        pre_pipeline_names.append("GreedyBackwardElimination ")
-
-    if use_zero_importance_pruning_fs:
-        from mlframe.feature_selection.registry import get as _get_selector_spec
-        _zip_spec = _get_selector_spec("ZeroImportancePruning")
-        _zip = _zip_spec.instantiate(**_seeded_kwargs(zero_importance_pruning_kwargs, fs_random_seed))
-        _zip._mlframe_selector_kind_ = "ZeroImportancePruning"
-        pre_pipelines.append(_zip)
-        pre_pipeline_names.append("ZeroImportancePruning ")
-
-    if use_cascade_select_fs:
-        from mlframe.feature_selection.registry import get as _get_selector_spec
-        _cas_spec = _get_selector_spec("CascadeSelect")
-        _cas = _cas_spec.instantiate(**_seeded_kwargs(cascade_select_kwargs, fs_random_seed))
-        _cas._mlframe_selector_kind_ = "CascadeSelect"
-        pre_pipelines.append(_cas)
-        pre_pipeline_names.append("CascadeSelect ")
+    for _name, _enabled, _kwargs in (
+        ("ForwardSelect", use_forward_select_fs, forward_select_kwargs),
+        ("GreedyBackwardElimination", use_greedy_backward_elimination_fs, greedy_backward_elimination_kwargs),
+        ("ZeroImportancePruning", use_zero_importance_pruning_fs, zero_importance_pruning_kwargs),
+        ("CascadeSelect", use_cascade_select_fs, cascade_select_kwargs),
+    ):
+        if _enabled:
+            pre_pipelines.append(_instantiate_functional_selector(_name, _kwargs, fs_random_seed))
+            pre_pipeline_names.append(f"{_name} ")
 
     if custom_pre_pipelines:
         # Clone every user-supplied pre-pipeline before insertion so fit-time

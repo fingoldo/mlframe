@@ -150,10 +150,10 @@ def test_feature_selection_config_rfecv_kwargs_accepts_cb_cached_borders():
     """Feature selection config rfecv kwargs accepts cb cached borders."""
     from mlframe.training import FeatureSelectionConfig
 
-    cfg = FeatureSelectionConfig(rfecv_models=["cb_rfecv"], rfecv_kwargs={"cb_cached_borders": False})
-    assert cfg.rfecv_kwargs == {"cb_cached_borders": False}
-    with pytest.raises(ValueError, match="unknown key"):
-        FeatureSelectionConfig(rfecv_models=["cb_rfecv"], rfecv_kwargs={"cb_cached_border": False})
+    cfg = FeatureSelectionConfig(rfecv={"cb_cached_borders": False, "models": ["cb_rfecv"]})
+    assert cfg.selector_kwargs("rfecv") == {"cb_cached_borders": False}
+    with pytest.raises(ValueError, match="cb_cached_border"):
+        FeatureSelectionConfig(rfecv={"cb_cached_border": False, "models": ["cb_rfecv"]})
 
 
 def test_border_cache_not_reused_across_different_quantization_params():

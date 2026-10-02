@@ -308,9 +308,9 @@ repos:
         # name can mask a real error in this one, letting a broken commit land locally and only
         # fail once pushed to CI (which always runs cold). See reference_mlframe_shared_mypy_cache_dir
         # memory note for the prior (now superseded) rationale for sharing.
-        # mypy_gate requires mypy's own completion line and a file floor: --min-files 1500 against the 1668 files mypy checked
-        # on 2026-09-25 (about 90%), held there by tests/test_meta/test_mypy_gate_floor.py.
-        entry: python -m py_ci_shared.mypy_gate --min-files 1500 src/mlframe --cache-dir=.mypy_cache_precommit_full
+        # mypy_gate requires mypy's own completion line and a file floor: --min-files 1600 against the ~1780 source files mypy checks
+        # (about 90%), held there by tests/test_meta/test_mypy_gate_floor.py.
+        entry: python -m py_ci_shared.mypy_gate --min-files 1600 src/mlframe --cache-dir=.mypy_cache_precommit_full
         language: system
         types: [python]
         pass_filenames: false

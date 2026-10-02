@@ -117,7 +117,7 @@ def _profile_one(n_rows: int, *, n_labels: int, iterations: int, seed: int, top_
         target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
     )
     # No MRMR / boruta / composite / diagnostics: isolate the CB cat+multilabel core path.
-    fs_cfg = FeatureSelectionConfig(use_mrmr_fs=False, use_boruta_shap=False)
+    fs_cfg = FeatureSelectionConfig()
 
     profiler = cProfile.Profile()
     status = "OK"

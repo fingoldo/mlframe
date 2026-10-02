@@ -19,7 +19,7 @@ import numpy as np
 from .._enums import OptimumSearch, VotesAggregation
 from .._helpers import get_next_features_subset, store_averaged_cv_scores
 from ._fit_fold import _eval_fold_body
-from ._futility_stop import check_futility_stop, futility_armed
+from ._futility_stop import check_futility_stop, record_evaluation
 from ._outer_loop_bookkeeping import runtime_budget_exhausted, update_best_and_noimprove
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
@@ -69,6 +69,8 @@ class OuterLoopState:
     per_fold_scores: dict = field(default_factory=dict)  # dict[N -> list[float] of length n_splits]
     # Every evaluated subset as (N, per-fold scores), in iteration order; feeds the futility stop and is published as ``eval_trace_``.
     eval_trace: list = field(default_factory=list)
+    # The latest futility verdict (None until the stop has been evaluated); published as ``futility_verdict_``.
+    futility_verdict: Any = None
     # convergence_tol sliding window of recent final_scores (see run_outer_loop_iteration).
     _recent_finals: list = field(default_factory=list)
 
@@ -76,6 +78,16 @@ class OuterLoopState:
 
     ram_baseline_mb: float = 0.0
     ram_df_size_mb: float = 0.0
+
+
+def _stop_without_progress(self, state, max_noimproving_iters, n_total, max_refits, max_runtime_mins, elapsed_s, verbose) -> bool:
+    """Stop on too many iterations without a new best, else on the futility verdict; records ``state.stop_reason`` and returns True when it stops."""
+    if max_noimproving_iters and state.n_noimproving_iters >= max_noimproving_iters:
+        if verbose:
+            logger.info("Max # of noimproved iters reached: %s", state.n_noimproving_iters)
+        state.stop_reason = f"max_noimproving_iters={max_noimproving_iters} reached"
+        return True
+    return check_futility_stop(self, state, n_total, max_refits, max_runtime_mins, elapsed_s, verbose)
 
 
 def run_outer_loop_iteration(
@@ -337,7 +349,7 @@ def run_outer_loop_iteration(
                 f"{scores_mean:.{ndigits}f}", f"{scores_std:.{ndigits}f}", f"{final_score:.{ndigits}f}",
             )
 
-    state.eval_trace.append((len(current_features), tuple(float(v) for v in scores)))
+    record_evaluation(state, len(current_features), scores)
     state.prev_nfeatures, state.prev_score = len(current_features), final_score
     iters_pbar.update(1)
 
@@ -376,13 +388,7 @@ def run_outer_loop_iteration(
         state.stop_reason = f"best_desired_score={best_desired_score} reached"
         return IterationOutcome.BREAK
 
-    if max_noimproving_iters and state.n_noimproving_iters >= max_noimproving_iters:
-        if verbose:
-            logger.info("Max # of noimproved iters reached: %s", state.n_noimproving_iters)
-        state.stop_reason = f"max_noimproving_iters={max_noimproving_iters} reached"
-        return IterationOutcome.BREAK
-
-    if futility_armed(self) and check_futility_stop(self, state, len(original_features), max_refits, max_runtime_mins, timer() - start_time, verbose):
+    if _stop_without_progress(self, state, max_noimproving_iters, len(original_features), max_refits, max_runtime_mins, timer() - start_time, verbose):
         return IterationOutcome.BREAK
 
     # S7: tolerance-based convergence. ``n_noimproving_iters``

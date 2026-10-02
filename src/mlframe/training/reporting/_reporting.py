@@ -335,6 +335,25 @@ def _account_panel_render(metrics: Any, target_type: Any, rendered_tag: Any, pan
         _record_skipped(charts, f"{which}_panels", "no panel grid applies to this target type")
 
 
+def _stamp_binary_decile_table(metrics: dict, targets: Any, probs: Any) -> None:
+    """Store ``binary_decile_table`` in ``metrics`` from the positive-class score; best-effort, a failure leaves the key absent."""
+    try:
+        from mlframe.reporting.charts.binary import binary_decile_table
+
+        probs_arr = np.asarray(probs)
+        if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:
+            score = probs_arr[:, 1]
+        elif probs_arr.ndim == 1:
+            score = probs_arr
+        elif probs_arr.ndim == 2 and probs_arr.shape[1] == 1:
+            score = probs_arr.ravel()
+        else:
+            return
+        metrics["binary_decile_table"] = binary_decile_table(np.asarray(targets).ravel(), score)
+    except Exception:  # best-effort: metrics["binary_decile_table"] simply stays absent
+        logger.exception("binary_decile_table computation failed; continuing.")
+
+
 def report_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -626,25 +645,9 @@ def report_model_perf(
                 reporting_config=reporting_config,
             )
 
-    # Binary decile gains/lift/KS table -- surfaced in the metrics dict (not a
-    # chart panel) so the operator gets the gains-table view alongside the curves.
+    # Binary decile gains/lift/KS table -- surfaced in the metrics dict (not a chart panel) so the operator gets the gains-table view alongside the curves.
     if isinstance(metrics, dict) and (target_type or "").lower() == "binary_classification" and probs is not None:
-        try:
-            from mlframe.reporting.charts.binary import binary_decile_table
-            probs_arr = np.asarray(probs)
-            if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:
-                _score = probs_arr[:, 1]
-            elif probs_arr.ndim == 1:
-                _score = probs_arr
-            elif probs_arr.ndim == 2 and probs_arr.shape[1] == 1:
-                _score = probs_arr.ravel()
-            else:
-                _score = None
-            if _score is not None:
-                _yt = np.asarray(targets).ravel()
-                metrics["binary_decile_table"] = binary_decile_table(_yt, _score)
-        except Exception:  # best-effort: metrics["binary_decile_table"] simply stays absent
-            logger.exception("binary_decile_table computation failed; continuing.")
+        _stamp_binary_decile_table(metrics, targets, probs)
 
     if show_fi:
         n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)

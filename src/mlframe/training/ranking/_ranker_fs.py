@@ -479,9 +479,9 @@ def select_ltr_features(
     fsc = feature_selection_config
     if fsc is None:
         return None
-    use_mrmr = bool(getattr(fsc, "use_mrmr_fs", False))
-    use_bs = bool(getattr(fsc, "use_boruta_shap", False))
-    rfecv_models = list(rfecv_models or [])
+    use_mrmr = fsc.mrmr is not None
+    use_bs = fsc.boruta_shap is not None
+    rfecv_models = list(rfecv_models) if rfecv_models else (list(fsc.rfecv.models) if fsc.rfecv is not None else [])
     if not (use_mrmr or use_bs or rfecv_models):
         return None
 
@@ -491,7 +491,7 @@ def select_ltr_features(
     ran_any = False
 
     if use_mrmr:
-        mrmr_kwargs = dict(getattr(fsc, "mrmr_kwargs", None) or {})
+        mrmr_kwargs = fsc.selector_kwargs("mrmr") or {}
         if groups is not None:
             try:
                 cols = group_aware_mrmr_select(
@@ -534,6 +534,14 @@ def select_ltr_features(
     return out
 
 
+# The ``_build_pre_pipelines`` arguments the LTR path forwards: RFECV (with its cluster wrap and overrides), BorutaShap and ShapProxiedFS.
+_RANKER_PIPELINE_KEYS = frozenset({
+    "rfecv_leakage_corr_threshold", "rfecv_mbh_adaptive_threshold", "rfecv_cluster_reduce", "rfecv_cluster_corr_threshold",
+    "rfecv_cluster_min_reduction", "rfecv_cluster_corr_method", "rfecv_overrides",
+    "use_boruta_shap", "boruta_shap_kwargs", "use_shap_proxied_fs", "shap_proxied_fs_kwargs",
+})
+
+
 def _run_wrapper_selectors(X_df, y_arr, groups, fsc, rfecv_models, target_type, fs_random_seed, verbose, selected) -> bool:
     """Run RFECV / BorutaShap via the main suite's _build_pre_pipelines and union their selections into ``selected``."""
     rfecv_models_params = {}
@@ -551,15 +559,7 @@ def _run_wrapper_selectors(X_df, y_arr, groups, fsc, rfecv_models, target_type, 
     pre_pipelines, _names = _build_pre_pipelines(
         use_ordinary_models=False, rfecv_models=rfecv_models, rfecv_models_params=rfecv_models_params,
         use_mrmr_fs=False,  # MRMR handled by the group-aware path above
-        mrmr_kwargs={}, use_boruta_shap=bool(getattr(fsc, "use_boruta_shap", False)),
-        boruta_shap_kwargs=dict(getattr(fsc, "boruta_shap_kwargs", None) or {}),
-        use_shap_proxied_fs=bool(getattr(fsc, "use_shap_proxied_fs", False)),
-        shap_proxied_fs_kwargs=dict(getattr(fsc, "shap_proxied_fs_kwargs", None) or {}),
-        rfecv_cluster_reduce=bool(getattr(fsc, "rfecv_cluster_reduce", True)),
-        rfecv_cluster_corr_threshold=float(getattr(fsc, "rfecv_cluster_corr_threshold", 0.9)),
-        rfecv_cluster_min_reduction=float(getattr(fsc, "rfecv_cluster_min_reduction", 0.05)),
-        rfecv_cluster_corr_method=str(getattr(fsc, "rfecv_cluster_corr_method", "pearson")),
-        rfecv_overrides=dict(getattr(fsc, "rfecv_kwargs", None) or {}) or None,
+        mrmr_kwargs={}, **{k: v for k, v in fsc.pre_pipeline_kwargs().items() if k in _RANKER_PIPELINE_KEYS},
         target_type=target_type, fs_random_seed=fs_random_seed,
     )
     y_ser = pd.Series(y_arr, name="relevance")

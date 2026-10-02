@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 
 
@@ -34,4 +36,5 @@ def test_a_job_installing_pyutilz_from_a_clone_ignores_the_uv_sources_table(work
 
 def test_the_scan_found_the_jobs_it_is_meant_to_check():
     """A scan that matches nothing would pass for the wrong reason."""
+    assert_scanned_enough(len(list(WORKFLOWS.glob("*.yml"))), ".github/workflows", minimum=3)
     assert {name for name, *_ in _jobs_installing_pyutilz()} >= {"ci.yml", "fs-benchmark-nightly.yml"}

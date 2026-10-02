@@ -96,36 +96,18 @@ def test_selector_kind_classifies_all_four():
 # --------------------------------------------------------------------------- master-flag gate + kwargs validation
 
 
-@pytest.mark.parametrize(
-    "flag,kwargs_field",
-    [
-        ("use_forward_select_fs", "forward_select_kwargs"),
-        ("use_greedy_backward_elimination_fs", "greedy_backward_elimination_kwargs"),
-        ("use_zero_importance_pruning_fs", "zero_importance_pruning_kwargs"),
-        ("use_cascade_select_fs", "cascade_select_kwargs"),
-    ],
-)
-def test_kwargs_master_flag_gate(flag, kwargs_field):
-    # The 4 selector flags default to True (2026-07-12); the guard now only fires when the caller
-    # explicitly turns the flag off while still supplying its kwargs.
-    """Kwargs master flag gate."""
-    with pytest.raises(ValueError, match=f"{kwargs_field} supplied but {flag}"):
-        FeatureSelectionConfig(**{flag: False, kwargs_field: {"cv": 3}})
+@pytest.mark.parametrize("selector", ["forward_select", "greedy_backward_elimination", "zero_importance_pruning", "cascade_select"])
+def test_selector_false_means_not_configured(selector):
+    """``False`` (like ``None``) leaves the selector unconfigured, and a parameter dict enables it."""
+    assert FeatureSelectionConfig(**{selector: False}).selector_kwargs(selector) is None
+    assert FeatureSelectionConfig(**{selector: {"cv": 3}}).selector_kwargs(selector) == {"cv": 3}
 
 
-@pytest.mark.parametrize(
-    "flag,kwargs_field",
-    [
-        ("use_forward_select_fs", "forward_select_kwargs"),
-        ("use_greedy_backward_elimination_fs", "greedy_backward_elimination_kwargs"),
-        ("use_zero_importance_pruning_fs", "zero_importance_pruning_kwargs"),
-        ("use_cascade_select_fs", "cascade_select_kwargs"),
-    ],
-)
-def test_kwargs_rejects_unknown_key(flag, kwargs_field):
-    """Kwargs rejects unknown key."""
-    with pytest.raises(ValueError, match="unknown key"):
-        FeatureSelectionConfig(**{flag: True, kwargs_field: {"definitely_not_a_param": 1}})
+@pytest.mark.parametrize("selector", ["forward_select", "greedy_backward_elimination", "zero_importance_pruning", "cascade_select"])
+def test_selector_config_rejects_unknown_key(selector):
+    """A parameter the selector constructor does not have raises when the config is created."""
+    with pytest.raises(ValueError, match="definitely_not_a_param"):
+        FeatureSelectionConfig(**{selector: {"definitely_not_a_param": 1}})
 
 
 # --------------------------------------------------------------------------- biz_value: genuinely runs the selector
@@ -253,7 +235,7 @@ def test_biz_cascade_select_accepts_polars_frame():
 
 
 def test_default_config_disables_all_four_new_flags():
-    """``FeatureSelectionConfig`` defaults all four selectors OFF (2026-07-19 default-flip, superseding the
+    """``FeatureSelectionConfig`` leaves all four selectors unconfigured (OFF) (2026-07-19 default-flip, superseding the
     original 2026-07-12 default-ON flip this test used to pin): each is an O(features) or O(features^2)
     per-round CV-refit selector (ForwardSelect / GreedyBackwardElimination / ZeroImportancePruning /
     CascadeSelect) that can run for hours with no bound on real mlframe datasets with tens of thousands of
@@ -261,14 +243,9 @@ def test_default_config_disables_all_four_new_flags():
     in ``_feature_selection_config.py`` immediately above each flag). kwargs stay None (no forced overrides)
     until a caller opts into custom selector params."""
     cfg = FeatureSelectionConfig()
-    assert cfg.use_forward_select_fs is False
-    assert cfg.forward_select_kwargs is None
-    assert cfg.use_greedy_backward_elimination_fs is False
-    assert cfg.greedy_backward_elimination_kwargs is None
-    assert cfg.use_zero_importance_pruning_fs is False
-    assert cfg.zero_importance_pruning_kwargs is None
-    assert cfg.use_cascade_select_fs is False
-    assert cfg.cascade_select_kwargs is None
+    for selector in ("forward_select", "greedy_backward_elimination", "zero_importance_pruning", "cascade_select"):
+        assert getattr(cfg, selector) is None
+        assert cfg.selector_kwargs(selector) is None
 
 
 def test_build_pre_pipelines_opt_out_bit_identical_without_new_flags():

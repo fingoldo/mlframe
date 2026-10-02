@@ -317,9 +317,7 @@ def _run_suite_profiled(
                 }
             )
         _fs_cfg = FeatureSelectionConfig(
-            use_mrmr_fs=_use_mrmr_fs,
-            use_boruta_shap=_use_boruta_shap,
-            mrmr_kwargs=(
+            mrmr=(
                 {
                     "verbose": 0,
                     "max_runtime_mins": 1,
@@ -343,7 +341,7 @@ def _run_suite_profiled(
                 # a regression target raises ``ValueError: Unknown label type:
                 # continuous``. Thread the target_type-driven flag so the surrogate
                 # picks the right RandomForest{Classifier,Regressor}.
-                boruta_shap_kwargs=({
+            boruta_shap=({
                     "n_trials": 5,
                     "verbose": 0,
                     "classification": target_type != "regression",

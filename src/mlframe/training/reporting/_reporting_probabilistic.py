@@ -124,6 +124,12 @@ def _aggregate_per_class_metrics(metrics: dict, per_class_blocks: list, supports
             metrics[f"weighted_{key}"] = float((arr * w).sum() / w.sum()) if vals and w.sum() > 0 else float("nan")
 
 
+def _tuned_threshold_kwargs(*args: Any) -> dict[str, float]:
+    """``{"tuned_threshold": thr}`` when ``_resolve_f1_opt_threshold`` yields a threshold, else ``{}`` (same arguments)."""
+    thr = _resolve_f1_opt_threshold(*args)
+    return {} if thr is None else {"tuned_threshold": thr}
+
+
 def _resolve_f1_opt_threshold(is_binary_positive: bool, y_true: Any, y_score: Any, given: float | None, tune_here: bool, metrics: Any) -> float | None:
     """F1-optimal decision threshold for the title's tuned block: the one handed in (the val-tuned one, for test), else tuned on this split when asked.
 
@@ -136,7 +142,7 @@ def _resolve_f1_opt_threshold(is_binary_positive: bool, y_true: Any, y_score: An
         return float(given)
     if not tune_here:
         return None
-    from mlframe.metrics.classification._threshold_optimization import optimal_threshold
+    from mlframe.metrics.classification import optimal_threshold
 
     thr, _ = optimal_threshold(np.asarray(y_true), np.asarray(y_score), metric="f1")
     if not np.isfinite(thr):
@@ -508,9 +514,7 @@ def report_probabilistic_model_perf(
             _fcr_kwargs["base_path"] = _class_base_path
         if title_metrics_tokens is not None:
             _fcr_kwargs["title_metrics_tokens"] = title_metrics_tokens
-        _f1_thr = _resolve_f1_opt_threshold(len(classes) == 2 and class_id == 1, y_true, y_score, f1_opt_threshold, tune_f1_threshold, metrics)
-        if _f1_thr is not None:
-            _fcr_kwargs["tuned_threshold"] = _f1_thr
+        _fcr_kwargs.update(_tuned_threshold_kwargs(len(classes) == 2 and class_id == 1, y_true, y_score, f1_opt_threshold, tune_f1_threshold, metrics))
         # calibration binning strategy (auto/uniform/quantile) from ReportingConfig; default "auto" already picks
         # quantile under rare-event base rates. reliability_show_ci toggles the Wilson-CI band on the reliability
         # diagram and reaches the chart via fast_calibration_report -> build_calibration_spec(show_wilson_ci=...).
@@ -519,19 +523,11 @@ def report_probabilistic_model_perf(
         if reliability_show_ci is not None:
             _fcr_kwargs["reliability_show_ci"] = reliability_show_ci
 
-        # Inject precomputed (roc, pr) for THIS class id when the batched
-        # GPU/CPU fastpath ran above. fast_calibration_report skips its
-        # internal ``fast_aucs_per_group_optimized`` call when this is set.
+        # Inject precomputed (roc, pr) for THIS class id when the batched GPU/CPU fastpath ran above; fast_calibration_report then skips its own
+        # ``fast_aucs_per_group_optimized`` call. Multilabel and multiclass matrices have K columns indexed by class_id; the binary matrix has ONE
+        # column (we only get here for class_id=1), indexed at 0.
         if _precomputed_aucs_per_class is not None:
-            # Index alignment:
-            #  - multilabel: matrix has K columns, class_id 0..K-1
-            #  - binary: matrix has 1 column; we get here only for class_id=1
-            #  - multiclass: matrix has K columns, class_id 0..K-1
-            if not is_multilabel and len(classes) == 2:
-                # Single-column matrix indexed at 0
-                _fcr_kwargs["_precomputed_aucs"] = _precomputed_aucs_per_class[0]
-            else:
-                _fcr_kwargs["_precomputed_aucs"] = _precomputed_aucs_per_class[class_id]
+            _fcr_kwargs["_precomputed_aucs"] = _precomputed_aucs_per_class[0 if (not is_multilabel and len(classes) == 2) else class_id]
 
         with phase("fast_calibration_report", class_id=str_class_name, n_rows=len(y_true)):
             (

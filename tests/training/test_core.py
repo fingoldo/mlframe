@@ -2015,7 +2015,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0}),
+            feature_selection_config=FeatureSelectionConfig(mrmr={"max_runtime_mins": 0.5, "verbose": 0}),
         )
 
         # Verify training succeeded
@@ -2050,7 +2050,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             pipeline_config=pipeline_config,
             reporting_config=common_init_params,
             use_ordinary_models=False,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0}),
+            feature_selection_config=FeatureSelectionConfig(mrmr={"max_runtime_mins": 0.5, "verbose": 0}),
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
@@ -2091,7 +2091,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
-            feature_selection_config=FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
+            feature_selection_config=FeatureSelectionConfig(rfecv={"models": ["cb_rfecv"]}),
         )
 
         # Verify training succeeded
@@ -2122,7 +2122,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             pipeline_config=pipeline_config,
             reporting_config=common_init_params,
             use_ordinary_models=False,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0}),
+            feature_selection_config=FeatureSelectionConfig(mrmr={"max_runtime_mins": 0.5, "verbose": 0}),
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
@@ -2159,7 +2159,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0}),
+            feature_selection_config=FeatureSelectionConfig(mrmr={"max_runtime_mins": 0.5, "verbose": 0}),
         )
 
         # Verify training succeeded
@@ -2191,7 +2191,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             pipeline_config=pipeline_config,
             reporting_config=common_init_params,
             use_ordinary_models=False,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0}),
+            feature_selection_config=FeatureSelectionConfig(mrmr={"max_runtime_mins": 0.5, "verbose": 0}),
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
@@ -2228,7 +2228,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             pipeline_config=pipeline_config,
             reporting_config=common_init_params,
             use_ordinary_models=False,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0}),
+            feature_selection_config=FeatureSelectionConfig(mrmr={"max_runtime_mins": 0.5, "verbose": 0}),
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
@@ -2287,10 +2287,7 @@ class TestMRMRBinaryClassificationEdgeCases:
             mlframe_models=["ridge"],
             reporting_config=common_init_params,
             use_ordinary_models=False,
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True,
-                mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0, "use_simple_mode": use_simple_mode},
-            ),
+            feature_selection_config=FeatureSelectionConfig(mrmr={"max_runtime_mins": 0.5, "verbose": 0, "use_simple_mode": use_simple_mode}),
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
@@ -2315,15 +2312,7 @@ class TestMRMRBinaryClassificationEdgeCases:
             mlframe_models=["ridge"],
             reporting_config=common_init_params,
             use_ordinary_models=False,
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True,
-                mrmr_kwargs={
-                    "max_runtime_mins": 0.5,
-                    "verbose": 0,
-                    "use_simple_mode": use_simple_mode,
-                    "min_relevance_gain": 10.0,  # Very high threshold to ensure no features selected
-                },
-            ),
+            feature_selection_config=FeatureSelectionConfig(mrmr={'max_runtime_mins': 0.5, 'verbose': 0, 'use_simple_mode': use_simple_mode, 'min_relevance_gain': 10.0}),
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,

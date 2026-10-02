@@ -8,6 +8,7 @@ call sites resolve unchanged.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from mlframe._output_paths import ensure_parent_dir
 import numpy as np
@@ -337,6 +338,25 @@ def _fit_stability_selection(self, X, y, signature):
     return self
 
 
+def _warn_if_smoothing_across_sparse_n(checked_nfeatures: Any) -> None:
+    """Warn when the explored subset sizes are so sparse that index-based rolling-mean smoothing mixes physically unrelated regimes.
+
+    ``rolling.mean`` smooths by INDEX, not by N value: on a sparse exploration ({2, 10, 30, 60}) adjacent rows are unrelated.
+    """
+    sizes = np.array(checked_nfeatures)
+    if len(sizes) < 2:
+        return
+    gaps = np.diff(np.sort(sizes))
+    median_gap = float(np.median(gaps))
+    max_gap = float(gaps.max())
+    if max_gap > 3 * max(1.0, median_gap):
+        logger.warning(
+            "select_optimal_nfeatures_: smoothing across sparse N (max gap %.0f, median gap %.0f). Rolling-mean averages by index, not by N value, "
+            "so adjacent rows may mix unrelated regimes. Either set smooth_perf=0 or evaluate more N values.",
+            max_gap, median_gap,
+        )
+
+
 def select_optimal_nfeatures_(
     self,
     checked_nfeatures: np.ndarray,
@@ -358,22 +378,7 @@ def select_optimal_nfeatures_(
     """Pick the RFECV subset size trading off CV performance against ``feature_cost`` per feature, smoothing the performance curve first."""
     base_perf = np.array(cv_mean_perf) * self.mean_perf_weight - np.array(cv_std_perf) * self.std_perf_weight
     if smooth_perf:
-        # C4: rolling.mean smooths by INDEX, not by N
-        # value. On sparse N exploration ({2, 10, 30, 60}) adjacent rows
-        # mix physically-unrelated regimes -> garbage smoothing. Warn loud.
-        _nf_arr = np.array(checked_nfeatures)
-        if len(_nf_arr) >= 2:
-            _gaps = np.diff(np.sort(_nf_arr))
-            _med_gap = float(np.median(_gaps))
-            _max_gap = float(_gaps.max())
-            if _max_gap > 3 * max(1.0, _med_gap):
-                logger.warning(
-                    "select_optimal_nfeatures_: smoothing across sparse N "
-                    "(max gap %.0f, median gap %.0f). Rolling-mean averages "
-                    "by index, not by N value, so adjacent rows may mix "
-                    "unrelated regimes. Either set smooth_perf=0 or "
-                    "evaluate more N values.", _max_gap, _med_gap,
-                )
+        _warn_if_smoothing_across_sparse_n(checked_nfeatures)
         # ``.rolling().mean().values`` returns a read-only ndarray on
         # recent pandas (the underlying BlockManager exposes an immutable
         # view of its memory). ``.to_numpy(copy=True)`` forces a writeable

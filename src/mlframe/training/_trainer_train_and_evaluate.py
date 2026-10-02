@@ -25,6 +25,7 @@ import pandas as pd
 import polars as pl
 
 from mlframe.metrics.core import compute_probabilistic_multiclass_error
+from mlframe.reporting.async_render_hooks import log_render_queued, render_queued_mark
 from mlframe.training.io import safe_joblib_load
 from .phases import phase
 from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
@@ -118,6 +119,25 @@ def _oof_train_timestamps(timestamps: Any, train_idx: Any) -> Any:
     if hasattr(timestamps, "iloc"):
         return timestamps.iloc[np.asarray(train_idx)]
     return np.asarray(timestamps)[np.asarray(train_idx)]
+
+def _train_envelope_stats(train_target: Any, mase_seasonality: int) -> Any:
+    """Train-target envelope stats (with the naive MAE at ``mase_seasonality``), or None when ``train_target`` is None or they cannot be computed.
+
+    A failure is logged at DEBUG: the per-split eval-fallback envelope still applies in the reporter.
+    """
+    if train_target is None:
+        return None
+    try:
+        from ._prediction_envelope_clip import compute_train_envelope_stats, train_naive_mae
+
+        stats = compute_train_envelope_stats(train_target)
+        if stats is not None:
+            stats = stats._replace(naive_mae=train_naive_mae(train_target, mase_seasonality))
+        return stats
+    except Exception as err:
+        logger.debug("Could not compute train envelope stats: %s. Per-split eval-fallback envelope still applies in the reporter.", err)
+        return None
+
 
 def train_and_evaluate_model(
     model: object,
@@ -800,8 +820,6 @@ def train_and_evaluate_model(
 
     metrics_out: dict[str, Any] = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
 
-    from mlframe.reporting.async_render_hooks import log_render_queued, render_queued_mark
-
     _render_mark = render_queued_mark()
     if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:
         t0_metrics = timer()
@@ -817,20 +835,7 @@ def train_and_evaluate_model(
         # for composite-target estimators (CompositeTargetEstimator) the
         # inner T-scale bound is computed by the wrapper itself, the
         # outer y-scale report sees y_train and gets the right bound.
-        _y_train_envelope_stats = None
-        if train_target is not None:
-            try:
-                from ._prediction_envelope_clip import compute_train_envelope_stats
-                _y_train_envelope_stats = compute_train_envelope_stats(train_target)
-                if _y_train_envelope_stats is not None:
-                    from ._prediction_envelope_clip import train_naive_mae
-
-                    _y_train_envelope_stats = _y_train_envelope_stats._replace(naive_mae=train_naive_mae(train_target, reporting.mase_seasonality))
-            except Exception as _env_err:
-                logger.debug(
-                    "Could not compute train envelope stats: %s. Per-split " "eval-fallback envelope still applies in the reporter.",
-                    _env_err,
-                )
+        _y_train_envelope_stats = _train_envelope_stats(train_target, reporting.mase_seasonality)
 
         common_metrics_params = dict(
             # ReportingConfig is forwarded so report_regression_model_perf

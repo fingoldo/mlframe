@@ -77,6 +77,25 @@ def _t_crit(df: int, alpha: float) -> float:
     return float(_t.ppf(1.0 - alpha, max(df, 1)))
 
 
+def publish_outer_loop_outputs(self: Any, state: Any) -> None:
+    """Expose the outer loop's results on the selector: per-fold scores (``cv_results_["splitK_test_score"]`` is built from them, sklearn parity),
+    the evaluated-subset trace and the last futility verdict (``eval_trace_`` / ``futility_verdict_``)."""
+    self._per_fold_scores = dict(state.per_fold_scores)
+    self.eval_trace_ = list(state.eval_trace)
+    self.futility_verdict_ = state.futility_verdict
+
+
+def record_evaluation(state: Any, n_features: int, scores: Any) -> None:
+    """Append one evaluated subset (its size and per-fold scores) to ``state.eval_trace``."""
+    state.eval_trace.append((n_features, tuple(float(v) for v in scores)))
+
+
+def validate_futility_anchor(anchor: Any) -> None:
+    """Reject a ``futility_anchor`` that is neither ``'full'`` nor ``'pick'``."""
+    if anchor not in ("full", "pick"):
+        raise ValueError(f"futility_anchor must be 'full' or 'pick', got {anchor!r}")
+
+
 def futility_armed(self: Any) -> bool:
     """Whether the stop may run for this configuration at all (rule/feature_cost/max_nfeatures/special indices gates)."""
     if not getattr(self, "futility_stop", False):
@@ -221,9 +240,9 @@ def futility_verdict(
 def remaining_iterations(self: Any, state: Any, n_total: int, max_refits: Optional[int], max_runtime_mins: Optional[float], elapsed_s: float) -> int:
     """Iterations the run could still spend before another stop fires: sizes left, ``max_refits`` left, and the runtime budget over the mean iteration time."""
     left = max(n_total - state.nsteps, 0)
-    if max_refits:
+    if max_refits is not None and max_refits > 0:  # 0 means unlimited, as in the outer loop
         left = min(left, max(max_refits - state.nsteps, 0))
-    if max_runtime_mins and state.iter_durations:
+    if max_runtime_mins is not None and max_runtime_mins > 0 and state.iter_durations:
         mean_s = float(np.mean(state.iter_durations))
         if mean_s > 0:
             left = min(left, max(int((max_runtime_mins * 60 - elapsed_s) / mean_s), 0))
@@ -231,7 +250,12 @@ def remaining_iterations(self: Any, state: Any, n_total: int, max_refits: Option
 
 
 def check_futility_stop(self: Any, state: Any, n_total: int, max_refits: Optional[int], max_runtime_mins: Optional[float], elapsed_s: float, verbose: Any) -> bool:
-    """Evaluate the futility stop after an iteration: records ``futility_verdict_`` on the selector and, when it fires, sets ``state.stop_reason`` and returns True."""
+    """Evaluate the futility stop after an iteration: records ``futility_verdict_`` on the selector and, when it fires, sets ``state.stop_reason`` and returns True.
+
+    Returns False without evaluating anything when the stop is not armed for this configuration (``futility_armed``).
+    """
+    if not futility_armed(self):
+        return False
     verdict = futility_verdict(
         state.eval_trace,
         min_iters=int(self.futility_min_iters),
@@ -244,7 +268,7 @@ def check_futility_stop(self: Any, state: Any, n_total: int, max_refits: Optiona
         mean_w=float(self.mean_perf_weight),
         std_w=float(self.std_perf_weight),
     )
-    self.futility_verdict_ = verdict
+    state.futility_verdict = verdict
     if not verdict.stop:
         return False
     if verbose:

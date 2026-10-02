@@ -136,13 +136,9 @@ class TestConfigInstantiationDoesNotRaise:
     def test_feature_selection_config_with_custom_pipelines(self):
         """Feature selection config with custom pipelines."""
         sentinel = object()
-        cfg = FeatureSelectionConfig(
-            use_mrmr_fs=True,
-            rfecv_models=["cb"],
-            custom_pre_pipelines={"my_pca": sentinel},
-        )
-        assert cfg.use_mrmr_fs is True
-        assert cfg.rfecv_models == ["cb_rfecv"]
+        cfg = FeatureSelectionConfig(custom_pre_pipelines={"my_pca": sentinel}, mrmr=True, rfecv={"models": ["cb"]})
+        assert cfg.selector_kwargs("mrmr") == {}
+        assert cfg.rfecv.models == ("cb_rfecv",)
         assert cfg.custom_pre_pipelines == {"my_pca": sentinel}
 
     def test_confidence_analysis_config(self):

@@ -20,58 +20,44 @@ from mlframe.training.configs import (
 # ---- FeatureSelectionConfig ------------------------------------------------
 
 
-def test_fsc_mrmr_kwargs_without_master_flag_raises():
-    """REGRESSION: pre-fix mrmr_kwargs set but use_mrmr_fs=False -> kwargs silently ignored.
-
-    Uses a valid MRMR.__init__ kwarg so the field validator passes and the
-    cross-field model validator gets to fire (the case under test).
-    """
-    with pytest.raises(ValidationError, match="use_mrmr_fs=False"):
-        FeatureSelectionConfig(
-            use_mrmr_fs=False,
-            mrmr_kwargs={"verbose": 0},
-        )
+def test_fsc_selector_without_a_config_is_off_and_with_one_is_on():
+    """A selector is enabled by giving its field a config; there is no separate master flag whose value could contradict the kwargs."""
+    assert FeatureSelectionConfig().mrmr is None
+    assert FeatureSelectionConfig(mrmr={"verbose": 0}).selector_kwargs("mrmr") == {"verbose": 0}
+    assert FeatureSelectionConfig(mrmr=True).selector_kwargs("mrmr") == {}
+    assert FeatureSelectionConfig(mrmr=False).mrmr is None
 
 
-def test_fsc_mrmr_kwargs_with_master_flag_passes():
-    """Fsc mrmr kwargs with master flag passes."""
-    cfg = FeatureSelectionConfig(
-        use_mrmr_fs=True,
-        mrmr_kwargs={"verbose": 0},
-    )
-    assert cfg.use_mrmr_fs is True
+def test_fsc_old_flat_names_raise_with_the_new_spelling():
+    """The flag-plus-kwargs layout is gone; its names raise naming the field that replaces them instead of being silently ignored."""
+    with pytest.raises(ValidationError, match=r"use_mrmr_fs.*mrmr=MRMRConfig"):
+        FeatureSelectionConfig(use_mrmr_fs=True)
+    with pytest.raises(ValidationError, match=r"boruta_shap_kwargs.*boruta_shap=BorutaShapConfig"):
+        FeatureSelectionConfig(boruta_shap_kwargs={"n_trials": 5})
+    with pytest.raises(ValidationError, match=r"rfecv_must_include.*rfecv=RFECVConfig\(must_include"):
+        FeatureSelectionConfig(rfecv_must_include=["a"])
 
 
-def test_fsc_rfecv_kwargs_without_models_raises():
-    """Fsc rfecv kwargs without models raises."""
-    with pytest.raises(ValidationError, match="rfecv_models"):
-        FeatureSelectionConfig(
-            rfecv_models=None,
-            rfecv_kwargs={"verbose": 0},
-        )
+def test_fsc_rfecv_models_are_canonicalised_and_validated():
+    """A bare backend name becomes its ``*_rfecv`` key; an unknown backend raises."""
+    assert FeatureSelectionConfig(rfecv={"verbose": 0, "models": ["cb"]}).rfecv.models == ("cb_rfecv",)
+    with pytest.raises(ValidationError, match="unknown RFECV model"):
+        FeatureSelectionConfig(rfecv={"models": ["nope"]})
 
 
-def test_fsc_rfecv_kwargs_with_models_passes():
-    """Fsc rfecv kwargs with models passes."""
-    cfg = FeatureSelectionConfig(
-        rfecv_models=["cb"],
-        rfecv_kwargs={"verbose": 0},
-    )
-    assert cfg.rfecv_models == ["cb_rfecv"]
+def test_fsc_unknown_field_and_unknown_selector_parameter_raise():
+    """Neither a typo in the config nor a parameter the selector does not have is accepted."""
+    with pytest.raises(ValidationError, match="bogus"):
+        FeatureSelectionConfig(bogus=1)
+    with pytest.raises(ValidationError, match="bogus"):
+        FeatureSelectionConfig(boruta_shap={"bogus": 1})
 
 
-def test_fsc_boruta_kwargs_without_master_flag_raises():
-    """Fsc boruta kwargs without master flag raises."""
-    with pytest.raises(ValidationError, match="use_boruta_shap=False"):
-        FeatureSelectionConfig(
-            use_boruta_shap=False,
-            boruta_shap_kwargs={"n_trials": 50},
-        )
-
-
-def test_fsc_default_kwargs_none_passes():
-    """Bare defaults must keep working (no kwargs supplied = no contradiction)."""
-    FeatureSelectionConfig()
+def test_fsc_default_passes():
+    """Bare defaults must keep working: no selector enabled, the unsupervised pre-screen on."""
+    cfg = FeatureSelectionConfig()
+    assert cfg.selector_kwargs("mrmr") is None and cfg.selector_kwargs("rfecv") is None
+    assert cfg.pre_screen.enable is True
 
 
 # ---- FeatureTypesConfig ----------------------------------------------------

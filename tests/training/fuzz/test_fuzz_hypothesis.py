@@ -151,10 +151,7 @@ def test_hypothesis_leaf_sampling(tmp_path_factory, leaf, discrete, seed):
         use_mlframe_ensembles=False,
         outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
-        feature_selection_config=FeatureSelectionConfig(
-            use_mrmr_fs=False,
-            custom_pre_pipelines=custom_pre or {},
-        ),
+        feature_selection_config=FeatureSelectionConfig(custom_pre_pipelines=custom_pre or {}),
         **_configs_for_combo(combo),
     )
     # Same invariants the pairwise suite asserts.

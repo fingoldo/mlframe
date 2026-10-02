@@ -1,8 +1,7 @@
 """Config contracts that did not hold: a round-trip that failed, and a safety flag whose default contradicted its twin.
 
-CFG-04: `FeatureSelectionConfig(rfecv_models=['cb'], rfecv_swap_top_k=3).model_dump()` carried the lever AND its
-folded `rfecv_kwargs` entry, and re-validating that dump raised "set BOTH as a first-class lever field AND inside
-rfecv_kwargs" - so any cache key, JSON reload or sweep harness crashed on a config nobody mis-specified.
+CFG-04: a dumped `FeatureSelectionConfig` once failed to re-validate because a lever lived in two places; each lever has one
+home now (`rfecv={...}`), so the dump rebuilds an equal config.
 
 CFG-03: `PreprocessingConfig.skip_infinity_checks` defaulted to True (protection off) against `DataConfig`'s False,
 and nothing reads it.
@@ -18,16 +17,17 @@ from mlframe.training.configs import FeatureSelectionConfig, PreprocessingConfig
 
 
 def test_a_dumped_feature_selection_config_revalidates():
-    """A dumped feature selection config revalidates."""
-    cfg = FeatureSelectionConfig(rfecv_models=["cb"], rfecv_swap_top_k=3)
+    """A dumped feature selection config revalidates to an equal config with the same written levers."""
+    cfg = FeatureSelectionConfig(rfecv={"models": ["cb"], "swap_top_k": 3})
     again = FeatureSelectionConfig(**cfg.model_dump())
-    assert again.rfecv_kwargs == cfg.rfecv_kwargs == {"swap_top_k": 3}
+    assert again == cfg
+    assert again.selector_kwargs("rfecv") == cfg.selector_kwargs("rfecv") == {"swap_top_k": 3}
 
 
-def test_a_genuine_conflict_still_raises():
-    """A genuine conflict still raises."""
-    with pytest.raises(ValueError, match="BOTH as a first-class lever"):
-        FeatureSelectionConfig(rfecv_models=["cb"], rfecv_swap_top_k=3, rfecv_kwargs={"swap_top_k": 5})
+def test_the_previous_flat_spelling_of_a_lever_is_rejected():
+    """There is one spelling of each lever: the flat ``rfecv_swap_top_k`` of the previous layout raises and names the new one."""
+    with pytest.raises(ValueError, match="rfecv"):
+        FeatureSelectionConfig(rfecv_swap_top_k=3)
 
 
 def test_the_preprocessing_skip_flag_default_matches_the_data_config():

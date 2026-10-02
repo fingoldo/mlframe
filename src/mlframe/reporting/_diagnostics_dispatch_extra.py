@@ -376,7 +376,7 @@ def build_combined_html_report(
         return None
     try:
         from mlframe.reporting.async_render_hooks import active_render_queue
-        from mlframe.reporting.renderers.save import _use_format_subfolders, resolve_output_path
+        from mlframe.reporting.renderers.save import use_format_subfolders, resolve_output_path
 
         queue = active_render_queue()
         if queue is not None:
@@ -392,7 +392,7 @@ def build_combined_html_report(
                             charts["saved"].remove("combined_html")
 
             queue.submit(
-                _combined_html_task, base_path, list(chart_paths), title, _use_format_subfolders(),
+                _combined_html_task, base_path, list(chart_paths), title, use_format_subfolders(),
                 name=os.path.basename(base_path) + "_report", after_pending=True, on_done=_reconcile,
             )
             _record(charts, "combined_html", True)

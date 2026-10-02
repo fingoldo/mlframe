@@ -126,11 +126,11 @@ def test_fs_runtime_markers_stripped_from_saved_bundle_and_restored(tmp_path):
 def test_rfecv_kwargs_rejects_cluster_reduce_keys():
     """cluster_reduce in rfecv_kwargs is a config-time-green / fit-time-crash trap; reject it."""
     for bad in ("cluster_reduce", "cluster_corr_threshold", "cluster_min_reduction", "cluster_corr_method"):
-        with pytest.raises(ValueError, match="unknown key"):
-            FeatureSelectionConfig(rfecv_models=["lgb"], rfecv_kwargs={bad: True})
+        with pytest.raises(ValueError, match=bad):
+            FeatureSelectionConfig(rfecv={bad: True, "models": ["lgb"]})
 
 
 def test_boruta_shap_kwargs_still_allows_cluster_reduce_keys():
     """BorutaShap DOES route through the registry cluster wrap, so its validator keeps the keys."""
-    cfg = FeatureSelectionConfig(use_boruta_shap=True, boruta_shap_kwargs={"cluster_reduce": False})
-    assert cfg.boruta_shap_kwargs["cluster_reduce"] is False
+    cfg = FeatureSelectionConfig(boruta_shap={"cluster": {"enable": False}})
+    assert cfg.selector_kwargs("boruta_shap")["cluster_reduce"] is False

@@ -347,7 +347,7 @@ class TestFeatureSelectionIntegration:
             model_name="rfecv_classification",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            feature_selection_config=FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
+            feature_selection_config=FeatureSelectionConfig(rfecv={"models": ["cb_rfecv"]}),
             hyperparams_config={"iterations": fast_iterations},
             reporting_config=common_init_params,
             use_ordinary_models=True,
@@ -388,7 +388,7 @@ class TestFeatureSelectionIntegration:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
-            feature_selection_config=FeatureSelectionConfig(rfecv_models=rfecv_models),
+            feature_selection_config=FeatureSelectionConfig(rfecv={"models": rfecv_models}),
         )
 
         assert TargetTypes.REGRESSION in models
@@ -411,17 +411,7 @@ class TestFeatureSelectionIntegration:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True,
-                mrmr_kwargs={
-                    "verbose": 0,
-                    "max_runtime_mins": 1,
-                    "n_workers": 1,
-                    "quantization_nbins": 5,
-                    "use_simple_mode": True,
-                    "nbins_strategy_kwargs": {"mdlp_fast_mode": True},  # 20-80x faster per column; not testing MDLP accuracy here
-                },
-            ),
+            feature_selection_config=FeatureSelectionConfig(mrmr={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'nbins_strategy_kwargs': {'mdlp_fast_mode': True}}),
         )
 
         assert TargetTypes.REGRESSION in models
@@ -447,16 +437,7 @@ class TestFeatureSelectionIntegration:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True,
-                mrmr_kwargs={
-                    "verbose": 0,
-                    "max_runtime_mins": 1,
-                    "n_workers": 1,
-                    "quantization_nbins": 5,
-                    "nbins_strategy_kwargs": {"mdlp_fast_mode": True},
-                },
-            ),
+            feature_selection_config=FeatureSelectionConfig(mrmr={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'nbins_strategy_kwargs': {'mdlp_fast_mode': True}}),
         )
 
         assert TargetTypes.BINARY_CLASSIFICATION in models
@@ -489,18 +470,7 @@ class TestCombinedPipelines:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
-            feature_selection_config=FeatureSelectionConfig(
-                rfecv_models=["cb_rfecv"],
-                use_mrmr_fs=True,
-                mrmr_kwargs={
-                    "verbose": 0,
-                    "max_runtime_mins": 1,
-                    "n_workers": 1,
-                    "quantization_nbins": 5,
-                    "use_simple_mode": True,
-                    "nbins_strategy_kwargs": {"mdlp_fast_mode": True},  # 20-80x faster per column; not testing MDLP accuracy here
-                },
-            ),
+            feature_selection_config=FeatureSelectionConfig(mrmr={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'nbins_strategy_kwargs': {'mdlp_fast_mode': True}}, rfecv={'models': ['cb_rfecv']}),
         )
 
         assert TargetTypes.REGRESSION in models
@@ -538,10 +508,7 @@ class TestCombinedPipelines:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True,
-                mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "nbins_strategy_kwargs": {"mdlp_fast_mode": True}},
-            ),
+            feature_selection_config=FeatureSelectionConfig(mrmr={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'nbins_strategy_kwargs': {'mdlp_fast_mode': True}}),
         )
 
         assert TargetTypes.REGRESSION in models
@@ -558,7 +525,7 @@ class TestCombinedPipelines:
             model_name="rfecv_polars",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            feature_selection_config=FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
+            feature_selection_config=FeatureSelectionConfig(rfecv={"models": ["cb_rfecv"]}),
             hyperparams_config={"iterations": fast_iterations},
             reporting_config=common_init_params,
             use_ordinary_models=True,
@@ -586,10 +553,7 @@ class TestCombinedPipelines:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True,
-                mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "nbins_strategy_kwargs": {"mdlp_fast_mode": True}},
-            ),
+            feature_selection_config=FeatureSelectionConfig(mrmr={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'nbins_strategy_kwargs': {'mdlp_fast_mode': True}}),
         )
 
         assert TargetTypes.REGRESSION in models
@@ -615,7 +579,7 @@ class TestCombinedPipelines:
             model_name="rfecv_small",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            feature_selection_config=FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
+            feature_selection_config=FeatureSelectionConfig(rfecv={"models": ["cb_rfecv"]}),
             hyperparams_config={"iterations": 5},
             reporting_config=common_init_params,
             use_ordinary_models=True,
@@ -646,7 +610,7 @@ class TestCombinedPipelines:
             model_name="rfecv_many_features",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            feature_selection_config=FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
+            feature_selection_config=FeatureSelectionConfig(rfecv={"models": ["cb_rfecv"]}),
             hyperparams_config={"iterations": 5},
             reporting_config=common_init_params,
             use_ordinary_models=True,

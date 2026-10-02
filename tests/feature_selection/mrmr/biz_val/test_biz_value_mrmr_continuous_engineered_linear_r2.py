@@ -191,7 +191,7 @@ def test_suite_linear_reaches_r2_099_on_case2_via_mrmr():
             mlframe_models=["linear"],
             verbose=0,
             use_mlframe_ensembles=False,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=dict(verbose=0, random_seed=0)),
+            feature_selection_config=FeatureSelectionConfig(mrmr=dict(verbose=0, random_seed=0)),
             output_config=OutputConfig(data_dir="", models_dir="", save_charts=False),
             composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False),
             baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),

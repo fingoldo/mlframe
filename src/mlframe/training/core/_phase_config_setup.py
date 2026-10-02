@@ -346,7 +346,7 @@ def setup_configuration(
         # The feature-selection kernel set is by far the expensive half and is only worth compiling when
         # feature selection will actually run: a CatBoost-only fit with no MRMR and no RFECV never calls one of
         # those kernels, so warming them is pure wall time before any data is read.
-        _fs_will_run = bool(getattr(feature_selection_config, "use_mrmr_fs", False)) or bool(getattr(feature_selection_config, "rfecv_models", None))
+        _fs_will_run = feature_selection_config.mrmr is not None or feature_selection_config.rfecv is not None
         # The heavy-lib half (lightning -> torchmetrics -> transformers -> a tensorflow probe, plus shap) is worth
         # importing only when this run will actually reach it. A production fit with mlframe_models=['cb'] spent
         # 382.73s warming a neural stack it never touched. SHAP counts too: the trainer imports it when use_shap.
@@ -432,16 +432,9 @@ def setup_configuration(
 
         outlier_detector = outlier_detection_config.detector
         od_val_set = outlier_detection_config.apply_to_val
-        use_mrmr_fs = feature_selection_config.use_mrmr_fs
-        mrmr_kwargs = feature_selection_config.mrmr_kwargs
-        # The suite-level flag turns on MRMR's usability second pass
-        # so transform() materialises the UNION of all three selection lists (pure-MI + linear + universal),
-        # putting the linearly-usable engineered interaction in every model's input. An explicit mrmr_kwargs
-        # entry wins; the default path (flag off) leaves mrmr_kwargs untouched / byte-identical.
-        if getattr(feature_selection_config, "mrmr_usability_aware_lists", False):
-            mrmr_kwargs = dict(mrmr_kwargs or {})
-            mrmr_kwargs.setdefault("usability_aware_lists", True)
-        rfecv_models = feature_selection_config.rfecv_models
+        use_mrmr_fs = feature_selection_config.mrmr is not None
+        mrmr_kwargs = feature_selection_config.selector_kwargs("mrmr")
+        rfecv_models = list(feature_selection_config.rfecv.models) if feature_selection_config.rfecv is not None else None
         custom_pre_pipelines = feature_selection_config.custom_pre_pipelines if feature_selection_config.custom_pre_pipelines else None
 
         common_params_dict = _build_suite_common_params_dict(

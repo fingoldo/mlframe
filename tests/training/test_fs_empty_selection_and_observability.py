@@ -143,17 +143,7 @@ def _empty_selection_fs_config():
     silently ineffective. ``min_features_fallback=0`` disables the back-fill that otherwise keeps one raw
     feature even when screening returns nothing.
     """
-    return FeatureSelectionConfig(
-        use_mrmr_fs=True,
-        mrmr_kwargs={
-            "verbose": 0,
-            "use_simple_mode": True,
-            "max_runtime_mins": 0.3,
-            "min_relevance_gain_mode": "absolute",
-            "min_relevance_gain": 10.0,
-            "min_features_fallback": 0,
-        },
-    )
+    return FeatureSelectionConfig(mrmr={'verbose': 0, 'use_simple_mode': True, 'max_runtime_mins': 0.3, 'min_relevance_gain_mode': 'absolute', 'min_relevance_gain': 10.0, 'min_features_fallback': 0})
 
 
 @pytest.mark.slow

@@ -174,9 +174,9 @@ def _render_debug(root) -> str:
     for dirpath, _dirnames, filenames in os.walk(str(root)):
         for name in sorted(filenames):
             found.append(os.path.relpath(os.path.join(dirpath, name), str(root)))
-    from mlframe.reporting.renderers.save import _use_format_subfolders, get_format_subfolders
+    from mlframe.reporting.renderers.save import use_format_subfolders, get_format_subfolders
     state = (
-        f"; effective_subfolders={_use_format_subfolders()}, thread_override={get_format_subfolders()!r}, "
+        f"; effective_subfolders={use_format_subfolders()}, thread_override={get_format_subfolders()!r}, "
         f"env={os.environ.get('MLFRAME_PLOT_FORMAT_SUBFOLDERS')!r}, thread={__import__('threading').current_thread().name!r}"
     )
     return f"files under {root}: {found or '<none>'}; render failure stats: {get_render_failure_stats()}" + state

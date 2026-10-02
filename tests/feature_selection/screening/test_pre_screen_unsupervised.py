@@ -118,9 +118,9 @@ def test_config_field_present_and_defaults_safe():
     from mlframe.training.configs import FeatureSelectionConfig
 
     cfg = FeatureSelectionConfig()
-    assert cfg.pre_screen_unsupervised is True
-    assert cfg.pre_screen_variance_threshold == 0.0
-    assert cfg.pre_screen_null_fraction_threshold == 0.99
+    assert cfg.pre_screen.enable is True
+    assert cfg.pre_screen.variance_threshold == 0.0
+    assert cfg.pre_screen.null_fraction_threshold == 0.99
 
 
 def _reference_drops_via_isna(df):

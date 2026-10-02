@@ -201,29 +201,29 @@ def test_f4_shap_proxied_fs_kind_classified():
 # --------------------------------------------------------------------------- F6
 
 
-def test_f6_shap_proxied_fs_kwargs_master_flag_gate():
-    """F6 shap proxied fs kwargs master flag gate."""
-    with pytest.raises(ValueError, match="shap_proxied_fs_kwargs supplied but use_shap_proxied_fs"):
-        FeatureSelectionConfig(shap_proxied_fs_kwargs={"top_n": 5})
+def test_f6_shap_proxied_fs_false_means_not_configured():
+    """``False`` leaves ShapProxiedFS unconfigured; a parameter dict enables it."""
+    assert FeatureSelectionConfig(shap_proxied_fs=False).selector_kwargs("shap_proxied_fs") is None
+    assert FeatureSelectionConfig(shap_proxied_fs={"top_n": 5}).selector_kwargs("shap_proxied_fs") == {"top_n": 5}
 
 
 def test_f6_shap_proxied_fs_kwargs_rejects_unknown_key():
     """F6 shap proxied fs kwargs rejects unknown key."""
-    with pytest.raises(ValueError, match="unknown key"):
-        FeatureSelectionConfig(use_shap_proxied_fs=True, shap_proxied_fs_kwargs={"definitely_not_a_param": 1})
+    with pytest.raises(ValueError, match="definitely_not_a_param"):
+        FeatureSelectionConfig(shap_proxied_fs={"definitely_not_a_param": 1})
 
 
 def test_f6_shap_proxied_fs_kwargs_accepts_valid_key():
     """F6 shap proxied fs kwargs accepts valid key."""
-    cfg = FeatureSelectionConfig(use_shap_proxied_fs=True, shap_proxied_fs_kwargs={"top_n": 7, "optimizer": "auto"})
-    assert cfg.shap_proxied_fs_kwargs["top_n"] == 7
+    cfg = FeatureSelectionConfig(shap_proxied_fs={"top_n": 7, "optimizer": "auto"})
+    assert cfg.shap_proxied_fs.top_n == 7
 
 
 def test_f6_rfecv_cluster_corr_method_validated():
     """F6 rfecv cluster corr method validated."""
-    with pytest.raises(ValueError, match="rfecv_cluster_corr_method"):
-        FeatureSelectionConfig(rfecv_cluster_corr_method="bogus")
-    assert FeatureSelectionConfig(rfecv_cluster_corr_method="su").rfecv_cluster_corr_method == "su"
+    with pytest.raises(ValueError, match="corr_method"):
+        FeatureSelectionConfig(rfecv={"cluster": {"corr_method": "bogus"}})
+    assert FeatureSelectionConfig(rfecv={"cluster": {"corr_method": "su"}}).rfecv.cluster.corr_method == "su"
 
 
 # --------------------------------------------------------------------------- Architecture: report_extract

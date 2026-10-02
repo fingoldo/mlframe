@@ -448,7 +448,7 @@ class CorrelatedFeaturesSelector(TransformerMixin, BaseEstimator):
         logger.info(
             "CorrelatedFeaturesSelector correlation-cluster pre-reduction (not a groups column): %d original features -> %d clusters of |%s corr| > %.2f "
             "(reduction=%.1f%%, min_reduction=%.1f%%, applied=%s); %s runs on %s. "
-            "Opt out in the training suite with FeatureSelectionConfig(rfecv_cluster_reduce=False).",
+            "Opt out in the training suite with FeatureSelectionConfig(rfecv={'cluster': {'enable': False}}).",
             n_feat, n_clusters, self.corr_method, self.corr_threshold, 100.0 * reduction, 100.0 * float(self.min_reduction), self.reduced_,
             type(self.estimator).__name__, "one medoid per cluster" if self.reduced_ else "all original features",
         )

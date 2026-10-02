@@ -65,12 +65,14 @@ from .._helpers import (
     suppress_irritating_3rdparty_warnings,
 )
 from ._configs import FIConfig, RobustnessConfig, SearchConfig
+from ._futility_stop import validate_futility_anchor
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
 
 _N_FEATURES_SELECTION_RULES = ("auto", "argmax", "one_se_min", "one_se_max", "one_se_min_foldstd", "one_se_max_foldstd", "plateau")
+N_FEATURES_SELECTION_RULES = _N_FEATURES_SELECTION_RULES  # public name for consumers outside the package
 
 
 def _overlay_explicit_config_fields(params: dict, configs: tuple) -> None:
@@ -493,8 +495,7 @@ class RFECV(TransformerMixin, BaseEstimator):
     ):
 
         # checks
-        if futility_anchor not in ("full", "pick"):
-            raise ValueError(f"futility_anchor must be 'full' or 'pick', got {futility_anchor!r}")
+        validate_futility_anchor(futility_anchor)
         if frac is not None:
             if not (frac > 0.0 and frac < 1.0):
                 raise ValueError(f"frac must be between 0 and 1, got {frac}")

@@ -66,8 +66,8 @@ def test_fs3_feature_selection_config_rejects_unknown_mrmr_kwarg():
     from mlframe.training.configs import FeatureSelectionConfig
     from pydantic import ValidationError
 
-    with pytest.raises(ValidationError, match=r"mrmr_kwargs.*unknown key"):
-        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"fe_max_step": 3})
+    with pytest.raises(ValidationError, match=r"mrmr\.fe_max_step"):
+        FeatureSelectionConfig(mrmr={"fe_max_step": 3})
 
 
 def test_fs3_feature_selection_config_rejects_unknown_rfecv_kwarg():
@@ -75,21 +75,17 @@ def test_fs3_feature_selection_config_rejects_unknown_rfecv_kwarg():
     from mlframe.training.configs import FeatureSelectionConfig
     from pydantic import ValidationError
 
-    with pytest.raises(ValidationError, match=r"rfecv_kwargs.*unknown key"):
-        FeatureSelectionConfig(rfecv_kwargs={"max_runtime_min": 5})  # missing trailing 's'
+    with pytest.raises(ValidationError, match=r"rfecv\.max_runtime_min"):
+        FeatureSelectionConfig(rfecv={"max_runtime_min": 5})  # missing trailing 's'
 
 
 def test_fs3_feature_selection_config_accepts_valid_kwargs():
-    """Valid kwargs (cv_n_splits + a real RFECV.__init__ arg) must pass validation."""
+    """Valid constructor parameters of both selectors pass validation and come back through ``selector_kwargs``."""
     from mlframe.training.configs import FeatureSelectionConfig
 
-    cfg = FeatureSelectionConfig(
-        use_mrmr_fs=True,
-        mrmr_kwargs={"fe_max_steps": 1, "verbose": 0},
-        rfecv_models=["cb"],
-        rfecv_kwargs={"max_runtime_mins": 5.0, "cv_n_splits": 3},
-    )
-    assert cfg.mrmr_kwargs["fe_max_steps"] == 1
+    cfg = FeatureSelectionConfig(mrmr={"fe_max_steps": 1, "verbose": 0}, rfecv={"max_runtime_mins": 5.0, "models": ["cb"]})
+    assert cfg.selector_kwargs("mrmr")["fe_max_steps"] == 1
+    assert cfg.selector_kwargs("rfecv") == {"max_runtime_mins": 5.0}
 
 
 # ----------------------------------------------------------------------------

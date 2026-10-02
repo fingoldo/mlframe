@@ -82,7 +82,7 @@ def get_format_subfolders() -> Optional[bool]:
     return _thread_subfolder_override()
 
 
-def _use_format_subfolders() -> bool:
+def use_format_subfolders() -> bool:
     """Whether saved files go into a per-format subfolder: thread override, else env var, else the default."""
     override = _thread_subfolder_override()
     if override is not None:
@@ -114,7 +114,7 @@ def resolve_output_path(
     naming and kept only for callers that still pass it.
     """
     stem = f"{base_path}.{backend}.{fmt}" if disambiguate_backend else f"{base_path}.{fmt}"
-    if not (subfolders if subfolders is not None else _use_format_subfolders()):
+    if not (subfolders if subfolders is not None else use_format_subfolders()):
         return stem
     directory, name = os.path.split(stem)
     return os.path.join(directory, fmt, name)
@@ -180,7 +180,7 @@ def _record_render_failure(timed_out: bool) -> None:
         _RENDER_EXCEPTION_COUNT += 1
 
 
-def _detect_interactive_session() -> bool:
+def detect_interactive_session() -> bool:
     """True iff we're inside an IPython kernel or interactive Python REPL.
 
     Resolution order:
@@ -227,7 +227,7 @@ def set_inline_display_mode(mode):
     still applies (per-thread) when no override is set. ``mode``:
       - ``True``  → force inline display (overrides auto-detect).
       - ``False`` → force save-only (overrides auto-detect).
-      - ``None``  → clear the override; ``_detect_interactive_session``
+      - ``None``  → clear the override; ``detect_interactive_session``
         falls back to the env var then ``__IPYTHON__`` / ``sys.ps1`` auto-detect.
 
     Used by ``train_mlframe_models_suite`` to honor
@@ -316,11 +316,11 @@ def render_and_save(
 
     queue = active_render_queue()
     if queue is not None and base_path and not keep_handles and defer:
-        _interactive = _detect_interactive_session() if interactive is None else bool(interactive)
+        _interactive = detect_interactive_session() if interactive is None else bool(interactive)
         if not _interactive:
             # Layout and inline mode are thread-local overrides set by the suite on THIS thread; the worker cannot see them, so
             # the layout is resolved here and travels with the task.
-            _sub = _use_format_subfolders() if format_subfolders is None else bool(format_subfolders)
+            _sub = use_format_subfolders() if format_subfolders is None else bool(format_subfolders)
             submit_render(queue, spec, output, base_path, _sub)
             return None
     return render_and_save_now(spec, output, base_path, keep_handles=keep_handles, interactive=interactive, format_subfolders=format_subfolders)
@@ -429,20 +429,26 @@ def render_and_save_now(
 
     Parameters
     ----------
-    spec : FigureSpec
+    spec
         Pure-data chart spec (rendered once per backend).
-    output : PlotOutputSpec
+    output
         Parsed DSL describing backends + formats.
-    base_path : str
+    base_path
         Filesystem path stem (no extension). Each saved file appends
         ``.<fmt>`` (single backend / single format) or
         ``.<backend>.<fmt>`` (multiple).
-    keep_handles : bool
+    keep_handles
         When True, return a dict mapping ``backend -> native fig handle``
         so callers can show / further-tweak the figures. Default False
         releases handles for matplotlib (frees memory; matplotlib leaks
         ~1MB per figure in long-running suites).
-    format_subfolders : bool, optional
+    interactive
+        When True, also call ``renderer.show(fig)`` per backend so the
+        figure renders inline in the notebook cell (in addition to the
+        on-disk save). When ``None`` (default), auto-detected via
+        ``__IPYTHON__`` builtin / ``sys.ps1``. When ``False``, save-only.
+
+    format_subfolders
         When True, each file is written to a per-format subdirectory of
         ``base_path``'s directory (``png/plot.png``, ``html/plot.html``)
         instead of alongside every other format. ``None`` (default) reads
@@ -450,14 +456,9 @@ def render_and_save_now(
         ``ReportingConfig.plot_format_subfolders``, then
         ``MLFRAME_PLOT_FORMAT_SUBFOLDERS``, then the module default (False --
         see that constant for why the library stays flat).
-    failed_backends : list, optional
+    failed_backends
         Out-parameter: the name of every backend whose render or save failed is appended (the failure is still logged and
         counted; this just lets an async worker report the dropped chart by name).
-    interactive : bool, optional
-        When True, also call ``renderer.show(fig)`` per backend so the
-        figure renders inline in the notebook cell (in addition to the
-        on-disk save). When ``None`` (default), auto-detected via
-        ``__IPYTHON__`` builtin / ``sys.ps1``. When ``False``, save-only.
 
     Returns
     -------
@@ -465,8 +466,8 @@ def render_and_save_now(
         ``{backend: native_fig}`` when ``keep_handles=True``, else None.
     """
     if interactive is None:
-        interactive = _detect_interactive_session()
-    _subfolders = _use_format_subfolders() if format_subfolders is None else bool(format_subfolders)
+        interactive = detect_interactive_session()
+    _subfolders = use_format_subfolders() if format_subfolders is None else bool(format_subfolders)
 
     # An empty ``base_path`` is how callers say "do not persist this figure"; with nothing to write, a
     # save-only backend has no consumer left and is skipped entirely rather than rendered and discarded.

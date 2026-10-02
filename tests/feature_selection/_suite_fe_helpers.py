@@ -184,10 +184,7 @@ def run_suite(
     else:
         fte = SimpleFeaturesAndTargetsExtractor(regression_targets=[target])
 
-    fs_cfg = FeatureSelectionConfig(
-        use_mrmr_fs=use_mrmr,
-        mrmr_kwargs=dict(verbose=0, random_seed=random_seed, **(mrmr_kwargs or {})) if use_mrmr else None,
-    )
+    fs_cfg = FeatureSelectionConfig(mrmr=(dict(verbose=0, random_seed=random_seed, **(mrmr_kwargs or {})) if use_mrmr else None))
     behavior = TrainingBehaviorConfig(**(behavior_kwargs or {}))
     models, metadata = train_mlframe_models_suite(
         df=df,

@@ -19,9 +19,7 @@ from mlframe.training.core._phase_train_one_target_pre_screen import _maybe_run_
 class _FSCfg:
     """Minimal feature-selection config stub for the pre-screen helper under test."""
 
-    pre_screen_unsupervised = True
-    pre_screen_variance_threshold = 0.0
-    pre_screen_null_fraction_threshold = 0.99
+    pre_screen = types.SimpleNamespace(enable=True, variance_threshold=0.0, null_fraction_threshold=0.99)
 
 
 class _SplitCfg:

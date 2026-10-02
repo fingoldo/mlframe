@@ -72,7 +72,7 @@ def _fs_config(fe_on: bool):
     kw = {"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "quantization_nbins": 5, "use_simple_mode": True}
     if fe_on:
         kw.update({"use_simple_mode": False, "fe_max_steps": 1, "fe_ntop_features": 3})
-    return FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=kw)
+    return FeatureSelectionConfig(mrmr=kw)
 
 
 def _train_to_disk(df, tmp, fe_on):

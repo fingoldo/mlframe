@@ -669,10 +669,7 @@ class TestFeatureSelection:
             model_name=f"cb_with_{estimator}",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],  # Use cb as final model
-            feature_selection_config=FeatureSelectionConfig(
-                rfecv_models=[estimator],  # Vary the RFECV estimator
-                rfecv_kwargs={"max_runtime_mins": 2},  # Limit RFECV runtime for tests
-            ),
+            feature_selection_config=FeatureSelectionConfig(rfecv={"max_runtime_mins": 2, "models": [estimator]}),
             hyperparams_config=config_override,
             reporting_config=common_init_params,
             use_ordinary_models=True,

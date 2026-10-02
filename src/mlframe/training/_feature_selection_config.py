@@ -1,524 +1,222 @@
-"""Feature-selection config (mRMR + RFECV + Boruta-SHAP) for ``mlframe.training.configs``.
+"""Feature-selection config for ``mlframe.training.configs``.
 
-Split out from ``configs.py`` so the sibling config modules that need to
-reference ``FeatureSelectionConfig`` as a field type (notably ``TrainingConfig``
-in ``_training_runtime_configs.py``) can import it without re-entering
-``configs.py``. That closes the last ``configs <-> sibling`` import-cycle path
-the project's no-cycles meta-test flagged after the monolith split.
+Split out from ``configs.py`` so the sibling config modules that need to reference ``FeatureSelectionConfig`` as a field type (notably
+``TrainingConfig`` in ``_training_runtime_configs.py``) can import it without re-entering ``configs.py``; ``configs.py`` re-exports the class.
 
-Behaviour preserved bit-for-bit; ``configs.py`` re-exports the class so
-``from mlframe.training.configs import FeatureSelectionConfig`` continues to
-resolve identity-equal.
+Each selector is configured by its own strict sub-config (``mlframe.training.fs_params.configs``) generated from the selector's constructor
+signature, so an unknown parameter, a wrong type or an unsupported enum value raises when the config is created rather than deep inside a fit.
+A selector is enabled by giving its field a config (``mrmr=MRMRConfig()``); ``None`` leaves it off.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from pydantic import Field, field_validator, model_validator
-from ._inert_fields import InertFieldsWarningMixin
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from ._configs_base import BaseConfig
+from ._inert_fields import InertFieldsWarningMixin
 
-# Keys consumed by ``registry._instantiate_boruta_shap`` (popped from the kwargs to drive the
-# default-ON CorrelatedFeaturesSelector cluster-medoid pre-reduction wrap), NOT forwarded to the underlying
-# BorutaShap ctor. The boruta_shap_kwargs validator allows them through so the (default-ON)
-# cluster-reduce wrap is reachable. NOT allowed for rfecv_kwargs: the suite constructs RFECV
-# directly (configure_training_params), bypassing registry._instantiate_rfecv, so these keys would
-# be forwarded verbatim to RFECV(**kwargs) and crash with a TypeError at construction. The suite's RFECV
-# cluster-reduce wrap is driven instead by the first-class ``rfecv_cluster_*`` fields below (applied in
-# ``_build_pre_pipelines``), so the documented default-ON cluster-medoid behaviour now actually holds for the suite RFECV.
-# Keys of the ``rfecv_models_params`` dict ``select_target`` builds; ``rfecv_models`` entries must name one of them.
+# Keys of the ``rfecv_models_params`` dict ``select_target`` builds; ``RFECVConfig.models`` entries must name one of them.
 RFECV_MODEL_NAMES = ("cb_rfecv", "lgb_rfecv", "xgb_rfecv")
 
-_REGISTRY_CLUSTER_REDUCE_KEYS = frozenset({"cluster_reduce", "cluster_corr_threshold", "cluster_min_reduction", "cluster_corr_method"})
+# Selector field -> (sub-config class name in ``fs_params.configs``). The classes are imported lazily: building MRMRConfig's 500-odd fields costs
+# seconds, which a default (all-selectors-off) config must not pay.
+_SELECTOR_CLASSES = {
+    "rfecv": "RFECVConfig",
+    "mrmr": "MRMRConfig",
+    "boruta_shap": "BorutaShapConfig",
+    "shap_proxied_fs": "ShapProxiedFSConfig",
+    "ace": "ACEConfig",
+    "forward_select": "ForwardSelectConfig",
+    "greedy_backward_elimination": "GreedyBackwardEliminationConfig",
+    "zero_importance_pruning": "ZeroImportancePruningConfig",
+    "cascade_select": "CascadeSelectConfig",
+}
+
+# Selector field -> (``use_*`` flag, kwargs key) of ``_build_pre_pipelines`` for the selectors it takes as flag + dict.
+_PIPELINE_ARGS = {
+    "boruta_shap": ("use_boruta_shap", "boruta_shap_kwargs"),
+    "shap_proxied_fs": ("use_shap_proxied_fs", "shap_proxied_fs_kwargs"),
+    "ace": ("use_ace_fs", "ace_kwargs"),
+    "forward_select": ("use_forward_select_fs", "forward_select_kwargs"),
+    "greedy_backward_elimination": ("use_greedy_backward_elimination_fs", "greedy_backward_elimination_kwargs"),
+    "zero_importance_pruning": ("use_zero_importance_pruning_fs", "zero_importance_pruning_kwargs"),
+    "cascade_select": ("use_cascade_select_fs", "cascade_select_kwargs"),
+}
+
+
+def _default_pre_screen() -> Any:
+    """A default PreScreenConfig (imported lazily, like the selector sub-configs)."""
+    from .fs_params.configs import PreScreenConfig
+
+    return PreScreenConfig()
+
+
+# Flat names of the previous layout -> where they live now; the first-class ``rfecv_*`` / ``mrmr_*`` levers were constructor parameters all along.
+_RENAMED_LEVERS = {
+    "rfecv_enable_stability_selection": "rfecv=RFECVConfig(stability_selection=True)",
+    "rfecv_enable_permutation_importance": 'rfecv=RFECVConfig(importance_getter="permutation")',
+    "rfecv_models": "rfecv=RFECVConfig(models=[...])",
+    "rfecv_kwargs": "rfecv=RFECVConfig(<RFECV constructor parameters>)",
+    "rfecv_cluster_reduce": "rfecv=RFECVConfig(cluster=ClusterReduceConfig(enable=...))",
+    "rfecv_cluster_corr_threshold": "rfecv=RFECVConfig(cluster=ClusterReduceConfig(corr_threshold=...))",
+    "rfecv_cluster_min_reduction": "rfecv=RFECVConfig(cluster=ClusterReduceConfig(min_reduction=...))",
+    "rfecv_cluster_corr_method": "rfecv=RFECVConfig(cluster=ClusterReduceConfig(corr_method=...))",
+    "mrmr_kwargs": "mrmr=MRMRConfig(<MRMR constructor parameters>)",
+    "mrmr_identity_cache_scope": "mrmr=MRMRConfig(identity_cache_scope=...)",
+    "pre_screen_unsupervised": "pre_screen=PreScreenConfig(enable=...)",
+    "pre_screen_variance_threshold": "pre_screen=PreScreenConfig(variance_threshold=...)",
+    "pre_screen_null_fraction_threshold": "pre_screen=PreScreenConfig(null_fraction_threshold=...)",
+    "use_mrmr_fs": "mrmr=MRMRConfig(...)",
+    "use_boruta_shap": "boruta_shap=BorutaShapConfig(...)",
+    "boruta_shap_kwargs": "boruta_shap=BorutaShapConfig(<BorutaShap constructor parameters>)",
+    "use_shap_proxied_fs": "shap_proxied_fs=ShapProxiedFSConfig(...)",
+    "shap_proxied_fs_kwargs": "shap_proxied_fs=ShapProxiedFSConfig(<ShapProxiedFS constructor parameters>)",
+    "use_ace_fs": "ace=ACEConfig(...)",
+    "ace_kwargs": "ace=ACEConfig(<ACESelector constructor parameters>)",
+    "use_forward_select_fs": "forward_select=ForwardSelectConfig(...)",
+    "forward_select_kwargs": "forward_select=ForwardSelectConfig(<constructor parameters>)",
+    "use_greedy_backward_elimination_fs": "greedy_backward_elimination=GreedyBackwardEliminationConfig(...)",
+    "greedy_backward_elimination_kwargs": "greedy_backward_elimination=GreedyBackwardEliminationConfig(<constructor parameters>)",
+    "use_zero_importance_pruning_fs": "zero_importance_pruning=ZeroImportancePruningConfig(...)",
+    "zero_importance_pruning_kwargs": "zero_importance_pruning=ZeroImportancePruningConfig(<constructor parameters>)",
+    "use_cascade_select_fs": "cascade_select=CascadeSelectConfig(...)",
+    "cascade_select_kwargs": "cascade_select=CascadeSelectConfig(<constructor parameters>)",
+}
 
 
 class FeatureSelectionConfig(InertFieldsWarningMixin, BaseConfig):
-    """Configuration for feature selection methods.
+    """Configuration for feature selection.
 
-    Controls mRMR (minimum Redundancy Maximum Relevance) and RFECV
-    (Recursive Feature Elimination with Cross-Validation) feature selection.
-    Every field is documented by the comment above it; the list below covers the entry points and every step that
-    runs WITHOUT being asked for.
-
-    On by default
-    -------------
-    pre_screen_unsupervised : bool
-        Drops zero-variance and >99%-null columns from the train split once per suite, before any selector
-        (thresholds: ``pre_screen_variance_threshold`` / ``pre_screen_null_fraction_threshold``).
-    rfecv_cluster_reduce : bool
-        When RFECV runs, it runs on cluster medoids: features correlated above ``rfecv_cluster_corr_threshold``
-        (``rfecv_cluster_corr_method``, Pearson by default) are collapsed to one representative first.
-    rfecv_leakage_corr_threshold : float
-        When RFECV runs, columns with ``|Pearson(x, y)| > 0.95`` go through its ``leakage_action`` (warn / exclude /
-        raise); ``None`` disables the check.
-    skip_identity_equivalent_pre_pipelines : bool
-        A selection pipeline that keeps every column and adds none is not trained as a separate variant.
+    Default FS is UNSUPERVISED-ONLY: only the variance==0 / nulls>99% ``pre_screen`` runs; no supervised selector runs unless its field is set.
+    A cheap default-on supervised filter (univariate MI top-k) was benched and REJECTED as a default: it wins on linear downstreams and wide /
+    noisy data but HURTS noise-robust tree downstreams on low-noise data, so supervised FS stays opt-in.
 
     Parameters
     ----------
-    use_mrmr_fs : bool
-        Whether to use mRMR feature selection (default: False).
-    mrmr_kwargs : dict, optional
-        Arguments for mRMR. Expected keys: features_to_select, show_progress, redundancy_metric.
-    rfecv_models : list of str, optional
-        RFECV selectors to build, from ``RFECV_MODEL_NAMES`` (``"cb_rfecv"``, ``"lgb_rfecv"``, ``"xgb_rfecv"``); a bare ``"cb"`` is
-        canonicalised to ``"cb_rfecv"``. Unknown names raise at construction.
-    rfecv_kwargs : dict, optional
-        RFECV constructor parameters applied to every suite RFECV after it is built (the first-class ``rfecv_*`` levers are folded
-        into it). Keys are checked against ``RFECV.__init__`` at construction and again when set on the instance.
+    pre_screen : PreScreenConfig
+        Unsupervised pre-screen (zero variance / mostly-null columns) applied once per suite to the train split before any selector.
+    rfecv : RFECVConfig, optional
+        RFECV selectors to build (``models``), their ``RFECV.__init__`` parameters, and the default-on cluster-medoid wrap
+        (``cluster``): features correlated above ``corr_threshold`` are collapsed to one representative before RFECV runs. ``leakage_corr_threshold``
+        (default 0.95) sends columns with ``|Pearson(x, y)|`` above it through RFECV's ``leakage_action``; ``None`` disables the check.
+    mrmr : MRMRConfig, optional
+        mRMR (minimum redundancy, maximum relevance) selector: every ``MRMR.__init__`` parameter plus ``identity_cache_scope``.
+    boruta_shap : BorutaShapConfig, optional
+        SHAP-driven Boruta wrapper. Off by default: 10-20x the runtime of MRMR / RFECV (a TreeExplainer on a doubled matrix per trial).
+    shap_proxied_fs : ShapProxiedFSConfig, optional
+        SHAP-coalition-proxy selector (OOF TreeExplainer, subset search, honest re-validation); markedly costlier than MRMR / RFECV.
+    ace : ACEConfig, optional
+        Artificial Contrasts with Ensembles (Tuv et al. 2009): fits the estimator on ``[X | contrasts]`` once per replicate.
+    forward_select : ForwardSelectConfig, optional
+        Greedy forward selection (one CV-scored refit per added feature); O(features) refits, so opt-in.
+    greedy_backward_elimination : GreedyBackwardEliminationConfig, optional
+        Greedy backward elimination from the full set; O(features^2 x folds), so opt-in.
+    zero_importance_pruning : ZeroImportancePruningConfig, optional
+        Iteratively drops zero-importance features; cheap next to the two above but still several full-frame CV refits.
+    cascade_select : CascadeSelectConfig, optional
+        Boruta -> forward-select -> RFECV cascade.
+    custom_pre_pipelines : dict
+        Extra user-supplied pre-pipelines, cloned per model.
+    skip_identity_equivalent_pre_pipelines : bool
+        A selection pipeline that keeps every column and adds none is not trained as a separate variant (set False to train both).
+    unified_cv_policy : bool
+        One split policy for every selector that cross-validates or holds out rows internally: temporal suites fold forward in time, grouped
+        suites isolate groups, the rest stay i.i.d. (see ``feature_selection.cv_policy``). An explicit selector ``cv`` wins; False keeps each
+        selector's own shuffled split.
+    use_sample_weights_in_fs : bool
+        When True, FS becomes weight-aware and re-runs per weight schema (MRMR.fit / RFECV.fit receive the suite's sample_weight). When False
+        (default) FS runs once per target and is reused across weight schemas -- faster, with selected features reflecting uniform weights.
     """
 
-    # Default FS is UNSUPERVISED-ONLY: only the variance==0 / nulls>99% pre-screen (pre_screen_unsupervised)
-    # runs by default; no supervised filter is applied unless the operator opts into MRMR / RFECV / BorutaShap.
-    # A cheap default-on supervised filter (univariate MI top-k) was benched (_benchmarks/bench_supervised_fs_default.py)
-    # and REJECTED as a default: it wins on linear downstreams + wide/noisy data but HURTS noise-robust tree
-    # downstreams on low-noise data (does not win on the majority across model families), so supervised FS stays opt-in.
-    use_mrmr_fs: bool = False
-    mrmr_kwargs: Optional[Dict[str, Any]] = None
-    rfecv_models: Optional[List[str]] = None
-    rfecv_kwargs: Optional[Dict[str, Any]] = None
+    model_config = ConfigDict(extra="forbid")
+
+    pre_screen: Any = Field(default_factory=_default_pre_screen)
+    rfecv: Any = None
+    mrmr: Any = None
+    boruta_shap: Any = None
+    shap_proxied_fs: Any = None
+    ace: Any = None
+    forward_select: Any = None
+    greedy_backward_elimination: Any = None
+    zero_importance_pruning: Any = None
+    cascade_select: Any = None
     custom_pre_pipelines: Dict[str, Any] = Field(default_factory=dict)
-
-    # BorutaShap (SHAP-driven Boruta wrapper) is OFF by default: it adds 10-20x runtime over MRMR / RFECV because each trial fits a shap.TreeExplainer on a doubled feature matrix (real + shadow). Enable when the orthogonal SHAP-based signal is worth the extra compute -- typically on small frames where the shap-based feature attribution disagrees with permutation / gini.
-    use_boruta_shap: bool = False
-    # Forwarded verbatim to ``BorutaShap.__init__``; keys validated against the constructor signature so misspelt knobs fail at config time rather than deep inside fit.
-    # Operational tips for runtime control:
-    #   * ``n_trials`` (default 150): drives wall-time linearly. Small frames usually converge in 30-50; consider lowering to 50 in long suites.
-    #   * ``optimistic`` (default True): keeps tentative features alongside accepted. Flip to False for strict Boruta semantics (fewer features kept).
-    #   * ``train_or_test`` (default "train"): SHAP attributed on training data over-fits to noise on tree models; pass "test" for an internal train-test split when n is large enough that the held-out estimate is reliable.
-    boruta_shap_kwargs: Optional[Dict[str, Any]] = None
-
-    # ShapProxiedFS (SHAP-coalition-proxy selector) is OFF by default for the same reason as BorutaShap: it fits a SHAP TreeExplainer (OOF) and then runs a subset search + honest re-validation, so it is markedly more expensive than MRMR / RFECV. Enable when the SHAP-coalition proxy's subset-search signal is worth the compute -- typically on narrow-to-medium frames where the subset interactions the additive filters miss matter. Mirrors the BorutaShap wiring: registered in the selector registry AND reachable from the suite via this flag + a ``_build_pre_pipelines`` branch.
-    use_shap_proxied_fs: bool = False
-    # Forwarded verbatim to ``ShapProxiedFS.__init__``; keys validated against the constructor signature so misspelt knobs fail at config time rather than deep inside fit. ShapProxiedFS clusters correlated features internally, so it is intentionally NOT wrapped in the CorrelatedFeaturesSelector cluster-medoid reduction (double-clustering) -- the cluster-reduce keys are therefore NOT whitelisted here. ``classification`` is auto-derived from the target type when unset (mirrors BorutaShap), so a regression target picks the regressor inner model.
-    shap_proxied_fs_kwargs: Optional[Dict[str, Any]] = None
-
-    # ACE (Artificial Contrasts with Ensembles, Tuv et al. 2009) is OFF by default: it fits the estimator on [X | contrasts] once per replicate (default 20) with an optional masking-removal loop, so it is markedly more expensive than a single MRMR / RFECV pass. Enable when the contrast-percentile parametric t-test signal (continuous importance margin vs a permuted-contrast null) is worth the compute -- typically on small-to-medium frames where the per-feature significance verdict matters. Mirrors the ShapProxiedFS wiring: registered in the selector registry AND reachable from the suite via this flag + a ``_build_pre_pipelines`` branch.
-    use_ace_fs: bool = False
-    # Forwarded verbatim to ``ACESelector.__init__``; keys validated against the constructor signature so misspelt knobs fail at config time rather than deep inside fit. ACE auto-derives classification/regression from the target dtype internally (no target_type threading), so unlike BorutaShap / ShapProxiedFS there is no ``classification`` key to auto-fill here.
-    ace_kwargs: Optional[Dict[str, Any]] = None
-
-    # ForwardSelect / GreedyBackwardElimination / ZeroImportancePruning / CascadeSelect default OFF (2026-07-19):
-    # each is an ADDITIVE branch in ``_build_pre_pipelines`` (own entry in ``pre_pipelines``/``pre_pipeline_names``,
-    # evaluated as its own model variant alongside MRMR/RFECV/BorutaShap/ShapProxiedFS/ACE). ForwardSelect (and
-    # CascadeSelect, which calls it internally as its stage 2) grows the feature set one CV-scored RandomForest
-    # refit at a time -- on real mlframe datasets (tens of thousands of candidate features) that is O(features)
-    # RF refits per target and can run for hours with no bound, so it is opt-in rather than a suite-wide default.
-    # Enable explicitly per-run when the operator wants that specific greedy/cascade candidate compared in.
-    use_forward_select_fs: bool = False
-    # Forwarded verbatim to ``ForwardSelectSelector.__init__``; keys validated against the constructor signature.
-    forward_select_kwargs: Optional[Dict[str, Any]] = None
-    # GreedyBackwardElimination default OFF (2026-07-19): starts from the FULL feature set and evaluates
-    # removing EACH remaining candidate via a fresh CV pass per round -- O(features^2 x folds), worse than
-    # ForwardSelect on wide frames (tens of thousands of candidate features) since it starts full rather
-    # than empty. Opt-in per-run only.
-    use_greedy_backward_elimination_fs: bool = False
-    # Forwarded verbatim to ``GreedyBackwardEliminationSelector.__init__``; keys validated against the constructor signature.
-    greedy_backward_elimination_kwargs: Optional[Dict[str, Any]] = None
-    # ZeroImportancePruning default OFF (2026-07-19): cheap relative to ForwardSelect/GreedyBackwardElimination
-    # (batch-drops the whole zero-importance set per round, O(features x rounds) capped at max_rounds), but
-    # still several full-frame CV refits on top of whatever heavier selector is chosen -- opt-in alongside it.
-    use_zero_importance_pruning_fs: bool = False
-    # Forwarded verbatim to ``ZeroImportancePruningSelector.__init__``; keys validated against the constructor signature.
-    zero_importance_pruning_kwargs: Optional[Dict[str, Any]] = None
-    use_cascade_select_fs: bool = False
-    # Forwarded verbatim to ``CascadeSelectSelector.__init__``; keys validated against the constructor signature.
-    cascade_select_kwargs: Optional[Dict[str, Any]] = None
-
-    # When a feature-selection pipeline (MRMR / RFECV / custom) is identity-equivalent - keeps every input column and creates no new ones - training models on it duplicates the ordinary (no-pipeline) branch. Set False to still train both (eg for ensembling diversities from different random seeds). Default True skips the duplicate branch, logging a [Dedup] info.
     skip_identity_equivalent_pre_pipelines: bool = True
-
-    # Suite-level override for the RFECV leakage check that was previously hardcoded as a constructor default. Exposed here so operators can retune the threshold without instantiating RFECV objects manually.
-    # rfecv_leakage_corr_threshold: at fit entry RFECV checks |Pearson(X_i, y)| against this; columns above the threshold are routed through ``leakage_action`` ('warn'/'exclude'/'raise'). Set ``None`` to disable the check.
-    rfecv_leakage_corr_threshold: Optional[float] = 0.95
-    # rfecv_mbh_adaptive_threshold: when the per-fit MBH evaluation budget is <= this value, the surrogate switches from a CatBoost model (~500ms fixed overhead per fit) to a sklearn ExtraTreesRegressor (~20ms). 30 was the historical hardcoded crossover; tune up on tiny outer estimators (LR / Ridge) where CB overhead still dominates at larger budgets, tune down when the surrogate noise from a 20-tree ETR hurts selection quality.
-    rfecv_mbh_adaptive_threshold: int = 30
-
-    # Cluster-medoid pre-reduction for the suite's RFECV. DEFAULT ON: the suite builds its RFECV instances directly in configure_training_params (not via registry._instantiate_rfecv), so this is the suite-side switch that wraps each prebuilt RFECV in CorrelatedFeaturesSelector (medoids of the selected clusters) at _build_pre_pipelines time -- making the documented "cluster-medoid is DEFAULT-ON for the suite's RFECV" actually hold (previously the registry default was dead for the suite RFECV path). Multi-seed validation (bench_cross_selector_diverse, 3 seeds x synthetic varied-redundancy + signal-in-non-medoid risk case) gives OOS AUC delta in [-0.0058, +0.0009] (mean -0.0005), never materially hurting (>= -0.01 floor), with the min_reduction guard making it a no-op on near-uncorrelated data (bare RFECV on full X) so it only acts where genuine correlated redundancy exists. Set False for the bare RFECV. The cluster knobs below tune the wrap.
-    # One split policy for every selector that cross-validates or holds out rows internally (RFECV, BorutaShap, ShapProxiedFS, ACE, ForwardSelect, GreedyBackwardElimination,
-    # ZeroImportancePruning, CascadeSelect, MRMR's held-out FE gates): temporal suites (timestamps present and the val/test split takes the newest rows) fold forward in time,
-    # grouped suites isolate groups, the rest stay i.i.d. See ``feature_selection.cv_policy`` for the decision table. An explicit selector ``cv`` / ``hyperparams_config.has_time`` wins;
-    # set False to keep every selector's own shuffled split.
     unified_cv_policy: bool = True
-    rfecv_cluster_reduce: bool = True
-    rfecv_cluster_corr_threshold: float = 0.9
-    rfecv_cluster_min_reduction: float = 0.05
-    # ``rfecv_cluster_corr_method`` (pearson | spearman | kendall | su). Pearson default (cheapest; tied SU on the broad bench within noise); pin "su" for known non-monotone redundancy.
-    rfecv_cluster_corr_method: str = "pearson"
-    # When True, FS becomes weight-aware (correctness over speed) and re-runs per weight schema: MRMR.fit and
-    # RFECV.fit receive the suite's sample_weight via fit_params, so the selected features reflect the active
-    # weighting (e.g. recency emphasis). When False (default), FS is computed ONCE per target and reused across
-    # weight schemas (faster, FS cache stays valid across weight iterations, but selected features reflect the
-    # uniform-weight assumption). Flip ON only when you are confident weight-aware FS adds business signal that
-    # outweighs the cache-miss cost; the default-OFF contract is the FS-cache reuse invariant relied on by the
-    # suite's per-weight-schema training loop.
     use_sample_weights_in_fs: bool = False
 
-    # Scope of the MRMR cross-target identity cache (see mrmr.py:_MRMR_IDENTITY_FP_CACHE).
-    #   "ctx"     (default, safe): cache lives on the suite's TrainingContext; sibling suites cannot
-    #             poison each other's MRMR results. Tied to A-Arch-004 mitigation of P0-003.
-    #   "process": cache lives at the module level for the lifetime of the Python process; CI matrices
-    #             that intentionally reuse cached identity results across suites opt in here.
-    # Unsupervised pre-screen filters (variance=0 / nulls>99%) applied ONCE per suite to the train
-    # split BEFORE per-target FS so obviously-useless columns never enter the expensive MRMR /
-    # RFECV / BorutaShap path. Train-only fit by contract; val / test see the same drop set so
-    # the pre-screen never leaks distribution information from held-out data. Conservative defaults
-    # only - aggressive correlation / cardinality filters would risk dropping joint-informative
-    # features and are not enabled here.
-    pre_screen_unsupervised: bool = True
-    pre_screen_variance_threshold: float = 0.0  # drop columns where variance == this exactly
-    pre_screen_null_fraction_threshold: float = 0.99  # drop columns where null_fraction > this
-    mrmr_identity_cache_scope: str = "ctx"
-
-    # USABILITY-AWARE MULTI-LIST FEATURES (2026-06-13). When True, MRMR runs its usability-aware second
-    # pass (``usability_aware_lists``) after the pure-MI fit and ``transform`` materialises the UNION of
-    # all three selection lists -- pure-MI (``support_``, the tree list), strict-linear
-    # (``support_linear_``) and blend (``support_universal_``) -- deduped by name, with a
-    # ``usability_feature_groups_`` map recording which emitted column belongs to which list. MI is
-    # rank-based and blind to linear usability, so the pure-MI list can carry raw operands (c, d) without
-    # the engineered interaction (c*d) a LINEAR model needs; materialising the union puts that engineered
-    # feature in EVERY model's input, so a linear model simply assigns it a coefficient and reaches the
-    # f/5 floor (on F2: linear test MAE ~0.096 with the pure-MI list alone -> ~0.05 with the union), while
-    # a tree just ignores the columns it does not split on (and can optionally subset to ``support_`` via
-    # the groups map). DEFAULT OFF: the usability pass runs a CV-MAE forward selection that costs
-    # seconds-to-minutes, so it is opt-in; existing suites are byte-identical with it off. Requires the
-    # selector to run on the raw frame (MRMR's default) so the recipe replay has the raw operand columns.
-    mrmr_usability_aware_lists: bool = False
-
-    # First-class FS levers (D-surface). Each is an undocumented MRMR/RFECV constructor knob promoted to a named
-    # field so it is discoverable from the suite call; ALL default to the unset sentinel so a config that does not
-    # set them merges NOTHING into mrmr_kwargs / rfecv_kwargs and is byte-identical to today. ``None`` (or False for
-    # the boolean enable-flags) = unset. The ``_merge_fs_levers`` validator folds set levers into the kwargs dicts
-    # and RAISES if the same key is also passed explicitly in mrmr_kwargs / rfecv_kwargs (silent-override guard).
-    # Whether each becomes default-ON is a SEPARATE bench-gated decision (D-flip); surfacing here changes no default.
-    rfecv_must_include: Optional[List[str]] = None
-    rfecv_must_exclude: Optional[List[str]] = None
-    rfecv_feature_groups: Optional[Dict[str, List[str]]] = None
-    rfecv_n_features_selection_rule: Optional[str] = None
-    rfecv_enable_stability_selection: bool = False
-    rfecv_enable_permutation_importance: bool = False
-    rfecv_prescreen: Optional[str] = None
-    rfecv_swap_top_k: Optional[int] = None
-    mrmr_mi_normalization: Optional[str] = None
-    mrmr_redundancy_aggregator: Optional[str] = None
-    mrmr_cpt_test: bool = False
-    mrmr_uaed_auto_size: bool = False
-    mrmr_pid_synergy_bonus: Optional[float] = None
-    mrmr_mi_correction: Optional[str] = None
-    mrmr_group_aware_mi: bool = False
-    mrmr_group_mi_aggregate: Optional[str] = None
-    mrmr_group_mi_min_rows: Optional[int] = None
-
-    @field_validator("mrmr_identity_cache_scope")
+    @model_validator(mode="before")
     @classmethod
-    def _validate_mrmr_identity_cache_scope(cls, v: str) -> str:
-        """Restricts the MRMR fit-cache scope to the two supported values, catching typos before they silently disable caching."""
-        if v not in {"ctx", "process"}:
-            raise ValueError(f"FeatureSelectionConfig.mrmr_identity_cache_scope must be 'ctx' or 'process', got {v!r}")
-        return v
+    def _reject_flat_names_of_the_previous_layout(cls, data: Any) -> Any:
+        """A name from the flat layout raises with the spelling that replaces it, instead of the generic unknown-field error."""
+        if isinstance(data, dict):
+            moved = {k: _RENAMED_LEVERS[k] for k in data if k in _RENAMED_LEVERS}
+            for key in data:
+                if key not in moved and key.startswith("rfecv_") and key not in cls.model_fields:
+                    moved[key] = f"rfecv=RFECVConfig({key[len('rfecv_'):]}=...)"
+                elif key not in moved and key.startswith("mrmr_") and key not in cls.model_fields:
+                    moved[key] = f"mrmr=MRMRConfig({key[len('mrmr_'):]}=...)"
+            if moved:
+                listing = "; ".join(f"{old!r} -> {new}" for old, new in moved.items())
+                raise ValueError(f"FeatureSelectionConfig: the flat selector fields were replaced by one strict sub-config per selector: {listing}")
+        return data
 
-    @field_validator("mrmr_kwargs")
+    @field_validator("pre_screen", mode="before")
     @classmethod
-    def _validate_mrmr_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Rejects any key in ``mrmr_kwargs`` that ``MRMR.__init__`` does not accept, catching config-time typos before they'd otherwise surface as a fit-time ``TypeError``."""
-        if not v:
+    def _coerce_pre_screen(cls, v: Any) -> Any:
+        """Build the pre-screen group from a dict, default it when unset."""
+        from .fs_params.configs import PreScreenConfig
+
+        if v is None:
+            return PreScreenConfig()
+        if isinstance(v, PreScreenConfig):
             return v
-        import inspect
-        from mlframe.feature_selection.filters import MRMR
+        if isinstance(v, dict):
+            return PreScreenConfig(**v)
+        raise TypeError(f"FeatureSelectionConfig.pre_screen must be a PreScreenConfig or a dict, got {type(v).__name__}")
 
-        valid_keys = set(inspect.signature(MRMR.__init__).parameters) - {"self"}
-        unknown = sorted(set(v) - valid_keys)
-        if unknown:
-            raise ValueError(f"FeatureSelectionConfig.mrmr_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
-        return v
-
-    @field_validator("rfecv_kwargs")
+    @field_validator(*_SELECTOR_CLASSES, mode="before")
     @classmethod
-    def _validate_rfecv_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Whitelists ``RFECV.__init__`` params plus ``cv_n_splits`` (consumed separately by ``get_training_configs``); deliberately excludes the registry cluster-reduce keys since the suite forwards this dict verbatim to ``RFECV(**kwargs)``."""
-        if not v:
+    def _coerce_selector(cls, v: Any, info: Any) -> Any:
+        """Turn a dict (or ``True`` for "on with defaults") into the selector's strict sub-config; an instance passes through, ``None`` / ``False`` is off."""
+        if v is None or v is False:
+            return None
+        from .fs_params import configs
+
+        target = getattr(configs, _SELECTOR_CLASSES[info.field_name])
+        if isinstance(v, target):
             return v
-        import inspect
-        from mlframe.feature_selection.wrappers import RFECV
+        if v is True:
+            return target()
+        if isinstance(v, dict):
+            return target(**v)
+        raise TypeError(f"FeatureSelectionConfig.{info.field_name} must be a {target.__name__}, a dict of its fields, True or None; got {type(v).__name__}")
 
-        # ``cv_n_splits`` is consumed by get_training_configs to construct a CV splitter; not a direct RFECV.__init__ arg.
-        # The cluster-reduce keys are NOT whitelisted for RFECV: the suite builds its RFECV instances directly in
-        # configure_training_params (NOT via registry._instantiate_rfecv), so any key in rfecv_kwargs is forwarded verbatim
-        # to RFECV(**rfecv_kwargs). RFECV.__init__ rejects cluster_reduce/cluster_corr_threshold/... with a TypeError at
-        # construction. Accepting them here was a config-time-green / fit-time-crash trap. (BorutaShap DOES route through the
-        # registry wrap, so its validator still allows them.)
-        valid_keys = (set(inspect.signature(RFECV.__init__).parameters) - {"self"}) | {"cv_n_splits"}
-        unknown = sorted(set(v) - valid_keys)
-        if unknown:
-            raise ValueError(f"FeatureSelectionConfig.rfecv_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
-        return v
+    def selector_kwargs(self, field_name: str) -> Optional[Dict[str, Any]]:
+        """Constructor keyword arguments the caller set for the selector in ``field_name``, or None when that selector is off."""
+        sub = getattr(self, field_name)
+        return None if sub is None else sub.to_kwargs()
 
-    @field_validator("boruta_shap_kwargs")
-    @classmethod
-    def _validate_boruta_shap_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Whitelists ``BorutaShap.__init__`` params plus the registry cluster-reduce keys, since BorutaShap is instantiated through ``registry._instantiate_boruta_shap`` which pops those keys before construction."""
-        if not v:
-            return v
-        import inspect
-        from mlframe.feature_selection.boruta_shap import BorutaShap
+    def pre_pipeline_kwargs(self) -> Dict[str, Any]:
+        """Keyword arguments of ``_build_pre_pipelines`` that come from this config (everything but MRMR / RFECV model names and per-run state)."""
+        from .fs_params.configs import ClusterReduceConfig
 
-        valid_keys = (set(inspect.signature(BorutaShap.__init__).parameters) - {"self"}) | _REGISTRY_CLUSTER_REDUCE_KEYS
-        unknown = sorted(set(v) - valid_keys)
-        if unknown:
-            raise ValueError(f"FeatureSelectionConfig.boruta_shap_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
-        return v
-
-    @field_validator("shap_proxied_fs_kwargs")
-    @classmethod
-    def _validate_shap_proxied_fs_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Rejects any key in ``shap_proxied_fs_kwargs`` that ``ShapProxiedFS.__init__`` does not accept."""
-        if not v:
-            return v
-        import inspect
-        from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
-
-        valid_keys = set(inspect.signature(ShapProxiedFS.__init__).parameters) - {"self"}
-        unknown = sorted(set(v) - valid_keys)
-        if unknown:
-            raise ValueError(f"FeatureSelectionConfig.shap_proxied_fs_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
-        return v
-
-    @field_validator("ace_kwargs")
-    @classmethod
-    def _validate_ace_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Rejects any key in ``ace_kwargs`` that ``ACESelector.__init__`` does not accept."""
-        if not v:
-            return v
-        import inspect
-        from mlframe.feature_selection.ace import ACESelector
-
-        valid_keys = set(inspect.signature(ACESelector.__init__).parameters) - {"self"}
-        unknown = sorted(set(v) - valid_keys)
-        if unknown:
-            raise ValueError(f"FeatureSelectionConfig.ace_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
-        return v
-
-    @field_validator("forward_select_kwargs")
-    @classmethod
-    def _validate_forward_select_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Rejects any key in ``forward_select_kwargs`` that ``ForwardSelectSelector.__init__`` does not accept."""
-        if not v:
-            return v
-        import inspect
-        from mlframe.feature_selection.functional_adapters import ForwardSelectSelector
-
-        valid_keys = set(inspect.signature(ForwardSelectSelector.__init__).parameters) - {"self"}
-        unknown = sorted(set(v) - valid_keys)
-        if unknown:
-            raise ValueError(f"FeatureSelectionConfig.forward_select_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
-        return v
-
-    @field_validator("greedy_backward_elimination_kwargs")
-    @classmethod
-    def _validate_greedy_backward_elimination_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Rejects any key in ``greedy_backward_elimination_kwargs`` that ``GreedyBackwardEliminationSelector.__init__`` does not accept."""
-        if not v:
-            return v
-        import inspect
-        from mlframe.feature_selection.functional_adapters import GreedyBackwardEliminationSelector
-
-        valid_keys = set(inspect.signature(GreedyBackwardEliminationSelector.__init__).parameters) - {"self"}
-        unknown = sorted(set(v) - valid_keys)
-        if unknown:
-            raise ValueError(f"FeatureSelectionConfig.greedy_backward_elimination_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
-        return v
-
-    @field_validator("zero_importance_pruning_kwargs")
-    @classmethod
-    def _validate_zero_importance_pruning_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Rejects any key in ``zero_importance_pruning_kwargs`` that ``ZeroImportancePruningSelector.__init__`` does not accept."""
-        if not v:
-            return v
-        import inspect
-        from mlframe.feature_selection.functional_adapters import ZeroImportancePruningSelector
-
-        valid_keys = set(inspect.signature(ZeroImportancePruningSelector.__init__).parameters) - {"self"}
-        unknown = sorted(set(v) - valid_keys)
-        if unknown:
-            raise ValueError(f"FeatureSelectionConfig.zero_importance_pruning_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
-        return v
-
-    @field_validator("cascade_select_kwargs")
-    @classmethod
-    def _validate_cascade_select_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Rejects any key in ``cascade_select_kwargs`` that ``CascadeSelectSelector.__init__`` does not accept."""
-        if not v:
-            return v
-        import inspect
-        from mlframe.feature_selection.functional_adapters import CascadeSelectSelector
-
-        valid_keys = set(inspect.signature(CascadeSelectSelector.__init__).parameters) - {"self"}
-        unknown = sorted(set(v) - valid_keys)
-        if unknown:
-            raise ValueError(f"FeatureSelectionConfig.cascade_select_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
-        return v
-
-    @field_validator("rfecv_models")
-    @classmethod
-    def _validate_rfecv_models(cls, v: Optional[List[str]]) -> Optional[List[str]]:
-        """Rejects unknown RFECV model names at construction; a bare backend name (``"cb"``) is canonicalised to its ``"cb_rfecv"`` key."""
-        if not v:
-            return v
-        if isinstance(v, str):
-            v = [v]
-        out: List[str] = []
-        unknown = []
-        for name in v:
-            key = name if name in RFECV_MODEL_NAMES else f"{name}_rfecv"
-            if key not in RFECV_MODEL_NAMES:
-                unknown.append(name)
-            elif key not in out:
-                out.append(key)
-        if unknown:
-            raise ValueError(f"FeatureSelectionConfig.rfecv_models: unknown RFECV model(s) {unknown}. Valid names: {list(RFECV_MODEL_NAMES)}")
+        rfecv = self.rfecv
+        cluster = rfecv.cluster if rfecv is not None else ClusterReduceConfig()
+        out: Dict[str, Any] = {
+            "rfecv_leakage_corr_threshold": rfecv.leakage_corr_threshold if rfecv is not None else 0.95,
+            "rfecv_mbh_adaptive_threshold": rfecv.mbh_adaptive_threshold if rfecv is not None else 30,
+            "rfecv_cluster_reduce": cluster.enable,
+            "rfecv_cluster_corr_threshold": cluster.corr_threshold,
+            "rfecv_cluster_min_reduction": cluster.min_reduction,
+            "rfecv_cluster_corr_method": cluster.corr_method,
+            "rfecv_overrides": rfecv.to_kwargs() if rfecv is not None else None,
+            "use_sample_weights_in_fs": self.use_sample_weights_in_fs,
+        }
+        for name, (flag, kwargs_key) in _PIPELINE_ARGS.items():
+            kwargs = self.selector_kwargs(name)
+            out[flag] = kwargs is not None
+            out[kwargs_key] = kwargs
         return out
-
-    @field_validator("rfecv_cluster_corr_method")
-    @classmethod
-    def _validate_rfecv_cluster_corr_method(cls, v: str) -> str:
-        """Restricts the RFECV cluster-reduce correlation method to the supported set."""
-        if v not in {"pearson", "spearman", "kendall", "su"}:
-            raise ValueError(f"FeatureSelectionConfig.rfecv_cluster_corr_method must be one of pearson/spearman/kendall/su, got {v!r}")
-        return v
-
-    @model_validator(mode="after")
-    def _merge_fs_levers(self):
-        """Fold the first-class FS lever fields into ``mrmr_kwargs`` / ``rfecv_kwargs`` (D-surface).
-
-        Each set lever maps to its MRMR/RFECV constructor key; unset levers (None / False) merge nothing, so a
-        config that touches no lever is byte-identical to today. RAISES if a lever's target key is ALSO present in
-        the explicit kwargs dict -- the silent-override hazard (the kwarg validator accepts the key, then a naive
-        setdefault would drop it). Runs before the master-flag check so the merged dict triggers that gate too.
-        """
-        rfecv_levers: dict = {}
-        if self.rfecv_must_include is not None:
-            rfecv_levers["must_include"] = self.rfecv_must_include
-        if self.rfecv_must_exclude is not None:
-            rfecv_levers["must_exclude"] = self.rfecv_must_exclude
-        if self.rfecv_feature_groups is not None:
-            rfecv_levers["feature_groups"] = self.rfecv_feature_groups
-        if self.rfecv_n_features_selection_rule is not None:
-            rfecv_levers["n_features_selection_rule"] = self.rfecv_n_features_selection_rule
-        if self.rfecv_enable_stability_selection:
-            rfecv_levers["stability_selection"] = True
-        if self.rfecv_enable_permutation_importance:
-            rfecv_levers["importance_getter"] = "permutation"
-        if self.rfecv_prescreen is not None:
-            rfecv_levers["prescreen"] = self.rfecv_prescreen
-        if self.rfecv_swap_top_k is not None:
-            rfecv_levers["swap_top_k"] = self.rfecv_swap_top_k
-
-        mrmr_levers: dict = {}
-        if self.mrmr_mi_normalization is not None:
-            mrmr_levers["mi_normalization"] = self.mrmr_mi_normalization
-        if self.mrmr_redundancy_aggregator is not None:
-            mrmr_levers["redundancy_aggregator"] = self.mrmr_redundancy_aggregator
-        if self.mrmr_cpt_test:
-            mrmr_levers["cpt_test"] = True
-        if self.mrmr_uaed_auto_size:
-            mrmr_levers["uaed_auto_size"] = True
-        if self.mrmr_pid_synergy_bonus is not None:
-            mrmr_levers["pid_synergy_bonus"] = self.mrmr_pid_synergy_bonus
-        if self.mrmr_mi_correction is not None:
-            mrmr_levers["mi_correction"] = self.mrmr_mi_correction
-        if self.mrmr_group_aware_mi:
-            mrmr_levers["group_aware_mi"] = True
-        if self.mrmr_group_mi_aggregate is not None:
-            mrmr_levers["group_mi_aggregate"] = self.mrmr_group_mi_aggregate
-        if self.mrmr_group_mi_min_rows is not None:
-            mrmr_levers["group_mi_min_rows"] = self.mrmr_group_mi_min_rows
-
-        for name, levers, current in (("rfecv_kwargs", rfecv_levers, self.rfecv_kwargs), ("mrmr_kwargs", mrmr_levers, self.mrmr_kwargs)):
-            if not levers:
-                continue
-            merged = dict(current or {})
-            # A key present in both with the SAME value is not a conflict, it is this validator's own earlier fold
-            # coming back: ``model_dump()`` emits the lever field AND the folded kwargs entry, so re-validating a
-            # dumped config raised here on a config the user never mis-specified (cache keys, JSON reload, sweeps).
-            conflicts = sorted(k for k in set(levers) & set(merged) if merged[k] != levers[k])
-            if conflicts:
-                raise ValueError(
-                    f"FeatureSelectionConfig: key(s) {conflicts} set BOTH as a first-class lever field AND inside "
-                    f"{name}. Set one or the other, not both (the first-class field would otherwise silently override)."
-                )
-            merged.update(levers)
-            # object.__setattr__ bypasses validate_assignment so this merge does not re-enter the model
-            # validators (which would re-see the now-merged key as a false conflict on the second pass).
-            object.__setattr__(self, name, merged)
-        return self
-
-    @model_validator(mode="after")
-    def _check_kwargs_have_matching_master_flag(self):
-        """Raise when kwargs are configured but the matching master toggle is off.
-
-        Pre-2026-05-20 the field validators above (lines 813-860) verified the kwarg
-        keys exist on MRMR.__init__ / BorutaShap.__init__, then the dict was silently
-        IGNORED if use_mrmr_fs / use_boruta_shap stayed False (or rfecv_models stayed
-        None). Operator pattern: hyperparameter-sweep notebook copy-pastes mrmr_kwargs
-        from a previous run without re-enabling use_mrmr_fs=True; the sweep reports
-        "no effect" and the operator suspects the kwargs instead of the off toggle.
-
-        Refuse the silent ignore at config-construction time so the gate is loud.
-        """
-        if self.mrmr_kwargs and not self.use_mrmr_fs:
-            raise ValueError(
-                "FeatureSelectionConfig: mrmr_kwargs supplied but use_mrmr_fs=False. "
-                "The kwargs would be silently ignored. Set use_mrmr_fs=True OR drop "
-                "mrmr_kwargs to make the intent explicit."
-            )
-        if self.rfecv_kwargs and not self.rfecv_models:
-            raise ValueError(
-                "FeatureSelectionConfig: rfecv_kwargs supplied but rfecv_models is None/empty. "
-                "The kwargs would be silently ignored. Set rfecv_models=[...] OR drop "
-                "rfecv_kwargs to make the intent explicit."
-            )
-        if self.boruta_shap_kwargs and not self.use_boruta_shap:
-            raise ValueError(
-                "FeatureSelectionConfig: boruta_shap_kwargs supplied but use_boruta_shap=False. "
-                "The kwargs would be silently ignored. Set use_boruta_shap=True OR drop "
-                "boruta_shap_kwargs to make the intent explicit."
-            )
-        if self.shap_proxied_fs_kwargs and not self.use_shap_proxied_fs:
-            raise ValueError(
-                "FeatureSelectionConfig: shap_proxied_fs_kwargs supplied but use_shap_proxied_fs=False. "
-                "The kwargs would be silently ignored. Set use_shap_proxied_fs=True OR drop "
-                "shap_proxied_fs_kwargs to make the intent explicit."
-            )
-        if self.ace_kwargs and not self.use_ace_fs:
-            raise ValueError(
-                "FeatureSelectionConfig: ace_kwargs supplied but use_ace_fs=False. "
-                "The kwargs would be silently ignored. Set use_ace_fs=True OR drop "
-                "ace_kwargs to make the intent explicit."
-            )
-        if self.forward_select_kwargs and not self.use_forward_select_fs:
-            raise ValueError(
-                "FeatureSelectionConfig: forward_select_kwargs supplied but use_forward_select_fs=False. "
-                "The kwargs would be silently ignored. Set use_forward_select_fs=True OR drop "
-                "forward_select_kwargs to make the intent explicit."
-            )
-        if self.greedy_backward_elimination_kwargs and not self.use_greedy_backward_elimination_fs:
-            raise ValueError(
-                "FeatureSelectionConfig: greedy_backward_elimination_kwargs supplied but "
-                "use_greedy_backward_elimination_fs=False. The kwargs would be silently ignored. Set "
-                "use_greedy_backward_elimination_fs=True OR drop greedy_backward_elimination_kwargs to make the intent explicit."
-            )
-        if self.zero_importance_pruning_kwargs and not self.use_zero_importance_pruning_fs:
-            raise ValueError(
-                "FeatureSelectionConfig: zero_importance_pruning_kwargs supplied but use_zero_importance_pruning_fs=False. "
-                "The kwargs would be silently ignored. Set use_zero_importance_pruning_fs=True OR drop "
-                "zero_importance_pruning_kwargs to make the intent explicit."
-            )
-        if self.cascade_select_kwargs and not self.use_cascade_select_fs:
-            raise ValueError(
-                "FeatureSelectionConfig: cascade_select_kwargs supplied but use_cascade_select_fs=False. "
-                "The kwargs would be silently ignored. Set use_cascade_select_fs=True OR drop "
-                "cascade_select_kwargs to make the intent explicit."
-            )
-        return self

@@ -15,8 +15,8 @@ def test_config_default_scope_is_ctx():
     """Config default scope is ctx."""
     from mlframe.training.configs import FeatureSelectionConfig
 
-    cfg = FeatureSelectionConfig()
-    assert cfg.mrmr_identity_cache_scope == "ctx"
+    cfg = FeatureSelectionConfig(mrmr=True)
+    assert cfg.mrmr.identity_cache_scope == "ctx"
 
 
 def test_config_validator_rejects_unknown_scope():
@@ -24,7 +24,7 @@ def test_config_validator_rejects_unknown_scope():
     from mlframe.training.configs import FeatureSelectionConfig
 
     with pytest.raises(ValueError):
-        FeatureSelectionConfig(mrmr_identity_cache_scope="global")
+        FeatureSelectionConfig(mrmr={"identity_cache_scope": "global"})
 
 
 def test_mrmr_uses_override_dict_when_stamped():
