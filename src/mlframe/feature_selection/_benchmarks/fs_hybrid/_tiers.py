@@ -33,7 +33,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Tier", "TIERS", "TIER_NAMES", "PREDICTION_SEEDS", "SOURCES", "get_tier", "scenarios_for", "median_cell_seconds", "estimate", "format_estimate", "Estimate"]
+__all__ = ["Tier", "TIERS", "TIER_NAMES", "PREDICTION_SEEDS", "PREDICTION_SLOW_ARMS", "PREDICTION_SLOW_SEEDS", "SOURCES", "get_tier", "scenarios_for", "median_cell_seconds", "estimate", "format_estimate", "Estimate"]
 
 
 @dataclass(frozen=True)
@@ -108,33 +108,62 @@ TIERS: Dict[str, Tier] = {
 PREDICTION_SEEDS: Tuple[int, ...] = (0, 1, 2, 3, 4)
 
 
+#: Forecast arms run in their own tier on fewer seeds, because a cell of theirs costs far more than the rest. Today that is
+#: `shap-proxied`, whose cell was measured at 15-27 s capped and 139-169 s uncapped on a mildly loaded host, and at
+#: 1777 s on a heavily loaded one; the arm now pins the cap, but a method whose cost varies by two orders of magnitude with
+#: its neighbours is still not run at the same seed count as one that costs a second.
+PREDICTION_SLOW_ARMS: Tuple[str, ...] = ("shap-proxied",)
+
+#: Seeds for the slow tier. Three paired seeds can detect only a large effect, which is the honest limit on what this
+#: tier can claim: it checks whether a forecast break is visible at all, not how large it is.
+PREDICTION_SLOW_SEEDS: Tuple[int, ...] = (0, 1, 2)
+
+
+def _beds_naming(arms: Sequence[str]) -> Tuple[str, ...]:
+    """Return the sorted names of every registered bed whose expected-to-break list names any of `arms`."""
+    from mlframe.data.datasets.scenarios import SCENARIOS
+
+    wanted = set(arms)
+    beds = list(SCENARIOS.values()) if isinstance(SCENARIOS, dict) else list(SCENARIOS)
+    return tuple(sorted(bed.name for bed in beds if wanted & set(bed.expected_to_break)))
+
+
 def _predictions_tier() -> Tier:
-    """Build the tier that tests the section 2e forecasts: those methods, on the beds that name them.
+    """Build the tier that tests the section 2e forecasts for every method except the slow ones.
 
     Derived from the registry rather than listed, because a hand-written bed list is the thing that drifts: a
     prediction added to a bed would then never be run. Built on request, not at import, since resolving the
     registry costs more than every other tier together and most runs never ask for this one.
     """
-    from mlframe.data.datasets.scenarios import SCENARIOS
-
     from ._roster import PREREGISTERED_2E_ARMS
 
-    forecast = set(PREREGISTERED_2E_ARMS)
-    beds = list(SCENARIOS.values()) if isinstance(SCENARIOS, dict) else list(SCENARIOS)
-    named = tuple(sorted(bed.name for bed in beds if forecast & set(bed.expected_to_break)))
+    fast = tuple(a for a in PREREGISTERED_2E_ARMS if a not in PREDICTION_SLOW_ARMS)
     return Tier(
         name="predictions",
         source="scm",
         dataset_seeds=PREDICTION_SEEDS,
         cv_seeds=(0,),
-        scenarios=named,
-        arms=tuple(PREREGISTERED_2E_ARMS),
-        purpose="score the section 2e break predictions: each forecast method on every bed that predicts it breaks",
+        scenarios=_beds_naming(fast),
+        arms=fast,
+        purpose="score the section 2e break predictions: each forecast method on every bed that predicts it breaks, except the slow ones",
+    )
+
+
+def _predictions_slow_tier() -> Tier:
+    """Build the tier for the forecast methods too costly for the full seed count, on the beds that name them."""
+    return Tier(
+        name="predictions-slow",
+        source="scm",
+        dataset_seeds=PREDICTION_SLOW_SEEDS,
+        cv_seeds=(0,),
+        scenarios=_beds_naming(PREDICTION_SLOW_ARMS),
+        arms=PREDICTION_SLOW_ARMS,
+        purpose="score the section 2e break predictions for the slow methods, on fewer seeds",
     )
 
 
 #: Tiers built on request rather than at import.
-_LAZY_TIERS: Dict[str, Callable[[], Tier]] = {"predictions": _predictions_tier}
+_LAZY_TIERS: Dict[str, Callable[[], Tier]] = {"predictions": _predictions_tier, "predictions-slow": _predictions_slow_tier}
 
 #: Every tier name the command line accepts, eager and lazy alike.
 TIER_NAMES: Tuple[str, ...] = tuple(sorted(set(TIERS) | set(_LAZY_TIERS)))

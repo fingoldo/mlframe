@@ -333,6 +333,18 @@ and before the results for these arms.
 Three O(d^2) wrappers are built only on beds of at most fifty columns; a prediction for one of them on a
 wider bed could never be scored, so none was made, and a test keeps it that way.
 
+Two tiers run these forecasts, and the split is itself a recorded decision. `predictions` runs 32 methods on the 16
+beds that name them, five seeds each. `predictions-slow` runs `shap-proxied` alone on the two beds that name it, on three
+seeds. The slow tier exists because a pilot cell of `shap-proxied` measured 1777 s on a 4000-row, 35-column bed. That figure
+was NOT intrinsic: the same fit on the same data, run in isolation, took 9-41 s. The selector nests xgboost's thread pool
+inside joblib's process pool and, by default, leaves the inner thread count uncapped; its author measured that as 8-9%
+faster on a quiet 8-core box. Under load it is a cliff -- with eight of this host's 22 logical cores busy elsewhere, the
+uncapped fit took 169 s and 139 s against 27 s and 15 s with the cap on. The benchmark arm therefore pins
+`inner_n_jobs_cap=True`; the selected subset was identical in all ten isolated and loaded runs, so the cap changes what a
+cell costs and not what it answers. The library default is unchanged: it was measured on quiet hardware and is not this
+benchmark's decision to reverse. The full 1777 s was not reproduced -- the induced load was lighter than whatever the host
+was doing at that moment -- so the mechanism is established and the magnitude is not.
+
 | arm | predicted to break on | mechanism |
 |---|---|---|
 | `bandit` | `null_p100` | a fixed subset size selects k columns even when nothing is relevant |

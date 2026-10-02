@@ -893,13 +893,23 @@ class ShapProxiedArm(BaseArm):
             oof_shap_n_estimators=40,
             revalidation_n_estimators=40,
             n_revalidation_models=2,
+            # Capped on purpose. The selector nests xgboost's thread pool inside joblib's process pool and leaves the
+            # inner thread count uncapped by default, which its author measured as 8-9% faster on a quiet 8-core box.
+            # On a loaded one it is a cliff: on 4000 rows x 35 columns, with a third of the cores busy elsewhere, the
+            # uncapped fit took 139-169 s against 15-27 s capped, and a cell measured under heavier load took 1777 s.
+            # A benchmark cell's cost must not depend on what else the machine was doing, and the selected subset was
+            # identical in all ten runs, so the cap costs nothing the benchmark reads.
+            inner_n_jobs_cap=True,
             random_state=self.random_state,
             verbose=False,
         )
         model.fit(X, pd.Series(np.asarray(y)))
         selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in set(names)]
         report = getattr(model, "shap_proxy_report_", None)
-        return {"support": _mask_from_names(names, selected), "provenance": {"report_keys": sorted(map(str, report)) if isinstance(report, dict) else None}}
+        return {
+            "support": _mask_from_names(names, selected),
+            "provenance": {"report_keys": sorted(map(str, report)) if isinstance(report, dict) else None, "inner_n_jobs_cap": True},
+        }
 
 
 # ------------------------------------------------------------------------------------------------- roster
