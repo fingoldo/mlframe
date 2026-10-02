@@ -125,7 +125,9 @@ def test_main_setattr_block_has_why_comment():
     doc = _bulk_setattr_to_ctx.__doc__
     assert doc, "_bulk_setattr_to_ctx must carry a docstring with the migration WHY"
     low = doc.lower()
-    assert "migration" in low or "phase-extraction" in low or "ctx-form" in low or "phase->ctx" in low, f"expected migration-debt WHY rationale in _bulk_setattr_to_ctx.__doc__; got: {doc!r}"
+    assert (
+        "migration" in low or "phase-extraction" in low or "ctx-form" in low or "phase->ctx" in low
+    ), f"expected migration-debt WHY rationale in _bulk_setattr_to_ctx.__doc__; got: {doc!r}"
 
     # Behavioural pin on the helper's fail-loud contract: a missing slot must raise rather
     # than silently degrade into an ``AttributeError: 'NoneType' has no attribute ...`` later.
@@ -197,7 +199,11 @@ def test_common_params_are_copied_per_iteration():
     # reworded and passed whenever the copy itself was deleted and only the prose left behind -- exactly
     # backwards. What protects the property is that the copy is taken per iteration, so that is what is pinned.
     tree = ast.parse(src)
-    bindings = [node.value for node in ast.walk(tree) if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "current_common_params" for t in node.targets)]
+    bindings = [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "current_common_params" for t in node.targets)
+    ]
     assert bindings, "current_common_params is never bound, so each model iteration no longer gets its own params dict"
     aliases = [b for b in bindings if isinstance(b, ast.Name)]
     assert not aliases, "current_common_params is bound to a bare name -- an alias shares ONE dict across iterations, which is the leak the copy prevents"
@@ -224,7 +230,11 @@ def test_per_iteration_memory_probe_uses_the_shared_helper():
     raw_rss = [
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute) and node.attr == "rss" and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute) and node.value.func.attr == "memory_info"
+        if isinstance(node, ast.Attribute)
+        and node.attr == "rss"
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Attribute)
+        and node.value.func.attr == "memory_info"
     ]
     assert not raw_rss, (
         f"the raw rss read is back at line(s) {[n.lineno for n in raw_rss]}: that is the WORKING SET on Windows, "
@@ -286,17 +296,18 @@ def test_finalize_suite_single_pass_walk():
     """Finalize suite single pass walk."""
     src = _read("_phase_finalize.py")
     tree = ast.parse(src)
-    fn = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "finalize_suite")
+    funcs = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
 
-    # Count top-level (depth=1 inside finalize_suite) ``for _ttype/_tt, _Y in ctx.models``-style walks.
-    top_for_count = 0
-    for stmt in fn.body:
-        if isinstance(stmt, ast.For):
-            # Pattern: iterating over ctx.models (.items()) or (ctx.models or {}).items()
-            iter_src = ast.unparse(stmt.iter)
-            if "ctx.models" in iter_src:
-                top_for_count += 1
-    assert top_for_count == 1, f"finalize_suite still has {top_for_count} top-level ctx.models walks; expected 1 after combine"
+    def _models_walks(fn):
+        """Return the for-loops in ``fn`` that iterate ctx.models."""
+        return [s for s in ast.walk(fn) if isinstance(s, ast.For) and "ctx.models" in ast.unparse(s.iter)]
+
+    # The fairness + selected-features collection is ONE pass, hosted in a helper; finalize_suite itself walks nothing
+    # and calls that helper exactly once, so the nested dict is not iterated twice for the same data.
+    assert len(_models_walks(funcs["_collect_fairness_reports"])) == 1, "the combined collection pass must be a single ctx.models walk"
+    assert not _models_walks(funcs["finalize_suite"]), "finalize_suite must not re-walk ctx.models itself"
+    calls = [n for n in ast.walk(funcs["finalize_suite"]) if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "_collect_fairness_reports"]
+    assert len(calls) == 1, f"finalize_suite must call the combined pass once, found {len(calls)}"
 
 
 # Fix 14: WHY comment on `del df; ctx.df = None`.
@@ -313,4 +324,6 @@ def test_main_del_df_has_why_comment():
     # be checked here, which passed or failed on wording.
     _tail = src[_m.end() : _m.end() + 400]
     # A chained reset (``ctx.df = ctx.split_row_ids = None``) clears ctx.df just the same.
-    assert re.search(r"^[ \t]*ctx\.df = (?:[\w.]+ = )*None\b", _tail, re.MULTILINE), "`del df` without clearing ctx.df leaves the context holding the frame, so nothing is reclaimed"
+    assert re.search(
+        r"^[ \t]*ctx\.df = (?:[\w.]+ = )*None\b", _tail, re.MULTILINE
+    ), "`del df` without clearing ctx.df leaves the context holding the frame, so nothing is reclaimed"

@@ -158,10 +158,16 @@ def test_default_suite_never_builds_adversarial_fold(tmp_path, monkeypatch):
     df = _make_frame(300, seed=1)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     _, metadata = train_mlframe_models_suite(
-        df=df.copy(), target_name="target", model_name="diag_adv_off", features_and_targets_extractor=fte,
-        mlframe_models=["hgb"], hyperparams_config=get_cpu_config("hgb", 20), use_ordinary_models=True,
+        df=df.copy(),
+        target_name="target",
+        model_name="diag_adv_off",
+        features_and_targets_extractor=fte,
+        mlframe_models=["hgb"],
+        hyperparams_config=get_cpu_config("hgb", 20),
+        use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=str(tmp_path / "c"), models_dir="models", save_charts=False), verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path / "c"), models_dir="models", save_charts=False),
+        verbose=0,
     )
     assert "adversarial_fold_selection" not in metadata["diagnostics"]
     assert calls == []
@@ -173,12 +179,15 @@ def test_adversarial_fold_selection_opt_in_stores_compact_int32(tmp_path):
     df = _make_frame(300, seed=1)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     _, metadata = train_mlframe_models_suite(
-        df=df.copy(), target_name="target", model_name="diag_adv_on", features_and_targets_extractor=fte,
-        mlframe_models=["hgb"], hyperparams_config=get_cpu_config("hgb", 20), use_ordinary_models=True,
+        df=df.copy(),
+        target_name="target",
+        model_name="diag_adv_on",
+        features_and_targets_extractor=fte,
+        mlframe_models=["hgb"],
+        hyperparams_config=get_cpu_config("hgb", 20),
+        use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        output_config=OutputConfig(
-            data_dir=str(tmp_path / "d"), models_dir="models", save_charts=False, run_diagnostics=["adversarial_fold_selection"]
-        ),
+        output_config=OutputConfig(data_dir=str(tmp_path / "d"), models_dir="models", save_charts=False, run_diagnostics=["adversarial_fold_selection"]),
         verbose=0,
     )
     res = metadata["diagnostics"]["adversarial_fold_selection"]
