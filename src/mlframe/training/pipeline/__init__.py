@@ -416,6 +416,52 @@ def prepare_dfs_for_catboost_joint(
                 test_df[col] = test_s.astype(joint_dtype)
 
 
+def _scale_skip_reason(col_name, _scalar, stats_row, train_df, has_drop_nans, method, q_low, q_high):
+    """Why ``col_name`` cannot be scaled by ``method`` (all-null, zero spread, ...), or None when it can."""
+    n_non_null = _scalar(col_name, "n")
+    if stats_row is None:
+        col = train_df[col_name]
+        if has_drop_nans:
+            n_non_null = col.is_finite().sum()
+        else:
+            n_non_null = col.drop_nulls().len()
+    if n_non_null is None or n_non_null == 0:
+        return "all-null/non-finite"
+
+    if method == "robust":
+        _q_lo = _scalar(col_name, "qlo")
+        _q_hi = _scalar(col_name, "qhi")
+        if stats_row is None:
+            col = train_df[col_name]
+            _q_lo = col.quantile(q_low, interpolation="linear")
+            _q_hi = col.quantile(q_high, interpolation="linear")
+        if _q_lo is None or _q_hi is None:
+            return "quantile=None"
+        if _q_hi - _q_lo == 0:
+            return "zero-IQR"
+    elif method == "standard":
+        _std = _scalar(col_name, "std")
+        if stats_row is None:
+            _std = train_df[col_name].std()
+        if _std is None or _std == 0:
+            return "zero-std"
+    elif method == "min_max":
+        _mn = _scalar(col_name, "mn")
+        _mx = _scalar(col_name, "mx")
+        if stats_row is None:
+            col = train_df[col_name]
+            _mn, _mx = col.min(), col.max()
+        if _mn is None or _mx is None or _mx - _mn == 0:
+            return "zero-range"
+    elif method == "abs_max":
+        _amx = _scalar(col_name, "amx")
+        if stats_row is None:
+            _amx = train_df[col_name].abs().max()
+        if _amx is None or _amx == 0:
+            return "zero-abs-max"
+    return None
+
+
 def _select_scalable_numeric_columns(
     train_df: pl.DataFrame,
     method: str,
@@ -501,53 +547,10 @@ def _select_scalable_numeric_columns(
 
     for col_name in numeric_cols:
         try:
-            n_non_null = _scalar(col_name, "n")
-            if stats_row is None:
-                col = train_df[col_name]
-                if has_drop_nans:
-                    n_non_null = col.is_finite().sum()
-                else:
-                    n_non_null = col.drop_nulls().len()
-            if n_non_null is None or n_non_null == 0:
-                skipped_reasons[col_name] = "all-null/non-finite"
+            _reason = _scale_skip_reason(col_name, _scalar, stats_row, train_df, has_drop_nans, method, q_low, q_high)
+            if _reason is not None:
+                skipped_reasons[col_name] = _reason
                 continue
-
-            if method == "robust":
-                _q_lo = _scalar(col_name, "qlo")
-                _q_hi = _scalar(col_name, "qhi")
-                if stats_row is None:
-                    col = train_df[col_name]
-                    _q_lo = col.quantile(q_low, interpolation="linear")
-                    _q_hi = col.quantile(q_high, interpolation="linear")
-                if _q_lo is None or _q_hi is None:
-                    skipped_reasons[col_name] = "quantile=None"
-                    continue
-                if _q_hi - _q_lo == 0:
-                    skipped_reasons[col_name] = "zero-IQR"
-                    continue
-            elif method == "standard":
-                _std = _scalar(col_name, "std")
-                if stats_row is None:
-                    _std = train_df[col_name].std()
-                if _std is None or _std == 0:
-                    skipped_reasons[col_name] = "zero-std"
-                    continue
-            elif method == "min_max":
-                _mn = _scalar(col_name, "mn")
-                _mx = _scalar(col_name, "mx")
-                if stats_row is None:
-                    col = train_df[col_name]
-                    _mn, _mx = col.min(), col.max()
-                if _mn is None or _mx is None or _mx - _mn == 0:
-                    skipped_reasons[col_name] = "zero-range"
-                    continue
-            elif method == "abs_max":
-                _amx = _scalar(col_name, "amx")
-                if stats_row is None:
-                    _amx = train_df[col_name].abs().max()
-                if _amx is None or _amx == 0:
-                    skipped_reasons[col_name] = "zero-abs-max"
-                    continue
         except Exception as exc:
             skipped_reasons[col_name] = f"check-failed:{type(exc).__name__}"
             logger.debug("  Scaler '%s': column %r check failed (%s): %s", method, col_name, type(exc).__name__, exc)

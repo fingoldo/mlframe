@@ -410,63 +410,7 @@ def _run_target_distribution_analyzer(
             # and provides additional diagnostics).
             _TIME_AXIS_HINT_NAMES = ("timestamp", "date", "time", "datetime", "md", "depth")
             _has_time = timestamps is not None
-            if not _has_time and train_df is not None:
-                try:
-                    _cols_lower_map = {str(c).lower(): str(c) for c in getattr(train_df, "columns", [])}
-                    _hit_lower = set(_cols_lower_map) & set(_TIME_AXIS_HINT_NAMES)
-                    # Monotonicity gate: a column NAMED ``date`` does NOT
-                    # automatically imply rows are sorted by it. Auto-flipping
-                    # has_time_axis without checking would let the AR detector
-                    # fire on randomly-shuffled data and produce spurious low-AR
-                    # readings (which is worse than silently skipping the
-                    # detector). Sample-check the column: if at least one
-                    # matching column is monotonic (non-strictly increasing or
-                    # decreasing) on a 1024-row stride, accept the time-axis hint.
-                    _verified_hits: list[str] = []
-                    for _hint_lower in sorted(_hit_lower):
-                        _orig_col = _cols_lower_map[_hint_lower]
-                        try:
-                            _stride = max(1, len(train_df) // 1024)
-                            if hasattr(train_df, "iloc"):
-                                _sample = train_df.iloc[::_stride][_orig_col].to_numpy()
-                            else:
-                                # polars: gather only the strided indices instead of materialising the full column then slicing -- avoids
-                                # paying for a multi-GB column to throw away >99% of it on a 1024-row monotonicity probe.
-                                _n = len(train_df)
-                                _idx = list(range(0, _n, _stride))
-                                _sample = train_df.get_column(_orig_col).gather(_idx).to_numpy()
-                            _sample = np.asarray(_sample)
-                            if _sample.dtype.kind in "Mm":
-                                _sample = _sample.astype("int64")
-                            elif _sample.dtype.kind in "OU":
-                                # Object/string columns -- can't trivially compare; skip
-                                # monotonicity check and trust the name.
-                                _verified_hits.append(_orig_col)
-                                continue
-                            if _sample.size > 1:
-                                _diffs = np.diff(_sample.astype(np.float64))
-                                if np.all(_diffs >= 0) or np.all(_diffs <= 0):
-                                    _verified_hits.append(_orig_col)
-                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                            logger.debug("suppressed: %s", e)
-                            pass
-                    if _verified_hits:
-                        _has_time = True
-                        if verbose:
-                            logger.info(
-                                "[mini-HPT] auto-detected monotonic time-axis column(s) %s; " "AR detector will run on global lag-1.",
-                                _verified_hits,
-                            )
-                    elif _hit_lower and verbose:
-                        logger.info(
-                            "[mini-HPT] candidate time-axis column(s) %s present but NOT "
-                            "monotonic -- rows aren't sorted by them; skipping AR detector "
-                            "(per-group AR via group_ids still fires if applicable).",
-                            sorted(_hit_lower),
-                        )
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
+            _has_time = _detect_time_axis(_has_time, train_df, _TIME_AXIS_HINT_NAMES, verbose)
             _td_report = analyze_target_distribution(
                 _y_train,
                 group_ids=_g_train,
@@ -506,57 +450,14 @@ def _run_target_distribution_analyzer(
             # Maintain a per-knob "hyperparams_used" provenance dict so downstream consumers (model factories, audit
             # reports) can distinguish analyzer-injected knobs from caller-supplied defaults. User overrides take
             # precedence: if a slot+knob already lives in caller's hyperparams_config, keep that source as "user".
-            try:
-                _hpd = metadata.setdefault("hyperparams_used", {})
-                _user_hpd = {}
-                if hyperparams_config is not None:
-                    if hasattr(hyperparams_config, "model_dump"):
-                        _user_hpd = hyperparams_config.model_dump()
-                    elif isinstance(hyperparams_config, dict):
-                        _user_hpd = dict(hyperparams_config)
-                for _slot, _knobs in (getattr(_td_report, "knob_overrides_provenance", {}) or {}).items():
-                    _slot_store = _hpd.setdefault(_slot, {})
-                    _user_slot = _user_hpd.get(_slot) if isinstance(_user_hpd, dict) else None
-                    for _knob_name, _stamp in _knobs.items():
-                        _has_user = isinstance(_user_slot, dict) and _knob_name.split(".")[0] in _user_slot
-                        if _has_user:
-                            assert isinstance(_user_slot, dict)  # guaranteed by the ``_has_user`` construction above
-                            _slot_store[_knob_name] = {"value": _user_slot[_knob_name.split(".")[0]], "source": "user"}
-                        else:
-                            _slot_store[_knob_name] = dict(_stamp)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+            _record_knob_provenance(metadata, hyperparams_config, _td_report)
             # Gap-fill merge into hyperparams_config. The config can be a
             # pydantic ModelHyperparamsConfig (dump+rebuild) or a dict (merge
             # in place via the report helper). For the Pydantic path the merge
             # only touches the per-model kwargs slots referenced by the
             # recommendations (mlp_kwargs / lgb_kwargs / xgb_kwargs /
             # cb_kwargs); other fields are left intact.
-            if _td_report.knob_overrides:
-                if isinstance(hyperparams_config, dict):
-                    hyperparams_config = _td_report.merge_into_config(
-                        hyperparams_config, override_existing=False,
-                    )
-                elif hyperparams_config is not None:
-                    _hp_dict = hyperparams_config.model_dump() if hasattr(hyperparams_config, "model_dump") else dict(hyperparams_config.__dict__)
-                    _hp_merged = _td_report.merge_into_config(_hp_dict, override_existing=False)
-                    # Reapply by updating per-knob slots only -- avoids
-                    # accidentally clobbering Pydantic-validated nested fields.
-                    for _slot in ("mlp_kwargs", "lgb_kwargs", "xgb_kwargs", "cb_kwargs", "split_config"):
-                        if _slot in _td_report.knob_overrides and hasattr(hyperparams_config, _slot):
-                            try:
-                                setattr(hyperparams_config, _slot, _hp_merged.get(_slot))
-                            except Exception:
-                                # Pydantic v2 frozen models reject direct setattr;
-                                # fall back to model_copy(update={...}).
-                                try:
-                                    hyperparams_config = hyperparams_config.model_copy(update={_slot: _hp_merged.get(_slot)})
-                                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                                    logger.debug("suppressed: %s", e)
-                # Reflect any mutation back onto ctx so downstream phases see
-                # the merged config instead of the caller's original.
-                ctx.hyperparams_config = hyperparams_config
+            hyperparams_config = _apply_knob_overrides(_td_report, hyperparams_config, ctx)
 
             # FEATURE-SIDE analyzer (mini-HPT v2). The target-side detector recommends model
             # objectives / layernorm flags / class weights; the feature-side detector surfaces
@@ -642,3 +543,119 @@ def _run_target_distribution_analyzer(
         )
 
     return hyperparams_config, train_df, val_df, test_df
+
+
+def _detect_time_axis(_has_time, train_df, _TIME_AXIS_HINT_NAMES, verbose):
+    """Detect whether the training frame carries a time-like column when no timestamps were given."""
+    if not _has_time and train_df is not None:
+        try:
+            _cols_lower_map = {str(c).lower(): str(c) for c in getattr(train_df, "columns", [])}
+            _hit_lower = set(_cols_lower_map) & set(_TIME_AXIS_HINT_NAMES)
+            # Monotonicity gate: a column NAMED ``date`` does NOT
+            # automatically imply rows are sorted by it. Auto-flipping
+            # has_time_axis without checking would let the AR detector
+            # fire on randomly-shuffled data and produce spurious low-AR
+            # readings (which is worse than silently skipping the
+            # detector). Sample-check the column: if at least one
+            # matching column is monotonic (non-strictly increasing or
+            # decreasing) on a 1024-row stride, accept the time-axis hint.
+            _verified_hits: list[str] = []
+            for _hint_lower in sorted(_hit_lower):
+                _orig_col = _cols_lower_map[_hint_lower]
+                try:
+                    _stride = max(1, len(train_df) // 1024)
+                    if hasattr(train_df, "iloc"):
+                        _sample = train_df.iloc[::_stride][_orig_col].to_numpy()
+                    else:
+                        # polars: gather only the strided indices instead of materialising the full column then slicing -- avoids
+                        # paying for a multi-GB column to throw away >99% of it on a 1024-row monotonicity probe.
+                        _n = len(train_df)
+                        _idx = list(range(0, _n, _stride))
+                        _sample = train_df.get_column(_orig_col).gather(_idx).to_numpy()
+                    _sample = np.asarray(_sample)
+                    if _sample.dtype.kind in "Mm":
+                        _sample = _sample.astype("int64")
+                    elif _sample.dtype.kind in "OU":
+                        # Object/string columns -- can't trivially compare; skip
+                        # monotonicity check and trust the name.
+                        _verified_hits.append(_orig_col)
+                        continue
+                    if _sample.size > 1:
+                        _diffs = np.diff(_sample.astype(np.float64))
+                        if np.all(_diffs >= 0) or np.all(_diffs <= 0):
+                            _verified_hits.append(_orig_col)
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed: %s", e)
+                    pass
+            if _verified_hits:
+                _has_time = True
+                if verbose:
+                    logger.info(
+                        "[mini-HPT] auto-detected monotonic time-axis column(s) %s; " "AR detector will run on global lag-1.",
+                        _verified_hits,
+                    )
+            elif _hit_lower and verbose:
+                logger.info(
+                    "[mini-HPT] candidate time-axis column(s) %s present but NOT "
+                    "monotonic -- rows aren't sorted by them; skipping AR detector "
+                    "(per-group AR via group_ids still fires if applicable).",
+                    sorted(_hit_lower),
+                )
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+            pass
+    return _has_time
+
+
+def _record_knob_provenance(metadata, hyperparams_config, _td_report):
+    """Record the report's knob override provenance into the metadata."""
+    try:
+        _hpd = metadata.setdefault("hyperparams_used", {})
+        _user_hpd = {}
+        if hyperparams_config is not None:
+            if hasattr(hyperparams_config, "model_dump"):
+                _user_hpd = hyperparams_config.model_dump()
+            elif isinstance(hyperparams_config, dict):
+                _user_hpd = dict(hyperparams_config)
+        for _slot, _knobs in (getattr(_td_report, "knob_overrides_provenance", {}) or {}).items():
+            _slot_store = _hpd.setdefault(_slot, {})
+            _user_slot = _user_hpd.get(_slot) if isinstance(_user_hpd, dict) else None
+            for _knob_name, _stamp in _knobs.items():
+                _has_user = isinstance(_user_slot, dict) and _knob_name.split(".")[0] in _user_slot
+                if _has_user:
+                    assert isinstance(_user_slot, dict)  # guaranteed by the ``_has_user`` construction above
+                    _slot_store[_knob_name] = {"value": _user_slot[_knob_name.split(".")[0]], "source": "user"}
+                else:
+                    _slot_store[_knob_name] = dict(_stamp)
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed: %s", e)
+        pass
+
+
+def _apply_knob_overrides(_td_report, hyperparams_config, ctx):
+    """Apply the distribution report's knob overrides to the hyperparameter config and record them on the slot."""
+    if _td_report.knob_overrides:
+        if isinstance(hyperparams_config, dict):
+            hyperparams_config = _td_report.merge_into_config(
+                hyperparams_config, override_existing=False,
+            )
+        elif hyperparams_config is not None:
+            _hp_dict = hyperparams_config.model_dump() if hasattr(hyperparams_config, "model_dump") else dict(hyperparams_config.__dict__)
+            _hp_merged = _td_report.merge_into_config(_hp_dict, override_existing=False)
+            # Reapply by updating per-knob slots only -- avoids
+            # accidentally clobbering Pydantic-validated nested fields.
+            for _slot in ("mlp_kwargs", "lgb_kwargs", "xgb_kwargs", "cb_kwargs", "split_config"):
+                if _slot in _td_report.knob_overrides and hasattr(hyperparams_config, _slot):
+                    try:
+                        setattr(hyperparams_config, _slot, _hp_merged.get(_slot))
+                    except Exception:
+                        # Pydantic v2 frozen models reject direct setattr;
+                        # fall back to model_copy(update={...}).
+                        try:
+                            hyperparams_config = hyperparams_config.model_copy(update={_slot: _hp_merged.get(_slot)})
+                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                            logger.debug("suppressed: %s", e)
+        # Reflect any mutation back onto ctx so downstream phases see
+        # the merged config instead of the caller's original.
+        ctx.hyperparams_config = hyperparams_config
+    return hyperparams_config
