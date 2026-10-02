@@ -52,6 +52,18 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
     # ``simplefilter('error', UserWarning)`` - making the user-facing warning indistinguishable from a real fallback failure (and silently dropping it). Now the
     # try/except scopes only the MI computation; the warning fires afterwards on the successful path.
     _fallback_msg = None
+    _fallback_msg = _apply_min_features_fallback(self, _min_fb, cols, data, target_indices, nbins, n_engineered_out, _fallback_msg)
+    if _fallback_msg is not None:
+        # logger.warning for log-grepping back-compat AND
+        # warnings.warn so simplefilter('error', UserWarning) / test
+        # suites can intercept programmatically.
+        logger.warning(_fallback_msg)
+        import warnings as _w_iter39
+        _w_iter39.warn(_fallback_msg, UserWarning, stacklevel=2)
+
+
+def _apply_min_features_fallback(self, _min_fb, cols, data, target_indices, nbins, n_engineered_out, _fallback_msg):
+    """Backfill the support up to the minimum feature count when selection came back (near) empty."""
     if _min_fb >= 1 and self.n_features_in_ > 0:
         try:
             # Rank by cached confident MI with the target; take top-K. cached_MIs may not be populated;
@@ -149,8 +161,8 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             # (1) Permutation-significance gate + (2) redundancy dedup, computed on the screen's own ``data`` / ``nbins`` so the binning matches ``cached_MIs``. Both reuse the
             # CPU permutation / MI njit kernels the screen already uses. Best-effort: if a kernel call fails (degenerate joint, missing cols-space index) the candidate falls
             # through to the magnitude-only path so the never-empty guarantee still holds.
-            from ..permutation import mi_direct as _mi_direct_fb
-            from ..info_theory import mi as _mi_pair_fb
+            from mlframe.feature_selection.filters.permutation import mi_direct as _mi_direct_fb
+            from mlframe.feature_selection.filters.info_theory import mi as _mi_pair_fb
             from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
 
             _signif_alpha = mrmr_null_signif_alpha()
@@ -260,32 +272,8 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             # raw that FAILED the permutation-significance gate - that force-added a pure-noise raw (``e`` in ``y=log(a)*c+0.4*f``: MI 0.0004, p=0.34, only candidate left after the
             # engineered operands a/c were excluded) purely to satisfy a floor the engineered feature already satisfies. Mirrors the ``_redundancy_emptied_raw_`` branch's engineered-
             # only support. The top-up also stays gated on the absolute relevance floor so it never adds a sub-floor column.
-            if len(_topk) + n_engineered_out < _min_fb:
-                for i, _mi, _c in _raw_mi:
-                    if i not in _topk and _mi > _abs_floor:
-                        _topk.append(i)
-                    if len(_topk) + n_engineered_out >= _min_fb:
-                        break
-            if not _topk and n_engineered_out == 0 and _raw_mi:
-                _topk = [_raw_mi[0][0]]
-            elif not _topk and n_engineered_out == 0 and not _raw_mi:
-                # The redundancy/cluster exclusion (``_rescue_redund_dropped``) emptied the rescue pool:
-                # EVERY raw candidate was marked redundant - but with a mutually-redundant cluster
-                # (e.g. two ~0.997-collinear columns each recorded as the other's cluster member) that
-                # leaves the support EMPTY even though one representative should survive. The never-empty
-                # guarantee must keep the single strongest column REGARDLESS of the exclusion, so a
-                # symmetric redundancy verdict de-duplicates the pair rather than dropping both.
-                _raw_mi_all = []
-                for _i in range(self.n_features_in_):
-                    if _rescue_allowed_idx is not None and _i not in _rescue_allowed_idx:
-                        continue
-                    _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
-                    _cols_idx = _name_to_cols_idx.get(_name)
-                    _mi = _cached.get((_cols_idx,), 0.0) if _cols_idx is not None else 0.0
-                    _raw_mi_all.append((_i, float(_mi)))
-                if _raw_mi_all:
-                    _raw_mi_all.sort(key=lambda kv: (-kv[1], kv[0]))
-                    _topk = [_raw_mi_all[0][0]]
+            _floor_raw_mi(_topk, n_engineered_out, _min_fb, _raw_mi, _abs_floor)
+            _topk = _rescue_empty_topk(self, _topk, n_engineered_out, _raw_mi, _rescue_allowed_idx, _name_to_cols_idx, _cached)
             if _topk:
                 # int64 to match every other support_ assignment in the fit body; a bare np.array(list[int]) is
                 # int32 on Windows, an inconsistency that can bite dtype-sensitive downstream concatenation.
@@ -333,13 +321,42 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
                 "MRMR fallback to top-K MI failed: %s. Returning empty support_.",
                 _exc,
             )
-    if _fallback_msg is not None:
-        # logger.warning for log-grepping back-compat AND
-        # warnings.warn so simplefilter('error', UserWarning) / test
-        # suites can intercept programmatically.
-        logger.warning(_fallback_msg)
-        import warnings as _w_iter39
-        _w_iter39.warn(_fallback_msg, UserWarning, stacklevel=2)
+    return _fallback_msg
+
+
+def _floor_raw_mi(_topk, n_engineered_out, _min_fb, _raw_mi, _abs_floor):
+    """Floor the raw MI values by the absolute floor when top-k is short of the minimum."""
+    if len(_topk) + n_engineered_out < _min_fb:
+        for i, _mi, _c in _raw_mi:
+            if i not in _topk and _mi > _abs_floor:
+                _topk.append(i)
+            if len(_topk) + n_engineered_out >= _min_fb:
+                break
+
+
+def _rescue_empty_topk(self, _topk, n_engineered_out, _raw_mi, _rescue_allowed_idx, _name_to_cols_idx, _cached):
+    """Rescue an empty top-k from the raw or direct-MI candidates."""
+    if not _topk and n_engineered_out == 0 and _raw_mi:
+        _topk = [_raw_mi[0][0]]
+    elif not _topk and n_engineered_out == 0 and not _raw_mi:
+        # The redundancy/cluster exclusion (``_rescue_redund_dropped``) emptied the rescue pool:
+        # EVERY raw candidate was marked redundant - but with a mutually-redundant cluster
+        # (e.g. two ~0.997-collinear columns each recorded as the other's cluster member) that
+        # leaves the support EMPTY even though one representative should survive. The never-empty
+        # guarantee must keep the single strongest column REGARDLESS of the exclusion, so a
+        # symmetric redundancy verdict de-duplicates the pair rather than dropping both.
+        _raw_mi_all = []
+        for _i in range(self.n_features_in_):
+            if _rescue_allowed_idx is not None and _i not in _rescue_allowed_idx:
+                continue
+            _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
+            _cols_idx = _name_to_cols_idx.get(_name)
+            _mi = _cached.get((_cols_idx,), 0.0) if _cols_idx is not None else 0.0
+            _raw_mi_all.append((_i, float(_mi)))
+        if _raw_mi_all:
+            _raw_mi_all.sort(key=lambda kv: (-kv[1], kv[0]))
+            _topk = [_raw_mi_all[0][0]]
+    return _topk
 
 
 def _finalise_fs_results(

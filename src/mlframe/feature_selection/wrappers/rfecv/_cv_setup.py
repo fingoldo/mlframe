@@ -223,37 +223,7 @@ def _resolve_cv_and_val_cv(
             _is_time_series = groups is None
         # Polars-input path: the schema-level monotonic-datetime check happens BEFORE the to_pandas() at fit entry; the hint is set
         # there so the conversion doesn't erase the per-column polars dtype information needed for unambiguous detection.
-        if not _is_time_series and groups is None and _polars_time_series_hint:
-            _is_time_series = True
-        elif groups is None and isinstance(X, pd.DataFrame):
-            _idx = X.index
-            if isinstance(_idx, pd.DatetimeIndex):
-                # E13: NaT in DatetimeIndex makes
-                # is_monotonic_increasing False; pre-fix silently falls back
-                # to KFold and loses the temporal guarantee. Warn loudly.
-                if _idx.hasnans:
-                    if verbose:
-                        logger.warning(
-                            "RFECV: X.index is a DatetimeIndex with NaT; "
-                            "temporal auto-detect disabled. Drop NaT rows "
-                            "or pass cv=TimeSeriesSplit() explicitly to "
-                            "preserve the time-ordering guarantee.",
-                        )
-                elif _idx.is_monotonic_increasing:
-                    _is_time_series = True
-        elif groups is None:
-            try:
-                import polars as _pl
-                if isinstance(X, _pl.DataFrame):
-                    _dt_cols = [n for n, d in X.schema.items() if d in (_pl.Datetime, _pl.Date) or str(d).startswith(("Datetime", "Date"))]
-                    # Exactly one datetime column = unambiguous time axis; multiple datetimes would require the
-                    # caller to disambiguate via an explicit cv= (we won't guess which column orders the rows).
-                    if len(_dt_cols) == 1:
-                        _col = X.get_column(_dt_cols[0])
-                        if _col.is_sorted(descending=False) and _col.null_count() == 0:
-                            _is_time_series = True
-            except ImportError:
-                pass
+        _is_time_series = _default_time_series_cv(_is_time_series, groups, _polars_time_series_hint, X, verbose)
         # groups + a temporal signal: every branch above is gated on ``groups is None``, so a caller with BOTH a group
         # key and time-ordered rows would otherwise get GroupKFold / StratifiedGroupKFold, which isolate entities but
         # do NOT order folds in time (a future-dated group can land in train while a past-dated group is in test),
@@ -342,3 +312,39 @@ def _resolve_cv_and_val_cv(
         val_cv = None
 
     return cv, val_cv, early_stopping_rounds
+
+
+def _default_time_series_cv(_is_time_series, groups, _polars_time_series_hint, X, verbose):
+    """Fall back to a time-series split when the frame carries a polars time axis and no groups."""
+    if not _is_time_series and groups is None and _polars_time_series_hint:
+        _is_time_series = True
+    elif groups is None and isinstance(X, pd.DataFrame):
+        _idx = X.index
+        if isinstance(_idx, pd.DatetimeIndex):
+            # E13: NaT in DatetimeIndex makes
+            # is_monotonic_increasing False; pre-fix silently falls back
+            # to KFold and loses the temporal guarantee. Warn loudly.
+            if _idx.hasnans:
+                if verbose:
+                    logger.warning(
+                        "RFECV: X.index is a DatetimeIndex with NaT; "
+                        "temporal auto-detect disabled. Drop NaT rows "
+                        "or pass cv=TimeSeriesSplit() explicitly to "
+                        "preserve the time-ordering guarantee.",
+                    )
+            elif _idx.is_monotonic_increasing:
+                _is_time_series = True
+    elif groups is None:
+        try:
+            import polars as _pl
+            if isinstance(X, _pl.DataFrame):
+                _dt_cols = [n for n, d in X.schema.items() if d in (_pl.Datetime, _pl.Date) or str(d).startswith(("Datetime", "Date"))]
+                # Exactly one datetime column = unambiguous time axis; multiple datetimes would require the
+                # caller to disambiguate via an explicit cv= (we won't guess which column orders the rows).
+                if len(_dt_cols) == 1:
+                    _col = X.get_column(_dt_cols[0])
+                    if _col.is_sorted(descending=False) and _col.null_count() == 0:
+                        _is_time_series = True
+        except ImportError:
+            pass
+    return _is_time_series

@@ -75,7 +75,7 @@ def train_postcalibrators(
         longer the same rows used to fit the winning calibrator); also logged at INFO level.
         ``failed_calibrators`` lists any candidate that raised during fit/predict and was excluded.
     """
-    from .post import _CalibTestOverlapError, _values_overlap_fraction, compare_postcalibrators
+    from .post import compare_postcalibrators
 
     if include_patterns is None:
         include_patterns = [r"SplineCalib", r"pycalib.BetaCalibration"]
@@ -101,97 +101,7 @@ def train_postcalibrators(
     OVERLAP_WARN_THRESHOLD = 0.3
     _calib_target_np = np.asarray(calib_target)
     _calib_index = calib_target.index if hasattr(calib_target, "index") else None
-    for _name, _m in models.items():
-        _tt = getattr(_m, "test_target", None)
-        if _tt is not None:
-            try:
-                _tt_np = _tt.values if hasattr(_tt, "values") else np.asarray(_tt)
-            except Exception as exc:
-                logger.debug(
-                    "train_postcalibrators: could not coerce model %r test_target for calib==test safety check; "
-                    "skipping this model in the identity guard: %r", _name, exc, exc_info=True
-                )
-                _tt_np = None
-            if _tt_np is not None and _tt_np.shape == _calib_target_np.shape:
-                # array_equal handles dtype mismatches and avoids deprecation noise on ndarray==
-                try:
-                    if np.array_equal(_tt_np, _calib_target_np):
-                        raise _CalibTestOverlapError(
-                            "train_postcalibrators: calib_target appears to be identical to "
-                            f"model '{_name}'.test_target. Refusing to fit calibrators on the "
-                            "honest holdout split (in-sample calibration read-out). Use a "
-                            "dedicated calibration split disjoint from test."
-                        )
-                    # Same shape, not equal in order - check whether it's the SAME multiset of values just
-                    # reshuffled (the exact-equality check above is blind to row order).
-                    if np.array_equal(np.sort(_tt_np, axis=None), np.sort(_calib_target_np, axis=None)):
-                        raise _CalibTestOverlapError(
-                            "train_postcalibrators: calib_target has the SAME multiset of values as model "
-                            f"'{_name}'.test_target -- same rows, reordered. Refusing to fit calibrators on a "
-                            "reshuffled honest holdout. Use a dedicated calibration split disjoint from test."
-                        )
-                except _CalibTestOverlapError:
-                    raise
-                except (TypeError, ValueError):
-                    pass  # Non-comparable dtypes (e.g. mixed-type pandas Series) - skip the equality check.
-
-            # Row-ID/index overlap: catches subset/superset reuse (different shape, so the checks above
-            # never ran) and reordering even when dtypes prevent a direct value comparison.
-            _tt_index = _tt.index if hasattr(_tt, "index") else None
-            if _tt_index is not None and _calib_index is not None:
-                try:
-                    _tt_idx_set = set(_tt_index)
-                    _calib_idx_set = set(_calib_index)
-                    _smaller = min(len(_tt_idx_set), len(_calib_idx_set))
-                    if _smaller > 0:
-                        _idx_overlap = len(_tt_idx_set & _calib_idx_set) / _smaller
-                        if _idx_overlap >= OVERLAP_RAISE_THRESHOLD:
-                            raise ValueError(
-                                f"train_postcalibrators: calib_target's row index overlaps {_idx_overlap:.0%} with "
-                                f"model '{_name}'.test_target's row index (>= {OVERLAP_RAISE_THRESHOLD:.0%} "
-                                "threshold) -- the same underlying rows, reordered or as a subset. Refusing to fit "
-                                "calibrators on rows that substantially overlap the honest holdout split."
-                            )
-                        if _idx_overlap >= OVERLAP_WARN_THRESHOLD:
-                            log_throttle(
-                                logger, "post_train_calib_idx_overlap_warn", logging.WARNING,
-                                "train_postcalibrators: calib_target's row index overlaps %.0f%% with model %r's "
-                                "test_target row index. This may be partial calib/test leakage -- verify the splits "
-                                "are disjoint.",
-                                _idx_overlap * 100, _name,
-                            )
-                except TypeError as exc:
-                    logger.debug(
-                        "train_postcalibrators: could not hash row index for overlap check on model %r: %r",
-                        _name, exc, exc_info=True,
-                    )
-
-        # Probability-row overlap: cross-checks calib_probs_per_model against model.test_probs directly
-        # (not just the target vector), which the pre-fix guard never did at all - a caller who
-        # reshuffled/relabelled y for the calib call while reusing model.test_probs would slip through
-        # every target-only check above.
-        _test_probs = getattr(_m, "test_probs", None)
-        if _test_probs is not None and calib_probs_per_model:
-            for _cp in calib_probs_per_model:
-                try:
-                    _prob_overlap = _values_overlap_fraction(np.asarray(_cp), np.asarray(_test_probs))
-                except Exception as exc:
-                    logger.debug("train_postcalibrators: probs overlap check failed for model %r: %r", _name, exc, exc_info=True)
-                    continue
-                if _prob_overlap >= OVERLAP_RAISE_THRESHOLD:
-                    raise ValueError(
-                        f"train_postcalibrators: a calib_probs_per_model array overlaps {_prob_overlap:.0%} (by row "
-                        f"value) with model '{_name}'.test_probs -- the same underlying probability rows are being "
-                        "reused for both calibration fitting and honest test evaluation. Use a dedicated calibration "
-                        "split disjoint from test."
-                    )
-                if _prob_overlap >= OVERLAP_WARN_THRESHOLD:
-                    log_throttle(
-                        logger, "post_train_calib_probs_overlap_warn", logging.WARNING,
-                        "train_postcalibrators: a calib_probs_per_model array overlaps %.0f%% (by row value) with "
-                        "model %r.test_probs. This may be partial calib/test leakage -- verify the splits are disjoint.",
-                        _prob_overlap * 100, _name,
-                    )
+    _train_one_model_postcalibrators(models, _calib_target_np, _calib_index, OVERLAP_RAISE_THRESHOLD, OVERLAP_WARN_THRESHOLD, calib_probs_per_model)
 
     # Resolve the ensemble flavour. Priority: explicit arg >
     # metadata["ensembles_chosen"]["simple"][tt][tname] > "harm" fallback.
@@ -302,3 +212,100 @@ def train_postcalibrators(
     # calib-set metrics, by how much, and which candidates (if any) did not make it into either dict.
     # No in-repo caller currently unpacks this return value directly (checked), so widening the shape is safe here.
     return {"calibrators": test_calibrators, "metrics": calib_test_metrics, "failed_calibrators": failed_calibrators}
+
+
+def _train_one_model_postcalibrators(models: Any, _calib_target_np: Any, _calib_index: Any, OVERLAP_RAISE_THRESHOLD: Any, OVERLAP_WARN_THRESHOLD: Any, calib_probs_per_model: Any) -> None:
+    """Fit the post-calibrators of one model."""
+    from mlframe.calibration.post import _CalibTestOverlapError, _values_overlap_fraction
+
+    for _name, _m in models.items():
+        _tt = getattr(_m, "test_target", None)
+        if _tt is not None:
+            try:
+                _tt_np = _tt.values if hasattr(_tt, "values") else np.asarray(_tt)
+            except Exception as exc:
+                logger.debug(
+                    "train_postcalibrators: could not coerce model %r test_target for calib==test safety check; "
+                    "skipping this model in the identity guard: %r", _name, exc, exc_info=True
+                )
+                _tt_np = None
+            if _tt_np is not None and _tt_np.shape == _calib_target_np.shape:
+                # array_equal handles dtype mismatches and avoids deprecation noise on ndarray==
+                try:
+                    if np.array_equal(_tt_np, _calib_target_np):
+                        raise _CalibTestOverlapError(
+                            "train_postcalibrators: calib_target appears to be identical to "
+                            f"model '{_name}'.test_target. Refusing to fit calibrators on the "
+                            "honest holdout split (in-sample calibration read-out). Use a "
+                            "dedicated calibration split disjoint from test."
+                        )
+                    # Same shape, not equal in order - check whether it's the SAME multiset of values just
+                    # reshuffled (the exact-equality check above is blind to row order).
+                    if np.array_equal(np.sort(_tt_np, axis=None), np.sort(_calib_target_np, axis=None)):
+                        raise _CalibTestOverlapError(
+                            "train_postcalibrators: calib_target has the SAME multiset of values as model "
+                            f"'{_name}'.test_target -- same rows, reordered. Refusing to fit calibrators on a "
+                            "reshuffled honest holdout. Use a dedicated calibration split disjoint from test."
+                        )
+                except _CalibTestOverlapError:
+                    raise
+                except (TypeError, ValueError):
+                    pass  # Non-comparable dtypes (e.g. mixed-type pandas Series) - skip the equality check.
+
+            # Row-ID/index overlap: catches subset/superset reuse (different shape, so the checks above
+            # never ran) and reordering even when dtypes prevent a direct value comparison.
+            _tt_index = _tt.index if hasattr(_tt, "index") else None
+            if _tt_index is not None and _calib_index is not None:
+                try:
+                    _tt_idx_set = set(_tt_index)
+                    _calib_idx_set = set(_calib_index)
+                    _smaller = min(len(_tt_idx_set), len(_calib_idx_set))
+                    if _smaller > 0:
+                        _idx_overlap = len(_tt_idx_set & _calib_idx_set) / _smaller
+                        if _idx_overlap >= OVERLAP_RAISE_THRESHOLD:
+                            raise ValueError(
+                                f"train_postcalibrators: calib_target's row index overlaps {_idx_overlap:.0%} with "
+                                f"model '{_name}'.test_target's row index (>= {OVERLAP_RAISE_THRESHOLD:.0%} "
+                                "threshold) -- the same underlying rows, reordered or as a subset. Refusing to fit "
+                                "calibrators on rows that substantially overlap the honest holdout split."
+                            )
+                        if _idx_overlap >= OVERLAP_WARN_THRESHOLD:
+                            log_throttle(
+                                logger, "post_train_calib_idx_overlap_warn", logging.WARNING,
+                                "train_postcalibrators: calib_target's row index overlaps %.0f%% with model %r's "
+                                "test_target row index. This may be partial calib/test leakage -- verify the splits "
+                                "are disjoint.",
+                                _idx_overlap * 100, _name,
+                            )
+                except TypeError as exc:
+                    logger.debug(
+                        "train_postcalibrators: could not hash row index for overlap check on model %r: %r",
+                        _name, exc, exc_info=True,
+                    )
+
+        # Probability-row overlap: cross-checks calib_probs_per_model against model.test_probs directly
+        # (not just the target vector), which the pre-fix guard never did at all - a caller who
+        # reshuffled/relabelled y for the calib call while reusing model.test_probs would slip through
+        # every target-only check above.
+        _test_probs = getattr(_m, "test_probs", None)
+        if _test_probs is not None and calib_probs_per_model:
+            for _cp in calib_probs_per_model:
+                try:
+                    _prob_overlap = _values_overlap_fraction(np.asarray(_cp), np.asarray(_test_probs))
+                except Exception as exc:
+                    logger.debug("train_postcalibrators: probs overlap check failed for model %r: %r", _name, exc, exc_info=True)
+                    continue
+                if _prob_overlap >= OVERLAP_RAISE_THRESHOLD:
+                    raise ValueError(
+                        f"train_postcalibrators: a calib_probs_per_model array overlaps {_prob_overlap:.0%} (by row "
+                        f"value) with model '{_name}'.test_probs -- the same underlying probability rows are being "
+                        "reused for both calibration fitting and honest test evaluation. Use a dedicated calibration "
+                        "split disjoint from test."
+                    )
+                if _prob_overlap >= OVERLAP_WARN_THRESHOLD:
+                    log_throttle(
+                        logger, "post_train_calib_probs_overlap_warn", logging.WARNING,
+                        "train_postcalibrators: a calib_probs_per_model array overlaps %.0f%% (by row value) with "
+                        "model %r.test_probs. This may be partial calib/test leakage -- verify the splits are disjoint.",
+                        _prob_overlap * 100, _name,
+                    )
