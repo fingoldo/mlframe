@@ -281,27 +281,8 @@ def sufficient_summary_reached(
     # Prefer continuous values (raw from X / engineered snapshot); fall back to the
     # discretised codes for any column without a continuous source. Codes are a valid
     # linear regressor (monotone in the underlying value) so the fit never fails.
-    design_cols = []
-    for ci in sel:
-        col = None
-        if selected_continuous:
-            if cols_names is not None and 0 <= ci < len(cols_names):
-                col = selected_continuous.get(cols_names[ci])
-            if col is None:
-                col = selected_continuous.get(ci)
-        if col is None:
-            col = data[:, ci].astype(np.float64)
-        col = np.asarray(col, dtype=np.float64).reshape(-1)
-        if col.shape[0] != n:
-            continue
-        # Replace any non-finite (a stray inf in an engineered column) with the column
-        # median so the fit stays well-posed; a fully non-finite column is dropped.
-        if not np.all(np.isfinite(col)):
-            finite = col[np.isfinite(col)]
-            if finite.size == 0:
-                continue
-            col = np.where(np.isfinite(col), col, float(np.median(finite)))
-        design_cols.append(col)
+    design_cols: list[Any] = []
+    _selected_columns_summary(sel, selected_continuous, cols_names, data, n, design_cols)
 
     if not design_cols:
         v.reason = "no usable design columns for the cheap fit"
@@ -469,6 +450,30 @@ def sufficient_summary_reached(
     if verbose:
         logger.info("MRMR sufficient-summary: %s -> STOP FE search.", v.reason)
     return v
+
+
+def _selected_columns_summary(sel, selected_continuous, cols_names, data, n, design_cols):
+    """Accumulate the sufficient-summary statistics over the selected columns."""
+    for ci in sel:
+        col = None
+        if selected_continuous:
+            if cols_names is not None and 0 <= ci < len(cols_names):
+                col = selected_continuous.get(cols_names[ci])
+            if col is None:
+                col = selected_continuous.get(ci)
+        if col is None:
+            col = data[:, ci].astype(np.float64)
+        col = np.asarray(col, dtype=np.float64).reshape(-1)
+        if col.shape[0] != n:
+            continue
+        # Replace any non-finite (a stray inf in an engineered column) with the column
+        # median so the fit stays well-posed; a fully non-finite column is dropped.
+        if not np.all(np.isfinite(col)):
+            finite = col[np.isfinite(col)]
+            if finite.size == 0:
+                continue
+            col = np.where(np.isfinite(col), col, float(np.median(finite)))
+        design_cols.append(col)
 
 
 def check_sufficient_summary_for_mrmr(

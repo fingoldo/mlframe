@@ -66,6 +66,8 @@ class MBHOptimizer:
 
     # store_params_in_object() below mirrors every __init__ parameter onto self by name; annotate them here so mypy sees the dynamically-set attrs.
     search_space: np.ndarray
+    use_stds_for_exploitation: bool
+    use_distances_on_preds_collision: bool
     known_candidates: np.ndarray
     known_evaluations: np.ndarray
     ground_truth: Optional[np.ndarray]
@@ -494,44 +496,7 @@ class MBHOptimizer:
                 else:
                     distances = np.zeros_like(distances)
 
-                if self.mode == "exploration":
-
-                    # pick the point with highest std and most distant from already known points
-                    expected_fitness = y_std + distances
-                    self.additional_info = ""
-
-                elif self.mode == "exploitation":
-
-                    expected_fitness = y_pred.copy()
-                    if self.direction == OptimizationDirection.Minimize:
-                        expected_fitness = -expected_fitness
-
-                    if self.use_stds_for_exploitation:
-                        expected_fitness += y_std
-
-                    best_idx = np.argsort(expected_fitness)[-1]
-                    if self.search_space[best_idx] in known_candidates_set:
-
-                        # best supposed point already checked. let's take std and distance into account then.
-                        expected_fitness += distances
-                        self.additional_info = "plusdist"
-
-                    else:
-
-                        # best supposed point not checked yet
-                        self.additional_info = "bestpredicted"
-
-                        if self.use_distances_on_preds_collision:
-
-                            # what if there are multiple non-checked points with the same predicted score?
-
-                            best_value = expected_fitness[best_idx]
-                            all_best_indices = np.where(expected_fitness == best_value)[0]
-                            all_best_indices = [idx for idx in all_best_indices if self.search_space[idx] not in known_candidates_set]
-                            if len(all_best_indices) > 1:
-                                expected_fitness[all_best_indices] += distances[all_best_indices]
-
-                    self.expected_fitness = expected_fitness
+                expected_fitness = self._suggest_exploration_candidate(y_std, distances, y_pred, known_candidates_set)
 
                 # ----------------------------------------------------------------------------------------------------------------------------
                 # Decide on the next candidate, based on predicted fitness
@@ -547,6 +512,48 @@ class MBHOptimizer:
                                 continue
                         self.suggested_candidates[next_candidate] = eval_start_time
                         return next_candidate
+
+    def _suggest_exploration_candidate(self, y_std: Any, distances: Any, y_pred: Any, known_candidates_set: Any) -> Any:
+        """Pick the next candidate in exploration mode."""
+        if self.mode == "exploration":
+
+            # pick the point with highest std and most distant from already known points
+            expected_fitness = y_std + distances
+            self.additional_info = ""
+
+        elif self.mode == "exploitation":
+
+            expected_fitness = y_pred.copy()
+            if self.direction == OptimizationDirection.Minimize:
+                expected_fitness = -expected_fitness
+
+            if self.use_stds_for_exploitation:
+                expected_fitness += y_std
+
+            best_idx = np.argsort(expected_fitness)[-1]
+            if self.search_space[best_idx] in known_candidates_set:
+
+                # best supposed point already checked. let's take std and distance into account then.
+                expected_fitness += distances
+                self.additional_info = "plusdist"
+
+            else:
+
+                # best supposed point not checked yet
+                self.additional_info = "bestpredicted"
+
+                if self.use_distances_on_preds_collision:
+
+                    # what if there are multiple non-checked points with the same predicted score?
+
+                    best_value = expected_fitness[best_idx]
+                    _tied_indices = np.where(expected_fitness == best_value)[0]
+                    all_best_indices = [idx for idx in _tied_indices if self.search_space[idx] not in known_candidates_set]
+                    if len(all_best_indices) > 1:
+                        expected_fitness[all_best_indices] += distances[all_best_indices]
+
+            self.expected_fitness = expected_fitness
+        return expected_fitness
 
     def submit_evaluations(self, candidates: Sequence, evaluations: Sequence, durations: Sequence):
         """Record a batch of (candidate, evaluation, duration) results, update best/worst tracking, and append to the known-candidates history.

@@ -209,18 +209,58 @@ def test_the_forecast_list_in_code_is_the_table_in_the_preregistration() -> None
     assert in_table == set(PREREGISTERED_2E_ARMS)
 
 
-def test_the_predictions_tier_runs_every_forecast_arm_on_every_bed_that_names_it() -> None:
-    """Derived from the registry, so a prediction added to a bed can never be left out of the run."""
+def test_the_two_prediction_tiers_together_run_every_forecast_arm_on_every_bed_that_names_it() -> None:
+    """Derived from the registry, so a prediction added to a bed can never be left out of the run.
+
+    The slow arms are split into their own tier on fewer seeds, so each forecast arm must be in exactly ONE of the two,
+    and each tier must cover exactly the beds that name its own arms.
+    """
     from mlframe.feature_selection._benchmarks.fs_hybrid._roster import PREREGISTERED_2E_ARMS
-    from mlframe.feature_selection._benchmarks.fs_hybrid._tiers import TIERS, TIER_NAMES, get_tier
+    from mlframe.feature_selection._benchmarks.fs_hybrid._tiers import PREDICTION_SLOW_ARMS, TIERS, TIER_NAMES, get_tier
 
-    tier = get_tier("predictions")
+    fast, slow = get_tier("predictions"), get_tier("predictions-slow")
     forecast = set(PREREGISTERED_2E_ARMS)
-    expected_beds = {bed.name for bed in _beds() if forecast & set(bed.expected_to_break)}
-    assert set(tier.scenarios) == expected_beds
-    assert set(tier.arms) == forecast
-    assert "predictions" in TIER_NAMES and "predictions" not in TIERS, "built on request, not at import"
+    assert set(fast.arms) | set(slow.arms) == forecast
+    assert set(fast.arms).isdisjoint(slow.arms), "an arm in both tiers would be run twice at two seed counts"
+    assert set(slow.arms) == set(PREDICTION_SLOW_ARMS)
+    for tier in (fast, slow):
+        expected_beds = {bed.name for bed in _beds() if set(tier.arms) & set(bed.expected_to_break)}
+        assert set(tier.scenarios) == expected_beds, tier.name
+    assert len(slow.dataset_seeds) < len(fast.dataset_seeds), "the slow tier exists to spend fewer seeds"
+    assert {"predictions", "predictions-slow"} <= set(TIER_NAMES) and not ({"predictions", "predictions-slow"} & set(TIERS)), "built on request, not at import"
 
+
+def test_the_shap_proxied_arm_caps_the_selectors_inner_thread_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The arm must build its selector with the inner thread cap on, and say so in its provenance.
+
+    Uncapped, the selector nests xgboost's thread pool inside joblib's process pool; measured on a loaded host that was
+    6-9x slower than capped, with the selected subset identical, and a cell's cost must not depend on its neighbours.
+    """
+    import mlframe.feature_selection.shap_proxied_fs as shap_module
+    from mlframe.feature_selection._benchmarks.fs_hybrid._arms import ShapProxiedArm
+
+    captured: Dict[str, object] = {}
+
+    class _Recorder:
+        """Stands in for the selector: records its constructor arguments and selects the first column."""
+
+        def __init__(self, **kwargs: object) -> None:
+            """Keep the keyword arguments the arm passed."""
+            captured.update(kwargs)
+            self.selected_features_ = ["c0"]
+            self.shap_proxy_report_ = {"fidelity": 1.0}
+
+        def fit(self, X: object, y: object) -> "_Recorder":
+            """Do nothing; the arm only needs the attributes set at construction."""
+            return self
+
+    monkeypatch.setattr(shap_module, "ShapProxiedFS", _Recorder)
+    frame = pd.DataFrame(np.random.default_rng(0).normal(size=(40, 3)), columns=["c0", "c1", "c2"])
+    result = ShapProxiedArm(random_state=0).run(frame, (frame["c0"] > 0).astype(int).to_numpy())
+
+    assert captured["inner_n_jobs_cap"] is True
+    assert result.provenance["inner_n_jobs_cap"] is True
+    assert list(frame.columns[result.support]) == ["c0"]
 
 def _wide_bed(seed: int):
     """A sixty-column bed: past the width cap, so the quadratic wrappers are not built on it."""

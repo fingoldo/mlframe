@@ -622,6 +622,12 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     _held_n = held.shape[0] if hasattr(held, "shape") and len(getattr(held, "shape", ())) >= 1 else None
     if _out_n is not None and _held_n is not None and _out_n != _held_n:
         _raise_pre_pipeline_rowcount_change(_held_n, _out_n)
+    out = _reattach_passthrough_to_frame(out, present, held, is_polars, reduced)
+    return out
+
+
+def _reattach_passthrough_to_frame(out, present, held, is_polars, reduced):
+    """Reattach the passthrough columns to the transformed frame."""
     if hasattr(out, "columns"):
         if isinstance(out, pl.DataFrame):
             out = out.with_columns([held[c] for c in present])
@@ -630,7 +636,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
             # to object dtype). Route through the project's Arrow split-blocks bridge so passthrough columns
             # preserve their CategoricalDtype / DatetimeTZDtype etc.
             if is_polars:
-                from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
+                from mlframe.training.utils import get_pandas_view_of_polars_df as _get_pandas_view
                 held_pd = _get_pandas_view(held)
             else:
                 held_pd = held
@@ -657,7 +663,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
         out = pd.DataFrame(out, columns=col_names, index=getattr(reduced, "index", None))
         # Mirror the sibling branch above (lines 373-378): bare ``held.to_pandas()`` consolidates Arrow buffers (~30x slower on wide frames + degrades pl.Enum to object dtype). Route through the project Arrow split-blocks bridge.
         if is_polars:
-            from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
+            from mlframe.training.utils import get_pandas_view_of_polars_df as _get_pandas_view
             held_pd = _get_pandas_view(held)
         else:
             held_pd = held

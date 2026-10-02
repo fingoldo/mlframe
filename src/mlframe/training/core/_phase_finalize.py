@@ -688,6 +688,39 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     except Exception as _cs_err:
         logger.debug("[finalize] chart-summary log failed: %s", _cs_err)
 
+    _log_finalize_summary(ctx)
+
+    # Selected-features surfacing populated during the combined walk above.
+    if _selected_features_per_model:
+        ctx.metadata["selected_features"] = sorted(_selected_features_union)
+        ctx.metadata["selected_features_per_model"] = _selected_features_per_model
+
+    # Per-chart-type render cost. The suite draws hundreds of figures across dozens of types at the default
+    # settings, and until this was recorded the only visible number was the enclosing phase's total -- enough to
+    # know the report was slow, not enough to know which chart to cap or drop.
+    # Who materialised how many rows into model datasets. Five 1.96M-row builds on a CatBoost-only fit showed up
+    # in a production log only as five scattered lines attributed to sklearn's CV internals, which names the
+    # machinery rather than the caller; the rollup names the mlframe module and its total.
+    _build_rows = dataset_build_snapshot()
+    ctx.metadata["dataset_builds"] = _build_rows
+    if _build_rows:
+        logger.info("%s", format_dataset_build_stats(_build_rows))
+
+    _chart_rows = chart_timings_snapshot()
+    ctx.metadata["chart_timings"] = _chart_rows
+    if _chart_rows:
+        logger.info("%s", format_chart_timings(_chart_rows))
+
+    # Restore the process-wide overrides setup_configuration flipped for this suite. The same restore runs in a
+    # finally at the suite boundary, because a suite that raises never reaches this point; popping the keys makes
+    # whichever call happens second a no-op.
+    restore_process_flags(ctx.artifacts)
+
+    return ctx.metadata
+
+
+def _log_finalize_summary(ctx):
+    """Log the end-of-suite summary when verbose."""
     if ctx.verbose:
         logger.info("[phases] Top phases by wall-clock time:\n%s", format_phase_summary())
 
@@ -696,7 +729,7 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         # phases each consumed most of the run. Phases nest, so the shares still overlap -- that is inherent and
         # is why the line names the denominator.
         try:
-            from ..phases import phase_snapshot, registry_elapsed
+            from mlframe.training.phases import phase_snapshot, registry_elapsed
 
             _snap = phase_snapshot()
             _suite_wall = registry_elapsed()
@@ -732,34 +765,6 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         except Exception as e:
             logger.debug("swallowed exception in _phase_finalize.py: %s", e)
             pass
-
-    # Selected-features surfacing populated during the combined walk above.
-    if _selected_features_per_model:
-        ctx.metadata["selected_features"] = sorted(_selected_features_union)
-        ctx.metadata["selected_features_per_model"] = _selected_features_per_model
-
-    # Per-chart-type render cost. The suite draws hundreds of figures across dozens of types at the default
-    # settings, and until this was recorded the only visible number was the enclosing phase's total -- enough to
-    # know the report was slow, not enough to know which chart to cap or drop.
-    # Who materialised how many rows into model datasets. Five 1.96M-row builds on a CatBoost-only fit showed up
-    # in a production log only as five scattered lines attributed to sklearn's CV internals, which names the
-    # machinery rather than the caller; the rollup names the mlframe module and its total.
-    _build_rows = dataset_build_snapshot()
-    ctx.metadata["dataset_builds"] = _build_rows
-    if _build_rows:
-        logger.info("%s", format_dataset_build_stats(_build_rows))
-
-    _chart_rows = chart_timings_snapshot()
-    ctx.metadata["chart_timings"] = _chart_rows
-    if _chart_rows:
-        logger.info("%s", format_chart_timings(_chart_rows))
-
-    # Restore the process-wide overrides setup_configuration flipped for this suite. The same restore runs in a
-    # finally at the suite boundary, because a suite that raises never reaches this point; popping the keys makes
-    # whichever call happens second a no-op.
-    restore_process_flags(ctx.artifacts)
-
-    return ctx.metadata
 
 
 def _collect_fairness_reports(ctx, fairness_reports, _selected_features_per_model, _selected_features_union):

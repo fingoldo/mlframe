@@ -124,18 +124,7 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
             cat_cols_to_align.append(_col)
 
     # DIAG: print full cat layout to localise cat-alignment failures.
-    if os.environ.get("MLFRAME_CAT_DIAG"):
-        try:
-            for _df_name, _df in (("train", train_df), ("val", val_df), ("test", test_df)):
-                if _df is None:
-                    continue
-                for _c in cat_cols_to_align:
-                    if _c in _df.columns:
-                        _cats = list(_df[_c].cat.categories)
-                        _vals_unique = sorted(set(str(v) for v in _df[_c].dropna()))
-                        logger.debug("[CAT-DIAG] model=%s %s.%s: dtype.categories=%s, actual_unique=%s", model_type_name, _df_name, _c, _cats, _vals_unique)
-        except Exception as _exc:
-            logger.debug("[CAT-DIAG] failed: %s", _exc)
+    _log_cat_diagnostics(train_df, val_df, test_df, cat_cols_to_align, model_type_name)
 
     if not cat_cols_to_align:
         return train_df, val_df, test_df
@@ -189,6 +178,22 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
                 test_df[_col] = test_df[_col].cat.set_categories(union_cats)
 
     return train_df, val_df, test_df
+
+
+def _log_cat_diagnostics(train_df, val_df, test_df, cat_cols_to_align, model_type_name):
+    """Log the categorical alignment diagnostics when MLFRAME_CAT_DIAG is set."""
+    if os.environ.get("MLFRAME_CAT_DIAG"):
+        try:
+            for _df_name, _df in (("train", train_df), ("val", val_df), ("test", test_df)):
+                if _df is None:
+                    continue
+                for _c in cat_cols_to_align:
+                    if _c in _df.columns:
+                        _cats = list(_df[_c].cat.categories)
+                        _vals_unique = sorted(set(str(v) for v in _df[_c].dropna()))
+                        logger.debug("[CAT-DIAG] model=%s %s.%s: dtype.categories=%s, actual_unique=%s", model_type_name, _df_name, _c, _cats, _vals_unique)
+        except Exception as _exc:
+            logger.debug("[CAT-DIAG] failed: %s", _exc)
 
 
 def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):

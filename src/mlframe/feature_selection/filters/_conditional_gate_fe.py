@@ -793,7 +793,17 @@ def cheap_conditional_gate_scan(
         if _pending_cols >= _GATE_MI_COL_BUDGET:
             _flush()
 
-    from ._fe_deadline import fe_deadline_passed
+    _scan_gate_column(gate_cols, arrs, operand_cols, _add)
+    _flush()
+
+    # Canonical secondary key on (mode, operand names) so near-ties don't break by ranking/enumeration (column) order.
+    hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.mode), tuple(str(c) for c in h.cols)))
+    return hits
+
+
+def _scan_gate_column(gate_cols, arrs, operand_cols, _add):
+    """Score the conditional-gate candidates for one gate column."""
+    from mlframe.feature_selection.filters._fe_deadline import fe_deadline_passed
 
     for cgate in gate_cols:
         # Optional-enrichment wall-clock budget: stop the O(k_gate * k_operand^2) gate sweep once
@@ -816,11 +826,6 @@ def cheap_conditional_gate_scan(
                     continue
                 av, bv = arrs[a], arrs[b]
                 _add("select", (a, b, cgate), (cv, av, bv), taus, (a, b, cgate))
-    _flush()
-
-    # Canonical secondary key on (mode, operand names) so near-ties don't break by ranking/enumeration (column) order.
-    hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.mode), tuple(str(c) for c in h.cols)))
-    return hits
 
 
 def detect_row_argmax(
