@@ -545,9 +545,20 @@ def compute_pair_mis_and_floor(
     # populates it when ``fe_mm_debias_prevalence`` is on, so fill it here (analytic, no shuffles)
     # when "auto" is active and the maxT path left it empty. On failure fall back to the fixed bar
     # (degrade to the proven default rather than risk a wrong gate).
+    _prevalence_debias_auto = _debias_pair_mis_by_prevalence(self, _prevalence_debias_auto, _pair_mm_bias, freqs_y, data, numeric_vars_to_consider, nbins)
+
+    return numeric_vars_to_consider, _eng_cap, _pair_maxt_floor, _pair_mm_bias, _prevalence_debias_auto
+
+
+def _debias_pair_mis_by_prevalence(self, _prevalence_debias_auto, _pair_mm_bias, freqs_y, data, numeric_vars_to_consider, nbins):
+    """Apply the automatic prevalence debias to the pair MIs."""
+    from mlframe.feature_selection.filters.mrmr.shared import (
+        lazy_chunks as _lazy_chunks,
+    )
+
     if _prevalence_debias_auto and not _pair_mm_bias:
         try:
-            from .._permutation_null import pairwise_mm_joint_bias
+            from mlframe.feature_selection.filters._permutation_null import pairwise_mm_joint_bias
             # RAM-bounded chunking, not a full unchunked
             # list(combinations(...)) materialization - this module's own design (see the primary
             # pair-MI sweep a few screens up, and the "NO POOL-SIZE CAP" rationale) explicitly avoids
@@ -599,5 +610,4 @@ def compute_pair_mis_and_floor(
             # Only the import or the setup above can land here; with no bias available at all, fall back to the fixed bar for this fit.
             logger.warning("prevalence auto-debias setup failed, disabling it for this fit: %s: %s", type(e).__name__, e)
             _prevalence_debias_auto = False
-
-    return numeric_vars_to_consider, _eng_cap, _pair_maxt_floor, _pair_mm_bias, _prevalence_debias_auto
+    return _prevalence_debias_auto

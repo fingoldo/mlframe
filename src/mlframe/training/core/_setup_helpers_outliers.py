@@ -235,34 +235,7 @@ def _apply_outlier_detection_global(
         val_od_idx = is_inlier == 1
         val_kept = val_od_idx.sum()
         # Mirror of train-side class-balance pre-check: skip OD on val if it would wipe out a class.
-        if targets_for_classbalance and val_kept < len(val_df) and val_idx is not None:
-            for _tn, _tv in targets_for_classbalance.items():
-                if _tv is None:
-                    continue
-                try:
-                    _y_pre = _tv[val_idx] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[val_idx]
-                    _y_post = _tv[val_idx[val_od_idx]] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[val_idx[val_od_idx]]
-                    _arr_pre = np.asarray(_y_pre)
-                    _arr_post = np.asarray(_y_post)
-                    _flat_pre = _arr_pre.flatten() if _arr_pre.ndim > 1 else _arr_pre
-                    _flat_post = _arr_post.flatten() if _arr_post.ndim > 1 else _arr_post
-                    if len(labelled_unique(_flat_pre)) >= 2 and len(labelled_unique(_flat_post)) < 2:
-                        log_throttle(
-                            logger, "outliers_od_destroys_classes_val", logging.ERROR,
-                            "Outlier detection would eliminate the entire minority "
-                            "class from VAL target '%s' (pre-OD unique=%d, post-OD "
-                            "unique=%d). Skipping OD filter for val; original "
-                            "val_df retained for evaluation.",
-                            _tn,
-                            len(labelled_unique(_flat_pre)),
-                            len(labelled_unique(_flat_post)),
-                        )
-                        # All-True mask so downstream polars filter is a no-op.
-                        val_kept = len(val_df)
-                        val_od_idx = np.ones(len(val_df), dtype=bool)
-                        break
-                except (IndexError, KeyError, ValueError, TypeError, AttributeError) as _exc:
-                    log_throttle(logger, "outliers_classbalance_precheck_val_failed", logging.WARNING, "Class-balance pre-check on val failed for target %s: %s", _tn, _exc)
+        val_kept, val_od_idx = _check_val_class_balance_after_outliers(targets_for_classbalance, val_kept, val_df, val_idx, val_od_idx)
         # Symmetric of the train-side min_keep guard: a near-empty (or 0-row) val after OD is a real
         # upstream config problem (too-aggressive contamination / train-val distribution drift). Raise
         # rather than silently returning the unfiltered (outlier-contaminated) val: an unfiltered val
@@ -287,3 +260,36 @@ def _apply_outlier_detection_global(
         log_ram_usage()
 
     return (filtered_train_df, filtered_val_df, filtered_train_idx, filtered_val_idx, train_od_idx, val_od_idx)
+
+
+def _check_val_class_balance_after_outliers(targets_for_classbalance, val_kept, val_df, val_idx, val_od_idx):
+    """Check that outlier removal left the validation class balance usable."""
+    if targets_for_classbalance and val_kept < len(val_df) and val_idx is not None:
+        for _tn, _tv in targets_for_classbalance.items():
+            if _tv is None:
+                continue
+            try:
+                _y_pre = _tv[val_idx] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[val_idx]
+                _y_post = _tv[val_idx[val_od_idx]] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[val_idx[val_od_idx]]
+                _arr_pre = np.asarray(_y_pre)
+                _arr_post = np.asarray(_y_post)
+                _flat_pre = _arr_pre.flatten() if _arr_pre.ndim > 1 else _arr_pre
+                _flat_post = _arr_post.flatten() if _arr_post.ndim > 1 else _arr_post
+                if len(labelled_unique(_flat_pre)) >= 2 and len(labelled_unique(_flat_post)) < 2:
+                    log_throttle(
+                        logger, "outliers_od_destroys_classes_val", logging.ERROR,
+                        "Outlier detection would eliminate the entire minority "
+                        "class from VAL target '%s' (pre-OD unique=%d, post-OD "
+                        "unique=%d). Skipping OD filter for val; original "
+                        "val_df retained for evaluation.",
+                        _tn,
+                        len(labelled_unique(_flat_pre)),
+                        len(labelled_unique(_flat_post)),
+                    )
+                    # All-True mask so downstream polars filter is a no-op.
+                    val_kept = len(val_df)
+                    val_od_idx = np.ones(len(val_df), dtype=bool)
+                    break
+            except (IndexError, KeyError, ValueError, TypeError, AttributeError) as _exc:
+                log_throttle(logger, "outliers_classbalance_precheck_val_failed", logging.WARNING, "Class-balance pre-check on val failed for target %s: %s", _tn, _exc)
+    return val_kept, val_od_idx

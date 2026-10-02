@@ -595,6 +595,13 @@ def _finalise_fs_results(
     # lock (self's own post-store mutations are single-threaded from this thread's perspective and were
     # never a race against another thread's SAME instance -- the race was always a torn READ of one
     # thread's instance by ANOTHER thread's eviction walk).
+    _store_fit_cache(self, _cache_key, _MRMR_FIT_CACHE_LOCK, MRMR, _mrmr_cache_bytes_total)
+
+    return self
+
+
+def _store_fit_cache(self, _cache_key, _MRMR_FIT_CACHE_LOCK, MRMR, _mrmr_cache_bytes_total):
+    """Store the finished fit in the fit cache when caching applies."""
     if _cache_key is not None and not getattr(self, "_skip_fit_cache", False):
         # Whole store + LRU/byte-cap eviction held under the cache lock so a concurrent fit cannot interleave its
         # own ``__setitem__``/``popitem``/``move_to_end`` (KeyError, wrong-entry eviction) or iterate ``.values()``
@@ -642,8 +649,6 @@ def _finalise_fs_results(
                 _byte_cap = _mb_cap * (1024**2)
                 while len(MRMR._FIT_CACHE) > 1 and _mrmr_cache_bytes_total() > _byte_cap:
                     MRMR._FIT_CACHE.popitem(last=False)
-
-    return self
 
 
 def surviving_recipe_operands(recipes: Iterable[Any], raw_names: Iterable[str]) -> set[str]:

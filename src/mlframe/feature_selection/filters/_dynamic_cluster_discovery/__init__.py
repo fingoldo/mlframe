@@ -605,32 +605,7 @@ def discover_cluster_members(
     # bench_pair_su_batch_over_pairs, maxdiff 0.0). Only the su-distance
     # path is batched (the kernel computes SU joints); other distances
     # fall through to the untouched per-pair loop.
-    if getattr(state, "distance", "su") == "su":
-        _tgt = _tgt_set
-        _pruned = state.pool_pruned_mask
-        _m2a = state.member_to_anchor
-        _warm_pairs = []
-        for _c in candidate_pool:
-            try:
-                _ci = int(_c)
-            except (TypeError, ValueError):
-                continue
-            if _ci == anchor or _ci in _tgt:
-                continue
-            if _ci < 0 or _ci >= n_cols:
-                continue
-            if _pruned[_ci] or _ci in _m2a:
-                continue
-            _warm_pairs.append((_ci, anchor))
-        if len(_warm_pairs) > 1:
-            try:
-                pair_su_batch(
-                    state, _warm_pairs,
-                    factors_data=factors_data, factors_nbins=factors_nbins,
-                    entropy_cache=entropy_cache,
-                )
-            except Exception as e:  # nosec B110 - warmup is best-effort; the loop recomputes on miss
-                logger.debug("cluster-discovery warm-up failed, loop will recompute on miss: %s", e)
+    _su_distance_members(state, _tgt_set, candidate_pool, anchor, n_cols, factors_data, factors_nbins, entropy_cache)
     for c in candidate_pool:
         try:
             c_int = int(c)
@@ -693,6 +668,36 @@ def discover_cluster_members(
             state.pool_pruned_mask[c_int] = True
             newly_added.add(c_int)
     return newly_added
+
+
+def _su_distance_members(state, _tgt_set, candidate_pool, anchor, n_cols, factors_data, factors_nbins, entropy_cache):
+    """Collect cluster members under the symmetric-uncertainty distance."""
+    if getattr(state, "distance", "su") == "su":
+        _tgt = _tgt_set
+        _pruned = state.pool_pruned_mask
+        _m2a = state.member_to_anchor
+        _warm_pairs = []
+        for _c in candidate_pool:
+            try:
+                _ci = int(_c)
+            except (TypeError, ValueError):
+                continue
+            if _ci == anchor or _ci in _tgt:
+                continue
+            if _ci < 0 or _ci >= n_cols:
+                continue
+            if _pruned[_ci] or _ci in _m2a:
+                continue
+            _warm_pairs.append((_ci, anchor))
+        if len(_warm_pairs) > 1:
+            try:
+                pair_su_batch(
+                    state, _warm_pairs,
+                    factors_data=factors_data, factors_nbins=factors_nbins,
+                    entropy_cache=entropy_cache,
+                )
+            except Exception as e:  # nosec B110 - warmup is best-effort; the loop recomputes on miss
+                logger.debug("cluster-discovery warm-up failed, loop will recompute on miss: %s", e)
 
 def reattach_raw_representative_after_aggregate_swap(
     state: DCDState,

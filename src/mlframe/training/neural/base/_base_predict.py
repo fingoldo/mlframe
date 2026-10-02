@@ -110,35 +110,7 @@ class _PredictMixin:
             _batch_source = "predict argument"
         else:
             override = self.datamodule_params.get("predict_batch_size")
-            if override is not None:
-                pred_batch_size = max(1, int(override))
-                _batch_source = "datamodule predict_batch_size"
-            else:
-                try:
-                    from mlframe.training.mlp_runtime_defaults import resolve_mlp_predict_batch_size
-                    # Probe input width when possible - cheap on numpy / pandas / polars. shape[1] is the standard width on all three.
-                    _n_features: Optional[int] = None
-                    try:
-                        if hasattr(X, "shape") and len(X.shape) >= 2:
-                            _n_features = int(X.shape[1])
-                        elif hasattr(X, "columns"):
-                            _n_features = len(X.columns)
-                    except Exception as e:
-                        logger.debug("could not probe input width for predict batch-size auto-tune: %s", e)
-                        _n_features = None
-                    pred_batch_size = resolve_mlp_predict_batch_size(
-                        n_features=_n_features,
-                        train_batch_size=self.datamodule_params.get("batch_size"),
-                    )
-                    _batch_source = f"auto n_features={_n_features if _n_features is not None else 'unknown'}"
-                except Exception as e:
-                    logger.debug("resolve_mlp_predict_batch_size failed, falling back to train batch_size: %s", e)
-                    # Resolver failed - fall back to the train-time batch size (still vastly better than 64 on production setups).
-                    _train_batch_hint = self.datamodule_params.get("batch_size", 1024)
-                    if isinstance(_train_batch_hint, str):
-                        _train_batch_hint = 1024
-                    pred_batch_size = int(_train_batch_hint)
-                    _batch_source = "fallback train batch_size"
+            _batch_source, pred_batch_size = self._predict_with_override(override, X)
         logger.info("MLP prediction batch_size=%s (%s)", pred_batch_size, _batch_source)
 
         datamodule.setup_predict(X, batch_size=pred_batch_size)
@@ -314,6 +286,39 @@ class _PredictMixin:
         logger.info("Generated predictions with shape %s", result.shape)
 
         return result
+
+    def _predict_with_override(self, override, X):
+        """Predict through the override callable."""
+        if override is not None:
+            pred_batch_size = max(1, int(override))
+            _batch_source = "datamodule predict_batch_size"
+        else:
+            try:
+                from mlframe.training.mlp_runtime_defaults import resolve_mlp_predict_batch_size
+                # Probe input width when possible - cheap on numpy / pandas / polars. shape[1] is the standard width on all three.
+                _n_features: Optional[int] = None
+                try:
+                    if hasattr(X, "shape") and len(X.shape) >= 2:
+                        _n_features = int(X.shape[1])
+                    elif hasattr(X, "columns"):
+                        _n_features = len(X.columns)
+                except Exception as e:
+                    logger.debug("could not probe input width for predict batch-size auto-tune: %s", e)
+                    _n_features = None
+                pred_batch_size = resolve_mlp_predict_batch_size(
+                    n_features=_n_features,
+                    train_batch_size=self.datamodule_params.get("batch_size"),
+                )
+                _batch_source = f"auto n_features={_n_features if _n_features is not None else 'unknown'}"
+            except Exception as e:
+                logger.debug("resolve_mlp_predict_batch_size failed, falling back to train batch_size: %s", e)
+                # Resolver failed - fall back to the train-time batch size (still vastly better than 64 on production setups).
+                _train_batch_hint = self.datamodule_params.get("batch_size", 1024)
+                if isinstance(_train_batch_hint, str):
+                    _train_batch_hint = 1024
+                pred_batch_size = int(_train_batch_hint)
+                _batch_source = "fallback train batch_size"
+        return _batch_source, pred_batch_size
 
     def predict(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """

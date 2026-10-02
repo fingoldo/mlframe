@@ -425,22 +425,7 @@ def _maybe_refit_on_collapsed_predictions(
     # Pipeline; walk the common nesting paths to find it.
     _inner = model_obj
     _visited: set[int] = set()
-    while _inner is not None and id(_inner) not in _visited:
-        _visited.add(id(_inner))
-        if hasattr(_inner, "network_params") and isinstance(getattr(_inner, "network_params"), dict):
-            break
-        _next = None
-        for _attr in ("regressor_", "regressor", "estimator_", "estimator"):
-            _candidate = getattr(_inner, _attr, None)
-            if _candidate is not None and id(_candidate) not in _visited:
-                _next = _candidate
-                break
-        if _next is None and hasattr(_inner, "named_steps"):
-            for _step in _inner.named_steps.values():
-                if id(_step) not in _visited:
-                    _next = _step
-                    break
-        _inner = _next
+    _inner = _unwrap_inner_estimators(_inner, _visited)
     if _inner is None or not hasattr(_inner, "network_params"):
         return False
     # Tiny-budget gate.
@@ -551,6 +536,27 @@ def _maybe_refit_on_collapsed_predictions(
         model_type_name,
     )
     return False
+
+
+def _unwrap_inner_estimators(_inner, _visited):
+    """Walk the wrapped-estimator chain collecting each distinct inner model."""
+    while _inner is not None and id(_inner) not in _visited:
+        _visited.add(id(_inner))
+        if hasattr(_inner, "network_params") and isinstance(getattr(_inner, "network_params"), dict):
+            break
+        _next = None
+        for _attr in ("regressor_", "regressor", "estimator_", "estimator"):
+            _candidate = getattr(_inner, _attr, None)
+            if _candidate is not None and id(_candidate) not in _visited:
+                _next = _candidate
+                break
+        if _next is None and hasattr(_inner, "named_steps"):
+            for _step in _inner.named_steps.values():
+                if id(_step) not in _visited:
+                    _next = _step
+                    break
+        _inner = _next
+    return _inner
 
 
 def _maybe_refit_on_best_iter_pathology(**kwargs: Any) -> "int | None":
