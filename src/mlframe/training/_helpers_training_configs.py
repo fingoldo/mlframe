@@ -15,6 +15,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from ._gpu_probe import CUDA_IS_AVAILABLE, LGB_GPU_AVAILABLE, XGB_GPU_AVAILABLE
 from .lgb_shim import lgb_default_n_jobs
 from ._classif_helpers import _classif_objective_kwargs
+from ._model_configs import validate_nested_mlp_kwargs
 from mlframe.metrics.core import (
     ICE,
 )
@@ -165,6 +166,7 @@ def get_training_configs(
         hgb_kwargs = dict(verbose=0)
     else:
         hgb_kwargs = hgb_kwargs.copy()
+    validate_nested_mlp_kwargs(mlp_kwargs)
     if mlp_kwargs is None:
         mlp_kwargs = dict()
     else:

@@ -112,7 +112,7 @@ ROBUST_MLP_OVERRIDES_UNDER_DRIFT: Dict[str, Any] = {
     "hidden_layer_sizes": (32, 16),
     "activation": "identity",
 }
-"""HPT overrides applied to MLPConfig for a target whose FI-weighted feature
+"""HPT overrides applied to the MLP for a target whose FI-weighted feature
 drift score exceeds ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD``.
 
 Grounded empirically by the 2026-05-22 sweep stack:
@@ -850,8 +850,8 @@ def compute_feature_distribution_drift(
       - ``recommend_neural_overrides``: dict of MLP HPT overrides to apply
         for this target when ``weighted_drift_score >=
         WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD`` (3.0 by default), or
-        ``None`` when no override is recommended. Keys are MLPConfig field
-        names; values are the empirically-grounded settings from the
+        ``None`` when no override is recommended. Keys are sklearn-MLP hyperparameter
+        names (``translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs`` maps them into ``mlp_kwargs``); values are the empirically-grounded settings from the
         2026-05-22 robustness sweep that close the Ridge-vs-MLP gap on
         drifted data. Downstream model-selection should merge this dict
         into the MLP config for the target (not drop the model -- drop

@@ -501,7 +501,7 @@ def common_init_params():
 def fast_iterations():
     """Low iteration count for fast test execution.
 
-    Use this to override the default 5000 iterations in TreeModelConfig.
+    Use this to override the default 5000 iterations in ModelHyperparamsConfig.
     With 10 iterations, early_stopping_rounds will be ~3 instead of ~1666.
     """
     return 10

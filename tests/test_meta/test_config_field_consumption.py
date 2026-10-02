@@ -64,9 +64,6 @@ _USER_DEFERRED_DEAD: dict[str, str] = {
     "FairnessConfig.protected_attributes": "duplicate of behavior_config.fairness_features (core.py:1545)",
     "FairnessConfig.fairness_metrics": "name collides with metrics.compute_fairness_metrics function",
     "MultilabelDispatchConfig.cv": "ClassifierChain.cv knob — chain dispatch hardcodes cv=5; wire when chain ensemble path is exercised",
-    "TreeModelConfig.hgb_kwargs": "duplicate of ModelHyperparamsConfig.hgb_kwargs (which IS consumed via model_dump splat)",
-    "NGBConfig.minibatch_frac": "NGBConfig class never instantiated — NGB is configured via ngb_kwargs dict instead",
-    "NGBConfig.Dist": "same — class never instantiated in production",
     # 2026-05-15 — new entries surfaced after the src/ migration; same pattern
     # as the shadowed-by-kwarg cluster above, kept as deferred-dead until the
     # responsible subsystem author rewires.
@@ -75,8 +72,6 @@ _USER_DEFERRED_DEAD: dict[str, str] = {
     "PreprocessingBackendConfig.fallback_to_sklearn": "auto-fallback already implicit in pipeline.py:_apply_polars_ds; flag never read",
     "QuantileRegressionConfig.point_estimate_alpha": "point estimate currently hardcoded to 0.5 (median) inside quantile dispatch",
     "QuantileRegressionConfig.coverage_pairs": "coverage_pairs validator exists on the config but reporting path uses alphas directly",
-    "TreeModelConfig.lgb_kwargs": "duplicate of ModelHyperparamsConfig.lgb_kwargs (which IS consumed via model_dump splat)",
-    "TreeModelConfig.xgb_kwargs": "duplicate of ModelHyperparamsConfig.xgb_kwargs (which IS consumed via model_dump splat)",
     "SliceStableESConfig.pareto_risk_quantile": "Pareto-aware best_iter selection knob; the slice-stable ES infrastructure shipped without the Pareto-front consumer (referenced only in roadmap docstring at _slice_pareto_plot.py). Kept for the upcoming Pareto-aware selector wave.",
 }
 

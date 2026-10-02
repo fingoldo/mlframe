@@ -44,9 +44,7 @@ _KNOWN_INDIRECT_KWARGS: dict[str, str] = {
 
 # Same severity as ``_USER_DEFERRED_DEAD`` in
 # test_config_field_consumption.py — fields surfaced and explicitly deferred.
-_USER_DEFERRED_KWARGS: dict[str, str] = {
-    "TreeModelConfig.hgb_kwargs": "duplicate of ModelHyperparamsConfig.hgb_kwargs which IS consumed via model_dump splat",
-}
+_USER_DEFERRED_KWARGS: dict[str, str] = {}
 
 
 def _consumer_corpus() -> str:
