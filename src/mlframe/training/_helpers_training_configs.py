@@ -167,10 +167,7 @@ def get_training_configs(
     else:
         hgb_kwargs = hgb_kwargs.copy()
     validate_nested_mlp_kwargs(mlp_kwargs)
-    if mlp_kwargs is None:
-        mlp_kwargs = dict()
-    else:
-        mlp_kwargs = mlp_kwargs.copy()
+    mlp_kwargs = dict(mlp_kwargs or {})  # a copy: the caller's dict is not mutated
     if ngb_kwargs is None:
         ngb_kwargs = dict(verbose=True)
     else:
