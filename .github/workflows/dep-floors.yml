@@ -120,7 +120,7 @@ jobs:
 
       - name: Resolve every direct dependency to its floor
         run: |
-          uv pip install --system --resolution=lowest-direct "pyutilz[system,pandas,polars,database] @ git+https://github.com/fingoldo/pyutilz.git@8fde654ae74abe1db69c22fbac4c050127b83c2b"
+          uv pip install --system --resolution=lowest-direct "pyutilz[system,pandas,polars,database] @ git+https://github.com/fingoldo/pyutilz.git@635d0c5a34c36f6aec46ffcb93c6fe06ae96c121"
           uv pip install --system --resolution=lowest-direct -e ".[dev]"
           uv pip list
 
