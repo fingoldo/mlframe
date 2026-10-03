@@ -20,10 +20,21 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+_RESIDUAL_FWER_ALPHA = 0.05
+
+
 def _sigmoid(x: np.ndarray) -> np.ndarray:
     """Numerically-clipped logistic sigmoid."""
     x = np.clip(x, -60.0, 60.0)
     return np.asarray(1.0 / (1.0 + np.exp(-x)), dtype=np.float64)
+
+
+def residual_magnitude_floor(importance2: np.ndarray) -> float:
+    """Family-wise noise ceiling for pass-2 mean|phi2|: ``median + sqrt(2 ln(n/alpha)) * 1.4826 * MAD`` (alpha=0.05)."""
+    importance2 = np.asarray(importance2, dtype=np.float64)
+    med = float(np.median(importance2))
+    sigma = 1.4826 * float(np.median(np.abs(importance2 - med)))
+    return med + float(np.sqrt(2.0 * np.log(max(importance2.shape[0], 2) / _RESIDUAL_FWER_ALPHA))) * sigma
 
 
 def compute_residual_target(phi: np.ndarray, base: np.ndarray, y_phi: np.ndarray, *, classification: bool) -> np.ndarray:
@@ -44,6 +55,30 @@ def compute_residual_target(phi: np.ndarray, base: np.ndarray, y_phi: np.ndarray
     if classification:
         return np.asarray(y_arr - _sigmoid(margin_pred), dtype=np.float64)
     return np.asarray(y_arr - margin_pred, dtype=np.float64)
+
+
+def gate_by_residual_magnitude(consistent: np.ndarray, importance2: np.ndarray) -> float:
+    """Clear in place every ``consistent`` column whose pass-2 mean|phi2| is not above the family-wise noise ceiling; returns the ceiling."""
+    # Family-wise magnitude gate (Bonferroni-style, no tuned constant). The fold-rank gate alone is NOT
+    # a noise test: the 3 OOF folds train on overlapping data so a noise column's fold ranks are strongly
+    # correlated, and measured on p=3000 pure-strong / mixed beds 49 columns cleared a 3*top_k pool in all
+    # folds with pass 2 explaining NO residual variance (std after >= std before). A column must also exceed
+    # the largest value expected from n_cols noise draws at family-wise alpha=0.05, median + sqrt(2 ln(n/alpha)) * 1.4826 * MAD of
+    # mean|phi2| (alpha=1 alone, i.e. sqrt(2 ln n), still let one noise column through on 2 of 3 pure-strong seeds).
+    magnitude_floor = residual_magnitude_floor(importance2)
+    consistent &= importance2 > magnitude_floor
+    return magnitude_floor
+
+
+def fold_rank_consistency(per_fold_phi_mean2: np.ndarray, top_k: int) -> tuple[np.ndarray, int]:
+    """Mask of columns whose per-fold rank clears the ``3 * top_k`` pool in EVERY fold (shape ``(n_splits, n_kept_proxy)``), and that pool size."""
+    per_fold = np.asarray(per_fold_phi_mean2, dtype=np.float64)
+    fold_pool = min(per_fold.shape[1], max(top_k * 3, 1))
+    consistent = np.ones(per_fold.shape[1], dtype=bool)
+    for fold_row in per_fold:
+        fold_top = set(np.argsort(-fold_row)[:fold_pool].tolist())
+        consistent &= np.array([j in fold_top for j in range(per_fold.shape[1])], dtype=bool)
+    return consistent, fold_pool
 
 
 def _validate_residual_params(self: Any) -> int:
@@ -201,12 +236,8 @@ def run_residual_pass(
     # single aggregate OOF magnitude.
     top_k = int(self.residual_top_k) if self.residual_top_k is not None else int(self.brute_force_max_features)
     top_k = min(top_k, importance2.shape[0])
-    per_fold = np.asarray(per_fold_phi_mean2, dtype=np.float64)  # (n_splits, n_kept_proxy)
-    fold_pool = min(per_fold.shape[1], max(top_k * 3, 1))
-    consistent = np.ones(per_fold.shape[1], dtype=bool)
-    for fold_row in per_fold:
-        fold_top = set(np.argsort(-fold_row)[:fold_pool].tolist())
-        consistent &= np.array([j in fold_top for j in range(per_fold.shape[1])], dtype=bool)
+    consistent, fold_pool = fold_rank_consistency(per_fold_phi_mean2, top_k)
+    magnitude_floor = gate_by_residual_magnitude(consistent, importance2)
     eligible_local = np.nonzero(consistent)[0]
 
     order_eligible = eligible_local[np.argsort(-importance2[eligible_local])]
@@ -237,6 +268,7 @@ def run_residual_pass(
         residual_std_before=residual_std_before,
         residual_std_after=residual_std_after,
         n_fold_consistent=int(eligible_local.size),
+        pass2_magnitude_floor=magnitude_floor,
         fold_pool=int(fold_pool),
         n_protected=len(protected_working_cols),
     )

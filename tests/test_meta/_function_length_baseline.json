@@ -161,7 +161,7 @@
   "src/mlframe/feature_selection/shap_proxied_fs/__init__.py::ShapProxiedFS.__init__": 820,
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxied_fit.py::ShapProxiedFitMixin.fit": 853,
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxied_fit_interactions.py::augment_candidates_with_interactions": 209,
-  "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxied_fit_residual.py::run_residual_pass": 168,
+  "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxied_fit_residual.py::run_residual_pass": 165,
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py::cluster_correlated_features_su": 227,
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_explain.py::compute_shap_matrix": 254,
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_interactions.py::su_synergy_screen": 157,

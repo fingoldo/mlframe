@@ -215,3 +215,17 @@ def test_residual_pass_absent_report_key_at_default_zero_passes():
     sel = ShapProxiedFS(random_state=0, verbose=False, n_jobs=1, trust_guard=False, run_importance_ablation=False)
     sel.fit(X, y)
     assert "residual_pass" not in sel.shap_proxy_report_
+
+
+def test_residual_magnitude_floor_rejects_pure_noise_and_admits_a_spike():
+    """The gate that stops residual_passes=1 from protecting top-k columns of pass-2 noise (26 selected vs 6 on a pure-strong bed)."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit_residual import residual_magnitude_floor
+
+    rng = np.random.default_rng(0)
+    for _ in range(5):
+        noise = 0.005 + 0.0015 * rng.standard_normal(3000)
+        assert not (noise > residual_magnitude_floor(noise)).any()
+    planted = noise.copy()
+    planted[7] = noise.max() * 3
+    assert planted[7] > residual_magnitude_floor(planted)
+    assert int((planted > residual_magnitude_floor(planted)).sum()) == 1
