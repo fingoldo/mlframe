@@ -5,7 +5,7 @@ See ``screen.py`` for the screening orchestrator that calls these functions.
 from __future__ import annotations
 
 import logging
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, Any
 
 import numba
 import numpy as np
@@ -498,146 +498,11 @@ def evaluate_candidate(
     random_seed: int | None = None,
 ) -> Tuple[float, set]:
     """Score one MRMR candidate (relevance minus redundancy against already-selected vars, optionally confidence-gated by a permutation baseline) and update the ``expected_gains``/``partial_gains``/``failed_candidates`` bookkeeping in place; this is the per-candidate body invoked in the main selection loop's inner scan over ``combs``."""
+    current_gain: Any = None
     sink_reasons: set = set()
 
     # Is this candidate any good for target 1-vs-1?
-    if X in cached_confident_MIs:  # type: ignore[operator]  # caller always supplies a dict; cached_confident_MIs first - more reliable (but don't fill them here).
-        # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain. WITHIN one screen_predictors() round, a
-        # candidate only lands in cached_confident_MIs AFTER permutation confirmation, at which point its cand_idx is in added_/failed_candidates and
-        # should_skip_candidate filters it out before re-entry here. ACROSS rounds this branch is legitimately reachable (seed_caches cross-round threading):
-        # added_/failed_candidates are round-local (their cand_idx indexing is not stable across rounds, since the candidate pool changes shape), so a candidate
-        # confirmed in an earlier round is correctly re-scored here on a later round rather than treated as already-decided. This is proven equivalent by
-        # controlled A/B (seed_caches with vs without cached_confident_MIs threaded: identical selection on the canonical signal/noise fixture) - the
-        # bootstrapped gain still passes the same SU floor-scaling the else-path applies (it is already permutation-confirmed, so it does NOT re-enter the
-        # null-debiasing/significance gate - re-applying that would double-penalise). DEBUG, not WARNING: this is the expected steady-state path for a
-        # multi-round fit, not an anomaly to investigate.
-        logger.debug(
-            "evaluate_candidate: confirmed candidate %s re-entered the cached_confident_MIs branch on a later round; "
-            "scoring it through the SU floor-scaling guard.", X,
-        )
-        direct_gain, _ = cached_confident_MIs[X]  # type: ignore[index]
-        direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype, freqs_y=freqs_y)
-    else:
-        _gmi = get_group_mi()
-        _grp_gain = float("nan")
-        if _gmi is not None and X not in cached_MIs:  # type: ignore[operator]  # caller always supplies a dict
-            # Group-aware relevance: per-group I(X;Y|G) (MM-debiased) instead of the global MI. Bypasses the GPU + permutation-null path (the per-group MM
-            # debias handles the small-sample bias). Returns nan when the segments do not row-align (subsample), in which case we fall through to the global
-            # path. Default OFF.
-            _si, _off, _mr, _sw = _gmi
-            _grp_gain = group_relevance_mi(
-                factors_data, X, classes_y, factors_nbins, len(freqs_y),  # type: ignore[arg-type]  # caller always supplies classes_y/freqs_y together with a group-aware config
-                _si, _off, min_rows=_mr, size_weighted=_sw, dtype=dtype,
-            )
-        if _grp_gain == _grp_gain:  # not nan -> group-aware relevance succeeded
-            direct_gain = _grp_gain
-            cached_MIs[X] = direct_gain  # type: ignore[index]
-        elif X in cached_MIs:  # type: ignore[operator]
-            direct_gain = cached_MIs[X]  # type: ignore[index]
-        else:
-            # XOR-synergy regression fix: use UNANIMOUS-rejection baseline (require ALL perms to beat observed before rejecting). The prior
-            # ``min_nonzero_confidence=1.0`` hardcode + the ``max_failed = max(1, ...)`` floor at permutation.py:348 combined to require ZERO of
-            # ``baseline_npermutations`` (default 2) perms meet/exceed observed - one chance perm killed genuine synergy candidates. For order-2+ tuples with
-            # high joint cardinality (5x5=25 cells), the null distribution has heavy tails and 1/2 perms beating observed is COMMON for legitimately-significant
-            # XOR- family candidates. The middle ground: ``max_failed=npermutations`` means the screen rejects ONLY when ALL baseline perms beat observed. This
-            # kills obvious-noise candidates (where nearly every shuffle matches observed because there's no signal) while letting genuinely-significant
-            # candidates (where most shuffles fall short) through to the strict confirmation test at ``full_npermutations``. Empirically this gives ~30%
-            # baseline reject rate on all-noise and >90% pass rate on signal/synergy.
-            _bnp = max(2, int(baseline_npermutations))
-            # The relevance null must MOVE with random_seed. Left at mi_direct's default the baseline drew the
-            # identical permutation for every seed, so a caller varying random_seed to probe selection stability
-            # got a null that never changed - the one component that was supposed to vary. Derived per candidate
-            # so two candidates in the same fit do not share a draw, mirroring the CMI component's own seed.
-            _baseline_seed = hash(((int(random_seed) if random_seed is not None else 0), int(cand_idx))) & 0xFFFFFFFF
-            if use_gpu:
-                # Wrapped in try/except: this call previously had NO exception handling, unlike
-                # every sibling GPU dispatch point in this codebase (_cmi_cuda.py's circuit breaker, mi_direct's
-                # own internal GPU fastpath try/except) - a single CUDA fault here (driver hiccup, transient OOM,
-                # a poisoned context from an EARLIER unrelated GPU call) would propagate all the way up and crash
-                # the whole MRMR.fit(), not just degrade to CPU for this one candidate. Falls back to the exact
-                # CPU path (same args as the ``else`` branch below) on any failure.
-                try:
-                    direct_gain, _, null_mean, p_value = mi_direct_gpu(
-                        factors_data,
-                        x=tuple(X),
-                        y=tuple(y),
-                        factors_nbins=factors_nbins,
-                        classes_y=classes_y,
-                        classes_y_safe=classes_y_safe,
-                        freqs_y=freqs_y,
-                        freqs_y_safe=freqs_y_safe,
-                        min_nonzero_confidence=0.0,
-                        max_failed=_bnp,
-                        npermutations=_bnp,
-                        dtype=dtype,
-                        return_null_mean=True,
-                        # Forwarded exactly as both CPU branches below do. Without it `mi_direct_gpu` seeds its
-                        # CuPy permutation Generator from OS entropy, so `null_mean` -- which is subtracted from
-                        # the score that drives selection -- moves run to run and the selected feature set is
-                        # non-deterministic on a CUDA host with `random_seed` pinned.
-                        base_seed=_baseline_seed,
-                    )
-                except Exception as _gpu_exc:
-                    logger.warning(
-                        "evaluate_candidate: GPU relevance MI failed (%s: %s); falling back to CPU for this candidate.",
-                        type(_gpu_exc).__name__, _gpu_exc,
-                    )
-                    direct_gain, _, null_mean, p_value = mi_direct(
-                        factors_data,
-                        x=tuple(X),
-                        y=tuple(y),
-                        factors_nbins=factors_nbins,
-                        classes_y=classes_y,
-                        classes_y_safe=classes_y_safe,
-                        freqs_y=freqs_y,
-                        min_nonzero_confidence=0.0,
-                        max_failed=_bnp,
-                        npermutations=_bnp,
-                        dtype=dtype,
-                        return_null_mean=True,
-                        base_seed=_baseline_seed,
-                    )
-                # SAME significance-gated relevance debiasing as the CPU branch below (audit5-P1). Without it the
-                # GPU path returned RAW plug-in MI, inflating high-cardinality / heavy-tailed / monotone-datetime
-                # / engineered columns above genuine lower-cardinality signal, AND making selection
-                # hardware-dependent (GPU-present hosts selected differently from CPU-only ones).
-                if p_value >= mrmr_null_signif_alpha():
-                    direct_gain = max(0.0, direct_gain - null_mean)
-            else:
-                # Significance-gated empirical-null debiasing of the relevance MI. On a wide composite-FE candidate pool the in-sample plug-in MI is upward-biased for
-                # high-cardinality (50-level categoricals), heavy-tailed (Student-t), monotone-datetime and engineered columns, so they out-rank genuine lower-cardinality signal
-                # (e.g. a strong Gaussian leg) and get selected while the real signal is dropped. ``return_null_mean=True`` runs the relevance null and returns BOTH the per-feature
-                # null mean (the average MI of X against y-PERMUTATIONS the kernel already computes) AND the permutation p-value (the fraction of shuffles that tied/beat observed).
-                direct_gain, _, null_mean, p_value = mi_direct(
-                    factors_data,
-                    x=tuple(X),
-                    y=tuple(y),
-                    factors_nbins=factors_nbins,
-                    classes_y=classes_y,
-                    classes_y_safe=classes_y_safe,
-                    freqs_y=freqs_y,
-                    min_nonzero_confidence=0.0,
-                    max_failed=_bnp,
-                    npermutations=_bnp,
-                    dtype=dtype,
-                    return_null_mean=True,
-                    base_seed=_baseline_seed,
-                )
-                # Gate the subtraction on permutation SIGNIFICANCE. The null mean alone cannot distinguish a WEAK GENUINE signal (whose coarse-binning null is a large fraction of
-                # its observed MI) from SPURIOUS NOISE (whose null is high because it IS noise) - subtracting the full null would over-correct the weak signal below the
-                # relative-gain floor and drop it. The permutation p-value IS that discriminator: a significant feature (``p_value < alpha``) sits ABOVE its null and keeps its
-                # full observed MI; a non-significant feature (``p_value >= alpha``) sits WITHIN its null and gets the full null mean subtracted, collapsing toward 0. alpha is a
-                # textbook level (0.05), not a fixture-tuned fraction, and the selection is stable across a wide alpha band because real signal clears p ~ 0 and noise sits at p ~ 1.
-                if p_value >= mrmr_null_signif_alpha():
-                    direct_gain = max(0.0, direct_gain - null_mean)
-            # SU-NORMALIZE THE MARGINAL RELEVANCE under mi_normalization='su'. The conditional/redundancy term already uses
-            # conditional_symmetric_uncertainty, but the marginal relevance (the value the min_relevance_gain floor compares against,
-            # and the first-pick score) was left as RAW MI - so a high-cardinality noise column whose raw MI clears the entropy-relative
-            # floor (e.g. 80-level hi_* with MI ~0.11 > 0.16*H(y)=0.111) was admitted even though its SU ~0.044 sits far below. Scale the
-            # debiased relevance by the SU denominator 2/(H(X)+H(Y)) so the floor sees the cardinality-scrubbed score, matching the unit
-            # SU definition. Done only when direct_gain > 0 (a zero stays zero) and the SU toggle is on; legacy path is byte-identical.
-            direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype, freqs_y=freqs_y)
-            cached_MIs[X] = direct_gain  # type: ignore[index]
+    direct_gain = _evaluate_candidate_candidate_any_good_target(X, cached_confident_MIs, y, factors_data, factors_nbins, dtype, freqs_y, cached_MIs, classes_y, baseline_npermutations, random_seed, cand_idx, use_gpu, classes_y_safe, freqs_y_safe)
 
     # Synergy candidates can have direct_gain == 0 (pure XOR, parity, etc.: the
     # marginal MI is zero by construction but the conditional MI given an
@@ -768,14 +633,7 @@ def evaluate_candidate(
     if _bur_lambda > 0.0 and direct_gain > 0 and selected_vars:
         try:
             max_xz = 0.0
-            for _z in selected_vars:
-                _z_arr = np.asarray(_z if hasattr(_z, "__len__") else [_z], dtype=np.int64)
-                xz = mi(
-                    factors_data=factors_data, x=X, y=_z_arr,
-                    factors_nbins=factors_nbins, dtype=dtype,
-                )
-                if xz > max_xz:
-                    max_xz = float(xz)
+            max_xz = _evaluate_candidate_selected_vars(selected_vars, factors_data, X, factors_nbins, dtype, max_xz)
             bonus = max(0.0, float(direct_gain) - max_xz) * _bur_lambda
             current_gain = float(current_gain) + bonus
             if cand_idx in partial_gains:
@@ -862,10 +720,7 @@ def evaluate_candidate(
 
             (x_col, k_x), (y_col, k_y), (_pid_sel_cols, _pid_sel_nbins) = _knob_columns()
             max_syn = 0.0
-            for _zc, _zk in zip(_pid_sel_cols, _pid_sel_nbins):
-                syn = float(pid_decomposition(x_col, _zc, y_col, k_x, _zk, k_y)["synergistic"])
-                if syn > max_syn:
-                    max_syn = syn
+            max_syn = _evaluate_candidate_zc_zk_zip_pid(_pid_sel_cols, _pid_sel_nbins, pid_decomposition, x_col, y_col, k_x, k_y, max_syn)
             bonus = max(0.0, max_syn) * _pid_bonus
             current_gain = float(current_gain) + bonus
             if cand_idx in partial_gains:
@@ -898,12 +753,7 @@ def evaluate_candidate(
                 x_col, y_col, sel_cols, k_x, k_y, sel_nbins,
                 n_permutations=_cmi_nperm, alpha=_cmi_alpha, seed=_cmi_cpt_seed,
             )
-            if not is_signif:
-                current_gain = 0.0
-                if cand_idx in partial_gains:
-                    _g, _k = partial_gains[cand_idx]
-                    partial_gains[cand_idx] = (0.0, _k)
-                expected_gains[cand_idx] = 0.0
+            current_gain = _evaluate_candidate_signif(is_signif, cand_idx, partial_gains, expected_gains, current_gain)
         except Exception as _cmi_exc:
             log_throttle(logger, "evaluation_gate_failed_cmi", logging.WARNING, _GATE_FAILED_MSG, "CMI permutation early-stop", cand_idx, type(_cmi_exc).__name__, _cmi_exc)
             current_gain = _exclude_ungated_candidate(cand_idx, partial_gains, expected_gains)
@@ -914,9 +764,191 @@ def evaluate_candidate(
     # Y given the already-selected set under ARBITRARY confounding by that set. A candidate whose observed conditional
     # MI is not distinguishable from its conditional-permutation null (p >= 0.05) is dropped (gain forced to 0.0).
     _cpt_active, _cpt_nperm = get_cpt_test()
+    current_gain = _evaluate_candidate_mi_distinguishable_its_conditional(_cpt_active, selected_vars, current_gain, _knob_columns, _cpt_nperm, _cmi_cpt_seed, cand_idx, partial_gains, expected_gains)
+
+    return current_gain, sink_reasons
+
+
+def _evaluate_candidate_candidate_any_good_target(X, cached_confident_MIs, y, factors_data, factors_nbins, dtype, freqs_y, cached_MIs, classes_y, baseline_npermutations, random_seed, cand_idx, use_gpu, classes_y_safe, freqs_y_safe):
+    """Block of evaluate_candidate starting at ``if X in cached_confident_MIs: # type: ignore[operator] # caller always``."""
+    if X in cached_confident_MIs:  # caller always supplies a dict; cached_confident_MIs first - more reliable (but don't fill them here).
+        # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain. WITHIN one screen_predictors() round, a
+        # candidate only lands in cached_confident_MIs AFTER permutation confirmation, at which point its cand_idx is in added_/failed_candidates and
+        # should_skip_candidate filters it out before re-entry here. ACROSS rounds this branch is legitimately reachable (seed_caches cross-round threading):
+        # added_/failed_candidates are round-local (their cand_idx indexing is not stable across rounds, since the candidate pool changes shape), so a candidate
+        # confirmed in an earlier round is correctly re-scored here on a later round rather than treated as already-decided. This is proven equivalent by
+        # controlled A/B (seed_caches with vs without cached_confident_MIs threaded: identical selection on the canonical signal/noise fixture) - the
+        # bootstrapped gain still passes the same SU floor-scaling the else-path applies (it is already permutation-confirmed, so it does NOT re-enter the
+        # null-debiasing/significance gate - re-applying that would double-penalise). DEBUG, not WARNING: this is the expected steady-state path for a
+        # multi-round fit, not an anomaly to investigate.
+        logger.debug(
+            "evaluate_candidate: confirmed candidate %s re-entered the cached_confident_MIs branch on a later round; "
+            "scoring it through the SU floor-scaling guard.", X,
+        )
+        direct_gain, _ = cached_confident_MIs[X]
+        direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype, freqs_y=freqs_y)
+    else:
+        _gmi = get_group_mi()
+        _grp_gain = float("nan")
+        if _gmi is not None and X not in cached_MIs:  # caller always supplies a dict
+            # Group-aware relevance: per-group I(X;Y|G) (MM-debiased) instead of the global MI. Bypasses the GPU + permutation-null path (the per-group MM
+            # debias handles the small-sample bias). Returns nan when the segments do not row-align (subsample), in which case we fall through to the global
+            # path. Default OFF.
+            _si, _off, _mr, _sw = _gmi
+            _grp_gain = group_relevance_mi(
+                factors_data, X, classes_y, factors_nbins, len(freqs_y),  # caller always supplies classes_y/freqs_y together with a group-aware config
+                _si, _off, min_rows=_mr, size_weighted=_sw, dtype=dtype,
+            )
+        if _grp_gain == _grp_gain:  # not nan -> group-aware relevance succeeded
+            direct_gain = _grp_gain
+            cached_MIs[X] = direct_gain
+        elif X in cached_MIs:
+            direct_gain = cached_MIs[X]
+        else:
+            # XOR-synergy regression fix: use UNANIMOUS-rejection baseline (require ALL perms to beat observed before rejecting). The prior
+            # ``min_nonzero_confidence=1.0`` hardcode + the ``max_failed = max(1, ...)`` floor at permutation.py:348 combined to require ZERO of
+            # ``baseline_npermutations`` (default 2) perms meet/exceed observed - one chance perm killed genuine synergy candidates. For order-2+ tuples with
+            # high joint cardinality (5x5=25 cells), the null distribution has heavy tails and 1/2 perms beating observed is COMMON for legitimately-significant
+            # XOR- family candidates. The middle ground: ``max_failed=npermutations`` means the screen rejects ONLY when ALL baseline perms beat observed. This
+            # kills obvious-noise candidates (where nearly every shuffle matches observed because there's no signal) while letting genuinely-significant
+            # candidates (where most shuffles fall short) through to the strict confirmation test at ``full_npermutations``. Empirically this gives ~30%
+            # baseline reject rate on all-noise and >90% pass rate on signal/synergy.
+            _bnp = max(2, int(baseline_npermutations))
+            # The relevance null must MOVE with random_seed. Left at mi_direct's default the baseline drew the
+            # identical permutation for every seed, so a caller varying random_seed to probe selection stability
+            # got a null that never changed - the one component that was supposed to vary. Derived per candidate
+            # so two candidates in the same fit do not share a draw, mirroring the CMI component's own seed.
+            _baseline_seed = hash(((int(random_seed) if random_seed is not None else 0), int(cand_idx))) & 0xFFFFFFFF
+            if use_gpu:
+                # Wrapped in try/except: this call previously had NO exception handling, unlike
+                # every sibling GPU dispatch point in this codebase (_cmi_cuda.py's circuit breaker, mi_direct's
+                # own internal GPU fastpath try/except) - a single CUDA fault here (driver hiccup, transient OOM,
+                # a poisoned context from an EARLIER unrelated GPU call) would propagate all the way up and crash
+                # the whole MRMR.fit(), not just degrade to CPU for this one candidate. Falls back to the exact
+                # CPU path (same args as the ``else`` branch below) on any failure.
+                try:
+                    direct_gain, _, null_mean, p_value = mi_direct_gpu(
+                        factors_data,
+                        x=tuple(X),
+                        y=tuple(y),
+                        factors_nbins=factors_nbins,
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        freqs_y_safe=freqs_y_safe,
+                        min_nonzero_confidence=0.0,
+                        max_failed=_bnp,
+                        npermutations=_bnp,
+                        dtype=dtype,
+                        return_null_mean=True,
+                        # Forwarded exactly as both CPU branches below do. Without it `mi_direct_gpu` seeds its
+                        # CuPy permutation Generator from OS entropy, so `null_mean` -- which is subtracted from
+                        # the score that drives selection -- moves run to run and the selected feature set is
+                        # non-deterministic on a CUDA host with `random_seed` pinned.
+                        base_seed=_baseline_seed,
+                    )
+                except Exception as _gpu_exc:
+                    logger.warning(
+                        "evaluate_candidate: GPU relevance MI failed (%s: %s); falling back to CPU for this candidate.",
+                        type(_gpu_exc).__name__, _gpu_exc,
+                    )
+                    direct_gain, _, null_mean, p_value = mi_direct(
+                        factors_data,
+                        x=tuple(X),
+                        y=tuple(y),
+                        factors_nbins=factors_nbins,
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        min_nonzero_confidence=0.0,
+                        max_failed=_bnp,
+                        npermutations=_bnp,
+                        dtype=dtype,
+                        return_null_mean=True,
+                        base_seed=_baseline_seed,
+                    )
+                # SAME significance-gated relevance debiasing as the CPU branch below (audit5-P1). Without it the
+                # GPU path returned RAW plug-in MI, inflating high-cardinality / heavy-tailed / monotone-datetime
+                # / engineered columns above genuine lower-cardinality signal, AND making selection
+                # hardware-dependent (GPU-present hosts selected differently from CPU-only ones).
+                if p_value >= mrmr_null_signif_alpha():
+                    direct_gain = max(0.0, direct_gain - null_mean)
+            else:
+                # Significance-gated empirical-null debiasing of the relevance MI. On a wide composite-FE candidate pool the in-sample plug-in MI is upward-biased for
+                # high-cardinality (50-level categoricals), heavy-tailed (Student-t), monotone-datetime and engineered columns, so they out-rank genuine lower-cardinality signal
+                # (e.g. a strong Gaussian leg) and get selected while the real signal is dropped. ``return_null_mean=True`` runs the relevance null and returns BOTH the per-feature
+                # null mean (the average MI of X against y-PERMUTATIONS the kernel already computes) AND the permutation p-value (the fraction of shuffles that tied/beat observed).
+                direct_gain, _, null_mean, p_value = mi_direct(
+                    factors_data,
+                    x=tuple(X),
+                    y=tuple(y),
+                    factors_nbins=factors_nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    min_nonzero_confidence=0.0,
+                    max_failed=_bnp,
+                    npermutations=_bnp,
+                    dtype=dtype,
+                    return_null_mean=True,
+                    base_seed=_baseline_seed,
+                )
+                # Gate the subtraction on permutation SIGNIFICANCE. The null mean alone cannot distinguish a WEAK GENUINE signal (whose coarse-binning null is a large fraction of
+                # its observed MI) from SPURIOUS NOISE (whose null is high because it IS noise) - subtracting the full null would over-correct the weak signal below the
+                # relative-gain floor and drop it. The permutation p-value IS that discriminator: a significant feature (``p_value < alpha``) sits ABOVE its null and keeps its
+                # full observed MI; a non-significant feature (``p_value >= alpha``) sits WITHIN its null and gets the full null mean subtracted, collapsing toward 0. alpha is a
+                # textbook level (0.05), not a fixture-tuned fraction, and the selection is stable across a wide alpha band because real signal clears p ~ 0 and noise sits at p ~ 1.
+                if p_value >= mrmr_null_signif_alpha():
+                    direct_gain = max(0.0, direct_gain - null_mean)
+            # SU-NORMALIZE THE MARGINAL RELEVANCE under mi_normalization='su'. The conditional/redundancy term already uses
+            # conditional_symmetric_uncertainty, but the marginal relevance (the value the min_relevance_gain floor compares against,
+            # and the first-pick score) was left as RAW MI - so a high-cardinality noise column whose raw MI clears the entropy-relative
+            # floor (e.g. 80-level hi_* with MI ~0.11 > 0.16*H(y)=0.111) was admitted even though its SU ~0.044 sits far below. Scale the
+            # debiased relevance by the SU denominator 2/(H(X)+H(Y)) so the floor sees the cardinality-scrubbed score, matching the unit
+            # SU definition. Done only when direct_gain > 0 (a zero stays zero) and the SU toggle is on; legacy path is byte-identical.
+            direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype, freqs_y=freqs_y)
+            cached_MIs[X] = direct_gain
+    return direct_gain
+
+
+def _evaluate_candidate_selected_vars(selected_vars, factors_data, X, factors_nbins, dtype, max_xz):
+    """Block of evaluate_candidate starting at ``for _z in selected_vars:``."""
+    for _z in selected_vars:
+        _z_arr = np.asarray(_z if hasattr(_z, "__len__") else [_z], dtype=np.int64)
+        xz = mi(
+            factors_data=factors_data, x=X, y=_z_arr,
+            factors_nbins=factors_nbins, dtype=dtype,
+        )
+        if xz > max_xz:
+            max_xz = float(xz)
+    return max_xz
+
+
+def _evaluate_candidate_zc_zk_zip_pid(_pid_sel_cols, _pid_sel_nbins, pid_decomposition, x_col, y_col, k_x, k_y, max_syn):
+    """Block of evaluate_candidate starting at ``for _zc, _zk in zip(_pid_sel_cols, _pid_sel_nbins):``."""
+    for _zc, _zk in zip(_pid_sel_cols, _pid_sel_nbins):
+        syn = float(pid_decomposition(x_col, _zc, y_col, k_x, _zk, k_y)["synergistic"])
+        if syn > max_syn:
+            max_syn = syn
+    return max_syn
+
+
+def _evaluate_candidate_signif(is_signif, cand_idx, partial_gains, expected_gains, current_gain):
+    """Block of evaluate_candidate starting at ``if not is_signif:``."""
+    if not is_signif:
+        current_gain = 0.0
+        if cand_idx in partial_gains:
+            _g, _k = partial_gains[cand_idx]
+            partial_gains[cand_idx] = (0.0, _k)
+        expected_gains[cand_idx] = 0.0
+    return current_gain
+
+
+def _evaluate_candidate_mi_distinguishable_its_conditional(_cpt_active, selected_vars, current_gain, _knob_columns, _cpt_nperm, _cmi_cpt_seed, cand_idx, partial_gains, expected_gains):
+    """Block of evaluate_candidate starting at ``if _cpt_active and selected_vars and current_gain > 0.0:``."""
     if _cpt_active and selected_vars and current_gain > 0.0:
         try:
-            from ._conditional_permutation import conditional_permutation_test
+            from mlframe.feature_selection.filters._conditional_permutation import conditional_permutation_test
 
             (x_col, k_x), (y_col, k_y), (_cpt_sel_cols, _cpt_sel_nbins) = _knob_columns()
             n = x_col.shape[0]
@@ -945,8 +977,7 @@ def evaluate_candidate(
         except Exception as _cpt_exc:
             log_throttle(logger, "evaluation_gate_failed_conditional", logging.WARNING, _GATE_FAILED_MSG, "conditional permutation test", cand_idx, type(_cpt_exc).__name__, _cpt_exc)
             current_gain = _exclude_ungated_candidate(cand_idx, partial_gains, expected_gains)
-
-    return current_gain, sink_reasons
+    return current_gain
 
 
 # Tier E carve: the candidate-evaluation driver cluster (the batched-GPU cond-MI

@@ -205,7 +205,7 @@ def env_signature() -> dict[str, str | None]:
     for libname in ("numpy", "pandas", "polars", "sklearn", "lightgbm", "xgboost", "catboost", "scipy", "dill"):
         try:
             sig[libname] = version(distmap.get(libname, libname))
-        except PackageNotFoundError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+        except PackageNotFoundError:  # noqa: PERF203 -- per-package isolation: one unreadable distribution must not cost the others their line
             sig[libname] = None
     sig["python"] = platform.python_version()
     return sig
@@ -535,135 +535,7 @@ def _oof_holdout_predictions_with_rows(
         _kf_split = _outer_oof_split(n_train, int(kfold), int(random_state), component_specs, group_ids, _time_monotone)
         oof_preds_by_name: dict[str, np.ndarray] = {}
         survived_set: set[str] | None = None
-        for fold_train_idx, fold_holdout_idx in _kf_split:
-            # Sub-frame views by index; fit/predict inlined per fold.
-            if _is_polars_df(train_X):
-                # Gather by the EXPLICIT fold indices (as the pandas/ndarray branches do), never ~train: under TimeSeriesSplit ~train includes the
-                # FUTURE rows beyond this fold's holdout, and a boolean mask would also drop the index order the targets follow.
-                X_stack = train_X[np.asarray(fold_train_idx, dtype=np.int64)]
-                X_holdout = train_X[np.asarray(fold_holdout_idx, dtype=np.int64)]
-            elif isinstance(train_X, pd.DataFrame):
-                X_stack = train_X.iloc[fold_train_idx].reset_index(drop=True)
-                X_holdout = train_X.iloc[fold_holdout_idx].reset_index(drop=True)
-            else:
-                X_stack = train_X[fold_train_idx]
-                X_holdout = train_X[fold_holdout_idx]
-            y_stack = y_train_full[fold_train_idx].astype(np.float64)
-            # Per-fold OOF scoring happens once at the end against the assembled oof_preds_by_name
-            # vs y_train_full as a whole, not per-fold slices, so a per-fold holdout-y copy here is unneeded.
-            fold_cols: dict[str, np.ndarray] = {}
-            _pair_memo: dict = {}  # per fold: this fold's slices are the keys
-            for model, name, spec in zip(component_models, component_names, component_specs):
-                try:
-                    inner, pp = _unwrap_shim(model)
-                    X_stack_t, X_holdout_t = _transform_pair_cached(
-                        _pair_memo, pp, X_stack, X_holdout, y_train=y_stack, refit_supervised=True,
-                    )
-                    if isinstance(inner, CompositeTargetEstimator):
-                        if spec is None:
-                            raise ValueError("composite component with no spec")
-                        base_full = base_train_full_per_spec.get(str(spec.get("name") or spec.get("base_column")))
-                        if base_full is None:
-                            raise ValueError(f"missing base column '{spec['base_column']}'")
-                        base_stack = base_full[fold_train_idx]
-                        transform = get_transform(spec["transform_name"])
-                        valid = transform.domain_check(y_stack, base_stack)
-                        if valid.sum() < 10:
-                            raise ValueError("too few valid rows after domain filter")
-                        # Re-fit the transform params on THIS fold's train
-                        # rows so alpha/beta/MAD do not see the held-out fold
-                        # (spec["fitted_params"] were fit on the FULL train, incl.
-                        # this fold's holdout -> mild OOF optimism). Fall back to
-                        # the global params when the transform cannot 1-D-refit
-                        # (e.g. multi-base needs the K-column matrix).
-                        _g_fold = _rows_of(group_ids, fold_train_idx, valid)
-                        _fold_params = _refit_fold_params(transform, spec, y_stack[valid], base_stack[valid], _g_fold, _rows_of(sample_weight, fold_train_idx, valid))
-                        t_stack = call_transform(transform, "forward", y_stack[valid], base_stack[valid], _fold_params, groups=_g_fold)
-                        inner_clone = clone(inner.estimator_)
-                        if isinstance(X_stack_t, pd.DataFrame):
-                            X_stack_valid = X_stack_t.iloc[valid].reset_index(drop=True)
-                        elif _is_polars_df(X_stack_t):
-                            X_stack_valid = X_stack_t.filter(pl.Series(valid))
-                        else:
-                            X_stack_valid = X_stack_t[valid]
-                        _sw_stack_valid = None if sample_weight is None else sample_weight[fold_train_idx][valid]
-                        # Carve an inner eval_set so early-stopping boosters do not raise (they did, and the per-component except below silently dropped every ES composite component each fold -- default oof_holdout_source IS kfold). Mirrors the single-split composite branch + the raw kfold branch.
-                        _group_fold_valid = None
-                        if group_ids is not None:
-                            try:
-                                _g_arr = np.asarray(group_ids)
-                                if _g_arr.shape[0] == n_train:
-                                    _gf = _g_arr[fold_train_idx]
-                                    if _gf.shape[0] == valid.shape[0]:
-                                        _group_fold_valid = _gf[valid]
-                                else:
-                                    log_throttle(
-                                        logger, "ensemble_group_ids_length_mismatch_composite", logging.WARNING,
-                                        "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
-                                        _g_arr.shape[0], n_train,
-                                    )
-                            except (TypeError, IndexError, ValueError):
-                                _group_fold_valid = None
-                        _Xf_c, _tf_c, _Xe_c, _te_c, _fm_kc = _carve_inner_eval_split(
-                            X_stack_valid, t_stack, random_state=int(random_state),
-                            group_ids=_group_fold_valid, return_fit_mask=True,
-                        )
-                        _eval_set_kc = (_Xe_c, _te_c) if _Xe_c is not None else None
-                        _sw_fit_kc = _align_fit_sw(_sw_stack_valid, _fm_kc, len(_tf_c))
-                        _maybe_pass_sample_weight(
-                            inner_clone, _Xf_c, _tf_c, _sw_fit_kc,
-                            eval_set=_eval_set_kc, fitted_source=inner.estimator_,
-                        )
-                        # Multi-base parity with _phase_composite_post: pass the full base_columns tuple so predict reconstructs the K-column base matrix matching the K alphas.
-                        wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid], getattr(inner, "group_column", None), X_stack, valid)
-                        preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
-                    else:
-                        inner_clone = clone(inner)
-                        _sw_stack = None if sample_weight is None else sample_weight[fold_train_idx]
-                        _group_for_fold = None
-                        if group_ids is not None:
-                            try:
-                                _g_arr = np.asarray(group_ids)
-                                if _g_arr.shape[0] == n_train:
-                                    _group_for_fold = _g_arr[fold_train_idx]
-                                else:
-                                    log_throttle(
-                                        logger, "ensemble_group_ids_length_mismatch_plain", logging.WARNING,
-                                        "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
-                                        _g_arr.shape[0], n_train,
-                                    )
-                            except (TypeError, IndexError, ValueError):
-                                _group_for_fold = None
-                        _X_fit, _y_fit, _X_ev, _y_ev, _fm_kr = _carve_inner_eval_split(
-                            X_stack_t, y_stack, random_state=int(random_state),
-                            group_ids=_group_for_fold, return_fit_mask=True,
-                        )
-                        _eval_set = (_X_ev, _y_ev) if _X_ev is not None else None
-                        _sw_fit = _align_fit_sw(_sw_stack, _fm_kr, len(_y_fit))
-                        _maybe_pass_sample_weight(
-                            inner_clone, _X_fit, _y_fit, _sw_fit,
-                            eval_set=_eval_set, fitted_source=inner,
-                        )
-                        preds = inner_clone.predict(X_holdout_t)
-                    preds = np.asarray(preds).reshape(-1).astype(np.float64)
-                    if not np.all(np.isfinite(preds)):
-                        raise ValueError("non-finite holdout predictions")
-                    fold_cols[name] = preds
-                except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                    log_throttle(
-                        logger, "ensemble_kfold_oof_refit_failed", logging.WARNING,
-                        "[CompositeCrossTargetEnsemble] kfold OOF refit failed "
-                        "for component '%s' (kfold=%d): %s. Excluded.",
-                        name, int(kfold), exc,
-                    )
-                    continue
-            if survived_set is None:
-                survived_set = set(fold_cols.keys())
-            else:
-                survived_set &= set(fold_cols.keys())
-            for nm, preds in fold_cols.items():
-                buf = oof_preds_by_name.setdefault(nm, np.full(n_train, np.nan, dtype=np.float64))
-                buf[fold_holdout_idx] = preds
+        survived_set = _oof_holdout_predic_fold_train_idx_fold(_kf_split, train_X, y_train_full, component_models, component_names, component_specs, base_train_full_per_spec, group_ids, sample_weight, n_train, random_state, kfold, survived_set, oof_preds_by_name)
         if not oof_preds_by_name or not survived_set:
             # Shape consistency -- match the (0, 0) tiny-data short-circuit. No components survived.
             _empty: tuple = (np.zeros((0, 0)), np.zeros(0), [], np.zeros(0, dtype=np.int64))
@@ -710,6 +582,195 @@ def _oof_holdout_predictions_with_rows(
     # Decide whether to do a time-aware split. Only the EXPLICIT ``time_ordering`` signal (the suite threads ctx.timestamps here) flips to a trailing-slice holdout. The old behaviour also probed every base column and auto-switched if ANY was monotone -- a false positive on sorted-but-non-temporal bases (sorted ids, binned features) that silently turned a random holdout into a trailing slice and changed the OOF leakage profile. Random shuffle is the safe default when no explicit time signal is given.
     use_time_split = False
     _time_order = None
+    _time_order, use_time_split = _oof_holdout_predic_decide_whether_do_time(time_ordering, _time_order, use_time_split)
+
+    n_holdout = max(round(n_train * holdout_frac), 1)
+    # Group-aware outer holdout: carve WHOLE groups so no group spans the refit-train and holdout slices (a random row permutation lets same-group rows leak across the split, inflating the OOF surface). Only when group_ids covers all rows with enough distinct groups and we are not on the explicit time-split path.
+    _group_holdout = None
+    _group_holdout = _oof_holdout_predic_group_aware_outer_holdout(use_time_split, group_ids, n_train, _group_holdout)
+    holdout_idx, train_idx = _oof_holdout_predic_use_time_split(use_time_split, n_train, n_holdout, _time_order, _group_holdout, random_state)
+
+    # Subset X. Branch on type so we don't pull pandas APIs on polars frames.
+    X_holdout, X_stack = _oof_holdout_predic_subset_branch_type_don(train_X, train_idx, holdout_idx)
+
+    y_stack = y_train_full[train_idx].astype(np.float64)
+    y_holdout = y_train_full[holdout_idx].astype(np.float64)
+
+    # Group-aware inner eval-carve parity with the raw branch + kfold path: subset the caller-supplied group_ids to the stack rows so neither the composite nor the raw inner-eval carve splits a group across fit/eval (within-group leakage under-stops the booster and degrades OOF RMSE on group-aware splits).
+    _group_stack = None
+    _group_stack = _oof_holdout_predic_group_aware_inner_eval(group_ids, n_train, train_idx, _group_stack)
+
+    holdout_cols: list[np.ndarray] = []
+    surviving_names = []
+    _pair_memo: dict[Any, Any] = {}
+    _oof_holdout_predic_model_name_spec_zip(component_models, component_names, component_specs, _pair_memo, X_stack, X_holdout, y_stack, base_train_full_per_spec, train_idx, group_ids, sample_weight, _group_stack, random_state, holdout_cols, surviving_names)
+
+    # Summary log so operators can see "ensemble built with N of K components" at INFO without grepping per-component WARN lines. ``component_names`` is the full caller-supplied list; ``surviving_names`` is the subset whose refit succeeded.
+    _surviving_n = len(surviving_names)
+    _total_n = len(component_names)
+    if _surviving_n < _total_n:
+        _dropped = [n for n in component_names if n not in set(surviving_names)]
+        logger.info(
+            "compute_oof_holdout_predictions: built OOF matrix with %d of %d components "
+            "(dropped %d: %s). Per-component drop reasons logged at WARN above.",
+            _surviving_n, _total_n, _total_n - _surviving_n, _dropped,
+        )
+    if not holdout_cols:
+        # Shape consistency -- match the tiny-data + kfold short-circuits.
+        _empty = (np.zeros((0, 0)), np.zeros(0), [], np.zeros(0, dtype=np.int64))
+        if _full_key is not None:
+            _oof_cache_put(_full_key, _empty)
+        return _empty
+    _final = (np.column_stack(holdout_cols), y_holdout, surviving_names, np.asarray(holdout_idx))
+    if _full_key is not None:
+        _oof_cache_put(_full_key, _final)
+    return _final
+
+
+def _oof_holdout_predic_fold_train_idx_fold(_kf_split, train_X, y_train_full, component_models, component_names, component_specs, base_train_full_per_spec, group_ids, sample_weight, n_train, random_state, kfold, survived_set, oof_preds_by_name):
+    """Block of _oof_holdout_predictions_with_rows starting at ``for fold_train_idx, fold_holdout_idx in _kf_split:``."""
+    fold_train_idx: Any = None
+    fold_holdout_idx: Any = None
+    for fold_train_idx, fold_holdout_idx in _kf_split:
+        # Sub-frame views by index; fit/predict inlined per fold.
+        X_holdout, X_stack = _oof_holdout_predic_sub_frame_views_index(train_X, fold_train_idx, fold_holdout_idx)
+        y_stack = y_train_full[fold_train_idx].astype(np.float64)
+        # Per-fold OOF scoring happens once at the end against the assembled oof_preds_by_name
+        # vs y_train_full as a whole, not per-fold slices, so a per-fold holdout-y copy here is unneeded.
+        fold_cols: dict[str, np.ndarray] = {}
+        _pair_memo: dict = {}  # per fold: this fold's slices are the keys
+        for model, name, spec in zip(component_models, component_names, component_specs):
+            try:
+                inner, pp = _unwrap_shim(model)
+                X_stack_t, X_holdout_t = _transform_pair_cached(
+                    _pair_memo, pp, X_stack, X_holdout, y_train=y_stack, refit_supervised=True,
+                )
+                if isinstance(inner, CompositeTargetEstimator):
+                    if spec is None:
+                        raise ValueError("composite component with no spec")
+                    base_full = base_train_full_per_spec.get(str(spec.get("name") or spec.get("base_column")))
+                    if base_full is None:
+                        raise ValueError(f"missing base column '{spec['base_column']}'")
+                    base_stack = base_full[fold_train_idx]
+                    transform = get_transform(spec["transform_name"])
+                    valid = transform.domain_check(y_stack, base_stack)
+                    if valid.sum() < 10:
+                        raise ValueError("too few valid rows after domain filter")
+                    # Re-fit the transform params on THIS fold's train
+                    # rows so alpha/beta/MAD do not see the held-out fold
+                    # (spec["fitted_params"] were fit on the FULL train, incl.
+                    # this fold's holdout -> mild OOF optimism). Fall back to
+                    # the global params when the transform cannot 1-D-refit
+                    # (e.g. multi-base needs the K-column matrix).
+                    _g_fold = _rows_of(group_ids, fold_train_idx, valid)
+                    _fold_params = _refit_fold_params(transform, spec, y_stack[valid], base_stack[valid], _g_fold, _rows_of(sample_weight, fold_train_idx, valid))
+                    t_stack = call_transform(transform, "forward", y_stack[valid], base_stack[valid], _fold_params, groups=_g_fold)
+                    inner_clone = clone(inner.estimator_)
+                    if isinstance(X_stack_t, pd.DataFrame):
+                        X_stack_valid = X_stack_t.iloc[valid].reset_index(drop=True)
+                    elif _is_polars_df(X_stack_t):
+                        X_stack_valid = X_stack_t.filter(pl.Series(valid))
+                    else:
+                        X_stack_valid = X_stack_t[valid]
+                    _sw_stack_valid = None if sample_weight is None else sample_weight[fold_train_idx][valid]
+                    # Carve an inner eval_set so early-stopping boosters do not raise (they did, and the per-component except below silently dropped every ES composite component each fold -- default oof_holdout_source IS kfold). Mirrors the single-split composite branch + the raw kfold branch.
+                    _group_fold_valid = None
+                    if group_ids is not None:
+                        try:
+                            _g_arr = np.asarray(group_ids)
+                            if _g_arr.shape[0] == n_train:
+                                _gf = _g_arr[fold_train_idx]
+                                if _gf.shape[0] == valid.shape[0]:
+                                    _group_fold_valid = _gf[valid]
+                            else:
+                                log_throttle(
+                                    logger, "ensemble_group_ids_length_mismatch_composite", logging.WARNING,
+                                    "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
+                                    _g_arr.shape[0], n_train,
+                                )
+                        except (TypeError, IndexError, ValueError):
+                            _group_fold_valid = None
+                    _Xf_c, _tf_c, _Xe_c, _te_c, _fm_kc = _carve_inner_eval_split(
+                        X_stack_valid, t_stack, random_state=int(random_state),
+                        group_ids=_group_fold_valid, return_fit_mask=True,
+                    )
+                    _eval_set_kc = (_Xe_c, _te_c) if _Xe_c is not None else None
+                    _sw_fit_kc = _align_fit_sw(_sw_stack_valid, _fm_kc, len(_tf_c))
+                    _maybe_pass_sample_weight(
+                        inner_clone, _Xf_c, _tf_c, _sw_fit_kc,
+                        eval_set=_eval_set_kc, fitted_source=inner.estimator_,
+                    )
+                    # Multi-base parity with _phase_composite_post: pass the full base_columns tuple so predict reconstructs the K-column base matrix matching the K alphas.
+                    wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid], getattr(inner, "group_column", None), X_stack, valid)
+                    preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
+                else:
+                    inner_clone = clone(inner)
+                    _sw_stack = None if sample_weight is None else sample_weight[fold_train_idx]
+                    _group_for_fold = None
+                    if group_ids is not None:
+                        try:
+                            _g_arr = np.asarray(group_ids)
+                            if _g_arr.shape[0] == n_train:
+                                _group_for_fold = _g_arr[fold_train_idx]
+                            else:
+                                log_throttle(
+                                    logger, "ensemble_group_ids_length_mismatch_plain", logging.WARNING,
+                                    "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
+                                    _g_arr.shape[0], n_train,
+                                )
+                        except (TypeError, IndexError, ValueError):
+                            _group_for_fold = None
+                    _X_fit, _y_fit, _X_ev, _y_ev, _fm_kr = _carve_inner_eval_split(
+                        X_stack_t, y_stack, random_state=int(random_state),
+                        group_ids=_group_for_fold, return_fit_mask=True,
+                    )
+                    _eval_set = (_X_ev, _y_ev) if _X_ev is not None else None
+                    _sw_fit = _align_fit_sw(_sw_stack, _fm_kr, len(_y_fit))
+                    _maybe_pass_sample_weight(
+                        inner_clone, _X_fit, _y_fit, _sw_fit,
+                        eval_set=_eval_set, fitted_source=inner,
+                    )
+                    preds = inner_clone.predict(X_holdout_t)
+                preds = np.asarray(preds).reshape(-1).astype(np.float64)
+                if not np.all(np.isfinite(preds)):
+                    raise ValueError("non-finite holdout predictions")
+                fold_cols[name] = preds
+            except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                log_throttle(
+                    logger, "ensemble_kfold_oof_refit_failed", logging.WARNING,
+                    "[CompositeCrossTargetEnsemble] kfold OOF refit failed "
+                    "for component '%s' (kfold=%d): %s. Excluded.",
+                    name, int(kfold), exc,
+                )
+                continue
+        if survived_set is None:
+            survived_set = set(fold_cols.keys())
+        else:
+            survived_set &= set(fold_cols.keys())
+        for nm, preds in fold_cols.items():
+            buf = oof_preds_by_name.setdefault(nm, np.full(n_train, np.nan, dtype=np.float64))
+            buf[fold_holdout_idx] = preds
+    return survived_set
+
+
+def _oof_holdout_predic_sub_frame_views_index(train_X, fold_train_idx, fold_holdout_idx):
+    """Block of _oof_holdout_predictions_with_rows starting at ``if _is_polars_df(train_X):``."""
+    if _is_polars_df(train_X):
+        # Gather by the EXPLICIT fold indices (as the pandas/ndarray branches do), never ~train: under TimeSeriesSplit ~train includes the
+        # FUTURE rows beyond this fold's holdout, and a boolean mask would also drop the index order the targets follow.
+        X_stack = train_X[np.asarray(fold_train_idx, dtype=np.int64)]
+        X_holdout = train_X[np.asarray(fold_holdout_idx, dtype=np.int64)]
+    elif isinstance(train_X, pd.DataFrame):
+        X_stack = train_X.iloc[fold_train_idx].reset_index(drop=True)
+        X_holdout = train_X.iloc[fold_holdout_idx].reset_index(drop=True)
+    else:
+        X_stack = train_X[fold_train_idx]
+        X_holdout = train_X[fold_holdout_idx]
+    return X_holdout, X_stack
+
+
+def _oof_holdout_predic_decide_whether_do_time(time_ordering, _time_order, use_time_split):
+    """Block of _oof_holdout_predictions_with_rows starting at ``if time_ordering is not None:``."""
     if time_ordering is not None:
         if _is_monotone_nondecreasing(time_ordering):
             use_time_split = True
@@ -724,14 +785,20 @@ def _oof_holdout_predictions_with_rows(
                 "holdout (previously this silently fell back to a random shuffle, "
                 "discarding the time signal)."
             )
+    return _time_order, use_time_split
 
-    n_holdout = max(round(n_train * holdout_frac), 1)
-    # Group-aware outer holdout: carve WHOLE groups so no group spans the refit-train and holdout slices (a random row permutation lets same-group rows leak across the split, inflating the OOF surface). Only when group_ids covers all rows with enough distinct groups and we are not on the explicit time-split path.
-    _group_holdout = None
+
+def _oof_holdout_predic_group_aware_outer_holdout(use_time_split, group_ids, n_train, _group_holdout):
+    """Block of _oof_holdout_predictions_with_rows starting at ``if not use_time_split and group_ids is not None:``."""
     if not use_time_split and group_ids is not None:
         _g_arr = np.asarray(group_ids)
         if _g_arr.shape[0] == n_train and np.unique(_g_arr).size >= 4:
             _group_holdout = _g_arr
+    return _group_holdout
+
+
+def _oof_holdout_predic_use_time_split(use_time_split, n_train, n_holdout, _time_order, _group_holdout, random_state):
+    """Block of _oof_holdout_predictions_with_rows starting at ``if use_time_split:``."""
     if use_time_split:
         cutoff = n_train - n_holdout
         if _time_order is not None:
@@ -766,8 +833,11 @@ def _oof_holdout_predictions_with_rows(
         perm = rng.permutation(n_train)
         holdout_idx = np.sort(perm[:n_holdout])
         train_idx = np.sort(perm[n_holdout:])
+    return holdout_idx, train_idx
 
-    # Subset X. Branch on type so we don't pull pandas APIs on polars frames.
+
+def _oof_holdout_predic_subset_branch_type_don(train_X, train_idx, holdout_idx):
+    """Block of _oof_holdout_predictions_with_rows starting at ``if _is_polars_df(train_X):``."""
     if _is_polars_df(train_X):
         # Gather by position, not by a boolean mask: a mask keeps ROW order, while y_train_full[holdout_idx] follows the
         # index order (time order on the sorted-holdout path), so every row would meet another row's target.
@@ -779,12 +849,11 @@ def _oof_holdout_predictions_with_rows(
     else:
         X_stack = train_X[train_idx]
         X_holdout = train_X[holdout_idx]
+    return X_holdout, X_stack
 
-    y_stack = y_train_full[train_idx].astype(np.float64)
-    y_holdout = y_train_full[holdout_idx].astype(np.float64)
 
-    # Group-aware inner eval-carve parity with the raw branch + kfold path: subset the caller-supplied group_ids to the stack rows so neither the composite nor the raw inner-eval carve splits a group across fit/eval (within-group leakage under-stops the booster and degrades OOF RMSE on group-aware splits).
-    _group_stack = None
+def _oof_holdout_predic_group_aware_inner_eval(group_ids, n_train, train_idx, _group_stack):
+    """Block of _oof_holdout_predictions_with_rows starting at ``if group_ids is not None:``."""
     if group_ids is not None:
         try:
             _g_arr = np.asarray(group_ids)
@@ -797,10 +866,11 @@ def _oof_holdout_predictions_with_rows(
                 )
         except (TypeError, IndexError, ValueError):
             _group_stack = None
+    return _group_stack
 
-    holdout_cols: list[np.ndarray] = []
-    surviving_names = []
-    _pair_memo = {}
+
+def _oof_holdout_predic_model_name_spec_zip(component_models, component_names, component_specs, _pair_memo, X_stack, X_holdout, y_stack, base_train_full_per_spec, train_idx, group_ids, sample_weight, _group_stack, random_state, holdout_cols, surviving_names):
+    """Block of _oof_holdout_predictions_with_rows starting at ``for model, name, spec in zip(component_models, component_names, compon``."""
     for model, name, spec in zip(component_models, component_names, component_specs):
         try:
             inner, pp = _unwrap_shim(model)
@@ -875,27 +945,6 @@ def _oof_holdout_predictions_with_rows(
                 "'%s': %s. Excluded from ensemble weights.", name, exc,
             )
             continue
-
-    # Summary log so operators can see "ensemble built with N of K components" at INFO without grepping per-component WARN lines. ``component_names`` is the full caller-supplied list; ``surviving_names`` is the subset whose refit succeeded.
-    _surviving_n = len(surviving_names)
-    _total_n = len(component_names)
-    if _surviving_n < _total_n:
-        _dropped = [n for n in component_names if n not in set(surviving_names)]
-        logger.info(
-            "compute_oof_holdout_predictions: built OOF matrix with %d of %d components "
-            "(dropped %d: %s). Per-component drop reasons logged at WARN above.",
-            _surviving_n, _total_n, _total_n - _surviving_n, _dropped,
-        )
-    if not holdout_cols:
-        # Shape consistency -- match the tiny-data + kfold short-circuits.
-        _empty = (np.zeros((0, 0)), np.zeros(0), [], np.zeros(0, dtype=np.int64))
-        if _full_key is not None:
-            _oof_cache_put(_full_key, _empty)
-        return _empty
-    _final = (np.column_stack(holdout_cols), y_holdout, surviving_names, np.asarray(holdout_idx))
-    if _full_key is not None:
-        _oof_cache_put(_full_key, _final)
-    return _final
 
 
 from ._cross_target import CompositeCrossTargetEnsemble

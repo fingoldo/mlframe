@@ -500,7 +500,7 @@ def test_user_case_rejects_spurious_cross_signal_feature():
     # the binding ``_pairs_score`` resolves -- patching ``_pairs_gates`` or the old
     # monolith ``_pairs_core`` (the historical home before the 142461f5 subpackage
     # split) would be a no-op against the already-captured name.
-    import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_score as _FEP
+    import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_score_helpers as _FEP
 
     df, y = _make_user_fixture()
 

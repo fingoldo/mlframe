@@ -87,8 +87,7 @@ def predict_from_models(
     """
     # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _select_trained_members, _align_frame_to_schema, suite_binary_threshold, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
-    from .._classif_helpers import _canonical_predict_proba_shape
+    from .predict import _apply_row_wise_extensions, _ensure_pandas_view, _replay_suite_datetime_decomposition, _run_batched
     from mlframe.training.pipeline.shared import replay_categorical_composite_fe
     from mlframe.training.pipeline.shared import replay_entity_time_composite_fe
     from mlframe.training.pipeline.shared import replay_cross_sectional_composite_fe
@@ -151,19 +150,7 @@ def predict_from_models(
     _input_is_polars = isinstance(df, pl.DataFrame)
     _all_polars_native_inmem = False
     _pandas_view_cache: dict[int, pd.DataFrame] = {}
-    if _input_is_polars:
-        _all_in_mem = []
-        for _by_name in (models or {}).values():
-            if not isinstance(_by_name, dict):
-                continue
-            for _entries in _by_name.values():
-                if not isinstance(_entries, list):
-                    continue
-                _all_in_mem.extend(_entries)
-        # Cross-target ensemble entries (``_CT_ENSEMBLE__*``) are not polars-native; their inclusion forces
-        # the lazy conversion path. Same for any non-CB / non-XGB model in the suite.
-        if _all_in_mem:
-            _all_polars_native_inmem = all(_is_polars_native_model(_e) for _e in _all_in_mem)
+    _all_polars_native_inmem = _predict_from_model_input_polars(_input_is_polars, models, _all_polars_native_inmem)
 
     # Replay suite-owned datetime decomposition before validation/pipeline so the predict frame has the SAME derived columns as training; FTE already handled its own ts_field on the line above.
     df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
@@ -192,28 +179,7 @@ def predict_from_models(
 
     pipeline = metadata.get("pipeline")
     extensions_pipeline = metadata.get("extensions_pipeline")
-    if pipeline is not None:
-        if verbose:
-            logger.info("Applying pipeline transformation...")
-        # Polars-ds pipelines (saved when prefer_polarsds=True at fit
-        # time) call ``.lazy()`` on the input -- they require a Polars
-        # DataFrame. Sklearn pipelines accept pandas. Previously the
-        # pandas conversion happened BEFORE pipeline.transform, which
-        # crashed PdsPipeline with "AttributeError: 'DataFrame' object
-        # has no attribute 'lazy'" on every Polars-input predict call.
-        # Surfaced by fuzz iter#53 (binary lgb + Polars frame). Defer
-        # the conversion until AFTER pipeline.transform so each pipeline
-        # type sees the format it was fitted on.
-        df = pipeline.transform(df)
-        # The pipeline (pre_pipeline / MRMR-FE) may emit engineered interaction column names
-        # embedding JSON-structural characters (e.g. ``mul(log(f2),sin(f3))``) -- fit time renames
-        # these to a GBM-safe form via the same pure deterministic map right after this exact
-        # transform (``_trainer_train_and_evaluate.py``'s ``train_df``/``val_df``/``test_df``
-        # sanitization). Predict skipped this step, so a fitted model's ``feature_names_`` carried
-        # the sanitized (underscore) names while the live predict frame still carried the raw
-        # (comma) names -- CatBoost's Pool build then raised "should be feature with name ...
-        # (found ...)" for any model with a hostile-named engineered feature.
-        df = _sanitize_frame_columns(df)
+    df = _predict_from_model_pipeline_none(pipeline, verbose, df)
 
     # Row-wise extension columns (row_summary_*/row_extreme_*, default ON) are stateless per-row
     # functions with no fitted object to persist -- recompute them directly from the frame's own
@@ -230,16 +196,36 @@ def predict_from_models(
     # Extensions pipeline replay (Fix 2). PySR / TF-IDF / polynomial / scaler / KBins / RBF / PCA stack, applied AFTER
     # the main pipeline (same order as training); without this models trained with ``preprocessing_extensions`` see
     # raw columns at predict and produce garbage.
-    if extensions_pipeline is not None:
-        if verbose:
-            logger.info("Applying extensions pipeline transformation...")
-        df = _apply_extensions_pipeline(df, extensions_pipeline, verbose=verbose)
+    df = _apply_extensions_pipeline_if_any(extensions_pipeline, verbose, df)
 
     # Polars fastpath: keep polars when every model is CB / XGB; otherwise pay one shared pandas conversion now
     # so downstream models don't each pay their own. Extensions pipeline always returns pandas so by here the
     # "all-native" path is only live when extensions_pipeline was None.
     if isinstance(df, pl.DataFrame) and not _all_polars_native_inmem:
         df = _ensure_pandas_view(df, _pandas_view_cache)
+    _models_attempted = _predict_from_model_all_native_path_only(df_pre_pipeline, _all_polars_native_inmem, _pandas_view_cache, extensions_pipeline, df, metadata, verbose, models, _models_attempted, results, pipeline, return_probabilities, _predict_errors)
+
+    if verbose:
+        logger.info("Generated predictions for %d models", len(results["predictions"]))
+
+    # Escalate all-models-failed to a single aggregated RuntimeError.
+    # Previously every per-model failure was logged and swallowed, leaving
+    # the caller to detect "empty results" by hand. This hid the root
+    # cause (the underlying per-model exception) behind a non-actionable
+    # empty dict -- iter-45 500k cb-regression saw the predict swallow
+    # the original error and the harness only got "per_target_probs
+    # keys: []" with no clue what crashed.
+    _predict_from_model_keys_no_clue_what(_models_attempted, results, _predict_errors)
+
+    return results
+
+
+def _predict_from_model_all_native_path_only(df_pre_pipeline, _all_polars_native_inmem, _pandas_view_cache, extensions_pipeline, df, metadata, verbose, models, _models_attempted, results, pipeline, return_probabilities, _predict_errors):
+    """Block of predict_from_models starting at ``if isinstance(df_pre_pipeline, pl.DataFrame) and not _all_polars_nativ``."""
+    model_obj: Any = None
+    from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _try_predict_with_pp_fallback
+    from mlframe.training._classif_helpers import _canonical_predict_proba_shape
+
     if isinstance(df_pre_pipeline, pl.DataFrame) and not _all_polars_native_inmem:
         df_pre_pipeline = _ensure_pandas_view(df_pre_pipeline, _pandas_view_cache)
 
@@ -252,47 +238,7 @@ def predict_from_models(
     # Without this merge the per-model column subset below cannot find the expected raw cols and raises
     # ``expects features missing from input``. Surfaced by fuzz iter#189 (binary x lgb x onehot x
     # dim_reducer=TruncatedSVD).
-    if extensions_pipeline is not None and isinstance(df, pd.DataFrame) and isinstance(df_pre_pipeline, pd.DataFrame):
-        _ext_new_cols = [c for c in df.columns if c not in set(df_pre_pipeline.columns)]
-        if _ext_new_cols:
-            _ext_only = df[_ext_new_cols]
-            # Align index defensively: extensions pipelines preserve the input index, but a
-            # post-main-pipeline reset_index (sklearn ColumnTransformer occasionally drops it)
-            # could surface non-matching indexes.
-            if not df_pre_pipeline.index.equals(_ext_only.index):
-                _ext_only = _ext_only.set_axis(df_pre_pipeline.index)
-            df_pre_pipeline = pd.concat([df_pre_pipeline, _ext_only], axis=1)
-    elif (
-        # iter-157: polars-fastpath suites (``_all_polars_native_inmem=True``)
-        # keep df_pre_pipeline as polars (line 996 skips the pandas
-        # conversion). The pandas-only back-merge above skips, leaving
-        # df_pre_pipeline as raw-cols-only polars. Models fit at train
-        # time saw raw+extension cols via the polars-pre back-merge in
-        # ``_phase_helpers``, so model.feature_names_in_ contains BOTH
-        # raw and ext cols. The per-model column subset below then
-        # raises ``expects features missing from input: [x0, x1, ...,
-        # cat_mid]`` because raw cols are missing from df (post-ext)
-        # AND ext cols are missing from df_pre_pipeline (raw-only
-        # polars). Surfaced by iter-110 (polars + TruncatedSVD + MRMR
-        # losing every raw col) and iter-79/105/118/126/146/147/155/156.
-        extensions_pipeline is not None
-        and isinstance(df, pd.DataFrame)
-        and isinstance(df_pre_pipeline, pl.DataFrame)
-    ):
-        _ext_new_cols = [c for c in df.columns if c not in set(df_pre_pipeline.columns)]
-        if _ext_new_cols and df.shape[0] == df_pre_pipeline.shape[0]:
-            try:
-                # ``pl.from_pandas(df[cols])`` pays a full pandas block consolidation copy through Arrow on the predict hot path. Building polars columns directly from per-column ``.to_numpy()`` views skips the pandas block manager round-trip; bench (100k x 30 mixed dtypes): 16.0ms -> 1.05ms (15x). ``rechunk=False`` on the from_pandas path showed no measurable gain in the same bench because the underlying copy is the consolidation, not the chunk merge.
-                _ext_only_pl = pl.DataFrame({c: df[c].to_numpy() for c in _ext_new_cols})
-                df_pre_pipeline = df_pre_pipeline.hstack(_ext_only_pl)
-            except Exception as _bm_err:  # best-effort: falls back to raw-only, logged so the cause is visible
-                logger.warning(
-                    "[predict back-merge] polars hstack of extension cols "
-                    "%s failed: %s. Models trained on the polars-pre + "
-                    "back-merged frame will fall back to raw-only and "
-                    "likely report missing features.",
-                    _ext_new_cols[:5], _bm_err,
-                )
+    df_pre_pipeline = _predict_from_model_dim_reducer_truncatedsvd(extensions_pipeline, df, df_pre_pipeline)
 
     # Cat dtype coercion is PER-MODEL (in the loop below), not global.
     # Different model types need different dtypes for the same cat_low
@@ -386,29 +332,7 @@ def predict_from_models(
                     # family. Surfaced by fuzz iter#80 (lgb+hgb mixed on Polars+cat): HGB's own
                     # OrdinalEncoder compares Float64 input against its fitted string vocabulary
                     # via ``xp.isnan(known_values)``, which trips on the fitted string categories.
-                    if (
-                        hasattr(model_obj, "pre_pipeline")
-                        and model_obj.pre_pipeline is not None
-                        and _cat_features
-                        and df_pre_pipeline is not None
-                        and hasattr(df_pre_pipeline, "columns")
-                        and hasattr(input_for_model, "columns")
-                        and len(df_pre_pipeline) == len(input_for_model)
-                    ):
-                        _raw_cat_cols = [c for c in _cat_features if c in df_pre_pipeline.columns and c in input_for_model.columns]
-                        if _raw_cat_cols:
-                            _pre_pipeline_pd = df_pre_pipeline
-                            if isinstance(_pre_pipeline_pd, pl.DataFrame):
-                                _pre_pipeline_pd = _ensure_pandas_view(_pre_pipeline_pd, _pandas_view_cache)
-                            if isinstance(input_for_model, pd.DataFrame) and isinstance(_pre_pipeline_pd, pd.DataFrame):
-                                _restore: dict[str, Any] = {}
-                                for _rc in _raw_cat_cols:
-                                    _live_fam = _dtype_family(str(input_for_model[_rc].dtype))
-                                    _raw_fam = _dtype_family(str(_pre_pipeline_pd[_rc].dtype))
-                                    if _live_fam != _raw_fam:
-                                        _restore[_rc] = _pre_pipeline_pd[_rc].reset_index(drop=True).set_axis(input_for_model.index)
-                                if _restore:
-                                    input_for_model = input_for_model.assign(**_restore)
+                    input_for_model = _predict_from_model_via_xp_isnan_known(model_obj, _cat_features, df_pre_pipeline, input_for_model, _pandas_view_cache)
 
                     # Subset to the per-model expected feature list BEFORE
                     # routing through pre_pipeline (sklearn pipelines for
@@ -443,67 +367,7 @@ def predict_from_models(
                         # survives replay at predict time reached ``booster.predict()`` unfiltered,
                         # raising LightGBMError "number of features ... not the same as ... training".
                         _expected = getattr(model, "feature_name_", None)
-                    if _expected is not None and hasattr(input_for_model, "columns"):
-                        # Cached per-(input_for_model, _expected) set-diff. Multiple models in one suite often
-                        # carry identical feature_names_in_; this reuses the computed missing / drop lists.
-                        _cache_key = (id(input_for_model), id(_expected))
-                        # Normalise column name dtypes to plain ``str`` so numpy.str_
-                        # (the dtype LGBMClassifier.feature_names_in_ carries when fit on a
-                        # pandas DataFrame) compares equal to the Python str a polars/pandas
-                        # DataFrame surfaces via ``.columns``. ``np.str_`` IS a ``str``
-                        # subclass so this is mostly a defence-in-depth normalisation.
-                        # Cache _expected_list per id(_expected) so the ``str(c) for c in _expected`` loop runs
-                        # once per unique feature_names_in_ object rather than once per model. Many strategies
-                        # share the same _expected list across multiple models in one suite (xgb shim + raw xgb
-                        # both carry the same fit-time names); this re-uses the prior normalisation.
-                        _cached_diff = _col_diff_cache.get(_cache_key)
-                        if _cached_diff is not None:
-                            _expected_list = _cached_diff["expected_list"]
-                            _have = _cached_diff["have"]
-                            _missing = list(_cached_diff["missing"])  # caller mutates so give a fresh list
-                        else:
-                            _expected_list = [str(c) for c in _expected]
-                            _have = {str(c) for c in input_for_model.columns}
-                            _missing = [c for c in _expected_list if c not in _have]
-                            _col_diff_cache[_cache_key] = {
-                                "expected_list": _expected_list,
-                                "have": _have,
-                                "missing": tuple(_missing),
-                            }
-                        if _missing:
-                            # Models trained on the polars-native fastpath (LGB / CB / XGB on
-                            # polars input with prefer_polarsds=True) carry feature_names_in_
-                            # from the RAW pre-pipeline frame, not the post-pipeline /
-                            # post-extensions frame. When the main pipeline or extensions stage
-                            # changes column names (sklearn one-hot expansion, dim_reducer
-                            # output like truncatedsvd0..N, TF-IDF), every expected raw column
-                            # is "missing" from the post-everything ``df``. Fall back to
-                            # df_pre_pipeline (the raw user frame) before raising. Surfaced by
-                            # fuzz iter#189 (binary x lgb x cat_enc=onehot x
-                            # dim_reducer=TruncatedSVD).
-                            _fb = df_pre_pipeline
-                            if _fb is not None and hasattr(_fb, "columns"):
-                                _fb_have = {str(c) for c in _fb.columns}
-                                _fb_still_missing = [c for c in _expected_list if c not in _fb_have]
-                                if not _fb_still_missing:
-                                    if isinstance(_fb, pl.DataFrame) and not _is_polars_native_model(model_obj):
-                                        _fb = _ensure_pandas_view(_fb, _pandas_view_cache)
-                                    if verbose:
-                                        logger.info(
-                                            "predict_from_models: %s post-pipeline df missing %d expected col(s); "
-                                            "falling back to raw pre-pipeline frame which has all expected cols.",
-                                            model_name, len(_missing),
-                                        )
-                                    input_for_model = _fb
-                                    _have = {str(c) for c in input_for_model.columns}
-                                    _missing = []
-                        if _missing:
-                            raise ValueError(
-                                f"Model {model_name} expects features missing "
-                                f"from input: {_missing}. Restore the upstream "
-                                f"extraction or retrain on the current schema."
-                            )
-                        input_for_model = _align_frame_to_schema(input_for_model, _expected_list)
+                    input_for_model = _predict_from_model_raising_lightgbmerror_number_features(_expected, input_for_model, _col_diff_cache, df_pre_pipeline, model_obj, _pandas_view_cache, verbose, model_name)
 
                     # per-model pre_pipeline.transform
                     # (with text/embedding passthrough stashing + feature-
@@ -591,7 +455,7 @@ def predict_from_models(
                             else:
                                 # nan-safe argmax (second predict
                                 # entry point; symmetric to L964 fix).
-                                from ...utils.nan_safe import argmax_classes_safe
+                                from mlframe.utils.nan_safe import argmax_classes_safe
                                 preds = argmax_classes_safe(
                                     probs, context=f"predict_from_models.{model_name}",
                                 )
@@ -615,6 +479,214 @@ def predict_from_models(
                     log_throttle(logger, "predict_error_with_model", logging.ERROR, "Error predicting with model %s", model_name, exc_info=True)
                     _predict_errors.append((model_name, f"{type(e).__name__}: {e}"))
                     continue
+
+    _predict_from_model_len_all_probs(all_probs, verbose, results, per_target_probs, metadata, models, per_target_member_names, per_target_calib_flags, all_calib_flags, all_preds, per_target_preds)
+    return _models_attempted
+
+
+def _predict_from_model_input_polars(_input_is_polars, models, _all_polars_native_inmem):
+    """Block of predict_from_models starting at ``if _input_is_polars:``."""
+    from mlframe.training.core.predict import _is_polars_native_model
+
+    if _input_is_polars:
+        _all_in_mem = []
+        for _by_name in (models or {}).values():
+            if not isinstance(_by_name, dict):
+                continue
+            for _entries in _by_name.values():
+                if not isinstance(_entries, list):
+                    continue
+                _all_in_mem.extend(_entries)
+        # Cross-target ensemble entries (``_CT_ENSEMBLE__*``) are not polars-native; their inclusion forces
+        # the lazy conversion path. Same for any non-CB / non-XGB model in the suite.
+        if _all_in_mem:
+            _all_polars_native_inmem = all(_is_polars_native_model(_e) for _e in _all_in_mem)
+    return _all_polars_native_inmem
+
+
+def _predict_from_model_pipeline_none(pipeline, verbose, df):
+    """Block of predict_from_models starting at ``if pipeline is not None:``."""
+    if pipeline is not None:
+        if verbose:
+            logger.info("Applying pipeline transformation...")
+        # Polars-ds pipelines (saved when prefer_polarsds=True at fit
+        # time) call ``.lazy()`` on the input -- they require a Polars
+        # DataFrame. Sklearn pipelines accept pandas. Previously the
+        # pandas conversion happened BEFORE pipeline.transform, which
+        # crashed PdsPipeline with "AttributeError: 'DataFrame' object
+        # has no attribute 'lazy'" on every Polars-input predict call.
+        # Surfaced by fuzz iter#53 (binary lgb + Polars frame). Defer
+        # the conversion until AFTER pipeline.transform so each pipeline
+        # type sees the format it was fitted on.
+        df = pipeline.transform(df)
+        # The pipeline (pre_pipeline / MRMR-FE) may emit engineered interaction column names
+        # embedding JSON-structural characters (e.g. ``mul(log(f2),sin(f3))``) -- fit time renames
+        # these to a GBM-safe form via the same pure deterministic map right after this exact
+        # transform (``_trainer_train_and_evaluate.py``'s ``train_df``/``val_df``/``test_df``
+        # sanitization). Predict skipped this step, so a fitted model's ``feature_names_`` carried
+        # the sanitized (underscore) names while the live predict frame still carried the raw
+        # (comma) names -- CatBoost's Pool build then raised "should be feature with name ...
+        # (found ...)" for any model with a hostile-named engineered feature.
+        df = _sanitize_frame_columns(df)
+    return df
+
+
+def _apply_extensions_pipeline_if_any(extensions_pipeline, verbose, df):
+    """Apply the fitted extensions pipeline to ``df`` when one was saved with the suite."""
+    from mlframe.training.core.predict import _apply_extensions_pipeline
+
+    if extensions_pipeline is not None:
+        if verbose:
+            logger.info("Applying extensions pipeline transformation...")
+        df = _apply_extensions_pipeline(df, extensions_pipeline, verbose=verbose)
+    return df
+
+
+def _predict_from_model_dim_reducer_truncatedsvd(extensions_pipeline, df, df_pre_pipeline):
+    """Block of predict_from_models starting at ``if extensions_pipeline is not None and isinstance(df, pd.DataFrame) an``."""
+    if extensions_pipeline is not None and isinstance(df, pd.DataFrame) and isinstance(df_pre_pipeline, pd.DataFrame):
+        _ext_new_cols = [c for c in df.columns if c not in set(df_pre_pipeline.columns)]
+        if _ext_new_cols:
+            _ext_only = df[_ext_new_cols]
+            # Align index defensively: extensions pipelines preserve the input index, but a
+            # post-main-pipeline reset_index (sklearn ColumnTransformer occasionally drops it)
+            # could surface non-matching indexes.
+            if not df_pre_pipeline.index.equals(_ext_only.index):
+                _ext_only = _ext_only.set_axis(df_pre_pipeline.index)
+            df_pre_pipeline = pd.concat([df_pre_pipeline, _ext_only], axis=1)
+    elif (
+        # iter-157: polars-fastpath suites (``_all_polars_native_inmem=True``)
+        # keep df_pre_pipeline as polars (line 996 skips the pandas
+        # conversion). The pandas-only back-merge above skips, leaving
+        # df_pre_pipeline as raw-cols-only polars. Models fit at train
+        # time saw raw+extension cols via the polars-pre back-merge in
+        # ``_phase_helpers``, so model.feature_names_in_ contains BOTH
+        # raw and ext cols. The per-model column subset below then
+        # raises ``expects features missing from input: [x0, x1, ...,
+        # cat_mid]`` because raw cols are missing from df (post-ext)
+        # AND ext cols are missing from df_pre_pipeline (raw-only
+        # polars). Surfaced by iter-110 (polars + TruncatedSVD + MRMR
+        # losing every raw col) and iter-79/105/118/126/146/147/155/156.
+        extensions_pipeline is not None
+        and isinstance(df, pd.DataFrame)
+        and isinstance(df_pre_pipeline, pl.DataFrame)
+    ):
+        _ext_new_cols = [c for c in df.columns if c not in set(df_pre_pipeline.columns)]
+        if _ext_new_cols and df.shape[0] == df_pre_pipeline.shape[0]:
+            try:
+                # ``pl.from_pandas(df[cols])`` pays a full pandas block consolidation copy through Arrow on the predict hot path. Building polars columns directly from per-column ``.to_numpy()`` views skips the pandas block manager round-trip; bench (100k x 30 mixed dtypes): 16.0ms -> 1.05ms (15x). ``rechunk=False`` on the from_pandas path showed no measurable gain in the same bench because the underlying copy is the consolidation, not the chunk merge.
+                _ext_only_pl = pl.DataFrame({c: df[c].to_numpy() for c in _ext_new_cols})
+                df_pre_pipeline = df_pre_pipeline.hstack(_ext_only_pl)
+            except Exception as _bm_err:  # best-effort: falls back to raw-only, logged so the cause is visible
+                logger.warning(
+                    "[predict back-merge] polars hstack of extension cols "
+                    "%s failed: %s. Models trained on the polars-pre + "
+                    "back-merged frame will fall back to raw-only and "
+                    "likely report missing features.",
+                    _ext_new_cols[:5], _bm_err,
+                )
+    return df_pre_pipeline
+
+
+def _predict_from_model_via_xp_isnan_known(model_obj, _cat_features, df_pre_pipeline, input_for_model, _pandas_view_cache):
+    """Block of predict_from_models starting at ``if (``."""
+    from mlframe.training.core.predict import _ensure_pandas_view
+
+    if (
+        hasattr(model_obj, "pre_pipeline")
+        and model_obj.pre_pipeline is not None
+        and _cat_features
+        and df_pre_pipeline is not None
+        and hasattr(df_pre_pipeline, "columns")
+        and hasattr(input_for_model, "columns")
+        and len(df_pre_pipeline) == len(input_for_model)
+    ):
+        _raw_cat_cols = [c for c in _cat_features if c in df_pre_pipeline.columns and c in input_for_model.columns]
+        if _raw_cat_cols:
+            _pre_pipeline_pd = df_pre_pipeline
+            if isinstance(_pre_pipeline_pd, pl.DataFrame):
+                _pre_pipeline_pd = _ensure_pandas_view(_pre_pipeline_pd, _pandas_view_cache)
+            if isinstance(input_for_model, pd.DataFrame) and isinstance(_pre_pipeline_pd, pd.DataFrame):
+                _restore: dict[str, Any] = {}
+                for _rc in _raw_cat_cols:
+                    _live_fam = _dtype_family(str(input_for_model[_rc].dtype))
+                    _raw_fam = _dtype_family(str(_pre_pipeline_pd[_rc].dtype))
+                    if _live_fam != _raw_fam:
+                        _restore[_rc] = _pre_pipeline_pd[_rc].reset_index(drop=True).set_axis(input_for_model.index)
+                if _restore:
+                    input_for_model = input_for_model.assign(**_restore)
+    return input_for_model
+
+
+def _predict_from_model_raising_lightgbmerror_number_features(_expected, input_for_model, _col_diff_cache, df_pre_pipeline, model_obj, _pandas_view_cache, verbose, model_name):
+    """Block of predict_from_models starting at ``if _expected is not None and hasattr(input_for_model, "columns"):``."""
+    from mlframe.training.core.predict import _ensure_pandas_view, _is_polars_native_model, _align_frame_to_schema
+
+    if _expected is not None and hasattr(input_for_model, "columns"):
+        # Cached per-(input_for_model, _expected) set-diff. Multiple models in one suite often
+        # carry identical feature_names_in_; this reuses the computed missing / drop lists.
+        _cache_key = (id(input_for_model), id(_expected))
+        # Normalise column name dtypes to plain ``str`` so numpy.str_
+        # (the dtype LGBMClassifier.feature_names_in_ carries when fit on a
+        # pandas DataFrame) compares equal to the Python str a polars/pandas
+        # DataFrame surfaces via ``.columns``. ``np.str_`` IS a ``str``
+        # subclass so this is mostly a defence-in-depth normalisation.
+        # Cache _expected_list per id(_expected) so the ``str(c) for c in _expected`` loop runs
+        # once per unique feature_names_in_ object rather than once per model. Many strategies
+        # share the same _expected list across multiple models in one suite (xgb shim + raw xgb
+        # both carry the same fit-time names); this re-uses the prior normalisation.
+        _cached_diff = _col_diff_cache.get(_cache_key)
+        if _cached_diff is not None:
+            _expected_list = _cached_diff["expected_list"]
+            _have = _cached_diff["have"]
+            _missing = list(_cached_diff["missing"])  # caller mutates so give a fresh list
+        else:
+            _expected_list = [str(c) for c in _expected]
+            _have = {str(c) for c in input_for_model.columns}
+            _missing = [c for c in _expected_list if c not in _have]
+            _col_diff_cache[_cache_key] = {
+                "expected_list": _expected_list,
+                "have": _have,
+                "missing": tuple(_missing),
+            }
+        if _missing:
+            # Models trained on the polars-native fastpath (LGB / CB / XGB on
+            # polars input with prefer_polarsds=True) carry feature_names_in_
+            # from the RAW pre-pipeline frame, not the post-pipeline /
+            # post-extensions frame. When the main pipeline or extensions stage
+            # changes column names (sklearn one-hot expansion, dim_reducer
+            # output like truncatedsvd0..N, TF-IDF), every expected raw column
+            # is "missing" from the post-everything ``df``. Fall back to
+            # df_pre_pipeline (the raw user frame) before raising. Surfaced by
+            # fuzz iter#189 (binary x lgb x cat_enc=onehot x
+            # dim_reducer=TruncatedSVD).
+            _fb = df_pre_pipeline
+            if _fb is not None and hasattr(_fb, "columns"):
+                _fb_have = {str(c) for c in _fb.columns}
+                _fb_still_missing = [c for c in _expected_list if c not in _fb_have]
+                if not _fb_still_missing:
+                    if isinstance(_fb, pl.DataFrame) and not _is_polars_native_model(model_obj):
+                        _fb = _ensure_pandas_view(_fb, _pandas_view_cache)
+                    if verbose:
+                        logger.info(
+                            "predict_from_models: %s post-pipeline df missing %d expected col(s); "
+                            "falling back to raw pre-pipeline frame which has all expected cols.",
+                            model_name, len(_missing),
+                        )
+                    input_for_model = _fb
+                    _have = {str(c) for c in input_for_model.columns}
+                    _missing = []
+        if _missing:
+            raise ValueError(
+                f"Model {model_name} expects features missing " f"from input: {_missing}. Restore the upstream " f"extraction or retrain on the current schema."
+            )
+        input_for_model = _align_frame_to_schema(input_for_model, _expected_list)
+    return input_for_model
+
+
+def _predict_from_model_len_all_probs(all_probs, verbose, results, per_target_probs, metadata, models, per_target_member_names, per_target_calib_flags, all_calib_flags, all_preds, per_target_preds):
+    """Block of predict_from_models starting at ``if len(all_probs) > 1:``."""
+    from mlframe.training.core.predict import _combine_probs, _resolve_chosen_ensemble_params, _select_trained_members, suite_binary_threshold, _resolve_chosen_flavour, _resolve_quantile_alphas
 
     if len(all_probs) > 1:
         if verbose:
@@ -657,7 +729,7 @@ def predict_from_models(
                 _combined = _probs_list[0]
                 if _q_alphas is not None and _combined.ndim == 2 and _combined.shape[1] == len(_q_alphas):
                     try:
-                        from ..quantile_postproc import fix_quantile_crossing
+                        from mlframe.training.quantile_postproc import fix_quantile_crossing
                         _combined = fix_quantile_crossing(_combined, _q_alphas, mode="sort")
                     except Exception as _qe:  # best-effort: keeps the unfixed (possibly crossing) quantile probs
                         log_throttle(logger, "predict_fix_quantile_crossing_failed", logging.WARNING, "predict_from_models: fix_quantile_crossing failed: %s", _qe)
@@ -669,7 +741,7 @@ def predict_from_models(
                 else:
                     # NaN-safe argmax: _combine_probs can emit NaN rows; plain
                     # np.argmax routes them silently to class 0.
-                    from ...utils.nan_safe import argmax_classes_safe
+                    from mlframe.utils.nan_safe import argmax_classes_safe
                     _t_preds = argmax_classes_safe(
                         _combined, context=f"predict_from_models.per_target.{_key}",
                     )
@@ -699,7 +771,7 @@ def predict_from_models(
                 ensemble_preds = (avg_probs[:, 1] >= suite_binary_threshold(metadata, per_target_probs)).astype(int)
             else:
                 # NaN-safe argmax for the suite-wide ensemble row.
-                from ...utils.nan_safe import argmax_classes_safe
+                from mlframe.utils.nan_safe import argmax_classes_safe
                 ensemble_preds = argmax_classes_safe(
                     avg_probs, context="predict_from_models.suite_ensemble",
                 )
@@ -719,8 +791,8 @@ def predict_from_models(
         _stacked = np.stack(all_preds)
         if np.issubdtype(_stacked.dtype, np.floating):
             from mlframe.models.ensembling import combine_float_predictions
-            from ._predict_composite_routing import per_original_target_float_ensembles
-            from ._predict_main_suite import _resolve_float_ensemble_flavour
+            from mlframe.training.core._predict_composite_routing import per_original_target_float_ensembles
+            from mlframe.training.core._predict_main_suite import _resolve_float_ensemble_flavour
 
             # Per original target: raw, composite-target and CT-ensemble members predict the same y, other targets do not.
             results["per_target_predictions"] = per_original_target_float_ensembles(
@@ -738,16 +810,9 @@ def predict_from_models(
         if all_probs:
             results["ensemble_probabilities"] = all_probs[0]
 
-    if verbose:
-        logger.info("Generated predictions for %d models", len(results["predictions"]))
 
-    # Escalate all-models-failed to a single aggregated RuntimeError.
-    # Previously every per-model failure was logged and swallowed, leaving
-    # the caller to detect "empty results" by hand. This hid the root
-    # cause (the underlying per-model exception) behind a non-actionable
-    # empty dict -- iter-45 500k cb-regression saw the predict swallow
-    # the original error and the harness only got "per_target_probs
-    # keys: []" with no clue what crashed.
+def _predict_from_model_keys_no_clue_what(_models_attempted, results, _predict_errors):
+    """Block of predict_from_models starting at ``if _models_attempted > 0 and not results["predictions"] and not result``."""
     if _models_attempted > 0 and not results["predictions"] and not results["probabilities"] and _predict_errors:
         _summary = "; ".join(f"{_mn}: {_err}" for _mn, _err in _predict_errors[:5])
         if len(_predict_errors) > 5:
@@ -757,5 +822,3 @@ def predict_from_models(
             f"model(s) failed at predict; producing no predictions or "
             f"probabilities. Per-model errors: {_summary}"
         )
-
-    return results

@@ -23,8 +23,10 @@ def test_sec1_trainer_reload_uses_safe_joblib_load_not_plain_joblib():
     """SEC-1 REGRESSION: the cached-model reload call site must route through safe_joblib_load's
     RCE-gadget denylist, not the unrestricted plain joblib.load."""
     import mlframe.training._trainer_train_and_evaluate as mod
+    import mlframe.training._trainer_train_and_evaluate_parts as parts
 
-    src = inspect.getsource(mod)
+    # the reload step is carved into the parts module; the call site lives in one of the two
+    src = inspect.getsource(mod) + inspect.getsource(parts)
     assert "from mlframe.training.io import safe_joblib_load" in src
     assert "model, *_, pre_pipeline = safe_joblib_load(model_file_name)" in src
     assert "model, *_, pre_pipeline = joblib.load(model_file_name)" not in src

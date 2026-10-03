@@ -99,13 +99,7 @@ def _conditional_perm_null(
     # or the batched / CPU permutation fallbacks). On the dominant large-n analytic conditional path with
     # ``precomp_cards`` supplied, ``x`` is never materialised at all.
     cand_dev = None
-    try:
-        import cupy as _cp_c
-        if isinstance(cand_bin, _cp_c.ndarray):
-            cand_dev = cand_bin.astype(_cp_c.int64, copy=False).ravel()
-    except Exception as e:
-        logger.debug("cupy candidate-code conversion failed, falling back to the host path: %s", e)
-        cand_dev = None
+    cand_dev = _conditional_perm_n_precomp_cards_supplied_never(cand_bin, cand_dev)
 
     _host_x_cache: list = [None]
 
@@ -164,18 +158,7 @@ def _conditional_perm_null(
                 # (k_z/k_xz/k_yz/k_xyz) -> device cp.unique(...).size replaces the host renumber+entropy.
                 # Label-invariant -> same df. Gated (STRICT / MLFRAME_CMI_GPU), falls back to CPU on error.
                 _ks = None
-                if precomp_cards is not None:
-                    # round-batched cards (same occupied-cell definition -> bit-identical df); no per-cand call
-                    _ks = precomp_cards
-                elif _cmi_gpu_enabled(n=n_size, p=1):
-                    try:
-                        from ._mi_greedy_cmi_fe import joint_cardinalities_cupy
-                        # RESIDENT candidate code + RESIDENT support (joint_cardinalities_cupy resident-input
-                        # branch) -> no re-upload at the ``card_cand_x`` / ``cmi_z`` sites; host code otherwise.
-                        _ks = joint_cardinalities_cupy(cand_dev if cand_dev is not None else _host_x(), y, _z if _z is not None else z_support_dev)
-                    except Exception as e:
-                        logger.debug("joint_cardinalities_cupy failed, falling back to the host cardinality path: %s", e)
-                        _ks = None
+                _ks = _conditional_perm_n_label_invariant_same_df(precomp_cards, n_size, cand_dev, _host_x, y, _z, z_support_dev, _ks)
                 if _ks is not None:
                     k_z, k_xz, k_yz, k_xyz = _ks
                 else:
@@ -446,3 +429,34 @@ def _conditional_perm_null(
         x_perm[order] = x_sorted[within]
         nulls[i] = float(cmi_from_binned_fixed_yz(x_perm, y_i, z_i, h_yz, h_z, k_yz, k_z, n_f))
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+
+
+def _conditional_perm_n_precomp_cards_supplied_never(cand_bin, cand_dev):
+    """Block of _conditional_perm_null starting at ``try:``."""
+    try:
+        import cupy as _cp_c
+        if isinstance(cand_bin, _cp_c.ndarray):
+            cand_dev = cand_bin.astype(_cp_c.int64, copy=False).ravel()
+    except Exception as e:
+        logger.debug("cupy candidate-code conversion failed, falling back to the host path: %s", e)
+        cand_dev = None
+    return cand_dev
+
+
+def _conditional_perm_n_label_invariant_same_df(precomp_cards, n_size, cand_dev, _host_x, y, _z, z_support_dev, _ks):
+    """Block of _conditional_perm_null starting at ``if precomp_cards is not None:``."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_gpu_enabled
+
+    if precomp_cards is not None:
+        # round-batched cards (same occupied-cell definition -> bit-identical df); no per-cand call
+        _ks = precomp_cards
+    elif _cmi_gpu_enabled(n=n_size, p=1):
+        try:
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import joint_cardinalities_cupy
+            # RESIDENT candidate code + RESIDENT support (joint_cardinalities_cupy resident-input
+            # branch) -> no re-upload at the ``card_cand_x`` / ``cmi_z`` sites; host code otherwise.
+            _ks = joint_cardinalities_cupy(cand_dev if cand_dev is not None else _host_x(), y, _z if _z is not None else z_support_dev)
+        except Exception as e:
+            logger.debug("joint_cardinalities_cupy failed, falling back to the host cardinality path: %s", e)
+            _ks = None
+    return _ks

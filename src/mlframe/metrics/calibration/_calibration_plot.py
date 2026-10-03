@@ -642,7 +642,6 @@ def show_calibration_plot(
         _is_interactive_session = hasattr(sys, "ps1")
     if (plot_outputs and base_path) or (backend == "plotly" and (plot_file or (show_plots and _is_interactive_session))):
         from mlframe.reporting.charts.calibration import build_calibration_spec
-        from mlframe.reporting.output import parse_plot_output_dsl
         from mlframe.reporting.renderers import render_and_save
         spec = build_calibration_spec(
             freqs_predicted, freqs_true, hits,
@@ -659,19 +658,7 @@ def show_calibration_plot(
             raw_probs=raw_probs,
             raw_labels=raw_labels,
         )
-        if plot_outputs and base_path:
-            _outputs = parse_plot_output_dsl(plot_outputs)
-            _base = base_path
-        else:
-            # backend="plotly" with a legacy plot_file: derive the plotly DSL
-            # clause from the file extension (os.path.splitext handles
-            # extension-less paths correctly) and strip it to form the base path.
-            _root, _ext = os.path.splitext(plot_file) if plot_file else ("", "")
-            _fmt = _ext.lstrip(".").lower()
-            if _fmt not in ("html", "png", "svg", "pdf", "json"):
-                _fmt = "html"
-            _outputs = parse_plot_output_dsl(f"plotly[{_fmt}]")
-            _base = _root or "calibration"
+        _base, _outputs = _show_calibration_p_plot_outputs_base_path(plot_outputs, base_path, plot_file)
         render_and_save(spec, _outputs, _base)
         return None
 
@@ -832,25 +819,7 @@ def show_calibration_plot(
                 _fig_kwargs["dpi"] = dpi
             fig = Figure(**_fig_kwargs)
             FigureCanvasAgg(fig)
-            if show_prob_histogram:
-                gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.05)
-                ax_main = fig.add_subplot(gs[0, 0])
-                ax_hist = fig.add_subplot(gs[1, 0], sharex=ax_main)
-                # Colorbar spans BOTH axes so each subplot loses the
-                # same horizontal slice -> X-axes stay aligned via
-                # sharex (was: colorbar attached only to ax_main,
-                # making ax_hist visually wider -- user feedback 2026-04-27).
-                _draw_calibration_axes(ax_main, fig, draw_xlabel=False, cbar_ax=[ax_main, ax_hist])
-                _draw_histogram_axes(ax_hist)
-                # hide top axes' x tick labels since hist below carries them via sharex
-                plt.setp(ax_main.get_xticklabels(), visible=False)
-                if plot_title:
-                    ax_main.set_title(plot_title)
-            else:
-                ax = fig.add_subplot(1, 1, 1)
-                _draw_calibration_axes(ax, fig, draw_xlabel=True)
-                if plot_title:
-                    ax.set_title(plot_title)
+            _show_calibration_p_show_prob_histogram(show_prob_histogram, fig, _draw_calibration_axes, _draw_histogram_axes, plot_title)
             # constrained_layout handles spacing automatically -- no
             # tight_layout() (which warns + mis-shapes colorbar).
             fig.savefig(ensure_parent_dir(plot_file))
@@ -860,33 +829,7 @@ def show_calibration_plot(
         # 2026-05-11: layout="constrained" -> layout=None (same rationale as the
         # save-only path above: 1.67x faster, visually equivalent on this
         # 12x6 figsize + multi-axis colorbar + 2-line title geometry).
-        if show_prob_histogram:
-            _subplots_kwargs: dict[str, Any] = dict(
-                nrows=2, ncols=1,
-                figsize=figsize,
-                sharex=True,
-                gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05},
-                layout=None,
-            )
-            if dpi is not None:
-                _subplots_kwargs["dpi"] = dpi
-            fig, (ax_main, ax_hist) = plt.subplots(**_subplots_kwargs)
-            # Colorbar spans both subplots -- see _draw_calibration_axes
-            # docstring for why (X-axis alignment under sharex).
-            _draw_calibration_axes(ax_main, fig, draw_xlabel=False, cbar_ax=[ax_main, ax_hist])
-            _draw_histogram_axes(ax_hist)
-            plt.setp(ax_main.get_xticklabels(), visible=False)
-            if plot_title:
-                ax_main.set_title(plot_title)
-        else:
-            _fig_kwargs2: dict[str, Any] = {"figsize": figsize, "layout": None}
-            if dpi is not None:
-                _fig_kwargs2["dpi"] = dpi
-            fig = plt.figure(**_fig_kwargs2)
-            ax = fig.add_subplot(1, 1, 1)
-            _draw_calibration_axes(ax, fig, draw_xlabel=True)
-            if plot_title:
-                ax.set_title(plot_title)
+        fig = _show_calibration_p_x6_figsize_multi_axis(show_prob_histogram, figsize, dpi, _draw_calibration_axes, _draw_histogram_axes, plot_title)
 
         # Default geometry fits this layout (verified via visual A/B
         # against constrained_layout, see bench_calibration_layout.py).
@@ -916,4 +859,79 @@ def show_calibration_plot(
             _show_plots_unless_agg()
         _close_unless_interactive(fig, was_shown=show_plots)
 
+    return fig
+
+
+def _show_calibration_p_plot_outputs_base_path(plot_outputs, base_path, plot_file):
+    """Block of show_calibration_plot starting at ``if plot_outputs and base_path:``."""
+    from mlframe.reporting.output import parse_plot_output_dsl
+
+    if plot_outputs and base_path:
+        _outputs = parse_plot_output_dsl(plot_outputs)
+        _base = base_path
+    else:
+        # backend="plotly" with a legacy plot_file: derive the plotly DSL
+        # clause from the file extension (os.path.splitext handles
+        # extension-less paths correctly) and strip it to form the base path.
+        _root, _ext = os.path.splitext(plot_file) if plot_file else ("", "")
+        _fmt = _ext.lstrip(".").lower()
+        if _fmt not in ("html", "png", "svg", "pdf", "json"):
+            _fmt = "html"
+        _outputs = parse_plot_output_dsl(f"plotly[{_fmt}]")
+        _base = _root or "calibration"
+    return _base, _outputs
+
+
+def _show_calibration_p_show_prob_histogram(show_prob_histogram, fig, _draw_calibration_axes, _draw_histogram_axes, plot_title):
+    """Block of show_calibration_plot starting at ``if show_prob_histogram:``."""
+    if show_prob_histogram:
+        gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.05)
+        ax_main = fig.add_subplot(gs[0, 0])
+        ax_hist = fig.add_subplot(gs[1, 0], sharex=ax_main)
+        # Colorbar spans BOTH axes so each subplot loses the
+        # same horizontal slice -> X-axes stay aligned via
+        # sharex (was: colorbar attached only to ax_main,
+        # making ax_hist visually wider -- user feedback 2026-04-27).
+        _draw_calibration_axes(ax_main, fig, draw_xlabel=False, cbar_ax=[ax_main, ax_hist])
+        _draw_histogram_axes(ax_hist)
+        # hide top axes' x tick labels since hist below carries them via sharex
+        plt.setp(ax_main.get_xticklabels(), visible=False)
+        if plot_title:
+            ax_main.set_title(plot_title)
+    else:
+        ax = fig.add_subplot(1, 1, 1)
+        _draw_calibration_axes(ax, fig, draw_xlabel=True)
+        if plot_title:
+            ax.set_title(plot_title)
+
+
+def _show_calibration_p_x6_figsize_multi_axis(show_prob_histogram, figsize, dpi, _draw_calibration_axes, _draw_histogram_axes, plot_title):
+    """Block of show_calibration_plot starting at ``if show_prob_histogram:``."""
+    if show_prob_histogram:
+        _subplots_kwargs: dict[str, Any] = dict(
+            nrows=2, ncols=1,
+            figsize=figsize,
+            sharex=True,
+            gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05},
+            layout=None,
+        )
+        if dpi is not None:
+            _subplots_kwargs["dpi"] = dpi
+        fig, (ax_main, ax_hist) = plt.subplots(**_subplots_kwargs)
+        # Colorbar spans both subplots -- see _draw_calibration_axes
+        # docstring for why (X-axis alignment under sharex).
+        _draw_calibration_axes(ax_main, fig, draw_xlabel=False, cbar_ax=[ax_main, ax_hist])
+        _draw_histogram_axes(ax_hist)
+        plt.setp(ax_main.get_xticklabels(), visible=False)
+        if plot_title:
+            ax_main.set_title(plot_title)
+    else:
+        _fig_kwargs2: dict[str, Any] = {"figsize": figsize, "layout": None}
+        if dpi is not None:
+            _fig_kwargs2["dpi"] = dpi
+        fig = plt.figure(**_fig_kwargs2)
+        ax = fig.add_subplot(1, 1, 1)
+        _draw_calibration_axes(ax, fig, draw_xlabel=True)
+        if plot_title:
+            ax.set_title(plot_title)
     return fig

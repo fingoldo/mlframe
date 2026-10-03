@@ -31,8 +31,12 @@ def test_phase_train_one_target_model_setup_sites_all_marked_best_effort():
 
 def test_phase_composite_post_xt_ensemble_sites_all_marked_best_effort():
     """Every calibration/build/charting except handler carries a `best-effort` marker."""
-    import mlframe.training.core._phase_composite_post_xt_ensemble as ensemble_mod
+    import importlib
 
-    src = inspect.getsource(ensemble_mod)
+    ensemble_mod = importlib.import_module("mlframe.training.core._phase_composite_post_xt_ensemble")
+    helpers_mod = importlib.import_module("mlframe.training.core._phase_composite_post_xt_ensemble._xt_ensemble_helpers")
+
+    # the per-target body is carved into a helper module; the markers live next to their handlers in either
+    src = inspect.getsource(ensemble_mod) + inspect.getsource(helpers_mod)
     assert src.count("# best-effort:") == 3
     assert "best-effort per-iteration fault isolation" in src

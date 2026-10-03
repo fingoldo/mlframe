@@ -50,6 +50,9 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+from ._usability_greedy_gpu_shared import _shrink_shortlist_to_ram_budget
+
+
 class _ResidentClfFallbackError(Exception):
     """Internal signal: a non-convergent / singular / degenerate device logistic fit was hit ->
     fall back to the exact CPU greedy so selection is never decided by the fast path."""
@@ -155,18 +158,7 @@ def usability_greedy_clf_gpu_resident(
         ydev_f = yenc_dev.astype(cp.float64)  # binary positive-class indicator helper
 
         # RAM GOVERNOR (mirror the CPU path so the resident selection matches under memory pressure).
-        try:
-            from .feature_engineering import _can_hoist_shared_buffer, _fe_effective_buffer_budget_bytes
-            _k_eff = max(1, min(int(K), P))
-            _can, _need, _avail = _can_hoist_shared_buffer(n * _k_eff * 8, n_workers=1)
-            if (not _can) and _avail > 0:
-                _budget = _fe_effective_buffer_budget_bytes(_avail, n_workers=1)
-                _k_fit = int(_budget // (n * 8)) if _budget > 0 else 1
-                if _k_fit < _k_eff:
-                    K = max(1, _k_fit)
-                    shortlist = min(int(shortlist), max(int(K), 1))
-        except Exception as e:  # nosec B110 - best-effort path
-            logger.debug("shortlist auto-sizing failed, keeping the caller-provided shortlist: %s", e)
+        K, shortlist = _shrink_shortlist_to_ram_budget(K, P, n, shortlist)
 
         # Balanced ``arange % k`` partition, seeded + shuffled IDENTICALLY to the CPU path.
         rng = np.random.default_rng(int(seed))
@@ -431,19 +423,7 @@ def usability_greedy_clf_gpu_resident(
         selected: list = []
         folds_cur = _cv_baseline()
         cur = float(folds_cur.mean())
-        for _ in range(min(K, P)):
-            cand_idx = _shortlist(selected)
-            best_i, best_mean, best_folds = -1, cur, folds_cur
-            for i in cand_idx:
-                mf = _cv_candidate(selected, i)
-                if int(np.sum(mf < folds_cur)) < min_improving_folds:
-                    continue
-                if float(mf.mean()) < best_mean:
-                    best_mean, best_i, best_folds = float(mf.mean()), i, mf
-            if best_i < 0 or best_mean >= cur * (1.0 - mae_improve_rel):
-                break
-            selected.append(best_i)
-            folds_cur, cur = best_folds, best_mean
+        _usability_greedy_c_range_min(K, P, _shortlist, selected, cur, folds_cur, _cv_candidate, min_improving_folds, mae_improve_rel)
         return [pool[i] for i in selected]
     except _ResidentClfFallbackError as e:
         logger.debug("usability_greedy_clf_gpu_resident: non-convergent/singular/degenerate device fit, falling back to the exact CPU greedy: %s", e)
@@ -451,6 +431,23 @@ def usability_greedy_clf_gpu_resident(
     except Exception as e:
         logger.debug("usability_greedy_clf_gpu_resident: cupy/device error, falling back to the exact CPU greedy: %s", e)
         return None
+
+
+def _usability_greedy_c_range_min(K, P, _shortlist, selected, cur, folds_cur, _cv_candidate, min_improving_folds, mae_improve_rel):
+    """Block of usability_greedy_clf_gpu_resident starting at ``for _ in range(min(K, P)):``."""
+    for _ in range(min(K, P)):
+        cand_idx = _shortlist(selected)
+        best_i, best_mean, best_folds = -1, cur, folds_cur
+        for i in cand_idx:
+            mf = _cv_candidate(selected, i)
+            if int(np.sum(mf < folds_cur)) < min_improving_folds:
+                continue
+            if float(mf.mean()) < best_mean:
+                best_mean, best_i, best_folds = float(mf.mean()), i, mf
+        if best_i < 0 or best_mean >= cur * (1.0 - mae_improve_rel):
+            break
+        selected.append(best_i)
+        folds_cur, cur = best_folds, best_mean
 
 
 __all__ = ["usability_greedy_clf_gpu_resident"]

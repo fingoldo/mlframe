@@ -352,12 +352,7 @@ def render_multi_target_panels(
         return None
     if _bin_allowed and binary_panels and targets_arr is not None and targets_arr.ndim == 1:
         y_score = None
-        if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:
-            y_score = probs_arr[:, 1]
-        elif probs_arr.ndim == 1:
-            y_score = probs_arr
-        elif probs_arr.ndim == 2 and probs_arr.shape[1] == 1:
-            y_score = probs_arr.ravel()
+        y_score = _render_multi_targe_probs_arr_ndim_probs(probs_arr, y_score)
         if y_score is None and tt == "binary_classification":
             # target_type authoritatively selects binary, targets are 1-D, but probs' shape doesn't
             # resolve to a usable score column -- log and bail rather than silently falling through.
@@ -395,6 +390,17 @@ def render_multi_target_panels(
 
     # Regression -- existing reporting paths cover it.
     return None
+
+
+def _render_multi_targe_probs_arr_ndim_probs(probs_arr, y_score):
+    """Block of render_multi_target_panels starting at ``if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:``."""
+    if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:
+        y_score = probs_arr[:, 1]
+    elif probs_arr.ndim == 1:
+        y_score = probs_arr
+    elif probs_arr.ndim == 2 and probs_arr.shape[1] == 1:
+        y_score = probs_arr.ravel()
+    return y_score
 
 
 __all__ = ["render_multi_target_panels", "select_binary_emphasis_panels"]

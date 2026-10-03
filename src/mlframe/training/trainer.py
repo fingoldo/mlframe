@@ -883,7 +883,7 @@ def _configure_mlp_params(
                     mlp_general_params["datamodule_params"]["labels_dtype"] = mlp_obj["labels_dtype"]
         # ``output_activation="tanh_train_range"`` is a REGRESSION-head bound
         # (the default set at :709, the only activation that requires
-        # output_activation_scale/center per flat.py:536). It is meaningless
+        # output_activation_scale/center per flat.generate_mlp). It is meaningless
         # for a classification head and -- worse -- a binary classifier builds
         # a 1-output sigmoid head (num_classes==1), which makes generate_mlp
         # take the bounded-output branch and demand scale/center that the

@@ -19,7 +19,7 @@ from timeit import default_timer as timer
 
 import pandas as pd
 import polars as pl
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 from ..configs import PreprocessingExtensionsConfig
 from mlframe.utils.log_throttle import log_throttle
@@ -384,24 +384,7 @@ def apply_preprocessing_extensions(
     # Pinned from TRAIN's schema and reused for val/test so all three keep an identical column set --
     # a per-split recompute could diverge exactly the way ``_filter_to_numeric``'s ``keep_cols`` guards against.
     _keep_polars_cols = _extension_relevant_polars_cols(train_df, config)
-    if _keep_polars_cols is not None:
-        _n_skipped = train_df.width - len(_keep_polars_cols)
-        if _n_skipped > 0:
-
-            def _preselect(_df):
-                """Select the train-pinned relevant columns from a polars split before the pandas bridge."""
-                if pl is None or not isinstance(_df, pl.DataFrame):
-                    return _df
-                return _df.select([c for c in _keep_polars_cols if c in _df.columns])
-
-            train_df, val_df, test_df = _preselect(train_df), _preselect(val_df), _preselect(test_df)
-            if verbose:
-                logger.info(
-                    "    apply_preprocessing_extensions: skipping polars->pandas conversion of %d column(s) "
-                    "no extension stage reads (non-numeric and not a tfidf_column); they would be dropped "
-                    "by the numeric gate below regardless.",
-                    _n_skipped,
-                )
+    test_df, train_df, val_df = _apply_preprocessin_per_split_recompute_could(_keep_polars_cols, train_df, val_df, test_df, verbose)
     train = _to_pandas(train_df)
     val = _to_pandas(val_df)
     test = _to_pandas(test_df)
@@ -414,22 +397,7 @@ def apply_preprocessing_extensions(
     # pipeline so that discovered equation features benefit from downstream
     # scaling, polynomial expansion, etc.
     _pysr_transformer_holder: list = []
-    if getattr(config, "pysr_enabled", False):
-        t0_pysr = timer()
-        # _apply_pysr_fe mutates train/val/test in place; its return value
-        # (the new column names) is intentionally discarded here. The fitted
-        # PySRTransformer is captured via the out_transformer holder so the
-        # caller can persist it in extensions_pipeline for predict-time replay.
-        _apply_pysr_fe(
-            train_df=train, val_df=val, test_df=test,
-            y_train=y_train,
-            config=config,
-            verbose=verbose,
-            out_equations=out_pysr_equations,
-            out_transformer=_pysr_transformer_holder,
-        )
-        if verbose:
-            logger.info("    apply_preprocessing_extensions.pysr_fe done in %s", _elapsed_str(t0_pysr))
+    _apply_preprocessin_scaling_polynomial_expansion_etc(config, train, val, test, y_train, verbose, out_pysr_equations, _pysr_transformer_holder)
     _pysr_transformer = _pysr_transformer_holder[0] if _pysr_transformer_holder else None
 
     # TF-IDF preflight: vectorize declared text columns and replace them with
@@ -446,89 +414,8 @@ def apply_preprocessing_extensions(
     # Now: if a tfidf_column is missing from val/test, we skip it on
     # train too (WARN with the consequence) so all three splits stay
     # aligned. If it's a user typo, the typo WARN fires instead.
-    tfidf_pipes = {}
-    if config.tfidf_columns:
-        t0_tfidf = timer()
-        from sklearn.feature_extraction.text import TfidfVectorizer
-
-        # Precompute where each tfidf column lives.
-        train_has = set(train.columns)
-        val_has = set(val.columns) if val is not None else None
-        test_has = set(test.columns) if test is not None else None
-        usable_cols, skipped_typo, skipped_split_mismatch = [], [], []
-        for col in config.tfidf_columns:
-            if col not in train_has:
-                skipped_typo.append(col)
-                continue
-            # If val/test exist and one of them lacks the column, we can't
-            # produce aligned TF-IDF features across splits. Skip the col
-            # entirely rather than silently diverge.
-            if val is not None and val_has is not None and col not in val_has:
-                skipped_split_mismatch.append((col, "val"))
-                continue
-            if test is not None and test_has is not None and col not in test_has:
-                skipped_split_mismatch.append((col, "test"))
-                continue
-            usable_cols.append(col)
-
-        if skipped_typo:
-            logger.warning(
-                "TF-IDF: %d column(s) listed in config.tfidf_columns not found "
-                "in train DataFrame: %s. Possibly a typo in config vs the "
-                "upstream feature-extraction schema.",
-                len(skipped_typo), skipped_typo,
-            )
-        if skipped_split_mismatch:
-            logger.warning(
-                "TF-IDF: %d column(s) present in train but missing from a "
-                "non-train split (val/test) -- skipping entirely to keep "
-                "splits column-aligned for downstream sklearn transforms: "
-                "%s. If these columns should be universally present, fix "
-                "the upstream split so all three frames share the schema.",
-                len(skipped_split_mismatch), skipped_split_mismatch,
-            )
-
-        # When ``tfidf_keep_sparse=True`` (default), the per-column TF-IDF
-        # csr_matrix is wrapped as a pandas Sparse DataFrame; downstream
-        # sparse-aware backends extract csr without densifying. At
-        # ``max_features=5000`` on 1M rows this is ~40 GB dense vs ~hundreds
-        # of MB sparse. When False, retain the legacy ``.toarray()`` path.
-        _keep_sparse = bool(getattr(config, "tfidf_keep_sparse", True))
-
-        def _spmatrix_to_df(spmat, columns, index):
-            """Return a DataFrame whose ``columns`` are sparse-dtype when
-            ``_keep_sparse`` is on, dense otherwise. Sparse-dtype DataFrames
-            keep ``.columns`` and ``.index`` semantics; consumers densify
-            implicitly via ``.to_numpy()``."""
-            if _keep_sparse:
-                return sparse_df_from_spmatrix(spmat, columns, index)
-            return pd.DataFrame(spmat.toarray(), columns=columns, index=index)
-
-        for col in usable_cols:
-            vec = TfidfVectorizer(
-                max_features=config.tfidf_max_features,
-                ngram_range=tuple(config.tfidf_ngram_range),
-            )
-            # bench-attempt-rejected (_benchmarks/bench_tfidf_input_path.py): feeding the Series directly or .to_numpy(object, na_value="") instead of .values is within ~1% (noise) at n=5k/50k; .values stays.
-            train_text = train[col].fillna("").astype(str).values
-            tfidf_train = vec.fit_transform(train_text)
-            tfidf_pipes[col] = vec
-            new_cols = [f"{col}__tfidf_{i}" for i in range(tfidf_train.shape[1])]
-            tfidf_train_df = _spmatrix_to_df(tfidf_train, columns=new_cols, index=train.index)
-            train = train.drop(columns=[col]).join(tfidf_train_df)
-            for split_name, split_df in (("val", val), ("test", test)):
-                if split_df is not None:
-                    # Column presence was verified above in `usable_cols`
-                    # filtering; this branch is now guaranteed safe.
-                    text_arr = split_df[col].fillna("").astype(str).values
-                    tfidf_sparse = vec.transform(text_arr)
-                    new_split_df = _spmatrix_to_df(tfidf_sparse, columns=new_cols, index=split_df.index)
-                    if split_name == "val":
-                        val = split_df.drop(columns=[col]).join(new_split_df)
-                    else:
-                        test = split_df.drop(columns=[col]).join(new_split_df)
-        if verbose:
-            logger.info("    apply_preprocessing_extensions.tfidf done in %s", _elapsed_str(t0_tfidf))
+    tfidf_pipes: dict[Any, Any] = {}
+    test, train, val = _apply_preprocessin_aligned_user_typo_typo(config, train, val, test, tfidf_pipes, verbose)
 
     # Numeric-only gate for the sklearn-bridge pipeline. The downstream extensions (scaler / kbins / polynomial / nonlinear / dim_reducer and the median-imputer in front) all reject object/string dtypes with errors that range from clear (``Cannot use median strategy with non-numeric data``) to opaque (``ValueError: The truth value of an array with more than one element is ambiguous`` from inside PolynomialFeatures or RobustScaler). The contract is "if you turn on the sklearn-bridge, your frame should be numeric". When non-numeric columns survived (unencoded cat_mid, embedding object dtypes that the upstream cat-encoder skipped, etc.), drop them here with a single-line WARN. Surfaced by 1M-harness seed=11.
     #
@@ -570,23 +457,7 @@ def apply_preprocessing_extensions(
     # internal check raised n_components=7 vs n_features=6. Hoist the
     # all-null drop into our filter so the dim_n_components clamp can
     # see the post-imputation count up-front.
-    if isinstance(train, pd.DataFrame) and train.shape[1] > 0:
-        _all_null_cols = [c for c in train.columns if train[c].isna().all()]
-        if _all_null_cols:
-            train = train.drop(columns=_all_null_cols)
-            if isinstance(val, pd.DataFrame):
-                val = val.drop(columns=[c for c in _all_null_cols if c in val.columns])
-            if isinstance(test, pd.DataFrame):
-                test = test.drop(columns=[c for c in _all_null_cols if c in test.columns])
-            logger.warning(
-                "apply_preprocessing_extensions: dropped %d all-null "
-                "column(s) before the sklearn-bridge pipeline "
-                "(SimpleImputer median strategy would silently drop them "
-                "and shrink the post-imputer n_features below the "
-                "dim_reducer's n_components clamp, causing a downstream "
-                "PCA / TruncatedSVD / FastICA ValueError): %s.",
-                len(_all_null_cols), _all_null_cols[:8],
-            )
+    test, train, val = _apply_preprocessin_see_post_imputation_count(train, val, test)
     if verbose:
         logger.info("    apply_preprocessing_extensions.numeric_filter_and_null_drop done in %s", _elapsed_str(t0_numeric_filter))
 
@@ -606,27 +477,7 @@ def apply_preprocessing_extensions(
     # dim_n_components) and emit a WARN; the user explicitly chose
     # dimensionality reduction, so silently dropping the step would be
     # worse than running it at a lower K.
-    if config.dim_reducer is not None and config.dim_n_components is not None:
-        n_samples = train.shape[0]
-        _clamp_max = max(1, min(n_features - 1, n_samples - 1))
-        if config.dim_n_components > _clamp_max:
-            try:
-                config = config.model_copy(update={"dim_n_components": _clamp_max})
-            except AttributeError:
-                # Older pydantic / plain-attribute fallback: deepcopy so nested mutable config fields aren't aliased back to the caller's object.
-                import copy as _copy
-                config = _copy.deepcopy(config)
-                config.dim_n_components = _clamp_max
-            logger.warning(
-                "apply_preprocessing_extensions: clamped dim_n_components "
-                "from user-requested value to %d (= min(n_features-1=%d, "
-                "n_samples-1=%d)) so the %s reducer's n_components stays "
-                "within the sklearn-required (0, min(n_samples, n_features)) "
-                "range. Increase the upstream feature count or drop the "
-                "dim_reducer if you need K=%d.",
-                _clamp_max, n_features - 1, n_samples - 1,
-                config.dim_reducer, _clamp_max,
-            )
+    config = _apply_preprocessin_worse_than_running_lower(config, train, n_features)
     # iter-69 byte-aware polynomial auto-tune. ``memory_safety_max_features``
     # gates by column count alone; on wide post-onehot frames at degree=2
     # the column count stays under the cap but the dense
@@ -637,72 +488,7 @@ def apply_preprocessing_extensions(
     # auto-tune the polynomial step downward (flip interaction_only ->
     # decrement degree -> skip) until the projected array fits.
     _byte_cap = getattr(config, "memory_safety_max_bytes", None)
-    if (
-        config.polynomial_degree is not None
-        and config.polynomial_degree > 0
-        and _byte_cap not in (None, 0)
-        and isinstance(train, pd.DataFrame)
-        and train.shape[0] > 0
-        and n_features > 0
-    ):
-        assert _byte_cap is not None  # guaranteed by the ``_byte_cap not in (None, 0)`` check above
-        from mlframe.training.feature_handling.shared import projected_output_cols as _projected_output_cols
-        _n_samples = train.shape[0]
-        _eff_degree = int(config.polynomial_degree)
-        _eff_interaction = bool(config.polynomial_interaction_only)
-        _eff_skip = False
-
-        def _proj_bytes(_d: int, _io: bool) -> int:
-            """Projected byte size of the polynomial-expansion output at degree ``_d`` / interaction-only ``_io``, used to auto-downgrade the config to fit under ``_byte_cap``."""
-            _p = _projected_output_cols(n_features, _d, _io)
-            return int(_n_samples) * int(_p) * 8
-
-        _bytes = _proj_bytes(_eff_degree, _eff_interaction)
-        if _bytes > _byte_cap and not _eff_interaction:
-            logger.warning(
-                "apply_preprocessing_extensions: polynomial output would "
-                "allocate %.2f MiB at n_samples=%d * projected=%d * 8 bytes; "
-                "cap=%.2f MiB. Flipping polynomial_interaction_only=True "
-                "to drop pure-power terms.",
-                _bytes / (1024 * 1024), _n_samples,
-                _projected_output_cols(n_features, _eff_degree, _eff_interaction),
-                _byte_cap / (1024 * 1024),
-            )
-            _eff_interaction = True
-            _bytes = _proj_bytes(_eff_degree, _eff_interaction)
-        while _bytes > _byte_cap and _eff_degree > 1:
-            log_throttle(
-                logger,
-                "pipeline_extensions_polynomial_degree_decrement",
-                logging.WARNING,
-                "apply_preprocessing_extensions: polynomial output still "
-                "%.2f MiB > cap %.2f MiB at degree=%d, interaction_only=%s; "
-                "decrementing degree -> %d.",
-                _bytes / (1024 * 1024), _byte_cap / (1024 * 1024),
-                _eff_degree, _eff_interaction, _eff_degree - 1,
-            )
-            _eff_degree -= 1
-            _bytes = _proj_bytes(_eff_degree, _eff_interaction)
-        if _bytes > _byte_cap:
-            logger.warning(
-                "apply_preprocessing_extensions: polynomial output still "
-                "%.2f MiB > cap %.2f MiB even at degree=1; skipping the "
-                "polynomial step entirely.",
-                _bytes / (1024 * 1024), _byte_cap / (1024 * 1024),
-            )
-            _eff_skip = True
-        if _eff_skip or _eff_degree != int(config.polynomial_degree) or _eff_interaction != bool(config.polynomial_interaction_only):
-            try:
-                _new_deg = None if _eff_skip else _eff_degree
-                config = config.model_copy(update={
-                    "polynomial_degree": _new_deg,
-                    "polynomial_interaction_only": _eff_interaction,
-                })
-            except AttributeError:
-                import copy as _copy
-                config = _copy.deepcopy(config)
-                config.polynomial_degree = None if _eff_skip else _eff_degree
-                config.polynomial_interaction_only = _eff_interaction
+    config = _apply_preprocessin_decrement_degree_skip_until(config, _byte_cap, train, n_features)
 
     # Thread the suite seed into RBFSampler / Nystroem / dim-reducer so their random projections are reproducible across reruns (was hardcoded 42).
     # random_seed=0 is a legitimate seed, not a sentinel -- an ``or`` here would silently rewrite it to 42.
@@ -811,3 +597,256 @@ def apply_preprocessing_extensions(
             pysr=_pysr_transformer, tfidf=tfidf_pipes or None, sklearn_pipe=pipe,
         )
     return train_out, val_out, test_out, pipe
+
+
+def _apply_preprocessin_worse_than_running_lower(config, train, n_features):
+    """Block of apply_preprocessing_extensions starting at ``if config.dim_reducer is not None and config.dim_n_components is not N``."""
+    if config.dim_reducer is not None and config.dim_n_components is not None:
+        n_samples = train.shape[0]
+        _clamp_max = max(1, min(n_features - 1, n_samples - 1))
+        if config.dim_n_components > _clamp_max:
+            try:
+                config = config.model_copy(update={"dim_n_components": _clamp_max})
+            except AttributeError:
+                # Older pydantic / plain-attribute fallback: deepcopy so nested mutable config fields aren't aliased back to the caller's object.
+                import copy as _copy
+                config = _copy.deepcopy(config)
+                config.dim_n_components = _clamp_max
+            logger.warning(
+                "apply_preprocessing_extensions: clamped dim_n_components "
+                "from user-requested value to %d (= min(n_features-1=%d, "
+                "n_samples-1=%d)) so the %s reducer's n_components stays "
+                "within the sklearn-required (0, min(n_samples, n_features)) "
+                "range. Increase the upstream feature count or drop the "
+                "dim_reducer if you need K=%d.",
+                _clamp_max, n_features - 1, n_samples - 1,
+                config.dim_reducer, _clamp_max,
+            )
+    return config
+
+
+def _apply_preprocessin_per_split_recompute_could(_keep_polars_cols, train_df, val_df, test_df, verbose):
+    """Block of apply_preprocessing_extensions starting at ``if _keep_polars_cols is not None:``."""
+    if _keep_polars_cols is not None:
+        _n_skipped = train_df.width - len(_keep_polars_cols)
+        if _n_skipped > 0:
+
+            def _preselect(_df):
+                """Select the train-pinned relevant columns from a polars split before the pandas bridge."""
+                if pl is None or not isinstance(_df, pl.DataFrame):
+                    return _df
+                return _df.select([c for c in _keep_polars_cols if c in _df.columns])
+
+            train_df, val_df, test_df = _preselect(train_df), _preselect(val_df), _preselect(test_df)
+            if verbose:
+                logger.info(
+                    "    apply_preprocessing_extensions: skipping polars->pandas conversion of %d column(s) "
+                    "no extension stage reads (non-numeric and not a tfidf_column); they would be dropped "
+                    "by the numeric gate below regardless.",
+                    _n_skipped,
+                )
+    return test_df, train_df, val_df
+
+
+def _apply_preprocessin_scaling_polynomial_expansion_etc(config, train, val, test, y_train, verbose, out_pysr_equations, _pysr_transformer_holder):
+    """Block of apply_preprocessing_extensions starting at ``if getattr(config, "pysr_enabled", False):``."""
+    from mlframe.training.core.shared import elapsed_str as _elapsed_str
+
+    if getattr(config, "pysr_enabled", False):
+        t0_pysr = timer()
+        # _apply_pysr_fe mutates train/val/test in place; its return value
+        # (the new column names) is intentionally discarded here. The fitted
+        # PySRTransformer is captured via the out_transformer holder so the
+        # caller can persist it in extensions_pipeline for predict-time replay.
+        _apply_pysr_fe(
+            train_df=train, val_df=val, test_df=test,
+            y_train=y_train,
+            config=config,
+            verbose=verbose,
+            out_equations=out_pysr_equations,
+            out_transformer=_pysr_transformer_holder,
+        )
+        if verbose:
+            logger.info("    apply_preprocessing_extensions.pysr_fe done in %s", _elapsed_str(t0_pysr))
+
+
+def _apply_preprocessin_aligned_user_typo_typo(config, train, val, test, tfidf_pipes, verbose):
+    """Block of apply_preprocessing_extensions starting at ``if config.tfidf_columns:``."""
+    from mlframe.training.core.shared import elapsed_str as _elapsed_str
+
+    if config.tfidf_columns:
+        t0_tfidf = timer()
+        from sklearn.feature_extraction.text import TfidfVectorizer
+
+        # Precompute where each tfidf column lives.
+        train_has = set(train.columns)
+        val_has = set(val.columns) if val is not None else None
+        test_has = set(test.columns) if test is not None else None
+        usable_cols, skipped_typo, skipped_split_mismatch = [], [], []
+        for col in config.tfidf_columns:
+            if col not in train_has:
+                skipped_typo.append(col)
+                continue
+            # If val/test exist and one of them lacks the column, we can't
+            # produce aligned TF-IDF features across splits. Skip the col
+            # entirely rather than silently diverge.
+            if val is not None and val_has is not None and col not in val_has:
+                skipped_split_mismatch.append((col, "val"))
+                continue
+            if test is not None and test_has is not None and col not in test_has:
+                skipped_split_mismatch.append((col, "test"))
+                continue
+            usable_cols.append(col)
+
+        if skipped_typo:
+            logger.warning(
+                "TF-IDF: %d column(s) listed in config.tfidf_columns not found "
+                "in train DataFrame: %s. Possibly a typo in config vs the "
+                "upstream feature-extraction schema.",
+                len(skipped_typo), skipped_typo,
+            )
+        if skipped_split_mismatch:
+            logger.warning(
+                "TF-IDF: %d column(s) present in train but missing from a "
+                "non-train split (val/test) -- skipping entirely to keep "
+                "splits column-aligned for downstream sklearn transforms: "
+                "%s. If these columns should be universally present, fix "
+                "the upstream split so all three frames share the schema.",
+                len(skipped_split_mismatch), skipped_split_mismatch,
+            )
+
+        # When ``tfidf_keep_sparse=True`` (default), the per-column TF-IDF
+        # csr_matrix is wrapped as a pandas Sparse DataFrame; downstream
+        # sparse-aware backends extract csr without densifying. At
+        # ``max_features=5000`` on 1M rows this is ~40 GB dense vs ~hundreds
+        # of MB sparse. When False, retain the legacy ``.toarray()`` path.
+        _keep_sparse = bool(getattr(config, "tfidf_keep_sparse", True))
+
+        def _spmatrix_to_df(spmat, columns, index):
+            """Return a DataFrame whose ``columns`` are sparse-dtype when
+            ``_keep_sparse`` is on, dense otherwise. Sparse-dtype DataFrames
+            keep ``.columns`` and ``.index`` semantics; consumers densify
+            implicitly via ``.to_numpy()``."""
+            if _keep_sparse:
+                return sparse_df_from_spmatrix(spmat, columns, index)
+            return pd.DataFrame(spmat.toarray(), columns=columns, index=index)
+
+        for col in usable_cols:
+            vec = TfidfVectorizer(
+                max_features=config.tfidf_max_features,
+                ngram_range=tuple(config.tfidf_ngram_range),
+            )
+            # bench-attempt-rejected (_benchmarks/bench_tfidf_input_path.py): feeding the Series directly or .to_numpy(object, na_value="") instead of .values is within ~1% (noise) at n=5k/50k; .values stays.
+            train_text = train[col].fillna("").astype(str).values
+            tfidf_train = vec.fit_transform(train_text)
+            tfidf_pipes[col] = vec
+            new_cols = [f"{col}__tfidf_{i}" for i in range(tfidf_train.shape[1])]
+            tfidf_train_df = _spmatrix_to_df(tfidf_train, columns=new_cols, index=train.index)
+            train = train.drop(columns=[col]).join(tfidf_train_df)
+            for split_name, split_df in (("val", val), ("test", test)):
+                if split_df is not None:
+                    # Column presence was verified above in `usable_cols`
+                    # filtering; this branch is now guaranteed safe.
+                    text_arr = split_df[col].fillna("").astype(str).values
+                    tfidf_sparse = vec.transform(text_arr)
+                    new_split_df = _spmatrix_to_df(tfidf_sparse, columns=new_cols, index=split_df.index)
+                    if split_name == "val":
+                        val = split_df.drop(columns=[col]).join(new_split_df)
+                    else:
+                        test = split_df.drop(columns=[col]).join(new_split_df)
+        if verbose:
+            logger.info("    apply_preprocessing_extensions.tfidf done in %s", _elapsed_str(t0_tfidf))
+    return test, train, val
+
+
+def _apply_preprocessin_see_post_imputation_count(train, val, test):
+    """Block of apply_preprocessing_extensions starting at ``if isinstance(train, pd.DataFrame) and train.shape[1] > 0:``."""
+    if isinstance(train, pd.DataFrame) and train.shape[1] > 0:
+        _all_null_cols = [c for c in train.columns if train[c].isna().all()]
+        if _all_null_cols:
+            train = train.drop(columns=_all_null_cols)
+            if isinstance(val, pd.DataFrame):
+                val = val.drop(columns=[c for c in _all_null_cols if c in val.columns])
+            if isinstance(test, pd.DataFrame):
+                test = test.drop(columns=[c for c in _all_null_cols if c in test.columns])
+            logger.warning(
+                "apply_preprocessing_extensions: dropped %d all-null "
+                "column(s) before the sklearn-bridge pipeline "
+                "(SimpleImputer median strategy would silently drop them "
+                "and shrink the post-imputer n_features below the "
+                "dim_reducer's n_components clamp, causing a downstream "
+                "PCA / TruncatedSVD / FastICA ValueError): %s.",
+                len(_all_null_cols), _all_null_cols[:8],
+            )
+    return test, train, val
+
+
+def _apply_preprocessin_decrement_degree_skip_until(config, _byte_cap, train, n_features):
+    """Block of apply_preprocessing_extensions starting at ``if (``."""
+    if (
+        config.polynomial_degree is not None
+        and config.polynomial_degree > 0
+        and _byte_cap not in (None, 0)
+        and isinstance(train, pd.DataFrame)
+        and train.shape[0] > 0
+        and n_features > 0
+    ):
+        assert _byte_cap is not None  # guaranteed by the ``_byte_cap not in (None, 0)`` check above
+        from mlframe.training.feature_handling.shared import projected_output_cols as _projected_output_cols
+        _n_samples = train.shape[0]
+        _eff_degree = int(config.polynomial_degree)
+        _eff_interaction = bool(config.polynomial_interaction_only)
+        _eff_skip = False
+
+        def _proj_bytes(_d: int, _io: bool) -> int:
+            """Projected byte size of the polynomial-expansion output at degree ``_d`` / interaction-only ``_io``, used to auto-downgrade the config to fit under ``_byte_cap``."""
+            _p = _projected_output_cols(n_features, _d, _io)
+            return int(_n_samples) * int(_p) * 8
+
+        _bytes = _proj_bytes(_eff_degree, _eff_interaction)
+        if _bytes > _byte_cap and not _eff_interaction:
+            logger.warning(
+                "apply_preprocessing_extensions: polynomial output would "
+                "allocate %.2f MiB at n_samples=%d * projected=%d * 8 bytes; "
+                "cap=%.2f MiB. Flipping polynomial_interaction_only=True "
+                "to drop pure-power terms.",
+                _bytes / (1024 * 1024), _n_samples,
+                _projected_output_cols(n_features, _eff_degree, _eff_interaction),
+                _byte_cap / (1024 * 1024),
+            )
+            _eff_interaction = True
+            _bytes = _proj_bytes(_eff_degree, _eff_interaction)
+        while _bytes > _byte_cap and _eff_degree > 1:
+            log_throttle(
+                logger,
+                "pipeline_extensions_polynomial_degree_decrement",
+                logging.WARNING,
+                "apply_preprocessing_extensions: polynomial output still "
+                "%.2f MiB > cap %.2f MiB at degree=%d, interaction_only=%s; "
+                "decrementing degree -> %d.",
+                _bytes / (1024 * 1024), _byte_cap / (1024 * 1024),
+                _eff_degree, _eff_interaction, _eff_degree - 1,
+            )
+            _eff_degree -= 1
+            _bytes = _proj_bytes(_eff_degree, _eff_interaction)
+        if _bytes > _byte_cap:
+            logger.warning(
+                "apply_preprocessing_extensions: polynomial output still "
+                "%.2f MiB > cap %.2f MiB even at degree=1; skipping the "
+                "polynomial step entirely.",
+                _bytes / (1024 * 1024), _byte_cap / (1024 * 1024),
+            )
+            _eff_skip = True
+        if _eff_skip or _eff_degree != int(config.polynomial_degree) or _eff_interaction != bool(config.polynomial_interaction_only):
+            try:
+                _new_deg = None if _eff_skip else _eff_degree
+                config = config.model_copy(update={
+                    "polynomial_degree": _new_deg,
+                    "polynomial_interaction_only": _eff_interaction,
+                })
+            except AttributeError:
+                import copy as _copy
+                config = _copy.deepcopy(config)
+                config.polynomial_degree = None if _eff_skip else _eff_degree
+                config.polynomial_interaction_only = _eff_interaction
+    return config

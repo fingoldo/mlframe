@@ -71,34 +71,11 @@ def _compute_metrics_table(
         alphas = list(extras["quantile_alphas"])
         primary_metric = "val_pinball_mean"
         non_boundary_idx = [i for i, a in enumerate(alphas) if 0.05 <= a <= 0.95]
-        for name in baseline_names:
-            row: dict[str, Any] = {"baseline": name}
-            vp = val_preds.get(name)
-            tp = test_preds.get(name)
-            for split_name, y, p in [("val", val_y, vp), ("test", test_y, tp)]:
-                if p is not None and y is not None and len(p) == len(y) and p.ndim == 2 and p.shape[1] == len(alphas):
-                    for j, a in enumerate(alphas):
-                        v = _safe_metric(mean_pinball_loss, y, p[:, j], alpha=a)
-                        row[f"{split_name}_pinball@{a:.3f}"] = v
-                    if non_boundary_idx:
-                        non_boundary_vals = [
-                            row[f"{split_name}_pinball@{alphas[j]:.3f}"]
-                            for j in non_boundary_idx
-                            if _isfinite(row.get(f"{split_name}_pinball@{alphas[j]:.3f}", float("nan")))
-                        ]
-                        row[f"{split_name}_pinball_mean"] = float(np.mean(non_boundary_vals)) if non_boundary_vals else float("nan")
-                    else:
-                        row[f"{split_name}_pinball_mean"] = float("nan")
-                else:
-                    for a in alphas:
-                        row[f"{split_name}_pinball@{a:.3f}"] = float("nan")
-                    row[f"{split_name}_pinball_mean"] = float("nan")
-            row["failed"] = not (_isfinite(row.get("val_pinball_mean", float("nan"))) or _isfinite(row.get("test_pinball_mean", float("nan"))))
-            rows.append(row)
+        _compute_metrics_ta_name_baseline_names(baseline_names, val_preds, test_preds, val_y, test_y, alphas, non_boundary_idx, rows)
     elif target_type in ("regression", "quantile_regression"):
         primary_metric = "val_RMSE"
         for name in baseline_names:
-            row = {"baseline": name}
+            row: dict[str, Any] = {"baseline": name}
             vp = val_preds.get(name)
             tp = test_preds.get(name)
             if vp is not None and val_y is not None and len(vp) == len(val_y):
@@ -125,24 +102,7 @@ def _compute_metrics_table(
             row = {"baseline": name}
             vp = val_preds.get(name)
             tp = test_preds.get(name)
-            for split_name, y, p in [("val", val_y, vp), ("test", test_y, tp)]:
-                if p is not None and y is not None and len(p) == len(y) and p.ndim == 2:
-                    row[f"{split_name}_log_loss"] = _safe_metric(
-                        log_loss, y, p, labels=labels,
-                    )
-                    if target_type == "binary_classification":
-                        row[f"{split_name}_AUC"] = _safe_metric(
-                            fast_roc_auc, y, p[:, 1],
-                        )
-                    else:
-                        row[f"{split_name}_AUC_macro"] = _safe_metric(
-                            roc_auc_score, y, p,
-                            multi_class="ovr", average="macro", labels=labels,
-                        )
-                else:
-                    row[f"{split_name}_log_loss"] = float("nan")
-                    auc_key = f"{split_name}_AUC" if target_type == "binary_classification" else f"{split_name}_AUC_macro"
-                    row[auc_key] = float("nan")
+            _compute_metrics_ta_split_name_val_val(val_y, vp, test_y, tp, labels, row, target_type)
             row["failed"] = not (_isfinite(row.get("val_log_loss", float("nan"))) or _isfinite(row.get("test_log_loss", float("nan"))))
             rows.append(row)
 
@@ -230,6 +190,56 @@ def _compute_metrics_table(
 
     table = pd.DataFrame(rows).set_index("baseline")
     return table, primary_metric
+
+
+def _compute_metrics_ta_name_baseline_names(baseline_names, val_preds, test_preds, val_y, test_y, alphas, non_boundary_idx, rows):
+    """Block of _compute_metrics_table starting at ``for name in baseline_names:``."""
+    for name in baseline_names:
+        row: dict[str, Any] = {"baseline": name}
+        vp = val_preds.get(name)
+        tp = test_preds.get(name)
+        for split_name, y, p in [("val", val_y, vp), ("test", test_y, tp)]:
+            if p is not None and y is not None and len(p) == len(y) and p.ndim == 2 and p.shape[1] == len(alphas):
+                for j, a in enumerate(alphas):
+                    v = _safe_metric(mean_pinball_loss, y, p[:, j], alpha=a)
+                    row[f"{split_name}_pinball@{a:.3f}"] = v
+                if non_boundary_idx:
+                    non_boundary_vals = [
+                        row[f"{split_name}_pinball@{alphas[j]:.3f}"]
+                        for j in non_boundary_idx
+                        if _isfinite(row.get(f"{split_name}_pinball@{alphas[j]:.3f}", float("nan")))
+                    ]
+                    row[f"{split_name}_pinball_mean"] = float(np.mean(non_boundary_vals)) if non_boundary_vals else float("nan")
+                else:
+                    row[f"{split_name}_pinball_mean"] = float("nan")
+            else:
+                for a in alphas:
+                    row[f"{split_name}_pinball@{a:.3f}"] = float("nan")
+                row[f"{split_name}_pinball_mean"] = float("nan")
+        row["failed"] = not (_isfinite(row.get("val_pinball_mean", float("nan"))) or _isfinite(row.get("test_pinball_mean", float("nan"))))
+        rows.append(row)
+
+
+def _compute_metrics_ta_split_name_val_val(val_y, vp, test_y, tp, labels, row, target_type):
+    """Block of _compute_metrics_table starting at ``for split_name, y, p in [("val", val_y, vp), ("test", test_y, tp)]:``."""
+    for split_name, y, p in [("val", val_y, vp), ("test", test_y, tp)]:
+        if p is not None and y is not None and len(p) == len(y) and p.ndim == 2:
+            row[f"{split_name}_log_loss"] = _safe_metric(
+                log_loss, y, p, labels=labels,
+            )
+            if target_type == "binary_classification":
+                row[f"{split_name}_AUC"] = _safe_metric(
+                    fast_roc_auc, y, p[:, 1],
+                )
+            else:
+                row[f"{split_name}_AUC_macro"] = _safe_metric(
+                    roc_auc_score, y, p,
+                    multi_class="ovr", average="macro", labels=labels,
+                )
+        else:
+            row[f"{split_name}_log_loss"] = float("nan")
+            auc_key = f"{split_name}_AUC" if target_type == "binary_classification" else f"{split_name}_AUC_macro"
+            row[auc_key] = float("nan")
 
 
 def _pick_strongest(

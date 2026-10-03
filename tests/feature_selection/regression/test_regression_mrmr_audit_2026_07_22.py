@@ -1573,10 +1573,11 @@ def test_regression_polynom_pair_fe_x_assignment_before_list_append():
     """Post-fix: the X column assignment happens BEFORE _new_data_cols.append, so a raise during
     assignment leaves the survivor lists untouched (no orphaned column baked into data/nbins)."""
     import inspect
+    import sys
 
     from mlframe.feature_selection.filters.polynom_pair_fe import run_polynom_pair_fe
 
-    src = inspect.getsource(run_polynom_pair_fe)
+    src = inspect.getsource(sys.modules[run_polynom_pair_fe.__module__])  # the step is split into module-level helpers; the pinned statement lives in one of them
     assign_pos = src.index("X[_new_col_name] = _t_vals")
     append_pos = src.index("_new_data_cols.append(_new_binned)")
     assert assign_pos < append_pos, "X column assignment must happen before the survivor-list append"
@@ -1998,10 +1999,11 @@ def test_regression_cat_interactions_step_recomputes_weighted_marginal():
     """Post-fix: run_cat_interaction_step's weighted branch calls _marginal_screen_weighted and overwrites
     marginal_mi_full before the pair-search dispatch, rather than leaving it unweighted."""
     import inspect
+    import sys
 
     from mlframe.feature_selection.filters._cat_interactions_step import run_cat_interaction_step
 
-    src = inspect.getsource(run_cat_interaction_step)
+    src = inspect.getsource(sys.modules[run_cat_interaction_step.__module__])  # the step is split into module-level helpers; the pinned statement lives in one of them
     assert "_marginal_screen_weighted" in src
     assert "marginal_mi_full[int(_idx)] = candidate_mi[_k]" in src
 
@@ -2029,10 +2031,11 @@ def test_regression_cat_interactions_step_pair_search_gpu_gate_honours_disable_g
     honouring cfg.backend='gpu'/'auto', and raises a clear error for an explicit backend='gpu' request
     under the global off-switch instead of silently using GPU."""
     import inspect
+    import sys
 
     from mlframe.feature_selection.filters._cat_interactions_step import run_cat_interaction_step
 
-    src = inspect.getsource(run_cat_interaction_step)
+    src = inspect.getsource(sys.modules[run_cat_interaction_step.__module__])  # the step is split into module-level helpers; the pinned statement lives in one of them
     assert "gpu_globally_disabled" in src
     assert "GPU is globally disabled" in src
 
@@ -2048,10 +2051,11 @@ def test_regression_bandit_ucb1_auto_falls_back_to_fixed_when_weighted():
     """Post-fix: run_cat_interaction_step skips the bandit-UCB1 path entirely (falling back to the
     correctly-weighted fixed path) whenever use_weights is True, regardless of perm_budget_strategy."""
     import inspect
+    import sys
 
     from mlframe.feature_selection.filters._cat_interactions_step import run_cat_interaction_step
 
-    src = inspect.getsource(run_cat_interaction_step)
+    src = inspect.getsource(sys.modules[run_cat_interaction_step.__module__])  # the step is split into module-level helpers; the pinned statement lives in one of them
     assert "and not use_weights" in src
     assert "falling back to the fixed-budget permutation path" in src
 
@@ -2399,8 +2403,10 @@ def test_regression_bincount_minlength_prevents_class_undercounting():
     import inspect
 
     from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_core as mod
+    from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_core_helpers as helpers_mod
 
-    src = inspect.getsource(mod)
+    # the pair-search core is split into helpers; the pinned statement lives in one of the two modules
+    src = inspect.getsource(mod) + inspect.getsource(helpers_mod)
     assert "np.bincount(classes_y.astype(np.int64), minlength=_minlength)" in src
 
 

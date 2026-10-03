@@ -109,9 +109,7 @@ def forward_stepwise_multi_base(
     # ``_as_f64_1d`` no-copies the common case (already float64, C-contiguous, 1-D) instead of always allocating a fresh reshape copy; the resulting values are bit-identical, only the allocation is elided.
     candidates = {name: _as_f64_1d(arr) for name, arr in candidate_bases.items()}
     # A length mismatch otherwise surfaces much later as an opaque column_stack ValueError; fail at the boundary with the offending column named.
-    for _n, _a in candidates.items():
-        if _a.size != y.size:
-            raise ValueError(f"forward_stepwise_multi_base: candidate '{_n}' has length {_a.size}, expected {y.size} (== len(y_train)).")
+    _forward_stepwise_m_length_mismatch_otherwise_surfaces(candidates, y)
     # Validate seeds against the candidate map. Seeds not in candidate_bases are an API misuse; raise loudly so caller fixes their wiring.
     seeds = list(seed_bases or [])
     missing_seeds = [s for s in seeds if s not in candidates]
@@ -234,6 +232,19 @@ def forward_stepwise_multi_base(
         return wins / usable, usable
 
     # Greedy forward selection: add the best candidate each round if it clears the gate.
+    _forward_stepwise_m_greedy_add_step(kept, max_k, candidates, _legacy_per_trial_stack, y, _cv_rmse_with_folds, cv_persist_fold_scores, rmse_current, min_marginal_rmse_gain, paired_fold_selection, folds_current, _paired_fold_win_frac, paired_fold_min_win_frac, diagnostics)
+    return kept, diagnostics
+
+
+def _forward_stepwise_m_length_mismatch_otherwise_surfaces(candidates, y):
+    """Block of forward_stepwise_multi_base starting at ``for _n, _a in candidates.items():``."""
+    for _n, _a in candidates.items():
+        if _a.size != y.size:
+            raise ValueError(f"forward_stepwise_multi_base: candidate '{_n}' has length {_a.size}, expected {y.size} (== len(y_train)).")
+
+
+def _forward_stepwise_m_greedy_add_step(kept, max_k, candidates, _legacy_per_trial_stack, y, _cv_rmse_with_folds, cv_persist_fold_scores, rmse_current, min_marginal_rmse_gain, paired_fold_selection, folds_current, _paired_fold_win_frac, paired_fold_min_win_frac, diagnostics):
+    """Block of forward_stepwise_multi_base starting at ``while len(kept) < max_k:``."""
     while len(kept) < max_k:
         available = [n for n in candidates.keys() if n not in kept]
         if not available:
@@ -300,4 +311,3 @@ def forward_stepwise_multi_base(
         kept.append(best_name)
         rmse_current = best_rmse
         folds_current = best_folds
-    return kept, diagnostics

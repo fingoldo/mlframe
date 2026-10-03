@@ -11,48 +11,32 @@ from __future__ import annotations
 
 
 import logging
-from enum import Enum, auto
-from functools import partial
-from typing import Callable, Optional, cast
+from typing import Callable, Optional, cast, Any
 
 import torch
 import torch.nn as nn
 
-from mlframe.utils.log_throttle import log_throttle
-
 logger = logging.getLogger(__name__)
 
 
-class MLPNeuronsByLayerArchitecture(Enum):
-    """Per-layer neuron-count progression pattern consumed by ``generate_mlp``.
-
-    ``Constant`` keeps every hidden layer at ``first_layer_num_neurons``;
-    ``Declining``/``Expanding`` scale each successive layer by
-    ``consec_layers_neurons_ratio`` (down/up); ``ExpandingThenDeclining``
-    grows to the middle layer then shrinks (a "bottleneck-inverted" shape);
-    ``Autoencoder`` shrinks to the middle then grows back (the classic
-    encoder/decoder bottleneck shape).
-    """
-
-    Constant = auto()
-    Declining = auto()
-    Expanding = auto()
-    ExpandingThenDeclining = auto()
-    Autoencoder = auto()
-
-
-def get_valid_num_groups(num_channels, preferred_num_groups):
-    """Finds the largest divisor of ``num_channels`` not exceeding ``preferred_num_groups``.
-
-    ``nn.GroupNorm`` requires ``num_channels % num_groups == 0``; layer widths chosen by the
-    architecture-progression logic are rarely divisible by an arbitrary preferred group count.
-    Falls back to 1 group (LayerNorm-equivalent behaviour) when no larger divisor exists.
-    """
-    for g in range(preferred_num_groups, 0, -1):
-        if num_channels % g == 0:
-            return g
-    return 1  # Fallback to 1 (LayerNorm-like) if no divisor found
-
+from ._flat_layers import (  # noqa: F401  -- carved helpers
+    MLPNeuronsByLayerArchitecture,
+    get_valid_num_groups,
+    _BoundedTanhOutput,
+    _ResidualLinearBlock,
+)
+from ._flat_generate_helpers import (
+    _generate_mlp_num_classes_none,
+    _generate_mlp_accuracy_classification_trunk_downstream,
+    _generate_mlp_groupnorm_num_groups,
+    _generate_mlp_layer,
+    _generate_mlp_use_residual,
+    _generate_mlp_final_layer_num_classes,
+    _generate_mlp_affine_composition_extrapolation_motivated,
+    _generate_mlp_verbose,
+    _generate_mlp_weights_init_fcn,
+    _generate_mlp_every_fit_bench_profiling,
+)
 
 class Snake(nn.Module):
     """Snake activation: ``x + (1/alpha) * sin^2(alpha * x)``.
@@ -89,127 +73,6 @@ class Snake(nn.Module):
     def extra_repr(self) -> str:
         """Reports the current ``alpha`` value for ``print(module)`` / ``repr``."""
         return f"alpha={float(self.alpha):.4g}"
-
-
-class _BoundedTanhOutput(nn.Module):
-    """Bounded-range output head: ``tanh(x) * scale + center``.
-
-    Wraps the last ``nn.Linear`` of a regression MLP to HARD-CAP the
-    output to ``[center - scale, center + scale]``. Composes cleanly with
-    ``_TTRWithEvalSetScaling``: when y is z-scored by the TTR transformer
-    and ``scale``/``center`` are computed on the SCALED y the MLP sees at
-    fit-time, the tanh window is in scaled space and the TTR's
-    ``inverse_transform`` unwinds it back to raw-y space correctly.
-
-    Why this fix is independent of the defensive TTR predict clip
-    (which lives at ``_TTRWithEvalSetScaling.predict``): the TTR clip
-    BOUNDS the damage from runaway predictions; this output activation
-    PREVENTS the MLP's affine-composition from emitting them in the
-    first place. The MLP gradient sees the bound during training and
-    learns parameters that keep activations inside the window; the TTR
-    clip only catches what slips through at inference.
-
-    ``scale`` and ``center`` are registered as non-trainable BUFFERS so
-    they (a) move to the right device with ``.to(device)`` calls,
-    (b) save/load with state_dict, and (c) do not get updated by the
-    optimizer (they are fixed properties of the train target).
-    """
-
-    # Declared here (register_buffer() below sets them) so mypy sees plain Tensors rather than
-    # the register_buffer stub's broad Tensor|Module return.
-    scale: torch.Tensor
-    center: torch.Tensor
-
-    def __init__(self, scale: float, center: float) -> None:
-        super().__init__()
-        self.register_buffer(
-            "scale", torch.tensor(float(scale), dtype=torch.float32),
-        )
-        self.register_buffer(
-            "center", torch.tensor(float(center), dtype=torch.float32),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Applies the bounded-tanh output head: ``tanh(x) * scale + center``."""
-        # F-37 (2026-05-31): always use the separate-op form
-        # ``tanh(x) * scale + center``. Pre-fix this had a ``if x.is_cuda:
-        # return addcmul(...)`` data-dependent branch — measured 1.5-2.4x
-        # on CUDA via the explicit addcmul fusion, but the branch
-        # FRAGMENTS torch.compile's Inductor fusion of the output head
-        # (per the 2026-05-31 torch.compile audit, Agent A finding #2).
-        # The whole tanh + mul + add chain is exactly the pure-pointwise
-        # pattern Inductor fuses into ONE Triton kernel automatically
-        # when torch.compile is active, recovering the CUDA fusion win
-        # without the data-dependent branch. The CPU trade is 5-20% on
-        # tiny output heads (bench: (200000, 1) 0.78x, (4096, 64) 0.95x),
-        # accepted because (a) it's a tiny absolute time, (b) compile is
-        # the load-bearing perf lever now, (c) the previous CUDA branch
-        # was opt-in to a fusion win only available without compile —
-        # a no-win combo. autograd's tanh gradient (1 - tanh^2) is
-        # preserved either way.
-        return torch.tanh(x) * self.scale + self.center
-
-    def extra_repr(self) -> str:
-        """Reports the current ``scale``/``center`` for ``print(module)`` / ``repr``."""
-        return f"scale={float(self.scale):.4g}, center={float(self.center):.4g}"
-
-
-class _ResidualLinearBlock(nn.Module):
-    """C6 (F-31, 2026-05-31): single residual block for tabular MLPs.
-
-    Gorishniy 2021 ("Revisiting Deep Learning Models for Tabular Data")
-    found that a properly-tuned residual MLP outperforms TabNet /
-    NODE / TabTransformer on standard tabular benchmarks. The block is::
-
-        x  ->  Linear(in, out)
-            -> [BN] -> activation -> [Dropout]
-            -> ADD skip(x)
-
-    where ``skip(x)`` is either identity (when ``in == out``) or a
-    bias-free 1-Linear projection (when ``in != out``) so the addition
-    is shape-safe across the existing per-layer-width MLP architectures
-    (Constant / Declining / Expanding / etc.).
-
-    This is the lightweight ResNet-tabular variant the agent recommended
-    as the highest-ROI architectural change (~30 LoC, zero new deps,
-    drop-in to ``generate_mlp``).
-    """
-
-    # norm is one of BatchNorm1d / LayerNorm / Identity depending on the constructor flags below.
-    norm: nn.Module
-
-    def __init__(
-        self,
-        in_dim: int,
-        out_dim: int,
-        activation_cls: Optional[Callable],
-        dropout_prob: float,
-        use_batchnorm: bool,
-        use_layernorm_per_layer: bool,
-        batch_norm_kwargs: dict,
-        layer_norm_kwargs: dict,
-    ) -> None:
-        super().__init__()
-        self.linear = nn.Linear(in_dim, out_dim)
-        if use_batchnorm:
-            self.norm = nn.BatchNorm1d(out_dim, **batch_norm_kwargs)
-        elif use_layernorm_per_layer:
-            self.norm = nn.LayerNorm(out_dim, **layer_norm_kwargs)
-        else:
-            self.norm = nn.Identity()
-        self.act = activation_cls() if activation_cls is not None else nn.Identity()
-        self.dropout = nn.Dropout(dropout_prob) if dropout_prob > 0 else nn.Identity()
-        # Skip projection: identity when dims match (parameter-free);
-        # bias-free Linear when dims differ (smallest projection cost).
-        self.skip = nn.Identity() if in_dim == out_dim else nn.Linear(in_dim, out_dim, bias=False)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Runs Linear -> [norm] -> activation -> [dropout], then adds the (identity or projected) skip connection."""
-        return cast(torch.Tensor, self.dropout(self.act(self.norm(self.linear(x)))) + self.skip(x))
-
-    def extra_repr(self) -> str:
-        """Reports in/out widths and skip-connection kind (identity vs. bias-free linear projection)."""
-        return f"in={self.linear.in_features}, out={self.linear.out_features}, " f"skip={'identity' if isinstance(self.skip, nn.Identity) else 'linear'}"
 
 
 def generate_mlp(
@@ -333,6 +196,7 @@ def generate_mlp(
         verbose: If 1, logs the network architecture (e.g., 100->50->25->1 [R, n=176, w=7.6k])
     """
 
+    layer: Any = None
     if layer_norm_kwargs is None:
         layer_norm_kwargs = dict(eps=1e-5)
     if batch_norm_kwargs is None:
@@ -362,11 +226,7 @@ def generate_mlp(
         raise TypeError(f"min_layer_neurons must be an int, got {type(min_layer_neurons).__name__}")
     if min_layer_neurons < 1:
         raise ValueError(f"min_layer_neurons must be >= 1, got {min_layer_neurons!r}")
-    if num_classes is not None:
-        if not isinstance(num_classes, int) or isinstance(num_classes, bool):
-            raise TypeError(f"num_classes must be None or an int, got {type(num_classes).__name__}")
-        if num_classes < 0:
-            raise ValueError(f"num_classes must be >= 0, got {num_classes!r}")
+    _generate_mlp_num_classes_none(num_classes)
     if not isinstance(first_layer_num_neurons, int) or isinstance(first_layer_num_neurons, bool):
         raise TypeError(f"first_layer_num_neurons must be an int, got {type(first_layer_num_neurons).__name__}")
     if first_layer_num_neurons < min_layer_neurons:
@@ -448,29 +308,14 @@ def generate_mlp(
     # Numerical-feature embeddings: the PLR (Periodic-Linear-ReLU) embedding maps each scalar feature to a high-dim representation via sin/cos
     # at K learnable frequencies + a per-feature Linear projection (RealMLP-TD, Holzmuller et al. NeurIPS 2024: +20.6% R^2 regression / +2.3%
     # accuracy classification). The trunk downstream then operates on the embedded representation as if it were the raw feature vector.
-    if numerical_embedding is not None:
-        from ._numerical_embeddings import PeriodicLinearEmbedding
-        _ne_kwargs = dict(numerical_embedding_kwargs or {})
-        if numerical_embedding == "plr":
-            _emb = PeriodicLinearEmbedding(in_features=num_features, **_ne_kwargs)
-        else:
-            raise ValueError(f"Unknown numerical_embedding={numerical_embedding!r}; " "supported: 'plr' (Periodic-Linear-ReLU).")
-        layers.append(_emb)
-        layer_sizes.append(_emb.out_features)
-        # Override num_features for everything that follows so the
-        # input-side Dropout / LayerNorm / GroupNorm and the first
-        # hidden Linear see the EMBEDDED dimension, not the raw.
-        num_features = _emb.out_features
+    num_features = _generate_mlp_accuracy_classification_trunk_downstream(numerical_embedding, numerical_embedding_kwargs, num_features, layers, layer_sizes)
 
     if inputs_dropout_prob > 0:
         layers.append(nn.Dropout(inputs_dropout_prob))
     if use_layernorm:
         layers.append(nn.LayerNorm(num_features, **layer_norm_kwargs))
 
-    if groupnorm_num_groups > 0:
-        num_groups_for_input = get_valid_num_groups(num_features, groupnorm_num_groups)
-        if num_groups_for_input > 1:
-            layers.append(nn.GroupNorm(num_groups=num_groups_for_input, num_channels=num_features, **group_norm_kwargs))
+    _generate_mlp_groupnorm_num_groups(groupnorm_num_groups, num_features, layers, group_norm_kwargs)
 
     mid_layer = nlayers // 2
 
@@ -481,25 +326,7 @@ def generate_mlp(
 
     for layer in range(nlayers):
 
-        if layer > 0:
-            if neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Constant:
-                cur_layer_virt_neurons = prev_layer_virt_neurons
-            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Declining:
-                cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
-            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Expanding:
-                cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
-            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.ExpandingThenDeclining:
-                if layer <= mid_layer:
-                    cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
-                else:
-                    cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
-            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Autoencoder:
-                if layer <= mid_layer:
-                    cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
-                else:
-                    cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
-
-            cur_layer_neurons = int(cur_layer_virt_neurons)
+        cur_layer_neurons, cur_layer_virt_neurons = _generate_mlp_layer(layer, neurons_by_layer_arch, prev_layer_virt_neurons, consec_layers_neurons_ratio, mid_layer, cur_layer_neurons, cur_layer_virt_neurons)
 
         if cur_layer_neurons < effective_min_neurons:
             if neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Autoencoder:
@@ -512,67 +339,13 @@ def generate_mlp(
             else:
                 cur_layer_neurons = int(effective_min_neurons)
 
-        if use_residual:
-            # C6 (F-31): residual block bundles the Linear+norm+act+dropout
-            # AND the skip connection (identity if dims match, bias-free
-            # projection otherwise). Spectral norm is not threaded through
-            # the residual path (the skip projection would also need it for
-            # a true Lipschitz bound) — fall back to plain Linear with a
-            # WARN if the user combined both.
-            if spectral_norm:
-                log_throttle(
-                    logger,
-                    "flat_mlp_residual_spectral_norm_approximate",
-                    logging.WARNING,
-                    "use_residual=True + spectral_norm=True: spectral norm "
-                    "is applied to the BODY Linear only, NOT to the skip "
-                    "projection; the global Lipschitz bound is therefore "
-                    "approximate. For an exact bound use one or the other.",
-                )
-            _block = _ResidualLinearBlock(
-                in_dim=prev_layer_neurons,
-                out_dim=cur_layer_neurons,
-                activation_cls=activation_function,
-                dropout_prob=dropout_prob,
-                use_batchnorm=use_batchnorm,
-                use_layernorm_per_layer=use_layernorm_per_layer,
-                batch_norm_kwargs=batch_norm_kwargs,
-                layer_norm_kwargs=layer_norm_kwargs,
-            )
-            if spectral_norm:
-                _block.linear = nn.utils.spectral_norm(
-                    _block.linear, n_power_iterations=spectral_norm_n_power_iterations,
-                )
-            layers.append(_block)
-            layer_sizes.append(cur_layer_neurons)
-        else:
-            layers.append(_maybe_sn(nn.Linear(prev_layer_neurons, cur_layer_neurons)))
-            layer_sizes.append(cur_layer_neurons)
-
-            if use_batchnorm:
-                layers.append(nn.BatchNorm1d(cur_layer_neurons, **batch_norm_kwargs))
-            if use_layernorm_per_layer:
-                layers.append(nn.LayerNorm(cur_layer_neurons, **layer_norm_kwargs))
-            if activation_function:
-                layers.append(activation_function())
-            if dropout_prob > 0:
-                layers.append(nn.Dropout(dropout_prob))
+        _generate_mlp_use_residual(use_residual, spectral_norm, prev_layer_neurons, cur_layer_neurons, activation_function, dropout_prob, use_batchnorm, use_layernorm_per_layer, batch_norm_kwargs, layer_norm_kwargs, spectral_norm_n_power_iterations, layers, layer_sizes, _maybe_sn)
 
         prev_layer_neurons = cur_layer_neurons
         prev_layer_virt_neurons = cur_layer_virt_neurons
 
     # Final layer: num_classes None/0 = feature extractor, 1 = regression, >1 = classification.
-    if num_classes is None or num_classes == 0:
-        logger.warning("num_classes is None or 0; creating feature extractor (no final layer)")
-        model_type = "FE"
-    elif num_classes == 1:
-        layers.append(_maybe_sn(nn.Linear(prev_layer_neurons, 1)))
-        layer_sizes.append(1)
-        model_type = "R"
-    else:
-        layers.append(_maybe_sn(nn.Linear(prev_layer_neurons, num_classes)))
-        layer_sizes.append(num_classes)
-        model_type = "C"
+    model_type = _generate_mlp_final_layer_num_classes(num_classes, layers, _maybe_sn, prev_layer_neurons, layer_sizes)
 
     # Bounded output head (Fix 1, 2026-05-26). Appended ONLY for regression
     # (``num_classes == 1``) and only when caller passes a non-default
@@ -581,139 +354,13 @@ def generate_mlp(
     # ``output_activation_center`` (computed by the estimator from y_train).
     # Caps MLP output to ``[center - scale, center + scale]`` -> kills the
     # affine-composition extrapolation that motivated the TTR predict-clip.
-    if output_activation != "linear" and num_classes == 1:
-        if output_activation == "tanh_train_range":
-            if output_activation_scale is None or output_activation_center is None:
-                # Hard raise: the caller-side contract is "auto-derive
-                # scale/center BEFORE calling generate_mlp". The auto-fill
-                # in ``neural.base._fit_inner_network`` (line ~627) is
-                # OR-based on either being None and fills missing fields
-                # in place; a direct caller that bypasses that path is
-                # a programmer error worth surfacing immediately. Test
-                # ``test_tanh_train_range_requires_scale_and_center`` pins
-                # this contract; an earlier (2026-06-01) soft fallback
-                # silently demoted misconfigured calls and broke that
-                # test. The actual orchestration bug it was meant to mask
-                # turned out to live on the S: recovered tree only.
-                raise ValueError(
-                    "output_activation='tanh_train_range' requires both "
-                    "output_activation_scale and output_activation_center "
-                    "to be non-None floats (computed by the caller from "
-                    "y_train range + std)."
-                )
-            layers.append(_BoundedTanhOutput(
-                scale=output_activation_scale,
-                center=output_activation_center,
-            ))
-        else:
-            raise ValueError(f"Unknown output_activation={output_activation!r}; expected " f"one of: 'linear', 'tanh_train_range'.")
+    _generate_mlp_affine_composition_extrapolation_motivated(output_activation, num_classes, output_activation_scale, output_activation_center, layers)
 
     model = nn.Sequential(*layers)
 
-    if verbose == 1:
-        total_neurons = sum(layer_sizes)
-        total_weights = 0
-        for module in model.modules():
-            if isinstance(module, nn.Linear):
-                total_weights += module.weight.numel()
-                if module.bias is not None:
-                    total_weights += module.bias.numel()
-            elif isinstance(module, (nn.BatchNorm1d, nn.LayerNorm)):
-                if hasattr(module, "weight") and module.weight is not None:
-                    total_weights += module.weight.numel()
-                if hasattr(module, "bias") and module.bias is not None:
-                    total_weights += module.bias.numel()
+    _generate_mlp_verbose(verbose, layer_sizes, model, neurons_by_layer_arch, nlayers, consec_layers_neurons_ratio, activation_function, use_batchnorm, use_layernorm, use_layernorm_per_layer, groupnorm_num_groups, weights_init_fcn, spectral_norm, model_type, inputs_dropout_prob, dropout_prob)
 
-        def format_num(n):
-            """Formats a neuron/weight count as e.g. ``7.6k`` above 1000, else the plain integer string."""
-            if n >= 1000:
-                return f"{n/1000:.1f}k"
-            return str(n)
-
-        # Include regularisation, activation and init in the log; the bare layer chain hides choices that
-        # silently sabotage training (e.g. collapsed predictions when dropout/BN/init misconfigured).
-        arch_name = getattr(neurons_by_layer_arch, "name", str(neurons_by_layer_arch))
-        if nlayers > 1:
-            arch_descr = f"{arch_name}(r={consec_layers_neurons_ratio:g})"
-        else:
-            arch_descr = arch_name
-
-        if activation_function is None:
-            act_descr = "identity"
-        else:
-            act_descr = getattr(activation_function, "__name__", type(activation_function).__name__)
-
-        norm_parts = []
-        if use_batchnorm:
-            norm_parts.append("BN")
-        if use_layernorm:
-            norm_parts.append("LN_in")
-        if use_layernorm_per_layer:
-            norm_parts.append("LN_per_layer")
-        if groupnorm_num_groups > 0:
-            norm_parts.append(f"GN({groupnorm_num_groups})")
-        norm_descr = "+".join(norm_parts) if norm_parts else "none"
-
-        if weights_init_fcn is None:
-            init_descr = "default"
-        else:
-            # functools.partial wraps the real callable in .func; bare functions / lambdas expose __name__ directly.
-            _wf = getattr(weights_init_fcn, "func", weights_init_fcn)
-            init_descr = getattr(_wf, "__name__", type(_wf).__name__)
-
-        architecture = "->".join(str(size) for size in layer_sizes)
-        _sn_descr = " SN" if spectral_norm else ""
-        logger.info(
-            "Network architecture: %s [%s, n=%s, w=%s] arch=%s act=%s "
-            "drop=in:%g/hid:%g norm=%s init=%s%s",
-            architecture, model_type,
-            format_num(total_neurons), format_num(total_weights),
-            arch_descr, act_descr,
-            inputs_dropout_prob, dropout_prob,
-            norm_descr, init_descr,
-            _sn_descr,
-        )
-
-    if weights_init_fcn:
-
-        def init_weights(m):
-            """Applies ``weights_init_fcn`` to Linear/BatchNorm1d weights and biases, falling back to N(1.0, 0.02) for BatchNorm gamma when the init fn is Xavier/Kaiming (which require >=2D tensors and would raise on BN's 1D gamma)."""
-            if isinstance(m, (nn.Linear, nn.BatchNorm1d)):
-                if isinstance(weights_init_fcn, partial):
-                    func_to_check = weights_init_fcn.func
-                else:
-                    func_to_check = weights_init_fcn
-
-                # Xavier/Kaiming inits assume 2D fan-in/fan-out tensors. Applying them to BN's 1D gamma
-                # raises ValueError, so we fall back to N(1.0, 0.02) for BN gamma in those cases.
-                if hasattr(m, "weight") and m.weight is not None:
-                    if func_to_check in (
-                        torch.nn.init.xavier_normal_,
-                        torch.nn.init.xavier_uniform_,
-                        torch.nn.init.kaiming_normal_,
-                        torch.nn.init.kaiming_uniform_,
-                    ):
-                        if m.weight.dim() >= 2:
-                            weights_init_fcn(m.weight)
-                        elif isinstance(m, nn.BatchNorm1d):
-                            torch.nn.init.normal_(m.weight, mean=1.0, std=0.02)
-                    else:
-                        weights_init_fcn(m.weight)
-
-                if hasattr(m, "bias") and m.bias is not None:
-                    if func_to_check in (
-                        torch.nn.init.xavier_normal_,
-                        torch.nn.init.xavier_uniform_,
-                        torch.nn.init.kaiming_normal_,
-                        torch.nn.init.kaiming_uniform_,
-                    ):
-                        torch.nn.init.constant_(m.bias, 0.0)
-                    else:
-                        weights_init_fcn(m.bias)
-
-        model.apply(init_weights)
-        init_name = weights_init_fcn.func.__name__ if isinstance(weights_init_fcn, partial) else weights_init_fcn.__name__
-        logger.info("Applied %s initialization to Linear weights; normal_/constant_ for BatchNorm weights/biases and Linear biases", init_name)
+    _generate_mlp_weights_init_fcn(weights_init_fcn, model)
 
     # Degenerate-init probe (audit Agent A round-2 P1, landed 2026-05-23).
     # The Identity-activation guard above catches the "stack of Linear
@@ -735,37 +382,7 @@ def generate_mlp(
     # custom init that copies one row across the matrix) is a
     # model-design bug that should be caught at design time, not at
     # every fit. Bench: profiling/bench_mlp_rank_probe_std_vs_svd.py.
-    try:
-        _worst_std: float = float("inf")
-        _worst_layer_name: str = ""
-        for _name, _module in model.named_modules():
-            if isinstance(_module, nn.Linear):
-                with torch.no_grad():
-                    _W = _module.weight.detach()
-                    # Population std (unbiased=False) avoids n>1 special
-                    # case for 1-element weights (1x1 Linear).
-                    _std = float(torch.std(_W, unbiased=False).item())
-                    if _std < _worst_std:
-                        _worst_std = _std
-                        _worst_layer_name = _name or f"Linear({_W.shape[1]}->{_W.shape[0]})"
-        # Threshold: 1e-8 catches zeros_ (std=0) and constant_ (std=0)
-        # without false-positives on legitimate kaiming/xavier inits whose
-        # std is typically 0.01-0.2 depending on fan_in / fan_out.
-        if _worst_std < 1e-8:
-            logger.warning(
-                "generate_mlp: degenerate Linear layer detected -- "
-                "weakest layer '%s' has weight std %.2e (~zero). "
-                "Common causes: weights_init_fcn=zeros_ / constant_, or "
-                "pathological init. The model will not learn useful "
-                "representations on this layer; pick a non-degenerate "
-                "init (kaiming_normal_ / xavier_uniform_).",
-                _worst_layer_name, _worst_std,
-            )
-    except Exception as _rank_err:
-        logger.debug(
-            "generate_mlp: degenerate-init probe failed (non-fatal): %s",
-            _rank_err,
-        )
+    _generate_mlp_every_fit_bench_profiling(model)
 
     # example_input_array MUST reflect the USER-facing input shape
     # (raw features), NOT the embedded shape — the model accepts raw

@@ -16,6 +16,8 @@ this module carves out, not by inspection alone.
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 
 from mlframe.utils.log_throttle import log_throttle
@@ -48,25 +50,50 @@ def _assign_support_tail(
 
     See the module docstring for the full section this carves out.
     """
+    _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx)
+
+    # POST-RETENTION RAW-REDUNDANCY DROP (BUG1). The main raw-vs-engineered
+    # redundancy sweep (above) runs on the screen-stage ``selected_vars`` BEFORE
+    # the usability-aware pure-form retention re-attaches an engineered survivor. When that
+    # retention adds a MULTI-OPERAND composite (e.g. ``div(qubed(a),sin(b))``) AFTER the
+    # sweep, the raw operands it subsumes (``a``, ``b``) are still in ``selected_vars`` and no
+    # later pass conditions them on the freshly-attached child - so a fully-subsumed raw rides
+    # into ``support_`` beside the composite that captures it (the I4b end-to-end violation).
+    # Re-run the SAME n-invariant conditional-redundancy verdict on the FINAL selection, with
+    # the now-complete engineered survivor set (incl. the retained pure forms) as the anchor.
+    # Only DROPS raws fully subsumed by a surviving MULTI-SOURCE child; a genuine private raw
+    # (large independent residual) and a raw consumed by no surviving engineered feature are
+    # KEPT (the DPI-trap filter + self-retention leg inside the helper enforce this). Off when
+    # the drop sweep is disabled (shares ``fe_drop_redundant_raw_operands``).
+    selected_vars = _assign_support_tai_drop_sweep_disabled_shares(self, selected_vars, _retention_added_eng_names, cols, data, _eng_continuous_snapshot, X, y, classes_y, verbose, target_indices, nbins)
+
+    # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
+    # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).
+    n_engineered_out = len(self._engineered_recipes_)
+    _assign_support_tai_engineered_features_without_replayable(self, selected_vars, n_engineered_out, cols, data, _allowed_raw_idx, nbins, target_indices)
+
+    # The p>=n FP-control cap above is enforced exactly once,
+    # but the post-selection reconciliation passes below it (emit-both operand re-attach, usability-aware
+    # raw retention, raw-signal-retention augmentation) can each append more raw columns afterward with no
+    # re-check against the cap - letting the final raw (and n_features_) count silently exceed the
+    # documented max(20, p//3) ceiling on a p>>n fit with real leftover linear-usable raw signal. Re-apply
+    # the same cap here, at the true end of raw-selection mutation for this fit (nothing below this point
+    # adds more raw columns - only the UAED elbow trim further down, which only shrinks).
+    _pgn_n_final = int(data.shape[0])
+    _pgn_p_final = int(getattr(self, "n_features_in_", 0) or 0)
+    _assign_support_tai_adds_more_raw_columns(self, _pgn_p_final, _pgn_n_final, selected_vars, cols, n_engineered_out, verbose)
+
+
+def _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx):
+    """Block of _assign_support_tai_fe_max_steps starting at ``if fe_max_steps > 0:``."""
     if fe_max_steps > 0:
         # SHARED RETENTION PREP: both retain_usable_pure_forms and retain_usable_raw_columns below independently rebuild the same numeric-dtype base_names
         # filter, std-trim-to-max_base_features, and (same seed) row subsample from this SAME (X, y_cont) - computed once here and passed to both so the
         # identical-seed X.iloc[_idx] draw is materialized once, not twice, per fit.
         _retention_prep_cache = None
+        _retention_prep_cache = _assign_support_tai_identical_seed_iloc_idx(self, X, _retention_prep_cache)
         try:
-            import pandas as _ret_pd
-            from .._fe_pure_form_retention import _retention_prep as _ret_prep_fn
-
-            _ret_y_prep = getattr(self, "_fe_prewarp_y_continuous_", None)
-            if isinstance(X, _ret_pd.DataFrame) and _ret_y_prep is not None:
-                _retention_prep_cache = _ret_prep_fn(
-                    self, X, _ret_y_prep, seed=int(getattr(self, "random_seed", 0) or 0),
-                )
-        except Exception as exc:
-            logger.debug("mrmr: retention-prep cache build failed; pure-form retention will recompute per-call: %r", exc, exc_info=True)
-            _retention_prep_cache = None
-        try:
-            from .._fe_pure_form_retention import retain_usable_pure_forms
+            from mlframe.feature_selection.filters._fe_pure_form_retention import retain_usable_pure_forms
 
             _retain_extra = retain_usable_pure_forms(
                 self, X, getattr(self, "_fe_prewarp_y_continuous_", None),
@@ -84,14 +111,11 @@ def _assign_support_tail(
             # survivor to condition on.
             if _retain_extra:
                 try:
-                    from .._fe_retention_subsumption import retention_form_is_subsumed
+                    from mlframe.feature_selection.filters._fe_retention_subsumption import retention_form_is_subsumed
                     from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe as _ret_apply
                     _inc_names = [str(_n) for _n in (self._engineered_features_ or [])]
-                    _inc_cont = []
-                    for _in in _inc_names:
-                        _iv = _eng_continuous_snapshot.get(_in)
-                        if _iv is not None and np.asarray(_iv).shape[0] == int(data.shape[0]):
-                            _inc_cont.append(np.asarray(_iv, dtype=np.float64).ravel())
+                    _inc_cont: list[Any] = []
+                    _assign_support_tai_inc_names(_inc_names, _eng_continuous_snapshot, data, _inc_cont)
                     if _inc_cont:
                         _ret_y = np.ascontiguousarray(np.asarray(classes_y)).ravel()
                         _ret_y_cont = getattr(self, "_fe_prewarp_y_continuous_", None)
@@ -155,7 +179,7 @@ def _assign_support_tail(
         # under-ranked raws and - crucially - rejects pure-noise raws (they do not lower the average CV-MAE).
         # Re-attaches only raws NOT already in support_; purely additive (no engineered recipe touched).
         try:
-            from .._fe_pure_form_retention import retain_usable_raw_columns
+            from mlframe.feature_selection.filters._fe_pure_form_retention import retain_usable_raw_columns
 
             _raw_extra = retain_usable_raw_columns(
                 self, X, getattr(self, "_fe_prewarp_y_continuous_", None),
@@ -184,31 +208,7 @@ def _assign_support_tail(
                 # representative, so exclude every cluster member from ``_raw_extra`` (no second copy).
                 _rr_excl_names = set(str(_n) for _n in (getattr(self, "_cluster_aggregate_removals_", None) or []))
                 _cm_rr = getattr(self, "cluster_members_", None)
-                if isinstance(_cm_rr, dict):
-                    _rr_raw = set(self.feature_names_in_)
-                    _rr_sel_names = {self.feature_names_in_[int(v)] for v in selected_vars if int(v) < len(self.feature_names_in_)}
-                    _rr_order = {str(_nm): _i for _i, _nm in enumerate(_raw_extra)}
-                    for _rr_anchor, _rr_members in _cm_rr.items():
-                        _a = str(_rr_anchor)
-                        _ms = [str(_m) for _m in _rr_members] if isinstance(_rr_members, (list, tuple, set)) else []
-                        if _a not in _rr_raw:
-                            # aggregate/engineered anchor: every raw member is folded into the aggregate.
-                            _rr_excl_names.update(_n for _n in _ms if _n in _rr_raw)
-                            continue
-                        _grp = [_n for _n in [_a, *_ms] if _n in _rr_raw]
-                        if len(_grp) < 2:
-                            continue
-                        if any(_n in _rr_sel_names for _n in _grp):
-                            # a representative already survived -> drop every cluster member from re-attach.
-                            _rr_excl_names.update(_grp)
-                        else:
-                            # whole cluster dropped -> keep the single member the retention ranked highest.
-                            _cands = [_n for _n in _grp if _n in _rr_order]
-                            if _cands:
-                                _keep = min(_cands, key=lambda _n: _rr_order[_n])
-                                _rr_excl_names.update(_n for _n in _grp if _n != _keep)
-                            else:
-                                _rr_excl_names.update(_grp)
+                _assign_support_tai_representative_exclude_every_cluster(self, _cm_rr, selected_vars, _raw_extra, _rr_excl_names)
                 # SUBSUMED-OPERAND EXCLUSION (signal-aware, variant-3). A raw that is an operand of a
                 # SURVIVING engineered feature MAY be fully represented by that feature (re-attaching it then
                 # re-injects the raw-redundancy I4b forbids) - but it may instead carry a large PRIVATE signal
@@ -219,7 +219,7 @@ def _assign_support_tail(
                 # PER RAW with the same conditional-redundancy discriminator the rescue/drop passes use: exclude
                 # ONLY raws truly subsumed by the engineered survivors consuming them (no private signal given
                 # those children); KEEP raws that retain >= RAW_SELF_RETAIN_FRAC of their marginal excess.
-                from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RR_TOK_SPLIT2
+                from mlframe.feature_selection.filters._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RR_TOK_SPLIT2
                 _rr_raw_set = set(self.feature_names_in_)
                 # raw name -> surviving engineered recipe names that consume it as an operand.
                 # ``selected_vars`` is narrowed to RAW-ONLY indices just above (the ``selected_vars =
@@ -234,13 +234,7 @@ def _assign_support_tail(
                 _rr_consumers: dict = {}
                 _rr_sel_eng_names = {str(getattr(_r, "name", "")) for _r in (self._engineered_recipes_ or []) if getattr(_r, "name", None)}
                 _rr_sel_eng_names |= {str(_n) for _n in (self._engineered_features_ or [])}
-                for _en_name in _rr_sel_eng_names:
-                    for _tok in _RR_TOK_SPLIT2.split(str(_en_name)):
-                        if not _tok:
-                            continue
-                        _base = _tok if _tok in _rr_raw_set else (_tok.split("__", 1)[0] if "__" in _tok else None)
-                        if _base in _rr_raw_set:
-                            _rr_consumers.setdefault(_base, set()).add(str(_en_name))
+                _assign_support_tai_en_name_rr_sel(_rr_sel_eng_names, _RR_TOK_SPLIT2, _rr_raw_set, _rr_consumers)
                 # Only the raws actually up for re-attachment need a verdict.
                 _rr_cand_subsumed = {str(_n) for _n in _raw_extra if str(_n) in _rr_consumers}
                 if _rr_cand_subsumed and not bool(getattr(self, "use_simple_mode", False)):
@@ -252,8 +246,8 @@ def _assign_support_tail(
                     _rr_excl_names.update(_rr_cand_subsumed)
                 elif _rr_cand_subsumed:
                     try:
-                        from .._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children as _rr_keep
-                        from .._mi_greedy_cmi_fe import _quantile_bin as _rr_qbin
+                        from mlframe.feature_selection.filters._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children as _rr_keep
+                        from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin as _rr_qbin
                         _rr_cols_idx = {nm: i for i, nm in enumerate(cols)}
                         _rr_y = np.ascontiguousarray(np.asarray(classes_y)).ravel().astype(np.int64)
                         _rr_eng_cont = _eng_continuous_snapshot or {}
@@ -275,7 +269,7 @@ def _assign_support_tail(
                                     )
                             if not _child_bins:
                                 continue  # no usable child to condition on -> not provably subsumed -> KEEP
-                            from .._fallback_probe import call_or_default
+                            from mlframe.feature_selection.filters._fallback_probe import call_or_default
 
                             # Estimator error -> retain (never drop genuine signal), reported like the outer handler below.
                             def _keep_probe(_rb: np.ndarray = _raw_b, _cb: list = _child_bins) -> bool:
@@ -329,36 +323,102 @@ def _assign_support_tail(
                         selected_vars.append(int(_idx))
                         _cur_set.add(int(_idx))
                         _added_idx.append(int(_idx))
-                if _added_idx:
-                    self.support_ = np.array(selected_vars, dtype=np.int64)
-                    if verbose:
-                        logger.info(
-                            "MRMR usability-aware raw retention: re-attached %d linearly-usable raw(s) the "
-                            "MI greedy under-ranked: %s", len(_added_idx), _raw_extra,
-                        )
+                _assign_support_tai_added_idx(self, _added_idx, selected_vars, verbose, _raw_extra)
         except Exception as _raw_retain_exc:  # never let the optional retention break a fit
             logger.debug("MRMR usability-aware raw retention skipped (%s: %s).", type(_raw_retain_exc).__name__, _raw_retain_exc)
 
-    # POST-RETENTION RAW-REDUNDANCY DROP (BUG1). The main raw-vs-engineered
-    # redundancy sweep (above) runs on the screen-stage ``selected_vars`` BEFORE
-    # the usability-aware pure-form retention re-attaches an engineered survivor. When that
-    # retention adds a MULTI-OPERAND composite (e.g. ``div(qubed(a),sin(b))``) AFTER the
-    # sweep, the raw operands it subsumes (``a``, ``b``) are still in ``selected_vars`` and no
-    # later pass conditions them on the freshly-attached child - so a fully-subsumed raw rides
-    # into ``support_`` beside the composite that captures it (the I4b end-to-end violation).
-    # Re-run the SAME n-invariant conditional-redundancy verdict on the FINAL selection, with
-    # the now-complete engineered survivor set (incl. the retained pure forms) as the anchor.
-    # Only DROPS raws fully subsumed by a surviving MULTI-SOURCE child; a genuine private raw
-    # (large independent residual) and a raw consumed by no surviving engineered feature are
-    # KEPT (the DPI-trap filter + self-retention leg inside the helper enforce this). Off when
-    # the drop sweep is disabled (shares ``fe_drop_redundant_raw_operands``).
+
+def _assign_support_tai_identical_seed_iloc_idx(self, X, _retention_prep_cache):
+    """Block of _assign_support_tail starting at ``try:``."""
+    try:
+        import pandas as _ret_pd
+        from mlframe.feature_selection.filters._fe_pure_form_retention import _retention_prep as _ret_prep_fn
+
+        _ret_y_prep = getattr(self, "_fe_prewarp_y_continuous_", None)
+        if isinstance(X, _ret_pd.DataFrame) and _ret_y_prep is not None:
+            _retention_prep_cache = _ret_prep_fn(
+                self, X, _ret_y_prep, seed=int(getattr(self, "random_seed", 0) or 0),
+            )
+    except Exception as exc:
+        logger.debug("mrmr: retention-prep cache build failed; pure-form retention will recompute per-call: %r", exc, exc_info=True)
+        _retention_prep_cache = None
+    return _retention_prep_cache
+
+
+def _assign_support_tai_inc_names(_inc_names, _eng_continuous_snapshot, data, _inc_cont):
+    """Block of _assign_support_tail starting at ``for _in in _inc_names:``."""
+    for _in in _inc_names:
+        _iv = _eng_continuous_snapshot.get(_in)
+        if _iv is not None and np.asarray(_iv).shape[0] == int(data.shape[0]):
+            _inc_cont.append(np.asarray(_iv, dtype=np.float64).ravel())
+
+
+def _assign_support_tai_representative_exclude_every_cluster(self, _cm_rr, selected_vars, _raw_extra, _rr_excl_names):
+    """Block of _assign_support_tail starting at ``if isinstance(_cm_rr, dict):``."""
+    if isinstance(_cm_rr, dict):
+        _rr_raw = set(self.feature_names_in_)
+        _rr_sel_names = {self.feature_names_in_[int(v)] for v in selected_vars if int(v) < len(self.feature_names_in_)}
+        _rr_order = {str(_nm): _i for _i, _nm in enumerate(_raw_extra)}
+        for _rr_anchor, _rr_members in _cm_rr.items():
+            _a = str(_rr_anchor)
+            _ms = [str(_m) for _m in _rr_members] if isinstance(_rr_members, (list, tuple, set)) else []
+            if _a not in _rr_raw:
+                # aggregate/engineered anchor: every raw member is folded into the aggregate.
+                _rr_excl_names.update(_n for _n in _ms if _n in _rr_raw)
+                continue
+            _grp = [_n for _n in [_a, *_ms] if _n in _rr_raw]
+            if len(_grp) < 2:
+                continue
+            if any(_n in _rr_sel_names for _n in _grp):
+                # a representative already survived -> drop every cluster member from re-attach.
+                _rr_excl_names.update(_grp)
+            else:
+                # whole cluster dropped -> keep the single member the retention ranked highest.
+                _cands = [_n for _n in _grp if _n in _rr_order]
+                if _cands:
+                    _keep = min(_cands, key=lambda _n: _rr_order[_n])
+                    _rr_excl_names.update(_n for _n in _grp if _n != _keep)
+                else:
+                    _rr_excl_names.update(_grp)
+
+
+def _assign_support_tai_en_name_rr_sel(_rr_sel_eng_names, _RR_TOK_SPLIT2, _rr_raw_set, _rr_consumers):
+    """Block of _assign_support_tail starting at ``for _en_name in _rr_sel_eng_names:``."""
+    for _en_name in _rr_sel_eng_names:
+        for _tok in _RR_TOK_SPLIT2.split(str(_en_name)):
+            if not _tok:
+                continue
+            _base = _tok if _tok in _rr_raw_set else (_tok.split("__", 1)[0] if "__" in _tok else None)
+            if _base in _rr_raw_set:
+                _rr_consumers.setdefault(_base, set()).add(str(_en_name))
+
+
+def _assign_support_tai_added_idx(self, _added_idx, selected_vars, verbose, _raw_extra):
+    """Block of _assign_support_tail starting at ``if _added_idx:``."""
+    if _added_idx:
+        self.support_ = np.array(selected_vars, dtype=np.int64)
+        if verbose:
+            logger.info(
+                "MRMR usability-aware raw retention: re-attached %d linearly-usable raw(s) the "
+                "MI greedy under-ranked: %s", len(_added_idx), _raw_extra,
+            )
+
+
+def _assign_support_tai_drop_sweep_disabled_shares(self, selected_vars, _retention_added_eng_names, cols, data, _eng_continuous_snapshot, X, y, classes_y, verbose, target_indices, nbins):
+    """Block of _assign_support_tail starting at ``if (getattr(self, "fe_drop_redundant_raw_operands", True)``."""
+    selected_vars = _assign_support_tai_getattr_self_fe_drop(self, selected_vars, _retention_added_eng_names, cols, data, _eng_continuous_snapshot, X, y, classes_y, verbose, target_indices, nbins)
+    return selected_vars
+
+
+def _assign_support_tai_getattr_self_fe_drop(self, selected_vars, _retention_added_eng_names, cols, data, _eng_continuous_snapshot, X, y, classes_y, verbose, target_indices, nbins):
+    """Block of _assign_support_tai_getattr_self_fe_drop starting at ``if (getattr(self, "fe_drop_redundant_raw_operands", True)``."""
     if (getattr(self, "fe_drop_redundant_raw_operands", True)
             and getattr(self, "redundancy_policy", "emit_both") == "drop"
             and selected_vars and getattr(self, "_engineered_recipes_", None)):
         try:
-            from .._fe_raw_redundancy_drop import _linear_usability_keep_enabled, drop_redundant_raw_operands as _post_drop
+            from mlframe.feature_selection.filters._fe_raw_redundancy_drop import _linear_usability_keep_enabled, drop_redundant_raw_operands as _post_drop
             from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe as _post_apply
-            from .._mi_greedy_cmi_fe import _quantile_bin as _post_qbin
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin as _post_qbin
 
             _post_raw_set = set(self.feature_names_in_)
             # Final engineered survivor recipes (name -> EngineeredRecipe); these are the
@@ -453,8 +513,8 @@ def _assign_support_tail(
                                 _bf_ci = _post_name_to_idx.get(_dn)
                                 if _bf_ci is None:
                                     continue
-                                from ..info_theory import mi as _pf_mi
-                                from .._fallback_probe import call_or_default
+                                from mlframe.feature_selection.filters.info_theory import mi as _pf_mi
+                                from mlframe.feature_selection.filters._fallback_probe import call_or_default
 
                                 def _post_rel_probe(_ci: int = _bf_ci) -> float:
                                     """Marginal MI of dropped raw column ``_ci`` against the target."""
@@ -482,10 +542,11 @@ def _assign_support_tail(
                 "MRMR post-retention raw-redundancy drop failed: %s; keeping the support.",
                 _post_exc,
             )
+    return selected_vars
 
-    # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
-    # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).
-    n_engineered_out = len(self._engineered_recipes_)
+
+def _assign_support_tai_engineered_features_without_replayable(self, selected_vars, n_engineered_out, cols, data, _allowed_raw_idx, nbins, target_indices):
+    """Block of _assign_support_tail starting at ``if selected_vars:``."""
     if selected_vars:
         self.n_features_ = len(selected_vars) + n_engineered_out
         # RAW-SIGNAL-RETENTION augmentation (Fix B). On a wide composite-FE pool the screen often confirms an ENGINEERED derivative of a strong raw signal (e.g.
@@ -595,18 +656,12 @@ def _assign_support_tail(
         # Threads the instance + fit-body locals explicitly; mutates self.support_ / n_features_ /
         # fallback_used_ / fallback_metadata_ in place. Behaviour byte-for-byte identical to the
         # former inlined branch.
-        from ._finalise import _finalise_empty_support_fallback
+        from mlframe.feature_selection.filters._mrmr_fit_impl._finalise import _finalise_empty_support_fallback
         _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, target_indices)
 
-    # The p>=n FP-control cap above is enforced exactly once,
-    # but the post-selection reconciliation passes below it (emit-both operand re-attach, usability-aware
-    # raw retention, raw-signal-retention augmentation) can each append more raw columns afterward with no
-    # re-check against the cap - letting the final raw (and n_features_) count silently exceed the
-    # documented max(20, p//3) ceiling on a p>>n fit with real leftover linear-usable raw signal. Re-apply
-    # the same cap here, at the true end of raw-selection mutation for this fit (nothing below this point
-    # adds more raw columns - only the UAED elbow trim further down, which only shrinks).
-    _pgn_n_final = int(data.shape[0])
-    _pgn_p_final = int(getattr(self, "n_features_in_", 0) or 0)
+
+def _assign_support_tai_adds_more_raw_columns(self, _pgn_p_final, _pgn_n_final, selected_vars, cols, n_engineered_out, verbose):
+    """Block of _assign_support_tail starting at ``if _pgn_p_final > 0 and _pgn_n_final > 0 and _pgn_p_final >= _pgn_n_fi``."""
     if _pgn_p_final > 0 and _pgn_n_final > 0 and _pgn_p_final >= _pgn_n_final and selected_vars:
         _pgn_ceiling_final = max(20, _pgn_p_final // 3)
         _pgn_eng_final = len(getattr(self, "_engineered_recipes_", None) or [])

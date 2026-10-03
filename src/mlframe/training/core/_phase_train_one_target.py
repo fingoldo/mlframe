@@ -98,6 +98,7 @@ def _apply_loss_recommendation_in_place(
 
     Mutation is in-place to keep parity with the surrounding code (which already mutates ``models_params`` for cache restoration).
     """
+    rec: Any = None
     try:
         from ..loss_recommendation import recommend_boosting_regression_loss
     except Exception as _imp_err:
@@ -171,6 +172,51 @@ def _apply_loss_recommendation_in_place(
 
     _applied: list[str] = []
     _skipped: list[str] = []
+    _apply_loss_recomme_backend_param_name_value(_backend_param, _skipped, models_params, _eval_metric_for, rec, _applied, verbose, logger_)
+
+    # Linear / Ridge / Lasso protection on heavy-kurt regression
+    # An additive_residual composite ``y-addres-
+    # base`` on a heavy-tail-target run produced excess_kurt=+16.96 /
+    # skew=+2.88 in T-space. Ridge fit with alpha=1e-3 (effectively
+    # OLS) chased the outlier rows and predicted -700k on test rows
+    # against a true T in [-30k, +5k], R^2=-44M. Symmetric to the
+    # boosting protection: when ``recommend_boosting_regression_loss``
+    # picked Huber (i.e. excess_kurt > 1.5 threshold), bump the L2
+    # regulariser on the linear-family models so coefficients can't
+    # blow up to fit the tail. alpha=10 produces predictions strongly
+    # shrunk toward train-mean -- effectively the same robustness as
+    # HuberRegressor without a class swap that downstream isinstance
+    # dispatch would notice.
+    _excess_kurt = float(rec.get("excess_kurt", float("nan")))
+    _cb_recommendation = rec.get("cb")
+    _heavy_kurt_fired = np.isfinite(_excess_kurt) and _cb_recommendation is not None and str(_cb_recommendation).startswith("Huber")
+    _apply_loss_recomme_heavy_kurt_fired(_heavy_kurt_fired, models_params, _applied)
+
+    if verbose and _applied:
+        logger_.info(
+            "[auto-loss] target='%s' excess_kurt=%.2f (n_finite=%d) -- %s. Applied: %s.",
+            composite_name, float(rec.get("excess_kurt", float("nan"))),
+            int(rec.get("n_finite", 0)),
+            rec.get("rationale", ""), ", ".join(_applied),
+        )
+    # Surface skipped backends too: an operator who expected a custom objective on
+    # ALL three backends gets no signal about which ones were dropped pre-fix.
+    # Log at INFO (operator-relevant) only when at least one backend was applied,
+    # so the surrounding noise is gated on the auto-loss path having actually fired
+    # for some backend; otherwise this is silent (no skip-only spam on backends
+    # that simply have no recommendation engine wired).
+    if verbose and _applied and _skipped:
+        logger_.info(
+            "[auto-loss] target='%s' skipped backends: %s",
+            composite_name, ", ".join(_skipped),
+        )
+
+
+def _apply_loss_recomme_backend_param_name_value(_backend_param, _skipped, models_params, _eval_metric_for, rec, _applied, verbose, logger_):
+    """Block of _apply_loss_recommendation_in_place starting at ``for _backend, (_param_name, _value) in _backend_param.items():``."""
+    _value: Any = None
+    _param_name: Any = None
+    _backend: Any = None
     for _backend, (_param_name, _value) in _backend_param.items():
         if not _value:
             _skipped.append(f"{_backend}:no_recommendation")
@@ -195,41 +241,31 @@ def _apply_loss_recommendation_in_place(
         _extra_params = rec.get(f"{_backend}_extra_params") or {}
         if isinstance(_extra_params, dict):
             _set_kwargs.update(_extra_params)
-        try:
-            _model.set_params(**_set_kwargs)
-            _applied.append(
-                f"{_backend}:{_param_name}={_value}"
-                + (f",{_em[0]}={_em[1]}" if _em is not None else "")
-                + (f",{'+'.join(_extra_params)}" if _extra_params else "")
-            )
-        except (ValueError, TypeError) as _set_err:
-            # Backend may reject the combined value. Try objective-only as fallback.
-            try:
-                _model.set_params(**{_param_name: _value})
-                _applied.append(f"{_backend}:{_param_name}={_value}")
-            except (ValueError, TypeError) as _set_err2:
-                if verbose:
-                    logger_.debug(
-                        "[auto-loss] %s.set_params(%s=%r) rejected: %s / %s. Keeping default.",
-                        _backend, _param_name, _value, _set_err, _set_err2,
-                    )
+        _apply_loss_recomme_try(_model, _set_kwargs, _applied, _backend, _param_name, _value, _em, _extra_params, verbose, logger_)
 
-    # Linear / Ridge / Lasso protection on heavy-kurt regression
-    # An additive_residual composite ``y-addres-
-    # base`` on a heavy-tail-target run produced excess_kurt=+16.96 /
-    # skew=+2.88 in T-space. Ridge fit with alpha=1e-3 (effectively
-    # OLS) chased the outlier rows and predicted -700k on test rows
-    # against a true T in [-30k, +5k], R^2=-44M. Symmetric to the
-    # boosting protection: when ``recommend_boosting_regression_loss``
-    # picked Huber (i.e. excess_kurt > 1.5 threshold), bump the L2
-    # regulariser on the linear-family models so coefficients can't
-    # blow up to fit the tail. alpha=10 produces predictions strongly
-    # shrunk toward train-mean -- effectively the same robustness as
-    # HuberRegressor without a class swap that downstream isinstance
-    # dispatch would notice.
-    _excess_kurt = float(rec.get("excess_kurt", float("nan")))
-    _cb_recommendation = rec.get("cb")
-    _heavy_kurt_fired = np.isfinite(_excess_kurt) and _cb_recommendation is not None and str(_cb_recommendation).startswith("Huber")
+
+def _apply_loss_recomme_try(_model, _set_kwargs, _applied, _backend, _param_name, _value, _em, _extra_params, verbose, logger_):
+    """Block of _apply_loss_recommendation_in_place starting at ``try:``."""
+    try:
+        _model.set_params(**_set_kwargs)
+        _applied.append(
+            f"{_backend}:{_param_name}={_value}" + (f",{_em[0]}={_em[1]}" if _em is not None else "") + (f",{'+'.join(_extra_params)}" if _extra_params else "")
+        )
+    except (ValueError, TypeError) as _set_err:
+        # Backend may reject the combined value. Try objective-only as fallback.
+        try:
+            _model.set_params(**{_param_name: _value})
+            _applied.append(f"{_backend}:{_param_name}={_value}")
+        except (ValueError, TypeError) as _set_err2:
+            if verbose:
+                logger_.debug(
+                    "[auto-loss] %s.set_params(%s=%r) rejected: %s / %s. Keeping default.",
+                    _backend, _param_name, _value, _set_err, _set_err2,
+                )
+
+
+def _apply_loss_recomme_heavy_kurt_fired(_heavy_kurt_fired, models_params, _applied):
+    """Block of _apply_loss_recommendation_in_place starting at ``if _heavy_kurt_fired:``."""
     if _heavy_kurt_fired:
         _LINEAR_HEAVY_KURT_ALPHA: float = 10.0
         for _lin_backend in ("linear", "ridge", "lasso", "elasticnet"):
@@ -244,25 +280,6 @@ def _apply_loss_recommendation_in_place(
                 _applied.append(f"{_lin_backend}:alpha={_LINEAR_HEAVY_KURT_ALPHA}")
             except (ValueError, TypeError):
                 continue
-
-    if verbose and _applied:
-        logger_.info(
-            "[auto-loss] target='%s' excess_kurt=%.2f (n_finite=%d) -- %s. Applied: %s.",
-            composite_name, float(rec.get("excess_kurt", float("nan"))),
-            int(rec.get("n_finite", 0)),
-            rec.get("rationale", ""), ", ".join(_applied),
-        )
-    # Surface skipped backends too: an operator who expected a custom objective on
-    # ALL three backends gets no signal about which ones were dropped pre-fix.
-    # Log at INFO (operator-relevant) only when at least one backend was applied,
-    # so the surrounding noise is gated on the auto-loss path having actually fired
-    # for some backend; otherwise this is silent (no skip-only spam on backends
-    # that simply have no recommendation engine wired).
-    if verbose and _applied and _skipped:
-        logger_.info(
-            "[auto-loss] target='%s' skipped backends: %s",
-            composite_name, ", ".join(_skipped),
-        )
 
 
 # Back-compat alias so existing call sites that read ``slugify`` continue to work.

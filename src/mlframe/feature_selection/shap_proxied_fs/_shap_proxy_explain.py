@@ -730,13 +730,7 @@ def compute_shap_matrix(
                 # Sequence (mirrors the non-cached code path below):
                 #   * out_of_fold=False: n_models seeds.
                 #   * out_of_fold=True: 1 splitter seed + n_splits * n_models fold seeds.
-                if not out_of_fold:
-                    for _ in range(n_models):
-                        rng.integers(0, 2**31 - 1)
-                else:
-                    rng.integers(0, 2**31 - 1)
-                    for _ in range(n_splits * n_models):
-                        rng.integers(0, 2**31 - 1)
+                _compute_shap_matri_out_fold_true_splitter(out_of_fold, n_models, rng, n_splits)
                 return _hit
         except Exception as exc:
             # Cache failures are non-fatal: we lose the speedup but the compute path stays correct.
@@ -858,6 +852,35 @@ def compute_shap_matrix(
         _assert_additivity_and_base(pf, bf, fold_tag=f" fold {fold_id}")
         return fold_id, va_idx, pf, bf, vf
 
+    fold_results = _compute_shap_matri_outer(outer, folds, _one_fold, tqdm_desc)
+
+    # ``fold_results`` may arrive out of order when ``outer > 1`` (joblib threads scatter); each tuple
+    # carries its fold id explicitly so per_fold_mean[fid] keeps the deterministic split-order mapping.
+    _compute_shap_matri_carries_its_fold_id(fold_results, phi, base, return_variance, phi_var, return_per_fold_phi_mean, per_fold_mean)
+
+    out_tail = []
+    if return_variance:
+        out_tail.append(phi_var)
+    if return_per_fold_phi_mean:
+        out_tail.append(per_fold_mean)
+    if out_tail:
+        return _maybe_store((phi, base, y.astype(np.float64), *out_tail))
+    return _maybe_store((phi, base, y.astype(np.float64)))
+
+
+def _compute_shap_matri_out_fold_true_splitter(out_of_fold, n_models, rng, n_splits):
+    """Block of compute_shap_matrix starting at ``if not out_of_fold:``."""
+    if not out_of_fold:
+        for _ in range(n_models):
+            rng.integers(0, 2**31 - 1)
+    else:
+        rng.integers(0, 2**31 - 1)
+        for _ in range(n_splits * n_models):
+            rng.integers(0, 2**31 - 1)
+
+
+def _compute_shap_matri_outer(outer, folds, _one_fold, tqdm_desc):
+    """Block of compute_shap_matrix starting at ``if outer > 1:``."""
     if outer > 1:
         from joblib import Parallel, delayed
 
@@ -869,9 +892,11 @@ def compute_shap_matrix(
 
             iter_folds = tqdmu(folds, desc=tqdm_desc)
         fold_results = [_one_fold(fid, tr, va) for fid, (tr, va) in enumerate(iter_folds)]
+    return fold_results
 
-    # ``fold_results`` may arrive out of order when ``outer > 1`` (joblib threads scatter); each tuple
-    # carries its fold id explicitly so per_fold_mean[fid] keeps the deterministic split-order mapping.
+
+def _compute_shap_matri_carries_its_fold_id(fold_results, phi, base, return_variance, phi_var, return_per_fold_phi_mean, per_fold_mean):
+    """Block of compute_shap_matrix starting at ``for fold_id, va_idx, pf, bf, vf in fold_results:``."""
     for fold_id, va_idx, pf, bf, vf in fold_results:
         phi[va_idx] = pf
         base[va_idx] = bf
@@ -881,12 +906,3 @@ def compute_shap_matrix(
         if return_per_fold_phi_mean:
             assert per_fold_mean is not None  # tied to return_per_fold_phi_mean by construction
             per_fold_mean[fold_id] = np.abs(pf).mean(axis=0)
-
-    out_tail = []
-    if return_variance:
-        out_tail.append(phi_var)
-    if return_per_fold_phi_mean:
-        out_tail.append(per_fold_mean)
-    if out_tail:
-        return _maybe_store((phi, base, y.astype(np.float64), *out_tail))
-    return _maybe_store((phi, base, y.astype(np.float64)))

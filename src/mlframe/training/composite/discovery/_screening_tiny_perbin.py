@@ -263,6 +263,7 @@ def _tiny_cv_rmse_y_scale(
     on the common (all-valid) path -- <0.1 ms at n=20k vs the ~26 ms fold fits, far
     under the actionable threshold; no further optimization needed.
     """
+    x_clean: Any = None
     n = len(y_train)
     if n < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
@@ -431,21 +432,7 @@ def _tiny_cv_rmse_y_scale(
             fold_results = []
             _sum_so_far = 0.0
             _n_finite_so_far = 0
-            for _fi, (tr, va) in enumerate(splits):
-                _rmse, _pb = _one_fold(tr, va)
-                fold_results.append((_rmse, _pb))
-                if math.isfinite(_rmse):
-                    _sum_so_far += _rmse
-                    _n_finite_so_far += 1
-                if (
-                    math.isfinite(early_stop_threshold)
-                    and _n_finite_so_far > 0
-                    and _fi < len(splits) - 1
-                    and _sum_so_far > early_stop_threshold * cv_folds
-                    and cv_selector_mode == "mean"  # partial-sum bound only guarantees the MEAN exceeds thr; median/quantile aggregates can stay below
-                ):
-                    # Final mean cannot reach <= threshold; abort remaining folds.
-                    break
+            _tiny_cv_y_sca_fi_tr_va_enumerate(splits, _one_fold, fold_results, _sum_so_far, _n_finite_so_far, early_stop_threshold, cv_folds, cv_selector_mode)
 
     # NaN-fold aggregate WARN (twin of the y-scale branch).
     _nan_fold_count = sum(1 for r, _ in fold_results if not math.isfinite(r))
@@ -480,6 +467,25 @@ def _tiny_cv_rmse_y_scale(
     with np.errstate(invalid="ignore"):
         per_bin_mean = np.nanmean(per_bin_stack, axis=0)
     return mean_rmse, per_bin_mean
+
+
+def _tiny_cv_y_sca_fi_tr_va_enumerate(splits, _one_fold, fold_results, _sum_so_far, _n_finite_so_far, early_stop_threshold, cv_folds, cv_selector_mode):
+    """Block of _tiny_cv_rmse_y_scale starting at ``for _fi, (tr, va) in enumerate(splits):``."""
+    for _fi, (tr, va) in enumerate(splits):
+        _rmse, _pb = _one_fold(tr, va)
+        fold_results.append((_rmse, _pb))
+        if math.isfinite(_rmse):
+            _sum_so_far += _rmse
+            _n_finite_so_far += 1
+        if (
+            math.isfinite(early_stop_threshold)
+            and _n_finite_so_far > 0
+            and _fi < len(splits) - 1
+            and _sum_so_far > early_stop_threshold * cv_folds
+            and cv_selector_mode == "mean"  # partial-sum bound only guarantees the MEAN exceeds thr; median/quantile aggregates can stay below
+        ):
+            # Final mean cannot reach <= threshold; abort remaining folds.
+            break
 
 
 def _resolve_perbin_cv_groups(groups, y_train, _group_mask, cv_folds, cv_splitter, time_aware, groups_clean):

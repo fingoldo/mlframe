@@ -19,7 +19,7 @@ __all__ = [
 
 import logging
 from functools import partial
-from typing import Callable, Dict, List, Optional, Pattern, Sequence, Tuple, cast
+from typing import Callable, Dict, List, Optional, Pattern, Sequence, Tuple, cast, Any
 
 import numpy as np
 import pandas as pd
@@ -226,8 +226,19 @@ def create_aggregated_features(  # nosec B107 - default is a separator/label tok
     See README for the catalogue of transforms applied: raw, diffs, ratios, wavelets, weighted,
     EWMA, rolling, non-linear, robust quantile-trimmed, and per-value-counts.
     """
+    _create_aggregated__checked_subsets_none(checked_subsets, countaggs_kwds, groupby_vars, na_fills, nonlinear_transforms, numaggs_kwds, wavelets_correction_numaggs_kwds, span_corrections, splitting_vars, subsets, window_df, vars_mask_regexp, vars_mask_exclude_regexp, dataset_name, captions_vars_sep, row_features, features_names, create_features_names, process_categoricals, counts_processing_mask_regexp, return_n_finite, drawdown_vars, lintrend_approx_vars, differences_features, ratios_features, waveletnames, weighting_vars, ewma_alphas, rolling, nonnormal_vars, robust_features, subset_token, nested_subsets)
+
+
+def _create_aggregated__checked_subsets_none(checked_subsets, countaggs_kwds, groupby_vars, na_fills, nonlinear_transforms, numaggs_kwds, wavelets_correction_numaggs_kwds, span_corrections, splitting_vars, subsets, window_df, vars_mask_regexp, vars_mask_exclude_regexp, dataset_name, captions_vars_sep, row_features, features_names, create_features_names, process_categoricals, counts_processing_mask_regexp, return_n_finite, drawdown_vars, lintrend_approx_vars, differences_features, ratios_features, waveletnames, weighting_vars, ewma_alphas, rolling, nonnormal_vars, robust_features, subset_token, nested_subsets):
+    """Block of create_aggregated_features starting at ``if checked_subsets is None:``."""
     if checked_subsets is None:
         checked_subsets = []
+    _create_aggregated__countaggs_kwds_none(countaggs_kwds, groupby_vars, na_fills, nonlinear_transforms, numaggs_kwds, wavelets_correction_numaggs_kwds, span_corrections, splitting_vars, subsets, window_df, checked_subsets, vars_mask_regexp, vars_mask_exclude_regexp, dataset_name, captions_vars_sep, row_features, features_names, create_features_names, process_categoricals, counts_processing_mask_regexp, return_n_finite, drawdown_vars, lintrend_approx_vars, differences_features, ratios_features, waveletnames, weighting_vars, ewma_alphas, rolling, nonnormal_vars, robust_features, subset_token, nested_subsets)
+
+
+def _create_aggregated__countaggs_kwds_none(countaggs_kwds, groupby_vars, na_fills, nonlinear_transforms, numaggs_kwds, wavelets_correction_numaggs_kwds, span_corrections, splitting_vars, subsets, window_df, checked_subsets, vars_mask_regexp, vars_mask_exclude_regexp, dataset_name, captions_vars_sep, row_features, features_names, create_features_names, process_categoricals, counts_processing_mask_regexp, return_n_finite, drawdown_vars, lintrend_approx_vars, differences_features, ratios_features, waveletnames, weighting_vars, ewma_alphas, rolling, nonnormal_vars, robust_features, subset_token, nested_subsets):
+    """Block of _create_aggregated__checked_subsets_none starting at ``if countaggs_kwds is None:``."""
+    var: Any = None
     if countaggs_kwds is None:
         countaggs_kwds = {}
     if groupby_vars is None:
@@ -299,10 +310,7 @@ def create_aggregated_features(  # nosec B107 - default is a separator/label tok
         idx = np.isfinite(raw_vals)
         raw_vals = raw_vals[idx]
 
-        if return_n_finite:
-            row_features.append(idx.sum())
-            if create_features_names:
-                features_names.append(captions_vars_sep.join((cast(str, dataset_name), var, "n_finite")))
+        _create_aggregated__return_finite(return_n_finite, row_features, idx, create_features_names, features_names, captions_vars_sep, dataset_name, var)
 
         simple_numerical_features, simple_numaggs_names, custom_numaggs_kwds = _emit_raw_numaggs(
             var, raw_vals, drawdown_vars, lintrend_approx_vars,
@@ -448,6 +456,14 @@ def create_aggregated_features(  # nosec B107 - default is a separator/label tok
                     subset_token=subset_token,
                     nested_subsets=nested_subsets,
                 )  # nosec B107 - default value is a plain separator/label string, not a credential
+
+
+def _create_aggregated__return_finite(return_n_finite, row_features, idx, create_features_names, features_names, captions_vars_sep, dataset_name, var):
+    """Block of create_aggregated_features starting at ``if return_n_finite:``."""
+    if return_n_finite:
+        row_features.append(idx.sum())
+        if create_features_names:
+            features_names.append(captions_vars_sep.join((cast(str, dataset_name), var, "n_finite")))
 
 
 def compute_splitting_stats(
@@ -662,6 +678,7 @@ def create_and_process_windows(
     verbose: bool = False,
 ) -> Dict[str, list]:
     """Build all required windows from ``base_point``, apply ``apply_fcn`` to each, return per-window features."""
+    window_var_values: Any = None
     res: Dict[str, list] = {}
     for window_var, windows_lengths in windows.items():
         # forward/backward asymmetry is handled later in this loop (the window_var_values slicing

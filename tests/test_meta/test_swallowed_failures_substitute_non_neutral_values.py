@@ -285,9 +285,11 @@ class TestASilentEstimatorSubstitutionIsAnnounced:
     def test_the_undeflated_return_is_announced(self):
         """Returning y unchanged makes the caller re-detect the same tone as several distinct frequencies."""
         rel = "feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py"
-        s = _emitted(rel)
+        rel_helpers = "feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe_helpers.py"
+        # the deflation fallbacks are carved into the helpers module next to their module
+        s = _emitted(rel) + _emitted(rel_helpers)
         assert "returning y UNDEFLATED" in s
-        assert _called(rel).count("log_throttle") >= 2, "the deflation fallbacks are no longer throttled, so a hot path would spam"
+        assert _called(rel).count("log_throttle") + _called(rel_helpers).count("log_throttle") >= 2, "the deflation fallbacks are no longer throttled, so a hot path would spam"
 
     def test_the_cuda_shape_guard_is_separated_from_a_driver_fault(self):
         """The handler's own comment named three causes and treated them identically."""

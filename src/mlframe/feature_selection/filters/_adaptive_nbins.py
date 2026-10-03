@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional
+from typing import Optional, Any
 
 import numpy as np
 import numba
@@ -642,18 +642,8 @@ def per_feature_edges(
         list of length n_features; each entry is a 1-D ndarray of INNER bin edges
         (i.e. ``n_bins - 1`` values, suitable for ``np.searchsorted(edges, x, side='right')``).
     """
-    X = np.asarray(X)
-    if X.ndim != 2:
-        raise ValueError(f"per_feature_edges: X must be 2-D; got shape {X.shape}")
-    n_features = X.shape[1]
-    method_resolved = _METHOD_ALIASES.get(method.lower() if isinstance(method, str) else method)
-    if method_resolved is None:
-        raise ValueError(f"per_feature_edges: unknown method={method!r}. Expected one of " f"{sorted(set(_METHOD_ALIASES.values()))}.")
-    needs_y = method_resolved in ("fayyad_irani", "fayyad_irani_validated", "optimal_joint", "mah")
-    if needs_y and y is None:
-        raise ValueError(f"per_feature_edges: method={method_resolved!r} is supervised and requires y.")
-    if y is not None:
-        y = np.asarray(y).ravel()
+    _kw_key: Any = None
+    X, method_resolved, n_features, needs_y, y = _per_feature_edges_np_asarray(X, method, y)
 
     # Per-column content-addressable disk cache. Each column's edge computation is independent;
     # caching keys by (column-summary, method, base, kwargs, y-summary-when-supervised) lets a
@@ -663,7 +653,7 @@ def per_feature_edges(
     _y_key: str | None = None
     if cache_dir is not None:
         try:
-            from mlframe.utils.disk_cache import DiskCache, compose_key, hash_array_content, hash_object
+            from mlframe.utils.disk_cache import DiskCache, hash_array_content, hash_object
 
             _cache = DiskCache(cache_dir)
             _y_key = hash_array_content(y) if (needs_y and y is not None) else "no_y"
@@ -876,6 +866,30 @@ def per_feature_edges(
     # hit the cache on repeat fits; the code path stays uniform. Doing all GETs (and
     # later all PUTs) serially on the main thread keeps the DiskCache single-threaded
     # - no lock needed, hit/miss behavior bit-identical to the historical loop.
+    edges_list: list[Any] = _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key, n_jobs, _compute_col_edges)
+
+    return edges_list
+
+
+def _per_feature_edges_np_asarray(X, method, y):
+    """Block of per_feature_edges starting at ``X = np.asarray(X)``."""
+    X = np.asarray(X)
+    if X.ndim != 2:
+        raise ValueError(f"per_feature_edges: X must be 2-D; got shape {X.shape}")
+    n_features = X.shape[1]
+    method_resolved = _METHOD_ALIASES.get(method.lower() if isinstance(method, str) else method)
+    if method_resolved is None:
+        raise ValueError(f"per_feature_edges: unknown method={method!r}. Expected one of " f"{sorted(set(_METHOD_ALIASES.values()))}.")
+    needs_y = method_resolved in ("fayyad_irani", "fayyad_irani_validated", "optimal_joint", "mah")
+    if needs_y and y is None:
+        raise ValueError(f"per_feature_edges: method={method_resolved!r} is supervised and requires y.")
+    if y is not None:
+        y = np.asarray(y).ravel()
+    return X, method_resolved, n_features, needs_y, y
+
+
+def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key, n_jobs, _compute_col_edges):
+    """Block of per_feature_edges starting at ``edges_list: list = [None] * n_features``."""
     edges_list: list = [None] * n_features
     _miss_keys: list = [None] * n_features  # cache key per missed col (None => don't cache)
     _miss_cols: list = []  # indices needing compute, in ascending order
@@ -982,5 +996,4 @@ def per_feature_edges(
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                     logger.debug("suppressed: %s", e)
                     pass
-
     return edges_list

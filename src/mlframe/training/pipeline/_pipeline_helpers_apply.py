@@ -161,7 +161,7 @@ def _apply_pre_pipeline_transforms(
                     for _k, _v in fitted_cached.__dict__.items():
                         try:
                             pre_pipeline.__dict__[_k] = _cp.copy(_v)
-                        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                        except Exception as e:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                             logger.debug("shallow-copy of attribute %r failed, keeping original reference: %s", _k, e)
                             # Defensive: a non-copyable attribute (e.g. file handle wrapper)
                             # falls back to the original reference. Logged at debug because the
@@ -188,227 +188,7 @@ def _apply_pre_pipeline_transforms(
                     timer() - t0_pre,
                 )
             return train_df_cached, val_df_cached
-        with phase("pre_pipeline_fit_transform"):
-            if skip_pre_pipeline_transform:
-                if verbose:
-                    logger.info("Skipping pre_pipeline fit/transform (using cached DFs)")
-            elif skip_preprocessing:
-                # Only run feature selector, skip preprocessing steps (scaler/imputer/encoder)
-                # This is used when polars-ds pipeline already applied scaling/imputation
-                feature_selector = _extract_feature_selector(pre_pipeline)
-                if feature_selector is not None:
-                    if _is_fitted(feature_selector):
-                        if verbose:
-                            logger.info("Using pre-fitted feature selector (transform only): %s", feature_selector)
-                        # Fit-state mismatch fallback (iter-347 family): _is_fitted
-                        # uses sklearn's check_is_fitted heuristic which can
-                        # report True on a partially-state-transferred clone whose
-                        # selector-specific attrs (BorutaShap.selected_features_,
-                        # MRMR.support_) were not copied across. If transform then
-                        # raises NotFittedError or AttributeError, retry via
-                        # fit_transform so the suite recovers instead of dropping
-                        # the model.
-                        try:
-                            train_df = _passthrough_cols_fit_transform(
-                                feature_selector.transform,
-                                train_df,
-                                passthrough_cols=selector_passthrough_cols,
-                            )
-                        except (NotFittedError, AttributeError, ValueError) as _selector_state_exc:
-                            if isinstance(_selector_state_exc, ValueError) and not _is_stale_fit_state_value_error(_selector_state_exc):
-                                raise  # a genuine data ValueError, not a stale-fit-schema mismatch
-                            if verbose:
-                                logger.warning(
-                                    "Pre-fitted feature selector %s raised %s on transform; "
-                                    "falling back to fit_transform with current target+groups. "
-                                    "This usually means the cache state transfer didn't replicate "
-                                    "every selector-private attribute (e.g. BorutaShap.selected_features_) "
-                                    "or the selector was fitted on a different input width.",
-                                    type(feature_selector).__name__,
-                                    type(_selector_state_exc).__name__,
-                                )
-                            train_df = _passthrough_cols_fit_transform(
-                                feature_selector.fit_transform,
-                                train_df,
-                                passthrough_cols=selector_passthrough_cols,
-                                fit=True,
-                                target=train_target,
-                                groups=groups,
-                                sample_weight=sample_weight,
-                            )
-                    else:
-                        if verbose:
-                            logger.info("Fitting feature selector: %s", feature_selector)
-                        train_df = _passthrough_cols_fit_transform(
-                            feature_selector.fit_transform,
-                            train_df,
-                            passthrough_cols=selector_passthrough_cols,
-                            fit=True,
-                            target=train_target,
-                            groups=groups,
-                            sample_weight=sample_weight,
-                        )
-                        log_selector_retention(feature_selector, pre_pipeline, _input_cols, train_df)
-                    if verbose:
-                        log_ram_usage()
-                    if val_df is not None:
-                        if verbose:
-                            logger.info("Transforming val_df via feature selector...")
-                        val_df = _passthrough_cols_fit_transform(
-                            feature_selector.transform,
-                            val_df,
-                            passthrough_cols=selector_passthrough_cols,
-                        )
-                        if verbose:
-                            log_ram_usage()
-                elif verbose:
-                    logger.info("No feature selector found in pipeline, skipping all transforms")
-            elif _is_fitted(pre_pipeline):
-                if verbose:
-                    try:
-                        logger.info("Using pre-fitted pipeline (transform only): %s", pre_pipeline)
-                    except (ValueError, TypeError):
-                        pass
-                # Fit-state mismatch fallback (iter-365 family, sibling of iter-347):
-                # ``_is_fitted`` may return True on a partially-state-transferred
-                # pipeline whose inner step (BorutaShap.selected_features_,
-                # MRMR.support_) lacks the selector-private attribute the
-                # ``transform`` reads. Catch NotFittedError / AttributeError
-                # and recover via fit_transform so the suite doesn't drop the
-                # model. Identical logic to the ``skip_preprocessing`` branch
-                # above; both code paths reach the same failure mode.
-                try:
-                    train_df = _passthrough_cols_fit_transform(
-                        pre_pipeline.transform,
-                        train_df,
-                        passthrough_cols=selector_passthrough_cols,
-                    )
-                except (NotFittedError, AttributeError, ValueError) as _pipeline_state_exc:
-                    if isinstance(_pipeline_state_exc, ValueError) and not _is_stale_fit_state_value_error(_pipeline_state_exc):
-                        raise  # a genuine data ValueError, not a stale-fit-schema mismatch
-                    if verbose:
-                        logger.warning(
-                            "Pre-fitted pre_pipeline raised %s on transform; "
-                            "falling back to fit_transform with current target+groups. "
-                            "Likely cause: cache state transfer didn't replicate every "
-                            "inner-step attribute (e.g. BorutaShap.selected_features_) or the "
-                            "pipeline was fitted on a different input width.",
-                            type(_pipeline_state_exc).__name__,
-                        )
-                    _enc_target_recover = _multilabel_target_to_1d_for_supervised_encoders(train_target)
-                    train_df = _passthrough_cols_fit_transform(
-                        pre_pipeline.fit_transform,
-                        train_df,
-                        passthrough_cols=selector_passthrough_cols,
-                        fit=True,
-                        target=_enc_target_recover,
-                        groups=groups,
-                        sample_weight=sample_weight,
-                    )
-                if verbose:
-                    log_ram_usage()
-                if val_df is not None:
-                    if verbose:
-                        logger.info("Transforming val_df via pre_pipeline...")
-                    # The historical 0-row val skip has been removed.
-                    # The original empty-val window came from outlier
-                    # detection rejecting almost every val row; that's now
-                    # guarded at the source by the val-side ``min_keep``
-                    # floor + class-balance pre-check in
-                    # ``core._apply_outlier_detection_global``. If a 0-row
-                    # val still arrives here it's an upstream bug -- letting
-                    # SimpleImputer raise ``Found array with 0 sample(s)``
-                    # surfaces it immediately instead of training a model
-                    # we can't evaluate.
-                    val_df = _passthrough_cols_fit_transform(
-                        pre_pipeline.transform,
-                        val_df,
-                        passthrough_cols=selector_passthrough_cols,
-                    )
-                    if verbose:
-                        log_ram_usage()
-            else:
-                if verbose:
-                    logger.info("Fitting & transforming train_df via pre_pipeline %s...", pre_pipeline)
-                # Supervised encoders (category_encoders
-                # TargetEncoder, polars-ds supervised steps) reject 2-D y. Collapse
-                # multilabel targets to "any positive label" for the encoder fit
-                # only -- actual model still trains on the full (N, K) target.
-                _enc_target = _multilabel_target_to_1d_for_supervised_encoders(train_target)
-                train_df = _passthrough_cols_fit_transform(
-                    pre_pipeline.fit_transform,
-                    train_df,
-                    passthrough_cols=selector_passthrough_cols,
-                    fit=True,
-                    target=_enc_target,
-                    groups=groups,
-                    sample_weight=sample_weight,
-                )
-                # Emitted at INFO regardless of verbose so every selector's kept/dropped counts and dropped names are visible in default logs.
-                log_selector_retention(_extract_feature_selector(pre_pipeline), pre_pipeline, _input_cols, train_df)
-                if verbose:
-                    log_ram_usage()
-                # 0-feature short-circuit: when MRMR/RFECV selects no features,
-                # _passthrough_cols_fit_transform catches Pipeline's "need at least one
-                # array" ValueError and returns an empty (N, 0) frame -- BUT the Pipeline
-                # is left half-fitted (selector fitted, imputer/scaler not). Running
-                # pre_pipeline.transform on val_df then raises NotFittedError. Mirror the
-                # empty-frame return on val_df so trainer.py's 0-feature guard can fire
-                # cleanly. (Covered by test_mrmr_no_impact_classification
-                # which uses min_relevance_gain=10.0 to force 0 features.)
-                _train_is_empty = hasattr(train_df, "shape") and len(train_df.shape) == 2 and train_df.shape[1] == 0
-                if val_df is not None and _train_is_empty:
-                    if verbose:
-                        logger.info(
-                            "Skipping val_df transform: train_df has 0 features after fit (selector " "rejected all). Returning empty (N, 0) val_df to match.",
-                        )
-                    if pl is not None and isinstance(val_df, pl.DataFrame):
-                        val_df = val_df.select([])
-                    elif hasattr(val_df, "iloc"):
-                        val_df = val_df.iloc[:, :0]
-                elif val_df is not None:
-                    if verbose:
-                        logger.info("Transforming val_df via pre_pipeline %s...", pre_pipeline)
-                    # The historical 0-row val skip has been removed --
-                    # see fit-transform branch comment for rationale.
-                    val_df = _passthrough_cols_fit_transform(
-                        pre_pipeline.transform,
-                        val_df,
-                        passthrough_cols=selector_passthrough_cols,
-                    )
-                    if verbose:
-                        log_ram_usage()
-            _maybe_clean_ram()
-            if verbose:
-                shape_str = f"{train_df.shape[0]:_}x{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
-                logger.info("  pre_pipeline done -- train: %s, %.1fs", shape_str, timer() - t0_pre)
-            # Populate the LRU cache so the next sklearn-non-native
-            # model in this per-target iteration (typically MLP
-            # after Linear) gets a cache hit on the same train_df + the
-            # same structural pipeline. Guarded: only stash when we
-            # actually went through the fit-transform branch (the others
-            # didn't have anything new to cache anyway).
-            if not skip_pre_pipeline_transform and not skip_preprocessing:
-                # Reuse the entry-time key so a populate after a miss is guaranteed to land in the slot the next lookup will read from.
-                # Store the now-fitted pre_pipeline alongside (train_df, val_df); future cache hits
-                # transfer fit state to the caller's cloned instance so test_df.transform works.
-                try:
-                    _cap = int(cache_max) if cache_max is not None else _PRE_PIPELINE_CACHE_MAX
-                    with _PRE_PIPELINE_CACHE_LOCK:
-                        _PRE_PIPELINE_CACHE[_cache_key_entry] = (train_df, val_df, pre_pipeline)
-                        _PRE_PIPELINE_CACHE.move_to_end(_cache_key_entry)
-                        while len(_PRE_PIPELINE_CACHE) > _cap:
-                            _PRE_PIPELINE_CACHE.popitem(last=False)  # evict-ok: a miss refits the pre-pipeline on the same frames; nothing is pending
-                        if _PRE_PIPELINE_CACHE_MAX_BYTES > 0 and len(_PRE_PIPELINE_CACHE) > 1:
-                            _total = sum(_approx_entry_bytes(v) for v in _PRE_PIPELINE_CACHE.values())
-                            while _total > _PRE_PIPELINE_CACHE_MAX_BYTES and len(_PRE_PIPELINE_CACHE) > 1:
-                                _, _evicted = _PRE_PIPELINE_CACHE.popitem(last=False)  # evict-ok: a miss refits the pre-pipeline on the same frames
-                                _total -= _approx_entry_bytes(_evicted)
-                except Exception as _cache_err:
-                    logger.debug(
-                        "pre_pipeline cache populate skipped: %s",
-                        _cache_err,
-                    )
+        train_df, val_df = _apply_pre_pipeline_phase_pre_pipeline_fit(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df, t0_pre, cache_max, _cache_key_entry)
 
         # Identity-equivalent = column set unchanged AND no value-transforming
         # steps (ce/imp/scaler/transform). Column-list-equality alone gave a
@@ -450,6 +230,232 @@ def _apply_pre_pipeline_transforms(
             if _out_n_rows != _input_n_rows and not _is_zero_feature:
                 _raise_pre_pipeline_rowcount_change(_input_n_rows, _out_n_rows)
 
+    return train_df, val_df
+
+
+def _apply_pre_pipeline_phase_pre_pipeline_fit(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df, t0_pre, cache_max, _cache_key_entry):
+    """Block of _apply_pre_pipeline_phase_pre_pipeline_fit starting at ``with phase("pre_pipeline_fit_transform"):``."""
+    with phase("pre_pipeline_fit_transform"):
+        if skip_pre_pipeline_transform:
+            if verbose:
+                logger.info("Skipping pre_pipeline fit/transform (using cached DFs)")
+        elif skip_preprocessing:
+            # Only run feature selector, skip preprocessing steps (scaler/imputer/encoder)
+            # This is used when polars-ds pipeline already applied scaling/imputation
+            feature_selector = _extract_feature_selector(pre_pipeline)
+            if feature_selector is not None:
+                if _is_fitted(feature_selector):
+                    if verbose:
+                        logger.info("Using pre-fitted feature selector (transform only): %s", feature_selector)
+                    # Fit-state mismatch fallback (iter-347 family): _is_fitted
+                    # uses sklearn's check_is_fitted heuristic which can
+                    # report True on a partially-state-transferred clone whose
+                    # selector-specific attrs (BorutaShap.selected_features_,
+                    # MRMR.support_) were not copied across. If transform then
+                    # raises NotFittedError or AttributeError, retry via
+                    # fit_transform so the suite recovers instead of dropping
+                    # the model.
+                    try:
+                        train_df = _passthrough_cols_fit_transform(
+                            feature_selector.transform,
+                            train_df,
+                            passthrough_cols=selector_passthrough_cols,
+                        )
+                    except (NotFittedError, AttributeError, ValueError) as _selector_state_exc:
+                        if isinstance(_selector_state_exc, ValueError) and not _is_stale_fit_state_value_error(_selector_state_exc):
+                            raise  # a genuine data ValueError, not a stale-fit-schema mismatch
+                        if verbose:
+                            logger.warning(
+                                "Pre-fitted feature selector %s raised %s on transform; "
+                                "falling back to fit_transform with current target+groups. "
+                                "This usually means the cache state transfer didn't replicate "
+                                "every selector-private attribute (e.g. BorutaShap.selected_features_) "
+                                "or the selector was fitted on a different input width.",
+                                type(feature_selector).__name__,
+                                type(_selector_state_exc).__name__,
+                            )
+                        train_df = _passthrough_cols_fit_transform(
+                            feature_selector.fit_transform,
+                            train_df,
+                            passthrough_cols=selector_passthrough_cols,
+                            fit=True,
+                            target=train_target,
+                            groups=groups,
+                            sample_weight=sample_weight,
+                        )
+                else:
+                    if verbose:
+                        logger.info("Fitting feature selector: %s", feature_selector)
+                    train_df = _passthrough_cols_fit_transform(
+                        feature_selector.fit_transform,
+                        train_df,
+                        passthrough_cols=selector_passthrough_cols,
+                        fit=True,
+                        target=train_target,
+                        groups=groups,
+                        sample_weight=sample_weight,
+                    )
+                    log_selector_retention(feature_selector, pre_pipeline, _input_cols, train_df)
+                if verbose:
+                    log_ram_usage()
+                if val_df is not None:
+                    if verbose:
+                        logger.info("Transforming val_df via feature selector...")
+                    val_df = _passthrough_cols_fit_transform(
+                        feature_selector.transform,
+                        val_df,
+                        passthrough_cols=selector_passthrough_cols,
+                    )
+                    if verbose:
+                        log_ram_usage()
+            elif verbose:
+                logger.info("No feature selector found in pipeline, skipping all transforms")
+        elif _is_fitted(pre_pipeline):
+            if verbose:
+                try:
+                    logger.info("Using pre-fitted pipeline (transform only): %s", pre_pipeline)
+                except (ValueError, TypeError):
+                    pass
+            # Fit-state mismatch fallback (iter-365 family, sibling of iter-347):
+            # ``_is_fitted`` may return True on a partially-state-transferred
+            # pipeline whose inner step (BorutaShap.selected_features_,
+            # MRMR.support_) lacks the selector-private attribute the
+            # ``transform`` reads. Catch NotFittedError / AttributeError
+            # and recover via fit_transform so the suite doesn't drop the
+            # model. Identical logic to the ``skip_preprocessing`` branch
+            # above; both code paths reach the same failure mode.
+            try:
+                train_df = _passthrough_cols_fit_transform(
+                    pre_pipeline.transform,
+                    train_df,
+                    passthrough_cols=selector_passthrough_cols,
+                )
+            except (NotFittedError, AttributeError, ValueError) as _pipeline_state_exc:
+                if isinstance(_pipeline_state_exc, ValueError) and not _is_stale_fit_state_value_error(_pipeline_state_exc):
+                    raise  # a genuine data ValueError, not a stale-fit-schema mismatch
+                if verbose:
+                    logger.warning(
+                        "Pre-fitted pre_pipeline raised %s on transform; "
+                        "falling back to fit_transform with current target+groups. "
+                        "Likely cause: cache state transfer didn't replicate every "
+                        "inner-step attribute (e.g. BorutaShap.selected_features_) or the "
+                        "pipeline was fitted on a different input width.",
+                        type(_pipeline_state_exc).__name__,
+                    )
+                _enc_target_recover = _multilabel_target_to_1d_for_supervised_encoders(train_target)
+                train_df = _passthrough_cols_fit_transform(
+                    pre_pipeline.fit_transform,
+                    train_df,
+                    passthrough_cols=selector_passthrough_cols,
+                    fit=True,
+                    target=_enc_target_recover,
+                    groups=groups,
+                    sample_weight=sample_weight,
+                )
+            if verbose:
+                log_ram_usage()
+            if val_df is not None:
+                if verbose:
+                    logger.info("Transforming val_df via pre_pipeline...")
+                # The historical 0-row val skip has been removed.
+                # The original empty-val window came from outlier
+                # detection rejecting almost every val row; that's now
+                # guarded at the source by the val-side ``min_keep``
+                # floor + class-balance pre-check in
+                # ``core._apply_outlier_detection_global``. If a 0-row
+                # val still arrives here it's an upstream bug -- letting
+                # SimpleImputer raise ``Found array with 0 sample(s)``
+                # surfaces it immediately instead of training a model
+                # we can't evaluate.
+                val_df = _passthrough_cols_fit_transform(
+                    pre_pipeline.transform,
+                    val_df,
+                    passthrough_cols=selector_passthrough_cols,
+                )
+                if verbose:
+                    log_ram_usage()
+        else:
+            if verbose:
+                logger.info("Fitting & transforming train_df via pre_pipeline %s...", pre_pipeline)
+            # Supervised encoders (category_encoders
+            # TargetEncoder, polars-ds supervised steps) reject 2-D y. Collapse
+            # multilabel targets to "any positive label" for the encoder fit
+            # only -- actual model still trains on the full (N, K) target.
+            _enc_target = _multilabel_target_to_1d_for_supervised_encoders(train_target)
+            train_df = _passthrough_cols_fit_transform(
+                pre_pipeline.fit_transform,
+                train_df,
+                passthrough_cols=selector_passthrough_cols,
+                fit=True,
+                target=_enc_target,
+                groups=groups,
+                sample_weight=sample_weight,
+            )
+            # Emitted at INFO regardless of verbose so every selector's kept/dropped counts and dropped names are visible in default logs.
+            log_selector_retention(_extract_feature_selector(pre_pipeline), pre_pipeline, _input_cols, train_df)
+            if verbose:
+                log_ram_usage()
+            # 0-feature short-circuit: when MRMR/RFECV selects no features,
+            # _passthrough_cols_fit_transform catches Pipeline's "need at least one
+            # array" ValueError and returns an empty (N, 0) frame -- BUT the Pipeline
+            # is left half-fitted (selector fitted, imputer/scaler not). Running
+            # pre_pipeline.transform on val_df then raises NotFittedError. Mirror the
+            # empty-frame return on val_df so trainer.py's 0-feature guard can fire
+            # cleanly. (Covered by test_mrmr_no_impact_classification
+            # which uses min_relevance_gain=10.0 to force 0 features.)
+            _train_is_empty = hasattr(train_df, "shape") and len(train_df.shape) == 2 and train_df.shape[1] == 0
+            if val_df is not None and _train_is_empty:
+                if verbose:
+                    logger.info(
+                        "Skipping val_df transform: train_df has 0 features after fit (selector " "rejected all). Returning empty (N, 0) val_df to match.",
+                    )
+                if pl is not None and isinstance(val_df, pl.DataFrame):
+                    val_df = val_df.select([])
+                elif hasattr(val_df, "iloc"):
+                    val_df = val_df.iloc[:, :0]
+            elif val_df is not None:
+                if verbose:
+                    logger.info("Transforming val_df via pre_pipeline %s...", pre_pipeline)
+                # The historical 0-row val skip has been removed --
+                # see fit-transform branch comment for rationale.
+                val_df = _passthrough_cols_fit_transform(
+                    pre_pipeline.transform,
+                    val_df,
+                    passthrough_cols=selector_passthrough_cols,
+                )
+                if verbose:
+                    log_ram_usage()
+        _maybe_clean_ram()
+        if verbose:
+            shape_str = f"{train_df.shape[0]:_}x{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
+            logger.info("  pre_pipeline done -- train: %s, %.1fs", shape_str, timer() - t0_pre)
+        # Populate the LRU cache so the next sklearn-non-native
+        # model in this per-target iteration (typically MLP
+        # after Linear) gets a cache hit on the same train_df + the
+        # same structural pipeline. Guarded: only stash when we
+        # actually went through the fit-transform branch (the others
+        # didn't have anything new to cache anyway).
+        if not skip_pre_pipeline_transform and not skip_preprocessing:
+            # Reuse the entry-time key so a populate after a miss is guaranteed to land in the slot the next lookup will read from.
+            # Store the now-fitted pre_pipeline alongside (train_df, val_df); future cache hits
+            # transfer fit state to the caller's cloned instance so test_df.transform works.
+            try:
+                _cap = int(cache_max) if cache_max is not None else _PRE_PIPELINE_CACHE_MAX
+                with _PRE_PIPELINE_CACHE_LOCK:
+                    _PRE_PIPELINE_CACHE[_cache_key_entry] = (train_df, val_df, pre_pipeline)
+                    _PRE_PIPELINE_CACHE.move_to_end(_cache_key_entry)
+                    while len(_PRE_PIPELINE_CACHE) > _cap:
+                        _PRE_PIPELINE_CACHE.popitem(last=False)  # evict-ok: a miss refits the pre-pipeline on the same frames; nothing is pending
+                    if _PRE_PIPELINE_CACHE_MAX_BYTES > 0 and len(_PRE_PIPELINE_CACHE) > 1:
+                        _total = sum(_approx_entry_bytes(v) for v in _PRE_PIPELINE_CACHE.values())
+                        while _total > _PRE_PIPELINE_CACHE_MAX_BYTES and len(_PRE_PIPELINE_CACHE) > 1:
+                            _, _evicted = _PRE_PIPELINE_CACHE.popitem(last=False)  # evict-ok: a miss refits the pre-pipeline on the same frames
+                            _total -= _approx_entry_bytes(_evicted)
+            except Exception as _cache_err:
+                logger.debug(
+                    "pre_pipeline cache populate skipped: %s",
+                    _cache_err,
+                )
     return train_df, val_df
 
 

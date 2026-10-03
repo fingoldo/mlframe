@@ -220,10 +220,10 @@ def _fe_stage_cascade_early_b(
                     )
 
             # ----- Frequency encoding ------------------------------------
-            X, _r = _stage_frequency_encoding(self, _fe_family_on, _engineered_seen_l34, X, _y_np, _l34_reject_sink, _freq_enc_pre_recipes, verbose)
+            X = _stage_frequency_encoding(self, _fe_family_on, _engineered_seen_l34, X, _y_np, _l34_reject_sink, _freq_enc_pre_recipes, verbose)
 
             # ----- Cat x Num interaction (OOF residual) ------------------
-            X = _stage_cat_num_interaction(self, _fe_family_on, X, _y_np, _l34_reject_sink, _cat_num_pre_recipes, verbose, _r)
+            X = _stage_cat_num_interaction(self, _fe_family_on, X, _y_np, _l34_reject_sink, _cat_num_pre_recipes, verbose)
 
     # 2026-05-31 Layer 37 — MISSINGNESS-AWARE FE. Three independent master
     # switches (indicator / count / pattern); each appends its own engineered
@@ -783,10 +783,10 @@ def _stage_frequency_encoding(self, _fe_family_on, _engineered_seen_l34, X, _y_n
                 type(_freq_exc).__name__,
                 _freq_exc,
             )
-    return X, _r
+    return X
 
 
-def _stage_cat_num_interaction(self, _fe_family_on, X, _y_np, _l34_reject_sink, _cat_num_pre_recipes, verbose, _r):
+def _stage_cat_num_interaction(self, _fe_family_on, X, _y_np, _l34_reject_sink, _cat_num_pre_recipes, verbose):
     """Run the categorical x numeric interaction family when it is enabled."""
     from mlframe.feature_selection.filters._count_freq_interaction_fe import (
         cat_num_interaction_with_recipes,

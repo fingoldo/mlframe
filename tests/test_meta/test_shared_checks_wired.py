@@ -349,6 +349,7 @@ def _src_files() -> list[Path]:
 # `path::function` -> why the reported timer does not time GPU work. Both are loops the checker reads too widely.
 _GPU_TIMING_NOT_GPU_WORK: dict[str, str] = {
     "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_score.py::_score_one_pair": "times numpy transforms and the CPU numba discretizer; the stop sits in a nested else, so the checker treats the rest of the loop as timed",
+    "src/mlframe/feature_selection/filters/polynom_pair_fe.py::_run_polynom_pair_f_poly_t0_time_perf": "the timer brackets a joblib/Optuna CPU search over caller-supplied pair evaluators; no device launch is timed",
     "src/mlframe/feature_selection/filters/_screen_predictors.py::screen_predictors": "start_time is a runtime-budget origin passed down to callees; nothing is timed here, the only GPU call is cp.random.seed()",
 }
 

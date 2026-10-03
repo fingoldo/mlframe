@@ -37,7 +37,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_BORUTA_AUTO_PROBE_TREES` | `80` | [src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py](../src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py#L60) |
 | `MLFRAME_CALIBRATION_CMAP` | — | [src/mlframe/reporting/colors.py](../src/mlframe/reporting/colors.py#L69) |
 | `MLFRAME_CALIBRATION_RESAMPLE_MAX_BYTES` | — | [src/mlframe/calibration/policy.py](../src/mlframe/calibration/policy.py#L58) |
-| `MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD` | `2000000` | [src/mlframe/metrics/calibration/_calibration_plot.py](../src/mlframe/metrics/calibration/_calibration_plot.py#L199) |
+| `MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD` | `2000000` | [src/mlframe/metrics/calibration/_calibration_plot.py](../src/mlframe/metrics/calibration/_calibration_plot.py#L206) |
 | `MLFRAME_CAT_DIAG` | — | [src/mlframe/training/_eval_helpers.py](../src/mlframe/training/_eval_helpers.py#L81) |
 | `MLFRAME_CAT_FE_BENCH_PROD` | — | [src/mlframe/feature_selection/_benchmarks/bench_categorical_fe.py](../src/mlframe/feature_selection/_benchmarks/bench_categorical_fe.py#L136) |
 | `MLFRAME_CB_GPU_MONITOR_S` | `''` | [src/mlframe/training/cb/_cb_gpu_monitor.py](../src/mlframe/training/cb/_cb_gpu_monitor.py#L108) |
@@ -57,7 +57,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_CRASH_HEARTBEAT_S` | `''` | [src/mlframe/training/crash_diagnostics.py](../src/mlframe/training/crash_diagnostics.py#L346) |
 | `MLFRAME_CRASH_LOG_DIR` | `''` | [src/mlframe/training/crash_diagnostics.py](../src/mlframe/training/crash_diagnostics.py#L111) |
 | `MLFRAME_CRIT_DTYPE_RELAXED` | `'1'` | [src/mlframe/feature_selection/filters/_fe_gpu_batch/_devices.py](../src/mlframe/feature_selection/filters/_fe_gpu_batch/_devices.py#L60) |
-| `MLFRAME_CTX_STRICT` | — | [src/mlframe/training/core/_misc_helpers.py](../src/mlframe/training/core/_misc_helpers.py#L672) |
+| `MLFRAME_CTX_STRICT` | — | [src/mlframe/training/core/_misc_helpers.py](../src/mlframe/training/core/_misc_helpers.py#L677) |
 | `MLFRAME_CUDA_GRAPH_PREDICT` | `'0'` | [src/mlframe/training/neural/_flat_torch_module/_flat_torch_predict_accel.py](../src/mlframe/training/neural/_flat_torch_module/_flat_torch_predict_accel.py#L279) |
 | `MLFRAME_CUDA_GRAPH_PREDICT_CACHE_MAX` | `16` | [src/mlframe/training/neural/_flat_torch_module/_flat_torch_predict_accel.py](../src/mlframe/training/neural/_flat_torch_module/_flat_torch_predict_accel.py#L32) |
 | `MLFRAME_CYCLICAL_PAR_THRESHOLD` | `1000000` | [src/mlframe/feature_engineering/basic.py](../src/mlframe/feature_engineering/basic.py#L32) |
@@ -73,7 +73,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_DISCOVERY_LAZY_PREBIN` | `''` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L281) |
 | `MLFRAME_DISCOVERY_LAZY_PREBIN_MIN_N` | `'50000'` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L282) |
 | `MLFRAME_DISCOVERY_RAM_PROFILER` | `True` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L455) |
-| `MLFRAME_DISCOVERY_SKIP_TINY_RERANK` | — | [src/mlframe/training/composite/discovery/_tiny_rerank.py](../src/mlframe/training/composite/discovery/_tiny_rerank.py#L106) |
+| `MLFRAME_DISCOVERY_SKIP_TINY_RERANK` | — | [src/mlframe/training/composite/discovery/_tiny_rerank.py](../src/mlframe/training/composite/discovery/_tiny_rerank.py#L108) |
 | `MLFRAME_DISCRETIZE_COL_CACHE` | `'1'` | [src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py](../src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py#L108) |
 | `MLFRAME_DISCRETIZE_COL_CACHE_MAX_BYTES` | `512 * 1024 * 1024` | [src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py](../src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py#L73) |
 | `MLFRAME_DISCRETIZE_FLOAT32` | `''` | [src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py](../src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py#L51) |
@@ -97,11 +97,11 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_FE_FUSION_AB` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_resident_materialise.py](../src/mlframe/feature_selection/filters/_gpu_resident_materialise.py#L830) |
 | `MLFRAME_FE_FUSION_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_fe_additive_fusion_gpu_resident.py](../src/mlframe/feature_selection/filters/_fe_additive_fusion_gpu_resident.py#L200) |
 | `MLFRAME_FE_GATE_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py](../src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py#L152) |
-| `MLFRAME_FE_GATE_RESIDENT_CANDS` | `'1'` | [src/mlframe/feature_selection/filters/_conditional_gate_fe.py](../src/mlframe/feature_selection/filters/_conditional_gate_fe.py#L241) |
-| `MLFRAME_FE_GPU_BINNING` | `''` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py#L213) |
+| `MLFRAME_FE_GATE_RESIDENT_CANDS` | `'1'` | [src/mlframe/feature_selection/filters/_conditional_gate_fe.py](../src/mlframe/feature_selection/filters/_conditional_gate_fe.py#L245) |
+| `MLFRAME_FE_GPU_BINNING` | `''` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py#L212) |
 | `MLFRAME_FE_GPU_BINNING_DTYPE` | `''` | [src/mlframe/feature_selection/filters/_gpu_resident_discretize.py](../src/mlframe/feature_selection/filters/_gpu_resident_discretize.py#L167) |
 | `MLFRAME_FE_GPU_BINNING_MIN_NK` | `'1000000'` | [src/mlframe/feature_selection/filters/_gpu_resident_pair_mi.py](../src/mlframe/feature_selection/filters/_gpu_resident_pair_mi.py#L261) |
-| `MLFRAME_FE_GPU_DEFER_FLOAT` | `'1'` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py#L1168) |
+| `MLFRAME_FE_GPU_DEFER_FLOAT` | `'1'` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py#L1031) |
 | `MLFRAME_FE_GPU_DEFER_HOST_CODES` | `''` | [src/mlframe/feature_selection/filters/_gpu_resident_fe.py](../src/mlframe/feature_selection/filters/_gpu_resident_fe.py#L297) |
 | `MLFRAME_FE_GPU_DEVICE_BORN_BINAGG` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_strict_fe/_entry.py](../src/mlframe/feature_selection/filters/_gpu_strict_fe/_entry.py#L99) |
 | `MLFRAME_FE_GPU_DEVICE_BORN_CROSSBASIS` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_strict_fe/_entry.py](../src/mlframe/feature_selection/filters/_gpu_strict_fe/_entry.py#L145) |
@@ -112,13 +112,13 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_FE_GPU_DEVICE_BORN_MODULAR` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_strict_fe/_entry.py](../src/mlframe/feature_selection/filters/_gpu_strict_fe/_entry.py#L276) |
 | `MLFRAME_FE_GPU_DEVICE_BORN_UPLIFT_UNIVARIATE` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_strict_fe/_entry.py](../src/mlframe/feature_selection/filters/_gpu_strict_fe/_entry.py#L235) |
 | `MLFRAME_FE_GPU_DEVICE_BORN_WAVELET` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_strict_fe/_entry.py](../src/mlframe/feature_selection/filters/_gpu_strict_fe/_entry.py#L194) |
-| `MLFRAME_FE_GPU_DISCRETIZE` | `''` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py#L213) |
+| `MLFRAME_FE_GPU_DISCRETIZE` | `''` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py#L212) |
 | `MLFRAME_FE_GPU_DISCRETIZE_MIN_NK` | `'2000000'` | [src/mlframe/feature_selection/filters/_gpu_resident_pair_mi.py](../src/mlframe/feature_selection/filters/_gpu_resident_pair_mi.py#L116) |
 | `MLFRAME_FE_GPU_FUSE_CMI_ENTROPY` | `'0'` | [src/mlframe/feature_selection/filters/_fe_batched_mi_cmi.py](../src/mlframe/feature_selection/filters/_fe_batched_mi_cmi.py#L448) |
 | `MLFRAME_FE_GPU_FUSE_MI` | `'1'` | [src/mlframe/feature_selection/filters/_hermite_fe_mi.py](../src/mlframe/feature_selection/filters/_hermite_fe_mi.py#L260) |
 | `MLFRAME_FE_GPU_GRAND_FUSION` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_resident_fe.py](../src/mlframe/feature_selection/filters/_gpu_resident_fe.py#L893) |
-| `MLFRAME_FE_GPU_HISTGATE_CM` | `'1'` | [src/mlframe/feature_selection/filters/batch_mi_noise_gate_gpu.py](../src/mlframe/feature_selection/filters/batch_mi_noise_gate_gpu.py#L648) |
-| `MLFRAME_FE_GPU_MATERIALISE` | `'1'` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py#L1290) |
+| `MLFRAME_FE_GPU_HISTGATE_CM` | `'1'` | [src/mlframe/feature_selection/filters/batch_mi_noise_gate_gpu.py](../src/mlframe/feature_selection/filters/batch_mi_noise_gate_gpu.py#L633) |
+| `MLFRAME_FE_GPU_MATERIALISE` | `'1'` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py#L1100) |
 | `MLFRAME_FE_GPU_MATERIALISE_CM` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_resident_materialise.py](../src/mlframe/feature_selection/filters/_gpu_resident_materialise.py#L191) |
 | `MLFRAME_FE_GPU_MIN_FREE_MB` | `1024` | [src/mlframe/feature_selection/filters/_fe_gpu_vram.py](../src/mlframe/feature_selection/filters/_fe_gpu_vram.py#L59) |
 | `MLFRAME_FE_GPU_MIN_FREE_VRAM_MB` | `'1024'` | [src/mlframe/feature_selection/filters/_gpu_resident_fe.py](../src/mlframe/feature_selection/filters/_gpu_resident_fe.py#L178) |
@@ -147,7 +147,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_FE_NOISE_FLOOR_MAX_ROWS` | `'30000'` | [src/mlframe/feature_selection/filters/_hermite_fe_optimise_pair.py](../src/mlframe/feature_selection/filters/_hermite_fe_optimise_pair.py#L787) |
 | `MLFRAME_FE_PAIR_MAXT_MAX_ROWS` | `''` | [src/mlframe/feature_selection/filters/_permutation_null.py](../src/mlframe/feature_selection/filters/_permutation_null.py#L69) |
 | `MLFRAME_FE_PAIR_MAXT_PERM_NULL_GPU` | `'1'` | [src/mlframe/feature_selection/filters/_permutation_null_pair_resident.py](../src/mlframe/feature_selection/filters/_permutation_null_pair_resident.py#L244) |
-| `MLFRAME_FE_PIPELINE_CHUNKS` | `'1'` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py#L1233) |
+| `MLFRAME_FE_PIPELINE_CHUNKS` | `'1'` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core_helpers.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core_helpers.py#L290) |
 | `MLFRAME_FE_RECURSION_BACKEND` | `''` | [src/mlframe/feature_engineering/_recursion_dispatch.py](../src/mlframe/feature_engineering/_recursion_dispatch.py#L53) |
 | `MLFRAME_FE_RESIDENT_OPERANDS` | `'1'` | [src/mlframe/feature_selection/filters/_fe_resident_operands.py](../src/mlframe/feature_selection/filters/_fe_resident_operands.py#L172) |
 | `MLFRAME_FE_RUNG_KEEP_FRAC` | `''` | [src/mlframe/feature_selection/filters/_fe_rung_schedule.py](../src/mlframe/feature_selection/filters/_fe_rung_schedule.py#L144) |
@@ -162,12 +162,12 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_FORCED_GC_MIN_DF_MB` | `256.0` | [src/mlframe/training/core/_phase_helpers.py](../src/mlframe/training/core/_phase_helpers.py#L45) |
 | `MLFRAME_FORCE_HELPER_PD_VIEW` | — | [src/mlframe/training/utils.py](../src/mlframe/training/utils.py#L596) |
 | `MLFRAME_FORCE_REPROBE` | — | [src/mlframe/training/mlp_runtime_defaults.py](../src/mlframe/training/mlp_runtime_defaults.py#L370) |
-| `MLFRAME_FOURIER_COARSE_BASIS_EXACT` | `''` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py#L748) |
+| `MLFRAME_FOURIER_COARSE_BASIS_EXACT` | `''` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py#L437) |
 | `MLFRAME_FOURIER_DETECT_MAX_N` | `str(_DEFAULT_MAX_N)` | [src/mlframe/feature_selection/filters/_fourier_detect_cap.py](../src/mlframe/feature_selection/filters/_fourier_detect_cap.py#L36) |
 | `MLFRAME_FP_CACHE_MAX` | — | [src/mlframe/training/feature_handling/fingerprint.py](../src/mlframe/training/feature_handling/fingerprint.py#L66) |
 | `MLFRAME_FRAC_DIFF_INV_BACKEND` | `''` | [src/mlframe/training/composite/transforms/_nonlinear_ewma_fracdiff.py](../src/mlframe/training/composite/transforms/_nonlinear_ewma_fracdiff.py#L248) |
 | `MLFRAME_FRIEND_GRAPH_GPU_ENTROPY_RESIDENT` | `'0'` | [src/mlframe/feature_selection/filters/friend_graph_gpu.py](../src/mlframe/feature_selection/filters/friend_graph_gpu.py#L127) |
-| `MLFRAME_GATE_BUILD_NJIT_MIN_N` | `20000` | [src/mlframe/feature_selection/filters/_conditional_gate_fe.py](../src/mlframe/feature_selection/filters/_conditional_gate_fe.py#L110) |
+| `MLFRAME_GATE_BUILD_NJIT_MIN_N` | `20000` | [src/mlframe/feature_selection/filters/_conditional_gate_fe.py](../src/mlframe/feature_selection/filters/_conditional_gate_fe.py#L108) |
 | `MLFRAME_GPU_BUSY_UTIL_PCT` | `70.0` | [src/mlframe/training/_gpu_contention.py](../src/mlframe/training/_gpu_contention.py#L44) |
 | `MLFRAME_GPU_CONTENTION_CPU_FALLBACK` | `True` | [src/mlframe/training/_gpu_contention.py](../src/mlframe/training/_gpu_contention.py#L39) |
 | `MLFRAME_GROUPED_COUNT_VECTORIZE_MAX_AVG` | `64` | [src/mlframe/feature_engineering/grouped.py](../src/mlframe/feature_engineering/grouped.py#L62) |
@@ -178,8 +178,8 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY` | — | [src/mlframe/feature_selection/filters/evaluation.py](../src/mlframe/feature_selection/filters/evaluation.py#L52) |
 | `MLFRAME_KEEP_BROKEN_CUPY` | `''` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L201) |
 | `MLFRAME_KEEP_COLORAMA_REINIT` | `''` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L296) |
-| `MLFRAME_KEEP_PREDICTION_DATAMODULE` | — | [src/mlframe/training/neural/base/_base_fit.py](../src/mlframe/training/neural/base/_base_fit.py#L920) |
-| `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS` | — | [src/mlframe/training/reporting/_reporting_regression/__init__.py](../src/mlframe/training/reporting/_reporting_regression/__init__.py#L469) |
+| `MLFRAME_KEEP_PREDICTION_DATAMODULE` | — | [src/mlframe/training/neural/base/_base_fit_helpers.py](../src/mlframe/training/neural/base/_base_fit_helpers.py#L520) |
+| `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS` | — | [src/mlframe/training/reporting/_reporting_regression/__init__.py](../src/mlframe/training/reporting/_reporting_regression/__init__.py#L456) |
 | `MLFRAME_KSG_GPU_N` | `50000` | [src/mlframe/feature_selection/filters/_ksg.py](../src/mlframe/feature_selection/filters/_ksg.py#L60) |
 | `MLFRAME_KTC_ONLINE_LEARN` | `''` | [src/mlframe/feature_selection/_benchmarks/kernel_tuning_cache/dispatch.py](../src/mlframe/feature_selection/_benchmarks/kernel_tuning_cache/dispatch.py#L179) |
 | `MLFRAME_LGB_CACHE_DISABLE` | — | [src/mlframe/training/_lgb_shim_helpers.py](../src/mlframe/training/_lgb_shim_helpers.py#L221) |
@@ -202,8 +202,8 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_MRMR_BATCH_PAIR_MI` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairmi.py](../src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairmi.py#L222) |
 | `MLFRAME_MRMR_COMPACT_CODES` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py#L15) |
 | `MLFRAME_MRMR_EVAL_POOL` | `'0'` | [src/mlframe/feature_selection/filters/_confirm_predictor.py](../src/mlframe/feature_selection/filters/_confirm_predictor.py#L65) |
-| `MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC` | `'0.5'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py#L157) |
-| `MLFRAME_MRMR_FIT_CACHE_MAX_MB` | `'1024'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py#L631) |
+| `MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC` | `'0.5'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py#L169) |
+| `MLFRAME_MRMR_FIT_CACHE_MAX_MB` | `'1024'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py#L655) |
 | `MLFRAME_MRMR_GPU_CMI` | `'1'` | [src/mlframe/feature_selection/filters/_evaluation_driver.py](../src/mlframe/feature_selection/filters/_evaluation_driver.py#L54) |
 | `MLFRAME_MRMR_NULL_PERMS` | `32` | [src/mlframe/feature_selection/filters/permutation.py](../src/mlframe/feature_selection/filters/permutation.py#L84) |
 | `MLFRAME_MRMR_NULL_SIGNIF_ALPHA` | `0.05` | [src/mlframe/feature_selection/filters/evaluation.py](../src/mlframe/feature_selection/filters/evaluation.py#L80) |
@@ -212,10 +212,10 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_NEURAL_MI_DEVICE` | `'auto'` | [src/mlframe/feature_selection/filters/_neural_mi.py](../src/mlframe/feature_selection/filters/_neural_mi.py#L59) |
 | `MLFRAME_NONFINITE_PAR_THRESHOLD` | `1000000` | [src/mlframe/feature_engineering/transformer/_utils.py](../src/mlframe/feature_engineering/transformer/_utils.py#L31) |
 | `MLFRAME_NO_CUDA_AUTOCONFIG` | `''` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L95) |
-| `MLFRAME_NO_GPU_INFO_CACHE` | — | [src/mlframe/training/cb/_cb_pool.py](../src/mlframe/training/cb/_cb_pool.py#L623) |
+| `MLFRAME_NO_GPU_INFO_CACHE` | — | [src/mlframe/training/cb/_cb_pool.py](../src/mlframe/training/cb/_cb_pool.py#L644) |
 | `MLFRAME_NO_MACOS_OMP_AUTOCONFIG` | `''` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L65) |
 | `MLFRAME_NUMBA_MI` | `''` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_backends.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_backends.py#L227) |
-| `MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL` | — | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L362) |
+| `MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL` | — | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L291) |
 | `MLFRAME_NW_PARALLEL_MIN_QUERIES` | `2000` | [src/mlframe/feature_engineering/nadaraya_watson.py](../src/mlframe/feature_engineering/nadaraya_watson.py#L42) |
 | `MLFRAME_OOF_BATCH_BINNING_MAX_TRAIN_ROWS` | `16000` | [src/mlframe/feature_selection/filters/_orthogonal_three_gate_mi_fe.py](../src/mlframe/feature_selection/filters/_orthogonal_three_gate_mi_fe.py#L228) |
 | `MLFRAME_PAIR_NULL_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py](../src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py#L350) |
@@ -238,7 +238,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_POLYEVAL_PAR_THRESHOLD` | `50000` | [src/mlframe/feature_selection/filters/hermite_fe/_hermite_oracle.py](../src/mlframe/feature_selection/filters/hermite_fe/_hermite_oracle.py#L21) |
 | `MLFRAME_PREBIN_CACHE` | `True` | [src/mlframe/training/composite/discovery/_fit.py](../src/mlframe/training/composite/discovery/_fit.py#L290) |
 | `MLFRAME_PREBIN_CACHE_MAX_BYTES` | — | [src/mlframe/training/composite/cache.py](../src/mlframe/training/composite/cache.py#L386) |
-| `MLFRAME_PREWARM_HEAVY_LIBS` | `''` | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L603) |
+| `MLFRAME_PREWARM_HEAVY_LIBS` | `''` | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L440) |
 | `MLFRAME_PRE_PIPELINE_CACHE_MAX` | `8` | [src/mlframe/training/pipeline/_pipeline_cache.py](../src/mlframe/training/pipeline/_pipeline_cache.py#L75) |
 | `MLFRAME_PRE_PIPELINE_CACHE_MAX_BYTES` | `0` | [src/mlframe/training/pipeline/_pipeline_cache.py](../src/mlframe/training/pipeline/_pipeline_cache.py#L76) |
 | `MLFRAME_PYSR_INPUT_BYTES_LIMIT` | `2000000000` | [src/mlframe/feature_engineering/bruteforce.py](../src/mlframe/feature_engineering/bruteforce.py#L172) |
@@ -249,7 +249,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_RECURRENT_PREDICTION_CACHE_MAX` | `16` | [src/mlframe/training/neural/_recurrent_wrapper_base.py](../src/mlframe/training/neural/_recurrent_wrapper_base.py#L46) |
 | `MLFRAME_REGRESSION_RECALIBRATION` | `''` | [src/mlframe/training/core/_phase_finalize_calibration.py](../src/mlframe/training/core/_phase_finalize_calibration.py#L279) |
 | `MLFRAME_RETENTION_NULL_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_fe_retention_subsumption.py](../src/mlframe/feature_selection/filters/_fe_retention_subsumption.py#L105) |
-| `MLFRAME_RFECV_CB_CACHED_BORDERS` | `'1'` | [src/mlframe/feature_selection/wrappers/rfecv/_cb_border_cache.py](../src/mlframe/feature_selection/wrappers/rfecv/_cb_border_cache.py#L91) |
+| `MLFRAME_RFECV_CB_CACHED_BORDERS` | `'1'` | [src/mlframe/feature_selection/wrappers/rfecv/_cb_border_cache.py](../src/mlframe/feature_selection/wrappers/rfecv/_cb_border_cache.py#L94) |
 | `MLFRAME_ROBUST_AXIS` | `''` | [src/mlframe/feature_selection/filters/hermite_fe/_hermite_robust.py](../src/mlframe/feature_selection/filters/hermite_fe/_hermite_robust.py#L62) |
 | `MLFRAME_ROBUST_MEAN_PARALLEL_MIN_N` | `50000` | [src/mlframe/core/robust_location.py](../src/mlframe/core/robust_location.py#L40) |
 | `MLFRAME_ROBUST_WARP_FIT` | `''` | [src/mlframe/feature_selection/filters/hermite_fe/_hermite_robust.py](../src/mlframe/feature_selection/filters/hermite_fe/_hermite_robust.py#L265) |
@@ -264,15 +264,15 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_SUITE_CACHE_MAX_BYTES` | `''` | [src/mlframe/training/suite_artefact_cache.py](../src/mlframe/training/suite_artefact_cache.py#L84) |
 | `MLFRAME_TORCH_COMPILE_DEBUG` | `'0'` | [src/mlframe/training/neural/_flat_torch_module/_flat_torch_predict_accel.py](../src/mlframe/training/neural/_flat_torch_module/_flat_torch_predict_accel.py#L107) |
 | `MLFRAME_TORCH_COMPILE_PREDICT` | `'0'` | [src/mlframe/training/neural/_flat_torch_module/_flat_torch_predict_accel.py](../src/mlframe/training/neural/_flat_torch_module/_flat_torch_predict_accel.py#L166) |
-| `MLFRAME_TORCH_PROFILE` | `'0'` | [src/mlframe/training/neural/base/_base_fit.py](../src/mlframe/training/neural/base/_base_fit.py#L596) |
-| `MLFRAME_TORCH_PROFILE_DIR` | `os.path.join(_ckpt_root, 'torch_traces')` | [src/mlframe/training/neural/base/_base_fit.py](../src/mlframe/training/neural/base/_base_fit.py#L602) |
+| `MLFRAME_TORCH_PROFILE` | `'0'` | [src/mlframe/training/neural/base/_base_fit_helpers.py](../src/mlframe/training/neural/base/_base_fit_helpers.py#L262) |
+| `MLFRAME_TORCH_PROFILE_DIR` | `os.path.join(_ckpt_root, 'torch_traces')` | [src/mlframe/training/neural/base/_base_fit_helpers.py](../src/mlframe/training/neural/base/_base_fit_helpers.py#L268) |
 | `MLFRAME_TRUST_LGB_CUDA` | — | [src/mlframe/training/_gpu_probe.py](../src/mlframe/training/_gpu_probe.py#L65) |
 | `MLFRAME_TTR_DISABLE_PREDICT_CLIP` | — | [src/mlframe/training/targets/_ttr_eval_set_scaling.py](../src/mlframe/training/targets/_ttr_eval_set_scaling.py#L107) |
 | `MLFRAME_USABILITY_CORR_MAX_ROWS` | `'30000'` | [src/mlframe/feature_selection/filters/_fe_usability_signal.py](../src/mlframe/feature_selection/filters/_fe_usability_signal.py#L142) |
 | `MLFRAME_USABILITY_POOL_BACKEND` | `''` | [src/mlframe/feature_selection/filters/_usability_njit_pool.py](../src/mlframe/feature_selection/filters/_usability_njit_pool.py#L809) |
 | `MLFRAME_USE_SKLEARNEX` | `'1'` | [src/mlframe/feature_engineering/transformer/_intel_patch.py](../src/mlframe/feature_engineering/transformer/_intel_patch.py#L45) |
 | `MLFRAME_VARIANCE_GATED_DIFF_MAX_BYTES` | — | [src/mlframe/feature_engineering/variance_gated_pairwise_diff.py](../src/mlframe/feature_engineering/variance_gated_pairwise_diff.py#L33) |
-| `MLFRAME_WARMUP_MAPE_DIAG` | — | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L430) |
+| `MLFRAME_WARMUP_MAPE_DIAG` | — | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L329) |
 | `MLFRAME_XGB_CACHE_DISABLE` | — | [src/mlframe/training/xgb_shim.py](../src/mlframe/training/xgb_shim.py#L202) |
 | `MODE` | `'baseline'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/hybrid_opt_baseline.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/hybrid_opt_baseline.py#L30) |
 | `MRMR_CAMPAIGN_RAISE` | — | [src/mlframe/feature_selection/_benchmarks/fs_quality/mrmr_largeN_campaign.py](../src/mlframe/feature_selection/_benchmarks/fs_quality/mrmr_largeN_campaign.py#L175) |

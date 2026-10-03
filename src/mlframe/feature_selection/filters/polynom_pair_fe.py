@@ -153,6 +153,7 @@ def run_polynom_pair_fe(
     ``feature_names_in`` is used only to deduce existing column names; not
     mutated.
     """
+    X_ndarr: Any = None
     if not fe_smart_polynom_iters:
         return data, nbins, cols, X
     pl: Any = None
@@ -168,18 +169,7 @@ def run_polynom_pair_fe(
     # categorical operand can slip through the upstream pool filter via a cached pair or
     # a synergy-kept operand. Indices are positional into X (``X_ndarr[:, idx]`` below).
     _numeric_pos = None
-    try:
-        _schema = getattr(X, "schema", None)
-        if _schema is not None:  # polars
-            _numeric_pos = {i for i, c in enumerate(X.columns) if _schema[c].is_numeric()}
-        else:
-            _dtypes = getattr(X, "dtypes", None)
-            if _dtypes is not None:  # pandas
-                import pandas as _pd
-                _numeric_pos = {i for i, _dt in enumerate(_dtypes) if _pd.api.types.is_numeric_dtype(_dt)}
-    except Exception as e:
-        logger.debug("numeric-dtype position detection failed: %s", e)
-        _numeric_pos = None
+    _numeric_pos = _run_polynom_pair_f_synergy_kept_operand_indices(X, _numeric_pos)
     if _numeric_pos is not None:
         _pair_keys = [p for p in _pair_keys if int(p[0]) in _numeric_pos and int(p[1]) in _numeric_pos]
     _n_pairs_to_eval = len(_pair_keys)
@@ -188,12 +178,8 @@ def run_polynom_pair_fe(
     # Cheap-first dispatch: per-pair joint-MI ceiling (``pair_mi`` from the key)
     # so ``_eval_one_pair_impl`` can skip the expensive optimiser when the cheap
     # trivial baseline already captures >= ``poly_cheap_skip_ratio`` of it.
-    _pair_mi_ceiling = {}
-    for _k in prospective_pairs.keys():
-        try:
-            _pair_mi_ceiling[_k[0]] = float(_k[1])
-        except (TypeError, ValueError, IndexError):  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-            pass
+    _pair_mi_ceiling: dict[Any, Any] = {}
+    _run_polynom_pair_f_trivial_baseline_already_captures(prospective_pairs, _pair_mi_ceiling)
 
     _polynom_n_jobs = int(n_jobs) if n_jobs and n_jobs > 0 else 1
     logger.info(
@@ -224,16 +210,7 @@ def run_polynom_pair_fe(
     # become NaN placeholders and their positions are recorded so the per-pair guard skips exactly the
     # same pairs the old per-worker ValueError/TypeError path skipped.
     _uncoercible: Optional[np.ndarray] = None
-    if X_ndarr.dtype == object:
-        _Xf = np.empty(X_ndarr.shape, dtype=np.float64)
-        _uncoercible = np.zeros(X_ndarr.shape[1], dtype=bool)
-        for _j in range(X_ndarr.shape[1]):
-            try:
-                _Xf[:, _j] = np.asarray(X_ndarr[:, _j], dtype=np.float64)
-            except (ValueError, TypeError):  # noqa: PERF203 - per-column coercion needs its own try; runs once per FE round, not hot
-                _Xf[:, _j] = np.nan
-                _uncoercible[_j] = True
-        X_ndarr = _Xf
+    X_ndarr, _uncoercible = _run_polynom_pair_f_same_pairs_old_per(X_ndarr, _uncoercible)
     # run_polynom_pair_fe is called once per FE round (up to fe_max_steps times per fit) with the SAME
     # X content each time - a fresh Parallel(...) call below re-triggers joblib's memmapping reducer's
     # OWN dump of X_ndarr per call (it only dedups WITHIN one Parallel() invocation's tasks, not ACROSS
@@ -445,6 +422,12 @@ def run_polynom_pair_fe(
 
     _fe_deadline_value = getattr(_fe_deadline_state, "deadline", None)
 
+    X, cols, data, nbins = _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, verbose, _pair_keys, _eval_one_pair, X_ndarr, classes_y, _fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio)
+    return data, nbins, cols, X
+
+
+def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, verbose, _pair_keys, _eval_one_pair, X_ndarr, classes_y, _fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio):
+    """Block of run_polynom_pair_fe starting at ``_poly_t0 = time.perf_counter()``."""
     _poly_t0 = time.perf_counter()
     # 2026-05-18 threshold: at n=1M, 15 pairs, joblib worker spin-up
     # exceeded the per-pair work (11s parallel vs 5.75s serial). At 50+
@@ -656,4 +639,45 @@ def run_polynom_pair_fe(
             _n_cheap_skipped, _n_pairs_to_eval, 100.0 * poly_cheap_skip_ratio,
             _n_pairs_to_eval - _n_cheap_skipped,
         )
-    return data, nbins, cols, X
+    return X, cols, data, nbins
+
+
+def _run_polynom_pair_f_synergy_kept_operand_indices(X, _numeric_pos):
+    """Block of run_polynom_pair_fe starting at ``try:``."""
+    try:
+        _schema = getattr(X, "schema", None)
+        if _schema is not None:  # polars
+            _numeric_pos = {i for i, c in enumerate(X.columns) if _schema[c].is_numeric()}
+        else:
+            _dtypes = getattr(X, "dtypes", None)
+            if _dtypes is not None:  # pandas
+                import pandas as _pd
+                _numeric_pos = {i for i, _dt in enumerate(_dtypes) if _pd.api.types.is_numeric_dtype(_dt)}
+    except Exception as e:
+        logger.debug("numeric-dtype position detection failed: %s", e)
+        _numeric_pos = None
+    return _numeric_pos
+
+
+def _run_polynom_pair_f_trivial_baseline_already_captures(prospective_pairs, _pair_mi_ceiling):
+    """Block of run_polynom_pair_fe starting at ``for _k in prospective_pairs.keys():``."""
+    for _k in prospective_pairs.keys():
+        try:
+            _pair_mi_ceiling[_k[0]] = float(_k[1])
+        except (TypeError, ValueError, IndexError):  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            pass
+
+
+def _run_polynom_pair_f_same_pairs_old_per(X_ndarr, _uncoercible):
+    """Block of run_polynom_pair_fe starting at ``if X_ndarr.dtype == object:``."""
+    if X_ndarr.dtype == object:
+        _Xf = np.empty(X_ndarr.shape, dtype=np.float64)
+        _uncoercible = np.zeros(X_ndarr.shape[1], dtype=bool)
+        for _j in range(X_ndarr.shape[1]):
+            try:
+                _Xf[:, _j] = np.asarray(X_ndarr[:, _j], dtype=np.float64)
+            except (ValueError, TypeError):  # noqa: PERF203 - per-column coercion needs its own try; runs once per FE round, not hot
+                _Xf[:, _j] = np.nan
+                _uncoercible[_j] = True
+        X_ndarr = _Xf
+    return X_ndarr, _uncoercible

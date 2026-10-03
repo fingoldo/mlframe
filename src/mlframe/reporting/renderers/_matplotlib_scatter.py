@@ -124,50 +124,17 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     if p.legend_label:
         kw["label"] = p.legend_label
     kw["s"] = size_arr if size_arr is not None else float(p.point_size)
-    if color_arr is not None:
-        kw["c"] = color_arr
-        kw["cmap"] = _resolve_discrete_cmap(p.colormap)
-        if p.color_vmin is not None:
-            kw["vmin"] = p.color_vmin
-        if p.color_vmax is not None:
-            kw["vmax"] = p.color_vmax
-    elif p.point_color is not None:
-        kw["color"] = p.point_color
+    _scatter_color_arr_none(color_arr, kw, p)
     # ``weak.any()`` alone, deliberately: the old guard also required at least one STRONG point, so a panel
     # where EVERY bin rests on too little data fell through to the confident branch and rendered
     # pixel-identical to one built on 300k-row bins -- the confidence signal vanished at the exact moment it
     # mattered most, taking the "too few rows to read" legend entry with it. With the strong subset empty the
     # trace below is simply empty, which both backends skip cleanly.
-    if weak.any():
-        # Two calls so the weak points can be hollow: matplotlib takes ``facecolors`` per call, not per point,
-        # and the colorbar is built from the FILLED call so it still describes the observations.
-        strong = ~weak
-        _sub = {k: select_per_point(v, strong, len(x)) for k, v in kw.items()}
-        sc = ax.scatter(x[strong], y[strong], **_sub)
-        _weak_kw = {k: select_per_point(v, weak, len(x)) for k, v in kw.items()}
-        _weak_kw.pop("label", None)
-        # The colour-mapping keys go with the fill: a hollow marker has nothing to map, and leaving them
-        # set makes matplotlib warn that it is ignoring them.
-        for _cmap_key in ("c", "cmap", "vmin", "vmax"):
-            _weak_kw.pop(_cmap_key, None)
-        _weak_kw["facecolors"] = "none"
-        _weak_kw["edgecolors"] = "0.55"
-        _weak_kw["linewidths"] = 0.9
-        _weak_kw["alpha"] = min(1.0, float(p.point_alpha) + 0.2)
-        _weak_kw["label"] = "too few rows to read"
-        ax.scatter(x[weak], y[weak], **_weak_kw)
-    else:
-        sc = ax.scatter(x, y, **kw)
+    sc = _scatter_trace_below_simply_empty(weak, kw, x, ax, y, p)
 
     # Emphasised subset (worst-K errors): drawn on top, larger + colored. Indices are positions into the
     # ORIGINAL arrays, so resolve against the pre-subsample data (``p.x`` / ``p.y``), not the capped ``x``/``y``.
-    if p.highlight_indices is not None:
-        hi_idx = np.asarray(p.highlight_indices, dtype=np.int64)
-        ox, oy = np.asarray(p.x), np.asarray(p.y)
-        hi_idx = hi_idx[(hi_idx >= 0) & (hi_idx < len(ox))]
-        if hi_idx.size:
-            base_s = float(p.point_size) if size_arr is None else float(np.median(np.asarray(p.point_size)))
-            ax.scatter(ox[hi_idx], oy[hi_idx], s=base_s * 4.0, facecolors="none", edgecolors=p.highlight_color, linewidths=1.5, zorder=5, label="worst-K")
+    _scatter_original_arrays_resolve_against(p, size_arr, ax)
 
     if p.trend_line is not None and n > 1:
         from mlframe.reporting.renderers._trend import robust_fit_endpoints
@@ -205,6 +172,55 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
             ax.legend(loc=(p.legend_loc if p.legend_loc is not None else "best"), fontsize=8, framealpha=0.7)
     if p.grid:
         ax.grid(True, alpha=0.3)
+
+
+def _scatter_color_arr_none(color_arr, kw, p):
+    """Block of _scatter starting at ``if color_arr is not None:``."""
+    if color_arr is not None:
+        kw["c"] = color_arr
+        kw["cmap"] = _resolve_discrete_cmap(p.colormap)
+        if p.color_vmin is not None:
+            kw["vmin"] = p.color_vmin
+        if p.color_vmax is not None:
+            kw["vmax"] = p.color_vmax
+    elif p.point_color is not None:
+        kw["color"] = p.point_color
+
+
+def _scatter_trace_below_simply_empty(weak, kw, x, ax, y, p):
+    """Block of _scatter starting at ``if weak.any():``."""
+    if weak.any():
+        # Two calls so the weak points can be hollow: matplotlib takes ``facecolors`` per call, not per point,
+        # and the colorbar is built from the FILLED call so it still describes the observations.
+        strong = ~weak
+        _sub = {k: select_per_point(v, strong, len(x)) for k, v in kw.items()}
+        sc = ax.scatter(x[strong], y[strong], **_sub)
+        _weak_kw = {k: select_per_point(v, weak, len(x)) for k, v in kw.items()}
+        _weak_kw.pop("label", None)
+        # The colour-mapping keys go with the fill: a hollow marker has nothing to map, and leaving them
+        # set makes matplotlib warn that it is ignoring them.
+        for _cmap_key in ("c", "cmap", "vmin", "vmax"):
+            _weak_kw.pop(_cmap_key, None)
+        _weak_kw["facecolors"] = "none"
+        _weak_kw["edgecolors"] = "0.55"
+        _weak_kw["linewidths"] = 0.9
+        _weak_kw["alpha"] = min(1.0, float(p.point_alpha) + 0.2)
+        _weak_kw["label"] = "too few rows to read"
+        ax.scatter(x[weak], y[weak], **_weak_kw)
+    else:
+        sc = ax.scatter(x, y, **kw)
+    return sc
+
+
+def _scatter_original_arrays_resolve_against(p, size_arr, ax):
+    """Block of _scatter starting at ``if p.highlight_indices is not None:``."""
+    if p.highlight_indices is not None:
+        hi_idx = np.asarray(p.highlight_indices, dtype=np.int64)
+        ox, oy = np.asarray(p.x), np.asarray(p.y)
+        hi_idx = hi_idx[(hi_idx >= 0) & (hi_idx < len(ox))]
+        if hi_idx.size:
+            base_s = float(p.point_size) if size_arr is None else float(np.median(np.asarray(p.point_size)))
+            ax.scatter(ox[hi_idx], oy[hi_idx], s=base_s * 4.0, facecolors="none", edgecolors=p.highlight_color, linewidths=1.5, zorder=5, label="worst-K")
 
 
 def _draw_perfect_fit_line(p, n, x, y, ax):

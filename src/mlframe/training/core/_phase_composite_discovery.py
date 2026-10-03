@@ -38,10 +38,10 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 from ._target_slots import insert_composite_targets
-from ._phase_composite_discovery_helpers import (
+from ._phase_composite_discovery_helpers import (  # noqa: F401  -- carved helpers
     _render_composite_discovery_diagnostics,
     _build_disc_df_for_target,
-    _discovery_config_signature,  # noqa: F401  (re-exported; tests import it from here)
+    _discovery_config_signature,
 )
 
 from ._phase_composite_discovery_gates import (  # noqa: F401  (re-exported)
@@ -116,6 +116,7 @@ def run_composite_target_discovery(
 
     Returns updated (target_by_type, metadata).
     """
+    _disc_feature_cols: Any = None
     if TargetTypes.REGRESSION in target_by_type:
         composite_target_discovery_config = _maybe_auto_enable_discovery(
             composite_target_discovery_config, target_by_type=target_by_type, train_idx=train_idx, metadata=metadata,
@@ -179,6 +180,53 @@ def run_composite_target_discovery(
     _td_diag = _td_report.get("diagnostics", {}) or {}
     _td_knobs = _td_report.get("knob_overrides", {}) or {}
     _lag1_ar = _td_diag.get("lag1_autocorr_per_group")
+    _pending_composite = _run_composite_targ_split_cfg_overrides_td(_td_knobs, split_config, group_ids, mlframe_models, composite_target_discovery_config, filtered_train_idx, target_by_type, metadata, _lag1_ar, _td_report, _extreme_ar_skip, _extreme_ar_threshold, _td_diag, _auto_skip, _existing_diags, baseline_diagnostics_config, filtered_train_df, cat_features, _disc_feature_cols, precomputed_specs, discovery_cache_dir, val_df_pd, val_idx, _disc_train_idx, train_df_pd, test_df_pd, train_idx, test_idx, save_charts, data_dir)
+
+    # Global selection: every base target's discovery has now run, so every candidate's honest-holdout
+    # quality score is comparable at once. Keep the best-scoring specs across the WHOLE run (not an equal
+    # share per target) up to max_total_composite_targets; None keeps every discovered spec (old behaviour).
+    _kept_composite = select_composites_to_train(_pending_composite, composite_target_discovery_config, metadata)
+    _kept_composite = insert_composite_targets(target_by_type, _kept_composite, metadata)
+
+    n_specs_total = sum(len(v) for tt_specs in metadata["composite_target_specs"].values() for v in tt_specs.values())
+    # Composite-feature-stacking stub: surface the discovered specs so the
+    # downstream FE pipeline (caller-specific) can opt in via
+    # ``composite_oof_predictions`` / ``composite_predictions_as_feature``.
+    # Wiring the columns into a generic FE pipeline is non-trivial because
+    # the consumer is project-specific, so we ship a metadata marker + warn.
+    if getattr(
+        composite_target_discovery_config,
+        "composite_feature_stacking_enabled", False,
+    ) and n_specs_total > 0:
+        metadata.setdefault("composite_feature_stacking", {})["enabled"] = True
+        metadata["composite_feature_stacking"]["available_specs"] = [
+            {"target_type": _tt_str, "target_name": _tname,
+             "spec_name": _spec.get("name") if isinstance(_spec, dict) else getattr(_spec, "name", "?"),
+             "base_column": _spec.get("base_column") if isinstance(_spec, dict) else getattr(_spec, "base_column", "?"),
+             "transform_name": _spec.get("transform_name") if isinstance(_spec, dict) else getattr(_spec, "transform_name", "?")}
+            for _tt_str, _by_t in metadata["composite_target_specs"].items()
+            for _tname, _spec_list in _by_t.items()
+            for _spec in (_spec_list or [])
+        ]
+        logger.warning(
+            "[CompositeFeatureStacking] enabled by config; %d composite "
+            "spec(s) surfaced under metadata['composite_feature_stacking']. "
+            "Caller must wire ``composite_oof_predictions`` / "
+            "``composite_predictions_as_feature`` into the downstream FE "
+            "pipeline -- the generic suite does not auto-attach.",
+            len(metadata["composite_feature_stacking"]["available_specs"]),
+        )
+    n_specs_trained = len(_kept_composite)
+    _run_composite_targ_specs_trained(n_specs_trained, _gpu_families)
+
+    return target_by_type, metadata
+
+
+def _run_composite_targ_split_cfg_overrides_td(_td_knobs, split_config, group_ids, mlframe_models, composite_target_discovery_config, filtered_train_idx, target_by_type, metadata, _lag1_ar, _td_report, _extreme_ar_skip, _extreme_ar_threshold, _td_diag, _auto_skip, _existing_diags, baseline_diagnostics_config, filtered_train_df, cat_features, _disc_feature_cols, precomputed_specs, discovery_cache_dir, val_df_pd, val_idx, _disc_train_idx, train_df_pd, test_df_pd, train_idx, test_idx, save_charts, data_dir):
+    """Block of run_composite_target_discovery starting at ``_split_cfg_overrides = _td_knobs.get("split_config", {}) or {}``."""
+    _tt_disc: Any = None
+    _tname_disc: Any = None
+    _disc: Any = None
     _split_cfg_overrides = _td_knobs.get("split_config", {}) or {}
     _group_aware_recommended = bool(_split_cfg_overrides.get("prefer_group_aware", False))
 
@@ -207,36 +255,14 @@ def run_composite_target_discovery(
     # value when the user left it at 0; unbounded zoos keep the user's value (0 = never skip). One model_copy reused for
     # every target so the shared config object is never mutated.
     _disc_cfg_base = composite_target_discovery_config
-    if _bounded_only_zoo and float(getattr(composite_target_discovery_config, "composite_skip_when_raw_dominates_ratio", 0.0)) <= 0.0:
-        try:
-            _disc_cfg_base = composite_target_discovery_config.model_copy(
-                update={"composite_skip_when_raw_dominates_ratio": _RERANK_SKIP_RATIO_BOUNDED_DEFAULT},
-            )
-            logger.info(
-                "[CompositeTargetDiscovery] bounded-only zoo: rerank raw-dominance skip ratio "
-                "defaulted to %.3f (raw R^2 > 0.9996 -> composite has no headroom).",
-                _RERANK_SKIP_RATIO_BOUNDED_DEFAULT,
-            )
-        except Exception as e:
-            logger.debug("re-rank-skip-ratio auto-default computation failed, using the caller's config as-is: %s", e)
-            _disc_cfg_base = composite_target_discovery_config
+    _disc_cfg_base = _run_composite_targ_every_target_shared_config(_bounded_only_zoo, composite_target_discovery_config, _disc_cfg_base)
 
     # Suite-constant group_ids: coerce once + materialise the filtered slice + length cap; the per-target loop below otherwise pays a fresh
     # ``np.asarray`` + ``np.max`` per regression target inside the tiny-rerank wiring block (group_ids is invariant across targets).
     _grp_arr_hoisted: np.ndarray | None = None
     _grp_filtered_slice: np.ndarray | None = None
     _grp_max_required: int = 0
-    if group_ids is not None and _group_aware_active and filtered_train_idx is not None:
-        try:
-            _grp_arr_hoisted = np.asarray(group_ids)
-            _grp_max_required = int(np.max(filtered_train_idx) + 1)
-            if _grp_arr_hoisted.shape[0] >= _grp_max_required:
-                _grp_filtered_slice = _grp_arr_hoisted[filtered_train_idx]
-        except (TypeError, ValueError, IndexError) as _hoist_err:
-            logger.debug(
-                "[CompositeTargetDiscovery] group_ids hoist failed (%s); " "tiny-rerank will fall back to KFold for every target.",
-                _hoist_err,
-            )
+    _grp_filtered_slice = _run_composite_targ_group_ids_none_group(group_ids, _group_aware_active, filtered_train_idx, _grp_filtered_slice)
 
     # Candidates accepted by EVERY base target's own discovery, buffered rather than written straight into
     # target_by_type: max_total_composite_targets is a budget for the whole run, and picking the best-scoring
@@ -337,29 +363,7 @@ def run_composite_target_discovery(
                 "use_baseline_diagnostics_hint", True,
             ))
             _diag = None
-            if _auto_skip or _use_hint:
-                _diag = _existing_diags.get(str(_tt_disc), {}).get(_tname_disc)
-                if _diag is None:
-                    try:
-                        _bd_inline = BaselineDiagnostics(baseline_diagnostics_config)
-                        _y_train_for_diag = _y_arr[filtered_train_idx] if filtered_train_idx is not None else _y_arr
-                        _diag_report = _bd_inline.fit_and_report(
-                            train_df=filtered_train_df,
-                            train_target=_y_train_for_diag,
-                            feature_cols=list(filtered_train_df.columns),
-                            target_type=str(_tt_disc),
-                            target_name=_tname_disc,
-                            cat_features=cat_features,
-                        )
-                        _diag = _diag_report.to_dict()
-                        metadata.setdefault("baseline_diagnostics", {}).setdefault(str(_tt_disc), {})[_tname_disc] = _diag
-                    except Exception as _bd_err:
-                        logger.info(
-                            "[CompositeTargetDiscovery] inline diagnostic precompute " "failed for '%s': %s; discovery proceeds without auto-skip / hint.",
-                            _tname_disc,
-                            _bd_err,
-                        )
-                        _diag = None
+            _diag = _run_composite_targ_auto_skip_use_hint(_auto_skip, _use_hint, _existing_diags, _tt_disc, _tname_disc, baseline_diagnostics_config, filtered_train_idx, _y_arr, filtered_train_df, cat_features, metadata, _diag)
             if _auto_skip:
                 if _diag is not None and _diag.get("composite_recommendation") == "unlikely_to_help":
                     logger.info(
@@ -415,13 +419,7 @@ def run_composite_target_discovery(
             # NOT this measured ceiling nor the lag_predict failsafe (the prod footgun fix). The verdict is the single
             # source of truth for did-we-skip-and-why (logged once at INFO inside the precheck).
             _grp_train = None
-            if group_ids is not None:
-                try:
-                    _grp_full_pc = np.asarray(group_ids).reshape(-1)
-                    if _grp_full_pc.shape[0] > int(np.max(filtered_train_idx)):
-                        _grp_train = _grp_full_pc[filtered_train_idx]
-                except (TypeError, ValueError, IndexError):
-                    _grp_train = None
+            _grp_train = _run_composite_targ_source_truth_did_skip(group_ids, filtered_train_idx, _grp_train)
             _ceiling_verdict = None
             try:
                 _ceiling_verdict = run_achievable_ceiling_precheck(
@@ -473,19 +471,7 @@ def run_composite_target_discovery(
             _pre_specs = None
             if precomputed_specs:
                 _pre_specs = (precomputed_specs.get(str(_tt_disc)) or {}).get(_tname_disc)
-            if _pre_specs:
-                _cached_payload = {"specs_export": list(_pre_specs), "failures": [], "filter_drops": {}}
-                logger.info(
-                    "[CompositeTargetDiscovery] replaying %d caller-supplied spec(s) for target='%s'; skipping discovery.",
-                    len(_cached_payload["specs_export"]), _tname_disc,
-                )
-            elif discovery_cache_dir is not None:
-                _digest = discovery_inputs_digest(group_ids=_grp_filtered_slice, hint_strengths=_hint_strengths if _use_hint else None, disc_df=_disc_df,
-                                                  time_column=getattr(_disc_cfg, "time_column", None), val_df=val_df_pd, y_full=_y_arr, val_idx=val_idx)
-                _disc_cache, _disc_cache_key, _cached_payload = _discovery_cache_lookup(_disc_cfg, _disc_df, _tname_disc, _disc_feature_cols, discovery_cache_dir, _digest,
-                                                                                         signature_out=_disc_signature)
-            else:
-                _cached_payload = None
+            _cached_payload, _disc_cache, _disc_cache_key = _run_composite_targ_pre_specs(_pre_specs, _tname_disc, discovery_cache_dir, _grp_filtered_slice, _use_hint, _hint_strengths, _disc_df, _disc_cfg, val_df_pd, _y_arr, val_idx, _disc_feature_cols, _disc_signature, _disc_cache, _disc_cache_key)
 
             if _cached_payload is not None:
                 # Replay the cached output into metadata without refitting.
@@ -517,25 +503,13 @@ def run_composite_target_discovery(
                 # downstream forward-applier loop expects one. Reconstruct
                 # the bare-minimum CompositeSpec list from the cached export.
                 try:
-                    from ..composite.spec import CompositeSpec as _Spec
+                    from mlframe.training.composite.spec import CompositeSpec as _Spec
 
                     _cached_specs = [_Spec(**s) if isinstance(s, dict) else s for s in _cached_payload.get("specs_export", [])]
                     # Auto-discovered chain transforms (chain_<residual>_<unary>) are registered in-process by
                     # _run_auto_chain during a FRESH discovery; on a cache replay that never ran, so re-register any the
                     # cached specs reference -- otherwise get_transform / predict-time inversion raises UnknownTransformError.
-                    try:
-                        from mlframe.training.composite.discovery.shared import reregister_auto_chain_transforms
-                        _rereg = reregister_auto_chain_transforms([getattr(s, "transform_name", "") for s in _cached_specs])
-                        if _rereg:
-                            logger.info(
-                                "[CompositeTargetDiscovery] cache replay re-registered %d auto-chain transform(s): %s",
-                                len(_rereg), sorted(_rereg),
-                            )
-                    except Exception as _rereg_err:  # best-effort: a cache-replay re-registration miss just means the transform re-registers itself lazily on next use
-                        log_throttle(
-                            logger, "composite_discovery_cache_replay_rereg_failed", logging.WARNING,
-                            "[CompositeTargetDiscovery] cache replay auto-chain re-registration failed: %s", _rereg_err,
-                        )
+                    _run_composite_targ_cached_specs_reference_otherwise(_cached_specs)
                 except Exception as _replay_err:
                     # Spec rebuild failed: without it the forward-applier adds no T columns, yet specs were already claimed in metadata above.
                     # Clear the claimed specs so metadata matches the (no-column) reality; full re-discovery fallback is a larger fix.
@@ -554,7 +528,7 @@ def run_composite_target_discovery(
 
                     specs_ = _cached_specs
 
-                _disc: Any = _CacheReplay()
+                _disc = _CacheReplay()
             else:
                 try:
                     _disc_instance = CompositeTargetDiscovery(_disc_cfg)
@@ -621,22 +595,7 @@ def run_composite_target_discovery(
                     # future->past on temporal data via shuffled K-fold.
                     _time_ordering = None
                     _tcol = getattr(_disc_cfg, "time_column", None)
-                    if _tcol:
-                        try:
-                            if hasattr(_disc_df, "columns") and _tcol in _disc_df.columns:
-                                if hasattr(_disc_df, "get_column"):  # polars
-                                    _time_ordering = _disc_df.get_column(_tcol).to_numpy()
-                                else:  # pandas
-                                    _time_ordering = _disc_df[_tcol].to_numpy()
-                        except Exception as _tc_err:  # best-effort: falls back to base-monotonicity time detection below
-                            log_throttle(
-                                logger, "composite_discovery_time_column_extract_failed", logging.WARNING,
-                                "[CompositeTargetDiscovery] time_column='%s' "
-                                "could not be extracted (%s); discovery falls "
-                                "back to base-monotonicity time detection.",
-                                _tcol, _tc_err,
-                            )
-                            _time_ordering = None
+                    _time_ordering = _run_composite_targ_future_past_temporal_data(_tcol, _disc_df, _time_ordering)
                     # Supply the VAL frame + val targets so the y-scale gate can validate the
                     # predict-T -> invert-to-y pipeline on UNSEEN wells (val groups are disjoint
                     # from train under the group-aware split) -- the regime where a residual inverse
@@ -644,58 +603,8 @@ def run_composite_target_discovery(
                     # discovery ``df`` is train-only, so the val split is passed as a separate frame.
                     _disc_val_df = None
                     _disc_val_y = None
-                    try:
-                        if val_df_pd is not None and val_idx is not None:
-                            _vy = np.asarray(_y_arr)[val_idx]
-                            if hasattr(val_df_pd, "__len__") and len(val_df_pd) == len(_vy):
-                                _disc_val_df = val_df_pd
-                                _disc_val_y = _vy
-                    except Exception as e:  # -- val gate is best-effort; fall back to train-group holdout
-                        logger.debug("val-gate construction failed, falling back to train-group holdout: %s", e)
-                        _disc_val_df, _disc_val_y = None, None
-                    if _use_stacked_residual:
-                        _disc = _disc_instance.fit_stacked_on_residual(
-                            df=_disc_df,
-                            target_col=_tname_disc,
-                            feature_cols=_disc_feature_cols,
-                            train_idx=_disc_train_idx,
-                            n_oof_folds=int(getattr(
-                                _disc_cfg, "stacked_n_oof_folds", 3,
-                            )),
-                            residual_aggregation=str(getattr(
-                                _disc_cfg, "stacked_residual_aggregation", "mean",
-                            )),
-                            max_pass1_specs_to_aggregate=int(getattr(
-                                _disc_cfg,
-                                "stacked_residual_max_pass1_specs_to_aggregate",
-                                3,
-                            )),
-                            time_aware=_stacked_time_aware, time_ordering=_time_ordering, val_df=_disc_val_df, val_y=_disc_val_y,
-                        )
-                    elif _use_stacked:
-                        _disc = _disc_instance.fit_stacked(
-                            df=_disc_df,
-                            target_col=_tname_disc,
-                            feature_cols=_disc_feature_cols,
-                            train_idx=_disc_train_idx,
-                            n_oof_folds=int(getattr(
-                                _disc_cfg, "stacked_n_oof_folds", 3,
-                            )),
-                            max_pass1_specs_to_stack=int(getattr(
-                                _disc_cfg, "stacked_max_pass1_specs", 3,
-                            )),
-                            time_aware=_stacked_time_aware, time_ordering=_time_ordering, val_df=_disc_val_df, val_y=_disc_val_y,
-                        )
-                    else:
-                        _disc = _disc_instance.fit(
-                            df=_disc_df,
-                            target_col=_tname_disc,
-                            feature_cols=_disc_feature_cols,
-                            train_idx=_disc_train_idx,
-                            time_ordering=_time_ordering,
-                            val_df=_disc_val_df,
-                            val_y=_disc_val_y,
-                        )
+                    _disc_val_df, _disc_val_y = _run_composite_targ_discovery_df_train_only(val_df_pd, val_idx, _y_arr, _disc_val_df, _disc_val_y)
+                    _disc = _run_composite_targ_use_stacked_residual(_use_stacked_residual, _disc_instance, _disc_df, _tname_disc, _disc_feature_cols, _disc_train_idx, _disc_cfg, _stacked_time_aware, _time_ordering, _disc_val_df, _disc_val_y, _use_stacked)
                 except Exception as _disc_err:  # best-effort: training continues without composite expansion for this target
                     log_throttle(
                         logger, "composite_discovery_fit_failed", logging.WARNING,
@@ -723,93 +632,18 @@ def run_composite_target_discovery(
 
                 # Populate the cache so the next call with identical inputs
                 # short-circuits.
-                if _disc_cache is not None and _disc_cache_key is not None:
-                    try:
-                        _disc_cache.set(
-                            _disc_cache_key,
-                            {
-                                "specs_export": _disc.export_specs(),
-                                "failures": [r for r in _disc.report() if r.get("rejected")],
-                                "filter_drops": _disc.filter_drops(),
-                            },
-                        )
-                        metadata.setdefault("composite_target_cache", {}).setdefault(str(_tt_disc), {})[_tname_disc] = {
-                            "hit": False,
-                            "key": _disc_cache_key,
-                        }
-                    except Exception as _cache_err:
-                        logger.info(
-                            "[CompositeTargetDiscovery] cache set failed for " "target='%s' (%s); ignored.",
-                            _tname_disc,
-                            _cache_err,
-                        )
+                _run_composite_targ_short_circuits(_disc_cache, _disc_cache_key, _disc, metadata, _tt_disc, _tname_disc)
 
             # Record the measured achievable-ceiling verdict on the discovery instance (single source of truth also lives
             # in metadata["composite_precheck_verdict"]); both the cache-replay and fresh-fit ``_disc`` accept the attr.
-            if _ceiling_verdict is not None:
-                try:
-                    _disc.composite_precheck_verdict_ = _ceiling_verdict
-                except Exception as e:  # -- exotic/read-only _disc; the verdict already lives in metadata
-                    logger.debug("swallowed exception in _phase_composite_discovery.py: %s", e)
-                    pass
+            _run_composite_targ_metadata_composite_precheck_verdict(_ceiling_verdict, _disc)
 
             # Apply frozen (train-fitted) params to ALL rows so the per-target loop has T for val/test.
             # NaN rows (domain violations on val/test) get imputed with median(T_train).
-            from ..composite import get_transform as _get_transform_local
             _t_by_spec_for_charts: dict[str, np.ndarray] = {}
-            for _spec in _disc.specs_:
-                _transform = _get_transform_local(_spec.transform_name)
-                # Multi-base specs (extra_base_columns non-empty) need a
-                # (n_total, 1+K) matrix stacking the primary base column
-                # with each extra base. linear_residual_multi.forward
-                # consumes that 2-D matrix; passing only the primary
-                # column raises ValueError("base has N columns but
-                # fitted alphas has M entries") in the forward call.
-                _extra_bases = tuple(getattr(_spec, "extra_base_columns", ()) or ())
-                _base_primary = _build_full_column_from_splits(
-                    _spec.base_column,
-                    train_df_pd, val_df_pd, test_df_pd,
-                    train_idx, val_idx, test_idx,
-                    n_total=_y_arr.shape[0],
-                )
-                if _extra_bases:
-                    _base_cols = [_base_primary]
-                    _base_cols.extend(
-                        _build_full_column_from_splits(
-                            _eb_name,
-                            train_df_pd, val_df_pd, test_df_pd,
-                            train_idx, val_idx, test_idx,
-                            n_total=_y_arr.shape[0],
-                        )
-                        for _eb_name in _extra_bases
-                    )
-                    _base_full = np.column_stack(_base_cols)
-                else:
-                    _base_full = _base_primary
-                _ct_t_full, _t_by_spec_for_charts[_spec.name] = composite_t_full(_transform, _spec, _y_arr, _base_full, filtered_train_idx)
-                # Not written to target_by_type yet -- buffered so the max_total_composite_targets budget
-                # (spent across ALL base targets, not per-target) can pick the best-scoring specs seen so
-                # far across the WHOLE run once every target's own discovery has finished. See the
-                # end-of-function flush for the actual target_by_type write + log line.
-                _raw_rmse = getattr(_spec, "honest_holdout_raw_rmse", None)
-                _rmse_gain = getattr(_spec, "honest_holdout_rmse_gain", None)
-                _rel_gain: float
-                if _raw_rmse is not None and _rmse_gain is not None and _raw_rmse > 0:
-                    _rel_gain = float(_rmse_gain) / float(_raw_rmse)
-                    _gain_is_rmse = True
-                else:
-                    _gain_is_rmse = False
-                    # Honest-holdout RMSE re-score didn't run for this spec (disabled / too few holdout rows) --
-                    # fall back to the honest MI-gain (still holdout-measured, just not RMSE-scaled) so the spec
-                    # is still globally rankable rather than silently excluded from the budget entirely.
-                    _honest_mi = getattr(_spec, "honest_holdout_gain", None)
-                    _rel_gain = float(_honest_mi) if _honest_mi is not None else float(_spec.mi_gain)
-                _pending_composite.append({
-                    "tt": _tt_disc, "target": _tname_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain,
-                    "rmse_gain": _gain_is_rmse, "gain_se": _relative_gain_se(_spec, _raw_rmse) if _gain_is_rmse else None,
-                })
+            _run_composite_targ_nan_rows_domain_violations(_disc, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx, _y_arr, filtered_train_idx, _t_by_spec_for_charts, _pending_composite, _tt_disc, _tname_disc)
             # Each shipped spec costs a full model-zoo fit: drop ones whose T is equivalent to raw y or to a better spec's T.
-            from ._phase_composite_discovery_dedup import prune_equivalent_composite_specs
+            from mlframe.training.core._phase_composite_discovery_dedup import prune_equivalent_composite_specs
             for _dropped_name in prune_equivalent_composite_specs(
                 specs=list(_disc.specs_), t_by_name=_t_by_spec_for_charts, y_full=_y_arr, train_idx=filtered_train_idx,
                 pending=_pending_composite, metadata=metadata, target_type=str(_tt_disc), target_name=_tname_disc,
@@ -819,59 +653,316 @@ def run_composite_target_discovery(
             # Render the winning-spec diagnostics (target-distribution + MI-gain) into the chart dir; the
             # discovery accept-path is the only point where the original y, the per-spec T column, and the
             # ranked spec export all coexist, so the wiring lives here rather than the later report path.
-            if save_charts and data_dir and _t_by_spec_for_charts:
-                try:
-                    _chart_specs = metadata.get("composite_target_specs", {}).get(str(_tt_disc), {}).get(_tname_disc, [])
-                    _saved_charts = _render_composite_discovery_diagnostics(
-                        data_dir=data_dir,
-                        raw_target_name=_tname_disc,
-                        y_full=_y_arr, train_idx=filtered_train_idx,
-                        t_by_spec=_t_by_spec_for_charts,
-                        specs_export=list(_chart_specs or []),
-                    )
-                    if _saved_charts:
-                        metadata.setdefault("composite_target_diagnostic_charts", {}).setdefault(str(_tt_disc), {})[_tname_disc] = _saved_charts
-                except Exception as _chart_err:
-                    logger.info(
-                        "[CompositeTargetDiscovery] diagnostic chart render failed for target='%s': %s; training continues.",
-                        _tname_disc, _chart_err,
-                    )
+            _run_composite_targ_ranked_spec_export_all(save_charts, data_dir, _t_by_spec_for_charts, metadata, _tt_disc, _tname_disc, _y_arr, filtered_train_idx)
+    return _pending_composite
 
-    # Global selection: every base target's discovery has now run, so every candidate's honest-holdout
-    # quality score is comparable at once. Keep the best-scoring specs across the WHOLE run (not an equal
-    # share per target) up to max_total_composite_targets; None keeps every discovered spec (old behaviour).
-    _kept_composite = select_composites_to_train(_pending_composite, composite_target_discovery_config, metadata)
-    _kept_composite = insert_composite_targets(target_by_type, _kept_composite, metadata)
 
-    n_specs_total = sum(len(v) for tt_specs in metadata["composite_target_specs"].values() for v in tt_specs.values())
-    # Composite-feature-stacking stub: surface the discovered specs so the
-    # downstream FE pipeline (caller-specific) can opt in via
-    # ``composite_oof_predictions`` / ``composite_predictions_as_feature``.
-    # Wiring the columns into a generic FE pipeline is non-trivial because
-    # the consumer is project-specific, so we ship a metadata marker + warn.
-    if getattr(
-        composite_target_discovery_config,
-        "composite_feature_stacking_enabled", False,
-    ) and n_specs_total > 0:
-        metadata.setdefault("composite_feature_stacking", {})["enabled"] = True
-        metadata["composite_feature_stacking"]["available_specs"] = [
-            {"target_type": _tt_str, "target_name": _tname,
-             "spec_name": _spec.get("name") if isinstance(_spec, dict) else getattr(_spec, "name", "?"),
-             "base_column": _spec.get("base_column") if isinstance(_spec, dict) else getattr(_spec, "base_column", "?"),
-             "transform_name": _spec.get("transform_name") if isinstance(_spec, dict) else getattr(_spec, "transform_name", "?")}
-            for _tt_str, _by_t in metadata["composite_target_specs"].items()
-            for _tname, _spec_list in _by_t.items()
-            for _spec in (_spec_list or [])
-        ]
-        logger.warning(
-            "[CompositeFeatureStacking] enabled by config; %d composite "
-            "spec(s) surfaced under metadata['composite_feature_stacking']. "
-            "Caller must wire ``composite_oof_predictions`` / "
-            "``composite_predictions_as_feature`` into the downstream FE "
-            "pipeline -- the generic suite does not auto-attach.",
-            len(metadata["composite_feature_stacking"]["available_specs"]),
+def _run_composite_targ_every_target_shared_config(_bounded_only_zoo, composite_target_discovery_config, _disc_cfg_base):
+    """Block of run_composite_target_discovery starting at ``if _bounded_only_zoo and float(getattr(composite_target_discovery_conf``."""
+    if _bounded_only_zoo and float(getattr(composite_target_discovery_config, "composite_skip_when_raw_dominates_ratio", 0.0)) <= 0.0:
+        try:
+            _disc_cfg_base = composite_target_discovery_config.model_copy(
+                update={"composite_skip_when_raw_dominates_ratio": _RERANK_SKIP_RATIO_BOUNDED_DEFAULT},
+            )
+            logger.info(
+                "[CompositeTargetDiscovery] bounded-only zoo: rerank raw-dominance skip ratio "
+                "defaulted to %.3f (raw R^2 > 0.9996 -> composite has no headroom).",
+                _RERANK_SKIP_RATIO_BOUNDED_DEFAULT,
+            )
+        except Exception as e:
+            logger.debug("re-rank-skip-ratio auto-default computation failed, using the caller's config as-is: %s", e)
+            _disc_cfg_base = composite_target_discovery_config
+    return _disc_cfg_base
+
+
+def _run_composite_targ_group_ids_none_group(group_ids, _group_aware_active, filtered_train_idx, _grp_filtered_slice):
+    """Block of run_composite_target_discovery starting at ``if group_ids is not None and _group_aware_active and filtered_train_id``."""
+    if group_ids is not None and _group_aware_active and filtered_train_idx is not None:
+        try:
+            _grp_arr_hoisted = np.asarray(group_ids)
+            _grp_max_required = int(np.max(filtered_train_idx) + 1)
+            if _grp_arr_hoisted.shape[0] >= _grp_max_required:
+                _grp_filtered_slice = _grp_arr_hoisted[filtered_train_idx]
+        except (TypeError, ValueError, IndexError) as _hoist_err:
+            logger.debug(
+                "[CompositeTargetDiscovery] group_ids hoist failed (%s); " "tiny-rerank will fall back to KFold for every target.",
+                _hoist_err,
+            )
+    return _grp_filtered_slice
+
+
+def _run_composite_targ_auto_skip_use_hint(_auto_skip, _use_hint, _existing_diags, _tt_disc, _tname_disc, baseline_diagnostics_config, filtered_train_idx, _y_arr, filtered_train_df, cat_features, metadata, _diag):
+    """Block of run_composite_target_discovery starting at ``if _auto_skip or _use_hint:``."""
+    if _auto_skip or _use_hint:
+        _diag = _existing_diags.get(str(_tt_disc), {}).get(_tname_disc)
+        if _diag is None:
+            try:
+                _bd_inline = BaselineDiagnostics(baseline_diagnostics_config)
+                _y_train_for_diag = _y_arr[filtered_train_idx] if filtered_train_idx is not None else _y_arr
+                _diag_report = _bd_inline.fit_and_report(
+                    train_df=filtered_train_df,
+                    train_target=_y_train_for_diag,
+                    feature_cols=list(filtered_train_df.columns),
+                    target_type=str(_tt_disc),
+                    target_name=_tname_disc,
+                    cat_features=cat_features,
+                )
+                _diag = _diag_report.to_dict()
+                metadata.setdefault("baseline_diagnostics", {}).setdefault(str(_tt_disc), {})[_tname_disc] = _diag
+            except Exception as _bd_err:
+                logger.info(
+                    "[CompositeTargetDiscovery] inline diagnostic precompute " "failed for '%s': %s; discovery proceeds without auto-skip / hint.",
+                    _tname_disc,
+                    _bd_err,
+                )
+                _diag = None
+    return _diag
+
+
+def _run_composite_targ_source_truth_did_skip(group_ids, filtered_train_idx, _grp_train):
+    """Block of run_composite_target_discovery starting at ``if group_ids is not None:``."""
+    if group_ids is not None:
+        try:
+            _grp_full_pc = np.asarray(group_ids).reshape(-1)
+            if _grp_full_pc.shape[0] > int(np.max(filtered_train_idx)):
+                _grp_train = _grp_full_pc[filtered_train_idx]
+        except (TypeError, ValueError, IndexError):
+            _grp_train = None
+    return _grp_train
+
+
+def _run_composite_targ_pre_specs(_pre_specs, _tname_disc, discovery_cache_dir, _grp_filtered_slice, _use_hint, _hint_strengths, _disc_df, _disc_cfg, val_df_pd, _y_arr, val_idx, _disc_feature_cols, _disc_signature, _disc_cache, _disc_cache_key):
+    """Block of run_composite_target_discovery starting at ``if _pre_specs:``."""
+    if _pre_specs:
+        _cached_payload = {"specs_export": list(_pre_specs), "failures": [], "filter_drops": {}}
+        logger.info(
+            "[CompositeTargetDiscovery] replaying %d caller-supplied spec(s) for target='%s'; skipping discovery.",
+            len(_cached_payload["specs_export"]), _tname_disc,
         )
-    n_specs_trained = len(_kept_composite)
+    elif discovery_cache_dir is not None:
+        _digest = discovery_inputs_digest(group_ids=_grp_filtered_slice, hint_strengths=_hint_strengths if _use_hint else None, disc_df=_disc_df,
+                                          time_column=getattr(_disc_cfg, "time_column", None), val_df=val_df_pd, y_full=_y_arr, val_idx=val_idx)
+        _disc_cache, _disc_cache_key, _cached_payload = _discovery_cache_lookup(_disc_cfg, _disc_df, _tname_disc, _disc_feature_cols, discovery_cache_dir, _digest,
+                                                                                 signature_out=_disc_signature)
+    else:
+        _cached_payload = None
+    return _cached_payload, _disc_cache, _disc_cache_key
+
+
+def _run_composite_targ_cached_specs_reference_otherwise(_cached_specs):
+    """Block of run_composite_target_discovery starting at ``try:``."""
+    try:
+        from mlframe.training.composite.discovery.shared import reregister_auto_chain_transforms
+        _rereg = reregister_auto_chain_transforms([getattr(s, "transform_name", "") for s in _cached_specs])
+        if _rereg:
+            logger.info(
+                "[CompositeTargetDiscovery] cache replay re-registered %d auto-chain transform(s): %s",
+                len(_rereg), sorted(_rereg),
+            )
+    except Exception as _rereg_err:  # best-effort: a cache-replay re-registration miss just means the transform re-registers itself lazily on next use
+        log_throttle(
+            logger, "composite_discovery_cache_replay_rereg_failed", logging.WARNING,
+            "[CompositeTargetDiscovery] cache replay auto-chain re-registration failed: %s", _rereg_err,
+        )
+
+
+def _run_composite_targ_future_past_temporal_data(_tcol, _disc_df, _time_ordering):
+    """Block of run_composite_target_discovery starting at ``if _tcol:``."""
+    if _tcol:
+        try:
+            if hasattr(_disc_df, "columns") and _tcol in _disc_df.columns:
+                if hasattr(_disc_df, "get_column"):  # polars
+                    _time_ordering = _disc_df.get_column(_tcol).to_numpy()
+                else:  # pandas
+                    _time_ordering = _disc_df[_tcol].to_numpy()
+        except Exception as _tc_err:  # best-effort: falls back to base-monotonicity time detection below
+            log_throttle(
+                logger, "composite_discovery_time_column_extract_failed", logging.WARNING,
+                "[CompositeTargetDiscovery] time_column='%s' "
+                "could not be extracted (%s); discovery falls "
+                "back to base-monotonicity time detection.",
+                _tcol, _tc_err,
+            )
+            _time_ordering = None
+    return _time_ordering
+
+
+def _run_composite_targ_discovery_df_train_only(val_df_pd, val_idx, _y_arr, _disc_val_df, _disc_val_y):
+    """Block of run_composite_target_discovery starting at ``try:``."""
+    try:
+        if val_df_pd is not None and val_idx is not None:
+            _vy = np.asarray(_y_arr)[val_idx]
+            if hasattr(val_df_pd, "__len__") and len(val_df_pd) == len(_vy):
+                _disc_val_df = val_df_pd
+                _disc_val_y = _vy
+    except Exception as e:  # -- val gate is best-effort; fall back to train-group holdout
+        logger.debug("val-gate construction failed, falling back to train-group holdout: %s", e)
+        _disc_val_df, _disc_val_y = None, None
+    return _disc_val_df, _disc_val_y
+
+
+def _run_composite_targ_use_stacked_residual(_use_stacked_residual, _disc_instance, _disc_df, _tname_disc, _disc_feature_cols, _disc_train_idx, _disc_cfg, _stacked_time_aware, _time_ordering, _disc_val_df, _disc_val_y, _use_stacked):
+    """Block of run_composite_target_discovery starting at ``if _use_stacked_residual:``."""
+    if _use_stacked_residual:
+        _disc = _disc_instance.fit_stacked_on_residual(
+            df=_disc_df,
+            target_col=_tname_disc,
+            feature_cols=_disc_feature_cols,
+            train_idx=_disc_train_idx,
+            n_oof_folds=int(getattr(
+                _disc_cfg, "stacked_n_oof_folds", 3,
+            )),
+            residual_aggregation=str(getattr(
+                _disc_cfg, "stacked_residual_aggregation", "mean",
+            )),
+            max_pass1_specs_to_aggregate=int(getattr(
+                _disc_cfg,
+                "stacked_residual_max_pass1_specs_to_aggregate",
+                3,
+            )),
+            time_aware=_stacked_time_aware, time_ordering=_time_ordering, val_df=_disc_val_df, val_y=_disc_val_y,
+        )
+    elif _use_stacked:
+        _disc = _disc_instance.fit_stacked(
+            df=_disc_df,
+            target_col=_tname_disc,
+            feature_cols=_disc_feature_cols,
+            train_idx=_disc_train_idx,
+            n_oof_folds=int(getattr(
+                _disc_cfg, "stacked_n_oof_folds", 3,
+            )),
+            max_pass1_specs_to_stack=int(getattr(
+                _disc_cfg, "stacked_max_pass1_specs", 3,
+            )),
+            time_aware=_stacked_time_aware, time_ordering=_time_ordering, val_df=_disc_val_df, val_y=_disc_val_y,
+        )
+    else:
+        _disc = _disc_instance.fit(
+            df=_disc_df,
+            target_col=_tname_disc,
+            feature_cols=_disc_feature_cols,
+            train_idx=_disc_train_idx,
+            time_ordering=_time_ordering,
+            val_df=_disc_val_df,
+            val_y=_disc_val_y,
+        )
+    return _disc
+
+
+def _run_composite_targ_short_circuits(_disc_cache, _disc_cache_key, _disc, metadata, _tt_disc, _tname_disc):
+    """Block of run_composite_target_discovery starting at ``if _disc_cache is not None and _disc_cache_key is not None:``."""
+    if _disc_cache is not None and _disc_cache_key is not None:
+        try:
+            _disc_cache.set(
+                _disc_cache_key,
+                {
+                    "specs_export": _disc.export_specs(),
+                    "failures": [r for r in _disc.report() if r.get("rejected")],
+                    "filter_drops": _disc.filter_drops(),
+                },
+            )
+            metadata.setdefault("composite_target_cache", {}).setdefault(str(_tt_disc), {})[_tname_disc] = {
+                "hit": False,
+                "key": _disc_cache_key,
+            }
+        except Exception as _cache_err:
+            logger.info(
+                "[CompositeTargetDiscovery] cache set failed for " "target='%s' (%s); ignored.",
+                _tname_disc,
+                _cache_err,
+            )
+
+
+def _run_composite_targ_metadata_composite_precheck_verdict(_ceiling_verdict, _disc):
+    """Block of run_composite_target_discovery starting at ``if _ceiling_verdict is not None:``."""
+    if _ceiling_verdict is not None:
+        try:
+            _disc.composite_precheck_verdict_ = _ceiling_verdict
+        except Exception as e:  # -- exotic/read-only _disc; the verdict already lives in metadata
+            logger.debug("swallowed exception in _phase_composite_discovery.py: %s", e)
+            pass
+
+
+def _run_composite_targ_nan_rows_domain_violations(_disc, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx, _y_arr, filtered_train_idx, _t_by_spec_for_charts, _pending_composite, _tt_disc, _tname_disc):
+    """Block of run_composite_target_discovery starting at ``for _spec in _disc.specs_:``."""
+    from mlframe.training.composite import get_transform as _get_transform_local
+
+    for _spec in _disc.specs_:
+        _transform = _get_transform_local(_spec.transform_name)
+        # Multi-base specs (extra_base_columns non-empty) need a
+        # (n_total, 1+K) matrix stacking the primary base column
+        # with each extra base. linear_residual_multi.forward
+        # consumes that 2-D matrix; passing only the primary
+        # column raises ValueError("base has N columns but
+        # fitted alphas has M entries") in the forward call.
+        _extra_bases = tuple(getattr(_spec, "extra_base_columns", ()) or ())
+        _base_primary = _build_full_column_from_splits(
+            _spec.base_column,
+            train_df_pd, val_df_pd, test_df_pd,
+            train_idx, val_idx, test_idx,
+            n_total=_y_arr.shape[0],
+        )
+        if _extra_bases:
+            _base_cols = [_base_primary]
+            _base_cols.extend(
+                _build_full_column_from_splits(
+                    _eb_name,
+                    train_df_pd, val_df_pd, test_df_pd,
+                    train_idx, val_idx, test_idx,
+                    n_total=_y_arr.shape[0],
+                )
+                for _eb_name in _extra_bases
+            )
+            _base_full = np.column_stack(_base_cols)
+        else:
+            _base_full = _base_primary
+        _ct_t_full, _t_by_spec_for_charts[_spec.name] = composite_t_full(_transform, _spec, _y_arr, _base_full, filtered_train_idx)
+        # Not written to target_by_type yet -- buffered so the max_total_composite_targets budget
+        # (spent across ALL base targets, not per-target) can pick the best-scoring specs seen so
+        # far across the WHOLE run once every target's own discovery has finished. See the
+        # end-of-function flush for the actual target_by_type write + log line.
+        _raw_rmse = getattr(_spec, "honest_holdout_raw_rmse", None)
+        _rmse_gain = getattr(_spec, "honest_holdout_rmse_gain", None)
+        _rel_gain: float
+        if _raw_rmse is not None and _rmse_gain is not None and _raw_rmse > 0:
+            _rel_gain = float(_rmse_gain) / float(_raw_rmse)
+            _gain_is_rmse = True
+        else:
+            _gain_is_rmse = False
+            # Honest-holdout RMSE re-score didn't run for this spec (disabled / too few holdout rows) --
+            # fall back to the honest MI-gain (still holdout-measured, just not RMSE-scaled) so the spec
+            # is still globally rankable rather than silently excluded from the budget entirely.
+            _honest_mi = getattr(_spec, "honest_holdout_gain", None)
+            _rel_gain = float(_honest_mi) if _honest_mi is not None else float(_spec.mi_gain)
+        _pending_composite.append({
+            "tt": _tt_disc, "target": _tname_disc, "name": _spec.name, "values": _ct_t_full, "gain": _rel_gain,
+            "rmse_gain": _gain_is_rmse, "gain_se": _relative_gain_se(_spec, _raw_rmse) if _gain_is_rmse else None,
+        })
+
+
+def _run_composite_targ_ranked_spec_export_all(save_charts, data_dir, _t_by_spec_for_charts, metadata, _tt_disc, _tname_disc, _y_arr, filtered_train_idx):
+    """Block of run_composite_target_discovery starting at ``if save_charts and data_dir and _t_by_spec_for_charts:``."""
+    if save_charts and data_dir and _t_by_spec_for_charts:
+        try:
+            _chart_specs = metadata.get("composite_target_specs", {}).get(str(_tt_disc), {}).get(_tname_disc, [])
+            _saved_charts = _render_composite_discovery_diagnostics(
+                data_dir=data_dir,
+                raw_target_name=_tname_disc,
+                y_full=_y_arr, train_idx=filtered_train_idx,
+                t_by_spec=_t_by_spec_for_charts,
+                specs_export=list(_chart_specs or []),
+            )
+            if _saved_charts:
+                metadata.setdefault("composite_target_diagnostic_charts", {}).setdefault(str(_tt_disc), {})[_tname_disc] = _saved_charts
+        except Exception as _chart_err:
+            logger.info(
+                "[CompositeTargetDiscovery] diagnostic chart render failed for target='%s': %s; training continues.",
+                _tname_disc, _chart_err,
+            )
+
+
+def _run_composite_targ_specs_trained(n_specs_trained, _gpu_families):
+    """Block of run_composite_target_discovery starting at ``if n_specs_trained > 0:``."""
     if n_specs_trained > 0:
         logger.info(
             "[CompositeTargetDiscovery] %d composite target(s) added to "
@@ -888,5 +979,3 @@ def run_composite_target_discovery(
                 "estimators if reproducibility matters.",
                 ", ".join(_gpu_families), n_specs_trained, n_specs_trained,
             )
-
-    return target_by_type, metadata
