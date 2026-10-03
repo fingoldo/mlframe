@@ -6,6 +6,8 @@ Behavioural equivalence: every named local that crossed an iteration boundary in
 """
 from __future__ import annotations
 
+from mlframe.utils.budgets import active_budget
+
 import logging
 import textwrap
 from dataclasses import dataclass, field
@@ -274,7 +276,7 @@ def run_outer_loop_iteration(
     if runtime_budget_exhausted(state, max_runtime_mins, start_time, _iter_t0, timer(), verbose):
         return IterationOutcome.BREAK
 
-    if max_refits and state.nsteps >= max_refits:
+    if active_budget(max_refits) is not None and state.nsteps >= max_refits:
         if verbose:
             logger.info("max_refits=%s reached.", f"{max_refits:_}")
         state.stop_reason = f"max_refits={max_refits:_} reached"

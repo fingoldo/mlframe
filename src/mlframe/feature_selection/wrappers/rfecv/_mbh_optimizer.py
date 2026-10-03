@@ -20,6 +20,8 @@ transparently.
 """
 from __future__ import annotations
 
+from mlframe.utils.budgets import active_budget
+
 import logging
 
 import numpy as np
@@ -66,7 +68,7 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
     #
     # Users override via ``optimizer_config={"model_name":..., "model_params": {...}}``.
     _search_space_size = min(self.max_nfeatures, len(original_features)) + 1 if self.max_nfeatures else len(original_features) + 1
-    _max_evals_budget = min(max_refits, _search_space_size) if max_refits else _search_space_size
+    _max_evals_budget = min(max_refits, _search_space_size) if active_budget(max_refits) is not None else _search_space_size
     _user_cfg = dict(self.optimizer_config) if self.optimizer_config else {}
     _user_model_name = _user_cfg.pop("model_name", None)
     _user_model_params = dict(_user_cfg.pop("model_params", {}) or {})

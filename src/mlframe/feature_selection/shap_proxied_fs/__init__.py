@@ -842,8 +842,8 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMix
         self.random_state = random_state
         self.verbose = verbose
         # Control/safety knobs (parity with MRMR / RFECV): wall-clock budget + filesystem
-        # stop-flag, honoured at the top of the elimination loop in fit(). max_runtime_mins=None
-        # disables the budget; touch stop_file to abort cleanly with the current best subset.
+        # stop-flag, honoured at the top of the elimination loop in fit(). max_runtime_mins of 0 or None
+        # = no limit (``mlframe.utils.budgets``); touch stop_file to abort cleanly with the current best subset.
         self.max_runtime_mins = max_runtime_mins
         self.stop_file = stop_file
         self.tqdm = tqdm

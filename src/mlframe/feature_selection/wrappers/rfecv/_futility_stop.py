@@ -27,6 +27,8 @@ Scope: only ``one_se_max`` (``auto`` resolves to it) with ``feature_cost == 0`` 
 """
 from __future__ import annotations
 
+from mlframe.utils.budgets import active_budget
+
 import logging
 import math
 from dataclasses import dataclass
@@ -240,12 +242,12 @@ def futility_verdict(
 def remaining_iterations(self: Any, state: Any, n_total: int, max_refits: Optional[int], max_runtime_mins: Optional[float], elapsed_s: float) -> int:
     """Iterations the run could still spend before another stop fires: sizes left, ``max_refits`` left, and the runtime budget over the mean iteration time."""
     left = max(n_total - state.nsteps, 0)
-    if max_refits is not None and max_refits > 0:  # 0 means unlimited, as in the outer loop
-        left = min(left, max(max_refits - state.nsteps, 0))
-    if max_runtime_mins is not None and max_runtime_mins > 0 and state.iter_durations:
+    if (refits := active_budget(max_refits)) is not None:
+        left = min(left, max(refits - state.nsteps, 0))
+    if (minutes := active_budget(max_runtime_mins)) is not None and state.iter_durations:
         mean_s = float(np.mean(state.iter_durations))
         if mean_s > 0:
-            left = min(left, max(int((max_runtime_mins * 60 - elapsed_s) / mean_s), 0))
+            left = min(left, max(int((minutes * 60 - elapsed_s) / mean_s), 0))
     return int(left)
 
 

@@ -11,6 +11,8 @@ is needed here.
 """
 from __future__ import annotations
 
+from mlframe.utils.budgets import active_budget
+
 import copy
 import logging
 from timeit import default_timer as timer
@@ -321,7 +323,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     ndigits = self.report_ndigits
 
     start_time = _fit_t0
-    if max_runtime_mins:
+    if active_budget(max_runtime_mins) is not None:
         if verbose:
             logger.info("max_runtime_mins=%.2f", max_runtime_mins)
 
@@ -388,7 +390,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     iters_pbar = tqdmu(
         desc=progressbar_prefix,
         leave=leave_progressbars,
-        total=min(len(original_features) + 1, max_refits) if max_refits else len(original_features) + 1,
+        total=min(len(original_features) + 1, max_refits) if active_budget(max_refits) is not None else len(original_features) + 1,
     )
 
     suppress_irritating_3rdparty_warnings()
