@@ -29,7 +29,7 @@ def test_ensure_config_dict_unknown_key_raises():
     from mlframe.training.configs import ModelHyperparamsConfig
 
     assert "totally_bogus_key_xyz" not in ModelHyperparamsConfig.model_fields
-    with pytest.raises(ValueError, match="unknown config key"):
+    with pytest.raises(ValueError, match="totally_bogus_key_xyz"):
         _ensure_config({"totally_bogus_key_xyz": 100}, ModelHyperparamsConfig, {})
 
 
@@ -42,13 +42,13 @@ def test_ensure_config_dict_known_field_ok():
     assert cfg.iterations == 123
 
 
-def test_ensure_config_dict_known_extras_passthrough_ok():
-    """Ensure config dict known extras passthrough ok."""
+def test_ensure_config_dict_scoring_weight_is_a_declared_field():
+    """The ICE-metric weights are declared fields, so a config dict carrying one validates."""
     from mlframe.training.core._setup_helpers import _ensure_config
     from mlframe.training.configs import ModelHyperparamsConfig
 
     cfg = _ensure_config({"mae_weight": 2.0}, ModelHyperparamsConfig, {})
-    assert (cfg.model_extra or {}).get("mae_weight") == 2.0
+    assert cfg.mae_weight == 2.0
 
 
 def test_ensure_config_none_path_filters_silently():

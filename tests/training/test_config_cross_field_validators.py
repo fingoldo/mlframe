@@ -122,13 +122,13 @@ def test_oc_explicit_save_charts_false_passes():
 
 def test_mlc_invalid_strategy_raises():
     """Typo in strategy was silently accepted pre-fix; now caught."""
-    with pytest.raises(ValidationError, match="strategy="):
+    with pytest.raises(ValidationError, match="strategy"):
         MultilabelDispatchConfig(strategy="wrappr")  # typo
 
 
 def test_mlc_invalid_chain_order_strategy_raises():
     """Mlc invalid chain order strategy raises."""
-    with pytest.raises(ValidationError, match="chain_order_strategy="):
+    with pytest.raises(ValidationError, match="chain_order_strategy"):
         MultilabelDispatchConfig(chain_order_strategy="bogus")
 
 

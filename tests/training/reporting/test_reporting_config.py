@@ -457,9 +457,9 @@ class TestFeatureImportanceConfigStaleClassCoercion:
 
     def test_dict_passes_through_normal_validation(self):
         """A plain dict value goes through pydantic's normal validation/coercion path."""
-        rc = ReportingConfig(feature_importance_config={"n_top_features": 7})
+        rc = ReportingConfig(feature_importance_config={"num_factors": 7})
         assert isinstance(rc.feature_importance_config, FeatureImportanceConfig)
-        assert rc.feature_importance_config.n_top_features == 7
+        assert rc.feature_importance_config.num_factors == 7
 
     def test_stale_class_with_matching_name_coerces_via_model_dump(self):
         """Simulates the autoreload / multi-checkout scenario: two distinct
@@ -473,8 +473,8 @@ class TestFeatureImportanceConfigStaleClassCoercion:
             "FeatureImportanceConfig",
             (BaseModel,),
             {
-                "__annotations__": {"n_top_features": int},
-                "n_top_features": 17,
+                "__annotations__": {"num_factors": int},
+                "num_factors": 17,
             },
         )
         stale_inst = StaleFI()
@@ -486,7 +486,7 @@ class TestFeatureImportanceConfigStaleClassCoercion:
         rc = ReportingConfig(feature_importance_config=stale_inst)
         assert isinstance(rc.feature_importance_config, FeatureImportanceConfig)
         # Field round-tripped via model_dump, so values survive.
-        assert rc.feature_importance_config.n_top_features == 17
+        assert rc.feature_importance_config.num_factors == 17
 
     def test_stale_class_via_importlib_reload_simulates_autoreload(self):
         """End-to-end: actually trigger ``importlib.reload`` and verify

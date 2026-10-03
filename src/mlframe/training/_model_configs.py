@@ -14,7 +14,7 @@ What lives here:
 """
 from __future__ import annotations
 
-from typing import Any, ClassVar, Dict, FrozenSet, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
@@ -113,6 +113,10 @@ class LinearModelConfig(ModelConfig):
     penalty: str = "l2"
     max_iter: int = 1000
     tol: float = 1e-3
+    # sklearn SGD early stopping: hold out ``validation_fraction`` of the training rows and stop after ``n_iter_no_change`` epochs without improvement.
+    early_stopping: bool = False
+    validation_fraction: float = Field(default=0.1, gt=0.0, lt=1.0)
+    n_iter_no_change: int = Field(default=5, ge=1)
     learning_rate: str = "invscaling"
     eta0: float = 0.01
 
@@ -297,27 +301,30 @@ class ModelHyperparamsConfig(BaseConfig):
         Extra NGBoost constructor kwargs.
     """
 
-    # Legitimate pass-through extras consumed by ``get_training_configs``
-    # via ``**config_params``. Adding a name here silences the
-    # "unknown field" warning from BaseConfig when users pass it through
-    # ``hyperparams_config={"mae_weight": 2.0, ...}``.
-    _known_extras: ClassVar[FrozenSet[str]] = frozenset({
-        # ICE-metric weights (see metrics.integral_calibration_error_from_metrics)
-        "mae_weight", "std_weight", "roc_auc_weight", "pr_auc_weight",
-        "brier_loss_weight", "min_roc_auc", "roc_auc_penalty", "coverage_weight",
-        # Robustness / integral-error bin config
-        "robustness_num_ts_splits", "robustness_std_coeff",
-        "robustness_greater_is_better",
-        "nbins", "cont_nbins", "method", "use_weighted_calibration",
-        "weight_by_class_npositives",
-        # Scoring + metric defaults
-        "def_classif_metric", "def_regr_metric",
-        # Training infra knobs
-        "validation_fraction", "use_explicit_early_stopping",
-        "random_seed", "verbose",
-        # Non-classif extras
-        "catboost_custom_regr_metrics",
-    })
+    # Knobs forwarded to ``get_training_configs`` that used to be accepted as undeclared extras. ``None`` means "not set": the suite drops
+    # None-valued fields (``model_dump(exclude_none=True)``), so ``get_training_configs`` keeps its own default; a test pins the two together.
+    # Integral-calibration-error weights of the early-stopping metric (see metrics.integral_calibration_error_from_metrics):
+    method: Optional[str] = None
+    mae_weight: Optional[float] = None
+    std_weight: Optional[float] = None
+    roc_auc_weight: Optional[float] = None
+    pr_auc_weight: Optional[float] = None
+    brier_loss_weight: Optional[float] = None
+    min_roc_auc: Optional[float] = None
+    roc_auc_penalty: Optional[float] = None
+    use_weighted_calibration: Optional[bool] = None
+    weight_by_class_npositives: Optional[bool] = None
+    nbins: Optional[int] = Field(default=None, ge=1)
+    # Robustness term of the early-stopping metric (0 time splits = disabled):
+    robustness_num_ts_splits: Optional[int] = Field(default=None, ge=0)
+    robustness_std_coeff: Optional[float] = None
+    robustness_greater_is_better: Optional[bool] = None
+    # Early-stopping infrastructure and run-level knobs:
+    validation_fraction: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
+    use_explicit_early_stopping: Optional[bool] = None
+    random_seed: Optional[int] = None
+    verbose: Optional[int] = None
+    catboost_custom_regr_metrics: Optional[List[str]] = None
 
     has_time: bool = False
     # Range validators catch garbage (learning_rate=-0.1, iterations=0, etc.) at construction; otherwise they propagate silently to the tree backends and surface as confusing errors much later.

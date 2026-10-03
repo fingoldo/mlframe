@@ -11,39 +11,9 @@ This module is only imported by the generator and the sync test: the generated m
 
 from __future__ import annotations
 
-import importlib
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Dict, Tuple
 
-
-def literal_source(values: Tuple[Any, ...]) -> str:
-    """``Literal[...]`` source for ``values``; a ``None`` member makes the whole annotation ``Optional``."""
-    present = tuple(v for v in values if v is not None)
-    text = f"Literal[{', '.join(repr(v) for v in present)}]"
-    return f"Optional[{text}]" if None in values else text
-
-
-@dataclass(frozen=True)
-class SelectorSpec:
-    """One selector: where its constructor lives, which parameters the suite owns (excluded), and the enum / constraint overrides."""
-
-    key: str
-    class_name: str
-    target_module: str
-    target_attr: str
-    exclude: Tuple[str, ...] = ()
-    enums: Callable[[], Dict[str, Tuple[Any, ...]]] = field(default=lambda: {})
-    overrides: Dict[str, str] = field(default_factory=dict)
-
-    def target(self) -> Any:
-        """The selector class (imported lazily; MRMR alone costs seconds)."""
-        return getattr(importlib.import_module(self.target_module), self.target_attr)
-
-    def all_overrides(self) -> Dict[str, str]:
-        """Enum-derived ``Literal`` annotations plus the hand-written ``overrides`` (the latter win)."""
-        out = {name: literal_source(values) for name, values in self.enums().items()}
-        out.update(self.overrides)
-        return out
+from .._param_model_spec import SelectorSpec, literal_source  # noqa: F401 -- re-exported for the generator and the sync test
 
 
 def _mrmr_enums() -> Dict[str, Tuple[Any, ...]]:

@@ -159,7 +159,7 @@ def select_target(
     effective_behavior_params = {
         k: v for k, v in behavior_config.model_dump(exclude_none=True).items() if k in defined_behavior_fields and k not in _SUITE_LEVEL_FLAGS
     }
-    precomputed_fairness = (behavior_config.model_extra or {}).get("_precomputed_fairness_subgroups")
+    precomputed_fairness = behavior_config.precomputed_fairness_subgroups
     if precomputed_fairness is not None:
         effective_behavior_params["_precomputed_fairness_subgroups"] = precomputed_fairness
 

@@ -276,7 +276,7 @@ class TestConfigurationSetup:
         """Pydantic behavior config passthrough."""
         df, _feature_names, _y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
-        behavior = TrainingBehaviorConfig(prefer_gpu=False)
+        behavior = TrainingBehaviorConfig(prefer_gpu_configs=False)
         models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="target",

@@ -416,8 +416,8 @@ class TestAutoMLIntegration:
 
         # Try to train both if available
         config = AutoMLConfig(
-            enable_autogluon=True,
-            enable_lama=True,
+            use_autogluon=True,
+            use_lama=True,
             autogluon_init_params={"path": str(tmp_path / "ag_suite")},
             autogluon_fit_params={"time_limit": 30, "presets": "medium_quality"},
             lama_init_params={"timeout": 30},

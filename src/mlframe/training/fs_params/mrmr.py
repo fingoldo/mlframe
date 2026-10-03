@@ -16,14 +16,59 @@ class MRMRParams(BaseModel):
     """Parameters of `mlframe.feature_selection.filters:MRMR`; an unknown name or a wrong type raises when this is instantiated."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
-    __signature_overrides__ = ('additional_rfecv_selection_rule', 'cluster_aggregate_mode', 'dcd_distance', 'dcd_swap_method', 'dcd_tau_cluster', 'fe_binary_preset', 'fe_hybrid_orth_basis', 'fe_hybrid_orth_cluster_basis_aggregator', 'fe_hybrid_orth_default_scorer', 'fe_hybrid_orth_ensemble_aggregator', 'fe_hybrid_orth_hsic_kernel', 'fe_unary_preset', 'group_mi_aggregate', 'mi_correction', 'mi_normalization', 'mrmr_redundancy_algo', 'mrmr_relevance_algo', 'nan_strategy', 'nbins_strategy', 'quantization_method', 'redundancy_aggregator', 'stability_selection_method')
-    __signature_skip_default__ = ('quantization_dtype', 'dtype', 'usability_feature_dtype')
+    __signature_overrides__ = (
+        "additional_rfecv_selection_rule",
+        "cluster_aggregate_mode",
+        "dcd_distance",
+        "dcd_swap_method",
+        "dcd_tau_cluster",
+        "fe_binary_preset",
+        "fe_hybrid_orth_basis",
+        "fe_hybrid_orth_cluster_basis_aggregator",
+        "fe_hybrid_orth_default_scorer",
+        "fe_hybrid_orth_ensemble_aggregator",
+        "fe_hybrid_orth_hsic_kernel",
+        "fe_unary_preset",
+        "group_mi_aggregate",
+        "mi_correction",
+        "mi_normalization",
+        "mrmr_redundancy_algo",
+        "mrmr_relevance_algo",
+        "nan_strategy",
+        "nbins_strategy",
+        "quantization_method",
+        "redundancy_aggregator",
+        "stability_selection_method",
+    )
+    __signature_skip_default__ = ("quantization_dtype", "dtype", "usability_feature_dtype")
 
     quantization_method: Literal["quantile", "uniform"] = "quantile"
     quantization_nbins: int = 10
     quantization_dtype: Any = None
     max_categorical_cardinality: int | None = None
-    nbins_strategy: Optional[Literal['auto', 'sturges', 'freedman_diaconis', 'fd', 'qs', 'quantile', 'uniform', 'knuth', 'blocks', 'mdlp', 'fayyad_irani', 'mdlp_validated', 'fayyad_irani_validated', 'optimal_joint', 'cv', 'mah', 'mah_sci', 'sci', 'marx']] = 'mdlp'
+    nbins_strategy: Optional[
+        Literal[
+            "auto",
+            "sturges",
+            "freedman_diaconis",
+            "fd",
+            "qs",
+            "quantile",
+            "uniform",
+            "knuth",
+            "blocks",
+            "mdlp",
+            "fayyad_irani",
+            "mdlp_validated",
+            "fayyad_irani_validated",
+            "optimal_joint",
+            "cv",
+            "mah",
+            "mah_sci",
+            "sci",
+            "marx",
+        ]
+    ] = "mdlp"
     nbins_strategy_kwargs: dict | None = None
     max_adaptive_nbins: int = 256
     adaptive_nbins_large_n_reg: bool = True
@@ -204,7 +249,9 @@ class MRMRParams(BaseModel):
     dcd_tau_calibration_seed: int = 0
     dcd_cluster_size_threshold: int = 4
     dcd_swap_gain_threshold: float = 0.05
-    dcd_swap_method: Literal['auto', 'mean_z', 'mean_inv_var', 'median', 'pca_pc1', 'factor_score', 'pca_pc2', 'median_z', 'signed_max_abs', 'signed_l2_sum'] = 'auto'
+    dcd_swap_method: Literal[
+        "auto", "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score", "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum"
+    ] = "auto"
     dcd_pairwise_cache_max: int = 50000
     dcd_min_cluster_size: int = 2
     dcd_max_cluster_size: int = 12
@@ -343,7 +390,9 @@ class MRMRParams(BaseModel):
     fe_hybrid_orth_ensemble_scorers: tuple = ("plug_in", "ksg", "copula", "dcor", "hsic")
     fe_hybrid_orth_meta_enable: bool = False
     fe_hybrid_orth_meta_force_scorer: Optional[str] = None
-    fe_hybrid_orth_default_scorer: Literal['plug_in', 'cmim', 'jmim', 'tc', 'ksg', 'copula', 'dcor', 'hsic', 'auto', 'ensemble', 'meta', 'lasso', 'elasticnet', 'auto_oracle'] = 'plug_in'
+    fe_hybrid_orth_default_scorer: Literal[
+        "plug_in", "cmim", "jmim", "tc", "ksg", "copula", "dcor", "hsic", "auto", "ensemble", "meta", "lasso", "elasticnet", "auto_oracle"
+    ] = "plug_in"
     fe_hybrid_orth_extra_bases: tuple = ()
     fe_hybrid_orth_fourier_freqs: tuple = (1.0, 2.0)
     fe_hybrid_orth_fourier_powers: tuple = (1, 2)

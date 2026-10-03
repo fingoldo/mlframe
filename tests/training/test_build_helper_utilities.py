@@ -107,11 +107,7 @@ def test_build_common_params_with_fairness():
         behavior_config=bc,
         fairness_subgroups=fairness,
     )
-    # extra field set on copied config
-    extra = getattr(cur_bc, "_precomputed_fairness_subgroups", None)
-    if extra is None:
-        extra = (cur_bc.model_extra or {}).get("_precomputed_fairness_subgroups")
-    assert extra == fairness
+    assert cur_bc.precomputed_fairness_subgroups == fairness
 
 
 def test_build_common_params_with_od_passes_targets():

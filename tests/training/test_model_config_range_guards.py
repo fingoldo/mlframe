@@ -66,21 +66,22 @@ def test_mlp_kwargs_unknown_section_raises():
 
 def test_mlp_kwargs_known_sections_pass():
     """Every section the suite reads validates, and empty / None kwargs pass."""
-    validate_nested_mlp_kwargs(
-        {
-            "model_params": {"learning_rate": 1e-3},
-            "network_params": {"nlayers": 2},
-            "trainer_params": {"max_epochs": 3},
-            "dataloader_params": {"batch_size": 64},
-            "datamodule_params": {},
-            "use_swa": True,
-            "swa_params": {"swa_lrs": 1e-4},
-            "tune_params": False,
-            "float32_matmul_precision": "HIGH",
-        }
-    )
-    validate_nested_mlp_kwargs({})
-    validate_nested_mlp_kwargs(None)
+    kwargs = {
+        "model_params": {"learning_rate": 1e-3},
+        "network_params": {"nlayers": 2},
+        "trainer_params": {"max_epochs": 3},
+        "dataloader_params": {"batch_size": 64},
+        "datamodule_params": {},
+        "use_swa": True,
+        "swa_params": {"swa_lrs": 1e-4},
+        "tune_params": False,
+        "float32_matmul_precision": "HIGH",
+    }
+    validate_nested_mlp_kwargs(kwargs)
+    validated = MLPConfig(**kwargs)
+    assert validated.use_swa is True and validated.float32_matmul_precision == "high"
+    assert validated.trainer_params == {"max_epochs": 3}
+    assert validate_nested_mlp_kwargs({}) is None and validate_nested_mlp_kwargs(None) is None
 
 
 def test_mlp_matmul_precision_is_validated_and_normalised():

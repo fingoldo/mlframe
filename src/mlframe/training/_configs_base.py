@@ -21,7 +21,6 @@ names) imports continue to resolve.
 from __future__ import annotations
 
 import sys
-from typing import ClassVar, FrozenSet
 
 if sys.version_info >= (3, 11):
     from enum import StrEnum
@@ -38,7 +37,7 @@ else:
         def __str__(self) -> str:
             return str(self.value)
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict
 
 DEFAULT_RANDOM_SEED = 42
 """Random seed for reproducibility across all operations."""
@@ -226,50 +225,15 @@ class TargetTypes(StrEnum):
 
 
 class BaseConfig(BaseModel):
-    """Base configuration class with flexible dict support.
+    """Base class of the training configs: strict, so a misspelled or undeclared field raises when the config is created.
 
-    Uses ``extra="allow"`` so user-supplied kwargs flow through to downstream
-    callees (e.g. ``hyperparams_config={"mae_weight": 1.0}`` is not declared
-    on ``ModelHyperparamsConfig`` but is consumed by ``get_training_configs``
-    via ``**config_params``). Downside: typos like ``iterations=100`` get
-    silently absorbed. The ``_warn_on_unknown_extras`` validator below issues
-    a WARNING so typos are noticed (unless a subclass sets the
-    ``_known_extras`` class attribute to list the legitimate extras).
+    ``extra="forbid"``: ``ModelHyperparamsConfig(iterations_=100)`` or ``hyperparams_config={"mae_wieght": 1.0}`` fails with the
+    offending name instead of being absorbed and having no effect. Every knob a config forwards downstream is a declared field.
     """
 
     model_config = ConfigDict(
-        extra="allow",  # Allow extra fields for flexibility
+        extra="forbid",
         arbitrary_types_allowed=True,  # Allow numpy, torch, etc.
         validate_assignment=True,
         protected_namespaces=(),  # Allow model_ prefix for field names
     )
-
-    #: Subclasses may list extra kwargs that are legitimately consumed
-    #: downstream (e.g. ``ModelHyperparamsConfig`` -> ICE metric weights
-    #: ``mae_weight`` / ``std_weight`` / ...). Entries here do not emit
-    #: the "unknown extra" warning. Declared on the subclass like:
-    #:     _known_extras: ClassVar[FrozenSet[str]] = frozenset({"mae_weight", ...})
-    _known_extras: "ClassVar[FrozenSet[str]]" = frozenset()
-
-    @model_validator(mode="after")
-    def _warn_on_unknown_extras(self) -> "BaseConfig":
-        """Log a WARNING for each extra field that is not a known pass-through.
-
-        Catches the common typo class (``iterations`` for ``iterations``,
-        ``prefer_calibrated_classifer`` missing an ``i``, etc.) that
-        ``extra="allow"`` otherwise swallows without feedback.
-        """
-        extras = self.model_extra or {}
-        if not extras:
-            return self
-        known = type(self)._known_extras
-        unknown = [k for k in extras if k not in known]
-        if unknown:
-            import logging as _logging
-            _logging.getLogger(__name__).warning(
-                "%s received unknown field(s) %s -- these are accepted (extra='allow') "
-                "but NOT declared on the model. If this is a typo for a real field, "
-                "the value will have no effect. Known pass-through extras: %s",
-                type(self).__name__, sorted(unknown), sorted(known) or "(none declared)",
-            )
-        return self
