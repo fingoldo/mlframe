@@ -377,7 +377,7 @@ class _MRMRConfigMixin:
         info = np.iinfo(np.int16)
         if vmin >= info.min and vmax <= info.max:
             if self.verbose:
-                logger.debug("Converted targets from int64 to int16.")
+                logger.info("Converted targets from int64 to int16.")
             return vals.astype(np.int16)
         # 09_error_messages_ux.md: this warning reports a real behavioral notice (the memory-saving
         # downcast was skipped) - gating it behind ``self.verbose`` was a one-off pattern not used

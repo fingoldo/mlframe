@@ -742,3 +742,24 @@ def test_drift_verdict_quiet_on_same_distribution():
     rng = np.random.default_rng(1)
     v = _target_drift_verdict({"train": rng.lognormal(0, 2, 200000), "test": rng.lognormal(0, 2, 60000)}, train_key="train", task="regression")
     assert "No material drift" in v
+
+
+def test_target_dist_overlay_accepts_a_multilabel_target_stored_as_one_label_vector_per_row():
+    """A multilabel y arrives as an object array of per-row label vectors; the overlay pools the labels instead of raising."""
+    from mlframe.reporting.charts.error_analysis import target_dist_overlay
+
+    rng = np.random.default_rng(0)
+
+    def rows(n: int) -> np.ndarray:
+        """Build n rows of 3-label indicator vectors as an object array."""
+        out = np.empty(n, dtype=object)
+        for i in range(n):
+            out[i] = rng.integers(0, 2, 3).astype(np.int8)
+        return out
+
+    spec = target_dist_overlay({"train": rows(200), "val": rows(80), "test": rows(80)}, pred_by_split=None, task="classification")
+    panels = [pn for row in spec.panels for pn in row if pn is not None]
+    assert len(panels) == 1 and isinstance(panels[0], BarPanelSpec)
+    assert panels[0].series_labels == ("train", "val", "test")
+    assert panels[0].categories == ("class 0", "class 1")
+    assert all(np.isclose(np.sum(series), 1.0) for series in panels[0].values)

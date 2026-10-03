@@ -20,12 +20,20 @@ DEFAULT_OVERLAY_BINS: int = 40
 _DRIFT_Z: float = 1.96
 
 
+def _pool_row_vectors(a: np.ndarray) -> np.ndarray:
+    """Flatten a multilabel target stored as one label vector per row (an object array of arrays) into a plain 1-D array of its labels."""
+    arr = np.asarray(a)
+    if arr.dtype == object and arr.ndim == 1 and arr.size and isinstance(arr[0], (np.ndarray, list, tuple)):
+        return np.concatenate([np.asarray(v).ravel() for v in arr])
+    return arr
+
+
 def _as_float_1d(a: np.ndarray) -> np.ndarray:
-    """Coerce ``a`` to a flat float64 array."""
-    return np.asarray(a, dtype=np.float64).ravel()
+    """Coerce ``a`` to a flat float64 array; a multilabel target stored as one label vector per row is pooled over its labels."""
+    return np.asarray(_pool_row_vectors(a), dtype=np.float64).ravel()
 
 
-__all__ = ["DEFAULT_OVERLAY_BINS", "_DRIFT_Z", "_as_float_1d"]
+__all__ = ["DEFAULT_OVERLAY_BINS", "_DRIFT_Z", "_as_float_1d", "_pool_row_vectors"]
 
 
 def _row_count(X: Any) -> int:
@@ -90,6 +98,7 @@ def _pull_columns_at_rows(X: Any, col_indices: Sequence[int], row_idx: np.ndarra
     for j in col_indices:
         out[j] = mat[row_idx, j]
     return out
+
 
 # Over/under tail fraction for error-bias tagging (Evidently's signature 5% tails).
 DEFAULT_TAIL_FRACTION: float = 0.05

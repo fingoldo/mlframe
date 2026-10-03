@@ -21,7 +21,7 @@ from mlframe.reporting.spec import BarPanelSpec, FigureSpec, LinePanelSpec, Pane
 
 # Imported from the parent rather than redefined: one source of truth for the shared array coercion, the
 # overlay bin count and the drift z-quantile. A second copy would drift silently.
-from ._error_analysis_shared import DEFAULT_OVERLAY_BINS, _DRIFT_Z, _as_float_1d
+from ._error_analysis_shared import DEFAULT_OVERLAY_BINS, _DRIFT_Z, _as_float_1d, _pool_row_vectors
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,7 @@ def _density_overlay_panel(
         edges, linear_width = heavy
     if edges is None:
         from mlframe.reporting.spec import AnnotationPanelSpec
+
         return AnnotationPanelSpec(text=f"{title}\n(no finite data)", title=title)
     centers = (edges[:-1] + edges[1:]) / 2.0
     series: List[np.ndarray] = []
@@ -307,6 +308,9 @@ def target_dist_overlay(
     when both keys are present. All binning is ``np.histogram`` / ``bincount`` (O(n)); curves stay at ``nbins``
     vertices regardless of row count.
     """
+    y_true_by_split = {k: _pool_row_vectors(v) for k, v in y_true_by_split.items()}
+    if pred_by_split:
+        pred_by_split = {k: _pool_row_vectors(v) for k, v in pred_by_split.items()}
     panels: List[PanelSpec] = []
     drift_line = _target_drift_verdict(y_true_by_split, train_key=train_key, task=task)
     _any_cropped = False

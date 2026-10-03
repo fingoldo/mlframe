@@ -23,7 +23,7 @@ pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
 from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
-from tests.conftest import skip_scale_test_under_numba_disabled_jit
+from tests.conftest import skip_scale_test_under_numba_disabled_jit, perf_time_budget
 
 
 def _shap_sel(proxy_mode, n_features, seed=0):
@@ -128,7 +128,7 @@ def _noise_buried_interaction_bed(n=2000, p_noise=190, seed=0):
 # biz_val 1: gate fires on the XOR bed -- recall lift + honest-AUC lift over additive.
 # --------------------------------------------------------------------------------------------------
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_proxy_mode_auto_gate_fires_on_xor_bed():
     """auto recovers both XOR operands and beats additive's honest AUC; additive recovers neither."""
     X, y = _xor_bed(n=2000, p_noise=195, seed=0)
@@ -160,7 +160,7 @@ def test_biz_val_proxy_mode_auto_gate_fires_on_xor_bed():
 # biz_val 2: gate stays silent on a pure additive bed -- byte-identical selection, bounded overhead.
 # --------------------------------------------------------------------------------------------------
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_proxy_mode_auto_gate_silent_on_additive_bed():
     """auto's selection is byte-identical to additive's and its wall stays within 1.10x on a purely additive bed."""
     X, y = _pure_additive_bed(n=2000, p_noise=194, n_informative=6, seed=0)
@@ -191,7 +191,7 @@ def test_biz_val_proxy_mode_auto_gate_silent_on_additive_bed():
 # biz_val 3: gate stays silent when the interaction is buried below the permutation-null SNR floor.
 # --------------------------------------------------------------------------------------------------
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_proxy_mode_auto_noop_on_noise_buried_interactions():
     """the permutation-null SNR gate stays silent when the interaction is buried below its floor."""
     X, y = _noise_buried_interaction_bed(n=2000, p_noise=190, seed=3)
@@ -229,7 +229,7 @@ def test_proxy_mode_default_is_auto():
 
 
 @skip_scale_test_under_numba_disabled_jit
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_proxy_mode_additive_skips_screen_entirely():
     """The legacy escape hatch must never pay even the screen's O(P)+O(K) cost."""
     n = 600

@@ -68,13 +68,7 @@ import pandas as pd
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from ._orth_auto_scorer_fe import (
     SCORER_NAMES,
-    _score_copula,
-    _score_dcor,
-    _score_hsic,
-    _score_ksg,
-    _score_plug_in,
-    _score_tail_dep,
-    _score_xi,
+    _dispatch_scorer,
 )
 from mlframe.utils.log_throttle import log_throttle
 
@@ -178,32 +172,8 @@ def _compute_per_scorer_rank_table(
     eng_cols = list(engineered_X.columns)
 
     def _call(name, x_vec, y_vec):
-        """Dispatches a single-vector scoring request to the named dependence scorer, threading through the
-        shared nbins/n_neighbors/copula/dcor hyperparameters captured from the enclosing scope."""
-        if name == "plug_in":
-            return _score_plug_in(x_vec, y_vec, nbins=int(nbins))
-        if name == "ksg":
-            return _score_ksg(
-                x_vec, y_vec, n_neighbors=int(n_neighbors),
-                random_state=int(random_state),
-            )
-        if name == "copula":
-            return _score_copula(x_vec, y_vec, n_bins=int(copula_n_bins))
-        if name == "dcor":
-            return _score_dcor(
-                x_vec, y_vec, n_sample=int(dcor_n_sample),
-                random_state=int(random_state),
-            )
-        if name == "hsic":
-            return _score_hsic(
-                x_vec, y_vec, n_sample=int(dcor_n_sample),
-                random_state=int(random_state),
-            )
-        if name == "xi":
-            return _score_xi(x_vec, y_vec, random_state=int(random_state))
-        if name == "tail_dep":
-            return _score_tail_dep(x_vec, y_vec, random_state=int(random_state))
-        raise ValueError(f"unknown scorer name: {name!r}")
+        """Bind this function's shared hyperparameters and fixed random_state into the module-level scorer dispatcher."""
+        return _dispatch_scorer(name, x_vec, y_vec, random_state, nbins=nbins, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample)
 
     # Batch the column-separable scorers (plug-in MI, copula MI) across all
     # columns in one kernel call instead of one _mi_classif_batch / copula call

@@ -22,6 +22,7 @@ bound -- this is a correctness/architecture pin, not a tight perf gate)."""
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 
@@ -165,7 +166,9 @@ def test_the_mi_kernel_still_releases_the_gil():
     assert dispatcher is not None, "compute_mi_from_classes is not a numba dispatcher; this check has lost its subject"
     options = getattr(dispatcher, "targetoptions", None)
     assert options is not None, "the dispatcher exposes no targetoptions; this check has lost its subject"
-    assert options.get("nogil") is True, f"compute_mi_from_classes no longer sets nogil=True (targetoptions={options}); joblib's threading backend will serialise on the GIL again"
+    assert (
+        options.get("nogil") is True
+    ), f"compute_mi_from_classes no longer sets nogil=True (targetoptions={options}); joblib's threading backend will serialise on the GIL again"
 
 
 @skip_under_numba_disabled_jit
@@ -182,6 +185,9 @@ def test_threading_backend_delivers_real_speedup_not_regression():
     Skipped under NUMBA_DISABLE_JIT=1: meaningless once compute_mi_from_classes isn't compiled (nogil
     never applies, threading buys nothing).
     """
+    usable_cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    if usable_cores < 4:
+        pytest.skip(f"{usable_cores} usable cores: four threads cannot beat serial by a measurable margin, the nogil flag test above covers the mechanism")
     rng = np.random.default_rng(1)
     n = 30000
     classes_x = rng.integers(0, 20, size=n).astype(np.int32)
@@ -216,7 +222,9 @@ def test_threading_backend_delivers_real_speedup_not_regression():
 
     median_ratio = sorted(ratios)[len(ratios) // 2]
     wins = sum(1 for r in ratios if r >= 1.0)
-    assert median_ratio >= 1.0, f"threaded dispatch is slower than serial (median {median_ratio:.2f}x, ratios {[round(r, 2) for r in ratios]}) -- the pre-fix GIL-serialised pattern"
+    assert (
+        median_ratio >= 1.0
+    ), f"threaded dispatch is slower than serial (median {median_ratio:.2f}x, ratios {[round(r, 2) for r in ratios]}) -- the pre-fix GIL-serialised pattern"
     assert wins > n_trials // 2, f"threaded dispatch lost {n_trials - wins} of {n_trials} paired trials (ratios {[round(r, 2) for r in ratios]})"
 
 

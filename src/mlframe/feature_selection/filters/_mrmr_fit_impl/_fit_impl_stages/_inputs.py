@@ -10,8 +10,21 @@ from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logg
 # --- end imports ---
 
 
+# A discrete integer target with 3..this many distinct values is read as nominal class labels, not an ordinal measurement.
+_NOMINAL_TARGET_MAX_CLASSES = 20
+
+
+def _is_nominal_multiclass_target(y) -> bool:
+    """Whether ``y`` is a 1-D integer/bool target with 3 to ``_NOMINAL_TARGET_MAX_CLASSES`` distinct values, so its label order carries no meaning."""
+    arr = np.asarray(y)
+    if arr.ndim != 1 or arr.dtype.kind not in "iub":
+        return False
+    return 3 <= int(np.unique(arr).size) <= _NOMINAL_TARGET_MAX_CLASSES
+
+
 def _stash_fe_targets(self, _y_np, X):
     """Stash the targets the FE stages fit against (rank-transformed y for auto-escalation, raw continuous y for the prewarp ALS)."""
+    self._fe_escalation_nominal_target_ = _is_nominal_multiclass_target(_y_np)
     try:
         _y_esc_arr = _y_np
         if _y_esc_arr.ndim == 1 and _y_esc_arr.dtype.kind in "fiub" and len(_y_esc_arr) == len(X):

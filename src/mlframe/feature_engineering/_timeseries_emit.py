@@ -14,7 +14,6 @@ prior inlined code.
 from __future__ import annotations
 
 import numpy as np
-import pywt
 
 from mlframe.core.ewma import ewma_numba
 from mlframe.feature_engineering.categorical import compute_countaggs
@@ -127,6 +126,9 @@ def _emit_wavelets(
 ):
     """Emit one numagg block per wavelet name in waveletnames, over the flattened
     multi-level wavedec coefficients (approximation + all detail levels concatenated)."""
+    # Imported here: pywavelets lives in the optional ``signal`` extra, and a module-level import broke ``import mlframe`` without it.
+    import pywt
+
     custom_numaggs_kwds_wave = numaggs_kwds.copy()
     custom_numaggs_kwds_wave.update(wavelets_correction_numaggs_kwds)
     for waveletname in waveletnames:

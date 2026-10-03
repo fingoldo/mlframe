@@ -584,6 +584,18 @@ def _slice_admitted_pool(admitted_pool: dict, idx, classes_y_sub, nbins: int) ->
     return out
 
 
+def _skip_for_nominal_target(self, info: dict) -> bool:
+    """Record a skip and return True when the fit target is nominal multiclass labels.
+
+    The proposers fit Pearson-validated warps against the target rank, which for nominal class labels is the arbitrary label order, so a
+    multiclass target admitted order-dependent columns (4-class make_classification: esc_poly of two informative raws, later fused over raws).
+    """
+    if not bool(getattr(self, "_fe_escalation_nominal_target_", False)):
+        return False
+    info["skipped"] = "nominal multiclass target: label order is not an ordinal signal"
+    return True
+
+
 def run_fe_auto_escalation(
     self: Any,
     *,
@@ -633,7 +645,7 @@ def run_fe_auto_escalation(
     if not isinstance(getattr(self, "fe_escalation_history_", None), list):
         self.fe_escalation_history_ = []
     self.fe_escalation_history_.append(info)
-    if not failed_pairs:
+    if not failed_pairs or _skip_for_nominal_target(self, info):
         return []
 
     n_rows = len(X)

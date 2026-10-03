@@ -38,8 +38,8 @@ from ._pairs_gates import (
     _FE_MARGINAL_UPLIFT_MIN_RATIO,
     _FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO,
     _FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT,
-    _FE_JOINT_GATE_MIN_OPERAND_UPLIFT,
 )
+from ._pairs_operand_floor import _beats_the_larger_operand
 from ._pairs_materialise import (
     _fe_use_parallel_kernels,
     _materialise_extval_njit,
@@ -75,24 +75,6 @@ def _should_demote_prewarp(pw_corr, clean_corr) -> bool:
     if clean_corr is None or pw_corr is None:
         return bool(clean_corr is None or clean_corr >= 0.0)
     return bool(clean_corr >= 0.0 and pw_corr < clean_corr * 1.05)
-
-
-def _beats_the_larger_operand(best_mi: float, operand_marginal_mi, raw_vars_pair, messages) -> bool:
-    """Whether the engineered MI clears ``_FE_JOINT_GATE_MIN_OPERAND_UPLIFT`` over the larger operand's own MI.
-
-    With one strong operand and one noise operand the pair joint MI is about the strong operand's own MI, so the joint
-    gate alone passed noise-degraded copies of it (uplift 1.011-1.032); genuine pairs measured 1.36-2.32. Appends the
-    reason to *messages* when rejecting and *messages* is not None.
-    """
-    floor = max(operand_marginal_mi(raw_vars_pair[0]), operand_marginal_mi(raw_vars_pair[1]))
-    if floor <= 0.0 or best_mi > floor * _FE_JOINT_GATE_MIN_OPERAND_UPLIFT:
-        return True
-    if messages is not None:
-        messages.append(
-            f"joint gate operand floor: best engineered MI={best_mi:.4f} does not beat the larger operand marginal "
-            f"MI={floor:.4f}; a degraded copy of one operand, not a pair feature."
-        )
-    return False
 
 
 def _score_one_pair(
@@ -944,7 +926,7 @@ def _score_one_pair(
             best_mi, pair_mi, k_eng=_k_eng, k_joint=_k_joint, k_y=_k_y, n=_n_rows,
         )
     _passes_joint_gate = _gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
-    _passes_joint_gate = _passes_joint_gate and _beats_the_larger_operand(best_mi, _operand_marginal_mi, raw_vars_pair, messages if verbose else None)
+    _passes_joint_gate = _passes_joint_gate and _beats_the_larger_operand(best_mi, _operand_marginal_mi, raw_vars_pair, messages if verbose else None, pair_mi)
 
     # Alternative pre-warp acceptance: the joint-prevalence gate
     # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner

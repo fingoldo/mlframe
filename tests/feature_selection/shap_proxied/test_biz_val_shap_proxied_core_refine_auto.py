@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import pytest
 
+from tests.conftest import perf_time_budget
+
 pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
@@ -28,7 +30,7 @@ def _fit_selected(X, y, refine_mode, seed=0, **kw):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_auto_matches_greedy_on_saturated_bed():
     """On the saturated bed (6 strong w=1.0 + 6 weak w=0.25, where core measurably degrades to greedy),
     auto's pre-gate should route to greedy directly (never even invoking core's LP) -- verified both by
@@ -46,7 +48,7 @@ def test_biz_val_auto_matches_greedy_on_saturated_bed():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_auto_matches_core_on_non_saturated_bed():
     """On the bed where core measurably recovers more weak-feature recall than greedy (3 strong w=0.8 +
     6 weak w=0.35), auto's pre-gate should route to core and recover the SAME weak-feature recall core

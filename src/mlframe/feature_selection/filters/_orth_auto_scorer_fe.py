@@ -152,6 +152,25 @@ def _score_tail_dep(x: np.ndarray, y: np.ndarray, *, q: float = 0.95, n_perm: in
     return float(max(upper, lower))
 
 
+def _dispatch_scorer(name, x_vec, y_vec, seed, *, nbins, n_neighbors, copula_n_bins, dcor_n_sample):
+    """Dispatch to the named dependence scorer (plug_in/ksg/copula/dcor/hsic/xi/tail_dep) with the caller's shared hyperparameters."""
+    if name == "plug_in":
+        return _score_plug_in(x_vec, y_vec, nbins=int(nbins))
+    if name == "ksg":
+        return _score_ksg(x_vec, y_vec, n_neighbors=int(n_neighbors), random_state=int(seed))
+    if name == "copula":
+        return _score_copula(x_vec, y_vec, n_bins=int(copula_n_bins))
+    if name == "dcor":
+        return _score_dcor(x_vec, y_vec, n_sample=int(dcor_n_sample), random_state=int(seed))
+    if name == "hsic":
+        return _score_hsic(x_vec, y_vec, n_sample=int(dcor_n_sample), random_state=int(seed))
+    if name == "xi":
+        return _score_xi(x_vec, y_vec, random_state=int(seed))
+    if name == "tail_dep":
+        return _score_tail_dep(x_vec, y_vec, random_state=int(seed))
+    raise ValueError(f"unknown scorer name: {name!r}")
+
+
 def _compute_lcb(values: np.ndarray) -> float:
     """LCB = mean - 1.96 * std (95 % lower confidence bound).
 
@@ -286,31 +305,8 @@ def select_best_scorer_per_column(
     eng_cols = list(engineered_X.columns)
 
     def _scorer_call(name, x_vec, y_vec, seed):
-        """Dispatch to the named dependence scorer (plug_in/ksg/copula/dcor/hsic) with this function's shared hyperparameters, so the bootstrap/LCB loop can call scorers generically by name."""
-        if name == "plug_in":
-            return _score_plug_in(x_vec, y_vec, nbins=int(nbins))
-        if name == "ksg":
-            return _score_ksg(
-                x_vec, y_vec, n_neighbors=int(n_neighbors),
-                random_state=int(seed),
-            )
-        if name == "copula":
-            return _score_copula(x_vec, y_vec, n_bins=int(copula_n_bins))
-        if name == "dcor":
-            return _score_dcor(
-                x_vec, y_vec, n_sample=int(dcor_n_sample),
-                random_state=int(seed),
-            )
-        if name == "hsic":
-            return _score_hsic(
-                x_vec, y_vec, n_sample=int(dcor_n_sample),
-                random_state=int(seed),
-            )
-        if name == "xi":
-            return _score_xi(x_vec, y_vec, random_state=int(seed))
-        if name == "tail_dep":
-            return _score_tail_dep(x_vec, y_vec, random_state=int(seed))
-        raise ValueError(f"unknown scorer name: {name!r}")
+        """Bind this function's shared hyperparameters into the module-level scorer dispatcher."""
+        return _dispatch_scorer(name, x_vec, y_vec, seed, nbins=nbins, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample)
 
     # Per-source baseline: { source_col: { scorer: lcb } }. Computed
     # ONCE per source - many engineered columns share the same source.

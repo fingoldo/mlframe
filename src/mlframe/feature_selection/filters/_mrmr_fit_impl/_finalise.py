@@ -62,6 +62,221 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
         _w_iter39.warn(_fallback_msg, UserWarning, stacklevel=2)
 
 
+def _rank_raw_candidates(self, _name_to_cols_idx, _cached):
+    """Rank raw inputs by cached MI after the redundancy and search-space exclusions; returns (ranked (i, mi, cols_idx) list, allowed index set or None)."""
+    # Operands the n-invariant conditional-redundancy sweep deliberately dropped
+    # (fully subsumed by a surviving engineered child) must NOT be resurrected by
+    # this empty-raw rescue - the rescue exists for "the screen left 0 raw despite
+    # recoverable signal", not to undo an intentional redundancy drop. Excluding them
+    # leaves an engineered-only support, which is legitimate and non-empty (the
+    # never-empty guarantee only forces a column when n_engineered_out == 0).
+    _rescue_redund_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or ())
+    # Cluster members folded into a denoised aggregate (cluster_aggregate 'replace' mode ->
+    # ``_cluster_aggregate_removals_``, or a DCD PC1/mean_z swap -> ``cluster_members_``) are ALREADY
+    # represented by that aggregate and were deliberately dropped from the support. The empty-raw
+    # rescue ranks every raw input by MI(X_j, y) and would otherwise resurrect the highest-MI member
+    # (e.g. ``refl0`` of a denoised reflection cluster) as the never-empty / count-floor stand-in,
+    # re-injecting the very redundancy the aggregation collapsed. Mirror the same exclusion the
+    # raw-retention block, the additional-RFECV rescue pool, and the augmentation already apply.
+    _rescue_redund_dropped |= set(getattr(self, "_cluster_aggregate_removals_", None) or ())
+    # Operands of SURVIVING engineered features: in the empty-screen case the conditional-redundancy
+    # sweep never ran (0 raws selected) so it could not mark them in ``_raw_redundancy_dropped_`` -
+    # compute them directly from the surviving recipes so the rescue does not resurrect a raw a
+    # surviving engineered child already captures (the underselection redundancy-dedup invariant).
+    _rescue_redund_dropped.update(surviving_recipe_operands(getattr(self, "_engineered_recipes_", None) or [], self.feature_names_in_))
+    _cm_rescue = getattr(self, "cluster_members_", None)
+    if isinstance(_cm_rescue, dict):
+        for _anchor, _members in _cm_rescue.items():
+            _rescue_redund_dropped.add(_anchor)
+            if isinstance(_members, (list, tuple, set)):
+                _rescue_redund_dropped.update(_members)
+    # The empty-screen rescue must honour the user's search-space restriction (``factors_names_to_use`` /
+    # ``factors_to_use``): without this gate it ranks EVERY raw input by MI(X_j, y) and resurrects the
+    # global top-MI column even when the caller pinned a disjoint subset, silently leaking a forbidden feature
+    # into ``support_``. Build the allowed input-space index set once; ``None`` means "no restriction".
+    _rescue_allowed_idx = None
+    _fnames_restrict = getattr(self, "factors_names_to_use", None)
+    _fidx_restrict = getattr(self, "factors_to_use", None)
+    if _fnames_restrict is not None:
+        _allowed_names = set(_fnames_restrict)
+        _rescue_allowed_idx = {_j for _j, _nm in enumerate(self.feature_names_in_) if _nm in _allowed_names}
+    elif _fidx_restrict is not None:
+        _rescue_allowed_idx = set(int(_j) for _j in _fidx_restrict)
+    _raw_mi = []
+    for _i in range(self.n_features_in_):
+        if _rescue_allowed_idx is not None and _i not in _rescue_allowed_idx:
+            continue
+        _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
+        if _name in _rescue_redund_dropped:
+            continue
+        _cols_idx = _name_to_cols_idx.get(_name)
+        _mi = _cached.get((_cols_idx,), 0.0) if _cols_idx is not None else 0.0
+        # Keep the cols-space index alongside the input-space index so the rescue can re-run the permutation-significance / redundancy tests on the screen's own matrices.
+        _raw_mi.append((_i, float(_mi), _cols_idx))
+    # Sort by MI desc; pick top-K.
+    # Secondary key on feature index so
+    # tied MI doesn't make the empty-support fallback drift.
+    _raw_mi.sort(key=lambda kv: (-kv[1], kv[0]))
+    return _raw_mi, _rescue_allowed_idx
+
+
+def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_floor, _rescue_cap):
+    """Run the permutation-significance gate and the redundancy dedup over the above-floor candidates; returns the accepted input-space indices."""
+    # (1) Permutation-significance gate + (2) redundancy dedup, computed on the screen's own ``data`` / ``nbins`` so the binning matches ``cached_MIs``. Both reuse the
+    # CPU permutation / MI njit kernels the screen already uses. Best-effort: if a kernel call fails (degenerate joint, missing cols-space index) the candidate falls
+    # through to the magnitude-only path so the never-empty guarantee still holds.
+    from mlframe.feature_selection.filters.permutation import mi_direct as _mi_direct_fb
+    from mlframe.feature_selection.filters.info_theory import mi as _mi_pair_fb
+    from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
+
+    _signif_alpha = mrmr_null_signif_alpha()
+    _redundancy_frac = float(os.environ.get("MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC", "0.5"))
+    _q_dtype = getattr(self, "quantization_dtype", np.int32)
+    _accepted: list = []  # input-space indices accepted into the rescue
+    _accepted_cols = []  # their cols-space indices (for redundancy MI)
+    # ENGINEERED-SURVIVOR CONDITIONING: seed the redundancy-dedup
+    # conditioning set with the cols-space indices of every SURVIVING engineered
+    # feature. The empty-RAW-screen rescue fires precisely when 0 raw columns
+    # survived the greedy screen but engineered children DID (``n_engineered_out > 0``);
+    # on a composite target (``y = a**2/b + log(c)*sin(d)``) the engineered children
+    # ``div(sqr(a),abs(b))`` / ``mul(log(c),sin(d))`` fully carry their raw operands'
+    # y-information, yet each raw operand a,b,c,d individually clears the relevance
+    # floor AND its own permutation null (it IS a genuine operand), and - being
+    # mutually independent uniforms - none is redundant with ANOTHER RAW operand.
+    # So the raw-only dedup admitted all four, re-injecting exactly the operands the
+    # engineered children already subsume (the F2/two-pairs regression: a,b,c,d all
+    # rescued alongside the correct engineered pairs). Conditioning the dedup on the
+    # engineered survivors makes a raw operand whose y-information flows entirely into
+    # its engineered child fail the redundancy test (high MI with the child, a large
+    # fraction of its own relevance) and drop, while a raw column carrying signal NO
+    # engineered survivor captures still passes and is rescued. Structure-independent:
+    # correct at every n, no tuning constant beyond the existing ``_redundancy_frac``.
+    _name_to_cols_idx_eng = {c: i for i, c in enumerate(cols)}
+    # SEED ONLY ON SURVIVING ENGINEERED FEATURES (2026-06-16, s319 under-selection).
+    # Condition the dedup on the engineered features that ACTUALLY REACH THE OUTPUT
+    # - i.e. the replayable ``self._engineered_recipes_`` counted in ``n_engineered_out``
+    # - NOT ``self._engineered_features_``, which still carries composites that were
+    # SELECTED by the greedy step but then DROPPED downstream (recipeless nested parents,
+    # or features that failed the ``fe_min_engineered_mi_prevalence`` gate). A composite
+    # about to be dropped must not suppress its raw operands here: doing so loses BOTH the
+    # composite (dropped from transform) AND every operand it captures (flagged redundant
+    # with it), collapsing the rescue. Measured s319 (y = 1.5*a*b + 0.5*g/k, uniform,
+    # n=25000): ``mul(a,b)`` was formed but prevalence-gated out, yet still suppressed raw
+    # ``b`` -> the rescue fell to a single raw ``a`` (fe R^2 0.245 vs raw-only 0.556,
+    # delta -0.311). Seeding on the (empty here) survivor set lets b,g,k pass the raw-vs-raw
+    # dedup -> support {a,b,g,k}, delta +0.0005. When engineered survivors DO reach output
+    # (the F2 ``a**2/b + log(c)*sin(d)`` composite case) they remain in ``_engineered_recipes_``
+    # and still correctly drop their subsumed operands - behaviour unchanged there.
+    _surv_eng_name = _engineered_recipe_name
+    for _eng_name in (_surv_eng_name(_r) for _r in (self._engineered_recipes_ or [])):
+        _eng_ci = _name_to_cols_idx_eng.get(_eng_name)
+        if _eng_ci is not None:
+            _accepted_cols.append(_eng_ci)
+    # Bound the number of permutation-significance probes: ``_above_floor`` is sorted by debiased MI desc, so the genuine signal sits at the top; on a pathological
+    # all-noise wide pool where every candidate fails significance, examining the whole list would run one 32-perm test PER column. Scan at most a modest multiple of the
+    # rescue cap (the genuine multi-signal fixtures carry only a handful of distinct above-floor signals, well inside this window).
+    _scan_limit = max(int(_rescue_cap) * 4, 16)
+    for _i, _mi, _cols_idx in _above_floor[:_scan_limit]:
+        if len(_accepted) >= _rescue_cap:
+            break
+        if _cols_idx is None:
+            continue
+        # Significance gate (#1): keep only candidates that sit ABOVE their permutation null. Pure-noise legs sit within it (p >= alpha) and are dropped.
+        try:
+            _sig = _mi_direct_fb(
+                data, x=np.array([_cols_idx], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]  # mi_direct (permutation.py, sibling-owned) accepts this call shape at runtime; its x/y annotation (tuple) is stricter than actual usage
+                factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
+                return_null_mean=True, parallelism="none", dtype=_q_dtype, prefer_gpu=False,
+            )
+            _p_value = float(_sig[3])
+        except Exception as e:
+            # FAIL CLOSED. Substituting p = 0.0 is "maximally significant", so a broken probe made the
+            # gate one line below pass for every candidate it scanned -- and this gate exists precisely
+            # because coarse-binned plug-in MI is upward-biased, so the magnitude-only decision it fell
+            # back to re-injects the noise the gate was added to remove. "Significance unavailable" is
+            # not evidence of significance; drop on uncertainty, and say so audibly.
+            logger.warning(
+                "MRMR rescue: permutation-significance probe raised %s for column index %s (%s); "
+                "dropping the candidate rather than admitting it on magnitude alone.",
+                type(e).__name__, _cols_idx, e,
+            )
+            _p_value = 1.0
+        if _p_value >= _signif_alpha:
+            continue
+        # Redundancy dedup (#2): drop a candidate whose MI with an already-accepted column is a large fraction of its own relevance (an algebraic / near-duplicate twin).
+        _is_redundant = False
+        for _acc_cols in _accepted_cols:
+            try:
+                _pair_mi = float(_mi_pair_fb(
+                    factors_data=data, x=np.array([_cols_idx], dtype=np.int64),
+                    y=np.array([_acc_cols], dtype=np.int64), factors_nbins=nbins, dtype=_q_dtype,
+                ))
+            except Exception as e:
+                # FAIL CLOSED, same reasoning as the significance gate above: 0.0 is exactly the value
+                # that makes the redundancy test below fail, so a failed pair-MI silently admitted an
+                # algebraic near-duplicate into the support, visible afterwards only as a redundancy
+                # regression with no trace.
+                logger.warning(
+                    "MRMR rescue: pair-MI probe raised %s for columns %s vs %s (%s); treating the pair as redundant.",
+                    type(e).__name__, _cols_idx, _acc_cols, e,
+                )
+                _pair_mi = float("inf")
+            if _pair_mi >= _redundancy_frac * max(_mi, 1e-12):
+                _is_redundant = True
+                break
+        if _is_redundant:
+            continue
+        _accepted.append(_i)
+        _accepted_cols.append(_cols_idx)
+    return list(_accepted)
+
+
+def _commit_fallback_support(self, _topk, _raw_mi, n_engineered_out, _min_fb):
+    """Install the rescued support and its metadata on ``self``; returns the user-facing fallback message."""
+    # int64 to match every other support_ assignment in the fit body; a bare np.array(list[int]) is
+    # int32 on Windows, an inconsistency that can bite dtype-sensitive downstream concatenation.
+    self.support_ = np.array(_topk, dtype=np.int64)
+    self.n_features_ = len(_topk) + n_engineered_out
+    self.fallback_used_ = True
+    _top_mi = float(_raw_mi[0][1]) if _raw_mi else 0.0
+    _uninformative = _top_mi <= 0.0
+    _fallback_msg = (
+        f"MRMR: screening returned 0 features; falling "
+        f"back to the {self.n_features_} raw feature(s) "
+        f"clearing the relevance floor by debiased "
+        f"MI(X_j, y). Set min_features_fallback=0 to "
+        f"disable. fallback_used_=True is set on the "
+        f"estimator."
+    )
+    if _uninformative:
+        # Name WHICH of the two causes actually fired. The previous wording listed both as
+        # possibilities, which cost a debugging cycle on a fixture whose features were strongly
+        # informative: the MI table was populated, every value was just <= 0, so the constant-column
+        # explanation was a red herring and the real question was why the estimator returned zeros.
+        _n_scored = len(_raw_mi)
+        _cause = (
+            "the MI table is EMPTY (no candidate was scored at all -- cached_MIs never populated)"
+            if _n_scored == 0
+            else f"all {_n_scored} scored candidate(s) came back with MI <= 0 (top={_top_mi:.6g}); "
+            f"the table was populated, so this is a scoring result, not a missing-data problem -- "
+            f"suspect the discretisation (constant columns, or a binning mode collapsing the column "
+            f"to one bin) rather than the candidate list"
+        )
+        _fallback_msg = f"{_fallback_msg} {_cause}. The returned support_ carries NO signal."
+    # Structured metadata so a downstream report can flag (without log-grepping) that the
+    # support_ came from the count floor rather than the relevance gates. n_features==1 with
+    # uninformative=True is the dangerous case: a single near-noise column handed to the model.
+    self.fallback_metadata_ = {
+        "fallback_used": True,
+        "n_features": int(self.n_features_),
+        "top_mi": _top_mi,
+        "uninformative": bool(_uninformative),
+        "n_scored_candidates": len(_raw_mi),
+        "min_features_fallback": int(_min_fb),
+    }
+    return _fallback_msg
+
+
 def _apply_min_features_fallback(self, _min_fb, cols, data, target_indices, nbins, n_engineered_out, _fallback_msg):
     """Backfill the support up to the minimum feature count when selection came back (near) empty."""
     if _min_fb >= 1 and self.n_features_in_ > 0:
@@ -84,59 +299,7 @@ def _apply_min_features_fallback(self, _min_fb, cols, data, target_indices, nbin
             # in original ``feature_names_in_`` space.
             _name_to_cols_idx = {c: i for i, c in enumerate(cols)}
             _cached = self.cached_MIs if hasattr(self, "cached_MIs") else {}
-            # Operands the n-invariant conditional-redundancy sweep deliberately dropped
-            # (fully subsumed by a surviving engineered child) must NOT be resurrected by
-            # this empty-raw rescue - the rescue exists for "the screen left 0 raw despite
-            # recoverable signal", not to undo an intentional redundancy drop. Excluding them
-            # leaves an engineered-only support, which is legitimate and non-empty (the
-            # never-empty guarantee only forces a column when n_engineered_out == 0).
-            _rescue_redund_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or ())
-            # Cluster members folded into a denoised aggregate (cluster_aggregate 'replace' mode ->
-            # ``_cluster_aggregate_removals_``, or a DCD PC1/mean_z swap -> ``cluster_members_``) are ALREADY
-            # represented by that aggregate and were deliberately dropped from the support. The empty-raw
-            # rescue ranks every raw input by MI(X_j, y) and would otherwise resurrect the highest-MI member
-            # (e.g. ``refl0`` of a denoised reflection cluster) as the never-empty / count-floor stand-in,
-            # re-injecting the very redundancy the aggregation collapsed. Mirror the same exclusion the
-            # raw-retention block, the additional-RFECV rescue pool, and the augmentation already apply.
-            _rescue_redund_dropped |= set(getattr(self, "_cluster_aggregate_removals_", None) or ())
-            # Operands of SURVIVING engineered features: in the empty-screen case the conditional-redundancy
-            # sweep never ran (0 raws selected) so it could not mark them in ``_raw_redundancy_dropped_`` -
-            # compute them directly from the surviving recipes so the rescue does not resurrect a raw a
-            # surviving engineered child already captures (the underselection redundancy-dedup invariant).
-            _rescue_redund_dropped.update(surviving_recipe_operands(getattr(self, "_engineered_recipes_", None) or [], self.feature_names_in_))
-            _cm_rescue = getattr(self, "cluster_members_", None)
-            if isinstance(_cm_rescue, dict):
-                for _anchor, _members in _cm_rescue.items():
-                    _rescue_redund_dropped.add(_anchor)
-                    if isinstance(_members, (list, tuple, set)):
-                        _rescue_redund_dropped.update(_members)
-            # The empty-screen rescue must honour the user's search-space restriction (``factors_names_to_use`` /
-            # ``factors_to_use``): without this gate it ranks EVERY raw input by MI(X_j, y) and resurrects the
-            # global top-MI column even when the caller pinned a disjoint subset, silently leaking a forbidden feature
-            # into ``support_``. Build the allowed input-space index set once; ``None`` means "no restriction".
-            _rescue_allowed_idx = None
-            _fnames_restrict = getattr(self, "factors_names_to_use", None)
-            _fidx_restrict = getattr(self, "factors_to_use", None)
-            if _fnames_restrict is not None:
-                _allowed_names = set(_fnames_restrict)
-                _rescue_allowed_idx = {_j for _j, _nm in enumerate(self.feature_names_in_) if _nm in _allowed_names}
-            elif _fidx_restrict is not None:
-                _rescue_allowed_idx = set(int(_j) for _j in _fidx_restrict)
-            _raw_mi = []
-            for _i in range(self.n_features_in_):
-                if _rescue_allowed_idx is not None and _i not in _rescue_allowed_idx:
-                    continue
-                _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
-                if _name in _rescue_redund_dropped:
-                    continue
-                _cols_idx = _name_to_cols_idx.get(_name)
-                _mi = _cached.get((_cols_idx,), 0.0) if _cols_idx is not None else 0.0
-                # Keep the cols-space index alongside the input-space index so the rescue can re-run the permutation-significance / redundancy tests on the screen's own matrices.
-                _raw_mi.append((_i, float(_mi), _cols_idx))
-            # Sort by MI desc; pick top-K.
-            # Secondary key on feature index so
-            # tied MI doesn't make the empty-support fallback drift.
-            _raw_mi.sort(key=lambda kv: (-kv[1], kv[0]))
+            _raw_mi, _rescue_allowed_idx = _rank_raw_candidates(self, _name_to_cols_idx, _cached)
             _abs_floor = float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
             _rel_frac = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
             _max_mi = max((m for _, m, _c in _raw_mi), default=0.0)
@@ -158,113 +321,7 @@ def _apply_min_features_fallback(self, _min_fb, cols, data, target_indices, nbin
             _rescue_cap = max(int(_min_fb), 8)
             _above_floor = [(i, _mi, _c) for i, _mi, _c in _raw_mi if _mi > _floor]
 
-            # (1) Permutation-significance gate + (2) redundancy dedup, computed on the screen's own ``data`` / ``nbins`` so the binning matches ``cached_MIs``. Both reuse the
-            # CPU permutation / MI njit kernels the screen already uses. Best-effort: if a kernel call fails (degenerate joint, missing cols-space index) the candidate falls
-            # through to the magnitude-only path so the never-empty guarantee still holds.
-            from mlframe.feature_selection.filters.permutation import mi_direct as _mi_direct_fb
-            from mlframe.feature_selection.filters.info_theory import mi as _mi_pair_fb
-            from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
-
-            _signif_alpha = mrmr_null_signif_alpha()
-            _redundancy_frac = float(os.environ.get("MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC", "0.5"))
-            _q_dtype = getattr(self, "quantization_dtype", np.int32)
-            _accepted: list = []  # input-space indices accepted into the rescue
-            _accepted_cols = []  # their cols-space indices (for redundancy MI)
-            # ENGINEERED-SURVIVOR CONDITIONING: seed the redundancy-dedup
-            # conditioning set with the cols-space indices of every SURVIVING engineered
-            # feature. The empty-RAW-screen rescue fires precisely when 0 raw columns
-            # survived the greedy screen but engineered children DID (``n_engineered_out > 0``);
-            # on a composite target (``y = a**2/b + log(c)*sin(d)``) the engineered children
-            # ``div(sqr(a),abs(b))`` / ``mul(log(c),sin(d))`` fully carry their raw operands'
-            # y-information, yet each raw operand a,b,c,d individually clears the relevance
-            # floor AND its own permutation null (it IS a genuine operand), and - being
-            # mutually independent uniforms - none is redundant with ANOTHER RAW operand.
-            # So the raw-only dedup admitted all four, re-injecting exactly the operands the
-            # engineered children already subsume (the F2/two-pairs regression: a,b,c,d all
-            # rescued alongside the correct engineered pairs). Conditioning the dedup on the
-            # engineered survivors makes a raw operand whose y-information flows entirely into
-            # its engineered child fail the redundancy test (high MI with the child, a large
-            # fraction of its own relevance) and drop, while a raw column carrying signal NO
-            # engineered survivor captures still passes and is rescued. Structure-independent:
-            # correct at every n, no tuning constant beyond the existing ``_redundancy_frac``.
-            _name_to_cols_idx_eng = {c: i for i, c in enumerate(cols)}
-            # SEED ONLY ON SURVIVING ENGINEERED FEATURES (2026-06-16, s319 under-selection).
-            # Condition the dedup on the engineered features that ACTUALLY REACH THE OUTPUT
-            # - i.e. the replayable ``self._engineered_recipes_`` counted in ``n_engineered_out``
-            # - NOT ``self._engineered_features_``, which still carries composites that were
-            # SELECTED by the greedy step but then DROPPED downstream (recipeless nested parents,
-            # or features that failed the ``fe_min_engineered_mi_prevalence`` gate). A composite
-            # about to be dropped must not suppress its raw operands here: doing so loses BOTH the
-            # composite (dropped from transform) AND every operand it captures (flagged redundant
-            # with it), collapsing the rescue. Measured s319 (y = 1.5*a*b + 0.5*g/k, uniform,
-            # n=25000): ``mul(a,b)`` was formed but prevalence-gated out, yet still suppressed raw
-            # ``b`` -> the rescue fell to a single raw ``a`` (fe R^2 0.245 vs raw-only 0.556,
-            # delta -0.311). Seeding on the (empty here) survivor set lets b,g,k pass the raw-vs-raw
-            # dedup -> support {a,b,g,k}, delta +0.0005. When engineered survivors DO reach output
-            # (the F2 ``a**2/b + log(c)*sin(d)`` composite case) they remain in ``_engineered_recipes_``
-            # and still correctly drop their subsumed operands - behaviour unchanged there.
-            _surv_eng_name = _engineered_recipe_name
-            for _eng_name in (_surv_eng_name(_r) for _r in (self._engineered_recipes_ or [])):
-                _eng_ci = _name_to_cols_idx_eng.get(_eng_name)
-                if _eng_ci is not None:
-                    _accepted_cols.append(_eng_ci)
-            # Bound the number of permutation-significance probes: ``_above_floor`` is sorted by debiased MI desc, so the genuine signal sits at the top; on a pathological
-            # all-noise wide pool where every candidate fails significance, examining the whole list would run one 32-perm test PER column. Scan at most a modest multiple of the
-            # rescue cap (the genuine multi-signal fixtures carry only a handful of distinct above-floor signals, well inside this window).
-            _scan_limit = max(int(_rescue_cap) * 4, 16)
-            for _i, _mi, _cols_idx in _above_floor[:_scan_limit]:
-                if len(_accepted) >= _rescue_cap:
-                    break
-                if _cols_idx is None:
-                    continue
-                # Significance gate (#1): keep only candidates that sit ABOVE their permutation null. Pure-noise legs sit within it (p >= alpha) and are dropped.
-                try:
-                    _sig = _mi_direct_fb(
-                        data, x=np.array([_cols_idx], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]  # mi_direct (permutation.py, sibling-owned) accepts this call shape at runtime; its x/y annotation (tuple) is stricter than actual usage
-                        factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
-                        return_null_mean=True, parallelism="none", dtype=_q_dtype, prefer_gpu=False,
-                    )
-                    _p_value = float(_sig[3])
-                except Exception as e:
-                    # FAIL CLOSED. Substituting p = 0.0 is "maximally significant", so a broken probe made the
-                    # gate one line below pass for every candidate it scanned -- and this gate exists precisely
-                    # because coarse-binned plug-in MI is upward-biased, so the magnitude-only decision it fell
-                    # back to re-injects the noise the gate was added to remove. "Significance unavailable" is
-                    # not evidence of significance; drop on uncertainty, and say so audibly.
-                    logger.warning(
-                        "MRMR rescue: permutation-significance probe raised %s for column index %s (%s); "
-                        "dropping the candidate rather than admitting it on magnitude alone.",
-                        type(e).__name__, _cols_idx, e,
-                    )
-                    _p_value = 1.0
-                if _p_value >= _signif_alpha:
-                    continue
-                # Redundancy dedup (#2): drop a candidate whose MI with an already-accepted column is a large fraction of its own relevance (an algebraic / near-duplicate twin).
-                _is_redundant = False
-                for _acc_cols in _accepted_cols:
-                    try:
-                        _pair_mi = float(_mi_pair_fb(
-                            factors_data=data, x=np.array([_cols_idx], dtype=np.int64),
-                            y=np.array([_acc_cols], dtype=np.int64), factors_nbins=nbins, dtype=_q_dtype,
-                        ))
-                    except Exception as e:
-                        # FAIL CLOSED, same reasoning as the significance gate above: 0.0 is exactly the value
-                        # that makes the redundancy test below fail, so a failed pair-MI silently admitted an
-                        # algebraic near-duplicate into the support, visible afterwards only as a redundancy
-                        # regression with no trace.
-                        logger.warning(
-                            "MRMR rescue: pair-MI probe raised %s for columns %s vs %s (%s); treating the pair as redundant.",
-                            type(e).__name__, _cols_idx, _acc_cols, e,
-                        )
-                        _pair_mi = float("inf")
-                    if _pair_mi >= _redundancy_frac * max(_mi, 1e-12):
-                        _is_redundant = True
-                        break
-                if _is_redundant:
-                    continue
-                _accepted.append(_i)
-                _accepted_cols.append(_cols_idx)
-            _topk = list(_accepted)
+            _topk = _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_floor, _rescue_cap)
             # ``min_features_fallback`` count floor: if the significance/redundancy gates left fewer than the requested K, top up from the remaining above-absolute-floor
             # candidates (magnitude order) so legacy callers asking for >=K always get at least K. The never-empty guarantee then keeps one column even on a fully-null pool.
             # SURVIVING ENGINEERED FEATURES COUNT TOWARD THE FLOOR: the floor is "support is never empty / has >= K features", and ``get_feature_names_out`` returns
@@ -275,47 +332,7 @@ def _apply_min_features_fallback(self, _min_fb, cols, data, target_indices, nbin
             _floor_raw_mi(_topk, n_engineered_out, _min_fb, _raw_mi, _abs_floor)
             _topk = _rescue_empty_topk(self, _topk, n_engineered_out, _raw_mi, _rescue_allowed_idx, _name_to_cols_idx, _cached)
             if _topk:
-                # int64 to match every other support_ assignment in the fit body; a bare np.array(list[int]) is
-                # int32 on Windows, an inconsistency that can bite dtype-sensitive downstream concatenation.
-                self.support_ = np.array(_topk, dtype=np.int64)
-                self.n_features_ = len(_topk) + n_engineered_out
-                self.fallback_used_ = True
-                _top_mi = float(_raw_mi[0][1]) if _raw_mi else 0.0
-                _uninformative = _top_mi <= 0.0
-                _fallback_msg = (
-                    f"MRMR: screening returned 0 features; falling "
-                    f"back to the {self.n_features_} raw feature(s) "
-                    f"clearing the relevance floor by debiased "
-                    f"MI(X_j, y). Set min_features_fallback=0 to "
-                    f"disable. fallback_used_=True is set on the "
-                    f"estimator."
-                )
-                if _uninformative:
-                    # Name WHICH of the two causes actually fired. The previous wording listed both as
-                    # possibilities, which cost a debugging cycle on a fixture whose features were strongly
-                    # informative: the MI table was populated, every value was just <= 0, so the constant-column
-                    # explanation was a red herring and the real question was why the estimator returned zeros.
-                    _n_scored = len(_raw_mi)
-                    _cause = (
-                        "the MI table is EMPTY (no candidate was scored at all -- cached_MIs never populated)"
-                        if _n_scored == 0
-                        else f"all {_n_scored} scored candidate(s) came back with MI <= 0 (top={_top_mi:.6g}); "
-                        f"the table was populated, so this is a scoring result, not a missing-data problem -- "
-                        f"suspect the discretisation (constant columns, or a binning mode collapsing the column "
-                        f"to one bin) rather than the candidate list"
-                    )
-                    _fallback_msg = f"{_fallback_msg} {_cause}. The returned support_ carries NO signal."
-                # Structured metadata so a downstream report can flag (without log-grepping) that the
-                # support_ came from the count floor rather than the relevance gates. n_features==1 with
-                # uninformative=True is the dangerous case: a single near-noise column handed to the model.
-                self.fallback_metadata_ = {
-                    "fallback_used": True,
-                    "n_features": int(self.n_features_),
-                    "top_mi": _top_mi,
-                    "uninformative": bool(_uninformative),
-                    "n_scored_candidates": len(_raw_mi),
-                    "min_features_fallback": int(_min_fb),
-                }
+                _fallback_msg = _commit_fallback_support(self, _topk, _raw_mi, n_engineered_out, _min_fb)
         except Exception as _exc:
             logger.warning(
                 "MRMR fallback to top-K MI failed: %s. Returning empty support_.",

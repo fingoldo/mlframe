@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_time_budget
+
 pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
@@ -43,7 +45,7 @@ def _downstream_auc(X, y, selected, seed=0):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_core_refine_recovers_weak_over_greedy():
     """refine_mode='core' recovers more weak-but-real features than legacy 'greedy' at non-inferior AUC.
 
@@ -74,7 +76,7 @@ def test_biz_val_core_refine_recovers_weak_over_greedy():
     assert auc_core >= auc_greedy - 0.005, f"core downstream AUC ({auc_core:.4f}) regressed more than 0.005 below greedy ({auc_greedy:.4f})"
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_core_refine_drops_true_redundancy():
     """core_refine still prunes exact-duplicate redundancy -- it doesn't just 'keep everything'.
 
@@ -117,7 +119,7 @@ def test_biz_val_core_refine_drops_true_redundancy():
     )
 
 
-@pytest.mark.timeout(900)  # lowered back 1800->900 (2026-08-22, perf): cProfile showed this test's
+@pytest.mark.timeout(perf_time_budget(900))  # lowered back 1800->900 (2026-08-22, perf): cProfile showed this test's
 # ~83s local wall (was ~1267s in a contended CI run) almost entirely inside native XGBoost fit/update
 # calls across 5 internal stages (prefilter, oof_shap, refine, revalidation, trust_guard), each fit at
 # the library's own default n_estimators (100, trust_guard 25) -- no first-party Python-level cost to

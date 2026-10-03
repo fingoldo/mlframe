@@ -17,6 +17,7 @@ CPU/no-cupy host: the sweep never runs, ``.choose()`` returns "njit", and the ca
 """
 from __future__ import annotations
 
+import importlib
 import logging
 
 import numpy as np
@@ -99,18 +100,24 @@ def _make_permnull_inputs(dims: dict):
     return (scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n)
 
 
-def _permnull_njit(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n):
-    """Sweep variant: dispatch straight to the exact host njit floor kernel (the sweep's timing reference)."""
-    from ._permutation_null import _pooled_gain_floor_perms_njit
+def _permnull_variant(module: str, attr: str, doc: str):
+    """Build a sweep variant that lazily imports ``module.attr`` (a pooled-gain floor kernel) and forwards the sweep inputs to it."""
 
-    return _pooled_gain_floor_perms_njit(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n)
+    def _variant(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n):
+        """Forward the sweep inputs to the lazily imported kernel."""
+        kernel = getattr(importlib.import_module(module, package=__package__), attr)
+        return kernel(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n)
+
+    _variant.__doc__ = doc
+    return _variant
 
 
-def _permnull_resident(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n):
-    """Sweep variant: dispatch to the resident-GPU cupy floor kernel being benchmarked against ``_permnull_njit``."""
-    from ._permutation_null_resident import pooled_gain_floor_perms_cupy
-
-    return pooled_gain_floor_perms_cupy(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n)
+_permnull_njit = _permnull_variant(
+    "._permutation_null", "_pooled_gain_floor_perms_njit", "Sweep variant: the exact host njit floor kernel (the sweep's timing reference)."
+)
+_permnull_resident = _permnull_variant(
+    "._permutation_null_resident", "pooled_gain_floor_perms_cupy", "Sweep variant: the resident-GPU cupy floor kernel benchmarked against the njit one."
+)
 
 
 def _run_permnull_sweep() -> list:

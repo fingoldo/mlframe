@@ -18,6 +18,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "max_confirmation_cand_nbins": 50,  # legacy default
     "fe_fallback_to_all": True,  # legacy default
     "_engineered_features_": [],
+    "_fe_escalation_nominal_target_": False,  # old fits never skipped escalation for a nominal target
     # Recipes-based replay so transform() can recompute engineered features on test data. Old pickles
     # have no recipes (their engineered cols were never replayable); empty list reproduces the legacy
     # "engineered cols dropped from transform output" behaviour bit-exact.

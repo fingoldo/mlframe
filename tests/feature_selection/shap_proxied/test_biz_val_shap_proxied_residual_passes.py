@@ -15,6 +15,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_time_budget
+
 pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
@@ -70,7 +72,7 @@ def _downstream_auc(X, y, selected_names, seed=0):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_residual_passes_recovers_weak_recall():
     """residual_passes=1 recovers >=3/6 weak features vs the 0/6 measured default baseline, without
     materially hurting downstream AUC (>= baseline - 0.005)."""
@@ -94,7 +96,7 @@ def test_biz_val_residual_passes_recovers_weak_recall():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_residual_passes_no_noise_inflation():
     """On a pure-strong bed (no real weak signal anywhere), residual_passes=1 must not inflate the
     selection with noise columns: n_selected grows by at most 1 vs default, and zero noise columns
@@ -115,7 +117,7 @@ def test_biz_val_residual_passes_no_noise_inflation():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_residual_hard_vs_soft():
     """residual_exclude_top=6 (hard residual: pass 2 never sees the strong features) recovers weak
     recall at least as well as the soft variant (residual_exclude_top=0, pass 2 sees everything but

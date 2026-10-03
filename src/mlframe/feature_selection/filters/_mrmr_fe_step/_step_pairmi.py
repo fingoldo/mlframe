@@ -13,6 +13,7 @@ Returns ``(numeric_vars_to_consider, _eng_cap, _pair_maxt_floor, _pair_mm_bias, 
 from __future__ import annotations
 
 import logging
+from mlframe.utils.log_throttle import log_throttle
 import os
 from itertools import combinations
 from time import perf_counter
@@ -600,7 +601,7 @@ def _debias_pair_mis_by_prevalence(self, _prevalence_debias_auto, _pair_mm_bias,
                     _auto_failed_chunks += 1
                     _auto_failed_pairs += len(_auto_chunk)
                     _auto_last_err = f"{type(e).__name__}: {e}"
-                    logger.debug("prevalence auto-debias failed on a chunk of %d pair(s): %s", len(_auto_chunk), _auto_last_err, exc_info=True)
+                    log_throttle(logger, "step_pairmi_auto_debias_chunk_failed", logging.WARNING, "prevalence auto-debias failed on a chunk of %d pair(s): %s", len(_auto_chunk), _auto_last_err, exc_info=True)
             if _auto_failed_chunks:
                 logger.warning(
                     "prevalence auto-debias failed on %d chunk(s) covering %d pair(s) (last error %s); those pairs are gated on raw joint MI, all others stay debiased",

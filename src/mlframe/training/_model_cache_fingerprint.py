@@ -49,7 +49,7 @@ def _array_digest(a: Any) -> str:
     """Content digest of an array-like (numpy, pandas or polars), by dtype, shape and bytes."""
     arr = np.asarray(a.to_numpy() if hasattr(a, "to_numpy") else a)
     if arr.dtype == object:
-        arr = arr.astype(str)
+        arr = np.array([repr(v.tolist() if isinstance(v, np.ndarray) else v) for v in arr.ravel()], dtype=str).reshape(arr.shape)
     h = hashlib.blake2b(digest_size=16)
     h.update(f"{arr.dtype.str}{arr.shape}".encode())
     h.update(np.ascontiguousarray(arr).view(np.uint8).data)

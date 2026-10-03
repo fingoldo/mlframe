@@ -40,6 +40,7 @@ try:
 except ImportError:
     pd = None
 
+from mlframe.utils.log_throttle import log_throttle
 from ._selection_log import logs_selection
 
 
@@ -188,7 +189,7 @@ def _scan_columns_for_unsupervised_drops(col_labels, protected, train_df, n_rows
                 else:
                     null_count = int(col.isna().sum())
         except Exception as e:
-            logger.debug("isna().sum() failed for column %r, treating as 0: %s", col_name, e)
+            log_throttle(logger, "pre_screen_isna_sum_failed", logging.WARNING, "isna().sum() failed for column %r, treating its null count as 0: %s", col_name, e)
             null_count = 0
         if null_count > null_cutoff:
             drops.add(col_name)

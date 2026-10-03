@@ -60,6 +60,10 @@ KNOWN_DUPLICATE_GROUPS = {
     # module-level constant. What is left to share is a single set-union, so a common implementation would
     # take a callable per caller and read worse than the four lines it replaced.
     "__dir__": "DELIBERATE: PEP 562 lazy-facade dir(); each must close over its own module globals and its own lazy-name source",
+    # DELIBERATE -- the same PEP 562 idiom for attribute access: each facade resolves names against ITS OWN lazy table and writes the
+    # result into ITS OWN module's globals(), so a shared helper would need a table, a globals dict and an error-message module name
+    # per caller and would read worse than the handful of lines it replaced.
+    "__getattr__": "DELIBERATE: PEP 562 lazy-facade __getattr__; each resolves its own lazy table and caches into its own module globals",
 }
 
 #: Names whose detection depends on the interpreter, so they are reported on some CI shards and not others.
@@ -67,7 +71,7 @@ KNOWN_DUPLICATE_GROUPS = {
 #: ``__dir__`` facades measure 0.909 on 3.12 (reported, threshold 0.90) and 0.8325 on 3.14 (not reported),
 #: from identical source. An entry here still has to earn its place in KNOWN_DUPLICATE_GROUPS; this set only
 #: stops the staleness check below from calling it archaeology on the interpreters that do not report it.
-INTERPRETER_SENSITIVE = {"__dir__"}
+INTERPRETER_SENSITIVE = {"__dir__", "__getattr__"}
 
 
 def test_no_new_drifted_duplicate_functions():
@@ -76,13 +80,11 @@ def test_no_new_drifted_duplicate_functions():
     `_benchmarks` and the frozen `_cpx36_baseline` are excluded: a frozen copy is meant to keep the shape it
     was frozen with, which is the entire point of comparing against it.
     """
-    from py_ci_shared.drifted_duplicate_functions import assert_no_drifted_duplicate_functions
+    from py_ci_shared.drifted_duplicate_functions import assert_no_drifted_duplicate_functions, find_drifted_duplicate_functions
 
-    assert_no_drifted_duplicate_functions(
-        [REPO_ROOT / "src"],
-        exclude=("_benchmarks", "_cpx36_baseline"),
-        allow=KNOWN_DUPLICATE_GROUPS,
-    )
+    reported = {g.name for g in find_drifted_duplicate_functions([REPO_ROOT / "src"], exclude=("_benchmarks", "_cpx36_baseline"))}
+    allow = [name for name in KNOWN_DUPLICATE_GROUPS if name in reported or name not in INTERPRETER_SENSITIVE]
+    assert_no_drifted_duplicate_functions([REPO_ROOT / "src"], exclude=("_benchmarks", "_cpx36_baseline"), allow=allow)
 
 
 def test_the_recorded_groups_still_exist():

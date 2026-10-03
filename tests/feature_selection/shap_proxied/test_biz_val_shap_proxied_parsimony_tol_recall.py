@@ -23,6 +23,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_time_budget
+
 pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
@@ -51,7 +53,7 @@ def _fit_selected(X, y, parsimony_tol, seed=0):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_looser_parsimony_tol_never_selects_fewer_features():
     """The core, seed-robust claim: n_selected is monotone non-decreasing as parsimony_tol shrinks
     toward 0 (looser tolerance for a loss-increase => refine keeps more members). This is the
@@ -83,7 +85,7 @@ def test_biz_val_looser_parsimony_tol_never_selects_fewer_features():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_default_parsimony_tol_favours_precision_on_marginal_signal():
     """Confirms the OTHER side of the tradeoff the default is tuned for: with the precision-favouring
     default (0.02), the selected subset is not inflated with every technically-nonzero-SHAP feature --

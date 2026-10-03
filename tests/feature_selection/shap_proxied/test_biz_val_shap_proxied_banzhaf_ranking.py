@@ -22,6 +22,8 @@ from itertools import combinations
 import numpy as np
 import pytest
 
+from tests.conftest import perf_time_budget
+
 pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
@@ -58,7 +60,7 @@ def _make_high_snr_fixture(seed=0, n=2000, p=500, n_informative=10, snr=25.0):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_banzhaf_ranking_seed_stability_low_snr():
     """Measures the seed-to-seed stability (mean pairwise Jaccard of ``selected_features_`` across 4
     seeds) of both prescreen rankings on a low-SNR bed.
@@ -124,7 +126,7 @@ def test_biz_val_banzhaf_ranking_seed_stability_low_snr():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_banzhaf_ranking_no_regression_high_snr():
     """No-regression bed: on clean high-SNR data both rankings recall all informatives, and downstream
     AUC differs by at most 0.005."""
@@ -182,7 +184,7 @@ def _exact_banzhaf(phi, base, y, metric_code, is_rmse):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_banzhaf_estimator_matches_exact_small_p():
     """MSR-Banzhaf at m=4096 must Spearman-correlate >= 0.95 with the exact 2^9-enumeration Banzhaf
     value on a P=10 small game, and the top-5 sets must agree in >= 4/5 members. Uses a smooth

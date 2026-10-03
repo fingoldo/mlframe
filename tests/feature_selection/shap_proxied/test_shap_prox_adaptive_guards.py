@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_time_budget
+
 from mlframe.feature_selection.shap_proxied_fs import (
     ShapProxiedFS,
     _resolve_adaptive_n_anchors,
@@ -259,7 +261,7 @@ def _fit_fidelity(X, y, n_anchors, seed):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_adaptive_anchors_tighten_guard_on_wide():
     """On a WIDE frame (p=2000) ``n_anchors='auto'`` resolves to the 100 ceiling and the trust-guard
     fidelity is >= the legacy fixed-30 by a measured margin. Bench measured auto>=fixed on 5/6
@@ -274,7 +276,7 @@ def test_biz_val_adaptive_anchors_tighten_guard_on_wide():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_knee_ge_off_on_sparse_holdout():
     """The knee ladder (opt-in) must not HURT a sparse-signal frame: held-out AUC of a refit on the
     knee-selected features >= the no-narrowing selection (it ties on sparse, the regime knee targets).

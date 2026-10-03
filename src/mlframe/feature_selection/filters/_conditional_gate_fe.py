@@ -90,10 +90,15 @@ __all__ = [
     "hybrid_conditional_gate_fe_with_recipes",
 ]
 
-ROW_ARGMAX_PREFIX = "argmax"
-CONDITIONAL_GATE_PREFIX = "gate"
-
-GATE_MODES = ("select", "mask")
+from ._conditional_gate_naming import (
+    CONDITIONAL_GATE_PREFIX,
+    GATE_MODES,
+    ROW_ARGMAX_PREFIX,
+    build_conditional_gate_recipe,
+    build_row_argmax_recipe,
+    engineered_name_conditional_gate,
+    engineered_name_row_argmax,
+)
 
 # Quantile grid for the tau scan: skip the extreme tails (a tau at q<=0.05 / q>=0.95 leaves one branch nearly empty, so the
 # gate degenerates to a single column already on the raw list). 17 interior quantiles is enough to land near a true tau.
@@ -865,46 +870,6 @@ def detect_conditional_gate(
 # Recipe plumbing: emit frozen EngineeredRecipe objects so the MRMR selector materialises, scores, selects, and replays the
 # argmax / gate column at predict time identically. Replay is a pure function of X (argmax index; gate np.where / mask with the
 # FROZEN tau) - no y reference, so it is leak-free + deterministic + train/test bit-identical.
-
-
-def engineered_name_row_argmax(cols: Sequence[str]) -> str:
-    """Canonical engineered column name for one row-argmax, e.g. ``argmax__a__b__c``. Source columns join with ``__``."""
-    if len(cols) < 2:
-        raise ValueError(f"row-argmax needs >= 2 source columns; got {tuple(cols)!r}")
-    joined = "__".join(str(c) for c in cols)
-    return f"{ROW_ARGMAX_PREFIX}__{joined}"
-
-
-def engineered_name_conditional_gate(mode: str, cols: Sequence[str], tau: float) -> str:
-    """Canonical engineered column name for one conditional-gate column, e.g. ``gate_select__a__b__c__t0.123`` /
-    ``gate_mask__a__c__t-0.4``. mode + source columns + the frozen tau fully determine the column."""
-    if mode not in GATE_MODES:
-        raise ValueError(f"conditional-gate mode must be one of {GATE_MODES}; got {mode!r}")
-    joined = "__".join(str(c) for c in cols)
-    return f"{CONDITIONAL_GATE_PREFIX}_{mode}__{joined}__t{float(tau):.6g}"
-
-
-def build_row_argmax_recipe(*, name: str, cols: Sequence[str]):
-    """Frozen recipe for one row-argmax column. Replay is ``np.argmax`` over the stacked source columns - no parameters."""
-    from .engineered_recipes import EngineeredRecipe
-
-    if len(cols) < 2:
-        raise ValueError(f"row-argmax needs >= 2 source columns; got {tuple(cols)!r}")
-    return EngineeredRecipe(name=name, kind="row_argmax", src_names=tuple(str(c) for c in cols))
-
-
-def build_conditional_gate_recipe(*, name: str, mode: str, cols: Sequence[str], tau: float):
-    """Frozen recipe for one conditional-gate column. The chosen ``tau`` is FROZEN in ``extra`` for exact replay."""
-    from .engineered_recipes import EngineeredRecipe
-
-    if mode not in GATE_MODES:
-        raise ValueError(f"conditional-gate mode must be one of {GATE_MODES}; got {mode!r}")
-    return EngineeredRecipe(
-        name=name,
-        kind="conditional_gate",
-        src_names=tuple(str(c) for c in cols),
-        extra={"mode": str(mode), "tau": float(tau)},
-    )
 
 
 def hybrid_row_argmax_fe_with_recipes(

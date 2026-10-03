@@ -21,6 +21,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_time_budget
+
 
 def test_trust_guard_n_estimators_default_is_25():
     """Pin the iter94 default. A future bump back should be a deliberate edit, not silent drift."""
@@ -37,7 +39,7 @@ pytest.importorskip("xgboost")
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_trust_guard_n_estimators_default_preserves_trust_and_subset():
     """At the new default (25), trust_guard must remain trustworthy AND select the same subset that
     the 100-tree control selects on a C3-tier regime. Rank-only consumer of anchor losses means the

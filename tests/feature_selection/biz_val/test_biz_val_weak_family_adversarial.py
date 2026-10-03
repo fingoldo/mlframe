@@ -203,8 +203,13 @@ def _seeds(full):
 
 @pytest.mark.slow
 def test_biz_val_boruta_heavy_tail_label_noise_recall_and_bounded_noise():
-    """Biz val boruta heavy tail label noise recall and bounded noise."""
-    seeds = _seeds((0, 1))
+    """Biz val boruta heavy tail label noise recall and bounded noise.
+
+    Five seeds, not two: with two, a strict majority means both seeds must pass, and the gini shadow gate admits 2 or 3 of the 7 Cauchy columns on
+    a given seed, so the verdict sits on the ceiling and varies across platforms (measured noise admitted per seed 0..7: 3, 2, 2, 2, 1, 1, 2, 0), so one borderline
+    seed decided the verdict. Three of five must hold the ceiling.
+    """
+    seeds = _seeds((0, 1, 2, 3, 4))
     rec_ok, noise_ok = [], []
     for seed in seeds:
         X, y, informative, noise = _make_heavy_tail_label_noise(seed=seed)

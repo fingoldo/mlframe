@@ -16,6 +16,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_time_budget
+
 
 def test_n_splits_default_is_three():
     """Pin the iter86 default. A future bump back up should be a deliberate edit, not silent drift."""
@@ -32,7 +34,7 @@ pytest.importorskip("xgboost")
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_n_splits_default_recall_holds_on_c3_regime():
     """Recall non-regression at the new default on a C3-tier regime.
 

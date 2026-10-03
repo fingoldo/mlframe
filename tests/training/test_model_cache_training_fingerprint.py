@@ -87,3 +87,20 @@ def test_a_rerun_reuses_the_dump_only_while_the_inputs_are_unchanged(tmp_path, e
     assert first and not any(first), "the first run must train"
     assert all(run(df)), "an identical rerun must load the dump"
     assert not any(run(df.assign(target=df["target"] * 3.0 + 1.0))), "a changed target must retrain"
+
+
+def test_fingerprint_digests_a_multilabel_target_stored_as_an_object_array_of_vectors() -> None:
+    """Object arrays of per-row label vectors hash by content: equal for equal data, different once a single label flips."""
+    from mlframe.training._model_cache_fingerprint import _array_digest
+
+    def rows(flip: bool) -> np.ndarray:
+        """Return three rows of label vectors, optionally with one label flipped."""
+        out = np.empty(3, dtype=object)
+        for i in range(3):
+            out[i] = np.array([1, 0, 1], dtype=np.int8)
+        if flip:
+            out[2] = np.array([1, 1, 1], dtype=np.int8)
+        return out
+
+    assert _array_digest(rows(False)) == _array_digest(rows(False))
+    assert _array_digest(rows(False)) != _array_digest(rows(True))

@@ -21,9 +21,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Counted at pyproject's max-complexity, 25 since the per-function gate (test_function_complexity.py) replaced 40; 194 findings
-# (the 193 baseline functions plus _benchmarks/_profile_fuzz_1m_run_suite.py, which that gate does not scan). Ratchet DOWN only.
-C901_CEILING = 194
+# Counted at pyproject's max-complexity, 25 since the per-function gate (test_function_complexity.py) replaced 40; 148 findings
+# (the baseline functions plus _benchmarks/_profile_fuzz_1m_run_suite.py, which that gate does not scan). Ratchet DOWN only.
+C901_CEILING = 148
 
 
 def _c901_findings() -> list[str]:
